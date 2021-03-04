@@ -1,0 +1,3 @@
+[user]
+  email = {{ var.email }}
+  name = {{ user.name }}

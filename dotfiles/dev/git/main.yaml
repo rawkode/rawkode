@@ -1,0 +1,7 @@
+packages:
+  - name: git
+    ensure: installed
+
+files:
+  - from: files
+    to: {{ USER_CONFIG_DIR }}/.git

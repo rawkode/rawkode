@@ -1,0 +1,11 @@
+packages:
+  - name: firefox-developer-edition
+    ensure: installed
+    variant:
+      ubuntu:
+        name: firefox
+        repository: ppa:mozillateam/firefox-next
+      windows:
+        name: firefox-developer
+        repository: extras
+        provider: scoop

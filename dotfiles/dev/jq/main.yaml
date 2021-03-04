@@ -1,0 +1,3 @@
+packages:
+  - name: jq
+    ensure: installed
