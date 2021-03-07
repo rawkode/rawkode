@@ -1,0 +1,11 @@
+depends:
+  - git
+
+packages:
+  - ensure: installed
+    list:
+      - exa
+      - fd
+      - jq
+      - just
+      - ripgrep

@@ -1,0 +1,12 @@
+packages:
+  - name: espanso
+    ensure: installed
+    repository: federico-terzi/espanso
+
+files:
+  - from: files/default.yaml
+    to: "{{ user.home_dir }}/Library/Preferences/espanso/default.yml"
+    template: false
+
+depends:
+  - git

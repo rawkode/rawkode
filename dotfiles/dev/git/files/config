@@ -1,3 +1,3 @@
 [user]
-  email = {{ var.email }}
+  email = david@rawkode.com # not made var. work yet: var.email }}
   name = {{ user.name }}

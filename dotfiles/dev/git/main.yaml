@@ -3,5 +3,5 @@ packages:
     ensure: installed
 
 files:
-  - from: files
-    to: {{ USER_CONFIG_DIR }}/.git
+  - from: files/config
+    to: "{{ user.home_dir }}/.config/git/config"
