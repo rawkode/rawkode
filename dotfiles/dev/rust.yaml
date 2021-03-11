@@ -1,3 +1,5 @@
-packages:
-  - ensure: installed
-    name: rustup
+actions:
+  - action: package.install
+    provider: fake
+    list:
+      - rustup-init

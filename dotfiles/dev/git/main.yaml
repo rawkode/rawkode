@@ -1,7 +1,14 @@
-packages:
-  - name: git
-    ensure: installed
+depends:
+  - rust
 
-files:
-  - from: files/config
+actions:
+  - action: package.install
+    name: git
+
+  - action: file.copy
+    from: config
     to: "{{ user.home_dir }}/.config/git/config"
+  - action: file.copy
+    from: ignores
+    to: "{{ user.home_dir }}/.config/git/ignores"
+    template: false

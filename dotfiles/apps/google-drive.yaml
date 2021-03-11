@@ -1,0 +1,3 @@
+actions:
+  - name: google-drive-file-stream
+    action: package.install

@@ -1,0 +1,14 @@
+actions:
+  - action: package.install
+    list:
+      - adobe-creative-cloud
+      - alt-tab
+      - bartender
+      - cloudapp
+      - elgato-control-center
+      - elgato-stream-deck
+      - iterm2
+      - rectangle
+      - secretive
+      - sekey
+      - viscosity

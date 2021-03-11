@@ -1,8 +1,8 @@
 packages:
-  - ensure: installed
+  - action: package.install
     repository: homebrew/cask-fonts
     list:
       - font-cascadia-code
       - font-cascadia-code-pl
       - font-courgette
-      - font-redresse
+      - font-redressed

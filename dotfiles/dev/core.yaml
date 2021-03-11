@@ -1,8 +1,5 @@
-depends:
-  - git
-
-packages:
-  - ensure: installed
+actions:
+  - action: package.install
     list:
       - exa
       - fd
