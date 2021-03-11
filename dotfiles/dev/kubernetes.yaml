@@ -2,5 +2,5 @@ actions:
   - action: package.install
     list:
       - kind
-      - kubectl
+      - kubernetes-cli
       - minikube
