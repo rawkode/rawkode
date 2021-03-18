@@ -1,4 +1,16 @@
 actions:
   - action: package.install
+    repository: homebrew/cask-versions
     list:
       - visual-studio-code
+      - visual-studio-code-insiders
+
+  - action: package.install
+    list:
+      - bat
+      - ripgrep
+
+  - action: package.install
+    name: neovim
+    extra_args:
+      - --head

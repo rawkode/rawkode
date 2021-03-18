@@ -1,0 +1,11 @@
+actions:
+  - action: package.install
+    name: zsh
+
+  - action: directory.copy
+    from: includes
+    to: "{{ user.home_dir }}/.zsh/includes"
+
+  - action: file.copy
+    from: zshrc
+    to: "{{ user.home_dir }}/.zshrc"
