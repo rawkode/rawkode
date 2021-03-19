@@ -1,3 +1,4 @@
 actions:
   - action: package.install
     name: docker
+    repository: homebrew/cask

@@ -1,6 +1,3 @@
-depends:
-  - rust
-
 actions:
   - action: package.install
     name: git
@@ -8,8 +5,9 @@ actions:
   - action: file.copy
     from: config
     to: "{{ user.home_dir }}/.config/git/config"
+    template: true
+    chmod: 644
 
   - action: file.copy
     from: ignores
-    to: "~/.config/git/ignores2"
-    template: false
+    to: "{{ user.home_dir }}/.config/git/ignores"
