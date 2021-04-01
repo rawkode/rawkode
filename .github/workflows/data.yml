@@ -6,11 +6,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: Main
+    name: Lint Data Files
     steps:
       - name: Build Your Blox
         id: build
-        uses: devrel-blox/github-action@v0.0.4
+        uses: devrel-blox/github-action@v0.0.5
         with:
           directory: data
 
