@@ -1,7 +1,7 @@
 on:
   push:
-    # paths:
-    #   - data/**
+    paths:
+      - data/**
 
 jobs:
   build:
@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: Build Your Blox
         id: build
-        uses: devrel-blox/github-action@v0.0.6
+        uses: devrel-blox/github-action@v0.0.7
         with:
           directory: data
 
