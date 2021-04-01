@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: Build Your Blox
         id: build
-        uses: devrel-blox/github-action@v0.0.3
+        uses: devrel-blox/github-action@v0.0.4
         with:
           directory: data
 
