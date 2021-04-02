@@ -3,9 +3,7 @@
   "version": "0.0.1",
   "description": "DevRel Blox GraphQL API",
   "main": "index.js",
-  "scripts": {
-    "vercel-build": "node scripts/convert.js"
-  },
+  "scripts": {},
   "author": "David McKay <david@rawkode.com>",
   "license": "MIT",
   "dependencies": {
