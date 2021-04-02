@@ -1,10 +1,10 @@
 {
-  "name": "api.rawkode.dev",
+  "name": "api.brian.dev",
   "version": "0.0.1",
   "description": "DevRel Blox GraphQL API",
   "main": "index.js",
   "scripts": {},
-  "author": "David McKay <david@rawkode.com>",
+  "author": "Brian Ketelsen <bketelsen@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "glob": "^7.1.6",
