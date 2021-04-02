@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Build Your Blox
+      - name: Build Blox
         id: build
         uses: devrel-blox/github-action@v0.0.7
         with:
@@ -19,3 +19,10 @@ jobs:
 
       - name: Output
         run: echo "Messages ${{ steps.build.outputs.messages }}"
+
+      - name: Publish Blox
+        uses: softprops/action-gh-release@v1
+        with:
+          files: data/out/data.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
