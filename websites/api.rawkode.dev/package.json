@@ -1,0 +1,15 @@
+{
+  "name": "api.rawkode.dev",
+  "version": "0.0.1",
+  "description": "DevRel Blox GraphQL API",
+  "main": "index.js",
+  "scripts": {
+    "vercel-build": "node scripts/convert.js"
+  },
+  "author": "David McKay <david@rawkode.com>",
+  "license": "MIT",
+  "dependencies": {
+    "glob": "^7.1.6",
+    "json-graphql-server": "^2.2.0"
+  }
+}
