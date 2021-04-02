@@ -1,28 +1,28 @@
 on:
   push:
     paths:
+      - .github/**
       - data/**
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: Lint Data Files
+    name: Publish DevRel Blox
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Build Blox
+      - name: Build & Validate Blox Data
         id: build
         uses: devrel-blox/github-action@v0.0.7
         with:
           directory: data
 
-      - name: Output
-        run: echo "Messages ${{ steps.build.outputs.messages }}"
-
-      - name: Publish Blox
-        uses: softprops/action-gh-release@v1
+      - uses: marvinpinto/action-automatic-releases@latest
         with:
-          files: data/out/data.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "blox"
+          prerelease: true
+          title: "DevRel Blox"
+          files: |
+            data/out/data.json
