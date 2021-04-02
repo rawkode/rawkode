@@ -1,10 +1,21 @@
 import jsonGraphqlExpress from "json-graphql-server";
+import fetch from "node-fetch";
+
+var data;
 const app = require("express")();
 
-app.use("/", jsonGraphqlExpress(data));
+fetch("https://github.com/rawkode/rawkode/releases/download/blox/data.json")
+  .then((res) => res.json())
+  .then((json) => {
+    data = json;
+    console.log(data);
+  })
+  .then(() => {
+    app.use("/", jsonGraphqlExpress(data));
 
-const port = process.env.PORT || 3000;
+    const port = process.env.PORT || 3000;
 
-module.exports = app.listen(port, () =>
-  console.log(`Server running on ${port}, http://localhost:${port}`)
-);
+    module.exports = app.listen(port, () =>
+      console.log(`Server running on ${port}, http://localhost:${port}`)
+    );
+  });
