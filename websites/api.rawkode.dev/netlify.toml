@@ -1,5 +1,2 @@
-[build]
-base = "."
-
 [functions]
 directory = "api/"
