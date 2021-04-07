@@ -5,4 +5,4 @@ company: Equinix Metal
 title: Senior Developer Advocate
 ---
 
-Rawkode
+Rawkode was here
