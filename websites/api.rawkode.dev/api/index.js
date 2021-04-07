@@ -1,17 +1,16 @@
+//
 const fetch = require("sync-fetch");
-
-import jsonGraphqlExpress from "json-graphql-server";
-
+const jsonGraphqlExpress = require("json-graphql-server").default;
 const data = fetch(
   "https://github.com/rawkode/rawkode/releases/download/blox/data.json"
 ).json();
+
+const serverless = require("serverless-http");
 const app = require("express")();
+
+const functionName = "serverless-http";
 
 app.use("/", jsonGraphqlExpress(data));
 console.log(data);
 
-const port = process.env.PORT || 3000;
-
-module.exports = app.listen(port, () =>
-  console.log(`Server running on ${port}, http://localhost:${port}`)
-);
+exports.handler = serverless(app);
