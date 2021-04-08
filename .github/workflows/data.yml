@@ -7,14 +7,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: Publish DevRel Blox
+    name: Publish CueBlox
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
       - name: Build & Validate Blox Data
         id: build
-        uses: devrel-blox/github-action@v0.0.7
+        uses: cueblox/github-action@v0.0.8
         with:
           directory: data
 
@@ -23,6 +23,6 @@ jobs:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: "blox"
           prerelease: true
-          title: "DevRel Blox"
+          title: "CueBlox"
           files: |
             data/out/data.json
