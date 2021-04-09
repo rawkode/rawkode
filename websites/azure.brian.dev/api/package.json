@@ -1,11 +1,11 @@
 {
-  "name": "",
-  "version": "",
+  "name": "graphql",
+  "version": "0.1.1",
   "description": "",
   "scripts": {
     "test": "echo \"No tests yet...\""
   },
-  "author": "",
+  "author": "brian ketelsne",
   "dependencies": {
     "azure-function-express": "^2.0.0",
     "express": "^4.17.1",
