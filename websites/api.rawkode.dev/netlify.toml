@@ -1,7 +1,0 @@
-[functions]
-directory = "api/"
-node_bundler = "esbuild"
-
-[[redirects]]
-from = "/"
-to = "/index"

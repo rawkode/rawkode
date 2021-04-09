@@ -1,14 +1,14 @@
 {
-  "name": "api.rawkode.dev",
+  "name": "cms",
   "version": "0.0.1",
-  "description": "DevRel Blox GraphQL API",
+  "description": "cms stuff",
   "main": "index.js",
-  "scripts": {},
-  "author": "David McKay <david@rawkode.com>",
+  "author": "Brian Ketelsen <bketelsen@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "glob": "^7.1.6",
+    "js-yaml": "^4.0.0",
     "json-graphql-server": "^2.2.0",
-    "sync-fetch": "0.3.0"
+    "sync-fetch": "^0.3.0"
   }
 }
