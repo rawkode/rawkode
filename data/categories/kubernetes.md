@@ -1,6 +1,5 @@
 ---
 name: Kubernetes
-title: Kubernetes
 description: Kubes
 ---
 

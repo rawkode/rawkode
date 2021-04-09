@@ -1,10 +1,9 @@
 ---
-title: Hello World!
+title: Hello World
 category_id: kubernetes
-profile_id: brian
+profile_id: bketelsen
 excerpt: Autem aliquam labore aspernatur accusantium harum facere.
 featured: true
-draft: true
 publish_date: "2021-03-19"
 last_edit_date: "2021-03-21"
 edit_description: Hello HN, thanks for stopping by!
