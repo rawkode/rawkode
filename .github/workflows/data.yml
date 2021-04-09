@@ -25,4 +25,4 @@ jobs:
           prerelease: true
           title: "CueBlox"
           files: |
-            data/out/data.json
+            data/.build/data.json
