@@ -1,0 +1,16 @@
+{
+  "name": "graphql",
+  "version": "0.0.1",
+  "description": "graphql handler",
+  "scripts": {
+    "start": "webpack --mode production",
+    "build": "webpack"
+  },
+  "author": "brian ketelsen",
+  "license": "MIT",
+  "devDependencies": {
+    "express": "^4.17.1",
+    "json-graphql-server": "^2.2.2",
+    "sync-fetch": "^0.3.0"
+  }
+}
