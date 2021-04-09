@@ -11,6 +11,7 @@
   "devDependencies": {
     "express": "^4.17.1",
     "json-graphql-server": "^2.2.2",
-    "sync-fetch": "^0.3.0"
+    "sync-fetch": "^0.3.0",
+    "webpack": "^5.31.0"
   }
 }
