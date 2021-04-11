@@ -5,7 +5,7 @@
 	}
 
 	#Page: {
-		_model: {
+		_dataset: {
 			plural: "pages"
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}

@@ -5,7 +5,7 @@
 	}
 
 	#Article: {
-		_model: {
+		_dataset: {
 			plural: "articles"
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}
@@ -24,9 +24,4 @@
     profile_id?: string
 	}
 
-	#Category: {
-		name:  string
-		description: string
-    body?: string
-	}
 }

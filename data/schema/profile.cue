@@ -5,7 +5,7 @@
 	}
 
 	#Profile: {
-		_model: {
+		_dataset: {
 			plural: "profiles"
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}
@@ -37,7 +37,7 @@
 	}
 
 	#Website: {
-		_model: {
+		_dataset: {
 			plural: "websites"
 			supportedExtensions: ["yaml", "yml"]
 		}

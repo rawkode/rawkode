@@ -5,7 +5,7 @@
 	}
 
 	#Category: {
-		_model: {
+		_dataset: {
 			plural: "categories"
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}
