@@ -7,7 +7,7 @@ const data = fetch(
 ).json();
 const app = require("express")();
 
-app.use("/", jsonGraphqlExpress(data));
+app.use("/api/graphql", jsonGraphqlExpress(data));
 console.log(data);
 
 const port = process.env.PORT || 3000;

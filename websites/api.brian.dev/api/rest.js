@@ -8,7 +8,7 @@ const data = fetch(
 const app = require("express")();
 const router = jsonServer.router(data);
 
-app.use("/", router);
+app.use("/api/rest", router);
 console.log(data);
 
 const port = process.env.PORT || 3000;
