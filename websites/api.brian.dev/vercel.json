@@ -6,15 +6,5 @@
     "api/rest.js": {
       "maxDuration": 5
     }
-  },
-  "rewrites": [
-    {
-      "source": "/graphql/(.*)",
-      "destination": "/graphql"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/rest"
-    }
-  ]
+  }
 }
