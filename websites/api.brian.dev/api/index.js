@@ -1,5 +1,6 @@
 const fetch = require("sync-fetch");
 
+import jsonGraphqlExpress from "json-graphql-server";
 const jsonServer = require('json-server')
 
 const data = fetch(
@@ -8,7 +9,9 @@ const data = fetch(
 const app = require("express")();
 const router = jsonServer.router(data);
 
-app.use("/api/rest", router);
+app.use("/graphql", jsonGraphqlExpress(data));
+app.use("/", router);
+
 console.log(data);
 
 const port = process.env.PORT || 3000;
