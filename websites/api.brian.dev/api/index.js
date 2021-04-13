@@ -7,7 +7,8 @@ const data = fetch(
   "https://github.com/bketelsen/bkml/releases/download/blox/data.json"
 ).json();
 const app = require("express")();
-const router = jsonServer.router(data);
+const router = jsonServer.router(data, { foreignKeySuffix: '_id' })
+
 
 app.use("/graphql", jsonGraphqlExpress(data));
 app.use("/", router);
