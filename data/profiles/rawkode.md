@@ -1,6 +1,6 @@
 ---
-first_name: David
-last_name: McKay
+forename: David
+surname: McKay
 company: Equinix Metal
 title: Senior Developer Advocate
 ---

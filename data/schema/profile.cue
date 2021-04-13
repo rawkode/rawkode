@@ -1,7 +1,7 @@
 {
 	_schema: {
 		name:      "Profile"
-		namespace: "schemas.cueblox.com"
+		namespace: "cueblox.rawkode.dev"
 	}
 
 	#Profile: {
@@ -10,12 +10,12 @@
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}
 
-		first_name: string
-		last_name:  string
-		age?:       int
-		company?:   string
-		title?:     string
-		body?:      string
+		forename: string @template("Forename")
+		surname:  string @template("Surname")
+		age?:     int
+		company?: string
+		title?:   string
+		body?:    string
 		social_accounts?: [...#TwitterAccount | #GitHubAccount | #MiscellaneousAccount]
 	}
 
@@ -42,7 +42,7 @@
 			supportedExtensions: ["yaml", "yml"]
 		}
 
-		url:         string
+		url:         string @template("https://rawkode.dev")
 		profile_id?: string
 		body?:       string
 	}
