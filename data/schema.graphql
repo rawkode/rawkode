@@ -1,0 +1,165 @@
+type Article {
+  title: String!
+  excerpt: String!
+  featured: Boolean!
+  draft: Boolean!
+  publish_date: String!
+  image: String!
+  last_edit_date: String!
+  edit_description: String!
+  body: String!
+  tags: [String]!
+  category_id: ID!
+  id: ID!
+  profile_id: ID!
+  Category: Category
+  Profile: Profile
+}
+
+input ArticleFilter {
+  q: String
+  ids: [ID]
+  title: String
+  excerpt: String
+  featured: Boolean
+  draft: Boolean
+  publish_date: String
+  image: String
+  last_edit_date: String
+  edit_description: String
+  body: String
+  tags: [String]
+  category_id: ID
+  id: ID
+  profile_id: ID
+}
+
+type Category {
+  name: String!
+  description: String!
+  id: ID!
+  body: String!
+  Articles: [Article]
+}
+
+input CategoryFilter {
+  q: String
+  ids: [ID]
+  name: String
+  description: String
+  id: ID
+  body: String
+}
+
+type ListMetadata {
+  count: Int
+}
+
+type Mutation {
+  createPage(title: String!, excerpt: String!, draft: Boolean!, publish_date: String!, image: String!, body: String!, id: ID!, tags: [String]!): Page
+  updatePage(title: String, excerpt: String, draft: Boolean, publish_date: String, image: String, body: String, id: ID!, tags: [String]): Page
+  removePage(id: ID!): Boolean
+  createProfile(first_name: String!, last_name: String!, company: String!, title: String!, body: String!, id: ID!): Profile
+  updateProfile(first_name: String, last_name: String, company: String, title: String, body: String, id: ID!): Profile
+  removeProfile(id: ID!): Boolean
+  createWebsite(url: String!, profile_id: ID!, id: ID!): Website
+  updateWebsite(url: String, profile_id: ID, id: ID!): Website
+  removeWebsite(id: ID!): Boolean
+  createArticle(title: String!, excerpt: String!, featured: Boolean!, draft: Boolean!, publish_date: String!, image: String!, last_edit_date: String!, edit_description: String!, body: String!, tags: [String]!, category_id: ID!, id: ID!, profile_id: ID!): Article
+  updateArticle(title: String, excerpt: String, featured: Boolean, draft: Boolean, publish_date: String, image: String, last_edit_date: String, edit_description: String, body: String, tags: [String], category_id: ID, id: ID!, profile_id: ID): Article
+  removeArticle(id: ID!): Boolean
+  createCategory(name: String!, description: String!, id: ID!, body: String!): Category
+  updateCategory(name: String, description: String, id: ID!, body: String): Category
+  removeCategory(id: ID!): Boolean
+}
+
+type Page {
+  title: String!
+  excerpt: String!
+  draft: Boolean!
+  publish_date: String!
+  image: String!
+  body: String!
+  id: ID!
+  tags: [String]!
+}
+
+input PageFilter {
+  q: String
+  ids: [ID]
+  title: String
+  excerpt: String
+  draft: Boolean
+  publish_date: String
+  image: String
+  body: String
+  id: ID
+  tags: [String]
+}
+
+type Profile {
+  first_name: String!
+  last_name: String!
+  company: String!
+  title: String!
+  body: String!
+  id: ID!
+  Websites: [Website]
+  Articles: [Article]
+}
+
+input ProfileFilter {
+  q: String
+  ids: [ID]
+  first_name: String
+  last_name: String
+  company: String
+  title: String
+  body: String
+  id: ID
+}
+
+type Query {
+  Page(id: ID!): Page
+  allPages(page: Int, perPage: Int, sortField: String, sortOrder: String, filter: PageFilter): [Page]
+  _allPagesMeta(page: Int, perPage: Int, filter: PageFilter): ListMetadata
+  Profile(id: ID!): Profile
+  allProfiles(page: Int, perPage: Int, sortField: String, sortOrder: String, filter: ProfileFilter): [Profile]
+  _allProfilesMeta(page: Int, perPage: Int, filter: ProfileFilter): ListMetadata
+  Website(id: ID!): Website
+  allWebsites(page: Int, perPage: Int, sortField: String, sortOrder: String, filter: WebsiteFilter): [Website]
+  _allWebsitesMeta(page: Int, perPage: Int, filter: WebsiteFilter): ListMetadata
+  Article(id: ID!): Article
+  allArticles(page: Int, perPage: Int, sortField: String, sortOrder: String, filter: ArticleFilter): [Article]
+  _allArticlesMeta(page: Int, perPage: Int, filter: ArticleFilter): ListMetadata
+  Category(id: ID!): Category
+  allCategories(page: Int, perPage: Int, sortField: String, sortOrder: String, filter: CategoryFilter): [Category]
+  _allCategoriesMeta(page: Int, perPage: Int, filter: CategoryFilter): ListMetadata
+}
+
+type Website {
+  url: String!
+  profile_id: ID!
+  id: ID!
+  Profile: Profile
+}
+
+input WebsiteFilter {
+  q: String
+  ids: [ID]
+  url: String
+  profile_id: ID
+  id: ID
+}
+
+query findPage($pageId: ID!) {
+  Page(id: $pageId) {
+    ...PageFields
+  }
+}
+
+fragment PageFields on Page {
+  id
+  title
+  excerpt
+}

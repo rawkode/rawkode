@@ -1,0 +1,19 @@
+{
+    "name": "data",
+    "version": "0.0.1",
+    "description": "data",
+    "scripts": {
+        "build": "blox build",
+        "serve": "json-graphql-server  db.js --p 4000",
+        "watch": "nodemon --config nodemon.json --exec ./run.sh"
+    },
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "json-graphql-server": "^2.2.2",
+        "nodemon": "^2.0.7"
+    },
+    "dependencies": {
+        "graphql": "^15.5.0"
+    }
+}
