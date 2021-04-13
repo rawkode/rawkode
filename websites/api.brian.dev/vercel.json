@@ -3,7 +3,7 @@
     "graphql/index.js": {
       "maxDuration": 5
     },
-    "api/index.js": {
+    "rest/index.js": {
       "maxDuration": 5
     }
   },
