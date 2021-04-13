@@ -1,9 +1,9 @@
 {
   "functions": {
-    "graphql/index.js": {
+    "api/graphql.js": {
       "maxDuration": 5
     },
-    "rest/index.js": {
+    "api/rest.js": {
       "maxDuration": 5
     }
   },
@@ -14,7 +14,7 @@
     },
     {
       "source": "/api/(.*)",
-      "destination": "/api"
+      "destination": "/rest"
     }
   ]
 }
