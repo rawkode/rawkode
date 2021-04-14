@@ -8,4 +8,8 @@ This repository contains data that is built with [CueBlox](https://github.com/cu
 
 The data is available over both REST and GraphQL protocols, served by the tiny web app in the `/websites/api.brian.dev/` directory. It requests the JSON data from the GitHub release and serves it using the brilliant `json-server` and `json-graphql-server` packages.
 
-You can see the end result [GraphQL](https://api.brian.dev/graphql) or [REST](https://api.brian.dev/articles) that are deployed automatically with any content changes. The result is a read-only database of schema-accurate data validated by CueBlox.
+You can see the end result on Vercel at [GraphQL](https://api.brian.dev/graphql) or [REST](https://api.brian.dev/articles) that are deployed automatically with any content changes. The result is a read-only database of schema-accurate data validated by CueBlox.
+
+The same content is also deployed on Azure Static Web Apps [GraphQL](https://azure.brian.dev/api/graphql) or [REST](https://azure.brian.dev/api/articles).
+
+Since the source content is the same, these two sites can be used for redundancy in the event that one of the providers is down.
