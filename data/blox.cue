@@ -1,5 +1,5 @@
 {
   data_dir: "."
-  schema_dir: "schema"
+  schemata_dir: "schemata"
   build_dir: ".build"
 }
