@@ -1,6 +1,5 @@
 {
-  // Version bump
   data_dir: "."
-  schema_dir: "schema"
+  schemata_dir: "schema"
   build_dir: ".build"
 }
