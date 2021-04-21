@@ -1,0 +1,9 @@
+{
+    "azureFunctions.deploySubpath": "websites/test",
+    "azureFunctions.projectLanguage": "JavaScript",
+    "azureFunctions.projectRuntime": "~3",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.projectSubpath": "websites/test",
+    "azureFunctions.postDeployTask": "npm install",
+    "azureFunctions.preDeployTask": "npm prune"
+}
