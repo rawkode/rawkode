@@ -9,8 +9,6 @@ const client = new ApolloClient({
   cache: new InMemoryCache()
 });
 
-
-
 export async function getPage(slug) {
   const { data } = await client.query({
     query: gql`
@@ -29,7 +27,6 @@ export async function getPage(slug) {
 }
 `});
   const page = data.Page;
-  console.log(page)
   return page
 }
 
@@ -54,8 +51,6 @@ export async function getSections() {
 
   const sections = data.allSections;
   return sections
-
-
 }
 
 export async function getArticle(slug) {

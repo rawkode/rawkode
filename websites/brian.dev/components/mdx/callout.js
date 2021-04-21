@@ -3,7 +3,7 @@ import React from 'react'
 const Callout = (
   {
     children,
-    background = 'bg-orange-100 dark:text-gray-800',
+    background = 'bg-denim-300 dark:text-gray-800',
     emoji = '💡'
   }
 ) => {

@@ -3,7 +3,6 @@ import { getArticlesHome, getFeaturedArticlesHome, getPage } from '@/lib/cms';
 import ArticleList from '@/components/ArticleList';
 import BlogCta from '@/components/BlogCta';
 import { GlobalContext } from "./_app";
-import { GraphQLClient } from 'graphql-request';
 import Hero from '@/components/Hero';
 import SEO from '@/components/SEO'
 import SubscribeCTA from '@/components/SubscribeCTA';
@@ -39,10 +38,6 @@ function IndexPage({  posts, homepage }) {
 
 export async function getStaticProps() {
 
-
-
-
-  // fetch up to 10 posts on main page
   const [regular, featured, homepage] = await Promise.all([
     getArticlesHome(),
     getFeaturedArticlesHome(),

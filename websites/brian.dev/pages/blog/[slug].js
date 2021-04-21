@@ -7,13 +7,12 @@ import hydrate from 'next-mdx-remote/hydrate'
 import renderToString from 'next-mdx-remote/render-to-string'
 
 const components = { Bleed,Callout }
+
 function Post({ source, post }) {
   const content = hydrate(source,{components})
   return (
     <PostContent
-      post={post}
-      content={content}
-    />
+      post={post}>{content}</PostContent>
   )
 }
 
