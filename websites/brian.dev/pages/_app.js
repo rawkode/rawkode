@@ -1,17 +1,21 @@
 import '@/styles/globals.css';
 
+import { ApolloProvider } from "@apollo/client";
 import App from "next/app";
 import Layout from '@/components/Layout';
 import { ThemeProvider } from 'next-themes';
 import { createContext } from "react";
 import { fetchAPI } from "@/lib/api";
+import { useApollo } from "@/lib/apolloClient";
 
 export const GlobalContext = createContext({});
 
 
 function MyApp({ Component, pageProps }) {
+  const apolloClient = useApollo(pageProps.initialApolloState);
   const { global } = pageProps;
   return (
+    <ApolloProvider client={apolloClient}>
     <GlobalContext.Provider value={global}>
       <ThemeProvider forcedTheme={Component.theme || undefined} attribute="class">
         <Layout>
@@ -19,6 +23,7 @@ function MyApp({ Component, pageProps }) {
         </Layout>
       </ThemeProvider>
     </GlobalContext.Provider>
+    </ApolloProvider>
 
   )
 }

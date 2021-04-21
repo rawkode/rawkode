@@ -1,4 +1,4 @@
-import { getArticlesHome, getFeaturedArticlesHome, getPage } from '@/lib/cms';
+import {ARTICLES_HOME_QUERY, FEATURED_ARTICLES_HOME_QUERY, PAGE_QUERY} from '@/lib/queries';
 
 import ArticleList from '@/components/ArticleList';
 import BlogCta from '@/components/BlogCta';
@@ -6,6 +6,7 @@ import { GlobalContext } from "./_app";
 import Hero from '@/components/Hero';
 import SEO from '@/components/SEO'
 import SubscribeCTA from '@/components/SubscribeCTA';
+import { initializeApollo } from "@/lib/apolloClient";
 import { useContext } from "react";
 
 function IndexPage({  posts, homepage }) {
@@ -37,19 +38,31 @@ function IndexPage({  posts, homepage }) {
 }
 
 export async function getStaticProps() {
-
-  const [regular, featured, homepage] = await Promise.all([
-    getArticlesHome(),
-    getFeaturedArticlesHome(),
-    getPage('index'),
+  const apolloClient = initializeApollo();
+  const [regular,featured,page] = await Promise.all([
+    apolloClient.query({
+      query: ARTICLES_HOME_QUERY,
+    }),
+    apolloClient.query({
+      query: FEATURED_ARTICLES_HOME_QUERY,
+    }),
+    apolloClient.query({
+      query: PAGE_QUERY,
+      variables: {
+        pageID: "index"
+    }
+    }),
   ]);
 
-  var posts = merge(featured, regular, "id")
+  var posts = merge(featured.data.allArticles,regular.data.allArticles,"id")
   return {
     props: {
+      initialApolloState: apolloClient.cache.extract(),
       posts,
-      homepage
+      homepage: page.data.Page,
     },
+    revalidate: 30,
+
   }
 }
 function merge(a, b, prop) {
@@ -57,3 +70,17 @@ function merge(a, b, prop) {
   return reduced.concat(b);
 }
 export default IndexPage;
+/*
+,
+    apolloClient.query({
+      query: FEATURED_ARTICLES_HOME_QUERY,
+    }),
+    apolloClient.query({
+      query: PAGE_QUERY,
+      variables: {
+        pageID: "home"
+    }
+    })
+      console.log(featured)
+  console.log(homepage)
+*/

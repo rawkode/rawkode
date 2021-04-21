@@ -13,7 +13,6 @@ function Hero({ title, content, writer }) {
           {content}
         </p>
 
-        <SubscribeCTA />
         <SocialMedia color="dark" />
       </div>
       <div className="my-8 lg:m-0 w-full lg:w-1/2">
