@@ -9,6 +9,8 @@ const renderers = {
   }
 }
 
+
+
 function Post({ content, post }) {
   const { title, image, publish_date } = post
   const seo = {
