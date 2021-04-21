@@ -1,9 +1,11 @@
 import { GlobalContext } from "./_app";
+import { PAGE_QUERY } from "@/lib/queries";
 import ReactMarkdown from "react-markdown";
 import SEO from '@/components/SEO';
 import SocialMedia from '@/components/SocialMedia';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import gfm from 'remark-gfm';
+import { initializeApollo } from "@/lib/apolloClient";
 import { useContext } from "react";
 import { vs } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
@@ -12,7 +14,8 @@ const renderers = {
     return <SyntaxHighlighter style={vs} language={language} children={value} />
   }
 }
-function AboutPage() {
+function AboutPage({page}) {
+  console.log(page)
   const pageTitle = `About | ${process.env.siteTitle}`;
   const { writer } = useContext(GlobalContext);
 
@@ -41,3 +44,25 @@ function AboutPage() {
 }
 
 export default AboutPage;
+
+export async function getStaticProps() {
+  const apolloClient = initializeApollo();
+  const page = await
+    apolloClient.query({
+      query: PAGE_QUERY,
+      variables: {
+        pageID: "about",
+      }
+
+    });
+
+  var data = page.data.Page
+  return {
+    props: {
+      initialApolloState: apolloClient.cache.extract(),
+      page: data,
+    },
+    revalidate: 30,
+
+  }
+}

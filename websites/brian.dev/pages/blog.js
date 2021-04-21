@@ -1,7 +1,8 @@
+import {ALL_ARTICLES_QUERY} from '@/lib/queries';
 import ArticleList from '@/components/ArticleList';
 import SEO from '@/components/SEO'
 import SearchBar from '@/components/SearchBar';
-import { getAllArticles } from '@/lib/cms';
+import { initializeApollo } from "@/lib/apolloClient";
 import { useState } from 'react';
 
 function BlogPage({ posts }) {
@@ -38,13 +39,19 @@ function BlogPage({ posts }) {
 }
 
 export async function getStaticProps() {
-  // fetch all posts
-  const posts = await getAllArticles()
-
+  const apolloClient = initializeApollo();
+  const articles = await
+    apolloClient.query({
+      query: ALL_ARTICLES_QUERY
+    });
+    const posts = articles.data.allArticles;
   return {
     props: {
-      posts,
+      initialApolloState: apolloClient.cache.extract(),
+      posts: posts,
     },
+    revalidate: 30,
+
   }
 }
 
