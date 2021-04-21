@@ -8,7 +8,7 @@ function PostPreview({ featured, slug, date, image, title, description }) {
   return (
     <Link href={postHref}>
       <div className="relative mx-2 my-4 max-w-xs cursor-pointer dark:bg-gray-900 border border-palette-lighter dark:border-gray-900 shadow-lg rounded p-4 hover:bg-palette-lighter dark:hover:bg-palette-dark">
-        <Image className="rounded object-cover w-full h-48" width={image.formats.small.width} height={image.formats.small.height} alt={image.caption} src={image.formats.small.url} />
+        <Image className="rounded object-cover w-full h-48" width={300} height={200} alt={title} src={image} />
         <div className="font-bold text-xl md:text-2xl pt-6 text-gray-900 dark:text-white">
           {title}
         </div>

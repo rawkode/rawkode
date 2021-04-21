@@ -55,14 +55,15 @@ function ArticleList({ posts, showPagination }) {
       <ul className="flex flex-wrap justify-center md:justify-start w-full px-4 sm:px-8">
         {displayedPosts.map((node) => {
           return (
-            <li key={node.slug}>
+            <li key={node.id}>
               <PostPreview
+                key={node.id}
                 featured={node.featured}
-                slug={node.slug}
-                date={node.article_date}
+                slug={node.id}
+                date={node.publish_date}
                 image={node.image}
                 title={node.title}
-                description={node.description}
+                description={node.excerpt}
               />
             </li>
           )

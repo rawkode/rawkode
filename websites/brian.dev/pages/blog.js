@@ -1,7 +1,7 @@
 import ArticleList from '@/components/ArticleList';
 import SEO from '@/components/SEO'
 import SearchBar from '@/components/SearchBar';
-import { fetchArticles } from "@/lib/api";
+import { getAllArticles } from '@/lib/cms';
 import { useState } from 'react';
 
 function BlogPage({ posts }) {
@@ -39,7 +39,7 @@ function BlogPage({ posts }) {
 
 export async function getStaticProps() {
   // fetch all posts
-  const posts = await fetchArticles()
+  const posts = await getAllArticles()
 
   return {
     props: {

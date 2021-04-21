@@ -1,22 +1,25 @@
-import { fetchArticle, fetchArticleSlugs } from "@/lib/api";
+import { getArticle, getArticleSlugs } from "@/lib/cms";
 
 import PostContent from '@/components/PostContent';
+import hydrate from 'next-mdx-remote/hydrate'
+import renderToString from 'next-mdx-remote/render-to-string'
 
-function Post({ post }) {
-
+function Post({ source, post }) {
+  const content = hydrate(source)
   return (
     <PostContent
       post={post}
+      content={content}
     />
   )
 }
 
 export async function getStaticPaths() {
-  const blogPostSlugs = await fetchArticleSlugs();
+  const blogPostSlugs = await getArticleSlugs();
 
-  const paths = blogPostSlugs.map((slug) => {
+  const paths = blogPostSlugs.map(({id}) => {
     return {
-      params: { slug }
+      params: { slug: id }
     }
   });
 
@@ -27,10 +30,13 @@ export async function getStaticPaths() {
 }
 
 export async function getStaticProps({ params }) {
-  const post = await fetchArticle(params.slug)
+  const post = await getArticle(params.slug)
+  const mdxSource = await renderToString(post.body)
+
 
   return {
     props: {
+      source: mdxSource,
       post,
     },
     revalidate: 30, // In seconds

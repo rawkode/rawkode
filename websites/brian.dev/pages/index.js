@@ -1,4 +1,4 @@
-import { fetchAPI, fetchArticlesHome, fetchFeaturedArticles } from "@/lib/api";
+import { getArticlesHome, getFeaturedArticlesHome, getPage } from '@/lib/cms';
 
 import ArticleList from '@/components/ArticleList';
 import BlogCta from '@/components/BlogCta';
@@ -7,10 +7,9 @@ import { GraphQLClient } from 'graphql-request';
 import Hero from '@/components/Hero';
 import SEO from '@/components/SEO'
 import SubscribeCTA from '@/components/SubscribeCTA';
-import { getSdk } from '@/lib/sdk.ts'; // THIS FILE IS THE GENERATED FILE
 import { useContext } from "react";
 
-function IndexPage({ page, posts, homepage }) {
+function IndexPage({  posts, homepage }) {
   const { writer } = useContext(GlobalContext);
 
   return (
@@ -18,7 +17,7 @@ function IndexPage({ page, posts, homepage }) {
       <SEO seo={homepage.seo} />
 
       {/* hero section */}
-      <Hero writer={writer} title={page.title} content={homepage.hero.content} />
+      <Hero writer={writer} title={homepage.title} content={homepage.body} />
 
 
       {/* article section */}
@@ -40,23 +39,19 @@ function IndexPage({ page, posts, homepage }) {
 
 export async function getStaticProps() {
 
-  const client = new GraphQLClient('http://127.0.0.1:4000/');
-  const sdk = getSdk(client);
-  const page = await sdk.findPage('{"pageId":"index"}')
-  console.log(page)
+
+
 
   // fetch up to 10 posts on main page
   const [regular, featured, homepage] = await Promise.all([
-    fetchArticlesHome(2),
-    fetchFeaturedArticles(1),
-    fetchAPI("/homepage"),
+    getArticlesHome(),
+    getFeaturedArticlesHome(),
+    getPage('index'),
   ]);
-  console.log(page)
 
-  var posts = merge(featured, regular, "slug")
+  var posts = merge(featured, regular, "id")
   return {
     props: {
-      page,
       posts,
       homepage
     },
