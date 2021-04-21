@@ -1,6 +1,6 @@
 import { ApolloClient, InMemoryCache, gql } from '@apollo/client';
 export function getAPIURL(path = "") {
-  return `${process.env.API_URL || "http://127.0.0.1:3000/api/graphql"
+  return `${process.env.API_URL || "https://api.brian.dev/graphql"
     }${path}`;
 }
 
