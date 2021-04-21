@@ -15,7 +15,6 @@ const renderers = {
   }
 }
 function AboutPage({page}) {
-  console.log(page)
   const pageTitle = `About | ${process.env.siteTitle}`;
   const { writer } = useContext(GlobalContext);
 
@@ -32,7 +31,7 @@ function AboutPage({page}) {
           <ReactMarkdown
             renderers={renderers}
             plugins={[gfm]}
-            source={writer.bio}
+            source={page.body}
             escapeHtml={false} />
 
           <SocialMedia />
