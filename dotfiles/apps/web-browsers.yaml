@@ -9,4 +9,5 @@ actions:
   - action: package.install
     list:
       - google-chrome
+      - microsoft-edge-dev
       - vivaldi
