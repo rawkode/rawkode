@@ -1,8 +1,10 @@
-packages:
+actions:
   - action: package.install
     repository: homebrew/cask-fonts
     list:
       - font-cascadia-code
       - font-cascadia-code-pl
       - font-courgette
+      {% if user.username == "rawkode" %}
       - font-redressed
+      {% endif %}
