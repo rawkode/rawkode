@@ -8,7 +8,5 @@ actions:
       - elgato-control-center
       - elgato-stream-deck
       - iterm2
-      - rectangle
       - secretive
-      - sekey
       - viscosity
