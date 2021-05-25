@@ -1,12 +1,8 @@
-depends:
-  - git
-
 actions:
   - name: espanso
     action: package.install
     repository: federico-terzi/espanso
 
-  - action: file.copy
-    from: default.yaml
-    to: "{{ user.home_dir }}/Library/Preferences/espanso/default.yml"
-    template: false
+  - action: file.link
+    source: default.yaml
+    target: "{{ user.home_dir }}/Library/Preferences/espanso/default.yml"
