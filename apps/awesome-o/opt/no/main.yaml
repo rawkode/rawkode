@@ -1,0 +1,5 @@
+# Fake Manifest to ensure it doesn't run
+actions:
+  - action: command.run
+    command: touch
+    args: ["/tmp/no-no-limits"]

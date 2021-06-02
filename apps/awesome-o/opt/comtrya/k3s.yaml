@@ -1,0 +1,6 @@
+actions:
+  - action: command.run
+    command: bash
+    args:
+      - -c
+      - -sfL https://get.k3s.io | sh -
