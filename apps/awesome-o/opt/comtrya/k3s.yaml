@@ -3,4 +3,4 @@ actions:
     command: bash
     args:
       - -c
-      - -sfL https://get.k3s.io | sh -
+      - curl -sfL https://get.k3s.io | sh -

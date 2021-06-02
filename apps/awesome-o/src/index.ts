@@ -13,7 +13,7 @@ const k3sDevice = new metal.Device("k3s", {
 	hostname: "awesome-o",
 	billingCycle: metal.BillingCycle.Hourly,
 	operatingSystem: metal.OperatingSystem.Ubuntu2004,
-	plan: metal.Plan.C1LargeARM,
+	plan: metal.Plan.C2MediumX86,
 	metro: "am",
 	projectId,
 	userData,
