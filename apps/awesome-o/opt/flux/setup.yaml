@@ -16,7 +16,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m0s
-  path: ./apps/awesome-o/opt/flux
+  path: ./apps/awesome-o/opt/gitops
   prune: true
   sourceRef:
     kind: GitRepository
