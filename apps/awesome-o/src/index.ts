@@ -13,6 +13,8 @@ const elasticIp = new metal.ReservedIpBlock("awesome-o", {
 	description: "Awesome-O Public IPv4",
 });
 
+export const ingressIpAddress = elasticIp.address;
+
 const userData = pulumi.interpolate`#!/usr/bin/env sh
 # Add our EIP
 cat >> /etc/network/interfaces <<EOF
