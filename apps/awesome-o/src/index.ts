@@ -52,6 +52,8 @@ ctr run --rm --net-host ghcr.io/kube-vip/kube-vip:v0.3.5 kube-vip /kube-vip mani
   --bgp \
    | tee /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
 
+# Add our EIP  to the Traefik service, as we've no CCM
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml patch svc traefik -n kube-system -p '{"spec": {"type": "LoadBalancer", "loadBalancerIP":"${elasticIp.address}"}}'
 
 # GitOps all the rest
 kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
