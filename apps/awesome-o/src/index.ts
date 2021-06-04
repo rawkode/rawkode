@@ -14,17 +14,23 @@ const elasticIp = new metal.ReservedIpBlock("awesome-o", {
 });
 
 const userData = pulumi.interpolate`#!/usr/bin/env sh
+# Add our EIP
+cat >> /etc/network/interfaces <<EOF
+auto lo:0
+iface lo:0 inet static
+    address ${elasticIp.address}
+    netmask 255.255.255.255
+EOF
+ifup lo0
+
 # Bind K3s to our EIP & Install
 export INSTALL_K3S_EXEC="--bind-address ${elasticIp.address} --advertise-address ${elasticIp.address} --node-ip ${elasticIp.address} --tls-san ${elasticIp.address} --no-deploy servicelb --disable-cloud-controller"
 curl -sfL https://get.k3s.io | sh -
 
 # kube-vip
+# Give BGP a minute to be enabled and update the metadata
+sleep 60
 curl https://metadata.platformequinix.com/metadata > /tmp/metadata
-
-kubectl label node $(kubectl get nodes -o json | jq ".items[0].metadata.name") "metal.equinix.com/node-asn=$(jq ".bgp_neighbors[0].customer_as" /tmp/metadata)"
-kubectl label node $(kubectl get nodes -o json | jq ".items[0].metadata.name") "metal.equinix.com/peer-asn=$(jq ".bgp_neighbors[0].peer_as" /tmp/metadata)"
-kubectl label node $(kubectl get nodes -o json | jq ".items[0].metadata.name") "metal.equinix.com/peer-ip=$(jq -r ".bgp_neighbors[0].peer_ips[0]" /tmp/metadata)"
-kubectl label node $(kubectl get nodes -o json | jq ".items[0].metadata.name") "metal.equinix.com/src-ip=$(jq -r ".bgp_neighbors[0].customer_ip" /tmp/metadata)"
 
 GATEWAY_IP=$(jq -r ".network.addresses[] | select(.public == false) | .gateway" /tmp/metadata)
 ip route add 169.254.255.1 via $GATEWAY_IP
@@ -36,11 +42,16 @@ crictl pull ghcr.io/kube-vip/kube-vip:v0.3.5
 ctr run --rm --net-host ghcr.io/kube-vip/kube-vip:v0.3.5 kube-vip /kube-vip manifest daemonset \
   --interface lo \
   --vip ${elasticIp.address} \
+	--localAS $(jq ".bgp_neighbors[0].customer_as" /tmp/metadata) \
+	--peerAS $(jq ".bgp_neighbors[0].peer_as" /tmp/metadata) \
+	--peerAddress $(jq -r '.bgp_neighbors[0].peer_ips | join(",")' /tmp/metadata) \
+	--bgpRouterID $(jq -r '.bgp_neighbors[0].customer_ip' /tmp/metadata) \
   --services \
   --inCluster \
   --taint \
   --bgp \
-  --metal | tee /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
+   | tee /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
+
 
 # GitOps all the rest
 kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
@@ -51,7 +62,7 @@ const device = new metal.Device("awesome-o", {
 	hostname: "awesome-o",
 	billingCycle: metal.BillingCycle.Hourly,
 	operatingSystem: metal.OperatingSystem.Ubuntu2004,
-	plan: metal.Plan.C3SmallX86,
+	plan: metal.Plan.C2MediumX86,
 	metro,
 	projectId,
 	userData,
