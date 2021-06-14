@@ -1,2 +1,5 @@
 /bin/
 /node_modules/
+.dccache
+package-lock.json
+yarn.lock

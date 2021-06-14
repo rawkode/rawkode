@@ -1,5 +1,3 @@
 config:
-  awesome-o:metro: am
-  awesome-o:projectID: a5e0d3df-649a-4566-898f-5d96fb0ccff7
-  equinix-metal:authToken:
-    secure: AAABAFoJzcOJ8/TIUuXqqBDRp100a9/QpAgg00oq15e2gL3V56hVtWwRwo9UGuSdy3MIbd3prWyJbROc05viLQ==
+  civo:token:
+    secure: AAABABcC1LvMDsD80IaQ+IOExTmK6nBN8mI6NN2hheIzwVnXmML/uoyfs6ZPJBLM6lSqX/yoZszONRZQUPms1LyEAnOmthMUboCYYfqkJTyGog==

@@ -1,4 +1,4 @@
 name: awesome-o
 runtime: nodejs
-description: A minimal Equinix Metal TypeScript Pulumi program
-main: ./src/index.ts
+description: Rawkode's Awesome-o Platform
+main: src/index.ts
