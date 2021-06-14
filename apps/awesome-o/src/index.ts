@@ -97,7 +97,7 @@ const argoTopLevelApp = new kubernetes.apiextensions.CustomResource(
     apiVersion: "argoproj.io/v1alpha1",
     kind: "Application",
     metadata: {
-      name: "gitops",
+      name: "cluster-addons",
       namespace: argoCDNamespace.metadata.name,
       finalizers: ["resource-finalizer.argocd.argoproj.io"],
     },

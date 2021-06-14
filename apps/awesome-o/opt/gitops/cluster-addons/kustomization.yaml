@@ -1,7 +1,7 @@
 namespace: kube-system
 
 resources:
-  - resources/crds.yaml
-  - resources/daemonset.yaml
-  - resources/rbac.yaml
-  - resources/service.yaml
+  - traefik/crds.yaml
+  - traefik/daemonset.yaml
+  - traefik/rbac.yaml
+  - traefik/service.yaml
