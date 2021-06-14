@@ -8,13 +8,13 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`argo.awesome-o.rawkode.dev`)
+      match: Host(`argo.awesomeo.rawkode.dev`)
       priority: 10
       services:
         - name: argocd-server
           port: 80
     - kind: Rule
-      match: Host(`argo.awesome-o.rawkode.dev`) && Headers(`Content-Type`, `application/grpc`)
+      match: Host(`argo.awesomeo.rawkode.dev`) && Headers(`Content-Type`, `application/grpc`)
       priority: 11
       services:
         - name: argocd-server
