@@ -1,83 +1,59 @@
+kind: DaemonSet
 apiVersion: apps/v1
-kind: Deployment
 metadata:
   name: traefik
+  namespace: traefik-controller
+  labels:
+    app: traefik
+    role: ingress-controller
 spec:
-  replicas: 1
-  strategy:
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
-    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: traefik
   template:
     metadata:
       labels:
-        app: traefik-lb
+        app: traefik
+        role: ingress-controller
     spec:
-      serviceAccountName: traefik
-      terminationGracePeriodSeconds: 60
+      serviceAccountName: traefik-ingress-controller
       containers:
-        - image: traefik
-          imagePullPolicy: IfNotPresent
-          name: traefik
-          resources:
-            limits:
-              memory: 512Mi
-            requests:
-              cpu: 125m
-              memory: 256Mi
-          readinessProbe:
-            httpGet:
-              path: /ping
-              port: "http"
-            failureThreshold: 1
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 2
-          livenessProbe:
-            httpGet:
-              path: /ping
-              port: "http"
-            failureThreshold: 3
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 2
-          volumeMounts:
-            - mountPath: /config
-              name: config
-            - mountPath: /ssl
-              name: ssl
+        - name: traefik
+          image: "traefik:v2.3"
+          args:
+            - --api
+            - --api.dashboard
+            - --entrypoints.dashboard
+            - --accesslog=true
+            - --entrypoints.web.Address=:80
+            - --entrypoints.websecure.Address=:443
+            - --providers.kubernetescrd
+            - --providers.kubernetesingress
+            - --metrics.prometheus=true
+            - --metrics.prometheus.buckets=0.100000, 0.300000, 1.200000, 5.000000
+            - --metrics.prometheus.addEntryPointsLabels=true
+            - --metrics.prometheus.addServicesLabels=true
+            - --entryPoints.metrics.address=:8080
+            - --metrics.prometheus.entryPoint=metrics
           ports:
-            - name: http
+            - name: web
               containerPort: 80
-              hostPort: 80
               protocol: TCP
-            - name: httpn
-              containerPort: 8880
-              protocol: TCP
-            - name: https
+            - name: websecure
               containerPort: 443
-              hostPort: 443
-              protocol: TCP
-            - name: dash
-              containerPort: 8080
-              hostPort: 8080
               protocol: TCP
             - name: metrics
-              containerPort: 9100
+              containerPort: 8080
               protocol: TCP
-          args:
-            - --configfile=/config/traefik.toml
-
-      volumes:
-        - name: config
-          configMap:
-            name: traefik
-        - name: ssl
-          secret:
-            secretName: traefik-default-cert
-  selector:
-    matchLabels:
-      app: traefik-lb
+          resources:
+            requests:
+              memory: 100Mi
+              cpu: 25m
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  minReadySeconds: 5
