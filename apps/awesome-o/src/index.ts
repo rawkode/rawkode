@@ -92,7 +92,7 @@ const argoDeploy = new kubernetes.yaml.ConfigFile(
 );
 
 const argoTopLevelApp = new kubernetes.apiextensions.CustomResource(
-  "gitops",
+  "cluster-addons",
   {
     apiVersion: "argoproj.io/v1alpha1",
     kind: "Application",
@@ -108,7 +108,7 @@ const argoTopLevelApp = new kubernetes.apiextensions.CustomResource(
       },
       project: "default",
       source: {
-        path: "./apps/awesome-o/opt/gitops",
+        path: "./apps/awesome-o/opt/gitops/cluster-addons",
         repoURL: "https://github.com/rawkode/rawkode",
         targetRevision: "main",
       },

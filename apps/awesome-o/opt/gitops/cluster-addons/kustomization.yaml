@@ -1,0 +1,7 @@
+namespace: kube-system
+
+resources:
+  - resources/crds.yaml
+  - resources/daemonset.yaml
+  - resources/rbac.yaml
+  - resources/service.yaml

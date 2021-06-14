@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: traefik-lb
+    spec:
+      serviceAccountName: traefik
+      terminationGracePeriodSeconds: 60
+      containers:
+        - image: traefik
+          imagePullPolicy: IfNotPresent
+          name: traefik
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 125m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: "http"
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: "http"
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /ssl
+              name: ssl
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 80
+              protocol: TCP
+            - name: httpn
+              containerPort: 8880
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              hostPort: 443
+              protocol: TCP
+            - name: dash
+              containerPort: 8080
+              hostPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          args:
+            - --configfile=/config/traefik.toml
+
+      volumes:
+        - name: config
+          configMap:
+            name: traefik
+        - name: ssl
+          secret:
+            secretName: traefik-default-cert
+  selector:
+    matchLabels:
+      app: traefik-lb
