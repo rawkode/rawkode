@@ -111,6 +111,13 @@ const argoTopLevelApp = new kubernetes.apiextensions.CustomResource(
         repoURL: "https://github.com/rawkode/rawkode",
         targetRevision: "main",
       },
+      syncPolicy: {
+        automated: {
+          prune: "true",
+          selfHeal: "true",
+          allowEmpty: "true",
+        },
+      },
     },
   },
   {

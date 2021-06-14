@@ -1,6 +1,7 @@
 namespace: kube-system
 
 resources:
+  - argo/ingress.yaml
   - traefik/crds.yaml
   - traefik/daemonset.yaml
   - traefik/rbac.yaml
