@@ -6,6 +6,7 @@
   "dependencies": {
     "@pulumi/pulumi": "^3.0.0",
     "@pulumi/civo": "^1.0.2",
-    "@pulumi/kubernetes": "^3.3.1"
+    "@pulumi/kubernetes": "^3.3.1",
+    "@pulumi/ns1": "^2.0.2"
   }
 }
