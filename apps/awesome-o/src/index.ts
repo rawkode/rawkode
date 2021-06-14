@@ -16,7 +16,7 @@ const kubernetesCluster = new civo.KubernetesCluster(
     region: "lon1",
     numTargetNodes: 3,
     targetNodesSize: "g3.k3s.small",
-    applications: "-traefik",
+    applications: "-Traefik",
   },
   {
     deleteBeforeReplace: true,
@@ -99,7 +99,6 @@ const argoTopLevelApp = new kubernetes.apiextensions.CustomResource(
     metadata: {
       name: "cluster-addons",
       namespace: argoCDNamespace.metadata.name,
-      finalizers: ["resource-finalizer.argocd.argoproj.io"],
     },
     spec: {
       destination: {
