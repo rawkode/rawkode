@@ -1,0 +1,23 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: ingress-domain-injector
+spec:
+  rules:
+    - name: environment-details-lookup
+      context:
+        - name: domain
+          configMap:
+            namespace: argocd
+            name: environment-details
+      match:
+        resources:
+          kinds:
+            - getambassador.io/v2/Mapping
+          selector:
+            matchLabels:
+              dns-name: "*"
+      mutate:
+        patchStrategicMerge:
+          spec:
+            host: "{{request.object.metadata.labels.dns-name}}.{{environment-details-lookup.data.domain}}"

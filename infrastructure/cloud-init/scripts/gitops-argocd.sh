@@ -24,7 +24,7 @@ cat <<EOF | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: teleport
+  name: management
   namespace: argocd
 spec:
   project: default
