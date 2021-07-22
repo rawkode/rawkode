@@ -14,7 +14,7 @@ spec:
       match:
         resources:
           kinds:
-            - getambassador.io/v2/Mapping
+            - Mapping
           selector:
             matchLabels:
               dnsname: ""
