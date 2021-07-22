@@ -34,9 +34,6 @@ spec:
     repoURL: https://github.com/rawkode/rawkode
     path: ./infrastructure/gitops
     targetRevision: main
-    helm:
-      version: v3
-      releaseName: bootstrap
   syncPolicy:
     automated:
       prune: true
