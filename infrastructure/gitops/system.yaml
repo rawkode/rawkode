@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: "Application"
+metadata:
+  name: teleport
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: ./examples/chart/teleport-daemonset
+    repoUrl: https://github.com/gravitational/teleport/tree/master/
+    targetRevision: master
+    helm:
+      version: v3
+      releaseName: teleport
+      parameters:
+        - name: ingress.enabled
+          value: "true"
+  syncPolicy:
+    automated:
+      prune: "true"
+      selfHeal: "true"
+      allowEmpty: "true"
