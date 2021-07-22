@@ -17,7 +17,7 @@ spec:
             - getambassador.io/v2/Mapping
           selector:
             matchLabels:
-              dnsname: "*"
+              dnsname: ""
       mutate:
         patchStrategicMerge:
           spec:
