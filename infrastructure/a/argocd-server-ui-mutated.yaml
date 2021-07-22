@@ -1,10 +1,13 @@
 apiVersion: getambassador.io/v2
 kind: Mapping
 metadata:
-  name: argocd-server-ui
-  namespace: argocd
   labels:
     dnsname: argocd
+  name: argocd-server-ui
+  namespace: argocd
 spec:
-  service: argocd-server:443
   prefix: /
+  service: argocd-server:443
+
+---
+

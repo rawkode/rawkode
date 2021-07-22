@@ -7,18 +7,15 @@ spec:
   rules:
     - name: environment
       context:
-        - name: domain
+        - name: environment
           configMap:
             namespace: argocd
             name: environment-details
       match:
         resources:
           kinds:
-            - mappings.getambassador.io
-          selector:
-            matchLabels:
-              dnsname: ""
+            - getambassador.io/v2/Mapping
       mutate:
         patchStrategicMerge:
           spec:
-            host: "{{request.object.metadata.labels.dnsname}}.{{environment.data.domain}}"
+            host: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.domain }}"
