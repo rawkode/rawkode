@@ -8,8 +8,8 @@ spec:
     server: https://kubernetes.default.svc
   project: default
   source:
-    path: ./examples/chart/teleport-daemonset
     repoURL: https://github.com/gravitational/teleport
+    path: examples/chart/teleport-daemonset
     targetRevision: master
     helm:
       version: v3
