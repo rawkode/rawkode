@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     path: ./examples/chart/teleport-daemonset
-    repoUrl: https://github.com/gravitational/teleport/tree/master/
+    repoURL: https://github.com/gravitational/teleport
     targetRevision: master
     helm:
       version: v3
