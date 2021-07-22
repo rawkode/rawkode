@@ -5,7 +5,7 @@ metadata:
 spec:
   background: false
   rules:
-    - name: environment-details-lookup
+    - name: environment
       context:
         - name: domain
           configMap:
@@ -14,11 +14,11 @@ spec:
       match:
         resources:
           kinds:
-            - Mapping
+            - getambassador.io/v2/Mapping
           selector:
             matchLabels:
               dnsname: ""
       mutate:
         patchStrategicMerge:
           spec:
-            host: "{{request.object.metadata.labels.dnsname}}.{{environment-details-lookup.data.domain}}"
+            host: "{{request.object.metadata.labels.dnsname}}.{{environment.data.domain}}"
