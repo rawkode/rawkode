@@ -3,6 +3,7 @@ kind: ClusterPolicy
 metadata:
   name: ingress-domain-injector
 spec:
+  background: false
   rules:
     - name: environment-details-lookup
       context:
