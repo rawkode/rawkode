@@ -16,8 +16,8 @@ spec:
             - getambassador.io/v2/Mapping
           selector:
             matchLabels:
-              dns-name: "*"
+              dnsname: "*"
       mutate:
         patchStrategicMerge:
           spec:
-            host: "{{request.object.metadata.labels.dns-name}}.{{environment-details-lookup.data.domain}}"
+            host: "{{request.object.metadata.labels.dnsname}}.{{environment-details-lookup.data.domain}}"
