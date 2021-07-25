@@ -2,6 +2,8 @@ apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: ingress-domain-injector
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   background: false
   rules:
@@ -27,6 +29,8 @@ apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: host-domain-injector
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   background: false
   rules:

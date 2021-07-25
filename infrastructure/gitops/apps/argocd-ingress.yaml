@@ -6,8 +6,9 @@ metadata:
   namespace: argocd
   labels:
     dnsname: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
-  hostname: example.com
   acmeProvider:
     authority: https://acme-v02.api.letsencrypt.org/directory
     email: david@rawkode.com
@@ -19,6 +20,8 @@ metadata:
   namespace: argocd
   labels:
     dnsname: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   service: argocd-server:443
   prefix: /
