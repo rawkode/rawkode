@@ -1,5 +1,5 @@
 apiVersion: getambassador.io/v2
-kind: AmbassadorListener
+kind: Listener
 metadata:
   name: argocd-server-ui
   namespace: argocd
