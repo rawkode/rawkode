@@ -16,6 +16,9 @@ stringData:
     }
 EOF
 
+# I don't know why yet
+kubectl --kubeconfig=/etc/kubernetes/admin.conf taint node --all node.cloudprovider.kubernetes.io/uninitialized:NoSchedule
+
 kubectl --kubeconfig=/etc/kubernetes/admin.conf apply \
   -f https://github.com/equinix/cloud-provider-equinix-metal/releases/download/v3.1.0/deployment.yaml
 
