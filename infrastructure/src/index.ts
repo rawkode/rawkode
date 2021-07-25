@@ -1,21 +1,22 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as metal from "@pulumi/equinix-metal";
+import rawkodeSh from "./dns/rawkode.sh";
+import rawkodeDev from "./dns/rawkode.dev";
 import { Cluster } from "./kubernetes";
-import { zone as rawkodeSh } from "./dns/rawkode.sh";
 
-const stackName = pulumi.getStack();
 const config = new pulumi.Config();
 
-const kubernetesCluster = new Cluster(stackName, {
+const kubernetesCluster = new Cluster("rawkode", {
   kubernetesVersion: "1.21.2",
   metro: "am",
   projectId: "a5e0d3df-649a-4566-898f-5d96fb0ccff7",
-  dnsZone: rawkodeSh,
+  dns: rawkodeSh,
 });
 
 kubernetesCluster.createControlPlane({
   highAvailability: false,
   plan: metal.Plan.C1SmallX86,
+  metalAuthToken: config.requireSecret("metalAuthToken"),
 });
 
 kubernetesCluster.createWorkerPool("stateless", {

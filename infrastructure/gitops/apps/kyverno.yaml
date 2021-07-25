@@ -8,6 +8,7 @@ metadata:
 spec:
   destination:
     server: https://kubernetes.default.svc
+    namespace: kube-system
   project: default
   source:
     repoURL: https://github.com/kyverno/kyverno

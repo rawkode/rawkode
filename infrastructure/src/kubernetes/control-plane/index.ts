@@ -1,4 +1,4 @@
-import { ComponentResource } from "@pulumi/pulumi";
+import { ComponentResource, Output } from "@pulumi/pulumi";
 import * as pulumi from "@pulumi/pulumi";
 import * as metal from "@pulumi/equinix-metal";
 
@@ -11,6 +11,7 @@ import { cloudConfig } from "./cloud-config";
 export interface Config {
   plan: metal.Plan;
   highAvailability: boolean;
+  metalAuthToken: Output<string>;
 }
 
 interface ControlPlaneNode {
@@ -90,6 +91,8 @@ export class ControlPlane extends ComponentResource {
         operatingSystem: metal.OperatingSystem.Ubuntu2004,
         customData: pulumi
           .all([
+            this.config.metalAuthToken,
+            this.cluster.config.projectId,
             this.joinToken.token,
             this.cluster.controlPlaneIp,
             this.cluster.ingressIp,
@@ -101,10 +104,12 @@ export class ControlPlane extends ComponentResource {
             this.frontProxyCertificate.certificate.certPem,
             this.etcdCertificate.privateKey.privateKeyPem,
             this.etcdCertificate.certificate.certPem,
-            this.cluster.dnsName,
+            this.cluster.config.dns.domain,
           ])
           .apply(
             ([
+              metalAuthToken,
+              metalProjectId,
               joinToken,
               controlPlaneIp,
               ingressIp,
@@ -120,6 +125,8 @@ export class ControlPlane extends ComponentResource {
             ]) =>
               JSON.stringify({
                 kubernetesVersion: this.cluster.config.kubernetesVersion,
+                metalAuthToken,
+                metalProjectId,
                 joinToken,
                 controlPlaneIp,
                 ingressIp,

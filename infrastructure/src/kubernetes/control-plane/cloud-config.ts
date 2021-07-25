@@ -86,19 +86,15 @@ export const cloudConfig = cloudinit.getConfig({
     },
     {
       contentType: "text/x-shellscript",
-      content: fs.readFileSync("../cloud-init/scripts/ccm-disable.sh", "utf8"),
-    },
-    {
-      contentType: "text/x-shellscript",
       content: fs.readFileSync(
-        "../cloud-init/scripts/kube-vip-daemonset.sh",
+        "../cloud-init/scripts/equinix-metal-ccm.sh",
         "utf8"
       ),
     },
     {
       contentType: "text/x-shellscript",
       content: fs.readFileSync(
-        "../cloud-init/scripts/net-deny-metadata.sh",
+        "../cloud-init/scripts/kube-vip-daemonset.sh",
         "utf8"
       ),
     },

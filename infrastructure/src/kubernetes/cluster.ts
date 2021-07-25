@@ -1,9 +1,8 @@
 import { ComponentResource, Output } from "@pulumi/pulumi";
-import * as google from "@pulumi/google-native";
 import * as metal from "@pulumi/equinix-metal";
-import * as pulumi from "@pulumi/pulumi";
 
 import { PREFIX } from "./meta";
+import { Controller as DnsController } from "../dns/controller";
 import { WorkerPool, Config as WorkerPoolConfig } from "./worker-pool";
 import { ControlPlane, Config as ControlPlaneConfig } from "./control-plane";
 
@@ -11,14 +10,12 @@ interface Config {
   kubernetesVersion: string;
   metro: string;
   projectId: string;
-  dnsZone: google.dns.v1.ManagedZone;
+  dns: DnsController;
 }
 
 export class Cluster extends ComponentResource {
   readonly name: string;
   readonly config: Config;
-  readonly dnsName: Output<string>;
-  readonly dnsWildcard: Output<string>;
   readonly controlPlaneIp: Output<string>;
   readonly ingressIp: Output<string>;
   public controlPlane?: ControlPlane;
@@ -56,23 +53,8 @@ export class Cluster extends ComponentResource {
       }
     ).address;
 
-    this.dnsName = new google.dns.v1.Rrset(`${name}-cluster-dns`, {
-      managedZone: config.dnsZone.name,
-      project: "rawkode",
-      name: pulumi.interpolate`${config.dnsZone.dnsName}`,
-      ttl: 300,
-      type: "A",
-      rrdatas: [this.ingressIp],
-    }).name;
-
-    this.dnsWildcard = new google.dns.v1.Rrset(`${name}-cluster-dns-wildcard`, {
-      managedZone: config.dnsZone.name,
-      project: "rawkode",
-      name: pulumi.interpolate`*.${config.dnsZone.dnsName}`,
-      ttl: 300,
-      type: "A",
-      rrdatas: [this.ingressIp],
-    }).name;
+    this.ingressIp.apply((ip) => config.dns.createRecord("", "A", ip));
+    this.ingressIp.apply((ip) => config.dns.createRecord("*", "A", ip));
   }
 
   public createControlPlane(config: ControlPlaneConfig) {
@@ -83,8 +65,7 @@ export class Cluster extends ComponentResource {
     }
 
     this.controlPlane = new ControlPlane(this, {
-      highAvailability: config.highAvailability,
-      plan: config.plan,
+      ...config,
     });
   }
 
