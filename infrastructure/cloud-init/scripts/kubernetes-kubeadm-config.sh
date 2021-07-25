@@ -42,7 +42,6 @@ nodeRegistration:
   kubeletExtraArgs:
     cgroup-driver: "systemd"
     cloud-provider: "external"
-  taints: null
 EOF
 
 cat > /etc/kubernetes/join.yaml <<EOF
@@ -77,5 +76,4 @@ discovery:
 nodeRegistration:
   kubeletExtraArgs:
     cloud-provider: "external"
-  taints: null
 EOF
