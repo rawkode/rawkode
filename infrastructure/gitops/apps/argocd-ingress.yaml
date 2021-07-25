@@ -6,6 +6,7 @@ metadata:
   labels:
     dnsname: argocd
 spec:
+  hostname: example.com
   acmeProvider:
     authority: https://acme-v02.api.letsencrypt.org/directory
     email: david@rawkode.com
