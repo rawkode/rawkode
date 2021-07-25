@@ -15,9 +15,9 @@ spec:
         resources:
           kinds:
             - getambassador.io/v2/Mapping
-          selector:
-            matchLabels:
-              dnsname: "*?"
+          # selector:
+          #   matchLabels:
+          #     dnsname: "*?"
       mutate:
         patchStrategicMerge:
           spec:
@@ -40,9 +40,9 @@ spec:
         resources:
           kinds:
             - getambassador.io/v2/Host
-          selector:
-            matchLabels:
-              dnsname: "*?"
+          # selector:
+          #   matchLabels:
+          #     dnsname: "*?"
       mutate:
         patchStrategicMerge:
           spec:
