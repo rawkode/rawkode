@@ -4,6 +4,7 @@ metadata:
   name: ingress-domain-injector
   annotations:
     argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   background: false
   rules:
@@ -31,6 +32,7 @@ metadata:
   name: host-domain-injector
   annotations:
     argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   background: false
   rules:
