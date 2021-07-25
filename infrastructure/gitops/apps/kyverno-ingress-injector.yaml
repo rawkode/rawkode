@@ -23,7 +23,7 @@ spec:
       mutate:
         patchStrategicMerge:
           spec:
-            host: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.domain }}"
+            host: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.rootDomain }}"
 ---
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -50,4 +50,4 @@ spec:
       mutate:
         patchStrategicMerge:
           spec:
-            hostname: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.domain }}"
+            hostname: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.rootDomain }}"
