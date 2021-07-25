@@ -1,4 +1,0 @@
-name: awesome-o
-runtime: nodejs
-description: Rawkode's Awesome-o Platform
-main: src/index.ts

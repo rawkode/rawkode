@@ -1,4 +1,0 @@
-name: rudder
-runtime: nodejs
-description: Rawkode's Rudder Platform
-main: src/index.ts

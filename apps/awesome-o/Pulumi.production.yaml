@@ -1,9 +1,0 @@
-config:
-  awesome-o:certManagerVersion: "1.3.1"
-  awesome-o:dnsName: awesomeo.rawkode.dev
-  civo:token:
-    secure: AAABABcC1LvMDsD80IaQ+IOExTmK6nBN8mI6NN2hheIzwVnXmML/uoyfs6ZPJBLM6lSqX/yoZszONRZQUPms1LyEAnOmthMUboCYYfqkJTyGog==
-  cloudflare:apiToken:
-    secure: AAABAG1B5cKof/VN3IoecStvyYsWwgUiCFoxtOzF7zBA63it4U3sU1Zjj4j0qBPJ+oZm+vIIr+pdNweg7XI4G6WT7XZPcLK2
-  ns1:apikey:
-    secure: AAABABl3P2wWzxCXVHXoouS18N7bzFujzVaj3rxfUXrsq54BTG1RpeIN5LXKfv0VnA1SoA==
