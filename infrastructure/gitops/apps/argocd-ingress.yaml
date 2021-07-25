@@ -1,3 +1,15 @@
+---
+apiVersion: getambassador.io/v2
+kind: Host
+metadata:
+  name: argocd-server-ui
+  labels:
+    dnsname: argocd
+spec:
+  acmeProvider:
+    authority: https://acme-v02.api.letsencrypt.org/directory
+    email: david@rawkode.com
+---
 apiVersion: getambassador.io/v2
 kind: Mapping
 metadata:

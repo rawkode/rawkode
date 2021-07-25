@@ -15,7 +15,35 @@ spec:
         resources:
           kinds:
             - getambassador.io/v2/Mapping
+          selector:
+            matchLabels:
+              dnsname: "*?"
       mutate:
         patchStrategicMerge:
           spec:
-            host: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.rootDomain }}"
+            host: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.domain }}"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: host-domain-injector
+spec:
+  background: false
+  rules:
+    - name: environment
+      context:
+        - name: environment
+          configMap:
+            namespace: argocd
+            name: environment-details
+      match:
+        resources:
+          kinds:
+            - getambassador.io/v2/Host
+          selector:
+            matchLabels:
+              dnsname: "*?"
+      mutate:
+        patchStrategicMerge:
+          spec:
+            hostname: "{{ request.object.metadata.labels.dnsname }}.{{ environment.data.domain }}"
