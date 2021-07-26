@@ -12,7 +12,6 @@ spec:
       context:
         - name: environment
           configMap:
-            namespace: argocd
             name: environment-details
       match:
         resources:

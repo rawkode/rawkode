@@ -5,7 +5,7 @@ cat <<EOF | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: argocd
+  name: management
 EOF
 
 cat <<EOF | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
@@ -13,7 +13,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: environment-details
-  namespace: argocd
+  namespace: management
 data:
   rootDomain: ${DNS_NAME}
 EOF
@@ -22,14 +22,30 @@ kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -n argocd -f https://raw.g
 
 cat <<EOF | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
 apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: management
+  namespace: management
+spec:
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  destinations:
+  - namespace: '*'
+    server: '*'
+  sourceRepos:
+  - '*'
+---
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: management
-  namespace: argocd
+  namespace: management
 spec:
-  project: default
+  project: management
   destination:
     server: https://kubernetes.default.svc
+    namespace: management
   source:
     repoURL: https://github.com/rawkode/rawkode
     path: ./infrastructure/gitops
