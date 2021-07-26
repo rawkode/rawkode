@@ -104,7 +104,7 @@ export class ControlPlane extends ComponentResource {
             this.frontProxyCertificate.certificate.certPem,
             this.etcdCertificate.privateKey.privateKeyPem,
             this.etcdCertificate.certificate.certPem,
-            this.cluster.config.dns.domain,
+            this.cluster.config.dns.domainName,
           ])
           .apply(
             ([

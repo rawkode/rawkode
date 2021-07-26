@@ -1,25 +1,10 @@
 #!/usr/bin/env bash
 INGRESS_IP=$(jq -r ".ingressIp" /tmp/customdata.json)
 
-export KUBECONFIG=/etc/kubernetes/admin.conf
+kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f https://www.getambassador.io/yaml/aes-crds.yaml
+kubectl --kubeconfig /etc/kubernetes/admin.conf wait --for condition=established --timeout=90s crd -lproduct=aes
+curl -fsSL https://www.getambassador.io/yaml/aes.yaml \
+  | sed -E "s/namespace: ambassador/namespace: kube-system/g" \
+  | kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f -
+kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system patch svc ambassador -p "{\"spec\": {\"type\": \"LoadBalancer\", \"externalTrafficPolicy\": \"Local\", \"loadBalancerIP\": \"${INGRESS_IP}\"}}"
 
-kubectl --namespace=kube-system apply -f https://www.getambassador.io/yaml/ambassador/ambassador-crds.yaml
-kubectl --namespace=kube-system apply -f https://www.getambassador.io/yaml/ambassador/ambassador-rbac.yaml
-
-cat << EOF | kubectl apply -f -
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ambassador
-  namespace: kube-system
-spec:
-  type: LoadBalancer
-  externalTrafficPolicy: Local
-  loadBalancerIP: ${INGRESS_IP}
-  ports:
-   - port: 80
-     targetPort: 8080
-  selector:
-    service: ambassador
-EOF

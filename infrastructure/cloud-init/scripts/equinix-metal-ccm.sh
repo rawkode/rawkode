@@ -19,3 +19,7 @@ EOF
 curl -fsSL https://github.com/equinix/cloud-provider-equinix-metal/releases/download/v3.1.0/deployment.yaml \
   | sed -E 's/v3.1.0/7e3189de8abd08dcae35cf052b45326c29f79b7b/g' \
   | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
+
+# CCM hack for bug fix:
+sleep 5
+kubectl --kubeconfig=/etc/kubernetes/admin.conf taint node --all node.cloudprovider.kubernetes.io/uninitialized:NoSchedule
