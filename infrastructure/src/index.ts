@@ -1,10 +1,11 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as metal from "@pulumi/equinix-metal";
+import rawkodeDev from "./dns/rawkode.dev";
 import rawkodeSh from "./dns/rawkode.sh";
 import { Cluster } from "./kubernetes";
 
 // Ensure DNS records aren't elided.
-export * from "./dns";
+const Domains = [rawkodeDev, rawkodeSh];
 
 const config = new pulumi.Config();
 
