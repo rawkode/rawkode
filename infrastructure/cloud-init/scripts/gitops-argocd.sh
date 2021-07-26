@@ -18,7 +18,9 @@ data:
   rootDomain: ${DNS_NAME}
 EOF
 
-kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+curl -fsSL https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml \
+  | sed -E "s/namespace: argocd/namespace: management/g" \
+  | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -n management -f -
 
 cat <<EOF | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
 apiVersion: argoproj.io/v1alpha1
