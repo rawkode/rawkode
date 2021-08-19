@@ -1,0 +1,11 @@
+actions:
+  - action: package.install
+    list:
+      - alt-tab
+      - bartender
+      - clickup
+      # - command-tab-plus 2 not available yet
+      - fantastical
+  # - action: package.install
+  #   name: id1487937127
+  #   subcommand: mas
