@@ -35,3 +35,46 @@ for file in ~/.zsh/includes/*; do
 done
 
 SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+export PATH="$PATH:/Users/rawkode/.nsc/bin"
+
+qq() {
+    clear
+
+    logpath="$TMPDIR/q"
+    if [[ -z "$TMPDIR" ]]; then
+        logpath="/tmp/q"
+    fi
+
+    if [[ ! -f "$logpath" ]]; then
+        echo 'Q LOG' > "$logpath"
+    fi
+
+    tail -100f -- "$logpath"
+}
+
+rmqq() {
+    logpath="$TMPDIR/q"
+    if [[ -z "$TMPDIR" ]]; then
+        logpath="/tmp/q"
+    fi
+    if [[ -f "$logpath" ]]; then
+        rm "$logpath"
+    fi
+    qq
+}
+
+_direnv_hook() {
+  trap -- '' SIGINT;
+  eval "$("/usr/local/bin/direnv" export zsh)";
+  trap - SIGINT;
+}
+
+typeset -ag precmd_functions;
+if [[ -z ${precmd_functions[(r)_direnv_hook]} ]]; then
+  precmd_functions=( _direnv_hook ${precmd_functions[@]} )
+fi
+
+typeset -ag chpwd_functions;
+if [[ -z ${chpwd_functions[(r)_direnv_hook]} ]]; then
+  chpwd_functions=( _direnv_hook ${chpwd_functions[@]} )
+fi
