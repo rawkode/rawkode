@@ -1,0 +1,6 @@
+actions:
+  - action: package.install
+    repository: homebrew/cask-drivers
+    list:
+      - elgato-control-center
+      - elgato-stream-deck
