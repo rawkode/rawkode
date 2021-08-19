@@ -11,6 +11,6 @@
 		}
 
 		name:         string @template("Science Fiction")
-		category_id?: string
+		parent_id?:   string @relationsip(Category)
 	}
 }

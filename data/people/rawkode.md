@@ -1,6 +1,6 @@
 ---
 forename: David
-surname: McKay
+surname: Flanagan
 company: Equinix Metal
 title: Senior Developer Advocate
 ---

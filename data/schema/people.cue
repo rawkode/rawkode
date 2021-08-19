@@ -1,15 +1,16 @@
 {
 	_schema: {
-		name:      "Profile"
+		name:      "Person"
 		namespace: "cueblox.rawkode.dev"
 	}
 
-	#Profile: {
+	#Person: {
 		_dataset: {
-			plural: "profiles"
+			plural: "people"
 			supportedExtensions: ["yaml", "yml", "md", "mdx"]
 		}
 
+    email:    string
 		forename: string @template("Forename")
 		surname:  string @template("Surname")
 		age?:     int
@@ -34,16 +35,5 @@
 	#MiscellaneousAccount: {
 		network: string
 		url:     string
-	}
-
-	#Website: {
-		_dataset: {
-			plural: "websites"
-			supportedExtensions: ["yaml", "yml"]
-		}
-
-		url:         string @template("https://rawkode.dev")
-		profile_id?: string
-		body?:       string
 	}
 }
