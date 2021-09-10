@@ -1,5 +1,5 @@
 import { Controller } from "../controller";
 
-const domainController = new Controller("rawkode.sh");
+const zone = new Controller("rawkode.sh");
 
-export default domainController;
+export default zone;

@@ -1,6 +1,6 @@
 import { Controller } from "../controller";
 
-const DOMAIN = "rawkode.dev";
+const DOMAIN = "rawkode.com";
 
 const zone = new Controller(DOMAIN);
 
@@ -16,10 +16,12 @@ zone.createRecord("_dmarc", "TXT", [
 // Cloud DNS needs the key broken into 255 byte segments. Unbelievable
 // https://www.mailhardener.com/tools/dns-record-splitter
 zone.createRecord("google._domainkey", "TXT", [
-  `"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjVevTfr7SjzrYEQ1YoI4yvBAnAfd2yqp6IQNZqZqm6HXJNXl2rBiy181NZU31Z9n6fGdoGT8yECZQBOL/9Ph9J9w/VO6ozOn0FkyEhYHkzq+twLHl5jWy07V0YeW4cg7CrV3oMSdv1kn5UgMSiB8zHoYQxlFsxM+MYg86OnY7ueT3jNbf+cVJUqFAV0R74I+n" "FoEerC92Gz7poMBRACRqs+wP9MHlzQnW+cjqMNci1fZwGRprTCTFPuWkDr75gnZDIPGa+cQAiVvtwZw6EK0KSytPAl5sDL7dHS12fGUPpaa05kJGezEhSn6wej37qFd+mn0NK0+H9ONsMtWAPQ72QIDAQAB"`,
+  `"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAikTg1HGzUusOgiX03hgNMqLPFIfXHGdK2e78bibzfoLTZDhQ0HciN+04bbr4AYJFjd+v0sQMoLJ7018rlKpREuD3EXiPjk+KUYXKwDdeYsA62BP56SNCfoNJ7Q0/VUdZGxTrTz1DC52iNOTjhkU/9nIax+15vSw+G22f3fQSMQvHn9+QZCxCLZi+GuOUlFbiD" "lYQr2ATPSe/aX4bumgMYgH2l+7l3uZpmw7bRaeHDQhFIOo+mvFKjX6M4ZYegH5wIMMrMnAFKE/P9UPFnZTAvESnbg9shHLIOgrHM0FiwQZsv/aUeA9zpm4ZNc6PvOpG0RGk6XgJ5CH0rJ1w8XE2aQIDAQAB"`,
 ]);
 
 zone.createRecord("@", "A", ["151.101.1.195", "151.101.65.195"]);
 zone.createRecord("www", "CNAME", [`${DOMAIN}`]);
+
+zone.createRecord("store", "A", ["23.227.38.65"]);
 
 export default zone;

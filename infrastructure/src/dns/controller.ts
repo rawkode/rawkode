@@ -3,7 +3,7 @@ import * as cloudflare from "@pulumi/cloudflare";
 
 export class Controller extends ComponentResource {
   readonly domainName: string;
-  readonly zone: Promise<cloudflare.types.output.GetZonesZone>;
+  readonly zone: cloudflare.Zone;
   private records: cloudflare.Record[];
 
   constructor(domainName: string) {
@@ -12,70 +12,80 @@ export class Controller extends ComponentResource {
     this.domainName = domainName;
     this.records = [];
 
-    this.zone = cloudflare
-      .getZones({
-        filter: {
-          name: this.domainName,
-        },
-      })
-      .then((result) => {
-        if (result.zones.length === 0) {
-          throw new Error(`No zone found for domain ${domainName}`);
-        }
-
-        const zone = result.zones.shift();
-
-        if (zone === undefined) {
-          throw new Error(`No zone found for domain ${domainName}`);
-        }
-
-        return zone;
-      });
+    this.zone = new cloudflare.Zone(
+      domainName,
+      {
+        zone: domainName,
+        type: "full",
+        plan: "free",
+      },
+      {
+        protect: true,
+        parent: this,
+      }
+    );
   }
 
   private recordName(name: string): string {
     if (name.length == 0) {
-      return this.domainName;
+      return `${this.domainName}.`;
     }
 
-    return `${name}.${this.domainName}`;
+    if (name == "@") {
+      return `${this.domainName}.`;
+    }
+
+    return `${name}.${this.domainName}.`;
   }
 
-  private resourceName(name: string): string {
+  private resourceName(name: string, type: string): string {
     if (name.length == 0) {
-      return this.domainName;
+      return `${this.domainName}-${type}`;
     }
 
-    return `${this.domainName}-${name}`;
+    if (name == "@") {
+      return `${this.domainName}-${type}`;
+    }
+
+    return `${this.domainName}-${type}-${name}`;
   }
 
-  public async createRecord(
-    name: string,
-    type: string,
-    value: string
-  ): Promise<cloudflare.Record> {
-    const zone = await this.zone.then((zone) => zone);
+  public createRecord(name: string, type: string, values: string[]): void {
+    values.forEach((value, index) => {
+      const record = new cloudflare.Record(
+        this.resourceName(`${name}-${index}`, type),
+        {
+          zoneId: this.zone.id,
+          name: this.recordName(name),
+          ttl: 300,
+          type,
+          value,
+        },
+        { parent: this.zone }
+      );
 
-    if (zone.id === undefined || zone.name === undefined) {
-      throw new Error("Failed");
-    }
+      this.records.push(record);
+    });
 
+    return;
+  }
+
+  public createMxRecord(name: string, priority: number, value: string): void {
     const record = new cloudflare.Record(
-      this.resourceName(name),
+      this.resourceName(`${name}-${priority}`, "MX"),
       {
+        zoneId: this.zone.id,
         name: this.recordName(name),
-        type: type,
-        zoneId: zone.id,
         ttl: 300,
-        value: value,
+        type: "MX",
+        priority,
+        value,
       },
-      {
-        parent: this,
-      }
+      { parent: this.zone }
     );
 
     this.records.push(record);
 
-    return record;
+    return;
   }
 }

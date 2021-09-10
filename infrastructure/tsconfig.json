@@ -1,16 +1,17 @@
 {
   "compilerOptions": {
-    "strict": true,
-    "outDir": "bin",
-    "target": "es2016",
+    "experimentalDecorators": true,
+    "forceConsistentCasingInFileNames": true,
+    "importsNotUsedAsValues": "preserve",
     "module": "commonjs",
     "moduleResolution": "node",
-    "sourceMap": true,
-    "experimentalDecorators": true,
-    "pretty": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
-    "forceConsistentCasingInFileNames": true
+    "outDir": "bin",
+    "pretty": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "es2016"
   },
   "files": ["src/index.ts"]
 }

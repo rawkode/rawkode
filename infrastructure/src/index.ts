@@ -1,29 +1,4 @@
-import * as pulumi from "@pulumi/pulumi";
-import * as metal from "@pulumi/equinix-metal";
-import rawkodeDev from "./dns/rawkode.dev";
-import rawkodeSh from "./dns/rawkode.sh";
-import { Cluster } from "./kubernetes";
+import { managedZones } from "./dns";
 
-// Ensure DNS records aren't elided.
-const Domains = [rawkodeDev, rawkodeSh];
-
-const config = new pulumi.Config();
-
-const kubernetesCluster = new Cluster("rawkode", {
-  kubernetesVersion: "1.21.2",
-  metro: "am",
-  projectId: "a5e0d3df-649a-4566-898f-5d96fb0ccff7",
-  dns: rawkodeSh,
-});
-
-kubernetesCluster.createControlPlane({
-  highAvailability: false,
-  plan: metal.Plan.C1SmallX86,
-  metalAuthToken: config.requireSecret("metalAuthToken"),
-});
-
-kubernetesCluster.createWorkerPool("stateless", {
-  kubernetesVersion: "1.21.2",
-  plan: metal.Plan.C1SmallX86,
-  replicas: 1,
-});
+// hack to stop the compiler eliding the import
+const f = managedZones;

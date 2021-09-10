@@ -1,4 +1,0 @@
-resources:
-  - ./apps/kyverno.yaml
-  - ./apps/kyverno-ingress-injector.yaml
-  - ./apps/argocd-ingress.yaml
