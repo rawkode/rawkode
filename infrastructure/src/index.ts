@@ -1,4 +1,7 @@
-import { Output } from "@pulumi/pulumi";
 import { managedDomains as domains } from "./dns";
 
-const f = domains;
+export const managedDomains = domains.reduce(
+  (zones, domain) =>
+    Object.assign(zones, { [domain.domainName]: domain.zone.id }),
+  {}
+);
