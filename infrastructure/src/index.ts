@@ -1,4 +1,4 @@
-import { managedZones } from "./dns";
+import { Output } from "@pulumi/pulumi";
+import { managedDomains as domains } from "./dns";
 
-// hack to stop the compiler eliding the import
-const f = managedZones;
+const f = domains;

@@ -7,7 +7,7 @@ import rawkodeLive from "./rawkode.live";
 import rawkodeNews from "./rawkode.news";
 import rawkodeSh from "./rawkode.sh";
 
-export const managedZones = [
+export const managedDomains = [
   rawkode,
   rawkodeAcademy,
   rawkodeChat,
