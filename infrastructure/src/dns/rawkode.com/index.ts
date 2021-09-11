@@ -10,7 +10,7 @@ zone.createMxRecord("@", 6, "alt2.aspmx.l.google.com");
 
 zone.createRecord("@", "TXT", [`"v=spf1 include:_spf.google.com ~all"`]);
 zone.createRecord("_dmarc", "TXT", [
-  `"v=DMARC1; p=reject; rua=mailto:abuse@rawkode.com; pct=100; adkim=s; aspf=s"`,
+  `"v=DMARC1; p=none; pct=100; rua=mailto:re+byrfffpf3zm@dmarc.postmarkapp.com; sp=none; aspf=r;"`,
 ]);
 
 // Cloud DNS needs the key broken into 255 byte segments. Unbelievable
