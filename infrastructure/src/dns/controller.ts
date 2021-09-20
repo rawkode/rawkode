@@ -70,6 +70,31 @@ export class Controller extends ComponentResource {
     return;
   }
 
+  public createProxiedRecord(
+    name: string,
+    type: string,
+    values: string[]
+  ): void {
+    values.forEach((value, index) => {
+      const record = new cloudflare.Record(
+        this.resourceName(`${name}-${index}`, type),
+        {
+          zoneId: this.zone.id,
+          name: this.recordName(name),
+          ttl: 1,
+          proxied: true,
+          type,
+          value,
+        },
+        { parent: this.zone }
+      );
+
+      this.records.push(record);
+    });
+
+    return;
+  }
+
   public createMxRecord(name: string, priority: number, value: string): void {
     const record = new cloudflare.Record(
       this.resourceName(`${name}-${priority}`, "MX"),
