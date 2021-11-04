@@ -8,7 +8,7 @@ zinit ice silent wait"0"
 zinit snippet OMZ::plugins/per-directory-history/per-directory-history.zsh
 
 zinit ice silent wait"0"
-zinit light zdharma/history-search-multi-word
+zinit light zdharma-continuum/history-search-multi-word
 
 zinit ice silent wait"0"
 zinit snippet OMZ::plugins/history-substring-search
