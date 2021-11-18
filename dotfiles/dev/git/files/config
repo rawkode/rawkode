@@ -1,3 +1,7 @@
 [user]
   email = david@rawkode.com
-  name = David McKay
+  name = David Flanagan
+  signingKey = ~/.ssh/github.pub
+
+[gpg]
+  format = "ssh"
