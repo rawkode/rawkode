@@ -5,3 +5,23 @@
 
 [gpg]
   format = "ssh"
+
+[gpg "ssh"]
+  allowedSignersFile = "~/.ssh/allowed_signers"
+
+[commit]
+	gpgSign = true
+
+[push]
+	default = current
+
+[pull]
+	default = current
+	rebase = true
+
+[branch]
+	autosetuprebase = always
+
+[rerere]
+  enabled = 1
+  autoupdate = 1
