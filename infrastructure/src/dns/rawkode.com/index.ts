@@ -24,4 +24,6 @@ zone.createRecord("www", "CNAME", [`${DOMAIN}`]);
 
 zone.createRecord("store", "A", ["23.227.38.65"]);
 
+zone.createRecord("share", "CNAME", [`cname.cleanshot.cloud`]);
+
 export default zone;
