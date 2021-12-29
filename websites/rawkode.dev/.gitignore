@@ -1,5 +1,9 @@
 .DS_Store
-node_modules
-/build
 /.svelte-kit
+/.vercel
+/.vercel_build_output
+/build
 /package
+/package-lock.json
+/yarn.lock
+node_modules
