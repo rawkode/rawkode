@@ -2,5 +2,14 @@
 	"version": 2,
 	"github": {
 		"enabled": false
-	}
+	},
+	"builds": [
+		{
+			"src": "package.json",
+			"use": "@vercel/static-build",
+			"config": {
+				"distDir": ".vercel_build_output"
+			}
+		}
+	]
 }
