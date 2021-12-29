@@ -1,3 +1,3 @@
 # Rawkode's Infrastructure
 
-Managed by Pulumi
+Managed by Pulumi. Thanks
