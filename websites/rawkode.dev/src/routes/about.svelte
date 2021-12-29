@@ -7,4 +7,4 @@
 	};
 </script>
 
-<h1>About SvelteKit</h1>
+<h1>About Rawkode!</h1>
