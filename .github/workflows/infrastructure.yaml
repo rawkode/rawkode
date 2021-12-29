@@ -1,4 +1,4 @@
-name: rawkode.dev/deploy
+name: infrastructure
 
 on:
   push:
