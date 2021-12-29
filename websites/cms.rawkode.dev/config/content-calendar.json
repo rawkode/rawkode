@@ -1,0 +1,16 @@
+{
+  "types": [
+    {
+      "type": "article",
+      "field": "publishedAt",
+      "titleField": "title"
+    }
+  ],
+  "calendar": {
+    "event": {
+      "dateFormat": "MMMM, dd yyyy",
+      "timeFormat": "hh:mm a",
+      "showAuthor": "false"
+    }
+  }
+}

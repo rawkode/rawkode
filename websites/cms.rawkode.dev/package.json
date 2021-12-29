@@ -1,0 +1,34 @@
+{
+  "name": "rawkodes-modern-life",
+  "private": true,
+  "version": "1.0.0",
+  "description": "",
+  "main": "package.json",
+  "author": "David Flanagan <david@rawkode.com>",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "sanity start",
+    "build": "sanity build"
+  },
+  "keywords": [
+    "sanity"
+  ],
+  "dependencies": {
+    "@sanity/base": "^2.23.2",
+    "@sanity/code-input": "^2.23.2",
+    "@sanity/core": "^2.23.2",
+    "@sanity/default-layout": "^2.23.2",
+    "@sanity/default-login": "^2.23.2",
+    "@sanity/desk-tool": "^2.23.2",
+    "@sanity/vision": "^2.23.2",
+    "get-youtube-id": "^1.0.1",
+    "prop-types": "^15.7",
+    "react": "^17.0",
+    "react-dom": "^17.0",
+    "react-icons": "^4.3.1",
+    "react-youtube": "^7.13.1",
+    "sanity-plugin-content-calendar": "^1.2.2",
+    "sanity-plugin-media": "^1.4.4",
+    "styled-components": "^5.2.0"
+  }
+}

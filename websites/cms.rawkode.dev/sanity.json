@@ -1,0 +1,36 @@
+{
+  "root": true,
+  "project": {
+    "name": "Rawkode's Modern Life"
+  },
+  "api": {
+    "projectId": "ypvmf3jx",
+    "dataset": "website"
+  },
+  "plugins": [
+    "@sanity/base",
+    "@sanity/code-input",
+    "@sanity/default-layout",
+    "@sanity/default-login",
+    "@sanity/desk-tool",
+    "content-calendar",
+    "media"
+  ],
+  "env": {
+    "development": {
+      "plugins": [
+        "@sanity/vision"
+      ]
+    }
+  },
+  "parts": [
+    {
+      "name": "part:@sanity/base/schema",
+      "path": "./schema"
+    },
+    {
+      "implements": "part:@sanity/form-builder/input/image/asset-sources",
+      "path": "./parts/assetSources.js"
+    }
+  ]
+}
