@@ -61,7 +61,7 @@ export class Controller extends ComponentResource {
           type,
           value,
         },
-        { parent: this.zone }
+        { parent: this.zone, protect: false }
       );
 
       this.records.push(record);
@@ -86,7 +86,7 @@ export class Controller extends ComponentResource {
           type,
           value,
         },
-        { parent: this.zone }
+        { parent: this.zone, protect: false }
       );
 
       this.records.push(record);
@@ -106,7 +106,7 @@ export class Controller extends ComponentResource {
         priority,
         value,
       },
-      { parent: this.zone }
+      { parent: this.zone, protect: false }
     );
 
     this.records.push(record);
