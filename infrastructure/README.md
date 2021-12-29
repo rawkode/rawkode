@@ -1,3 +1,3 @@
-# Rawkode's Infrastructure
+# Rawkode's Infrastruture
 
-Managed by Pulumi. Thanks
+[![infrastructure](https://github.com/rawkode/rawkode/actions/workflows/infrastructure.yaml/badge.svg)](https://github.com/rawkode/rawkode/actions/workflows/infrastructure.yaml)

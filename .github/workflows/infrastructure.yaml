@@ -16,9 +16,11 @@ jobs:
         with:
           node-version: 14.x
       - run: npm install
+        working-directory: infrastructure
       - uses: pulumi/actions@v3
         with:
           command: up
           stack-name: production
+          work-dir: infrastructure
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
