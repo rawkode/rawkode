@@ -1,4 +1,84 @@
+<script context="module">
+	import { get, readable } from 'svelte/store';
+	import { createClient, operationStore } from '@urql/svelte';
+
+	/**
+	 * @type {import('@sveltejs/kit').Load}
+	 */
+	export async function load({ page, stuff }) {
+		const client = createClient({
+			url: 'https://ypvmf3jx.api.sanity.io/v1/graphql/website/default',
+		});
+
+		return {
+			stuff: {
+				client,
+				query: async (query, variables, context, normalize) => {
+					const store = operationStore(query, variables, context);
+
+					const result = await client
+						.query(store.query, store.variables, store.context)
+						.toPromise();
+
+					Object.assign(get(store), result);
+
+					// Allow to access deep nested object directly at data
+					if (normalize) {
+						const { subscribe } = store;
+
+						return Object.create(store, {
+							subscribe: {
+								enumerable: true,
+								value: readable(store, (set) => {
+									const unsubscribe = subscribe((result) => {
+										if (result.data) {
+											Object.assign(result.data, normalize(result.data, result));
+										}
+										set(result);
+									});
+
+									return unsubscribe;
+								}).subscribe,
+							},
+						});
+					}
+
+					return store;
+				},
+			},
+			props: { client },
+		};
+	}
+</script>
+
 <script lang="ts">
+	import { setClient } from '@urql/svelte';
+
+	/**
+	 * @type {import('@urql/svelte').Client}
+	 */
+	export let client;
+	setClient(client);
+
+	const menuItems = [
+		{
+			name: 'Home',
+			url: '/',
+		},
+		{
+			name: 'About',
+			url: '/about',
+		},
+		{
+			name: 'Articles',
+			url: '/articles',
+		},
+		{
+			name: 'Contact',
+			url: '/contact',
+		},
+	];
+
 	import { slide } from 'svelte/transition';
 	import { linear } from 'svelte/easing';
 	import { page } from '$app/stores';
@@ -68,8 +148,11 @@
 							</div>
 							<div class="hidden md:block">
 								<div class="ml-10 flex items-baseline space-x-4">
-									<a href="/" class={classesForLink('/', false)}>Home</a>
-									<a href="/about" class={classesForLink('/about', false)}>About</a>
+									{#each menuItems as menuItem}
+										<a href={menuItem.url} class={classesForLink(menuItem.url, false)}
+											>{menuItem.name}</a
+										>
+									{/each}
 								</div>
 							</div>
 						</div>
@@ -128,9 +211,9 @@
 					transition:slide={{ easing: linear, duration: 600 }}
 				>
 					<div class="px-2 py-3 space-y-1 sm:px-3">
-						<a href="/" class={classesForLink('/', true)} aria-current="page">Home</a>
-
-						<a href="/about" class={classesForLink('/about', true)}>About</a>
+						{#each menuItems as menuItem}
+							<a href={menuItem.url} class={classesForLink(menuItem.url, false)}>{menuItem.name}</a>
+						{/each}
 					</div>
 				</div>
 			{/if}
