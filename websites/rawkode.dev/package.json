@@ -16,6 +16,7 @@
 		"@sveltejs/adapter-static": "next",
 		"@sveltejs/adapter-vercel": "next",
 		"@sveltejs/kit": "^1.0.0-next.208",
+		"@tailwindcss/typography": "^0.5.0",
 		"@types/luxon": "^2.0.8",
 		"@typescript-eslint/eslint-plugin": "^4.19.0",
 		"@typescript-eslint/parser": "^4.19.0",
@@ -35,7 +36,7 @@
 		"svelte": "^3.34.0",
 		"svelte-check": "^2.0.0",
 		"svelte-preprocess": "^4.7.4",
-		"tailwindcss": "^2.2.4",
+		"tailwindcss": "3.0.8",
 		"tslib": "^2.0.0",
 		"typescript": "^4.0.0",
 		"vercel": "23.1.2"

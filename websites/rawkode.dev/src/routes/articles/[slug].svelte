@@ -60,6 +60,8 @@
 			Badge
 		</span>
 
-		<PortableText blocks={article.data.bodyRaw} />
+		<div class="prose lg:prose-lg">
+			<PortableText blocks={article.data.bodyRaw} />
+		</div>
 	</div>
 </div>
