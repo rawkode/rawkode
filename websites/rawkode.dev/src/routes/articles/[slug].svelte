@@ -35,7 +35,7 @@
 	import { seo } from '$lib/stores';
 	import { DateTime } from 'luxon';
 	import { query } from '@urql/svelte';
-	import PortableText from '@portabletext/svelte';
+	import PortableText from '$lib/portableText/index.svelte';
 
 	export let article;
 	query(article);
@@ -60,8 +60,6 @@
 			Badge
 		</span>
 
-		<div class="prose lg:prose-lg">
-			<PortableText blocks={article.data.bodyRaw} />
-		</div>
+		<PortableText blocks={article.data.bodyRaw} />
 	</div>
 </div>
