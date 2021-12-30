@@ -2,6 +2,7 @@
 /.svelte-kit
 /.vercel
 /.vercel_build_output
+/.output
 /build
 /package
 /package-lock.json
