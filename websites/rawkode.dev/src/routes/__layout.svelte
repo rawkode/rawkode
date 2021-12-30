@@ -5,7 +5,7 @@
 	/**
 	 * @type {import('@sveltejs/kit').Load}
 	 */
-	export async function load({ stuff }) {
+	export async function load({ context }) {
 		const client = createClient({
 			url: 'https://ypvmf3jx.api.sanity.io/v1/graphql/website/default',
 		});
@@ -116,14 +116,14 @@
 
 		// Special handling because all paths start with /
 		if (path == '/') {
-			if ($page.url.pathname == '/') {
+			if ($page.path == '/') {
 				return useClasses.concat(activeClasses).join(' ');
 			}
 
 			return useClasses.join(' ');
 		}
 
-		if ($page.url.pathname.startsWith(path)) {
+		if ($page.path.startsWith(path)) {
 			return useClasses.concat(activeClasses).join(' ');
 		}
 

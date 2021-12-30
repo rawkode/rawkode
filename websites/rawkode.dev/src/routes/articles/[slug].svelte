@@ -1,7 +1,7 @@
 <script context="module">
 	import { gql } from '@urql/svelte';
 
-	export async function load({ params, stuff }) {
+	export async function load({ page, stuff }) {
 		return {
 			props: {
 				article: await stuff.query(
@@ -21,7 +21,7 @@
 						}
 					`,
 					{
-						slug: params.slug,
+						slug: page.params.slug,
 					},
 					{},
 					(data) => data.allArticle.pop(),
