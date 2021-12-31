@@ -91,6 +91,10 @@
 		mobileMenuOpen = !mobileMenuOpen;
 	};
 
+	const closeMobileMenu = (): void => {
+		mobileMenuOpen = false;
+	};
+
 	$: classesForMobileMenuButton = (classes: string): string =>
 		(mobileMenuOpen ? 'hidden' : 'block') + ' ' + classes;
 
@@ -207,11 +211,15 @@
 				<div
 					class="border-b border-gray-700 md:hidden"
 					id="mobile-menu"
-					transition:slide={{ easing: linear, duration: 600 }}
+					transition:slide={{ easing: linear, duration: 200 }}
 				>
 					<div class="px-2 py-3 space-y-1 sm:px-3">
 						{#each menuItems as menuItem}
-							<a href={menuItem.url} class={classesForLink(menuItem.url, false)}>{menuItem.name}</a>
+							<a
+								href={menuItem.url}
+								on:click={closeMobileMenu}
+								class={classesForLink(menuItem.url, false)}>{menuItem.name}</a
+							>
 						{/each}
 					</div>
 				</div>
