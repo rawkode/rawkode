@@ -38,6 +38,7 @@
 		"svelte": "^3.34.0",
 		"svelte-check": "^2.0.0",
 		"svelte-preprocess": "^4.7.4",
+		"svelte-prismjs": "1.0.2",
 		"tailwindcss": "3.0.8",
 		"tslib": "^2.0.0",
 		"typescript": "^4.0.0",

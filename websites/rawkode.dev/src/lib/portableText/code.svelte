@@ -1,5 +1,12 @@
 <script lang="ts">
 	import Prism from 'prismjs';
+	import { onMount } from 'svelte';
+
+	import 'prismjs/plugins/line-numbers/prism-line-numbers';
+	import 'prismjs/plugins/toolbar/prism-toolbar';
+	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard';
+	import 'prismjs/plugins/show-language/prism-show-language';
+
 	import 'prismjs/components/prism-bash';
 	import 'prismjs/components/prism-css';
 	import 'prismjs/components/prism-docker';
@@ -11,6 +18,10 @@
 	import 'prismjs/components/prism-rust';
 	import 'prismjs/components/prism-typescript';
 	import 'prismjs/components/prism-yaml';
+
+	onMount(async () => {
+		Prism.highlightAll();
+	});
 
 	const extraLangMap = {
 		sh: 'bash',
@@ -31,18 +42,20 @@
 </script>
 
 <svelte:head>
+	<link href="https://unpkg.com/prism-themes@1.9.0/themes/prism-dracula.min.css" rel="stylesheet" />
 	<link
-		href="https://unpkg.com/prism-themes@1.9.0/themes/prism-coldark-dark.min.css"
+		href="https://unpkg.com/prismjs@1.22.0/plugins/line-numbers/prism-line-numbers.css"
+		rel="stylesheet"
+	/>
+	<link
+		href="https://unpkg.com/prismjs@1.22.0/plugins/toolbar/prism-toolbar.css"
 		rel="stylesheet"
 	/>
 </svelte:head>
 
-<pre>
-	<code>
-      {@html Prism.highlight(
-			codeBlock.code,
-			Prism.languages[resolveLanguage(codeBlock.language)],
-			resolveLanguage(codeBlock.language),
-		)}
+<pre
+	class="line-numbers has-filename">
+	<code class="language-{resolveLanguage(codeBlock.language)}">
+			{codeBlock.code}
 	</code>
 </pre>
