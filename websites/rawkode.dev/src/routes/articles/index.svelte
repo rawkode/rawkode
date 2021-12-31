@@ -36,19 +36,15 @@
 	<p>Oopsie! {$articles.error.message}</p>
 {:else}
 	{#each articles.data.allArticle as article}
-		<div class="bg-white overflow-hidden shadow rounded-lg mb-4">
+		<div class="bg-white overflow-hidden shadow rounded-lg mb-4 border-2 ">
 			<div class="px-4 py-5 sm:p-6">
-				<a href="/articles/{article.slug.current}"><h2>{article.title}</h2></a>
+				<a class="text-blue-500" href="/articles/{article.slug.current}"><h2>{article.title}</h2></a
+				>
 			</div>
 			<div class="bg-gray-50 px-4 py-4 sm:px-6">
 				<h3>
 					Published on {DateTime.fromISO(article.publishedAt).toLocaleString(DateTime.DATE_FULL)}
 				</h3>
-				<span
-					class="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-pink-100 text-pink-800"
-				>
-					Badge
-				</span>
 			</div>
 		</div>
 	{/each}

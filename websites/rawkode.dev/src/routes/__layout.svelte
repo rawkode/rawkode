@@ -66,16 +66,8 @@
 			url: '/',
 		},
 		{
-			name: 'About',
-			url: '/about',
-		},
-		{
 			name: 'Articles',
 			url: '/articles',
-		},
-		{
-			name: 'Contact',
-			url: '/contact',
 		},
 	];
 
@@ -143,11 +135,7 @@
 					<div class="flex items-center justify-between h-16 px-4 sm:px-0">
 						<div class="flex items-center">
 							<div class="flex-shrink-0">
-								<img
-									class="h-8 w-8"
-									src="https://tailwindui.com/img/logos/workflow-mark-indigo-500.svg"
-									alt="Workflow"
-								/>
+								<img class="h-8 w-8 rounded-full" src="/logo.png" alt="Rawkode's Modern Life" />
 							</div>
 							<div class="hidden md:block">
 								<div class="ml-10 flex items-baseline space-x-4">
@@ -228,8 +216,8 @@
 
 		<header class="py-10">
 			<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 text-3xl">
+				<h1 class="grow font-bold text-white">{$seo.title}</h1>
 				<span>{$seo.emoji}</span>
-				<h1 class="font-bold text-white">{$seo.title}</h1>
 			</div>
 		</header>
 	</div>
