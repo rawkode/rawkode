@@ -218,7 +218,7 @@
 							<a
 								href={menuItem.url}
 								on:click={closeMobileMenu}
-								class={classesForLink(menuItem.url, false)}>{menuItem.name}</a
+								class={classesForLink(menuItem.url, true)}>{menuItem.name}</a
 							>
 						{/each}
 					</div>
