@@ -46,6 +46,17 @@
 	};
 </script>
 
+<svelte:head>
+	<title>{$seo.title} | Rawkode's Modern Life</title>
+
+	<meta property="article:publisher" content="Rawkode's Modern Life" />
+	<meta property="article:author" content="David Flanagan" />
+	<meta
+		property="article:published_time"
+		content={DateTime.fromISO(article.data.publishedAt).toLocaleString(DateTime.DATE_FULL)}
+	/>
+</svelte:head>
+
 <div class="bg-white overflow-hidden shadow rounded-lg mb-4">
 	<div class="px-4 py-5 sm:p-6">
 		<a href="/articles/{article.data.slug.current}"><h2>{article.data.title}</h2></a>

@@ -127,6 +127,23 @@
 	};
 </script>
 
+<svelte:head>
+	<meta property="og:site_name" content="Rawkode's Modern Life" />
+	<meta property="og:locale" content="en-GB" />
+	<meta property="og:url" content="https://rawkode.dev" />
+	<!-- <meta property="og:type" content={article ? 'article' : 'website'} /> -->
+	<meta property="og:title" content={$seo.title} />
+	<meta property="og:description" content="Rawkode's Modern Life" />
+
+	<!--
+		{#if article}
+		<meta property="article:publisher" content={facebookPage} />
+		<meta property="article:author" content={facebookAuthorPage} />
+		<meta property="article:published_time" content={datePublished} />
+		<meta property="article:modified_time" content={lastUpdated} />
+	{/if} -->
+</svelte:head>
+
 <div>
 	<div class="bg-gray-800 pb-32">
 		<nav class="bg-gray-800">

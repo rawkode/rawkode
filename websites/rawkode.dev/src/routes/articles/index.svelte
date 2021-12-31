@@ -30,6 +30,10 @@
 	query(articles);
 </script>
 
+<svelte:head>
+	<title>Articles | Rawkode's Modern Life</title>
+</svelte:head>
+
 {#if $articles.fetching}
 	<p>Loading...</p>
 {:else if $articles.error}

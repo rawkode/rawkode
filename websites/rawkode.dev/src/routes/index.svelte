@@ -7,6 +7,10 @@
 	};
 </script>
 
+<svelte:head>
+	<title>Home | Rawkode's Modern Life</title>
+</svelte:head>
+
 <div class="prose">
 	<h1>Welcome</h1>
 	<h2>Who am I?</h2>
