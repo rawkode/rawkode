@@ -42,7 +42,7 @@
 </script>
 
 <svelte:head>
-	<link href="https://unpkg.com/prism-themes@1.9.0/themes/prism-dracula.min.css" rel="stylesheet" />
+	<link href="https://unpkg.com/prismjs@1.22.0/themes/prism-tomorrow.css" rel="stylesheet" />
 	<link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/line-numbers/prism-line-numbers.css"
 		rel="stylesheet"
