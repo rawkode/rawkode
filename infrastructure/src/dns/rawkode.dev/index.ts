@@ -8,7 +8,11 @@ zone.createMxRecord("@", 1, "aspmx.l.google.com");
 zone.createMxRecord("@", 5, "alt1.aspmx.l.google.com");
 zone.createMxRecord("@", 6, "alt2.aspmx.l.google.com");
 
-zone.createRecord("@", "TXT", [`"v=spf1 include:_spf.google.com ~all"`]);
+zone.createRecord("@", "TXT", [
+  `"v=spf1 include:_spf.google.com ~all"`,
+  `"google-site-verification=RnbvxDOTdobTiAetVoa-U3Xc0Irk76nan_OcRCGuQTM"`,
+]);
+
 zone.createRecord("_dmarc", "TXT", [
   `"v=DMARC1; p=none; pct=100; rua=mailto:re+pa1p2daooug@dmarc.postmarkapp.com; sp=none; aspf=r;"`,
 ]);
