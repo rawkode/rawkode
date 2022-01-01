@@ -1,0 +1,27 @@
+name: opengraph.rawkode.dev
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - websites/opengraph.rawkode.dev/**
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: opengraph.rawkode.dev
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14.x
+      - run: npm install
+        working-directory: websites/opengraph.rawkode.dev
+      - uses: pulumi/actions@v3
+        with:
+          command: up
+          stack-name: production
+          work-dir: websites/opengraph.rawkode.dev
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
