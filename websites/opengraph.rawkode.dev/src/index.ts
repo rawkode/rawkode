@@ -17,6 +17,16 @@ const enableCloudFunctions = new gcpLegacy.projects.Service("cloud-functions", {
   service: "cloudfunctions.googleapis.com",
 });
 
-const bucket = new gcp.storage.v1.Bucket("opengraph.rawkode.dev", {
-  name: "opengraph.rawkode.dev",
-});
+const bucket = new gcp.storage.v1.Bucket(
+  "opengraph.rawkode.dev",
+  {
+    name: "opengraph.rawkode.dev",
+    location: "europe-west4",
+  },
+  {
+    // We don't need to protect this,
+    // as all images stored here are only
+    // a cache
+    deleteBeforeReplace: true,
+  }
+);
