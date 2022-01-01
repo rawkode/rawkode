@@ -30,3 +30,9 @@ const bucket = new gcp.storage.v1.Bucket(
     deleteBeforeReplace: true,
   }
 );
+
+const func = new gcp.cloudfunctions.v1.Function("opengraph.rawkode.dev", {
+  sourceRepository: {
+    url: "https://github.com/rawkode/rawkode/moveable-aliases/main/paths/websites/opengraph.rawkode.dev/cloud-function",
+  },
+});

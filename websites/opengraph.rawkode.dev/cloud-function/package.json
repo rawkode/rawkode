@@ -1,0 +1,16 @@
+{
+  "name": "opengraph.rawkode.dev",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google-cloud/storage": "^5.16.1",
+    "playwright-aws-lambda": "^0.7.0",
+    "playwright-core": "^1.17.1"
+  }
+}
