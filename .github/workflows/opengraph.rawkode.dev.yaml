@@ -24,4 +24,5 @@ jobs:
           stack-name: production
           work-dir: websites/opengraph.rawkode.dev
         env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIAL }}
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
