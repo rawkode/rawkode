@@ -1,4 +1,4 @@
-name: cms.rawkode.dev/deploy
+name: cms.rawkode.dev
 
 on:
   push:
