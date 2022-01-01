@@ -9,6 +9,10 @@ const enableCloudResourceManager = new gcpLegacy.projects.Service(
   }
 );
 
+const enableCloudBuild = new gcpLegacy.projects.Service("cloud-build", {
+  service: "cloudbuild.googleapis.com",
+});
+
 const enableCloudRun = new gcpLegacy.projects.Service("cloud-run", {
   service: "run.googleapis.com",
 });
@@ -31,8 +35,27 @@ const bucket = new gcp.storage.v1.Bucket(
   }
 );
 
-const func = new gcp.cloudfunctions.v1.Function("opengraph.rawkode.dev", {
-  sourceRepository: {
-    url: "https://github.com/rawkode/rawkode/moveable-aliases/main/paths/websites/opengraph.rawkode.dev/cloud-function",
-  },
+let funcArchive = new pulumi.asset.AssetArchive({
+  ".": new pulumi.asset.FileArchive("../cloud-function"),
 });
+
+const s = new gcp.storage.v1.BucketObject("function-opengraph", {
+  bucket: bucket.name,
+  source: funcArchive,
+});
+
+const func = new gcp.cloudfunctions.v1.Function(
+  "opengraph",
+  {
+    location: "europe-west3",
+    runtime: "nodejs14",
+    entryPoint: "handler",
+    sourceArchiveUrl: pulumi.interpolate`gs://opengraph.rawkode.dev/${s.name}`,
+    httpsTrigger: {
+      securityLevel: "SECURE_ALWAYS",
+    },
+  },
+  {
+    dependsOn: [enableCloudFunctions, enableCloudBuild],
+  }
+);

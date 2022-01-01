@@ -1,9 +1,8 @@
 import { Storage } from "@google-cloud/storage";
 import { launchChromium } from "playwright-aws-lambda";
 
-exports.handler = async (event, context) => {
-  let browser = null;
-
+// context also available
+export const handler = async (event) => {
   try {
     const browser = await launchChromium();
     const context = await browser.newContext();
