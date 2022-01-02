@@ -1,3 +1,2 @@
 config:
   gcp:project: rawkode
-  google-native:project: rawkode

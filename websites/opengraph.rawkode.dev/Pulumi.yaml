@@ -1,4 +1,4 @@
 name: opengraph.rawkode.dev
 runtime: nodejs
 description: A minimal Google Cloud TypeScript Pulumi program
-main: src/index.ts
+main: deploy/index.ts

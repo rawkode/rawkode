@@ -2,8 +2,9 @@ name: opengraph.rawkode.dev
 
 on:
   push:
-    branches:
-      - main
+    paths:
+      - websites/opengraph.rawkode.dev/**
+  pull_request:
     paths:
       - websites/opengraph.rawkode.dev/**
 
@@ -13,16 +14,45 @@ jobs:
     environment: opengraph.rawkode.dev
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
+      - uses: amondnet/vercel-action@v20
         with:
-          node-version: 14.x
-      - run: npm install
-        working-directory: websites/opengraph.rawkode.dev
-      - uses: pulumi/actions@v3
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vercel-args: "--prod"
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID}}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID}}
+          working-directory: ./websites/opengraph.rawkode.dev
+
+---
+name: opengraph.rawkode.dev/image-generator
+
+on:
+  push:
+    paths:
+      - websites/opengraph.rawkode.dev/functions/image-generator/**
+  pull_request:
+    paths:
+      - websites/opengraph.rawkode.dev/functions/image-generator/**
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Log in to the Container registry
+        uses: docker/login-action@v1
         with:
-          command: up
-          stack-name: production
-          work-dir: websites/opengraph.rawkode.dev
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v1
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build & Push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ghcr.io/${{ github.actor }}/opengraph.rawkode.dev/image-generator:latest
