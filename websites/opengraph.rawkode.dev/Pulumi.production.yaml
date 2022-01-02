@@ -1,2 +1,3 @@
 config:
-  gcp:project: rawkode
+  google-native:project: rawkode
+  google-native:location: europe-west4
