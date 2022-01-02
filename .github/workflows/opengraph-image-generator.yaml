@@ -29,4 +29,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
+          file: websites/opengraph.rawkode.dev/functions/image-generator/Dockerfile
+          context: websites/opengraph.rawkode.dev/functions/image-generator
           tags: ghcr.io/${{ github.actor }}/opengraph-image-generator:latest
