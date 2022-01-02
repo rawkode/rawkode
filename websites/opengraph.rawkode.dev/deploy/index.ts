@@ -1,10 +1,23 @@
-import * as pulumi from "@pulumi/pulumi";
-import * as gcp from "@pulumi/gcp";
+import * as gcp from '@pulumi/google-native';
 
-// Create a GCP resource (Storage Bucket)
-const bucket = new gcp.storage.Bucket("my-bucket", {
-    location: "US"
+const imageGenerator = new gcp.run.v1.Service('image-generator', {
+	spec: {
+		template: {
+			spec: {
+				containers: [
+					{
+						image: 'ghcr.io/rawkode/opengraph-image-generator:latest'
+					}
+				]
+			}
+		},
+		traffic: [
+			{
+				latestRevision: true,
+				percent: 100
+			}
+		]
+	}
 });
 
-// Export the DNS name of the bucket
-export const bucketName = bucket.url;
+export const imageGeneratorUrl = imageGenerator.status.url;
