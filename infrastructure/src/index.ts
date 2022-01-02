@@ -7,6 +7,14 @@ export const managedDomains = domains.reduce(
   {}
 );
 
-const cluster = createCluster("production");
+const cluster = createCluster({
+  name: "production",
+  nodePools: [
+    {
+      instanceType: "medium",
+      numberOfNodes: 2,
+    },
+  ],
+});
 
 export const kubeconfig = cluster.cluster.kubeconfig;
