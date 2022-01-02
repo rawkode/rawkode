@@ -1,7 +1,7 @@
 import * as gcp from '@pulumi/google-native';
 
 const imageGenerator = new gcp.run.v1.Service('image-generator', {
-	location: 'europe-west4',
+	location: 'europe-west2',
 	spec: {
 		template: {
 			spec: {
