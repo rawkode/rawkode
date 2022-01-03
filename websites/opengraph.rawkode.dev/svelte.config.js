@@ -1,6 +1,5 @@
-import adapter from '@sveltejs/adapter-vercel';
+import adapter from '@sveltejs/adapter-auto';
 import preprocess from 'svelte-preprocess';
-import chrome from 'chrome-aws-lambda';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -12,12 +11,7 @@ const config = {
 		adapter: adapter(),
 
 		// hydrate the <div id="svelte"> element in src/app.html
-		target: '#svelte',
-		vite: {
-			optimizeDeps: {
-				include: ['chrome-aws-lambda/bin/chromium.br']
-			}
-		}
+		target: '#svelte'
 	}
 };
 
