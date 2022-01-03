@@ -1,4 +1,11 @@
-import * as playwright from 'playwright';
+import core from 'puppeteer-core';
+
+const exePath =
+	process.platform === 'win32'
+		? 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+		: process.platform === 'linux'
+		? '/usr/bin/google-chrome'
+		: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 /** @type {import('@sveltejs/kit').RequestHandler} */
 export async function get({ params }) {
@@ -10,14 +17,15 @@ export async function get({ params }) {
 
 	try {
 		console.log('Launching browser');
-		const browser = await playwright.chromium.connectOverCDP({
-			wsEndpoint: `wss://chrome.headlesstesting.com?token=${process.env.HEADLESS_TESTING_API_KEY}`
+		const browser = await core.launch({
+			headless: true,
+			executablePath: exePath
 		});
-		const context = await browser.newContext();
-		const page = await context.newPage();
+
+		const page = await browser.newPage();
 
 		console.log('Opening webpage');
-		await page.goto('https://rawkode.dev');
+		await page.goto('https://opengraph.rawkode.dev');
 		const screenshot = await page.screenshot();
 		await browser.close();
 
