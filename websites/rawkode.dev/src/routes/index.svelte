@@ -4,6 +4,9 @@
 	$seo = {
 		title: 'Home',
 		emoji: '🏡',
+		openGraph: {
+			title: 'Home',
+		},
 	};
 </script>
 

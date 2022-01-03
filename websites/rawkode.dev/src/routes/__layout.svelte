@@ -131,9 +131,10 @@
 	<meta property="og:site_name" content="Rawkode's Modern Life" />
 	<meta property="og:locale" content="en-GB" />
 	<meta property="og:url" content="https://rawkode.dev" />
-	<!-- <meta property="og:type" content={article ? 'article' : 'website'} /> -->
-	<meta property="og:title" content={$seo.title} />
-	<meta property="og:description" content="Rawkode's Modern Life" />
+	<meta property="og:type" content={$seo.openGraph.type} />
+	<meta property="og:title" content="{$seo.title} | Rawkode's Modern Life" />
+	<meta property="og:image" content={$seo.openGraph.image} />
+	<meta property="og:description" content={$seo.openGraph.description} />
 
 	<!--
 		{#if article}

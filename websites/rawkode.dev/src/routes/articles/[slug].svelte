@@ -43,6 +43,11 @@
 	$seo = {
 		title: article.data.title || 'Loading ...',
 		emoji: '🗞',
+		openGraph: {
+			title: article.data.title || 'Loading ...',
+			type: 'article',
+			image: `https://capture.rawkode.dev/generate?id=${article.data.slug.current}`,
+		},
 	};
 </script>
 

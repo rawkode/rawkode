@@ -5,6 +5,9 @@
 	$seo = {
 		title: 'Articles',
 		emoji: '🗞',
+		openGraph: {
+			title: 'Articles',
+		},
 	};
 
 	import { gql, operationStore, query } from '@urql/svelte';
