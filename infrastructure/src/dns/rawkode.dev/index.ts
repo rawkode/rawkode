@@ -25,6 +25,7 @@ zone.createRecord("google._domainkey", "TXT", [
 
 zone.createRecord("@", "A", ["76.76.21.21"]);
 zone.createRecord("www", "CNAME", [`${DOMAIN}`]);
+zone.createRecord("capture", "CNAME", [`${DOMAIN}`]);
 zone.createRecord("cms", "CNAME", [`${DOMAIN}`]);
 zone.createRecord("opengraph", "CNAME", [`${DOMAIN}`]);
 
