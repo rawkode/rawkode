@@ -1,11 +1,5 @@
+import chrome from 'chrome-aws-lambda';
 import core from 'puppeteer-core';
-
-const exePath =
-	process.platform === 'win32'
-		? 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
-		: process.platform === 'linux'
-		? '/usr/bin/google-chrome'
-		: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 /** @type {import('@sveltejs/kit').RequestHandler} */
 export async function get({ params }) {
@@ -18,8 +12,13 @@ export async function get({ params }) {
 	try {
 		console.log('Launching browser');
 		const browser = await core.launch({
+			args: [...chrome.args, '--hide-scrollbars', '--disable-web-security'],
 			headless: true,
-			executablePath: exePath
+			executablePath: await chrome.executablePath,
+			defaultViewport: {
+				width: 1920,
+				height: 1080
+			}
 		});
 
 		const page = await browser.newPage();
