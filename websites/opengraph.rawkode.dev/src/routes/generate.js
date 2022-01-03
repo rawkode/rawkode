@@ -13,7 +13,7 @@ export async function get({ params }) {
 		console.log('Launching browser');
 		const browser = await core.launch({
 			args: [...chrome.args, '--hide-scrollbars', '--disable-web-security'],
-			headless: true,
+			headless: chrome.headless,
 			executablePath: await chrome.executablePath,
 			defaultViewport: {
 				width: 1920,

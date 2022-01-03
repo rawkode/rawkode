@@ -3,6 +3,11 @@
   "github": {
     "enabled": false
   },
+  "functions": {
+    "**": {
+      "memory": 1024
+    }
+  },
   "builds": [
     {
       "src": "package.json",
