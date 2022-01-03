@@ -22,21 +22,3 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID}}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID}}
           working-directory: ./websites/opengraph.rawkode.dev
-
-  deploy-functions:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
-        with:
-          node-version: 14.x
-      - run: npm install
-        working-directory: websites/opengraph.rawkode.dev/deploy
-      - uses: pulumi/actions@v3
-        with:
-          command: up
-          stack-name: production
-          work-dir: websites/opengraph.rawkode.dev/deploy
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

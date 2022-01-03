@@ -12,9 +12,9 @@
     "format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. ."
   },
   "devDependencies": {
-    "@pulumi/pulumi": "^3.0.0",
     "@pulumi/docker": "3.1.0",
     "@pulumi/google-native": "^0.10.1",
+    "@pulumi/pulumi": "^3.0.0",
     "@sveltejs/adapter-auto": "next",
     "@sveltejs/kit": "next",
     "@types/cookie": "^0.4.1",
@@ -36,6 +36,8 @@
   "dependencies": {
     "@fontsource/fira-mono": "^4.5.0",
     "@lukeed/uuid": "^2.0.0",
-    "cookie": "^0.4.1"
+    "cookie": "^0.4.1",
+    "playwright": "^1.17.1",
+    "playwright-aws-lambda": "^0.7.0"
   }
 }
