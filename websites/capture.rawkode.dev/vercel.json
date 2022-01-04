@@ -9,8 +9,8 @@
       "destination": "/api"
     },
     {
-      "source": "/:template(.+)",
-      "destination": "/api/:template"
+      "source": "/:template*",
+      "destination": "/api"
     }
   ]
 }
