@@ -18,8 +18,8 @@
 				class="flex flex-row w-screen h-full content-center justify-start items-center bg-white/80 pl-16 pr-16"
 			>
 				<img class="pl-8  p-4 h-full" src="/symbol.png" />
-				<p style="color: #292933;" class="flex-1 text-2xl pr-8 font-mono">https://rawkode.dev</p>
-				<p class="flex-1 pr-8 font-mono text-2xl">
+				<p style="color: #292933;" class="flex-1 text-3xl pr-8 font-mono">https://rawkode.dev</p>
+				<p class="flex-1 pr-8 font-mono text-3xl">
 					<span>Follow me on Twitter </span>
 					<span style="color: #00acee;"> @rawkode </span>
 				</p>

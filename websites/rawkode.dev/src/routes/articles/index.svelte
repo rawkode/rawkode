@@ -7,7 +7,7 @@
 		emoji: '🗞',
 		openGraph: {
 			title: 'Articles',
-			image: 'https://capture.rawkode.dev/default',
+			image: 'https://capture.rawkode.dev',
 		},
 	};
 
