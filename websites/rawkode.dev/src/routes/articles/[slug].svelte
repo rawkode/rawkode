@@ -10,7 +10,7 @@
 
 	/** @type {import('@sveltejs/kit').Load} */
 	export async function load({ page }) {
-		const query = `*[_type == "article" && slug.current == $slug] {title, "slug": slug.current, body, publishedAt}`;
+		const query = `*[_type == "article" && slug.current == $slug] {_id, title, "slug": slug.current, body, publishedAt}`;
 
 		const articles = await client.fetch(query, { slug: page.params.slug });
 		if (articles.length === 0) {
