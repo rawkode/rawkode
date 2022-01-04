@@ -1,11 +1,7 @@
 import chrome from "chrome-aws-lambda";
-import { NextApiRequest, NextApiResponse } from "next";
 import core from "puppeteer-core";
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req, res) {
   try {
     const browser = await core.launch({
       args: [...chrome.args, "--hide-scrollbars", "--disable-web-security"],
