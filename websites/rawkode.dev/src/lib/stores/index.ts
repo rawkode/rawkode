@@ -7,7 +7,7 @@ const defaultSeo: Seo = {
 	openGraph: {
 		title: "Rawkode's Modern Life",
 		description: 'A modern life for a modern person.',
-		image: 'https://capture.rawkode.dev',
+		image: 'https://capture.rawkode.dev/default',
 		type: 'website',
 	},
 };
