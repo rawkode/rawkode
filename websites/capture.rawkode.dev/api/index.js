@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", `image/png`);
     res.setHeader(
       "Cache-Control",
-      `public, immutable, no-transform, s-maxage=31536000, max-age=31536000`
+      `public, no-transform, s-maxage=300, max-age=300`
     );
     res.end(screenshot);
   } catch (error) {
