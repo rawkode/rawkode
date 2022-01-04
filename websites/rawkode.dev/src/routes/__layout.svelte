@@ -136,6 +136,13 @@
 	<meta property="og:image" content={$seo.openGraph.image} />
 	<meta property="og:description" content={$seo.openGraph.description} />
 
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta property="twitter:domain" content="rawkode.dev" />
+	<meta property="twitter:url" content="https://rawkode.dev/" />
+	<meta name="twitter:title" content="{$seo.title} | Rawkode's Modern Life" />
+	<meta name="twitter:description" content={$seo.openGraph.description} />
+	<meta name="twitter:image" content={$seo.openGraph.image} />
+
 	<!--
 		{#if article}
 		<meta property="article:publisher" content={facebookPage} />
