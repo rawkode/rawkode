@@ -6,6 +6,7 @@
 		emoji: '🏡',
 		openGraph: {
 			title: 'Home',
+			image: 'https://capture.rawkode.dev/default',
 		},
 	};
 </script>
