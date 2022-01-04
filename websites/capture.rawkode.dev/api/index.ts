@@ -12,8 +12,8 @@ export default async function handler(
       headless: chrome.headless,
       executablePath: await chrome.executablePath,
       defaultViewport: {
-        width: 1920,
-        height: 1080,
+        width: 1200,
+        height: 600,
       },
     });
 
