@@ -16,7 +16,9 @@ export default async function handler(req, res) {
     const page = await browser.newPage();
 
     await page.goto(
-      `https://opengraph.rawkode.dev/${req.query.template || ""}`
+      `https://opengraph.rawkode.dev/${req.query.template || ""}?id=${
+        req.query.id
+      }`
     );
     const screenshot = await page.screenshot();
     await browser.close();
