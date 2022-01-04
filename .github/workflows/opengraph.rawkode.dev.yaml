@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - websites/opengraph.rawkode.dev/**
+  schedule:
+    - cron: "6 6 * * *"
 
 jobs:
   deploy-website:
