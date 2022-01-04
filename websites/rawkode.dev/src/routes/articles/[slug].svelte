@@ -8,6 +8,8 @@
 					gql`
 						query articleBySlug($slug: String!) {
 							allArticle(where: { slug: { current: { eq: $slug } } }) {
+								_id
+
 								title
 
 								slug {
@@ -46,7 +48,7 @@
 		openGraph: {
 			title: article.data.title || 'Loading ...',
 			type: 'article',
-			image: `https://capture.rawkode.dev/generate?id=${article.data.slug.current}`,
+			image: `https://capture.rawkode.dev/article?id=${article.data._id}`,
 		},
 	};
 </script>
