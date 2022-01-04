@@ -3,7 +3,7 @@ import { IncomingMessage, ServerResponse } from "http";
 import core from "puppeteer-core";
 
 export default async function handler(
-  _req: IncomingMessage,
+  req: IncomingMessage,
   res: ServerResponse
 ) {
   try {
@@ -19,7 +19,9 @@ export default async function handler(
 
     const page = await browser.newPage();
 
-    await page.goto("https://opengraph.rawkode.dev");
+    await page.goto(
+      `https://opengraph.rawkode.dev/${req.query.template || ""}`
+    );
     const screenshot = await page.screenshot();
     await browser.close();
 
