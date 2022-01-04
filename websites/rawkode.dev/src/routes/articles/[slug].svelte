@@ -48,7 +48,7 @@
 		openGraph: {
 			title: article.data.title || 'Loading ...',
 			type: 'article',
-			image: `https://capture.rawkode.dev/article?id=${article.data._id}`,
+			image: `https://capture.rawkode.dev/article/${article.data._id}`,
 		},
 	};
 </script>

@@ -9,7 +9,7 @@
       "destination": "/api"
     },
     {
-      "source": "/:template*",
+      "source": "/:template/:id",
       "destination": "/api"
     }
   ]
