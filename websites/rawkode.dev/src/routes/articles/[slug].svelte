@@ -1,5 +1,6 @@
 <script context="module">
 	import { default as sanityClient } from '@sanity/client';
+	import { seo } from '$lib/stores';
 
 	const client = sanityClient({
 		projectId: 'ypvmf3jx',
@@ -17,30 +18,31 @@
 			return { status: 404 };
 		}
 
+		const article = articles[0];
+
+		seo.set({
+			title: article.title || 'Loading ...',
+			emoji: '🗞',
+			openGraph: {
+				title: article.title || 'Loading ...',
+				type: 'article',
+				image: `https://capture.rawkode.dev/article/${article._id}`,
+			},
+		});
+
 		return {
 			props: {
-				article: articles[0],
+				article: article,
 			},
 		};
 	}
 </script>
 
 <script lang="ts">
-	import { seo } from '$lib/stores';
 	import { DateTime } from 'luxon';
 	import PortableText from '$lib/portableText/index.svelte';
 
 	export let article;
-
-	$seo = {
-		title: article.title || 'Loading ...',
-		emoji: '🗞',
-		openGraph: {
-			title: article.title || 'Loading ...',
-			type: 'article',
-			image: `https://capture.rawkode.dev/article/${article._id}`,
-		},
-	};
 </script>
 
 <svelte:head>
