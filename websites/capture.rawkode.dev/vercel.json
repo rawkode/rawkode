@@ -5,8 +5,12 @@
   },
   "rewrites": [
     {
-      "source": "/(.+)",
+      "source": "/",
       "destination": "/api"
+    },
+    {
+      "source": "/:template(.+)",
+      "destination": "/api/:template"
     }
   ]
 }
