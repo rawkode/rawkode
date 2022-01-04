@@ -1,10 +1,10 @@
 import chrome from "chrome-aws-lambda";
-import { IncomingMessage, ServerResponse } from "http";
+import { NextApiRequest, NextApiResponse } from "next";
 import core from "puppeteer-core";
 
 export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse
+  req: NextApiRequest,
+  res: NextApiResponse
 ) {
   try {
     const browser = await core.launch({
