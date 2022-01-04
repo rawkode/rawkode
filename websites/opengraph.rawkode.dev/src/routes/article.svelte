@@ -29,7 +29,7 @@
 	<div class="h-screen flex flex-col">
 		<h1
 			class="flex object-fit items-center content-center justify-center
-		rounded flex-grow text-8xl text-white pl-16 bg-black/50"
+		rounded flex-grow text-8xl text-white pl-16 pr-16 bg-black/50"
 		>
 			{title}
 		</h1>
