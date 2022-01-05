@@ -12,7 +12,7 @@ import { InfluxDB, Point } from "@influxdata/influxdb-client";
 
 export default async function handler(req, res) {
   const influxDB = new InfluxDB({
-    url: process.env.INFLUXBD_URL,
+    url: process.env.INFLUXDB_URL,
     token: process.env.INFLUXDB_TOKEN,
   });
 
