@@ -21,7 +21,13 @@ export default async function handler(req, res) {
 
   const writeApi = influxDB.getWriteApi(
     process.env.INFLUXDB_ORG,
-    "website-analytics"
+    "website-analytics",
+    null,
+    {
+      batchSize: 1,
+      flushInterval: 50,
+      maxRetryTime: 2000,
+    }
   );
 
   const path = payload.u
