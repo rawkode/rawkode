@@ -1,16 +1,7 @@
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 
-// type EventPayload = {
-//   readonly n: string;
-//   readonly u: Location['href'];
-//   readonly d: Location['hostname'];
-//   readonly r: Document['referrer'] | null;
-//   readonly w: Window['innerWidth'];
-//   readonly h: 1 | 0;
-//   readonly p?: string;
-// };
-
 export default async function handler(req, res) {
+  console.log(req.body);
   const payload = JSON.parse(req.body);
 
   const influxDB = new InfluxDB({
@@ -34,8 +25,20 @@ export default async function handler(req, res) {
     .tag("domain", payload.d)
     .floatField("value", 1);
 
+  if (payload.w && payload.h) {
+    event.tag("screen_width", payload.w).tag("screen_height", payload.h);
+  }
+
   if (payload.r) {
     event.tag("referrer", payload.r);
+  }
+
+  const additional = JSON.parse(payload.p || "{}");
+
+  switch (payload.n) {
+    case "Outbound Link: Click":
+      event.tag("url", additional.url);
+      break;
   }
 
   console.log(`Point: ${event}`);
