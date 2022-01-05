@@ -12,7 +12,6 @@ import { InfluxDB, Point } from "@influxdata/influxdb-client";
 
 export default async function handler(req, res) {
   const payload = JSON.parse(req.body);
-  console.log(`Payload: ${payload}`);
 
   const influxDB = new InfluxDB({
     url: process.env.INFLUXDB_URL,
@@ -22,12 +21,7 @@ export default async function handler(req, res) {
   const writeApi = influxDB.getWriteApi(
     process.env.INFLUXDB_ORG,
     "website-analytics",
-    "us",
-    {
-      batchSize: 1,
-      flushInterval: 50,
-      maxRetryTime: 500,
-    }
+    "us"
   );
 
   const path = payload.u
@@ -48,7 +42,10 @@ export default async function handler(req, res) {
   writeApi.writePoint(event);
 
   await writeApi.flush();
+  console.log("Flushed");
+
   await writeApi.close();
+  console.log("Closed");
 
   res.statusCode = 204;
   res.end();
