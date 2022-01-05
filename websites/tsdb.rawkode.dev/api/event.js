@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
 const allowCors = (fn) => async (req, res) => {
   res.setHeader("Access-Control-Allow-Credentials", true);
-  res.setHeader("Access-Control-Allow-Origin", "rawkode.dev");
+  res.setHeader("Access-Control-Allow-Origin", "https://rawkode.dev");
   res.setHeader(
     "Access-Control-Allow-Methods",
     "GET,OPTIONS,PATCH,DELETE,POST,PUT"
