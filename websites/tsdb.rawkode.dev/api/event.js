@@ -11,7 +11,7 @@ import { InfluxDB, Point } from "@influxdata/influxdb-client";
 // };
 
 export default async function handler(req, res) {
-  const payload = req.body;
+  const payload = JSON.parse(req.body);
   console.log(`Payload: ${payload}`);
 
   const influxDB = new InfluxDB({
