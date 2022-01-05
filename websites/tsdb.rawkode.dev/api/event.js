@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   const writeApi = influxDB.getWriteApi(
     process.env.INFLUXDB_ORG,
     "website-analytics",
-    null,
+    "us",
     {
       batchSize: 1,
       flushInterval: 50,
