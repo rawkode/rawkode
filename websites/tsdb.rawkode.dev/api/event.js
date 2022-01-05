@@ -30,6 +30,8 @@ export default async function handler(req, res) {
     event.tag("referrer", req.r);
   }
 
+  console.log(`Point: ${event}`);
+
   writeApi.writePoint(event);
 
   writeApi.close().then(() => {
