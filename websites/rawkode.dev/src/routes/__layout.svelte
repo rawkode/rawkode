@@ -1,4 +1,14 @@
 <script lang="ts">
+	import Plausible from 'plausible-tracker';
+
+	const plausible = Plausible({
+		domain: 'rawkode.dev',
+		apiHost: 'https://tsdb.rawkode.dev',
+	});
+
+	plausible.enableAutoPageviews();
+	plausible.enableAutoOutboundTracking();
+
 	const menuItems = [
 		{
 			name: 'Home',
