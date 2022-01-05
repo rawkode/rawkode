@@ -1,7 +1,7 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 
-export default async function handler(req, res) {
-  console.log(JSON.stringify(req));
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const payload = JSON.parse(req.body);
 
   const influxDB = new InfluxDB({
@@ -24,6 +24,22 @@ export default async function handler(req, res) {
     .tag("path", path)
     .tag("domain", payload.d)
     .floatField("value", 1);
+
+  if (req.rawHeaders["x-real-ip"]) {
+    event.tag("clientIP", req.rawHeaders["x-real-ip"]);
+  }
+
+  if (req.rawHeaders["x-vercel-ip-country"]) {
+    event.tag("clientCountry", req.rawHeaders["x-vercel-ip-country"]);
+  }
+
+  if (req.rawHeaders["x-vercel-ip-country-region"]) {
+    event.tag("clientRegion", req.rawHeaders["x-vercel-ip-country-region"]);
+  }
+
+  if (req.rawHeaders["x-vercel-city"]) {
+    event.tag("clientCity", req.rawHeaders["x-vercel-ip-city"]);
+  }
 
   if (payload.w && payload.h) {
     event.tag("screen_width", payload.w).tag("screen_height", payload.h);
