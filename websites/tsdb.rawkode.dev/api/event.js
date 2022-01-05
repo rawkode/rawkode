@@ -24,8 +24,13 @@ export default async function handler(req, res) {
     "website-analytics"
   );
 
+  const path = payload.u
+    .replace("http://", "")
+    .replace("https://", "")
+    .replace(payload.d, "");
+
   const event = new Point(payload.n)
-    .tag("url", payload.u)
+    .tag("path", path)
     .tag("domain", payload.d)
     .floatField("value", 1);
 
