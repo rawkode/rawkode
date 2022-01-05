@@ -25,6 +25,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .tag("domain", payload.d)
     .floatField("value", 1);
 
+  console.log(`Headers`);
+  console.log(req.rawHeaders);
+
   if (req.rawHeaders["x-real-ip"]) {
     event.tag("clientIP", req.rawHeaders["x-real-ip"]);
   }
