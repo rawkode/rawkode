@@ -74,7 +74,7 @@
 	</div>
 	<div class="bg-blue-100/50 px-4 py-4 sm:px-6">
 		{#if article.technologies}
-			<div class="flex flex-row mt-2 sm:flex-col">
+			<div class="flex flex-col mt-2 lg:flex-row">
 				<strong class="mr-8 w-32">Technologies</strong>
 				{#each article.technologies as technology}
 					<a href={technology.repository} target="_blank">
@@ -90,7 +90,7 @@
 		{/if}
 
 		{#if article.products}
-			<div class="flex flex-row mt-2 sm:flex-col">
+			<div class="flex flex-col mt-2 lg:flex-row">
 				<strong class="mr-8 w-32">Products</strong>
 				{#each article.products as product}
 					<a href={product.website} target="_blank">
