@@ -19,7 +19,10 @@
 				publishedAt,
 				technologies[]->{title, description, repository, logo{asset->{url}}},
 				products[]->{title, description, website, logo{asset->{url}}},
-				body
+				body,
+  			"numberOfCharacters": length(pt::text(body)),
+  			"estimatedWordCount": round(length(pt::text(body)) / 5),
+		  	"estimatedReadingTime": round(length(pt::text(body)) / 5 / 180 )
 			}`;
 
 		const articles = await client.fetch(query, { slug: page.params.slug });
@@ -66,11 +69,21 @@
 </svelte:head>
 
 <div class="bg-white overflow-hidden shadow rounded-lg mb-4">
-	<div class="bg-pink-100/50 px-4 py-4 sm:px-6">
-		<h3>
+	<div
+		class="flex flex-col lg:flex-row bg-pink-100/50 px-4 py-4 sm:px-6 justify-center items-center align-middle text-center"
+	>
+		<div class="flex-1">
 			<strong>Published on</strong>
-			{DateTime.fromISO(article.publishedAt).toLocaleString(DateTime.DATE_FULL)}
-		</h3>
+			<p>{DateTime.fromISO(article.publishedAt).toLocaleString(DateTime.DATE_FULL)}</p>
+		</div>
+		<div class="flex-1">
+			<strong>Reading time</strong>
+			<p>{article.estimatedReadingTime} minutes</p>
+		</div>
+		<div class="flex-1">
+			<strong>Word Count</strong>
+			<p>{article.estimatedWordCount} words</p>
+		</div>
 	</div>
 	<div class="bg-blue-100/50 px-4 py-4 sm:px-6">
 		{#if article.technologies}
