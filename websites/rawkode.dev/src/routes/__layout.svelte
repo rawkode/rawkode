@@ -1,8 +1,3 @@
-<script context="module">
-	import { get, readable } from 'svelte/store';
-	import { GoogleAnalytics } from '@beyonk/svelte-google-analytics';
-</script>
-
 <script lang="ts">
 	const menuItems = [
 		{
@@ -97,11 +92,10 @@
 						<div class="flex items-center">
 							<div class="flex-shrink-0">
 								<a href="/">
-									<img
-										class="h-8 w-8 rounded-full"
-										src="/profile.png"
-										alt="Rawkode's Modern Life"
-									/>
+									<span class="flex flex-row justify-center items-center align-middle">
+										<img class="h-8 w-8 ml-4" src="/symbol.png" alt="Rawkode's Modern Life" />
+										<p class="ml-4 text-white">Rawkode's Modern Life</p>
+									</span>
 								</a>
 							</div>
 							<div class="hidden md:block">
