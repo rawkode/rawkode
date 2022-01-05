@@ -14,12 +14,6 @@ export default async function handler(req, res) {
   const payload = req.body;
   console.log(`Payload: ${payload}`);
 
-  if (!payload.n) {
-    res.statusCode = 204;
-    res.end();
-    return;
-  }
-
   const influxDB = new InfluxDB({
     url: process.env.INFLUXDB_URL,
     token: process.env.INFLUXDB_TOKEN,
