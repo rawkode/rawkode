@@ -1,65 +1,9 @@
 <script context="module">
 	import { get, readable } from 'svelte/store';
-	import { createClient, operationStore } from '@urql/svelte';
-
-	/**
-	 * @type {import('@sveltejs/kit').Load}
-	 */
-	export async function load({ context }) {
-		const client = createClient({
-			url: 'https://ypvmf3jx.api.sanity.io/v1/graphql/website/default',
-		});
-
-		return {
-			stuff: {
-				client,
-				query: async (query, variables, context, normalize) => {
-					const store = operationStore(query, variables, context);
-
-					const result = await client
-						.query(store.query, store.variables, store.context)
-						.toPromise();
-
-					Object.assign(get(store), result);
-
-					// Allow to access deep nested object directly at data
-					if (normalize) {
-						const { subscribe } = store;
-
-						return Object.create(store, {
-							subscribe: {
-								enumerable: true,
-								value: readable(store, (set) => {
-									const unsubscribe = subscribe((result) => {
-										if (result.data) {
-											Object.assign(result.data, normalize(result.data, result));
-										}
-										set(result);
-									});
-
-									return unsubscribe;
-								}).subscribe,
-							},
-						});
-					}
-
-					return store;
-				},
-			},
-			props: { client },
-		};
-	}
+	import { GoogleAnalytics } from '@beyonk/svelte-google-analytics';
 </script>
 
 <script lang="ts">
-	import { setClient } from '@urql/svelte';
-
-	/**
-	 * @type {import('@urql/svelte').Client}
-	 */
-	export let client;
-	setClient(client);
-
 	const menuItems = [
 		{
 			name: 'Home',
@@ -143,13 +87,7 @@
 	<meta name="twitter:description" content={$seo.openGraph.description} />
 	<meta name="twitter:image" content={$seo.openGraph.image} />
 
-	<!--
-		{#if article}
-		<meta property="article:publisher" content={facebookPage} />
-		<meta property="article:author" content={facebookAuthorPage} />
-		<meta property="article:published_time" content={datePublished} />
-		<meta property="article:modified_time" content={lastUpdated} />
-	{/if} -->
+	<GoogleAnalytics properties={['G-F41XPWZLHC']} />
 </svelte:head>
 
 <div>
@@ -161,7 +99,11 @@
 						<div class="flex items-center">
 							<div class="flex-shrink-0">
 								<a href="/">
-									<img class="h-8 w-8 rounded-full" src="/logo.png" alt="Rawkode's Modern Life" />
+									<img
+										class="h-8 w-8 rounded-full"
+										src="/profile.png"
+										alt="Rawkode's Modern Life"
+									/>
 								</a>
 							</div>
 							<div class="hidden md:block">
