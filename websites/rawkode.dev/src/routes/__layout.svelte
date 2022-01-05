@@ -6,9 +6,6 @@
 		apiHost: 'https://tsdb.rawkode.dev',
 	});
 
-	plausible.enableAutoPageviews();
-	plausible.enableAutoOutboundTracking();
-
 	const menuItems = [
 		{
 			name: 'Home',
@@ -92,6 +89,13 @@
 	<meta name="twitter:description" content={$seo.openGraph.description} />
 	<meta name="twitter:image" content={$seo.openGraph.image} />
 </svelte:head>
+
+<svelte:window
+	on:sveltekit:start={() => {
+		plausible.enableAutoPageviews();
+		plausible.enableAutoOutboundTracking();
+	}}
+/>
 
 <div>
 	<div class="bg-gray-800 pb-32">
