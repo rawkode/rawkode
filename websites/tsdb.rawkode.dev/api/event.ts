@@ -26,23 +26,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .floatField("value", 1);
 
   console.log(`Headers`);
-  console.log(req.rawHeaders);
+  console.log(req.headers);
 
-  if (req.rawHeaders["x-real-ip"]) {
-    event.tag("clientIP", req.rawHeaders["x-real-ip"]);
-  }
+  // if (req.headers["x-real-ip"]) {
+  //   event.tag("clientIP", req.headers["x-real-ip"]);
+  // }
 
-  if (req.rawHeaders["x-vercel-ip-country"]) {
-    event.tag("clientCountry", req.rawHeaders["x-vercel-ip-country"]);
-  }
+  // if (req.headers["x-vercel-ip-country"]) {
+  //   event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
+  // }
 
-  if (req.rawHeaders["x-vercel-ip-country-region"]) {
-    event.tag("clientRegion", req.rawHeaders["x-vercel-ip-country-region"]);
-  }
+  // if (req.headers["x-vercel-ip-country-region"]) {
+  //   event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
+  // }
 
-  if (req.rawHeaders["x-vercel-city"]) {
-    event.tag("clientCity", req.rawHeaders["x-vercel-ip-city"]);
-  }
+  // if (req.headers["x-vercel-city"]) {
+  //   event.tag("clientCity", req.headers["x-vercel-ip-city"]);
+  // }
 
   if (payload.w && payload.h) {
     event.tag("screen_width", payload.w).tag("screen_height", payload.h);
