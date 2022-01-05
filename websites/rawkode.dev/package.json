@@ -11,7 +11,6 @@
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. ."
 	},
 	"devDependencies": {
-		"@beyonk/svelte-google-analytics": "^2.2.0",
 		"@portabletext/svelte": "^0.2.0",
 		"@sanity/client": "^2.23.2",
 		"@sveltejs/adapter-static": "next",

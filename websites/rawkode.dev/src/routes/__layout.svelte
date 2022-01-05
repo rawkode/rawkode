@@ -86,8 +86,6 @@
 	<meta name="twitter:title" content="{$seo.title} | Rawkode's Modern Life" />
 	<meta name="twitter:description" content={$seo.openGraph.description} />
 	<meta name="twitter:image" content={$seo.openGraph.image} />
-
-	<GoogleAnalytics properties={['G-F41XPWZLHC']} />
 </svelte:head>
 
 <div>
