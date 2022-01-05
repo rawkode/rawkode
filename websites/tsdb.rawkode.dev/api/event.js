@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
   }
 
-  if (req.headers["x-vercel-city"]) {
+  if (req.headers["x-vercel-ip-city"]) {
     event.tag("clientCity", req.headers["x-vercel-ip-city"]);
   }
 
