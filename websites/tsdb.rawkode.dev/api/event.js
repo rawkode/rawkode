@@ -11,6 +11,15 @@ import { InfluxDB, Point } from "@influxdata/influxdb-client";
 // };
 
 export default async function handler(req, res) {
+  const payload = req.body;
+  console.log(`Payload: ${payload}`);
+
+  if (!payload.n) {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
   const influxDB = new InfluxDB({
     url: process.env.INFLUXDB_URL,
     token: process.env.INFLUXDB_TOKEN,
@@ -21,13 +30,13 @@ export default async function handler(req, res) {
     "website-analytics"
   );
 
-  const event = new Point(req.n)
-    .tag("url", req.u)
-    .tag("domain", req.d)
+  const event = new Point(payload.n)
+    .tag("url", payload.u)
+    .tag("domain", payload.d)
     .floatField("value", 1);
 
-  if (req.r) {
-    event.tag("referrer", req.r);
+  if (payload.r) {
+    event.tag("referrer", payload.r);
   }
 
   console.log(`Point: ${event}`);
