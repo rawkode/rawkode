@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     {
       batchSize: 1,
       flushInterval: 50,
-      maxRetryTime: 2000,
+      maxRetryTime: 500,
     }
   );
 
@@ -45,12 +45,10 @@ export default async function handler(req, res) {
   }
 
   console.log(`Point: ${event}`);
-
   writeApi.writePoint(event);
 
-  writeApi.close().then(() => {
-    console.log("WRITE FINISHED");
-  });
+  await writeApi.flush();
+  await writeApi.close();
 
   res.statusCode = 204;
   res.end();
