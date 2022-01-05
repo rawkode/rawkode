@@ -49,7 +49,7 @@
 {#each articles as article}
 	<div class="bg-white overflow-hidden shadow rounded-lg mb-4 border-2 ">
 		<div class="px-4 py-5 sm:p-6">
-			<a class="text-blue-500" href="/articles/{article.slug.current}"><h2>{article.title}</h2></a>
+			<a class="text-blue-500" href="/articles/{article.slug}"><h2>{article.title}</h2></a>
 		</div>
 		<div class="bg-gray-50 px-4 py-4 sm:px-6">
 			<h3>
