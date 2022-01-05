@@ -22,7 +22,7 @@ zone.createRecord("google._domainkey", "TXT", [
   `"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAikTg1HGzUusOgiX03hgNMqLPFIfXHGdK2e78bibzfoLTZDhQ0HciN+04bbr4AYJFjd+v0sQMoLJ7018rlKpREuD3EXiPjk+KUYXKwDdeYsA62BP56SNCfoNJ7Q0/VUdZGxTrTz1DC52iNOTjhkU/9nIax+15vSw+G22f3fQSMQvHn9+QZCxCLZi+GuOUlFbiD" "lYQr2ATPSe/aX4bumgMYgH2l+7l3uZpmw7bRaeHDQhFIOo+mvFKjX6M4ZYegH5wIMMrMnAFKE/P9UPFnZTAvESnbg9shHLIOgrHM0FiwQZsv/aUeA9zpm4ZNc6PvOpG0RGk6XgJ5CH0rJ1w8XE2aQIDAQAB"`,
 ]);
 
-zone.createRecord("@", "A", ["151.101.1.195", "151.101.65.195"]);
+zone.createRecord("@", "A", ["76.76.21.21"]);
 zone.createRecord("www", "CNAME", [`${DOMAIN}`]);
 
 zone.createRecord("store", "A", ["23.227.38.65"]);
