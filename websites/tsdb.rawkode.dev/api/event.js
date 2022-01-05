@@ -1,7 +1,6 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req, res) {
   const payload = JSON.parse(req.body);
 
   const influxDB = new InfluxDB({
@@ -28,21 +27,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(`Headers`);
   console.log(req.headers);
 
-  // if (req.headers["x-real-ip"]) {
-  //   event.tag("clientIP", req.headers["x-real-ip"]);
-  // }
+  if (req.headers["x-real-ip"]) {
+    event.tag("clientIP", req.headers["x-real-ip"]);
+  }
 
-  // if (req.headers["x-vercel-ip-country"]) {
-  //   event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
-  // }
+  if (req.headers["x-vercel-ip-country"]) {
+    event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
+  }
 
-  // if (req.headers["x-vercel-ip-country-region"]) {
-  //   event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
-  // }
+  if (req.headers["x-vercel-ip-country-region"]) {
+    event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
+  }
 
-  // if (req.headers["x-vercel-city"]) {
-  //   event.tag("clientCity", req.headers["x-vercel-ip-city"]);
-  // }
+  if (req.headers["x-vercel-city"]) {
+    event.tag("clientCity", req.headers["x-vercel-ip-city"]);
+  }
 
   if (payload.w && payload.h) {
     event.tag("screen_width", payload.w).tag("screen_height", payload.h);
