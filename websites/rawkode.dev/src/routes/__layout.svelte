@@ -3,7 +3,7 @@
 
 	const plausible = Plausible({
 		domain: 'rawkode.dev',
-		apiHost: 'https://tsdb.rawkode.dev',
+		apiHost: 'https://plausible.rawkode.dev',
 	});
 
 	const menuItems = [
