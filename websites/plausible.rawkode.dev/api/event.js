@@ -51,7 +51,9 @@ export default async function handler(req, res) {
       event.tag("clientRegion", regionInfo.name);
       event.tag("clientCountry", regionInfo.countryName);
 
-      console.log(`LatLon lookup for ${location}`);
+      console.log(
+        `LatLon lookup for ${vercelIpCity}, ${regionInfo.name}, ${regionInfo.countryName}`
+      );
       const locationResult = (
         await nominatim.search({
           q: `${vercelIpCity}, ${regionInfo.name}, ${regionInfo.countryName}`,
