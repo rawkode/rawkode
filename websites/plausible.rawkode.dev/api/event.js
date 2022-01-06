@@ -51,12 +51,14 @@ export default async function handler(req, res) {
     event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
   }
 
+  console.log(`LatLon lookup for ${location}`);
   const locationResult = (
     await nominatim.search({
       q: location,
       addressdetails: 1,
     })
   ).pop();
+  console.log(locationResult);
 
   if (locationResult && locationResult.lat && locationResult.lon) {
     event.floatField("clientLat", locationResult.lat);
