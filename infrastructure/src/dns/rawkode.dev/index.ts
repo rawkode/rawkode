@@ -29,7 +29,7 @@ zone.createRecord("capture", "CNAME", [`${DOMAIN}`]);
 zone.createRecord("cms", "CNAME", [`${DOMAIN}`]);
 zone.createRecord("opengraph", "CNAME", [`${DOMAIN}`]);
 zone.createRecord("share", "CNAME", [`cname.cleanshot.cloud`]);
-zone.createRecord("tsdb", "CNAME", [`${DOMAIN}`]);
+zone.createRecord("plausible", "CNAME", [`${DOMAIN}`]);
 
 zone.createProxiedRecord("api", "CNAME", ["ypvmf3jx.api.sanity.io"]);
 

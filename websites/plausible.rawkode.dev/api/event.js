@@ -1,4 +1,5 @@
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
+import { createClient } from "nominatim-client";
 
 export default async function handler(req, res) {
   const payload = JSON.parse(req.body);
@@ -14,6 +15,11 @@ export default async function handler(req, res) {
     "us"
   );
 
+  const nominatim = createClient({
+    useragent: "Rawkode's Modern Life",
+    referer: "https://rawkode.dev",
+  });
+
   const path = payload.u
     .replace("http://", "")
     .replace("https://", "")
@@ -24,27 +30,37 @@ export default async function handler(req, res) {
     .tag("domain", payload.d)
     .floatField("value", 1);
 
-  console.log(`Headers`);
-  console.log(req.headers);
-
   if (req.headers["x-real-ip"]) {
     event.tag("clientIP", req.headers["x-real-ip"]);
   }
 
+  let location = null;
+
+  if (req.headers["x-vercel-ip-city"]) {
+    location = req.headers["x-vercel-ip-city"];
+    event.tag("clientCity", req.headers["x-vercel-ip-city"]);
+  }
+
   if (req.headers["x-vercel-ip-country"]) {
+    location += `, ${req.headers["x-vercel-ip-country"]}`;
     event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
   }
 
   if (req.headers["x-vercel-ip-country-region"]) {
+    location += `, ${req.headers["x-vercel-ip-country-region"]}`;
     event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
   }
 
-  if (req.headers["x-vercel-ip-city"]) {
-    event.tag("clientCity", req.headers["x-vercel-ip-city"]);
-  }
+  const locationResult = (
+    await nominatim.search({
+      q: location,
+      addressdetails: 1,
+    })
+  ).pop();
 
-  if (payload.w && payload.h) {
-    event.tag("screen_width", payload.w).tag("screen_height", payload.h);
+  if (locationResult && locationResult.lat && locationResult.lon) {
+    event.floatField("clientLat", locationResult.lat);
+    event.floatField("clientLon", locationResult.lon);
   }
 
   if (payload.r) {
@@ -63,10 +79,7 @@ export default async function handler(req, res) {
   writeApi.writePoint(event);
 
   await writeApi.flush();
-  console.log("Flushed");
-
   await writeApi.close();
-  console.log("Closed");
 
   res.statusCode = 204;
   res.end();

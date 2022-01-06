@@ -4,7 +4,8 @@
     "node": "14.x"
   },
   "dependencies": {
-    "@influxdata/influxdb-client": "^1.21.0"
+    "@influxdata/influxdb-client": "^1.21.0",
+    "nominatim-client": "^3.2.1"
   },
   "devDependencies": {
     "@vercel/node": "^1.12.1",
