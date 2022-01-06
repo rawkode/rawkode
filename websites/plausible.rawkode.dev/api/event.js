@@ -35,35 +35,34 @@ export default async function handler(req, res) {
     event.tag("clientIP", req.headers["x-real-ip"]);
   }
 
-  let location = "";
+  const vercelIpCity = req.headers["x-vercel-ip-city"];
+  const vercelIpCountry = req.headers["x-vercel-ip-country"];
+  const vercelIpCountryRegion = req.headers["x-vercel-ip-country-region"];
 
-  if (req.headers["x-vercel-ip-city"]) {
-    location += req.headers["x-vercel-ip-city"];
-    event.tag("clientCity", req.headers["x-vercel-ip-city"]);
-  }
+  if (vercelIpCity && vercelIpCountry && vercelIpCountryRegion) {
+    event.tag("clientCity", vercelIpCity);
+    event.tag("clientRegion", vercelIpCountryRegion);
+    event.tag("clientCountry", vercelIpCountry);
 
-  if (req.headers["x-vercel-ip-country-region"]) {
-    const regionInfo = subdivision(req.headers["x-vercel-ip-country-region"]);
-    location += `, ${regionInfo.name}, ${regionInfo.countryName}`;
-    event.tag("clientRegion", regionInfo.name);
-    event.tag("clientCountry", regionInfo.countryName);
-  } else if (req.headers["x-vercel-ip-country"]) {
-    location += `, ${req.headers["x-vercel-ip-country"]}`;
-    event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
-  }
+    const regionInfo = subdivision(
+      `${vercelIpCountry}-${vercelIpCountryRegion}`
+    );
+    if (regionInfo) {
+      event.tag("clientRegion", regionInfo.name);
+      event.tag("clientCountry", regionInfo.countryName);
 
-  if (location != "") {
-    console.log(`LatLon lookup for ${location}`);
-    const locationResult = (
-      await nominatim.search({
-        q: location,
-        addressdetails: 1,
-      })
-    ).pop();
+      console.log(`LatLon lookup for ${location}`);
+      const locationResult = (
+        await nominatim.search({
+          q: `${vercelIpCity}, ${regionInfo.name}, ${regionInfo.countryName}`,
+          addressdetails: 1,
+        })
+      ).pop();
 
-    if (locationResult && locationResult.lat && locationResult.lon) {
-      event.floatField("clientLat", locationResult.lat);
-      event.floatField("clientLon", locationResult.lon);
+      if (locationResult && locationResult.lat && locationResult.lon) {
+        event.floatField("clientLat", locationResult.lat);
+        event.floatField("clientLon", locationResult.lon);
+      }
     }
   }
 

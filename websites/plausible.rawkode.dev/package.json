@@ -3,6 +3,9 @@
   "engines": {
     "node": "14.x"
   },
+  "scripts": {
+    "test": "node api/test.js"
+  },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.21.0",
     "nominatim-client": "^3.2.1",
