@@ -1,4 +1,5 @@
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
+import { subdivision } from "iso-3166-2";
 import { createClient } from "nominatim-client";
 
 export default async function handler(req, res) {
@@ -34,35 +35,36 @@ export default async function handler(req, res) {
     event.tag("clientIP", req.headers["x-real-ip"]);
   }
 
-  let location = null;
+  let location = "";
 
   if (req.headers["x-vercel-ip-city"]) {
-    location = req.headers["x-vercel-ip-city"];
+    location += req.headers["x-vercel-ip-city"];
     event.tag("clientCity", req.headers["x-vercel-ip-city"]);
   }
 
-  if (req.headers["x-vercel-ip-country"]) {
+  if (req.headers["x-vercel-ip-country-region"]) {
+    const regionInfo = subdivision(req.headers["x-vercel-ip-country-region"]);
+    location += `, ${regionInfo.name}, ${regionInfo.countryName}`;
+    event.tag("clientRegion", regionInfo.name);
+    event.tag("clientCountry", regionInfo.countryName);
+  } else if (req.headers["x-vercel-ip-country"]) {
     location += `, ${req.headers["x-vercel-ip-country"]}`;
     event.tag("clientCountry", req.headers["x-vercel-ip-country"]);
   }
 
-  if (req.headers["x-vercel-ip-country-region"]) {
-    location += `, ${req.headers["x-vercel-ip-country-region"]}`;
-    event.tag("clientRegion", req.headers["x-vercel-ip-country-region"]);
-  }
+  if (location != "") {
+    console.log(`LatLon lookup for ${location}`);
+    const locationResult = (
+      await nominatim.search({
+        q: location,
+        addressdetails: 1,
+      })
+    ).pop();
 
-  console.log(`LatLon lookup for ${location}`);
-  const locationResult = (
-    await nominatim.search({
-      q: location,
-      addressdetails: 1,
-    })
-  ).pop();
-  console.log(locationResult);
-
-  if (locationResult && locationResult.lat && locationResult.lon) {
-    event.floatField("clientLat", locationResult.lat);
-    event.floatField("clientLon", locationResult.lon);
+    if (locationResult && locationResult.lat && locationResult.lon) {
+      event.floatField("clientLat", locationResult.lat);
+      event.floatField("clientLon", locationResult.lon);
+    }
   }
 
   if (payload.r) {
