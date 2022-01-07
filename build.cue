@@ -1,12 +1,17 @@
 package main
 
 import "alpha.dagger.io/dagger"
-import "rawkode.dev/websites/opengraph.rawkode.dev:opengraph"
-import "rawkode.dev/websites/rawkode.dev:website"
+import "rawkode.dev/svelte:svelte"
 
 src: dagger.#Artifact & dagger.#Input
 
 websites: {
-  "opengraph.rawkode.dev": opengraph,
-  "rawkode.dev": website,
+  "opengraph.rawkode.dev": svelte.#Build & {
+    src,
+    path: "./websites/opengraph.rawkode.dev"
+  },
+  "rawkode.dev": svelte.#Build & {
+    src,
+    path: "./websites/rawkode.dev"
+  },
 }
