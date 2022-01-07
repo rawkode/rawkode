@@ -1,0 +1,27 @@
+name: production
+inputs:
+    src:
+        dir:
+            path: .
+            exclude:
+                - '**/node_modules'
+sops:
+    kms: []
+    gcp_kms: []
+    azure_kv: []
+    hc_vault: []
+    age:
+        - recipient: age1vvh9suy5kkyw2t8259xxw3tm9kdaujpdgtgx2dzyftrrelvz3gksdx9fe9
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBkN0xwVnNvaGZQMWNETEtL
+            NVc2ZGcxdisyS0pVaksyVnpzSVRmSDdNSGhNCkVob1Bwc0ZmZGhtNlBORGx5NjM0
+            TzNHS0liVHkyWExRYTVkS0tpRk9XWnMKLS0tIEw0T3dlNFhvcFpiNnoxRlN0d2ZT
+            M3dVb2dCcFZZbWsvbUVpcjFqZDM0dk0KWEI56Yz9IgDoQHODhiSos++AueEZIGUo
+            FKGzIfaZaQ5GEM88NPAXXJ2zFdqH7Ss6WcZrk76nksiqEgGbBakUow==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2022-01-07T11:10:36Z"
+    mac: ENC[AES256_GCM,data:ArodHppk7s89bQ10/UDgfx6djHg2Yxjf1nJYwCJNGUYsPuKjwMXqoVQ7Tw4THSRXSOD9/yYv+lKSUl01UGXj+D2M2yFFQ2QbB3Y06s1YydKLY3vyaGlr6HIZwolX4sTteVBUD40Ps8e1iN6gU6Ixo7UFM+DEPcCqqI7zCFNLgAM=,iv:WkIb71CSIsaEVFZlyjwedZLQvverLUgSbgvWrk3BnaA=,tag:ntthWP742NxZdlf0HZFqUw==,type:str]
+    pgp: []
+    encrypted_suffix: secret
+    version: 3.7.1
