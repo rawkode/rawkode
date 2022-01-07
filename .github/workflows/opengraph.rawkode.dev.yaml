@@ -2,6 +2,8 @@ name: opengraph.rawkode.dev
 
 on:
   push:
+    branches:
+      - main
     paths:
       - websites/opengraph.rawkode.dev/**
   pull_request:

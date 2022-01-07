@@ -2,6 +2,8 @@ name: cms.rawkode.dev
 
 on:
   push:
+    branches:
+      - main
     paths:
       - websites/cms.rawkode.dev/**
   pull_request:

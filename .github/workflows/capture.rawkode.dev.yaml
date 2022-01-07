@@ -2,6 +2,8 @@ name: capture.rawkode.dev
 
 on:
   push:
+    branches:
+      - main
     paths:
       - websites/capture.rawkode.dev/**
   pull_request:
