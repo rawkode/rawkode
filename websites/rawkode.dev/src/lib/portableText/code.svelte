@@ -2,22 +2,22 @@
 	import Prism from 'prismjs';
 	import { onMount } from 'svelte';
 
-	import 'prismjs/plugins/line-numbers/prism-line-numbers';
-	import 'prismjs/plugins/toolbar/prism-toolbar';
-	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard';
-	import 'prismjs/plugins/show-language/prism-show-language';
+	import 'prismjs/plugins/line-numbers/prism-line-numbers.js';
+	import 'prismjs/plugins/toolbar/prism-toolbar.js';
+	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard.js';
+	import 'prismjs/plugins/show-language/prism-show-language.js';
 
-	import 'prismjs/components/prism-bash';
-	import 'prismjs/components/prism-css';
-	import 'prismjs/components/prism-docker';
-	import 'prismjs/components/prism-ini';
-	import 'prismjs/components/prism-markup';
-	import 'prismjs/components/prism-javascript';
-	import 'prismjs/components/prism-json';
-	import 'prismjs/components/prism-python';
-	import 'prismjs/components/prism-rust';
-	import 'prismjs/components/prism-typescript';
-	import 'prismjs/components/prism-yaml';
+	import 'prismjs/components/prism-bash.js';
+	import 'prismjs/components/prism-css.js';
+	import 'prismjs/components/prism-docker.js';
+	import 'prismjs/components/prism-ini.js';
+	import 'prismjs/components/prism-markup.js';
+	import 'prismjs/components/prism-javascript.js';
+	import 'prismjs/components/prism-json.js';
+	import 'prismjs/components/prism-python.js';
+	import 'prismjs/components/prism-rust.js';
+	import 'prismjs/components/prism-typescript.js';
+	import 'prismjs/components/prism-yaml.js';
 
 	onMount(async () => {
 		Prism.highlightAll();
@@ -53,8 +53,7 @@
 	/>
 </svelte:head>
 
-<pre
-	class="line-numbers has-filename">
+<pre class="line-numbers has-filename">
 	<code class="language-{resolveLanguage(codeBlock.language)}">
 			{codeBlock.code}
 	</code>

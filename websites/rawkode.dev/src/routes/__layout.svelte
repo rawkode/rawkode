@@ -1,11 +1,6 @@
 <script lang="ts">
 	import Plausible from 'plausible-tracker';
 
-	const plausible = Plausible({
-		domain: 'rawkode.dev',
-		apiHost: 'https://plausible.rawkode.dev',
-	});
-
 	const menuItems = [
 		{
 			name: 'Home',
@@ -92,6 +87,11 @@
 
 <svelte:window
 	on:sveltekit:start={() => {
+		const plausible = Plausible({
+			domain: 'rawkode.dev',
+			apiHost: 'https://plausible.rawkode.dev',
+		});
+
 		plausible.enableAutoPageviews();
 		plausible.enableAutoOutboundTracking();
 	}}

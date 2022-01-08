@@ -1,4 +1,6 @@
 <script context="module">
+	export const prerender = true;
+
 	import { default as sanityClient } from '@sanity/client';
 	import { seo } from '$lib/stores';
 
