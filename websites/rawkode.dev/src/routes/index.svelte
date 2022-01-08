@@ -1,4 +1,6 @@
-<script>
+<script module="context">
+	export const prerender = true;
+
 	import { seo } from '$lib/stores';
 
 	$seo = {
