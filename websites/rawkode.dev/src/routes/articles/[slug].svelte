@@ -12,7 +12,7 @@
 	});
 
 	/** @type {import('@sveltejs/kit').Load} */
-	export async function load({ page }) {
+	export async function load({ params }) {
 		const query = `*[
 			_type == "article" && slug.current == $slug] {
 				_id,
@@ -27,7 +27,7 @@
 		  	"estimatedReadingTime": round(length(pt::text(body)) / 5 / 180 )
 			}`;
 
-		const articles = await client.fetch(query, { slug: page.params.slug });
+		const articles = await client.fetch(query, { slug: params.slug });
 		if (articles.length === 0) {
 			return { status: 404 };
 		}

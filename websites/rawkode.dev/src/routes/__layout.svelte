@@ -53,14 +53,14 @@
 
 		// Special handling because all paths start with /
 		if (path == '/') {
-			if ($page.path == '/') {
+			if ($page.url.pathname == '/') {
 				return useClasses.concat(activeClasses).join(' ');
 			}
 
 			return useClasses.join(' ');
 		}
 
-		if ($page.path.startsWith(path)) {
+		if ($page.url.pathname.startsWith(path)) {
 			return useClasses.concat(activeClasses).join(' ');
 		}
 
