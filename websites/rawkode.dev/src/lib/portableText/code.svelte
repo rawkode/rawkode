@@ -6,7 +6,6 @@
 	import 'prismjs/plugins/toolbar/prism-toolbar.js';
 	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard.js';
 	import 'prismjs/plugins/show-language/prism-show-language.js';
-
 	import 'prismjs/components/prism-bash.js';
 	import 'prismjs/components/prism-css.js';
 	import 'prismjs/components/prism-docker.js';
@@ -42,14 +41,20 @@
 </script>
 
 <svelte:head>
-	<link href="https://unpkg.com/prismjs@1.22.0/themes/prism-tomorrow.css" rel="stylesheet" />
+	<link
+		rel="preload"
+		as="style"
+		href="https://unpkg.com/prismjs@1.22.0/themes/prism-tomorrow.css"
+	/>
 	<link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/line-numbers/prism-line-numbers.css"
-		rel="stylesheet"
+		rel="preload"
+		as="style"
 	/>
 	<link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/toolbar/prism-toolbar.css"
-		rel="stylesheet"
+		rel="preload"
+		as="style"
 	/>
 </svelte:head>
 

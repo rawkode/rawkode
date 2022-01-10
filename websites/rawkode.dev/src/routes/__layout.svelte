@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Plausible from 'plausible-tracker';
+	import { default as Plausible } from 'plausible-tracker';
 
 	const menuItems = [
 		{

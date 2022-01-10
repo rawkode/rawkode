@@ -12,7 +12,7 @@
 	});
 
 	/** @type {import('@sveltejs/kit').Load} */
-	export async function load({ page }) {
+	export async function load() {
 		const query = `*[_type == "article"] {
 				_id,
 				title,
