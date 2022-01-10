@@ -69,18 +69,20 @@
 </script>
 
 <svelte:head>
+	<title>{$seo.emoji} {$seo.title} | Rawkode's Modern Life</title>
+
 	<meta property="og:site_name" content="Rawkode's Modern Life" />
 	<meta property="og:locale" content="en-GB" />
 	<meta property="og:url" content="https://rawkode.dev" />
 	<meta property="og:type" content={$seo.openGraph.type} />
-	<meta property="og:title" content="{$seo.title} | Rawkode's Modern Life" />
+	<meta property="og:title" content={$seo.title} />
 	<meta property="og:image" content={$seo.openGraph.image} />
 	<meta property="og:description" content={$seo.openGraph.description} />
 
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta property="twitter:domain" content="rawkode.dev" />
 	<meta property="twitter:url" content="https://rawkode.dev/" />
-	<meta name="twitter:title" content="{$seo.title} | Rawkode's Modern Life" />
+	<meta name="twitter:title" content={$seo.title} />
 	<meta name="twitter:description" content={$seo.openGraph.description} />
 	<meta name="twitter:image" content={$seo.openGraph.image} />
 </svelte:head>

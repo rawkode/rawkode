@@ -45,10 +45,6 @@
 	export let articles;
 </script>
 
-<svelte:head>
-	<title>Articles | Rawkode's Modern Life</title>
-</svelte:head>
-
 {#each articles as article}
 	<div class="bg-white overflow-hidden shadow rounded-lg mb-4 border-2 ">
 		<div class="px-4 py-5 sm:p-6">

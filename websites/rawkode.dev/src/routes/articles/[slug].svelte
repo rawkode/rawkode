@@ -35,10 +35,10 @@
 		const article = articles[0];
 
 		seo.set({
-			title: article.title || 'Loading ...',
+			title: article.title,
 			emoji: '🗞',
 			openGraph: {
-				title: article.title || 'Loading ...',
+				title: article.title,
 				type: 'article',
 				image: `https://capture.rawkode.dev/article/${article._id}`,
 			},
@@ -61,8 +61,6 @@
 </script>
 
 <svelte:head>
-	<title>{$seo.title} | Rawkode's Modern Life</title>
-
 	<meta property="article:publisher" content="Rawkode's Modern Life" />
 	<meta property="article:author" content="David Flanagan" />
 	<meta
