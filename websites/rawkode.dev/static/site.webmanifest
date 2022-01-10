@@ -1,16 +1,11 @@
 {
 	"name": "Rawkode's Modern Life",
-	"short_name": "Rawkode",
+	"short_name": "@rawkode",
 	"icons": [
 		{
 			"src": "/symbol-brand-colors.svg",
-			"sizes": "192x192",
-			"type": "image/svg"
-		},
-		{
-			"src": "/symbol-brand-colors.svg",
-			"sizes": "384x384",
-			"type": "image/svg"
+			"sizes": "any",
+			"type": "image/svg+xml"
 		}
 	],
 	"theme_color": "#F93983",
