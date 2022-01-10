@@ -5,3 +5,23 @@
 .prose {
 	max-width: 100%;
 }
+
+div.code-toolbar {
+	@apply relative mt-16;
+}
+
+div.code-toolbar > .toolbar {
+	@apply absolute flex h-8 -top-7 left-0 w-full;
+}
+
+div.code-toolbar > .toolbar .toolbar-item {
+	@apply font-mono mr-16 text-white rounded;
+}
+
+div.code-toolbar > .toolbar .toolbar-item > span {
+	@apply bg-black pl-4 block w-96 text-white;
+}
+
+div.code-toolbar > .toolbar .toolbar-item > button {
+	@apply w-96 text-black hover:text-primary;
+}

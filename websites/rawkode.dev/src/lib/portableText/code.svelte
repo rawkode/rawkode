@@ -46,10 +46,10 @@
 		href="https://unpkg.com/prismjs@1.22.0/plugins/line-numbers/prism-line-numbers.css"
 		rel="stylesheet"
 	/>
-	<link
+	<!-- <link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/toolbar/prism-toolbar.css"
 		rel="stylesheet"
-	/>
+	/> -->
 </svelte:head>
 
 <!-- Only show line numbers when code has more than 8 lines -->
