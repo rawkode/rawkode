@@ -69,7 +69,7 @@
 </script>
 
 <svelte:head>
-	<title>{$seo.emoji} {$seo.title} | Rawkode's Modern Life</title>
+	<title>{$seo.title} | Rawkode's Modern Life</title>
 
 	<meta property="og:site_name" content="Rawkode's Modern Life" />
 	<meta property="og:locale" content="en-GB" />
