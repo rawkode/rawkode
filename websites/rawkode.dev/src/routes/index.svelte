@@ -21,7 +21,7 @@
 	<h1>Welcome</h1>
 	<h2>Who am I?</h2>
 	<p>
-		My name is David McKay and I am a technologist from Glasgow, Scotland. Currently I am a Staff
+		My name is David Flanagan and I am a technologist from Glasgow, Scotland. Currently I am a Staff
 		Developer Advocate at Pulumi.
 	</p>
 
