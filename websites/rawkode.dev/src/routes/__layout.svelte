@@ -107,7 +107,11 @@
 							<div class="flex-shrink-0">
 								<a href="/">
 									<span class="flex flex-row justify-center items-center align-middle">
-										<img class="h-8 w-8 ml-4" src="/logo.png" alt="Rawkode's Modern Life" />
+										<img
+											class="h-8 w-8 ml-4"
+											src="/symbol-brand-colors.svg"
+											alt="Rawkode's Modern Life"
+										/>
 										<p class="ml-4 text-white">Rawkode's Modern Life</p>
 									</span>
 								</a>
