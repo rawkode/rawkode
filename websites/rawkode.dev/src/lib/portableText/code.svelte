@@ -2,10 +2,10 @@
 	import Prism from 'prismjs';
 	import { onMount } from 'svelte';
 
-	import 'prismjs/plugins/line-numbers/prism-line-numbers.js';
 	import 'prismjs/plugins/toolbar/prism-toolbar.js';
-	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard.js';
 	import 'prismjs/plugins/show-language/prism-show-language.js';
+	import 'prismjs/plugins/copy-to-clipboard/prism-copy-to-clipboard.js';
+	import 'prismjs/plugins/line-numbers/prism-line-numbers.js';
 	import 'prismjs/components/prism-bash.js';
 	import 'prismjs/components/prism-css.js';
 	import 'prismjs/components/prism-docker.js';
@@ -41,25 +41,24 @@
 </script>
 
 <svelte:head>
-	<link
-		rel="preload"
-		as="style"
-		href="https://unpkg.com/prismjs@1.22.0/themes/prism-tomorrow.css"
-	/>
+	<link rel="stylesheet" href="https://unpkg.com/prismjs@1.22.0/themes/prism-tomorrow.css" />
 	<link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/line-numbers/prism-line-numbers.css"
-		rel="preload"
-		as="style"
+		rel="stylesheet"
 	/>
 	<link
 		href="https://unpkg.com/prismjs@1.22.0/plugins/toolbar/prism-toolbar.css"
-		rel="preload"
-		as="style"
+		rel="stylesheet"
 	/>
 </svelte:head>
 
-<pre class="line-numbers has-filename">
-	<code class="language-{resolveLanguage(codeBlock.language)}">
-			{codeBlock.code}
-	</code>
-</pre>
+<!-- Only show line numbers when code has more than 8 lines -->
+<div style="position: relative;">
+	<pre
+		data-toolbar-order="show-language,copy-to-clipboard"
+		class="{codeBlock.code.split('\n').length > 8 ? 'line-numbers' : ''} has-filename ">
+		<code class="language-{resolveLanguage(codeBlock.language)}">
+				{codeBlock.code}
+		</code>
+	</pre>
+</div>

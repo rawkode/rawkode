@@ -36,9 +36,9 @@
 
 	$: classesForLink = (path: string, mobile: boolean): string => {
 		const classes: string[] = [
-			'hover:bg-gray-700',
+			'hover:bg-primary',
 			'hover:text-white',
-			'text-gray-300',
+			'text-white',
 			'px-3',
 			'py-2',
 			'rounded-md',
@@ -47,7 +47,7 @@
 
 		const desktopClasses: string[] = ['text-sm'];
 		const mobileClasses: string[] = ['block', 'text-base'];
-		const activeClasses: string[] = ['bg-gray-900', 'text-white'];
+		const activeClasses: string[] = ['bg-primary', 'text-white'];
 
 		const useClasses: string[] = classes.concat(mobile ? mobileClasses : desktopClasses);
 
@@ -85,6 +85,10 @@
 	<meta name="twitter:title" content={$seo.title} />
 	<meta name="twitter:description" content={$seo.openGraph.description} />
 	<meta name="twitter:image" content={$seo.openGraph.image} />
+
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Bitter" />
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito" />
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Share Tech Mono" />
 </svelte:head>
 
 <svelte:window
@@ -100,8 +104,8 @@
 />
 
 <div>
-	<div class="bg-gray-800 pb-32">
-		<nav class="bg-gray-800">
+	<div class="bg-black pb-32">
+		<nav class="bg-black">
 			<div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 				<div class="border-b border-gray-700">
 					<div class="flex items-center justify-between h-16 px-4 sm:px-0">
@@ -133,7 +137,7 @@
 						<div class="-mr-2 flex md:hidden">
 							<button
 								type="button"
-								class="bg-gray-800 inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+								class="bg-black inline-flex items-center justify-center p-2 rounded-md text-white hover:text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
 								aria-controls="mobile-menu"
 								aria-expanded="false"
 								on:click={toggleMobileMenu}
