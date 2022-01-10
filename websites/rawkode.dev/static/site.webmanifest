@@ -3,12 +3,12 @@
 	"short_name": "Rawkode",
 	"icons": [
 		{
-			"src": "/symbol.png",
+			"src": "/logo.png",
 			"sizes": "192x192",
 			"type": "image/png"
 		},
 		{
-			"src": "/symbol.png",
+			"src": "/logo.png",
 			"sizes": "384x384",
 			"type": "image/png"
 		}
