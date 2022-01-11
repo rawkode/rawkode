@@ -10,6 +10,10 @@
 			name: 'Articles',
 			url: '/articles',
 		},
+		{
+			name: 'Contact',
+			url: '/contact',
+		},
 	];
 
 	import { slide } from 'svelte/transition';
