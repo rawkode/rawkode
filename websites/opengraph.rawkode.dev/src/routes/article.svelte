@@ -52,19 +52,25 @@
 			{article.title}
 		</h1>
 		<div class="h-20 rounded flex items-center">
-			<div class="flex flex-1 justify-center text-xl text-white font-mono">
+			<div class="flex flex-1 justify-center text-2xl text-white font-mono">
 				Reading time: <span class="text-primary ml-4 mr-4">{article.estimatedReadingTime}</span> minutes
 			</div>
 			<div class="flex flex-1 justify-center pr-16">
 				{#if article.technologies}
 					{#each article.technologies as technology}
-						<img class="h-16 w-16 mr-8" src={technology.logo.asset.url} />
+						<img
+							class="h-16 w-16 mr-8 object-fit p-2 rounded-md bg-white border-secondary border-4"
+							src={technology.logo.asset.url}
+						/>
 					{/each}
 				{/if}
 				{#if article.products}
 					{#each article.products as product}
 						{#if false === technologies.includes(product.title)}
-							<img class="h-16 w-16 mr-8" src={product.logo.asset.url} />
+							<img
+								class="h-16 w-16 mr-8 object-fit p-2 rounded-md bg-white border-secondary border-4"
+								src={product.logo.asset.url}
+							/>
 						{/if}
 					{/each}
 				{/if}
