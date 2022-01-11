@@ -47,39 +47,37 @@
 <main class="w-screen bg-black">
 	<div class="h-screen flex flex-col">
 		<h1
-			class="flex object-fit items-center content-center justify-center rounded flex-grow text-8xl text-white pl-16 pr-16"
+			class="flex object-fit items-center content-center justify-center rounded flex-grow text-6xl text-white pl-16 pr-16"
 		>
 			{article.title}
 		</h1>
-		<div class="h-28 rounded flex items-center">
-			<div class="flex flex-1 justify-center text-2xl text-white font-mono">
+		<div class="h-20 rounded flex items-center">
+			<div class="flex flex-1 justify-center text-xl text-white font-mono">
 				Reading time: <span class="text-primary ml-4 mr-4">{article.estimatedReadingTime}</span> minutes
 			</div>
 			<div class="flex flex-1 justify-center pr-16">
 				{#if article.technologies}
 					{#each article.technologies as technology}
-						<img class="h-24 w-24 mr-8" src={technology.logo.asset.url} />
+						<img class="h-16 w-16 mr-8" src={technology.logo.asset.url} />
 					{/each}
 				{/if}
 				{#if article.products}
 					{#each article.products as product}
 						{#if false === technologies.includes(product.title)}
-							<img class="h-24 w-24 mr-8" src={product.logo.asset.url} />
+							<img class="h-16 w-16 mr-8" src={product.logo.asset.url} />
 						{/if}
 					{/each}
 				{/if}
 			</div>
 		</div>
 		<div>
-			<span class="flex text-center justify-center items-center  pl-16 pr-16 bg-white">
-				<img class="pl-8  p-4 h-32" src="/symbol.png" />
-				<div class="flex-1">
-					<p class="pr-8 font-mono text-3xl">
-						<span>https://rawkode.dev</span>
-					</p>
+			<span class="flex text-center justify-center items-center pl-4 pr-4 bg-white">
+				<img class="p-4 h-24" src="/symbol.png" />
+				<div class="flex flex-1 items-start">
+					<p class="font-mono text-xl">https://rawkode.dev</p>
 				</div>
-				<div class="flex-1">
-					<p class="pr-8 font-mono text-3xl">
+				<div class="flex flex-1 justify-end">
+					<p class="pr-8 font-mono text-xl">
 						<span>Follow me on Twitter </span>
 						<span style="color: #00acee;"> @rawkode </span>
 					</p>
