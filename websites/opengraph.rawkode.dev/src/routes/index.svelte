@@ -1,35 +1,30 @@
-<script>
-	import { loop_guard } from 'svelte/internal';
-</script>
+<svelte:head>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito" />
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Share Tech Mono" />
+</svelte:head>
 
-<main class="w-screen">
+<main class="w-screen bg-black">
 	<div class="h-screen flex flex-col">
 		<h1
-			class="flex items-center content-center justify-center
-		rounded flex-grow text-6xl text-white "
+			class="flex object-fit items-center content-center justify-center rounded flex-grow text-8xl text-white pl-16 pr-16"
 		>
 			Rawkode's Modern Life
 		</h1>
-		<div
-			class="flex h-32 items-center content-start justify-start
-		rounded"
-		>
-			<span
-				class="flex flex-row w-screen h-full content-center justify-start items-center bg-white/80 pl-16 pr-16"
-			>
-				<img class="pl-8  p-4 h-full" src="/symbol.png" />
-				<p style="color: #292933;" class="flex-1 text-3xl pr-8 font-mono">https://rawkode.dev</p>
-				<p class="flex-1 pr-8 font-mono text-3xl">
-					<span>Follow me on Twitter </span>
-					<span style="color: #00acee;"> @rawkode </span>
-				</p>
+		<div class="h-32 rounded">
+			<span class="flex text-center justify-center items-center  pl-16 pr-16 bg-white">
+				<img class="pl-8  p-4 h-32" src="/symbol.png" />
+				<div class="flex-1">
+					<p class="pr-8 font-mono text-3xl">
+						<span>https://rawkode.dev</span>
+					</p>
+				</div>
+				<div class="flex-1">
+					<p class="pr-8 font-mono text-3xl">
+						<span>Follow me on Twitter </span>
+						<span style="color: #00acee;"> @rawkode </span>
+					</p>
+				</div>
 			</span>
 		</div>
 	</div>
 </main>
-
-<style>
-	main {
-		background-image: url('/background.png');
-	}
-</style>
