@@ -21,6 +21,9 @@ zinit light-mode for \
 
 ### End of Zinit's installer chunk
 
+## Fancy z
+eval "$(zoxide init zsh)"
+
 ##
 # Paths
 #

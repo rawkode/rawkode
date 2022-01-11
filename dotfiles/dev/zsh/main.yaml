@@ -1,6 +1,8 @@
 actions:
   - action: package.install
-    name: zsh
+    name:
+      - zsh
+      - zoxide
 
   - action: file.link
     from: includes
