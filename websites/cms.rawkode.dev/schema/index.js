@@ -8,13 +8,15 @@ import {
 import { SiKubernetes } from "react-icons/si";
 
 import blockContent from "./blockContent";
-import youtube from "./youtube";
+import YouTube from "./youtube";
+import Person from "./person";
+import { Show, Episode } from "./video-content";
 
 export default createSchema({
   name: "website",
   types: schemaTypes.concat([
     blockContent,
-    youtube,
+    YouTube,
     {
       name: "article",
       title: "Articles",
@@ -118,6 +120,12 @@ export default createSchema({
           title: "Description",
           type: "text",
         },
+        {
+          name: "content",
+          type: "reference",
+          title: "Content",
+          to: [{ type: "article" }, { type: "episode" }],
+        },
       ],
     },
     {
@@ -193,5 +201,8 @@ export default createSchema({
         },
       ],
     },
+    Person,
+    Show,
+    Episode,
   ]),
 });

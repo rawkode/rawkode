@@ -22,6 +22,7 @@
     "@sanity/default-login": "^2.23.2",
     "@sanity/desk-tool": "^2.23.2",
     "@sanity/vision": "^2.23.2",
+    "@sanity/ui": "^0.37.2",
     "get-youtube-id": "^1.0.1",
     "prop-types": "^15.7",
     "react": "^17.0",
