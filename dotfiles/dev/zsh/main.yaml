@@ -1,6 +1,8 @@
 actions:
   - action: package.install
     name:
+      - fzf
+      - starship
       - zsh
       - zoxide
 

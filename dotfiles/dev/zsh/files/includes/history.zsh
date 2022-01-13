@@ -1,17 +1,6 @@
-##
-# Plugins
-##
-zinit ice silent wait"0"
-zinit snippet OMZ::plugins/history/history.plugin.zsh
-
-zinit ice silent wait"0"
-zinit snippet OMZ::plugins/per-directory-history/per-directory-history.zsh
-
-zinit ice silent wait"0"
-zinit light zdharma-continuum/history-search-multi-word
-
-zinit ice silent wait"0"
-zinit snippet OMZ::plugins/history-substring-search
+znap source  ohmyzsh/ohmyzsh plugins/history
+znap source  ohmyzsh/ohmyzsh plugins/per-directory-history
+znap source  ohmyzsh/ohmyzsh plugins/history-substring-search
 
 ##
 # Configuration

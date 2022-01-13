@@ -10,4 +10,3 @@ alias lttt='ls --tree -D -L 4 -I ${TREE_IGNORE}'
 alias ltttt='ls --tree -D -L 5 -I ${TREE_IGNORE}'
 
 GLOBALIAS_FILTER_VALUES=(ls la ll lt ltt lttt lttt $GLOBALIAS_FILTER_VALUES)
-

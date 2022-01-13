@@ -1,28 +1,11 @@
-### Added by Zinit's installer
-if [[ ! -f $HOME/.zinit/bin/zinit.zsh ]]; then
-    print -P "%F{33}▓▒░ %F{220}Installing %F{33}DHARMA%F{220} Initiative Plugin Manager (%F{33}zdharma/zinit%F{220})…%f"
-    command mkdir -p "$HOME/.zinit" && command chmod g-rwX "$HOME/.zinit"
-    command git clone https://github.com/zdharma-continuum/zinit "$HOME/.zinit/bin" && \
-        print -P "%F{33}▓▒░ %F{34}Installation successful.%f%b" || \
-        print -P "%F{160}▓▒░ The clone has failed.%f%b"
-fi
+[[ -f ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh ]] ||
+    (mkdir -p ${HOME}/Code/src/github.com/marlonrichert/zsh-snap && \
+    git clone --depth 1 -- \
+        https://github.com/marlonrichert/zsh-snap.git ${HOME}/Code/src/github.com/marlonrichert/zsh-snap)
 
-source "$HOME/.zinit/bin/zinit.zsh"
-autoload -Uz _zinit
-(( ${+_comps} )) && _comps[zinit]=_zinit
+source ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh
 
-# Load a few important annexes, without Turbo
-# (this is currently required for annexes)
-zinit light-mode for \
-    zdharma-continuum/z-a-rust \
-    zdharma-continuum/z-a-as-monitor \
-    zdharma-continuum/z-a-patch-dl \
-    zdharma-continuum/z-a-bin-gem-node
-
-### End of Zinit's installer chunk
-
-## Fancy z
-eval "$(zoxide init zsh)"
+znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
 
 ##
 # Paths
@@ -38,33 +21,6 @@ for file in ~/.zsh/includes/*; do
 done
 
 SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
-export PATH="$PATH:/Users/rawkode/.nsc/bin"
-
-qq() {
-    clear
-
-    logpath="$TMPDIR/q"
-    if [[ -z "$TMPDIR" ]]; then
-        logpath="/tmp/q"
-    fi
-
-    if [[ ! -f "$logpath" ]]; then
-        echo 'Q LOG' > "$logpath"
-    fi
-
-    tail -100f -- "$logpath"
-}
-
-rmqq() {
-    logpath="$TMPDIR/q"
-    if [[ -z "$TMPDIR" ]]; then
-        logpath="/tmp/q"
-    fi
-    if [[ -f "$logpath" ]]; then
-        rm "$logpath"
-    fi
-    qq
-}
 
 _direnv_hook() {
   trap -- '' SIGINT;
