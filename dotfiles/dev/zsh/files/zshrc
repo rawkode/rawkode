@@ -68,7 +68,7 @@ rmqq() {
 
 _direnv_hook() {
   trap -- '' SIGINT;
-  eval "$("${HOMEBREW_PREFIX}/bin/direnv" export zsh)";
+  eval "$("${HOMEBREW_PREFIX-/usr/local}/bin/direnv" export zsh)";
   trap - SIGINT;
 }
 
