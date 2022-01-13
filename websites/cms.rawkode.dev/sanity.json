@@ -29,8 +29,20 @@
       "path": "./schema"
     },
     {
+      "name": "part:@sanity/desk-tool/structure",
+      "path": "./contentStructure.js"
+    },
+    {
       "implements": "part:@sanity/form-builder/input/image/asset-sources",
       "path": "./parts/assetSources.js"
+    },
+    {
+      "implements": "part:@sanity/base/document-actions/resolver",
+      "path": "./actions.js"
+    },
+    {
+      "implements": "part:@sanity/base/document-badges/resolver",
+      "path": "./badges.js"
     }
   ]
 }

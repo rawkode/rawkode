@@ -12,5 +12,6 @@
       "timeFormat": "hh:mm a",
       "showAuthor": "false"
     }
-  }
+  },
+  "filterWarnings": []
 }

@@ -8,8 +8,9 @@ import {
 import { SiKubernetes } from "react-icons/si";
 
 import blockContent from "./blockContent";
-import YouTube from "./youtube";
 import Person from "./person";
+import { Technology } from "./technology";
+import YouTube from "./youtube";
 import { Show, Episode } from "./video-content";
 
 export default createSchema({
@@ -59,12 +60,6 @@ export default createSchema({
           title: "Technologies",
           type: "array",
           of: [{ type: "reference", to: { type: "technology" } }],
-        },
-        {
-          name: "products",
-          title: "Products",
-          type: "array",
-          of: [{ type: "reference", to: { type: "product" } }],
         },
         {
           name: "body",
@@ -128,79 +123,7 @@ export default createSchema({
         },
       ],
     },
-    {
-      name: "technology",
-      title: "Technologies",
-      icon: SiKubernetes,
-      type: "document",
-      fields: [
-        {
-          name: "title",
-          title: "Title",
-          type: "string",
-        },
-        {
-          name: "description",
-          title: "Description",
-          type: "text",
-        },
-        {
-          name: "website",
-          title: "Website",
-          type: "url",
-        },
-        {
-          name: "repository",
-          title: "Repository",
-          type: "url",
-        },
-        {
-          name: "logo",
-          title: "Logo",
-          type: "image",
-          options: {
-            hotspot: true,
-          },
-        },
-      ],
-    },
-    {
-      name: "product",
-      title: "Products",
-      icon: SiKubernetes,
-      type: "document",
-      fields: [
-        {
-          name: "title",
-          title: "Title",
-          type: "string",
-        },
-        {
-          name: "description",
-          title: "Description",
-          type: "text",
-        },
-        {
-          name: "website",
-          title: "Website",
-          type: "url",
-        },
-        {
-          name: "logo",
-          title: "Logo",
-          type: "image",
-          options: {
-            hotspot: true,
-          },
-        },
-        {
-          name: "superceededBy",
-          title: "Superceeded By",
-          type: "reference",
-          to: { type: "product" },
-        },
-      ],
-    },
+    Technology,
     Person,
     Show,
     Episode,
