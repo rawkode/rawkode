@@ -1,3 +1,8 @@
+import "ace-builds/src-noconflict/mode-elixir";
+import "ace-builds/src-noconflict/mode-nix";
+import "ace-builds/src-noconflict/mode-rust";
+import "ace-builds/src-noconflict/mode-toml";
+
 export default {
   title: "Block Content",
   name: "blockContent",
@@ -52,6 +57,36 @@ export default {
     },
     {
       type: "code",
+      withFilename: true,
+      options: {
+        languageAlternatives: [
+          { title: "C#", value: "csharp" },
+          { title: "CSS", value: "css" },
+          { title: "Go", value: "golang" },
+          { title: "GROQ", value: "groq" },
+          { title: "HTML", value: "html" },
+          { title: "Java", value: "java" },
+          { title: "JavaScript", value: "javascript" },
+          { title: "JSON", value: "json" },
+          { title: "Elixir", value: "elixir", mode: "elixir" },
+          { title: "JSX", value: "jsx" },
+          { title: "Markdown", value: "markdown" },
+          { title: "MySQL", value: "mysql" },
+          { title: "Nix", value: "nix", mode: "nix" },
+          { title: "PHP", value: "php" },
+          { title: "Plain text", value: "text" },
+          { title: "Python", value: "python" },
+          { title: "Ruby", value: "ruby" },
+          { title: "Rust", value: "rust", mode: "rust" },
+          { title: "SASS", value: "sass" },
+          { title: "SCSS", value: "scss" },
+          { title: "sh", value: "sh" },
+          { title: "TOML", value: "toml", mode: "toml" },
+          { title: "TSX", value: "tsx" },
+          { title: "TypeScript", value: "typescript" },
+          { title: "YAML", value: "yaml" },
+        ],
+      },
     },
     {
       type: "youtube",
