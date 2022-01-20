@@ -20,7 +20,6 @@
 				"slug": slug.current,
 				publishedAt,
 				technologies[]->{title, description, repository, logo{asset->{url}}},
-				products[]->{title, description, website, logo{asset->{url}}},
 				body,
   			"numberOfCharacters": length(pt::text(body)),
   			"estimatedWordCount": round(length(pt::text(body)) / 5),
@@ -91,30 +90,12 @@
 			<div class="flex flex-col mt-2 lg:flex-row">
 				<strong class="mr-8 w-32">Technologies</strong>
 				{#each article.technologies as technology}
-					<a href={technology.repository} target="_blank">
-						<span
-							class="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-indigo-100 text-indigo-800 ml-2"
-						>
-							<img class="h-4 w-4 ml-1 mr-1" alt="Logo" src={technology.logo.asset.url} />
-							{technology.title}
-						</span>
-					</a>
-				{/each}
-			</div>
-		{/if}
-
-		{#if article.products}
-			<div class="flex flex-col mt-2 lg:flex-row">
-				<strong class="mr-8 w-32">Products</strong>
-				{#each article.products as product}
-					<a href={product.website} target="_blank">
-						<span
-							class="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-indigo-100 text-indigo-800 ml-2"
-						>
-							<img class="h-4 w-4 ml-1 mr-1" alt="Logo" src={product.logo.asset.url} />
-							{product.title}
-						</span>
-					</a>
+					<span
+						class="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-indigo-100 text-indigo-800 ml-2"
+					>
+						<img class="h-4 w-4 ml-1 mr-1" alt="Logo" src={technology.logo.asset.url} />
+						{technology.title}
+					</span>
 				{/each}
 			</div>
 		{/if}
