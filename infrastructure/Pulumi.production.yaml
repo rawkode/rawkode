@@ -1,6 +1,5 @@
 config:
-  civo:region: lon1
-  civo:token:
-    secure: AAABAFx3wrm3X8RmGI88vVZUK5lmxL5N4dDk0w3H2YxehUORGLDdGsmuOBwrZE/jMJuaHKKPii/O4dawmDgJdlP6Bmme5tV55aJD9Yk24l0bOw==
   cloudflare:apiToken:
     secure: AAABAJsx72+4Wbt74E/KoJnLu5JlmQ/n1LtitxrATo8odlx5hUK5YhKRCSEoMnGxZ3YwViIqFKGTz2LKcPicbiS0VmVXa1ZM
+  google-native:project: rawkode
+  google-native:region: europe-west2

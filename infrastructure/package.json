@@ -4,8 +4,11 @@
     "@types/node": "^10.0.0"
   },
   "dependencies": {
-    "@pulumi/pulumi": "^3.0.0",
-    "@pulumi/civo": "2.1.2",
-    "@pulumi/cloudflare": "^3.5.0"
+    "@pulumi/pulumi": "^3",
+    "@pulumi/cloudflare": "^3",
+    "@pulumi/google-native": "^0.13.0",
+    "@pulumi/kubernetes": "^3",
+    "@kubernetes/client-node": "^0.16.2",
+    "@pulumiverse/knative": "0.28.0"
   }
 }
