@@ -1,5 +1,9 @@
 config:
+  civo:token:
+    secure: AAABAHfA2rlm+FQkoAEWoDF2nsI6NhCsSH1PkCo6QaB1Qvl2x/KZR+0hHJFH0BQZOz2HqLP96OW+20GqM6wi1SXPqOjKpWOq/Uvdndt/s3faaQ==
   cloudflare:apiToken:
     secure: AAABAJsx72+4Wbt74E/KoJnLu5JlmQ/n1LtitxrATo8odlx5hUK5YhKRCSEoMnGxZ3YwViIqFKGTz2LKcPicbiS0VmVXa1ZM
   google-native:project: rawkode
   google-native:region: europe-west2
+  infrastructure:pulumiAccessToken:
+    secure: AAABAGDAc4/Rgm766AFUqAssOm2M4+W1il/ur6aYEbw9qpq0VnwzvhgwTtQp9VQjMv7+r6eVbSz3NQy2OKBXzWi9FMZcwAQEbDhF4Q==
