@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
 import * as k8x from "@pulumi/kubernetesx";
 import { managedDomains as domains } from "./dns";
-import { createCluster } from "./kubernetes/civo";
+import { Cluster } from "./kubernetes/";
 import { install as installKnative } from "./kubernetes/knative";
 
 export const managedDomains = domains.reduce(
@@ -19,16 +19,25 @@ if (!clusterDomain) {
   throw new Error("clusterDomain, rawkode.sh, not found");
 }
 
-const cluster = createCluster({
-  name: "rawkode-production",
-  dnsController: clusterDomain,
-  nodePools: [
-    {
-      instanceType: "g4s.kube.large",
-      numberOfNodes: 3,
-    },
-  ],
-});
+// Will bring this back in when Civo launches a new feature ...
+// const cluster = createCluster({
+//   name: "rawkode-production",
+//   dnsController: clusterDomain,
+//   nodePools: [
+//     {
+//       instanceType: "g4s.kube.large",
+//       numberOfNodes: 3,
+//     },
+//   ],
+// });
+
+const config = new pulumi.Config();
+
+const cluster: Cluster = {
+  provider: new k8s.Provider("civo", {
+    kubeconfig: config.requireSecret("kubeconfig"),
+  }),
+};
 
 const ingressController = new k8s.helm.v3.Release(
   "ingress-controller",
@@ -39,7 +48,17 @@ const ingressController = new k8s.helm.v3.Release(
     },
     version: "7.3.3",
     namespace: "kube-system",
-    values: {},
+    values: {
+      defaultBackend: {
+        enabled: true,
+        containerPorts: {
+          http: 8080,
+        },
+      },
+      envoy: {
+        useHostPort: false,
+      },
+    },
   },
   {
     provider: cluster.provider,
@@ -90,9 +109,10 @@ const rawkodeAcademyPlatform = new k8s.apiextensions.CustomResource(
           },
         },
       },
-      stack: "rawkode-academy-platform",
+      stack: clusterDomain.domainName,
       projectRepo: "https://github.com/rawkode-academy/platform",
-      branch: "refs/head/main",
+      branch: "refs/heads/main",
+      resyncFrequencySeconds: 60,
       destroyOnFinalize: true,
     },
   },
