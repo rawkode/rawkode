@@ -3,7 +3,6 @@ import * as k8s from "@pulumi/kubernetes";
 import * as k8x from "@pulumi/kubernetesx";
 import { managedDomains as domains } from "./dns";
 import { Cluster } from "./kubernetes/";
-import { install as installKnative } from "./kubernetes/knative";
 
 export const managedDomains = domains.reduce(
   (zones, domain) =>
@@ -79,7 +78,16 @@ svc.status.loadBalancer.ingress[0].ip.apply((ip) => {
 });
 
 import { install as installPulumiOperator } from "./pulumi-operator";
-const operatorDeployment = installPulumiOperator(cluster.provider, "default");
+const academyNamespace = new k8s.core.v1.Namespace("academy", {
+  metadata: {
+    name: "academy",
+  },
+});
+
+const operatorDeployment = installPulumiOperator(
+  cluster.provider,
+  academyNamespace.metadata.name
+);
 
 const pulumiConfig = new pulumi.Config();
 const pulumiAccessToken = pulumiConfig.requireSecret("pulumiAccessToken");
@@ -87,6 +95,9 @@ const pulumiAccessToken = pulumiConfig.requireSecret("pulumiAccessToken");
 const accessToken = new k8x.Secret(
   "accesstoken",
   {
+    metadata: {
+      namespace: academyNamespace.metadata.name,
+    },
     stringData: { accessToken: pulumiAccessToken },
   },
   {
@@ -99,6 +110,9 @@ const rawkodeAcademyPlatform = new k8s.apiextensions.CustomResource(
   {
     apiVersion: "pulumi.com/v1",
     kind: "Stack",
+    metadata: {
+      namespace: academyNamespace.metadata.name,
+    },
     spec: {
       envRefs: {
         PULUMI_ACCESS_TOKEN: {
