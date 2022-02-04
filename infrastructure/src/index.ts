@@ -1,8 +1,9 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
-import * as k8x from "@pulumi/kubernetesx";
+import * as scaleway from "@jaxxstorm/pulumi-scaleway";
+
 import { managedDomains as domains } from "./dns";
-import { Cluster } from "./kubernetes/";
+import { Cluster } from "./cluster";
 
 export const managedDomains = domains.reduce(
   (zones, domain) =>
@@ -18,120 +19,159 @@ if (!clusterDomain) {
   throw new Error("clusterDomain, rawkode.sh, not found");
 }
 
-// Will bring this back in when Civo launches a new feature ...
-// const cluster = createCluster({
-//   name: "rawkode-production",
-//   dnsController: clusterDomain,
-//   nodePools: [
-//     {
-//       instanceType: "g4s.kube.large",
-//       numberOfNodes: 3,
-//     },
-//   ],
-// });
+const scalewayCluster = new scaleway.KubernetesCluster("rawkode-production", {
+  name: "rawkode-production",
+  cni: "cilium",
+  version: "1.23.2",
+  type: "kapsule",
+  deleteAdditionalResources: true,
+});
+
+const scalewayNodePoolEssential = new scaleway.KubernetesNodePool("essential", {
+  clusterId: scalewayCluster.id,
+  nodeType: "GP1-XS",
+  containerRuntime: "containerd",
+  minSize: 1,
+  maxSize: 3,
+  size: 1,
+  autoscaling: false,
+  autohealing: true,
+});
+
+const scalewayNodePoolEphemeral = new scaleway.KubernetesNodePool("ephemeral", {
+  clusterId: scalewayCluster.id,
+  nodeType: "DEV1-L",
+  containerRuntime: "containerd",
+  minSize: 1,
+  maxSize: 5,
+  size: 1,
+  autoscaling: true,
+  autohealing: true,
+});
 
 const config = new pulumi.Config();
 
 const cluster: Cluster = {
-  provider: new k8s.Provider("civo", {
-    kubeconfig: config.requireSecret("kubeconfig"),
+  provider: new k8s.Provider("platform", {
+    kubeconfig: scalewayCluster.kubeconfigs[0].configFile,
   }),
 };
 
-const ingressController = new k8s.helm.v3.Release(
-  "ingress-controller",
-  {
-    chart: "contour",
-    repositoryOpts: {
-      repo: "https://charts.bitnami.com/bitnami",
-    },
-    version: "7.3.3",
-    namespace: "kube-system",
-    values: {
-      defaultBackend: {
-        enabled: true,
-        containerPorts: {
-          http: 8080,
-        },
-      },
-      envoy: {
-        useHostPort: false,
-      },
-    },
-  },
-  {
-    provider: cluster.provider,
-  }
-);
-
-const svc = k8s.core.v1.Service.get(
-  "ingress-controller-service",
-  pulumi.interpolate`${ingressController.status.namespace}/${ingressController.status.name}-contour-envoy`,
-  {
-    provider: cluster.provider,
-  }
-);
-
-svc.status.loadBalancer.ingress[0].ip.apply((ip) => {
-  clusterDomain.createRecord("@", "A", [ip]);
-  clusterDomain.createRecord("*", "A", [ip]);
+import { create as createPlatform } from "./platform";
+createPlatform({
+  cluster,
 });
 
-import { install as installPulumiOperator } from "./pulumi-operator";
-const academyNamespace = new k8s.core.v1.Namespace("academy", {
-  metadata: {
-    name: "academy",
-  },
-});
+// IngressController
+// const ingressController = new k8s.helm.v3.Release(
+//   "ingress-controller",
+//   {
+//     chart: "contour",
+//     name: "contour",
+//     repositoryOpts: {
+//       repo: "https://charts.bitnami.com/bitnami",
+//     },
+//     version: "7.3.3",
+//     namespace: "kube-system",
+//     values: {
+//       defaultBackend: {
+//         enabled: true,
+//         containerPorts: {
+//           http: 8080,
+//         },
+//       },
+//       envoy: {
+//         useHostPort: false,
+//       },
+//     },
+//     skipAwait: true,
+//   },
+//   {
+//     provider: cluster.provider,
+//   }
+// );
 
-const operatorDeployment = installPulumiOperator(
-  cluster.provider,
-  academyNamespace.metadata.name
-);
+// const svc = k8s.core.v1.Service.get(
+//   "ingress-controller-service",
+//   pulumi.interpolate`${ingressController.status.namespace}/${ingressController.status.name}-contour-envoy`,
+//   {
+//     provider: cluster.provider,
+//   }
+// );
 
-const pulumiConfig = new pulumi.Config();
-const pulumiAccessToken = pulumiConfig.requireSecret("pulumiAccessToken");
+// svc.status.loadBalancer.ingress[0].ip.apply((ip) => {
+//   clusterDomain.createRecord("@", "A", [ip]);
+//   clusterDomain.createRecord("*", "A", [ip]);
+// });
 
-const accessToken = new k8x.Secret(
-  "accesstoken",
-  {
-    metadata: {
-      namespace: academyNamespace.metadata.name,
-    },
-    stringData: { accessToken: pulumiAccessToken },
-  },
-  {
-    provider: cluster.provider,
-  }
-);
+// import { install as installPulumiOperator } from "./pulumi-operator";
 
-const rawkodeAcademyPlatform = new k8s.apiextensions.CustomResource(
-  "rawkode-academy-platform",
-  {
-    apiVersion: "pulumi.com/v1",
-    kind: "Stack",
-    metadata: {
-      namespace: academyNamespace.metadata.name,
-    },
-    spec: {
-      envRefs: {
-        PULUMI_ACCESS_TOKEN: {
-          type: "Secret",
-          secret: {
-            name: accessToken.metadata.name,
-            key: "accessToken",
-          },
-        },
-      },
-      stack: clusterDomain.domainName,
-      projectRepo: "https://github.com/rawkode-academy/platform",
-      branch: "refs/heads/main",
-      resyncFrequencySeconds: 60,
-      destroyOnFinalize: true,
-    },
-  },
-  {
-    provider: cluster.provider,
-    dependsOn: [operatorDeployment],
-  }
-);
+// Until fix for #971 is released
+// const academyNamespace = new k8s.core.v1.Namespace(
+//   "academy",
+//   {
+//     metadata: {
+//       name: "academy",
+//     },
+//   },
+//   {
+//     provider: cluster.provider,
+//   }
+// );
+
+// const academyNamespace = k8s.core.v1.Namespace.get(
+//   "academy-namespace",
+//   "default"
+// );
+
+// const operatorDeployment = installPulumiOperator(
+//   cluster.provider,
+//   academyNamespace.metadata.name
+// );
+
+// const pulumiConfig = new pulumi.Config();
+// const pulumiAccessToken = pulumiConfig.requireSecret("pulumiAccessToken");
+
+// const accessToken = new k8x.Secret(
+//   "accesstoken",
+//   {
+//     metadata: {
+//       namespace: academyNamespace.metadata.name,
+//     },
+//     stringData: { accessToken: pulumiAccessToken },
+//   },
+//   {
+//     provider: cluster.provider,
+//   }
+// );
+
+// const rawkodeAcademyPlatform = new k8s.apiextensions.CustomResource(
+//   "rawkode-academy-platform",
+//   {
+//     apiVersion: "pulumi.com/v1",
+//     kind: "Stack",
+//     metadata: {
+//       namespace: academyNamespace.metadata.name,
+//     },
+//     spec: {
+//       envRefs: {
+//         PULUMI_ACCESS_TOKEN: {
+//           type: "Secret",
+//           secret: {
+//             name: accessToken.metadata.name,
+//             namespace: accessToken.metadata.namespace,
+//             key: "accessToken",
+//           },
+//         },
+//       },
+//       stack: clusterDomain.domainName,
+//       projectRepo: "https://github.com/rawkode-academy/platform",
+//       branch: "refs/heads/main",
+//       destroyOnFinalize: true,
+//     },
+//   },
+//   {
+//     provider: cluster.provider,
+//     dependsOn: [operatorDeployment],
+//   }
+// );

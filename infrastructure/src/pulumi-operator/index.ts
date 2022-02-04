@@ -8,7 +8,7 @@ export const install = (
   const crds = new kubernetes.yaml.ConfigFile(
     "crds",
     {
-      file: "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.3.0/deploy/crds/pulumi.com_stacks.yaml",
+      file: "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.4.0/deploy/crds/pulumi.com_stacks.yaml",
     },
     {
       provider,
@@ -172,7 +172,7 @@ export const install = (
             containers: [
               {
                 name: "pulumi-kubernetes-operator",
-                image: "pulumi/pulumi-kubernetes-operator:v1.3.0",
+                image: "pulumi/pulumi-kubernetes-operator:v1.4.0",
                 args: ["--zap-level=error", "--zap-time-encoding=iso8601"],
                 imagePullPolicy: "Always",
                 env: [
@@ -203,6 +203,10 @@ export const install = (
                   {
                     name: "MAX_CONCURRENT_RECONCILES",
                     value: "10",
+                  },
+                  {
+                    name: "PULUMI_INFER_NAMESPACE",
+                    value: "1",
                   },
                 ],
               },

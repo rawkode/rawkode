@@ -1,7 +1,7 @@
 import * as google from "@pulumi/google-native";
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { Args, Cluster } from "../";
+import { Args, Cluster } from "..";
 
 const essentialNodeConfig: google.types.input.container.v1.NodeConfigArgs = {
   machineType: "e2-small",
