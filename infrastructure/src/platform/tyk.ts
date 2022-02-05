@@ -91,15 +91,18 @@ export const install = async (args: InstallArgs): Promise<void> => {
       version: tykVersions.headless,
       namespace: args.namespace,
       values: {
+        gateway: {
+          tls: "true",
+        },
         secrets: {
-          APISecret: tykApiSecret.result,
-          OrgID: tykOrgId.result,
+          APISecret: pulumi.interpolate`${tykApiSecret.result}`,
+          OrgID: pulumi.interpolate`${tykOrgId.result}`,
         },
         redis: {
           addrs: [
-            `${tykRedisService.metadata.name}.${tykRedisService.metadata.namespace}.svc.cluster.local:6379`,
+            pulumi.interpolate`${tykRedisService.metadata.name}.${tykRedisService.metadata.namespace}.svc.cluster.local:6379`,
           ],
-          pass: redisPassword.result,
+          pass: pulumi.interpolate`${redisPassword.result}`,
         },
       },
     },
@@ -126,9 +129,9 @@ export const install = async (args: InstallArgs): Promise<void> => {
         namespace: args.namespace,
       },
       stringData: {
-        TYK_AUTH: tykApiSecret.result,
-        TYK_ORG: tykOrgId.result,
-        TYK_URL: `${tykGatewayService.metadata.name}.${tykGatewayService.metadata.namespace}.svc.cluster.local:8080`,
+        TYK_AUTH: pulumi.interpolate`${tykApiSecret.result}`,
+        TYK_ORG: pulumi.interpolate`${tykOrgId.result}`,
+        TYK_URL: pulumi.interpolate`https://${tykGatewayService.metadata.name}.${tykGatewayService.metadata.namespace}.svc.cluster.local`,
         TYK_TLS_INSECURE_SKIP_VERIFY: "true",
         TYK_MODE: "ce",
       },
@@ -148,13 +151,13 @@ export const install = async (args: InstallArgs): Promise<void> => {
       version: tykVersions.operator,
       namespace: args.namespace,
       values: {
-        // envFrom: [
-        //   {
-        //     secretRef: {
-        //       name: tykOperatorConfig.metadata.name,
-        //     },
-        //   },
-        // ],
+        envFrom: [
+          {
+            secretRef: {
+              name: pulumi.interpolate`${tykOperatorConfig.metadata.name}`,
+            },
+          },
+        ],
       },
     },
     {
