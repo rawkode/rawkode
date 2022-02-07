@@ -3,7 +3,7 @@ import * as kubernetes from "@pulumi/kubernetes";
 
 export const install = (
   provider: kubernetes.Provider,
-  namespace: pulumi.Output<string>
+  namespace: string | pulumi.Output<string>
 ): kubernetes.apps.v1.Deployment => {
   const crds = new kubernetes.yaml.ConfigFile(
     "crds",
