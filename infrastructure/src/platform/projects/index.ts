@@ -5,6 +5,7 @@ import * as k8x from "@pulumi/kubernetesx";
 import { Cluster } from "../../cluster";
 import { Controller } from "../../dns/controller";
 import { PersistentVolumeClaim } from "@pulumi/kubernetes/core/v1";
+import { RandomPassword } from "@pulumi/random";
 
 // TODO: This should be a ComponentResource
 interface Args {
@@ -197,6 +198,28 @@ const provisionProject = async (
 
   const operatorName = `${project.name}-operator`;
 
+  const pulumiStackSecret = new RandomPassword(
+    `${project.name}-pulumi-stack-secret`,
+    {
+      length: 32,
+    }
+  );
+
+  const pulumiKubernetesSecret = new kubernetes.core.v1.Secret(
+    `${project.name}-password`,
+    {
+      metadata: {
+        namespace,
+      },
+      stringData: {
+        password: pulumiStackSecret.result,
+      },
+    },
+    {
+      provider: args.provider,
+    }
+  );
+
   const persistentVolume = new PersistentVolumeClaim(
     `${project.name}-operator`,
     {
@@ -248,6 +271,9 @@ const provisionProject = async (
                 },
               },
             ],
+            securityContext: {
+              fsGroup: 1000,
+            },
             containers: [
               {
                 name: "operator",
@@ -322,6 +348,16 @@ const provisionProject = async (
         branch: "refs/heads/main",
         destroyOnFinalize: true,
         backend: "file:///state",
+        envRefs: {
+          PULUMI_CONFIG_PASSPHRASE: {
+            type: "Secret",
+            secret: {
+              name: pulumiKubernetesSecret.metadata.name,
+              namespace: pulumiKubernetesSecret.metadata.namespace,
+              key: "password",
+            },
+          },
+        },
       },
     },
     {
