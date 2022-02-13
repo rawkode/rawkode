@@ -34,4 +34,35 @@ export const install = async (args: InstallArgs) => {
       dependsOn: [crds],
     }
   );
+
+  const letsEncryptProduction = new k8s.apiextensions.CustomResource(
+    "letsencrypt-production",
+    {
+      apiVersion: "cert-manager.io/v1",
+      kind: "ClusterIssuer",
+      namespace: args.namespace,
+      spec: {
+        acme: {
+          email: "david@rawkode.com",
+          privateKeySecretRef: {
+            name: "letsencrypt-production",
+          },
+          server: "https://acme-v02.api.letsencrypt.org/directory",
+          solvers: [
+            {
+              http01: {
+                ingress: {
+                  class: "contour",
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    {
+      dependsOn: [certManager],
+      provider: args.provider,
+    }
+  );
 };
