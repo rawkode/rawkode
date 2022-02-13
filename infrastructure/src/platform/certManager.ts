@@ -40,7 +40,10 @@ export const install = async (args: InstallArgs) => {
     {
       apiVersion: "cert-manager.io/v1",
       kind: "ClusterIssuer",
-      namespace: args.namespace,
+      metadata: {
+        // Disable auto-naming, because downstream stacks will rely on this
+        name: "letsencrypt-production",
+      },
       spec: {
         acme: {
           email: "david@rawkode.com",
