@@ -2,7 +2,9 @@
   "include": [
     "./node_modules/@sanity/base/types/**/*.ts",
     "./**/*.ts",
-    "./**/*.tsx",
-    "schema/person.js"
-  ]
+    "./**/*.tsx"
+  ],
+  "compilerOptions": {
+    "jsx": "react"
+  }
 }

@@ -3,7 +3,7 @@ import "ace-builds/src-noconflict/mode-nix";
 import "ace-builds/src-noconflict/mode-rust";
 import "ace-builds/src-noconflict/mode-toml";
 
-export default {
+export const BlockContent = {
   title: "Block Content",
   name: "blockContent",
   type: "array",

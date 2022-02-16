@@ -4,8 +4,8 @@ const contentMenuItems = S.documentTypeListItems().map((type) => type.getId());
 
 const grouping = [
   {
-    name: "meta",
-    types: ["category", "series", "technology"],
+    name: "crm",
+    types: ["person"],
   },
   {
     name: "blog",
@@ -14,6 +14,10 @@ const grouping = [
   {
     name: "live-stream",
     types: ["show", "episode"],
+  },
+  {
+    name: "meta",
+    types: ["category", "series", "technology"],
   },
 ];
 
