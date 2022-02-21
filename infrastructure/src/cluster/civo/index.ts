@@ -1,8 +1,8 @@
 import * as civo from "@pulumi/civo";
-import * as k8s from "@pulumi/kubernetes";
-import { Args, Cluster } from "../";
+import * as kubernetes from "@pulumi/kubernetes";
+import { ClusterArgs } from "../";
 
-export const createCluster = (config: Args): Cluster => {
+export const createCluster = (config: ClusterArgs): kubernetes.Provider => {
   const network = new civo.Network(config.name, {
     label: config.name,
     region: "lon1",
@@ -47,7 +47,7 @@ export const createCluster = (config: Args): Cluster => {
     numTargetNodes: 1,
     targetNodesSize: "g4s.kube.xsmall",
     region: "lon1",
-    cni: "cilium",
+    // cni: "cilium",
     applications: "-Traefik,-metrics-server",
   });
 
@@ -61,9 +61,7 @@ export const createCluster = (config: Args): Cluster => {
       })
   );
 
-  return {
-    provider: new k8s.Provider(config.name, {
-      kubeconfig: cluster.kubeconfig,
-    }),
-  };
+  return new kubernetes.Provider(config.name, {
+    kubeconfig: cluster.kubeconfig,
+  });
 };

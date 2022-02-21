@@ -5,6 +5,7 @@ export class Controller extends ComponentResource {
   readonly domainName: string;
   readonly zone: cloudflare.Zone;
   private records: cloudflare.Record[];
+  private mxCounter = 0;
 
   constructor(domainName: string) {
     super(`rawkode:DnsController`, `${domainName}`);
@@ -61,7 +62,7 @@ export class Controller extends ComponentResource {
           type,
           value,
         },
-        { parent: this.zone, protect: false }
+        { parent: this.zone, protect: false, deleteBeforeReplace: true }
       );
 
       this.records.push(record);
@@ -86,7 +87,7 @@ export class Controller extends ComponentResource {
           type,
           value,
         },
-        { parent: this.zone, protect: false }
+        { parent: this.zone, protect: false, deleteBeforeReplace: true }
       );
 
       this.records.push(record);
@@ -97,7 +98,7 @@ export class Controller extends ComponentResource {
 
   public createMxRecord(name: string, priority: number, value: string): void {
     const record = new cloudflare.Record(
-      this.resourceName(`${name}-${priority}`, "MX"),
+      this.resourceName(`${name}-${this.mxCounter++}`, "MX"),
       {
         zoneId: this.zone.id,
         name: this.recordName(name),
@@ -106,7 +107,7 @@ export class Controller extends ComponentResource {
         priority,
         value,
       },
-      { parent: this.zone, protect: false }
+      { parent: this.zone, protect: false, deleteBeforeReplace: true }
     );
 
     this.records.push(record);

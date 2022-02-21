@@ -1,6 +1,5 @@
 import * as k8s from "@pulumi/kubernetes";
 
-import { Cluster } from "../cluster/index";
 import { Controller } from "../dns/controller";
 import { install as installCertManager } from "./certManager";
 import { install as installContour } from "./contour";
@@ -9,7 +8,7 @@ import { install as installTyk } from "./tyk";
 import { installProjects } from "./projects";
 
 interface PlatformArgs {
-  cluster: Cluster;
+  cluster: k8s.Provider;
   domainController: Controller;
 }
 
@@ -22,29 +21,29 @@ export const create = async (args: PlatformArgs): Promise<void> => {
       },
     },
     {
-      provider: args.cluster.provider,
+      provider: args.cluster,
     }
   );
 
   installContour({
     namespace: platformNamespace.metadata.name,
-    provider: args.cluster.provider,
+    provider: args.cluster,
     domainController: args.domainController,
   });
 
   installCertManager({
     namespace: platformNamespace.metadata.name,
     version: "1.6.2",
-    provider: args.cluster.provider,
+    provider: args.cluster,
   });
 
   installTyk({
     namespace: platformNamespace.metadata.name,
-    provider: args.cluster.provider,
+    provider: args.cluster,
   });
 
   installProjects({
-    provider: args.cluster.provider,
+    provider: args.cluster,
     domainController: args.domainController,
   });
 

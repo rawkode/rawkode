@@ -1,17 +1,14 @@
-import * as k8s from "@pulumi/kubernetes";
-import { Controller as DnsController } from "../dns/controller";
+import * as kubernetes from "@pulumi/kubernetes";
 
-export interface Args {
+export interface ClusterProvider {
+  (args: ClusterArgs): kubernetes.Provider;
+}
+
+export interface ClusterArgs {
   name: string;
-  dnsController: DnsController;
-  nodePools: NodePool[];
 }
 
 export interface NodePool {
   instanceType: string;
   numberOfNodes: number;
-}
-
-export interface Cluster {
-  provider: k8s.Provider;
 }

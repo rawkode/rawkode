@@ -2,7 +2,6 @@ import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
 import * as k8x from "@pulumi/kubernetesx";
 
-import { Cluster } from "../../cluster";
 import { Controller } from "../../dns/controller";
 import { PersistentVolumeClaim } from "@pulumi/kubernetes/core/v1";
 import { RandomPassword } from "@pulumi/random";
