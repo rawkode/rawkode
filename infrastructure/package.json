@@ -12,7 +12,7 @@
     "@pulumi/kubernetesx": "^0.1.6",
     "@pulumi/random": "^4.3.1",
     "@jaxxstorm/pulumi-scaleway": "^0.1.8",
-    "@pulumiverse/knative": "0.28.0",
-    "@pulumiverse/tyk": "^0.7.2"
+    "@pulumiverse/kubernetes-redpanda": "^21.11.2",
+    "@pulumiverse/kubernetes-tyk": "^0.7.2"
   }
 }

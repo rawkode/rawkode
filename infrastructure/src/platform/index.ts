@@ -5,6 +5,7 @@ import { install as installCertManager } from "./certManager";
 import { install as installContour } from "./contour";
 import { install as installPulumiOperator } from "./pulumiOperator";
 import { install as installTyk } from "./tyk";
+import { install as installRedpanda } from "./redpanda";
 import { installProjects } from "./projects";
 
 interface PlatformArgs {
@@ -31,7 +32,7 @@ export const create = async (args: PlatformArgs): Promise<void> => {
     domainController: args.domainController,
   });
 
-  installCertManager({
+  const certManagerResources = await installCertManager({
     namespace: platformNamespace.metadata.name,
     version: "1.6.2",
     provider: args.cluster,
@@ -40,6 +41,13 @@ export const create = async (args: PlatformArgs): Promise<void> => {
   installTyk({
     namespace: platformNamespace.metadata.name,
     provider: args.cluster,
+  });
+
+  installRedpanda({
+    namespace: platformNamespace.metadata.name,
+    provider: args.cluster,
+    version: "21.11.8",
+    dependsOn: certManagerResources,
   });
 
   installProjects({

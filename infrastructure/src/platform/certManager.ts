@@ -10,7 +10,9 @@ interface InstallArgs {
   provider: k8s.Provider;
 }
 
-export const install = async (args: InstallArgs) => {
+export const install = async (
+  args: InstallArgs
+): Promise<pulumi.Resource[]> => {
   const crds = new k8s.yaml.ConfigFile(
     `cert-manager-crds`,
     { file: certManagerCrds.replace("${VERSION}", args.version) },
@@ -68,4 +70,6 @@ export const install = async (args: InstallArgs) => {
       provider: args.provider,
     }
   );
+
+  return [crds, certManager, letsEncryptProduction];
 };
