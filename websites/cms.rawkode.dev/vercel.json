@@ -5,6 +5,7 @@
   },
   "builds": [
     {
+      "use": "package.json",
       "config": {
         "distDir": "public"
       }
