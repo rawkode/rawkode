@@ -6,10 +6,10 @@ on:
     branches:
       - main
     paths:
-      - websites/schema.rawkode.dev/**
+      - projects/schema.rawkode.dev/**
   pull_request:
     paths:
-      - websites/schema.rawkode.dev/**
+      - projects/schema.rawkode.dev/**
   schedule:
     - cron: "6 6 * * *"
 
@@ -26,5 +26,5 @@ jobs:
           vercel-args: "--prod"
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID}}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID}}
-          working-directory: ./websites/schema.rawkode.dev
+          working-directory: ./projects/schema.rawkode.dev
           github-comment: false
