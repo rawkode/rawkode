@@ -1,7 +1,0 @@
-{
-  "$id": "https://schema.rawkode.dev/social/linkedin",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Represents a LinkedIn username",
-  "type": "string",
-  "pattern": "^[a-zA-Z0-9]{3,100}$"
-}

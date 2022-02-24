@@ -5,19 +5,16 @@
   "type": "object",
   "properties": {
     "github": {
-      "type": {
-        "$ref": "https://schema.rawkode.dev/social/github"
-      }
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{1,39}$"
     },
     "linkedin": {
-      "type": {
-        "$ref": "https://schema.rawkode.dev/social/linkedin"
-      }
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9]{3,100}$"
     },
     "twitter": {
-      "type": {
-        "$ref": "https://schema.rawkode.dev/social/twitter"
-      }
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_]{4,15}$"
     }
   }
 }
