@@ -7,6 +7,10 @@
     "username"
   ],
   "properties": {
+    "account": {
+      "type": "string",
+      "pattern": "github"
+    },
     "username": {
       "type": "string",
       "description": "The GitHub username",

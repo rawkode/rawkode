@@ -7,6 +7,10 @@
     "username"
   ],
   "properties": {
+    "account": {
+      "type": "string",
+      "pattern": "twitter"
+    },
     "username": {
       "type": "string",
       "description": "The name of this organization",
