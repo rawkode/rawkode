@@ -1,0 +1,28 @@
+{
+  "$id": "https://schema.rawkode.dev/technology",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Technologies are used to describe software projects and products.",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "isOpenSource"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "homepage": {
+      "type": "string"
+    },
+    "isOpenSource": {
+      "type": "boolean"
+    },
+    "repository": {
+      "type": "string"
+    }
+  }
+}

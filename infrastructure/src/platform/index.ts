@@ -43,12 +43,12 @@ export const create = async (args: PlatformArgs): Promise<void> => {
     provider: args.cluster,
   });
 
-  installRedpanda({
-    namespace: platformNamespace.metadata.name,
-    provider: args.cluster,
-    version: "21.11.8",
-    dependsOn: certManagerResources,
-  });
+  // installRedpanda({
+  //   namespace: platformNamespace.metadata.name,
+  //   provider: args.cluster,
+  //   version: "21.11.8",
+  //   dependsOn: certManagerResources,
+  // });
 
   installProjects({
     provider: args.cluster,
