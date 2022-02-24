@@ -7,8 +7,8 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/:schema",
-      "destination": "/:schema.json"
+      "source": "/:schema*",
+      "destination": "/:schema*.json"
     }
   ]
 }
