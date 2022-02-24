@@ -1,0 +1,16 @@
+{
+  "$id": "https://schema.rawkode.dev/social/linkedin",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Represents a LinkedIn profile.",
+  "type": "object",
+  "required": [
+    "username"
+  ],
+  "properties": {
+    "username": {
+      "type": "string",
+      "description": "LinkedIn username",
+      "pattern": "^[a-zA-Z0-9]{3,100}$"
+    }
+  }
+}
