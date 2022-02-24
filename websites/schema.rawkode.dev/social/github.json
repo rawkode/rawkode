@@ -1,20 +1,7 @@
 {
   "$id": "https://schema.rawkode.dev/social/github",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Represents a GitHub account",
-  "type": "object",
-  "required": [
-    "username"
-  ],
-  "properties": {
-    "account": {
-      "type": "string",
-      "pattern": "github"
-    },
-    "username": {
-      "type": "string",
-      "description": "The GitHub username",
-      "pattern": "^@[a-zA-Z0-9_-]{1,39}$"
-    }
-  }
+  "description": "Represents a GitHub username",
+  "type": "string",
+  "pattern": "^@[a-zA-Z0-9_-]{1,39}$"
 }

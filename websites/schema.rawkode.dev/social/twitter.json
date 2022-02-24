@@ -1,20 +1,7 @@
 {
   "$id": "https://schema.rawkode.dev/social/twitter",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Represents a Twitter account",
-  "type": "object",
-  "required": [
-    "username"
-  ],
-  "properties": {
-    "account": {
-      "type": "string",
-      "pattern": "twitter"
-    },
-    "username": {
-      "type": "string",
-      "description": "The name of this organization",
-      "pattern": "^@[a-zA-Z0-9_]{4,15}$"
-    }
-  }
+  "description": "Represents a Twitter username",
+  "type": "string",
+  "pattern": "^@[a-zA-Z0-9_]{4,15}$"
 }

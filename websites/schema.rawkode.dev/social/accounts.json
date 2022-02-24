@@ -1,0 +1,23 @@
+{
+  "$id": "https://schema.rawkode.dev/social/github",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Represents a map of social accounts",
+  "type": "object",
+  "properties": {
+    "github": {
+      "type": {
+        "$ref": "https://schema.rawkode.dev/social/github"
+      }
+    },
+    "linkedin": {
+      "type": {
+        "$ref": "https://schema.rawkode.dev/social/linkedin"
+      }
+    },
+    "twitter": {
+      "type": {
+        "$ref": "https://schema.rawkode.dev/social/twitter"
+      }
+    }
+  }
+}

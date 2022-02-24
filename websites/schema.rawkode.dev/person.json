@@ -26,24 +26,8 @@
         "type": "string"
       }
     },
-    "socials": {
-      "anyOf": [
-        {
-          "type": {
-            "$ref": "https://schema.rawkode.dev/social/github"
-          }
-        },
-        {
-          "type": {
-            "$ref": "https://schema.rawkode.dev/social/linkedin"
-          }
-        },
-        {
-          "type": {
-            "$ref": "https://schema.rawkode.dev/social/twitter"
-          }
-        }
-      ]
+    "socialAccounts": {
+      "$ref": "https://schema.rawkode.dev/social/accounts"
     }
   }
 }
