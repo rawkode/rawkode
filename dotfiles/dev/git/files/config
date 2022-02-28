@@ -1,13 +1,15 @@
+[include]
+    path = "~/.config/git/local"
+
 [user]
-  email = david@rawkode.com
-  name = David Flanagan
-  signingKey = ~/.ssh/github.pub
+  email = "david@rawkode.dev"
+  name = "David Flanagan"
 
 [gpg]
   format = "ssh"
 
 [gpg "ssh"]
-  allowedSignersFile = "~/.ssh/allowed_signers"
+  allowedSignersFile = "~/.config/git/allowed_signers"
 
 [commit]
 	gpgSign = true

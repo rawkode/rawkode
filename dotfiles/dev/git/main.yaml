@@ -14,6 +14,6 @@ actions:
 
   - action: file.copy
     from: allowed_signers
-    to: "{{ user.home_dir }}/.ssh/allowed_signers"
+    to: "{{ user.home_dir }}/.config/git/allowed_signers"
     template: true
     chmod: 644
