@@ -5,6 +5,4 @@ actions:
       - font-cascadia-code
       - font-cascadia-code-pl
       - font-courgette
-      {% if user.username == "rawkode" %}
       - font-redressed
-      {% endif %}

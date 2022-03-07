@@ -7,6 +7,8 @@ source ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh
 
 znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
 
+znap prompt romkatv/powerlevel10k
+
 ##
 # Paths
 #

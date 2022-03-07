@@ -1,29 +1,29 @@
 [include]
-    path = "~/.config/git/local"
+path = "~/.config/git/local"
 
 [user]
-  email = "david@rawkode.dev"
-  name = "David Flanagan"
+email = "david@rawkode.dev"
+name = "David Flanagan"
 
 [gpg]
-  format = "ssh"
+format = "ssh"
 
-[gpg "ssh"]
-  allowedSignersFile = "~/.config/git/allowed_signers"
+[gpg.ssh]
+allowedSignersFile = "~/.config/git/allowed_signers"
 
 [commit]
-	gpgSign = true
+gpgSign = true
 
 [push]
-	default = current
+default = "current"
 
 [pull]
-	default = current
-	rebase = true
+default = "current"
+rebase = true
 
 [branch]
-	autosetuprebase = always
+autosetuprebase = "always"
 
 [rerere]
-  enabled = 1
-  autoupdate = 1
+enabled = 1
+autoupdate = 1

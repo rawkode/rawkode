@@ -1,14 +1,15 @@
 actions:
   - action: package.install
     list:
-      - adobe-creative-cloud
       - alt-tab
       - bartender
-      - cloudapp
-      - sketch
       - elgato-control-center
-      - elgato-stream-deck
       - iterm2
       - secretive
-      - viscosity
-# Davinci Resolve id571213070
+
+  # May need a provider for mas
+  # - action: package.install
+  #   provider: brew
+  #   extra-args: --mas
+  #   list:
+  #     - 1236045954 # Canary Mail

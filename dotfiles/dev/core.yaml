@@ -6,3 +6,6 @@ actions:
       - jq
       - just
       - ripgrep
+
+  - action: package.install
+    name: go-task/tap/go-task
