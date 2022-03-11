@@ -1,20 +1,25 @@
-import * as k8s from "@pulumi/kubernetes";
+import * as pulumi from "@pulumi/pulumi";
+import * as kubernetes from "@pulumi/kubernetes";
 
 import { Controller } from "../dns/controller";
 import { install as installCertManager } from "./certManager";
 import { install as installContour } from "./contour";
-import { install as installPulumiOperator } from "./pulumiOperator";
 import { install as installTyk } from "./tyk";
 import { install as installRedpanda } from "./redpanda";
-import { installProjects } from "./projects";
+
+export { Project } from "./projects";
 
 interface PlatformArgs {
-  cluster: k8s.Provider;
+  provider: kubernetes.Provider;
   domainController: Controller;
 }
 
-export const create = async (args: PlatformArgs): Promise<void> => {
-  const platformNamespace = new k8s.core.v1.Namespace(
+type PlatformResult = pulumi.Resource;
+
+export const create = async (args: PlatformArgs): Promise<PlatformResult> => {
+  const provider = args.provider;
+
+  const platformNamespace = new kubernetes.core.v1.Namespace(
     "platform-system",
     {
       metadata: {
@@ -22,38 +27,49 @@ export const create = async (args: PlatformArgs): Promise<void> => {
       },
     },
     {
-      provider: args.cluster,
+      provider,
     }
   );
 
-  installContour({
+  const contourDependency = await installContour({
     namespace: platformNamespace.metadata.name,
-    provider: args.cluster,
+    provider,
     domainController: args.domainController,
   });
 
-  const certManagerResources = await installCertManager({
+  const certManagerDependency = await installCertManager({
     namespace: platformNamespace.metadata.name,
     version: "1.6.2",
-    provider: args.cluster,
+    provider,
   });
 
-  installTyk({
+  const tykDependency = await installTyk({
     namespace: platformNamespace.metadata.name,
-    provider: args.cluster,
+    provider,
   });
 
-  installRedpanda({
+  const redPandaDependency = await installRedpanda({
     namespace: platformNamespace.metadata.name,
-    provider: args.cluster,
+    provider,
     version: "21.11.9",
-    dependsOn: certManagerResources,
+    dependsOn: [certManagerDependency],
   });
 
-  installProjects({
-    provider: args.cluster,
-    domainController: args.domainController,
-  });
+  const pulumiStackDependency = new kubernetes.yaml.ConfigFile(
+    "crds",
+    {
+      file: "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.4.0/deploy/crds/pulumi.com_stacks.yaml",
+    },
+    {
+      provider,
+      dependsOn: [
+        contourDependency,
+        certManagerDependency,
+        tykDependency,
+        redPandaDependency,
+      ],
+    }
+  );
 
-  return;
+  return pulumiStackDependency;
 };

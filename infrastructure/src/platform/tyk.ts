@@ -14,7 +14,9 @@ interface InstallArgs {
   provider: k8s.Provider;
 }
 
-export const install = async (args: InstallArgs): Promise<void> => {
+type DependOn = pulumi.Resource;
+
+export const install = async (args: InstallArgs): Promise<DependOn> => {
   const crds = new k8s.yaml.ConfigFile(
     `tyk-crds`,
     { file: tykCrds },
@@ -162,9 +164,9 @@ export const install = async (args: InstallArgs): Promise<void> => {
     },
     {
       provider: args.provider,
-      dependsOn: [crds, tykOperatorConfig],
+      dependsOn: [crds, tykOperatorConfig, tykGatewayService],
     }
   );
 
-  return;
+  return tykOperator;
 };

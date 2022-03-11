@@ -9,10 +9,12 @@ interface InstallArgs {
   dependsOn: pulumi.Resource[];
 }
 
+type DependOn = pulumi.Resource;
+
 const crdUrl =
   "https://raw.githubusercontent.com/redpanda-data/redpanda/v${VERSION}/src/go/k8s/config/crd/bases/redpanda.vectorized.io_clusters.yaml";
 
-export const install = async (args: InstallArgs) => {
+export const install = async (args: InstallArgs): Promise<DependOn> => {
   const crds = new k8s.yaml.ConfigFile(
     `redpanda-crds`,
     { file: crdUrl.replace("${VERSION}", args.version) },
@@ -90,4 +92,6 @@ export const install = async (args: InstallArgs) => {
       dependsOn: [crds, operator],
     }
   );
+
+  return cluster;
 };

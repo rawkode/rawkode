@@ -1,4 +1,5 @@
-import { managedDomains as domains } from "./dns";
+// If I want to export the domain name zone IDs for a StackReference
+import { getController, managedDomains as domains } from "./dns";
 
 export const managedDomains = domains.reduce(
   (zones, domain) =>
@@ -6,21 +7,26 @@ export const managedDomains = domains.reduce(
   {}
 );
 
-const clusterDomain = domains.find(
-  (domain) => domain.domainName === "rawkode.sh"
-);
-
-if (!clusterDomain) {
-  throw new Error("clusterDomain, rawkode.sh, not found");
-}
+const clusterDomain = getController("rawkode.sh");
 
 import { createCluster } from "./cluster/scaleway";
-const cluster = createCluster({
+const provider = createCluster({
   name: "rawkode-production",
 });
 
 import { create as createPlatform } from "./platform";
-createPlatform({
-  cluster,
+const platformDependency = createPlatform({
+  provider,
   domainController: clusterDomain,
 });
+
+import { Project } from "./platform";
+
+const academyDomain = getController("rawkode.academy");
+const academyProject = new Project("academy", {
+  rootDomainName: academyDomain.domainName,
+  platformDependency,
+  provider,
+});
+
+export const academyStackName = academyProject.stackName;

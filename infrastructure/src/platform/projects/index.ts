@@ -1,288 +1,292 @@
-import * as pulumi from "@pulumi/pulumi";
-import * as kubernetes from "@pulumi/kubernetes";
-import * as k8x from "@pulumi/kubernetesx";
-
-import { Controller } from "../../dns/controller";
-import { PersistentVolumeClaim } from "@pulumi/kubernetes/core/v1";
 import { RandomPassword } from "@pulumi/random";
+import * as kubernetes from "@pulumi/kubernetes";
+import * as pulumi from "@pulumi/pulumi";
+import * as slug from "slug";
 
-// TODO: This should be a ComponentResource
-interface Args {
+import { Controller, getController } from "../../dns";
+
+interface ProjectArgs {
+  rootDomainName: string;
+  platformDependency: pulumi.Resource | Promise<pulumi.Resource>;
   provider: kubernetes.Provider;
-  domainController: Controller;
 }
 
-interface Project {
-  name: pulumi.Input<string>;
-  org: pulumi.Input<string>;
-  repository: pulumi.Input<string>;
-  reference: pulumi.Input<string>;
-  accessToken: pulumi.Input<string>;
-}
+export class Project extends pulumi.ComponentResource {
+  private domainController: Controller;
+  private namespace: kubernetes.core.v1.Namespace;
+  private configMap: kubernetes.core.v1.ConfigMap;
+  private operatorServiceAccount: kubernetes.core.v1.ServiceAccount;
+  private operatorRole: kubernetes.rbac.v1.Role;
+  private operatorRoleBinding: kubernetes.rbac.v1.RoleBinding;
+  private stackSecret: RandomPassword;
+  private persistentVolumeClaim: kubernetes.core.v1.PersistentVolumeClaim;
+  private operator: kubernetes.apps.v1.Deployment;
+  private pulumiKubernetesSecret: kubernetes.core.v1.Secret;
+  private stack: kubernetes.apiextensions.CustomResource;
 
-export const installProjects = async (args: Args) => {
-  const config = new pulumi.Config();
-  const projects: Project[] = config.requireObject("projects");
+  constructor(name: string, args: ProjectArgs) {
+    super("rawkode:platform:Project", name, args, {});
 
-  const crds = new kubernetes.yaml.ConfigFile(
-    "crds",
-    {
-      file: "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.4.0/deploy/crds/pulumi.com_stacks.yaml",
-    },
-    {
-      provider: args.provider,
-    }
-  );
+    const slugName = slug(name);
+    const provider = args.provider;
 
-  projects.forEach((project) => provisionProject(project, args, crds));
-};
+    this.domainController = getController(args.rootDomainName);
 
-const provisionProject = async (
-  project: Project,
-  args: Args,
-  dependsOn: kubernetes.yaml.ConfigFile
-): Promise<void> => {
-  // Needs to be default until a new release is cut:
-  // https://github.com/pulumi/pulumi-kubernetes/pull/1896
-  const namespace = "default";
-
-  const projectContract = new kubernetes.core.v1.ConfigMap(
-    `${project.name}-environment`,
-    {
-      metadata: {
-        namespace,
-        name: "environment",
-      },
-      data: {
-        domain: args.domainController.domainName,
-      },
-    },
-    {
-      provider: args.provider,
-    }
-  );
-
-  const operatorServiceAccount = new kubernetes.core.v1.ServiceAccount(
-    `${project.name}-pulumi-operator-service-account`,
-    {
-      metadata: {
-        namespace,
-      },
-    },
-    {
-      provider: args.provider,
-    }
-  );
-
-  const operatorRole = new kubernetes.rbac.v1.Role(
-    `${project.name}-pulumi-operator-role`,
-    {
-      metadata: {
-        namespace,
-      },
-      rules: [
-        {
-          apiGroups: ["*"],
-          resources: ["*"],
-          verbs: ["*"],
+    this.namespace = new kubernetes.core.v1.Namespace(
+      slugName,
+      {
+        // Disable auto-naming on this namespace for consistent experience for developers
+        metadata: {
+          name,
         },
-      ],
-    },
-    {
-      provider: args.provider,
-    }
-  );
-
-  const operatorRoleBinding = new kubernetes.rbac.v1.RoleBinding(
-    `${project.name}-pulumi-operator-role-binding`,
-    {
-      metadata: {
-        namespace,
       },
-      subjects: [
-        {
-          kind: "ServiceAccount",
-          name: operatorServiceAccount.metadata.name,
+      { provider }
+    );
+    const namespace = this.namespace.metadata.name;
+
+    this.configMap = new kubernetes.core.v1.ConfigMap(
+      `${slugName}-environment`,
+      {
+        metadata: {
+          namespace,
+          name: "environment",
         },
-      ],
-      roleRef: {
-        kind: "Role",
-        name: operatorRole.metadata.name,
-        apiGroup: "rbac.authorization.k8s.io",
+        data: {
+          domain: this.domainController.domainName,
+        },
       },
-    },
-    {
-      provider: args.provider,
-    }
-  );
+      {
+        provider,
+      }
+    );
 
-  const operatorName = `${project.name}-operator`;
+    this.operatorServiceAccount = new kubernetes.core.v1.ServiceAccount(
+      `${slugName}-pulumi-operator-service-account`,
+      {
+        metadata: {
+          namespace,
+        },
+      },
+      {
+        provider,
+      }
+    );
 
-  const pulumiStackSecret = new RandomPassword(
-    `${project.name}-pulumi-stack-secret`,
-    {
+    this.operatorRole = new kubernetes.rbac.v1.Role(
+      `${slugName}-pulumi-operator-role`,
+      {
+        metadata: {
+          namespace,
+        },
+        rules: [
+          {
+            apiGroups: ["*"],
+            resources: ["*"],
+            verbs: ["*"],
+          },
+        ],
+      },
+      {
+        provider,
+      }
+    );
+
+    this.operatorRoleBinding = new kubernetes.rbac.v1.RoleBinding(
+      `${slugName}-pulumi-operator-role-binding`,
+      {
+        metadata: {
+          namespace,
+        },
+        subjects: [
+          {
+            kind: "ServiceAccount",
+            name: this.operatorServiceAccount.metadata.name,
+          },
+        ],
+        roleRef: {
+          kind: "Role",
+          name: this.operatorRole.metadata.name,
+          apiGroup: "rbac.authorization.k8s.io",
+        },
+      },
+      {
+        provider,
+      }
+    );
+
+    const operatorName = `${slugName}-operator`;
+
+    this.stackSecret = new RandomPassword(`${slugName}-pulumi-stack-secret`, {
       length: 32,
-    }
-  );
+    });
 
-  const pulumiKubernetesSecret = new kubernetes.core.v1.Secret(
-    `${project.name}-password`,
-    {
-      metadata: {
-        namespace,
+    this.pulumiKubernetesSecret = new kubernetes.core.v1.Secret(
+      `${slugName}-password`,
+      {
+        metadata: {
+          namespace,
+        },
+        stringData: {
+          password: this.stackSecret.result,
+        },
       },
-      stringData: {
-        password: pulumiStackSecret.result,
-      },
-    },
-    {
-      provider: args.provider,
-    }
-  );
+      {
+        provider,
+      }
+    );
 
-  const persistentVolume = new PersistentVolumeClaim(
-    `${project.name}-operator`,
-    {
-      metadata: {
-        namespace,
-      },
-      spec: {
-        accessModes: ["ReadWriteOnce"],
-        resources: {
-          requests: {
-            storage: "10Gi",
+    this.persistentVolumeClaim = new kubernetes.core.v1.PersistentVolumeClaim(
+      `${slugName}-operator`,
+      {
+        metadata: {
+          namespace,
+        },
+        spec: {
+          accessModes: ["ReadWriteOnce"],
+          resources: {
+            requests: {
+              storage: "10Gi",
+            },
           },
         },
       },
-    },
-    {
-      provider: args.provider,
-    }
-  );
+      {
+        provider,
+      }
+    );
 
-  const operator = new kubernetes.apps.v1.Deployment(
-    `${project.name}-pulumi-kubernetes-operator`,
-    {
-      metadata: {
-        namespace,
-      },
-      spec: {
-        replicas: 1,
-
-        selector: {
-          matchLabels: {
-            name: operatorName,
-          },
+    this.operator = new kubernetes.apps.v1.Deployment(
+      `${slugName}-pulumi-kubernetes-operator`,
+      {
+        metadata: {
+          namespace,
         },
+        spec: {
+          replicas: 1,
 
-        template: {
-          metadata: {
-            labels: {
+          selector: {
+            matchLabels: {
               name: operatorName,
             },
           },
-          spec: {
-            serviceAccountName: operatorServiceAccount.metadata.name,
-            volumes: [
-              {
-                name: "state",
-                persistentVolumeClaim: {
-                  claimName: persistentVolume.metadata.name,
-                },
-              },
-            ],
-            securityContext: {
-              fsGroup: 1000,
-            },
-            containers: [
-              {
-                name: "operator",
-                image: "pulumi/pulumi-kubernetes-operator:v1.4.0",
-                args: ["--zap-level=error", "--zap-time-encoding=iso8601"],
-                imagePullPolicy: "Always",
-                volumeMounts: [
-                  {
-                    name: "state",
-                    mountPath: "/state",
-                  },
-                ],
-                env: [
-                  {
-                    name: "WATCH_NAMESPACE",
-                    valueFrom: {
-                      fieldRef: {
-                        fieldPath: "metadata.namespace",
-                      },
-                    },
-                  },
-                  {
-                    name: "POD_NAME",
-                    valueFrom: {
-                      fieldRef: {
-                        fieldPath: "metadata.name",
-                      },
-                    },
-                  },
-                  {
-                    name: "OPERATOR_NAME",
-                    value: `${project.name}-operator`,
-                  },
-                  {
-                    name: "GRACEFUL_SHUTDOWN_TIMEOUT_DURATION",
-                    value: "5m",
-                  },
-                  {
-                    name: "MAX_CONCURRENT_RECONCILES",
-                    value: "1",
-                  },
-                  {
-                    name: "PULUMI_INFER_NAMESPACE",
-                    value: "1",
-                  },
-                ],
-              },
-            ],
-            // Should be same or larger than GRACEFUL_SHUTDOWN_TIMEOUT_DURATION
-            terminationGracePeriodSeconds: 300,
-          },
-        },
-      },
-    },
-    {
-      provider: args.provider,
-      dependsOn,
-    }
-  );
 
-  new kubernetes.apiextensions.CustomResource(
-    `${project.name}-stack`,
-    {
-      apiVersion: "pulumi.com/v1",
-      kind: "Stack",
-      metadata: {
-        namespace,
-      },
-      spec: {
-        stack: `${args.domainController.domainName}-${project.name}`,
-        projectRepo: "https://github.com/rawkode-academy/platform",
-        branch: "refs/heads/main",
-        destroyOnFinalize: true,
-        backend: "file:///state",
-        envRefs: {
-          PULUMI_CONFIG_PASSPHRASE: {
-            type: "Secret",
-            secret: {
-              name: pulumiKubernetesSecret.metadata.name,
-              namespace: pulumiKubernetesSecret.metadata.namespace,
-              key: "password",
+          template: {
+            metadata: {
+              labels: {
+                name: operatorName,
+              },
+            },
+            spec: {
+              serviceAccountName: this.operatorServiceAccount.metadata.name,
+              volumes: [
+                {
+                  name: "state",
+                  persistentVolumeClaim: {
+                    claimName: this.persistentVolumeClaim.metadata.name,
+                  },
+                },
+              ],
+              securityContext: {
+                fsGroup: 1000,
+              },
+              containers: [
+                {
+                  name: "operator",
+                  image: "pulumi/pulumi-kubernetes-operator:v1.4.0",
+                  args: ["--zap-level=error", "--zap-time-encoding=iso8601"],
+                  imagePullPolicy: "Always",
+                  volumeMounts: [
+                    {
+                      name: "state",
+                      mountPath: "/state",
+                    },
+                  ],
+                  env: [
+                    {
+                      name: "WATCH_NAMESPACE",
+                      valueFrom: {
+                        fieldRef: {
+                          fieldPath: "metadata.namespace",
+                        },
+                      },
+                    },
+                    {
+                      name: "POD_NAME",
+                      valueFrom: {
+                        fieldRef: {
+                          fieldPath: "metadata.name",
+                        },
+                      },
+                    },
+                    {
+                      name: "OPERATOR_NAME",
+                      value: `${slugName}-operator`,
+                    },
+                    {
+                      name: "GRACEFUL_SHUTDOWN_TIMEOUT_DURATION",
+                      value: "5m",
+                    },
+                    {
+                      name: "MAX_CONCURRENT_RECONCILES",
+                      value: "1",
+                    },
+                    {
+                      name: "PULUMI_INFER_NAMESPACE",
+                      value: "1",
+                    },
+                  ],
+                },
+              ],
+              // Should be same or larger than GRACEFUL_SHUTDOWN_TIMEOUT_DURATION
+              terminationGracePeriodSeconds: 300,
             },
           },
         },
       },
-    },
-    {
-      provider: args.provider,
-      dependsOn: [operator],
-    }
-  );
-};
+      {
+        provider,
+        dependsOn: [this.operatorRoleBinding, args.platformDependency],
+      }
+    );
+
+    this.stack = new kubernetes.apiextensions.CustomResource(
+      `${slugName}-stack`,
+      {
+        apiVersion: "pulumi.com/v1",
+        kind: "Stack",
+        metadata: {
+          namespace,
+        },
+        spec: {
+          stack: `${this.domainController}-${slugName}`,
+          projectRepo: "https://github.com/rawkode-academy/platform",
+          branch: "refs/heads/main",
+          destroyOnFinalize: true,
+          backend: "file:///state",
+          envRefs: {
+            PULUMI_CONFIG_PASSPHRASE: {
+              type: "Secret",
+              secret: {
+                namespace,
+                name: this.pulumiKubernetesSecret.metadata.name,
+                key: "password",
+              },
+            },
+          },
+        },
+      },
+      {
+        provider,
+        dependsOn: [this.operator, this.configMap],
+      }
+    );
+
+    this.registerOutputs({
+      namespaceName: this.namespace.metadata.name,
+    });
+  }
+
+  public get stackName(): pulumi.Output<string> {
+    return this.stack.metadata.name;
+  }
+}

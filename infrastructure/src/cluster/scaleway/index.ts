@@ -19,8 +19,12 @@ export const createCluster = (config: ClusterArgs): kubernetes.Provider => {
       minSize: 1,
       maxSize: 3,
       size: 1,
-      autoscaling: false,
+      autoscaling: true,
       autohealing: true,
+      upgradePolicy: {
+        maxSurge: 2,
+        maxUnavailable: 1,
+      },
     }
   );
 
@@ -30,15 +34,29 @@ export const createCluster = (config: ClusterArgs): kubernetes.Provider => {
       clusterId: scalewayCluster.id,
       nodeType: "DEV1-L",
       containerRuntime: "containerd",
-      minSize: 1,
+      minSize: 2,
       maxSize: 5,
-      size: 1,
+      size: 2,
       autoscaling: true,
       autohealing: true,
+      upgradePolicy: {
+        maxSurge: 2,
+        maxUnavailable: 2,
+      },
     }
   );
 
-  return new kubernetes.Provider("platform", {
-    kubeconfig: scalewayCluster.kubeconfigs[0].configFile,
-  });
+  return new kubernetes.Provider(
+    "platform",
+    {
+      kubeconfig: scalewayCluster.kubeconfigs[0].configFile,
+    },
+    {
+      dependsOn: [
+        scalewayCluster,
+        scalewayNodePoolEphemeral,
+        scalewayNodePoolEssential,
+      ],
+    }
+  );
 };

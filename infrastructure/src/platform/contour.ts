@@ -8,7 +8,9 @@ interface InstallArgs {
   domainController: Controller;
 }
 
-export const install = async (args: InstallArgs) => {
+type DependOn = pulumi.Resource;
+
+export const install = async (args: InstallArgs): Promise<DependOn> => {
   const ingressController = new k8s.helm.v3.Release(
     "ingress-controller",
     {
@@ -42,11 +44,16 @@ export const install = async (args: InstallArgs) => {
     pulumi.interpolate`${ingressController.status.namespace}/${ingressController.status.name}-envoy`,
     {
       provider: args.provider,
+      dependsOn: [ingressController],
     }
   );
 
-  svc.status.loadBalancer.ingress[0].ip.apply((ip) => {
+  const ipAddress = svc.status.loadBalancer.ingress[0].ip;
+
+  ipAddress.apply((ip) => {
     args.domainController.createRecord("@", "A", [ip]);
     args.domainController.createRecord("*", "A", [ip]);
   });
+
+  return ingressController;
 };
