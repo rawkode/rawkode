@@ -10,7 +10,7 @@ interface InstallArgs {
 }
 
 const crdUrl =
-  "https://doc.crds.dev/raw/github.com/redpanda-data/redpanda@v${VERSION}";
+  "https://raw.githubusercontent.com/redpanda-data/redpanda/v${VERSION}/src/go/k8s/config/crd/bases/redpanda.vectorized.io_clusters.yaml";
 
 export const install = async (args: InstallArgs) => {
   const crds = new k8s.yaml.ConfigFile(
@@ -22,14 +22,16 @@ export const install = async (args: InstallArgs) => {
   const operator = new k8s.helm.v3.Release(
     `redpanda-operator`,
     {
-      name: "platform-redpanda-operator",
+      name: "redpanda-operator",
       chart: "redpanda-operator",
       version: `v${args.version}`,
       repositoryOpts: {
         repo: "https://charts.vectorized.io/",
       },
       namespace: args.namespace,
-      values: {},
+      values: {
+        webhookSecretName: "redpanda-webhook-server-cert",
+      },
     },
     {
       provider: args.provider,
@@ -38,11 +40,11 @@ export const install = async (args: InstallArgs) => {
   );
 
   const cluster = new redpanda.redpanda.v1alpha1.Cluster(
-    "pubsub",
+    "redpanda",
     {
       metadata: {
         namespace: args.namespace,
-        name: "pubsub",
+        name: "redpanda",
       },
       spec: {
         image: "vectorized/redpanda",
