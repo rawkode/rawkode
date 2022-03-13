@@ -1,75 +1,105 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
 
-import { Controller } from "../dns/controller";
-import { install as installCertManager } from "./certManager";
-import { install as installContour } from "./contour";
-import { install as installTyk } from "./tyk";
-import { install as installRedpanda } from "./redpanda";
-
-export { Project } from "./projects";
+import { Cluster } from "../cluster";
+import { Component, ComponentArgs } from "./components/abstract";
+import { Project, ProjectArgs } from "./projects";
 
 interface PlatformArgs {
-  provider: kubernetes.Provider;
-  domainController: Controller;
+  cluster: Cluster;
 }
 
-type PlatformResult = pulumi.Resource;
+interface AddProjectArgs {
+  repository: string;
+  directory: string;
+  environment: pulumi.Input<{
+    [key: string]: pulumi.Input<string>;
+  }>;
+}
 
-export const create = async (args: PlatformArgs): Promise<PlatformResult> => {
-  const provider = args.provider;
+interface ComponentConstructGlue<T> {
+  new (name: string, args: ComponentArgs): T;
 
-  const platformNamespace = new kubernetes.core.v1.Namespace(
-    "platform-system",
-    {
-      metadata: {
-        name: "platform-system",
+  getComponentName(): string;
+  getDependencies(): string[];
+}
+
+export class Platform extends pulumi.ComponentResource {
+  private cluster: Cluster;
+  private provider: kubernetes.Provider;
+  private namespace: kubernetes.core.v1.Namespace;
+  private resources: Map<string, Component> = new Map();
+
+  constructor(name: string, args: PlatformArgs) {
+    super("rawkode:platform:Platform", name, args, {});
+
+    this.cluster = args.cluster;
+    this.provider = this.cluster.kubernetesProvider;
+
+    this.namespace = new kubernetes.core.v1.Namespace(
+      "platform",
+      {
+        metadata: {
+          name: "platform",
+        },
       },
-    },
-    {
-      provider,
-    }
-  );
+      {
+        parent: this,
+        provider: this.provider,
+        dependsOn: this.provider,
+      }
+    );
+  }
 
-  const contourDependency = await installContour({
-    namespace: platformNamespace.metadata.name,
-    provider,
-    domainController: args.domainController,
-  });
+  public addComponent<T extends Component>(
+    name: string,
+    c: ComponentConstructGlue<T>
+  ): this {
+    const componentName = c.getComponentName();
+    const dependencies = c.getDependencies();
 
-  const certManagerDependency = await installCertManager({
-    namespace: platformNamespace.metadata.name,
-    version: "1.6.2",
-    provider,
-  });
+    const dependsOn: pulumi.Resource[] = dependencies.reduce(
+      (acc: pulumi.Resource[], dependency) => {
+        const componentResource = this.resources.get(dependency);
 
-  const tykDependency = await installTyk({
-    namespace: platformNamespace.metadata.name,
-    provider,
-  });
+        if (componentResource) {
+          return acc.concat(componentResource.getResources());
+        } else {
+          throw new Error(
+            `Component ${componentName} depends on ${dependency} but it has not been added to the platform`
+          );
+        }
+      },
+      []
+    );
 
-  const redPandaDependency = await installRedpanda({
-    namespace: platformNamespace.metadata.name,
-    provider,
-    version: "21.11.9",
-    dependsOn: [certManagerDependency],
-  });
+    this.resources.set(
+      componentName,
+      new c(name, {
+        parent: this,
+        dependsOn,
+        namespace: this.namespace.metadata.name,
+        provider: this.provider,
+      })
+    );
 
-  const pulumiStackDependency = new kubernetes.yaml.ConfigFile(
-    "crds",
-    {
-      file: "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.4.0/deploy/crds/pulumi.com_stacks.yaml",
-    },
-    {
-      provider,
-      dependsOn: [
-        contourDependency,
-        certManagerDependency,
-        tykDependency,
-        redPandaDependency,
-      ],
-    }
-  );
+    return this;
+  }
 
-  return pulumiStackDependency;
-};
+  private getPlatformResources(): pulumi.Resource[] {
+    return Array.from(this.resources.values()).reduce(
+      (acc: pulumi.Resource[], component) =>
+        acc.concat(component.getResources()),
+      []
+    );
+  }
+
+  public addProject(name: string, args: AddProjectArgs): this {
+    new Project(name, {
+      ...args,
+      provider: this.provider,
+      platformDependency: this.getPlatformResources(),
+    });
+    return this;
+  }
+}

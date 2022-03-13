@@ -1,5 +1,7 @@
-// If I want to export the domain name zone IDs for a StackReference
+import { CertManager, Contour, RedPanda, Tyk } from "./platform/components";
 import { getController, managedDomains as domains } from "./dns";
+import { Platform } from "./platform";
+import { ScalewayCluster } from "./cluster/scaleway";
 
 export const managedDomains = domains.reduce(
   (zones, domain) =>
@@ -7,26 +9,34 @@ export const managedDomains = domains.reduce(
   {}
 );
 
-const clusterDomain = getController("rawkode.sh");
+const cluster = new ScalewayCluster("rawkode", {
+  name: "rawkode",
+})
+  .addNodePool("essential", {
+    nodeType: "GP1-XS",
+    size: 1,
+    autoScaling: false,
+  })
+  .addNodePool("ephemeral", {
+    nodeType: "DEV1-M",
+    size: 3,
+    autoScaling: true,
+    maxSize: 5,
+  });
 
-import { createCluster } from "./cluster/scaleway";
-const provider = createCluster({
-  name: "rawkode-production",
+const platform = new Platform("rawkode", {
+  cluster,
 });
 
-import { create as createPlatform } from "./platform";
-const platformDependency = createPlatform({
-  provider,
-  domainController: clusterDomain,
-});
-
-import { Project } from "./platform";
-
-const academyDomain = getController("rawkode.academy");
-const academyProject = new Project("academy", {
-  rootDomainName: academyDomain.domainName,
-  platformDependency,
-  provider,
-});
-
-export const academyStackName = academyProject.stackName;
+platform
+  .addComponent("contour", Contour)
+  .addComponent("cert-manager", CertManager)
+  .addComponent("tyk", Tyk)
+  .addComponent("redpanda", RedPanda)
+  .addProject("academy", {
+    repository: "https://github.com/rawkode-academy/rawkode-academy",
+    directory: "platform",
+    environment: {
+      apiDomain: "api.rawkode.academy",
+    },
+  });

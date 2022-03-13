@@ -3,16 +3,17 @@ import * as kubernetes from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import * as slug from "slug";
 
-import { Controller, getController } from "../../dns";
-
-interface ProjectArgs {
-  rootDomainName: string;
-  platformDependency: pulumi.Resource | Promise<pulumi.Resource>;
+export interface ProjectArgs {
+  repository: string;
+  directory: string;
+  platformDependency: pulumi.Resource[];
   provider: kubernetes.Provider;
+  environment: pulumi.Input<{
+    [key: string]: pulumi.Input<string>;
+  }>;
 }
 
 export class Project extends pulumi.ComponentResource {
-  private domainController: Controller;
   private namespace: kubernetes.core.v1.Namespace;
   private configMap: kubernetes.core.v1.ConfigMap;
   private operatorServiceAccount: kubernetes.core.v1.ServiceAccount;
@@ -30,8 +31,6 @@ export class Project extends pulumi.ComponentResource {
     const slugName = slug(name);
     const provider = args.provider;
 
-    this.domainController = getController(args.rootDomainName);
-
     this.namespace = new kubernetes.core.v1.Namespace(
       slugName,
       {
@@ -40,7 +39,7 @@ export class Project extends pulumi.ComponentResource {
           name,
         },
       },
-      { provider }
+      { provider, parent: this }
     );
     const namespace = this.namespace.metadata.name;
 
@@ -51,12 +50,11 @@ export class Project extends pulumi.ComponentResource {
           namespace,
           name: "environment",
         },
-        data: {
-          domain: this.domainController.domainName,
-        },
+        data: args.environment,
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -69,6 +67,7 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -88,6 +87,7 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -111,6 +111,7 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -132,6 +133,7 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -152,6 +154,7 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
       }
     );
 
@@ -245,7 +248,8 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
-        dependsOn: [this.operatorRoleBinding, args.platformDependency],
+        parent: this,
+        dependsOn: [...args.platformDependency, this.operatorRoleBinding],
       }
     );
 
@@ -258,10 +262,11 @@ export class Project extends pulumi.ComponentResource {
           namespace,
         },
         spec: {
-          stack: `${this.domainController}-${slugName}`,
-          projectRepo: "https://github.com/rawkode-academy/platform",
+          stack: slugName,
+          projectRepo: args.repository,
           branch: "refs/heads/main",
           destroyOnFinalize: true,
+          repoDir: args.directory,
           backend: "file:///state",
           envRefs: {
             PULUMI_CONFIG_PASSPHRASE: {
@@ -277,12 +282,14 @@ export class Project extends pulumi.ComponentResource {
       },
       {
         provider,
+        parent: this,
         dependsOn: [this.operator, this.configMap],
       }
     );
 
     this.registerOutputs({
       namespaceName: this.namespace.metadata.name,
+      stackName: this.stack.metadata.name,
     });
   }
 

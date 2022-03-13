@@ -1,62 +1,77 @@
+import * as pulumi from "@pulumi/pulumi";
 import * as scaleway from "@jaxxstorm/pulumi-scaleway";
 import * as kubernetes from "@pulumi/kubernetes";
-import { ClusterArgs } from "../";
+import { Cluster, ClusterArgs } from "../";
 
-export const createCluster = (config: ClusterArgs): kubernetes.Provider => {
-  const scalewayCluster = new scaleway.KubernetesCluster(config.name, {
-    cni: "cilium",
-    version: "1.23.2",
-    type: "kapsule",
-    deleteAdditionalResources: true,
-  });
+interface NodePoolArgs {
+  size: number;
+  nodeType: string;
+  autoScaling: boolean;
+  maxSize?: number;
+}
 
-  const scalewayNodePoolEssential = new scaleway.KubernetesNodePool(
-    "essential",
-    {
-      clusterId: scalewayCluster.id,
-      nodeType: "GP1-XS",
-      containerRuntime: "containerd",
-      minSize: 1,
-      maxSize: 3,
-      size: 1,
-      autoscaling: true,
-      autohealing: true,
-      upgradePolicy: {
-        maxSurge: 2,
-        maxUnavailable: 1,
+export class ScalewayCluster extends Cluster {
+  protected readonly name: string;
+  protected readonly cluster: scaleway.KubernetesCluster;
+  protected nodePools: scaleway.KubernetesNodePool[] = [];
+
+  constructor(name: string, args: ClusterArgs) {
+    super(name, args);
+
+    this.name = name;
+
+    this.cluster = new scaleway.KubernetesCluster(
+      this.name,
+      {
+        cni: "cilium",
+        version: "1.23.2",
+        type: "kapsule",
+        deleteAdditionalResources: true,
       },
-    }
-  );
+      {
+        parent: this,
+      }
+    );
+  }
 
-  const scalewayNodePoolEphemeral = new scaleway.KubernetesNodePool(
-    "ephemeral",
-    {
-      clusterId: scalewayCluster.id,
-      nodeType: "DEV1-L",
-      containerRuntime: "containerd",
-      minSize: 2,
-      maxSize: 5,
-      size: 2,
-      autoscaling: true,
-      autohealing: true,
-      upgradePolicy: {
-        maxSurge: 2,
-        maxUnavailable: 2,
+  public get clusterResource(): pulumi.Resource {
+    return this.cluster;
+  }
+
+  public get kubernetesProvider(): kubernetes.Provider {
+    return new kubernetes.Provider(
+      this.name,
+      {
+        kubeconfig: this.cluster.kubeconfigs[0].configFile,
       },
-    }
-  );
+      {
+        parent: this.cluster,
+      }
+    );
+  }
 
-  return new kubernetes.Provider(
-    "platform",
-    {
-      kubeconfig: scalewayCluster.kubeconfigs[0].configFile,
-    },
-    {
-      dependsOn: [
-        scalewayCluster,
-        scalewayNodePoolEphemeral,
-        scalewayNodePoolEssential,
-      ],
-    }
-  );
-};
+  public addNodePool(name: string, args: NodePoolArgs): this {
+    this.nodePools.push(
+      new scaleway.KubernetesNodePool(
+        name,
+        {
+          ...args,
+          clusterId: this.cluster.id,
+          minSize: args.size,
+          autohealing: true,
+          autoscaling: true,
+          containerRuntime: "containerd",
+          upgradePolicy: {
+            maxSurge: args.size,
+            maxUnavailable: args.size,
+          },
+        },
+        {
+          parent: this.cluster,
+        }
+      )
+    );
+
+    return this;
+  }
+}
