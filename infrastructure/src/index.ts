@@ -1,4 +1,10 @@
-import { CertManager, Contour, RedPanda, Tyk } from "./platform/components";
+import {
+  CertManager,
+  Contour,
+  PulumiOperator,
+  RedPanda,
+  Tyk,
+} from "./platform/components";
 import { getController, managedDomains as domains } from "./dns";
 import { Platform } from "./platform";
 import { ScalewayCluster } from "./cluster/scaleway";
@@ -29,6 +35,7 @@ const platform = new Platform("rawkode", {
 });
 
 platform
+  .addComponent("pulumi-operator", PulumiOperator)
   .addComponent("contour", Contour)
   .addComponent("cert-manager", CertManager)
   .addComponent("tyk", Tyk)
