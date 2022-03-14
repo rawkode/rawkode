@@ -166,7 +166,9 @@ export class Project extends pulumi.ComponentResource {
         },
         spec: {
           replicas: 1,
-
+          strategy: {
+            type: "Recreate",
+          },
           selector: {
             matchLabels: {
               name: operatorName,
@@ -195,7 +197,7 @@ export class Project extends pulumi.ComponentResource {
               containers: [
                 {
                   name: "operator",
-                  image: "pulumi/pulumi-kubernetes-operator:v1.4.0",
+                  image: "pulumi/pulumi-kubernetes-operator:v1.5.0",
                   args: ["--zap-level=error", "--zap-time-encoding=iso8601"],
                   imagePullPolicy: "Always",
                   volumeMounts: [
