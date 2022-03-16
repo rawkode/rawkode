@@ -22,7 +22,8 @@ for file in ~/.zsh/includes/*; do
     source "$file"
 done
 
-SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
+#SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
 
 _direnv_hook() {
   trap -- '' SIGINT;
