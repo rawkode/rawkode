@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nginx
+  name: environment
 data:
   organization: rawkode-academy
   virtual_host: |
@@ -11,3 +11,31 @@ data:
     A
     Full
     File
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap
+  labels:
+    name: configmap
+spec:
+  volumes:
+    - name: environment
+      configMap:
+        name: environment
+  containers:
+    - name: configmap
+      image: alpine
+      command: ["sleep"]
+      args: ["50000"]
+      volumeMounts:
+        - name: environment
+          mountPath: /etc/environment-info
+          subPath: virtual_host
+          readOnly: true
+      env:
+        - name: ORG
+          valueFrom:
+            configMapKeyRef:
+              name: environment
+              key: organization

@@ -12,14 +12,20 @@ You're in the right room if you're looking for
 
 ## What are we going to talk about?
 
+- Kubernetes Architecture
+- Kubernetes Primitives
+- Helm Basics
+- Live Demos
+
 ---
 
 ## whoami
 
 - Staff Developer Advocate @Pulumi
+- Kubing for 7 years
 - CNCF Ambassador
 - Host Kubernetes Office Hours
-- Host #Klustered at https://rawkode.live
+- Host Rawkode Academy at https://rawkode.live
 - Actor Model with Rust, Pony, Elixir, and Go
 
 ---
@@ -46,11 +52,19 @@ And it's getting there for VMs and WASM too!
 
 ----
 
-### More Importantly
+### Not to mention...
 
 - Service Discovery
 - Endpoint Discovery
 - Load Balancing
+
+----
+
+### But wait, there's more!
+
+- Lease Management
+- CDC
+- CA / Certificate Management
 
 ---
 
@@ -64,8 +78,9 @@ Kubernetes is a distributed system for running distributed systems
 
 - Control Plane
   - API Server
-  - Controller Manager
+  - Controller Manager (*controllers)
   - Scheduler
+  - etcd
 
 ----
 
@@ -265,7 +280,7 @@ Services, through convention, define how workloads communicate in Kubernetes
 
 ----
 
-```yaml
+```yaml [6-7|8-9|1-2|0]
 apiVersion: v1
 kind: Service
 metadata:
@@ -277,13 +292,22 @@ spec:
     - port: 80
 ```
 
+Note:
+
+- kubectl apply
+- kubectl get svc
+- kubectl describe svc
+- kubectl get ep
+- switch to functions/nodeinfo
+- load balancing
+
 ---
 
 ### ConfigMaps
 
 ----
 
-```yaml
+```yaml [5|6-13|1-2|0]
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -298,6 +322,48 @@ data:
     Full
     File
 ```
+
+Note:
+
+- kubectl apply cm
+- see env
+- see file
+
+---
+
+### Helm
+
+The Kubernetes package manager
+
+- Think pacman, apt, dnf, and brew
+
+> Helm is the best way to find, share, and use software built for Kubernetes.
+
+----
+
+# Lexicon
+
+- Chart
+- Subcharts
+- Release
+- Release Number
+- Repository
+- Values
+- Template (Go's text/template)
+
+----
+
+#### When is Helm required?
+
+#### When is Helm optional?
+
+----
+
+Let's be
+#### BOLD
+
+[Helm Website](https://helm.sh/)
+
 
 ---
 
