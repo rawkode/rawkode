@@ -35,14 +35,15 @@ const platform = new Platform("rawkode", {
 });
 
 platform
-  .addComponent("pulumi-operator", PulumiOperator)
-  .addComponent("contour", Contour)
+  .addIngressComponent("contour", Contour)
   .addComponent("cert-manager", CertManager)
   .addComponent("tyk", Tyk)
   .addComponent("redpanda", RedPanda)
+  .addComponent("pulumi-operator", PulumiOperator)
   .addProject("academy", {
     repository: "https://github.com/rawkode-academy/rawkode-academy",
     directory: "platform",
+    ingressComponent: "contour",
     environment: {
       apiDomain: "api.rawkode.academy",
     },

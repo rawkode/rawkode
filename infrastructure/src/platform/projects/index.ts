@@ -2,15 +2,16 @@ import { RandomPassword } from "@pulumi/random";
 import * as kubernetes from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import * as slug from "slug";
+import { IngressComponent } from "../components/abstract";
+import { getController } from "../../dns";
 
 export interface ProjectArgs {
   repository: string;
   directory: string;
   platformDependency: pulumi.Resource[];
   provider: kubernetes.Provider;
-  environment: pulumi.Input<{
-    [key: string]: pulumi.Input<string>;
-  }>;
+  ingressComponent?: IngressComponent;
+  environment: { [key: string]: string };
 }
 
 export class Project extends pulumi.ComponentResource {
@@ -288,6 +289,23 @@ export class Project extends pulumi.ComponentResource {
         dependsOn: [this.operator, this.configMap],
       }
     );
+
+    for (const key in args.environment) {
+      if (!key.endsWith("Domain")) {
+        continue;
+      }
+
+      const value = args.environment[key];
+
+      // This is rather crude
+      const domain = value.split(".").slice(-2).join(".");
+      const subdomain = value.split(".").slice(0, -2).join(".");
+      const dnsController = getController(domain);
+
+      args.ingressComponent?.getIpAddress().apply((ip) => {
+        dnsController.createRecord(subdomain, "A", [ip]);
+      });
+    }
 
     this.registerOutputs({
       namespaceName: this.namespace.metadata.name,

@@ -9,7 +9,7 @@
     "@pulumi/civo": "^2.1.2",
     "@pulumi/cloudflare": "^3",
     "@pulumi/google-native": "^0.13.0",
-    "@pulumi/kubernetes": "^3",
+    "@pulumi/kubernetes": "^3.17.0",
     "@pulumi/kubernetesx": "^0.1.6",
     "@pulumi/pulumi": "^3",
     "@pulumi/random": "^4.3.1",

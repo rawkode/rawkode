@@ -2,7 +2,11 @@ import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
 
 import { Cluster } from "../cluster";
-import { Component, ComponentArgs } from "./components/abstract";
+import {
+  Component,
+  ComponentArgs,
+  IngressComponent,
+} from "./components/abstract";
 import { Project, ProjectArgs } from "./projects";
 
 interface PlatformArgs {
@@ -12,9 +16,8 @@ interface PlatformArgs {
 interface AddProjectArgs {
   repository: string;
   directory: string;
-  environment: pulumi.Input<{
-    [key: string]: pulumi.Input<string>;
-  }>;
+  ingressComponent?: string;
+  environment: { [key: string]: string };
 }
 
 interface ComponentConstructGlue<T> {
@@ -28,7 +31,8 @@ export class Platform extends pulumi.ComponentResource {
   private cluster: Cluster;
   private provider: kubernetes.Provider;
   private namespace: kubernetes.core.v1.Namespace;
-  private resources: Map<string, Component> = new Map();
+  private components: Map<string, Component> = new Map();
+  private ingressComponents: Map<string, IngressComponent> = new Map();
 
   constructor(name: string, args: PlatformArgs) {
     super("rawkode:platform:Platform", name, args, {});
@@ -51,6 +55,41 @@ export class Platform extends pulumi.ComponentResource {
     );
   }
 
+  public addIngressComponent<T extends IngressComponent>(
+    name: string,
+    c: ComponentConstructGlue<T>
+  ): this {
+    const componentName = c.getComponentName();
+    const dependencies = c.getDependencies();
+
+    const dependsOn: pulumi.Resource[] = dependencies.reduce(
+      (acc: pulumi.Resource[], dependency) => {
+        const componentResource = this.components.get(dependency);
+
+        if (componentResource) {
+          return acc.concat(componentResource.getResources());
+        } else {
+          throw new Error(
+            `IngressComponent ${componentName} depends on ${dependency} but it has not been added to the platform`
+          );
+        }
+      },
+      []
+    );
+
+    this.ingressComponents.set(
+      componentName,
+      new c(name, {
+        parent: this,
+        dependsOn,
+        namespace: this.namespace.metadata.name,
+        provider: this.provider,
+      })
+    );
+
+    return this;
+  }
+
   public addComponent<T extends Component>(
     name: string,
     c: ComponentConstructGlue<T>
@@ -60,7 +99,7 @@ export class Platform extends pulumi.ComponentResource {
 
     const dependsOn: pulumi.Resource[] = dependencies.reduce(
       (acc: pulumi.Resource[], dependency) => {
-        const componentResource = this.resources.get(dependency);
+        const componentResource = this.components.get(dependency);
 
         if (componentResource) {
           return acc.concat(componentResource.getResources());
@@ -73,7 +112,7 @@ export class Platform extends pulumi.ComponentResource {
       []
     );
 
-    this.resources.set(
+    this.components.set(
       componentName,
       new c(name, {
         parent: this,
@@ -87,7 +126,7 @@ export class Platform extends pulumi.ComponentResource {
   }
 
   private getPlatformResources(): pulumi.Resource[] {
-    return Array.from(this.resources.values()).reduce(
+    return Array.from(this.components.values()).reduce(
       (acc: pulumi.Resource[], component) =>
         acc.concat(component.getResources()),
       []
@@ -95,10 +134,15 @@ export class Platform extends pulumi.ComponentResource {
   }
 
   public addProject(name: string, args: AddProjectArgs): this {
+    const ingressComponent = args.ingressComponent
+      ? this.ingressComponents.get(args.ingressComponent)
+      : undefined;
+
     new Project(name, {
       ...args,
       provider: this.provider,
       platformDependency: this.getPlatformResources(),
+      ingressComponent,
     });
     return this;
   }
