@@ -300,6 +300,7 @@ Note:
 - kubectl get ep
 - switch to functions/nodeinfo
 - load balancing
+- NodePort
 
 ---
 

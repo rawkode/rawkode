@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multic
+  labels:
+    name: multic
+spec:
+  volumes:
+    - name: shared
+      emptyDir: {}
+  containers:
+    - name: nginx
+      image: nginx
+      ports:
+        - containerPort: 80
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+    - name: another
+      image: functions/figlet
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+          readOnly: true
