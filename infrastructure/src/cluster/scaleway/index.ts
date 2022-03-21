@@ -13,6 +13,7 @@ interface NodePoolArgs {
 export class ScalewayCluster extends Cluster {
   protected readonly name: string;
   protected readonly cluster: scaleway.KubernetesCluster;
+  public readonly kubernetesProvider: kubernetes.Provider;
   protected nodePools: scaleway.KubernetesNodePool[] = [];
 
   constructor(name: string, args: ClusterArgs) {
@@ -32,14 +33,8 @@ export class ScalewayCluster extends Cluster {
         parent: this,
       }
     );
-  }
 
-  public get clusterResource(): pulumi.Resource {
-    return this.cluster;
-  }
-
-  public get kubernetesProvider(): kubernetes.Provider {
-    return new kubernetes.Provider(
+    this.kubernetesProvider = new kubernetes.Provider(
       this.name,
       {
         kubeconfig: this.cluster.kubeconfigs[0].configFile,
@@ -48,6 +43,10 @@ export class ScalewayCluster extends Cluster {
         parent: this.cluster,
       }
     );
+  }
+
+  public get clusterResource(): pulumi.Resource {
+    return this.cluster;
   }
 
   public addNodePool(name: string, args: NodePoolArgs): this {

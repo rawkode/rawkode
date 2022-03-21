@@ -1,6 +1,6 @@
 config:
-  pulumi:disable-default-providers:
-    - kubernetes
+  # pulumi:disable-default-providers:
+  #   - kubernetes
   civo:token:
     secure: AAABAHfA2rlm+FQkoAEWoDF2nsI6NhCsSH1PkCo6QaB1Qvl2x/KZR+0hHJFH0BQZOz2HqLP96OW+20GqM6wi1SXPqOjKpWOq/Uvdndt/s3faaQ==
   cloudflare:apiToken:

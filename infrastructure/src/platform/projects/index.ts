@@ -26,8 +26,12 @@ export class Project extends pulumi.ComponentResource {
   private pulumiKubernetesSecret: kubernetes.core.v1.Secret;
   private stack: kubernetes.apiextensions.CustomResource;
 
-  constructor(name: string, args: ProjectArgs) {
-    super("rawkode:platform:Project", name, args, {});
+  constructor(
+    name: string,
+    args: ProjectArgs,
+    opts?: pulumi.ComponentResourceOptions
+  ) {
+    super("rawkode:platform:Project", name, args, opts);
 
     const slugName = slug(name);
     const provider = args.provider;

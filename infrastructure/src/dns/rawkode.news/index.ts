@@ -5,6 +5,6 @@ const DOMAIN = "rawkode.news";
 const zone = new Controller(DOMAIN);
 
 zone.createProxiedRecord("@", "CNAME", ["www.getrevue.co"]);
-zone.createRecord("@", "TXT", [`"v=spf1 -all"`]);
+zone.disableEmail();
 
 export default zone;

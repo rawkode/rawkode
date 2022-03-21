@@ -4,6 +4,7 @@ import * as cloudflare from "@pulumi/cloudflare";
 export class Controller extends ComponentResource {
   readonly domainName: string;
   readonly zone: cloudflare.Zone;
+  private emailDisabled: boolean = false;
   private records: cloudflare.Record[];
   private mxCounter = 0;
 
@@ -49,6 +50,32 @@ export class Controller extends ComponentResource {
     }
 
     return `${this.domainName}-${type}-${name}`;
+  }
+
+  public disableEmail(): void {
+    if (this.mxCounter > 0) {
+      throw new Error(
+        `Cannot disable email for ${this.domainName} if MX records exist.`
+      );
+    }
+
+    this.emailDisabled = true;
+
+    this.records.push(
+      new cloudflare.Record(
+        this.resourceName(`disable-email`, "txt"),
+        {
+          zoneId: this.zone.id,
+          name: "@",
+          ttl: 300,
+          type: "TXT",
+          value: `"v=spf1 -all"`,
+        },
+        { parent: this.zone, protect: false, deleteBeforeReplace: true }
+      )
+    );
+
+    return;
   }
 
   public createRecord(name: string, type: string, values: string[]): void {
@@ -97,6 +124,12 @@ export class Controller extends ComponentResource {
   }
 
   public createMxRecord(name: string, priority: number, value: string): void {
+    if (this.emailDisabled) {
+      throw new Error(
+        `Cannot add MX records if ${this.domainName} has email disabled.`
+      );
+    }
+
     const record = new cloudflare.Record(
       this.resourceName(`${name}-${this.mxCounter++}`, "MX"),
       {

@@ -14,7 +14,6 @@ export interface IngressComponent {
 
 export abstract class Component extends pulumi.ComponentResource {
   protected abstract readonly crdsUrl?: string;
-
   protected abstract readonly version: string;
 
   static getComponentName(): string {
@@ -33,15 +32,12 @@ export abstract class Component extends pulumi.ComponentResource {
   protected resources: pulumi.Resource[] = [];
 
   constructor(name: string, args: ComponentArgs) {
-    super(`platform:component:${name}`, name, args, {
-      parent: args.parent,
-      dependsOn: args.dependsOn,
-    });
+    super(`platform:component:${name}`, name);
 
-    this.parent = args.parent;
     this.name = name;
-    this.provider = args.provider;
     this.namespace = args.namespace;
+    this.provider = args.provider;
+    this.parent = args.parent;
   }
 
   public getDependencies(): string[] {

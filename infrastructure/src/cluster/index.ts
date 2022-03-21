@@ -7,7 +7,7 @@ export abstract class Cluster extends pulumi.ComponentResource {
   public abstract get kubernetesProvider(): kubernetes.Provider;
 
   constructor(name: string, args: ClusterArgs) {
-    super("rawkode:platform:Cluster", name, args, {});
+    super("rawkode:platform:Cluster", name, args);
   }
 }
 

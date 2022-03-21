@@ -35,10 +35,10 @@ export class Platform extends pulumi.ComponentResource {
   private ingressComponents: Map<string, IngressComponent> = new Map();
 
   constructor(name: string, args: PlatformArgs) {
-    super("rawkode:platform:Platform", name, args, {});
+    super("rawkode:platform:Platform", name);
 
     this.cluster = args.cluster;
-    this.provider = this.cluster.kubernetesProvider;
+    this.provider = args.cluster.kubernetesProvider;
 
     this.namespace = new kubernetes.core.v1.Namespace(
       "platform",
@@ -49,8 +49,8 @@ export class Platform extends pulumi.ComponentResource {
       },
       {
         parent: this,
-        provider: this.provider,
-        dependsOn: this.provider,
+        provider: args.cluster.kubernetesProvider,
+        dependsOn: args.cluster.kubernetesProvider,
       }
     );
   }

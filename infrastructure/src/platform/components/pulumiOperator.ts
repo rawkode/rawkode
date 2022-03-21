@@ -1,3 +1,4 @@
+import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
 
 import { Component, ComponentArgs } from "./abstract";

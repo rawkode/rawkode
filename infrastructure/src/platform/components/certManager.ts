@@ -1,3 +1,4 @@
+import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
 
 import { Component, ComponentArgs } from "./abstract";
@@ -17,7 +18,11 @@ export class CertManager extends Component {
     const crds = new kubernetes.yaml.ConfigFile(
       `${this.name}-crds`,
       { file: this.crdsUrl.replace("${VERSION}", this.version) },
-      { provider: this.provider, parent: this }
+      {
+        parent: this,
+        provider: args.provider,
+        dependsOn: args.dependsOn,
+      }
     );
 
     const certManagerRelease = new kubernetes.helm.v3.Release(
