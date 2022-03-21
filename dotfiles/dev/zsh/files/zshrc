@@ -30,4 +30,3 @@ _direnv_hook() {
   eval "$("${HOMEBREW_PREFIX-/usr/local}/bin/direnv" export zsh)";
   trap - SIGINT;
 }
-

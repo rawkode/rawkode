@@ -4,9 +4,9 @@ theme: black
 highlightTheme: shades-of-purple
 ---
 
-You're in the right room if you're looking for
+You're in the right Zoom if you're looking for
 
-# Kubernetes for Developer
+# Kubernetes for Developers
 
 ---
 
