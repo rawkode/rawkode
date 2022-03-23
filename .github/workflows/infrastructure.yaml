@@ -30,6 +30,7 @@ jobs:
         with:
           command: up
           stack-name: production
+          refresh: true
           work-dir: infrastructure
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
