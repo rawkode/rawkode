@@ -23,10 +23,16 @@ for file in ~/.zsh/includes/*; do
 done
 
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
-#SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+#export SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
 
 _direnv_hook() {
   trap -- '' SIGINT;
   eval "$("${HOMEBREW_PREFIX-/usr/local}/bin/direnv" export zsh)";
   trap - SIGINT;
 }
+
+export PATH="${PATH}:${HOME}/.krew/bin"
+
+# To customize prompt, run `p10k configure` or edit ~/.zsh/includes/prompt.zsh.
+[[ ! -f ~/.zsh/includes/prompt.zsh ]] || source ~/.zsh/includes/prompt.zsh
+

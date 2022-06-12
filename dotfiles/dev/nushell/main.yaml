@@ -1,0 +1,11 @@
+actions:
+  - action: package.install
+    name: nushell
+
+  - action: file.link
+    source: config.nu
+    target: "{{ user.config_dir }}/nushell/config.nu"
+
+  - action: file.link
+    source: includes
+    target: "{{ user.config_dir }}/nushell/includes"

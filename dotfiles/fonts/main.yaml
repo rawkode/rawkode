@@ -1,6 +1,9 @@
 actions:
+  - action: package.repository
+    provider: homebrew
+    name: homebrew/cask-fonts
+
   - action: package.install
-    repository: homebrew/cask-fonts
     list:
       - font-cascadia-code
       - font-cascadia-code-pl

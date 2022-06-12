@@ -1,10 +1,14 @@
 actions:
+  - action: package.repository
+    provider: aptitude
+    name: ppa:mozillateam/firefox-next
+    where: os.type == "Ubuntu"
+
   - name: firefox-developer-edition
     action: package.install
-    variant:
-      ubuntu:
+    variants:
+      - where: os.type == "Ubuntu"
         name: firefox
-        repository: ppa:mozillateam/firefox-next
 
   - action: package.install
     name: google-chrome

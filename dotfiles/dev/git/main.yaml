@@ -6,7 +6,7 @@ actions:
     from: config
     to: "{{ user.home_dir }}/.config/git/config"
     template: true
-    chmod: 644
+    chmod: "644"
 
   - action: file.copy
     from: ignores
@@ -15,4 +15,4 @@ actions:
   - action: file.copy
     from: allowed_signers
     to: "{{ user.home_dir }}/.config/git/allowed_signers"
-    chmod: 644
+    chmod: "644"
