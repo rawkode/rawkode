@@ -18,15 +18,26 @@ async function handleRequest(request) {
   console.log(`Handling request on domain ${domain} for ${path}`);
 
   if (!domain in redirects) {
-    console.log("DOmain not found");
+    console.log("Domain not found");
     return Response.redirect("https://twitter.com/rawkode");
   }
 
-  if (path == "" || !path in redirects[domain]) {
-    console.log("path not found");
+  console.log("Domain found");
+
+  if (path === "") {
+    console.log("Path empty");
     return Response.redirect("https://twitter.com/rawkode");
   }
 
-  console.log(`Redirecting too ${redirects[domain][path].to}`);
-  return Response.redirect(redirects[domain][path].to);
+  const paths = redirects[domain];
+
+  if (path in paths) {
+    console.log(`Path, ${path}, found in ${paths}`);
+
+    console.log(`Redirecting too ${paths[path].to}`);
+    return Response.redirect(paths[path].to);
+  }
+
+  console.log("Path not found");
+  return Response.redirect("https://twitter.com/rawkode");
 }

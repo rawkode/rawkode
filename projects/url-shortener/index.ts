@@ -5,10 +5,22 @@ import * as fs from "fs";
 const linkZoneNames = ["rawkode.link"];
 
 const linkZones = linkZoneNames.map((zone) => {
-  return new cloudflare.Zone(zone, {
+  const z = new cloudflare.Zone(zone, {
     zone,
     plan: "free",
   });
+
+  new cloudflare.ZoneSettingsOverride(zone, {
+    zoneId: z.id,
+    settings: {
+      alwaysUseHttps: "off",
+      automaticHttpsRewrites: "off",
+      ssl: "flexible",
+      minTlsVersion: "1.2",
+    },
+  });
+
+  return z;
 });
 
 const worker = new cloudflare.WorkerScript(
@@ -30,7 +42,7 @@ linkZones.forEach((zone) => {
         zoneId: zone.id,
         name: "@",
         type: "CNAME",
-        value: "rawkode.com",
+        value: "workers.dev",
         proxied: true,
       },
       {
