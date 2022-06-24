@@ -1,0 +1,4 @@
+config:
+  cloudflare:accountId: 340c8fced324c509d19e79ada8f049db
+  cloudflare:apiToken:
+    secure: AAABAOfcVhZibE4OfHlwG40xwoiGuDKrkj/d2TkGbyqENOPHGG3j9GUGX/Ue5VrqNOoStyR1kqAyp8TEelp6SZ5SkHNRF+Ta
