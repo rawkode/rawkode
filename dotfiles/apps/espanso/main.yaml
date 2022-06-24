@@ -1,8 +1,0 @@
-actions:
-  - name: espanso
-    action: package.install
-    repository: federico-terzi/espanso
-
-  - action: file.link
-    source: default.yaml
-    target: "{{ user.home_dir }}/Library/Preferences/espanso/default.yml"
