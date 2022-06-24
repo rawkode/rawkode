@@ -1,0 +1,31 @@
+name: url-shortener
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - projects/url-shortener/**
+  schedule:
+    - cron: "6 6 * * *"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14.x
+      - run: npm install
+        working-directory: projects/url-shortener
+      - uses: pulumi/actions@v3
+        with:
+          command: up
+          stack-name: production
+          refresh: true
+          work-dir: projects/url-shortener
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
