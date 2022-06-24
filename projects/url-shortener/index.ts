@@ -13,9 +13,9 @@ const linkZones = linkZoneNames.map((zone) => {
   new cloudflare.ZoneSettingsOverride(zone, {
     zoneId: z.id,
     settings: {
-      alwaysUseHttps: "off",
-      automaticHttpsRewrites: "off",
-      ssl: "flexible",
+      alwaysUseHttps: "on",
+      automaticHttpsRewrites: "on",
+      ssl: "strict",
       minTlsVersion: "1.2",
     },
   });
