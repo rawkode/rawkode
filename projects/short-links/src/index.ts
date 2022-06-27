@@ -44,7 +44,7 @@ const actionsSecret = new github.ActionsSecret(
 console.log(new Date().toISOString());
 
 const compileWorker = new command.local.Command("worker", {
-  create: "npm install && npx tsc",
+  create: "yarn install && yarn run tsc",
   dir: "../worker",
   triggers: [new Date().toISOString()],
 });
