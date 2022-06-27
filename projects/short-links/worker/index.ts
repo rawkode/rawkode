@@ -1,4 +1,14 @@
-const redirects = {
+interface Redirect {
+  to: string;
+}
+
+interface Redirects {
+  [domain: string]: {
+    [path: string]: Redirect;
+  };
+}
+
+const redirects: Redirects = {
   "rawkode.link": {
     "office-hours": {
       to: "https://savvycal.com/rawkode/office-hours",
@@ -6,18 +16,20 @@ const redirects = {
   },
 };
 
-addEventListener("fetch", async (event) => {
+addEventListener("fetch", async (event: FetchEvent) => {
   event.respondWith(handleRequest(event.request));
+
+  console.log(`I am the analytics request, post response`);
 });
 
-async function handleRequest(request) {
+async function handleRequest(request: Request) {
   const requestUrl = new URL(request.url);
   const domain = requestUrl.host;
   const path = requestUrl.pathname.substring(1);
 
   console.log(`Handling request on domain ${domain} for ${path}`);
 
-  if (!domain in redirects) {
+  if (!(domain in redirects)) {
     console.log("Domain not found");
     return Response.redirect("https://twitter.com/rawkode");
   }

@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("SHORT_LINKS_CONNECTION_STRING")
+}
+
+model Click {
+  id        Int      @id @default(autoincrement())
+  shortLink String
+  clickAt   DateTime @default(now())
+
+  httpProtocol String
+  referralUrl  String?
+
+  timezone String
+
+  region     String?
+  regionCode String?
+  country    String?
+  city       String?
+}

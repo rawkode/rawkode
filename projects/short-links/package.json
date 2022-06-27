@@ -1,0 +1,13 @@
+{
+  "name": "short-links",
+  "private": true,
+  "devDependencies": {
+    "@pulumi/cloudflare": "^4.7.0",
+    "@pulumi/command": "^0.3.0",
+    "@pulumi/pulumi": "^3.0.0"
+  },
+  "dependencies": {
+    "@pulumi/github": "^4.12.0",
+    "got": "^11.8.0"
+  }
+}

@@ -1,0 +1,10 @@
+config:
+  cloudflare:accountId: 340c8fced324c509d19e79ada8f049db
+  cloudflare:apiToken:
+    secure: AAABAMBKYgZdy/J9hiHH41DZoLCGUhTOu/h457Oe9AwqBxJMuTYGnorEZ8eeSBrN0TqJbPhhkAq6wr0PBSBkSvbegw5Piell
+  github:owner: rawkode
+  github:token:
+    secure: AAABAIjf9CiuO+1ughdtpAmat3QVvrq91JRzMECp4Q7n3kpDbV3swhp05YhxWZFwgZstJl2udHEb8YKGViddydnAFrkEeeQ1
+  planetscale:token:
+    secure: AAABAHBgKjVOsRq5k3HqeDz7RTobWMONVobqpaiR1LzzZygmwRrxhS2C+/E3ZEz4we3t58nSmYxQJP4Kr6leM1kpAxCzq8efvDhm60YJt1NYdgRNH8Njmw==
+  short-links:githubRepository: rawkode

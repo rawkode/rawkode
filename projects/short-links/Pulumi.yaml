@@ -1,3 +1,4 @@
-name: rawkode-url-shortener
+name: short-links
 description: Rawkode's Url Shortener Service
 runtime: nodejs
+main: src/index.ts

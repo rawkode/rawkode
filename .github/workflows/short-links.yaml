@@ -1,4 +1,4 @@
-name: url-shortener
+name: short-links
 
 on:
   workflow_dispatch: {}
@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - projects/url-shortener/**
+      - projects/short-links/**
   schedule:
     - cron: "6 6 * * *"
 
@@ -20,12 +20,18 @@ jobs:
         with:
           node-version: 14.x
       - run: npm install
-        working-directory: projects/url-shortener
+        working-directory: projects/short-links
       - uses: pulumi/actions@v3
         with:
           command: up
           stack-name: production
           refresh: true
-          work-dir: projects/url-shortener
+          work-dir: projects/short-links
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+      - run: npm install
+        working-directory: projects/short-links/worker
+      - run: npx prisma db push
+        working-directory: projects/short-links/worker
+        env:
+          SHORT_LINKS_CONNECTION_STRING: ${{ secrets.SHORT_LINKS_CONNECTION_STRING }}
