@@ -70,7 +70,7 @@ class PlanetScalePasswordProvider implements pulumi.dynamic.ResourceProvider {
 
     const outs: PlanetScalePasswordOutputs = {
       id: data.id!,
-      prismaConnectionString: data.connection_strings.prisma,
+      prismaConnectionString: `mysql://${data.username}:${data.plain_text}@${data.access_host_url}/${props.database}?sslaccept=strict`,
 
       name: props.name,
       database: props.database,
@@ -103,7 +103,7 @@ class PlanetScalePasswordProvider implements pulumi.dynamic.ResourceProvider {
 
     const outs: PlanetScalePasswordOutputs = {
       id: data.id!,
-      prismaConnectionString: data.connection_strings.prisma,
+      prismaConnectionString: `mysql://${data.username}:${data.plain_text}@${data.access_host_url}/${props.database}?sslaccept=strict`,
 
       name: props.name,
       database: props.database,

@@ -41,7 +41,7 @@ const actionsSecret = new github.ActionsSecret(
   }
 );
 
-console.log(new Date().toISOString());
+export const conn = databasePassword.prismaConnectionString;
 
 const compileWorker = new command.local.Command("worker", {
   create:
