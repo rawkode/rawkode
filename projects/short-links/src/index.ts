@@ -44,7 +44,8 @@ const actionsSecret = new github.ActionsSecret(
 console.log(new Date().toISOString());
 
 const compileWorker = new command.local.Command("worker", {
-  create: "yarn install && yarn run tsc",
+  create:
+    "yarn install >/dev/null && yarn run tsc >/dev/null && cat ./dist/index.js",
   dir: "../worker",
   triggers: [new Date().toISOString()],
 });
@@ -75,7 +76,7 @@ const worker = new cloudflare.WorkerScript(
   "links",
   {
     name: "links",
-    content: fs.readFileSync("../worker/dist/index.js").toString(),
+    content: compileWorker.stdout,
   },
   {
     deleteBeforeReplace: true,
