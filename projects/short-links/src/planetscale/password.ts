@@ -103,7 +103,9 @@ class PlanetScalePasswordProvider implements pulumi.dynamic.ResourceProvider {
 
     const outs: PlanetScalePasswordOutputs = {
       id: data.id!,
-      prismaConnectionString: `mysql://${data.username}:${data.plain_text}@${data.access_host_url}/${props.database}?sslaccept=strict`,
+
+      // Always read this from props, as the PlanetScale API never returns the password again`
+      prismaConnectionString: props.prismaConnectionString,
 
       name: props.name,
       database: props.database,
