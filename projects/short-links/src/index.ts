@@ -43,7 +43,7 @@ const actionsSecret = new github.ActionsSecret(
 
 const compileWorker = new command.local.Command("worker", {
   create: "tsc",
-  dir: "./worker",
+  dir: "../worker",
 });
 
 const linkZoneNames = ["rawkode.link"];
