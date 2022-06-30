@@ -1,0 +1,6 @@
+config:
+  pulumi:disable-default-providers:
+    - "*"
+  cloudflare:accountId: 340c8fced324c509d19e79ada8f049db
+  cloudflare:apiToken:
+    secure: AAABAC9Z5NYARoNpnB/QfsYnAg3dVxZX3wlAeihBlrD0IrIR9l1i7pzhjmjAkhIc7qS6O3/b2hJp0v2swulKHfpKbdMhGy8l
