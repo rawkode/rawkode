@@ -50,6 +50,20 @@ const record = new cloudflare.Record(
   }
 );
 
+import { CloudflarePubSub } from "./cloudflare-pubsub";
+const pubSub = new CloudflarePubSub("analytics", {
+  accountId: cloudflareProviderConfig.require("accountId"),
+  apiToken: cloudflareProviderConfig.requireSecret("apiToken"),
+  namespace: "rawkode",
+  topic: "web-links-analytics",
+});
+
+export const namespace = pubSub.namespace;
+export const topic = pubSub.topic;
+export const endpoint = pubSub.endpoint;
+export const username = pubSub.username;
+export const password = pubSub.password;
+
 const workerRoute = new cloudflare.WorkerRoute(
   "rawkode.link",
   {

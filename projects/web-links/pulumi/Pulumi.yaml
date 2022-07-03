@@ -1,3 +1,4 @@
 name: web-links
 runtime: nodejs
 description: Rawkode's Short & Vanity Link Program
+main: src/index.ts

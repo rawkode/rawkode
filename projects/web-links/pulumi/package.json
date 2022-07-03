@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@pulumi/cloudflare": "^4.8.0",
-    "@pulumi/pulumi": "^3.0.0"
+    "@pulumi/pulumi": "^3.0.0",
+    "got": "^11.8.0"
   }
 }
