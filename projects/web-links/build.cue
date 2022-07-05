@@ -6,7 +6,6 @@ import (
 	"universe.dagger.io/alpha/pulumi"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
-	"universe.dagger.io/yarn"
 )
 
 config: {
@@ -28,6 +27,11 @@ actions: {
 		path: "./worker"
 	}
 
+	_workerDockerfile: core.#Source & {
+		path: "./worker"
+		include: ["Dockerfile"]
+	}
+
 	pulumiUp: pulumi.#Up & {
 		stack:       "production"
 		runtime:     "nodejs"
@@ -35,18 +39,19 @@ actions: {
 		source:      _codePulumi.output
 	}
 
-	_buildImage: docker.#Dockerfile & {
-		source: _codeWorker.output
+	buildImage: docker.#Dockerfile & {
+		source: _workerDockerfile.output
 	}
 
 	savePassword: bash.#Run & {
-		input: _buildImage.output
+		input: buildImage.output
 
 		env: {
 			CLOUDFLARE_ACCOUNT_ID: config.cloudflare.accountId
 			if config.cloudflare.apiToken != _|_ {
 				CLOUDFLARE_API_TOKEN: config.cloudflare.apiToken
 			}
+
 			PASSWORD: pulumiUp.output.password.contents
 		}
 
@@ -80,13 +85,31 @@ actions: {
 			"""
 	}
 
-	writeConfig: bash.#Run & {
-		input: _buildImage.output
-		mounts: "src": {
-			contents: _codeWorker.output
-			dest:     "/src"
+	deploy: bash.#Run & {
+		input: buildImage.output
+		mounts: {
+			source: {
+				contents: _codeWorker.output
+				dest:     "/src"
+			}
+
+			cargo: {
+				dest:     "/src/target"
+				contents: core.#CacheDir & {
+					id: "web-links-worker-cargo-cache"
+				}
+			}
+
+			node_modules: {
+				dest:     "/src/node_modules"
+				contents: core.#CacheDir & {
+					id: "web-links-worker-npm-cache"
+				}
+			}
 		}
+
 		workdir: "/src"
+
 		env: {
 			CLOUDFLARE_ACCOUNT_ID: config.cloudflare.accountId
 			if config.cloudflare.apiToken != _|_ {
@@ -100,42 +123,14 @@ actions: {
 		script: contents: """
 			set -x
 			cat <<EOF >> wrangler.toml
-			[vars]
 			ANALYTICS_HOST = "${ENDPOINT}"
 			ANALYTICS_NAMESPACE = "${NAMESPACE}"
 			ANALYTICS_TOPIC = "${TOPIC}"
 			ANALYTICS_USER = "${USERNAME}"
 			EOF
+
+			yarn install
+			yarn run publish
 			"""
-	}
-
-	deploy: yarn.#Script & {
-		container: input: _buildImage.output
-		source: _codeWorker.output
-		name:   "publish"
-		container: {
-			mounts: {
-				cargo: {
-					dest:     "/src/target"
-					contents: core.#CacheDir & {
-						id: "web-links-worker-cargo-cache"
-					}
-				}
-
-				node_modules: {
-					dest:     "/src/node_modules"
-					contents: core.#CacheDir & {
-						id: "web-links-worker-npm-cache"
-					}
-				}
-			}
-
-			env: {
-				if config.cloudflare.apiToken != _|_ {
-					CLOUDFLARE_API_TOKEN: config.cloudflare.apiToken
-				}
-				CLOUDFLARE_ACCOUNT_ID: config.cloudflare.accountId
-			}
-		}
 	}
 }

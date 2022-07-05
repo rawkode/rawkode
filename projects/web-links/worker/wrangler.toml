@@ -3,8 +3,9 @@ workers_dev = true
 main = "build/worker/shim.mjs"
 compatibility_date = "2022-01-20"
 
-[vars]
-WORKERS_RS_VERSION = "0.0.9"
-
 [build]
 command = "worker-build --release"
+
+# Always keep this last, as we append to it from Dagger
+[vars]
+WORKERS_RS_VERSION = "0.0.9"
