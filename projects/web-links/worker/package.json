@@ -3,9 +3,13 @@
   "version": "0.0.0",
   "scripts": {
     "build": "wrangler publish --dry-run src/lib.rs",
+    "publish": "wrangler publish",
     "dev": "wrangler dev src/lib.rs --local"
   },
   "devDependencies": {
     "wrangler": "^2.0.0"
+  },
+  "dependencies": {
+    "publish": "^0.6.0"
   }
 }

@@ -7,4 +7,4 @@ compatibility_date = "2022-01-20"
 WORKERS_RS_VERSION = "0.0.9"
 
 [build]
-command = "cargo install -q worker-build && worker-build --release"
+command = "worker-build --release"
