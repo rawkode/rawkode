@@ -8,13 +8,13 @@ zone.createMxRecord("@", 10, "in1-smtp.messagingengine.com");
 zone.createMxRecord("@", 20, "in2-smtp.messagingengine.com");
 
 zone.createRecord("fm1._domainkey", "CNAME", [
-  "fm1.rawkode.dev.dkim.fmhosted.com",
+  "fm1.rawkode.com.dkim.fmhosted.com",
 ]);
 zone.createRecord("fm2._domainkey", "CNAME", [
-  "fm2.rawkode.dev.dkim.fmhosted.com",
+  "fm2.rawkode.com.dkim.fmhosted.com",
 ]);
 zone.createRecord("fm3._domainkey", "CNAME", [
-  "fm3.rawkode.dev.dkim.fmhosted.com",
+  "fm3.rawkode.com.dkim.fmhosted.com",
 ]);
 
 zone.createRecord("@", "TXT", [

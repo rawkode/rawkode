@@ -4,6 +4,7 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 	"github.com/rawkode/rawkode/projects/web-links:web_links"
+	"github.com/rawkode/rawkode/projects/domains-and-dns:domains_dns"
 )
 
 globalConfig: {
@@ -12,12 +13,6 @@ globalConfig: {
 }
 
 dagger.#Plan & {
-	client: filesystem: ".": read: exclude: [
-		"**/.git",
-		"**/bin",
-		"**/node_modules",
-	]
-
 	client: env: SOPS_AGE_KEY: dagger.#Secret
 
 	client: commands: sops: {
@@ -34,6 +29,18 @@ dagger.#Plan & {
 		}
 
 		projects: {
+			domainsDns: (domains_dns & {
+				config: {
+					cloudflare: {
+						accountId: globalConfig.cloudflare.accountId
+						apiToken:  secrets.output.cloudflare.apiToken.contents
+					}
+					pulumi: {
+						accessToken: secrets.output.pulumi.accessToken.contents
+					}
+				}
+			}).actions
+
 			webLinks: (web_links & {
 				config: {
 					cloudflare: {

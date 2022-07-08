@@ -6,7 +6,7 @@ const defaultBaseUrl: string = "https://api.cloudflare.com/client/v4/accounts";
 
 interface CloudflarePubSubInputs {
   accountId: string;
-  apiToken: pulumi.Output<string>;
+  apiToken: string;
   namespace: string;
   topic: string;
 }
@@ -58,7 +58,7 @@ interface CloudflarePubSubOutputs {
   password: string;
 
   accountId: string;
-  apiToken: pulumi.Output<string>;
+  apiToken: string;
 }
 
 class CloudflarePubSubProvider implements pulumi.dynamic.ResourceProvider {

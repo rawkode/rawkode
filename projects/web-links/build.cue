@@ -4,8 +4,8 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 	"universe.dagger.io/alpha/pulumi"
+	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
-	"universe.dagger.io/docker"
 )
 
 config: {
@@ -21,10 +21,17 @@ config: {
 actions: {
 	_codePulumi: core.#Source & {
 		path: "./pulumi"
+		exclude: [
+			"./node_modules",
+		]
 	}
 
 	_codeWorker: core.#Source & {
 		path: "./worker"
+		exclude: [
+			"./Dockerfile",
+			"./node_modules",
+		]
 	}
 
 	_workerDockerfile: core.#Source & {
@@ -35,12 +42,24 @@ actions: {
 	pulumiUp: pulumi.#Up & {
 		stack:       "production"
 		runtime:     "nodejs"
+		refresh:     true
 		accessToken: config.pulumi.accessToken
 		source:      _codePulumi.output
+
+		container: env: {
+			CLOUDFLARE_ACCOUNT_ID: config.cloudflare.accountId
+			if config.cloudflare.apiToken != _|_ {
+				CLOUDFLARE_API_TOKEN: config.cloudflare.apiToken
+			}
+		}
 	}
 
-	buildImage: docker.#Dockerfile & {
-		source: _workerDockerfile.output
+	buildImage: alpine.#Build & {
+		packages: {
+			bash: {}
+			yarn: {}
+			git: {}
+		}
 	}
 
 	savePassword: bash.#Run & {
@@ -59,13 +78,6 @@ actions: {
 			"src": {
 				contents: _codeWorker.output
 				dest:     "/src"
-			}
-
-			cargo: {
-				dest:     "/src/target"
-				contents: core.#CacheDir & {
-					id: "web-links-worker-cargo-cache"
-				}
 			}
 
 			node_modules: {
@@ -91,13 +103,6 @@ actions: {
 			source: {
 				contents: _codeWorker.output
 				dest:     "/src"
-			}
-
-			cargo: {
-				dest:     "/src/target"
-				contents: core.#CacheDir & {
-					id: "web-links-worker-cargo-cache"
-				}
 			}
 
 			node_modules: {
@@ -130,7 +135,7 @@ actions: {
 			EOF
 
 			yarn install
-			yarn run publish
+			yarn run wrangler publish src/index.ts
 			"""
 	}
 }

@@ -1,0 +1,280 @@
+make all --print-data-base --no-builtin-variables --no-builtin-rules --question
+# GNU Make 3.81
+# Copyright (C) 2006  Free Software Foundation, Inc.
+# This is free software; see the source for copying conditions.
+# There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE.
+
+# This program built for i386-apple-darwin11.3.0
+
+# Make data base, printed on Fri Jul  8 22:16:56 2022
+
+# Variables
+
+# automatic
+<D = $(patsubst %/,%,$(dir $<))
+# automatic
+?F = $(notdir $?)
+# environment
+ELECTRON_NO_ATTACH_CONSOLE = 1
+# automatic
+?D = $(patsubst %/,%,$(dir $?))
+# automatic
+@D = $(patsubst %/,%,$(dir $@))
+# automatic
+@F = $(notdir $@)
+# makefile
+CURDIR := /Users/rawkode/Code/src/github.com/rawkode/rawkode/infrastructure
+# makefile
+SHELL = /bin/sh
+# environment
+VSCODE_NLS_CONFIG = {"locale":"en-gb","availableLanguages":{},"_languagePackSupport":true}
+# environment
+_ = /usr/bin/make
+# environment
+SAVEHIST = 10000000
+# makefile (from `Makefile', line 1)
+MAKEFILE_LIST :=  Makefile
+# environment
+FORGIT_GI_TEMPLATES = /Users/rawkode/.cache/forgit/gi/repos/dvcs/gitignore/templates
+# environment
+__CFBundleIdentifier = com.microsoft.VSCode
+# environment
+INFOPATH = /opt/homebrew/share/info:
+# environment
+P9K_SSH = 0
+# environment
+VSCODE_CWD = /Users/rawkode/Code/src/github.com/rawkode/rawkode/infrastructure
+# environment
+PATH = /Users/rawkode/Code/bin:/Users/rawkode/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Apple/usr/bin:/Users/rawkode/.cargo/bin:/Users/rawkode/.krew/bin
+# environment
+GOPATH = /Users/rawkode/Code
+# environment
+LaunchInstanceID = 6C77DEBC-45AF-4B05-8B13-16E9175D69F9
+# environment
+ELECTRON_RUN_AS_NODE = 1
+# default
+.FEATURES := target-specific order-only second-expansion else-if archives jobserver check-symlink
+# environment
+SSH_AUTH_SOCK = /Users/rawkode/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock
+# automatic
+%F = $(notdir $%)
+# environment
+FORGIT_GI_REPO_LOCAL = /Users/rawkode/.cache/forgit/gi/repos/dvcs/gitignore
+# environment
+SQLITE_EXEMPT_PATH_FROM_VNODE_GUARDS = /Users/rawkode/Library/WebKit/Databases
+# environment
+PWD = /Users/rawkode/Code/src/github.com/rawkode/rawkode/infrastructure
+# environment
+FORGIT_GI_REPO_REMOTE = https://github.com/dvcs/gitignore
+# environment
+HOMEBREW_CELLAR = /opt/homebrew/Cellar
+# environment
+ORIGINAL_XDG_CURRENT_DESKTOP = undefined
+# environment
+MANPATH = /opt/homebrew/share/man:
+# environment
+VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
+# environment
+HOME = /Users/rawkode
+# environment
+XDG_CACHE_HOME = /Users/rawkode/.cache
+# default
+MAKEFILEPATH := /Applications/Xcode.app/Contents/Developer/Makefiles
+# environment
+VSCODE_CLI = 1
+# environment
+VSCODE_CODE_CACHE_PATH = /Users/rawkode/Library/Application Support/Code/CachedData/92d25e35d9bf1a6b16f7d0758f25d48ace11e5b9
+# environment
+LOGNAME = rawkode
+# environment
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = 1
+# environment
+VSCODE_HANDLES_UNCAUGHT_ERRORS = true
+# automatic
+^D = $(patsubst %/,%,$(dir $^))
+# environment
+XPC_FLAGS = 0x0
+# environment
+HISTFILE = /Users/rawkode/.zsh_history
+# default
+MAKE = $(MAKE_COMMAND)
+# environment
+LC_TERMINAL = iTerm2
+# environment
+SHLVL = 3
+# default
+MAKE_VERSION := 3.81
+# environment
+USER = rawkode
+# makefile
+.DEFAULT_GOAL := new
+# environment
+FORGIT_INSTALL_DIR = /Users/rawkode/Code/src/github.com/marlonrichert/forgit
+# default
+MAKECMDGOALS := all
+# environment
+TERM_SESSION_ID = w0t2p0:1430D08E-EC0A-41A7-B309-7AC8888D5DBE
+# automatic
+%D = $(patsubst %/,%,$(dir $%))
+# default
+MAKE_COMMAND := /Applications/Xcode.app/Contents/Developer/usr/bin/make
+# environment
+TERM_PROGRAM = iTerm.app
+# default
+.VARIABLES := 
+# environment
+TMPDIR = /var/folders/ws/7l_27y052233yjr50jwz3lv80000gn/T/
+# automatic
+*F = $(notdir $*)
+# environment
+VSCODE_IPC_HOOK = /Users/rawkode/Library/Application Support/Code/1.69.0-main.sock
+# environment
+MallocNanoZone = 0
+# makefile
+MAKEFLAGS = Rrqp
+# environment
+MFLAGS = -Rrqp
+# automatic
+*D = $(patsubst %/,%,$(dir $*))
+# environment
+TERM_PROGRAM_VERSION = 3.5.0beta6
+# environment
+XPC_SERVICE_NAME = application.com.microsoft.VSCode.37924159.37924165.24EF70A9-5989-4C20-A712-35BA8E54873F
+# environment
+LC_TERMINAL_VERSION = 3.5.0beta6
+# environment
+HOMEBREW_PREFIX = /opt/homebrew
+# automatic
++D = $(patsubst %/,%,$(dir $+))
+# automatic
++F = $(notdir $+)
+# environment
+TERMINFO_DIRS = /Applications/iTerm.app/Contents/Resources/terminfo:/usr/share/terminfo
+# environment
+ITERM_SESSION_ID = w0t2p0:1430D08E-EC0A-41A7-B309-7AC8888D5DBE
+# environment
+HOMEBREW_REPOSITORY = /opt/homebrew
+# environment
+COLORFGBG = 15;0
+# environment
+COLORTERM = truecolor
+# environment
+__CF_USER_TEXT_ENCODING = 0x1F5:0:2
+# environment
+COMMAND_MODE = unix2003
+# default
+MAKEFILES := 
+# automatic
+<F = $(notdir $<)
+# environment
+ITERM_PROFILE = Rawkode
+# environment
+XDG_CONFIG_HOME = /Users/rawkode/.config
+# environment
+LC_ALL = C
+# environment
+SECURITYSESSIONID = 186ac
+# environment
+P9K_TTY = old
+# automatic
+^F = $(notdir $^)
+# environment
+XDG_DATA_HOME = /Users/rawkode/.local/share
+# default
+SUFFIXES := 
+# environment
+HISTSIZE = 10000000
+# environment
+HISTIGNORE = &:ls:[bf]g:exit:reset:clear:cd:cd ..:cd..:zh
+# environment
+MAKELEVEL := 0
+# environment
+LANG = C
+# environment
+TERM = xterm-256color
+# environment
+_P9K_TTY = /dev/ttys003
+# environment
+VSCODE_PID = 11489
+# variable set hash-table stats:
+# Load=93/1024=9%, Rehash=0, Collisions=5/116=4%
+
+# Pattern-specific Variable Values
+
+# No pattern-specific variable values.
+
+# Directories
+
+# . (device 16777233, inode 825225): 15 files, no impossibilities.
+
+# 15 files, no impossibilities in 1 directories.
+
+# Implicit Rules
+
+# No implicit rules.
+
+# Files
+
+# Not a target:
+all:
+#  Command-line target.
+#  Implicit rule search has been done.
+#  File does not exist.
+#  File has not been updated.
+# variable set hash-table stats:
+# Load=0/32=0%, Rehash=0, Collisions=0/0=0%
+
+.PHONY: new
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+new:
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+#  commands to execute (from `Makefile', line 2):
+	pulumi stack init
+	
+
+# Not a target:
+.SUFFIXES:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# Not a target:
+Makefile:
+#  Implicit rule search has been done.
+#  Last modified 2021-11-03 21:20:58
+#  File has been updated.
+#  Successfully updated.
+# variable set hash-table stats:
+# Load=0/32=0%, Rehash=0, Collisions=0/0=0%
+
+# Not a target:
+.DEFAULT:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# files hash-table stats:
+# Load=6/1024=1%, Rehash=0, Collisions=0/19=0%
+# VPATH Search Paths
+
+# No `vpath' search paths.
+
+# No general (`VPATH' variable) search path.
+
+# # of strings in strcache: 1
+# # of strcache buffers: 1
+# strcache size: total = 4096 / max = 4096 / min = 4096 / avg = 4096
+# strcache free: total = 4087 / max = 4087 / min = 4087 / avg = 4087
+
+# Finished Make data base on Fri Jul  8 22:16:56 2022
+
+ 
+make: *** No rule to make target `all'.  Stop.
+

@@ -2,9 +2,12 @@ import { Controller } from "./controller";
 
 import rawkode from "./rawko.de";
 import rawkodeAcademy from "./rawkode.academy";
+import rawkodeCommunity from "./rawkode.community";
 import rawkodeChat from "./rawkode.chat";
 import rawkodeCom from "./rawkode.com";
+import rawkodeLink from "./rawkode.link";
 import rawkodeDev from "./rawkode.dev";
+import rawkodeEmail from "./rawkode.email";
 import rawkodeLive from "./rawkode.live";
 import rawkodeNews from "./rawkode.news";
 import rawkodeSh from "./rawkode.sh";
@@ -18,7 +21,6 @@ export const managedDomains = [
   rawkodeCom,
   rawkodeDev,
   rawkodeLive,
-  rawkodeNews,
   rawkodeSh,
 ];
 

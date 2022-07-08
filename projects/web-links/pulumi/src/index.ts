@@ -1,59 +1,41 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as cloudflare from "@pulumi/cloudflare";
 
-const cloudflareProviderConfig = new pulumi.Config("cloudflare");
+// const webLinkDomains: string[] = [
+//   "rawkode.academy",
+//   "rawkode.community",
+//   "rawkode.link",
+// ];
 
-const cloudflareProvider = new cloudflare.Provider("cloudflare-provider", {
-  accountId: cloudflareProviderConfig.require("accountId"),
-  apiToken: cloudflareProviderConfig.requireSecret("apiToken"),
-});
+// const createWebLinkZone = async (domain: string) => {
+//   const zone = await cloudflare.getZone({
+//     name: domain,
+//   });
 
-const zone = new cloudflare.Zone(
-  "rawkode.link",
-  {
-    zone: "rawkode.link",
-    plan: "free",
-  },
-  {
-    provider: cloudflareProvider,
-  }
-);
+//   console.log(`Zone ${domain} is ${zone.id}`);
 
-const zoneSettings = new cloudflare.ZoneSettingsOverride(
-  "rawkode.link",
-  {
-    zoneId: zone.id,
-    settings: {
-      alwaysUseHttps: "on",
-      automaticHttpsRewrites: "on",
-      ssl: "strict",
-      minTlsVersion: "1.2",
-      universalSsl: "on",
-    },
-  },
-  {
-    provider: cloudflareProvider,
-  }
-);
+//   const record = new cloudflare.Record(domain, {
+//     zoneId: zone.id,
+//     name: "@",
+//     type: "CNAME",
+//     proxied: true,
+//     value: "workers.dev",
+//     allowOverwrite: true,
+//   });
 
-const record = new cloudflare.Record(
-  "rawkode.link",
-  {
-    zoneId: zone.id,
-    name: "@",
-    type: "CNAME",
-    proxied: true,
-    value: "workers.dev",
-  },
-  {
-    provider: cloudflareProvider,
-  }
-);
+//   const workerRoute = new cloudflare.WorkerRoute(domain, {
+//     pattern: pulumi.interpolate`${zone.name}/*`,
+//     zoneId: zone.id,
+//     scriptName: "web-links",
+//   });
+// };
+
+// webLinkDomains.forEach((domain) => createWebLinkZone(domain));
 
 import { CloudflarePubSub } from "./cloudflare-pubsub";
 const pubSub = new CloudflarePubSub("analytics", {
-  accountId: cloudflareProviderConfig.require("accountId"),
-  apiToken: cloudflareProviderConfig.requireSecret("apiToken"),
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
+  apiToken: process.env.CLOUDFLARE_API_TOKEN || "",
   namespace: "rawkode",
   topic: "web-links-analytics",
 });
@@ -63,15 +45,3 @@ export const topic = pubSub.topic;
 export const endpoint = pubSub.endpoint;
 export const username = pubSub.username;
 export const password = pubSub.password;
-
-const workerRoute = new cloudflare.WorkerRoute(
-  "rawkode.link",
-  {
-    pattern: pulumi.interpolate`${zone.zone}/*`,
-    zoneId: zone.id,
-    scriptName: "web-links",
-  },
-  {
-    provider: cloudflareProvider,
-  }
-);

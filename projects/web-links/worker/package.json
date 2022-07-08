@@ -1,15 +1,11 @@
 {
+  "name": "web-links",
   "private": true,
-  "version": "0.0.0",
-  "scripts": {
-    "build": "wrangler publish --dry-run src/lib.rs",
-    "publish": "wrangler publish",
-    "dev": "wrangler dev src/lib.rs --local"
-  },
   "devDependencies": {
-    "wrangler": "^2.0.0"
-  },
-  "dependencies": {
-    "publish": "^0.6.0"
+    "@cloudflare/workers-types": "^3.13.0",
+    "@types/node": "^18.0.0",
+    "ts-node": "^10.8.1",
+    "typescript": "^4.7.4",
+    "wrangler": "2.0.16"
   }
 }
