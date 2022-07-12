@@ -1,14 +1,10 @@
 import { Redirects } from "./types";
 
-import rawkodeAcademy from "./rawkode.academy";
-import rawkodeCommunity from "./rawkode.community";
 import rawkodeLink from "./rawkode.link";
 
 const redirects: Redirects = {
   defaultRedirect: "https://twitter.com/rawkode",
   domains: {
-    "rawkode.academy": rawkodeAcademy,
-    "rawkode.community": rawkodeCommunity,
     "rawkode.link": rawkodeLink,
   },
 };
@@ -16,16 +12,16 @@ const redirects: Redirects = {
 addEventListener("fetch", async (event: FetchEvent) => {
   const request = event.request;
   const requestUrl = new URL(request.url);
-  const cacheKey = new Request(requestUrl.toString(), request);
+  // const cacheKey = new Request(requestUrl.toString(), request);
 
   event.waitUntil(logRequest());
 
-  const cache = caches.default;
-  const cachedResponse = await cache.match(cacheKey);
+  // const cache = caches.default;
+  // const cachedResponse = await cache.match(cacheKey);
 
-  if (cachedResponse) {
-    return event.respondWith(cachedResponse);
-  }
+  // if (cachedResponse) {
+  //   return event.respondWith(cachedResponse);
+  // }
 
   return event.respondWith(handleRequest(requestUrl));
 });
@@ -36,7 +32,7 @@ const handleRequest = async (requestUrl: URL) => {
 
   console.log(`Handling request on domain '${hostname}' for '${path}'`);
 
-  if (!(hostname in redirects)) {
+  if (!(hostname in redirects["domains"])) {
     console.log("This domain is not managed by web-links");
     return Response.redirect(redirects.defaultRedirect);
   }

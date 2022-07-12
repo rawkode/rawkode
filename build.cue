@@ -3,8 +3,8 @@ package rawkode
 import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
-	"github.com/rawkode/rawkode/projects/web-links:web_links"
 	"github.com/rawkode/rawkode/projects/domains-and-dns:domains_dns"
+	"github.com/rawkode/rawkode/projects/web-links:web_links"
 )
 
 globalConfig: {

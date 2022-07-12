@@ -1,10 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as cloudflare from "@pulumi/cloudflare";
-
-// rawkode.academy
-// rawkode.community
-// rawkode.email
-// rawkode.news
 interface DnsRecord {
   name: string;
   type: "A" | "CNAME" | "TXT" | "MX";
@@ -26,75 +21,46 @@ interface Domain {
   };
 }
 
-const rawkodeAcademy: Domain = {
-  name: "rawkode-academy",
-  domain: "rawkode.academy",
+const rawkodeEmail: Domain = {
+  name: "rawkode-email",
+  domain: "rawkode.email",
   records: {
     mx1: {
       name: "@",
       type: "MX",
-      priority: 1,
-      value: "aspmx.l.google.com",
+      value: "in1-smtp.messagingengine.com",
+      priority: 10,
       proxied: false,
     },
     mx2: {
       name: "@",
       type: "MX",
-      priority: 5,
-      value: "alt1.aspmx.l.google.com",
+      value: "in2-smtp.messagingengine.com",
+      priority: 20,
       proxied: false,
     },
-    mx3: {
-      name: "@",
-      type: "MX",
-      priority: 5,
-      value: "alt2.aspmx.l.google.com",
+    dkim1: {
+      name: "fm1._domainkey",
+      type: "CNAME",
+      value: "fm1.rawkode.email.dkim.fmhosted.com",
       proxied: false,
     },
-    mx4: {
-      name: "@",
-      type: "MX",
-      priority: 10,
-      value: "alt3.aspmx.l.google.com",
+    dkim2: {
+      name: "fm2._domainkey",
+      type: "CNAME",
+      value: "fm2.rawkode.email.dkim.fmhosted.com",
       proxied: false,
     },
-    mx5: {
-      name: "@",
-      type: "MX",
-      priority: 10,
-      value: "alt4.aspmx.l.google.com",
+    dkim3: {
+      name: "fm3._domainkey",
+      type: "CNAME",
+      value: "fm3.rawkode.email.dkim.fmhosted.com",
       proxied: false,
     },
-    txt1: {
+    spf1: {
       name: "@",
       type: "TXT",
-      value: '"v=spf1 include:_spf.google.com ~all"',
-      proxied: false,
-    },
-  },
-};
-
-const rawkodeCommunity: Domain = {
-  name: "rawkode-community",
-  domain: "rawkode.community",
-  records: {
-    txt1: {
-      name: "@",
-      type: "TXT",
-      value: '"v=spf1 ~all"',
-      proxied: false,
-    },
-  },
-};
-
-const rawkodeEmail: Domain = {
-  name: "rawkode-email",
-  domain: "rawkode.email",
-  records: {
-    txt1: {
-      name: "@",
-      type: "TXT",
-      value: '"v=spf1 ~all"',
+      value: "v=spf1 include:spf.messagingengine.com ?all",
       proxied: false,
     },
   },
@@ -104,10 +70,42 @@ const rawkodeNews: Domain = {
   name: "rawkode-news",
   domain: "rawkode.news",
   records: {
-    txt1: {
+    mx1: {
+      name: "@",
+      type: "MX",
+      value: "in1-smtp.messagingengine.com",
+      priority: 10,
+      proxied: false,
+    },
+    mx2: {
+      name: "@",
+      type: "MX",
+      value: "in2-smtp.messagingengine.com",
+      priority: 20,
+      proxied: false,
+    },
+    dkim1: {
+      name: "fm1._domainkey",
+      type: "CNAME",
+      value: "fm1.rawkode.news.dkim.fmhosted.com",
+      proxied: false,
+    },
+    dkim2: {
+      name: "fm2._domainkey",
+      type: "CNAME",
+      value: "fm2.rawkode.news.dkim.fmhosted.com",
+      proxied: false,
+    },
+    dkim3: {
+      name: "fm3._domainkey",
+      type: "CNAME",
+      value: "fm3.rawkode.news.dkim.fmhosted.com",
+      proxied: false,
+    },
+    spf1: {
       name: "@",
       type: "TXT",
-      value: '"v=spf1 ~all"',
+      value: "v=spf1 include:spf.messagingengine.com ?all",
       proxied: false,
     },
   },
@@ -156,7 +154,5 @@ const reconcileDomain = (domain: Domain) => {
   });
 };
 
-reconcileDomain(rawkodeAcademy);
-reconcileDomain(rawkodeCommunity);
 reconcileDomain(rawkodeEmail);
 reconcileDomain(rawkodeNews);
