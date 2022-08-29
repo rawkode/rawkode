@@ -1,5 +1,7 @@
+depends:
+  - homebrew
+
 actions:
   - action: package.install
-    repository: homebrew/cask-versions
     list:
       - visual-studio-code

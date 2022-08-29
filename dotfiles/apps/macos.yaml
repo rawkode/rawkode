@@ -1,11 +1,7 @@
 actions:
   - action: package.install
     list:
-      - alt-tab
       - bartender
-      - elgato-control-center
-      - iterm2
-      - secretive
 
   # May need a provider for mas
   # - action: package.install
