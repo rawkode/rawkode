@@ -1,6 +1,7 @@
 actions:
   - action: package.install
     list:
+      - atuin
       - fzf
       - starship
       - zsh
@@ -13,3 +14,7 @@ actions:
   - action: file.link
     from: zshrc
     to: "{{ user.home_dir }}/.zshrc"
+
+  - action: file.link
+    from: atuin.toml
+    to: "{{ user.home_dir }}/.config/atuin/config.toml"
