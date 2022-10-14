@@ -1,0 +1,16 @@
+{
+  "name": "dns",
+  "devDependencies": {
+    "@types/node": "^14",
+    "@types/xml2js": "^0.4.11"
+  },
+  "dependencies": {
+    "@pulumi/cloudflare": "^4.8.0",
+    "@pulumi/google-native": "^0.24.0",
+    "@pulumi/gcp": "6.36.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@pulumiverse/gandi": "^0.0.10",
+    "got": "^11.8.0",
+    "xml2js": "^0.4.23"
+  }
+}

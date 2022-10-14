@@ -1,0 +1,4 @@
+config:
+  gcp:project: rawkodes-modern-life
+  google-native:project: rawkodes-modern-life
+  google-native:region: europe-west2
