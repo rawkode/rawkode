@@ -1,0 +1,18 @@
+{
+  "name": "rich-prometheus-interface",
+  "private": true,
+  "scripts": {
+    "build": "slidev build",
+    "dev": "slidev --open",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "^0.36.11",
+    "@slidev/theme-default": "*",
+    "@slidev/theme-seriph": "*"
+  },
+  "devDependencies": {
+    "@iconify-json/ri": "^1.1.3",
+    "playwright-chromium": "^1.27.1"
+  }
+}
