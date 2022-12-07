@@ -15,6 +15,4 @@ actions:
       - tldr
       - trunk-io
       - xh
-
-  - action: package.install
-    name: go-task/tap/go-task
+      - zx

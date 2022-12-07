@@ -1,0 +1,5 @@
+depends:
+  - homebrew
+  - fonts
+  - dev.git
+  - dev.core

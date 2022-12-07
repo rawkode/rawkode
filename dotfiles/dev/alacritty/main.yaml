@@ -1,0 +1,6 @@
+actions:
+  - action: package.install
+    name: alacritty
+  - action: file.link
+    from: alacritty.yml
+    to: "{{ user.home_dir }}/.config/alacritty/alacritty.yml"

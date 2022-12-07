@@ -25,14 +25,19 @@ done
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 #export SSH_AUTH_SOCK=/Users/rawkode/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
 
-_direnv_hook() {
-  trap -- '' SIGINT;
-  eval "$("${HOMEBREW_PREFIX-/usr/local}/bin/direnv" export zsh)";
-  trap - SIGINT;
-}
+eval "$(direnv hook zsh)"
 
-export PATH="${PATH}:${HOME}/.krew/bin"
+export PATH="${PATH}:/opt/homebrew/bin:${HOME}/.krew/bin"
+
+source "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
 
 # To customize prompt, run `p10k configure` or edit ~/.zsh/includes/prompt.zsh.
 [[ ! -f ~/.zsh/includes/prompt.zsh ]] || source ~/.zsh/includes/prompt.zsh
 
+
+# bun completions
+[ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
