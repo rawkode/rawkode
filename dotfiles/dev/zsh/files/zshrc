@@ -23,6 +23,10 @@ path=("/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin" $pat
 path=("/opt/homebrew/bin" $path)
 path=("${HOME}/.krew/bin" $path)
 
+# No Per Directory History 😔
+export MCFLY_INTERFACE_VIEW=BOTTOM
+export MCFLY_FUZZY=2
+eval "$(mcfly init zsh)"
 
 ##
 # Paths

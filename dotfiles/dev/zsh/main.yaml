@@ -1,9 +1,8 @@
 actions:
   - action: package.install
     list:
-      - atuin
       - fzf
-      - starship
+      - cantino/mcfly/mcfly
       - zsh
       - zoxide
 
