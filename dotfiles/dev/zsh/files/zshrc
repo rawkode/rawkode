@@ -5,9 +5,8 @@
 
 source ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh
 
-znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
-
-znap prompt romkatv/powerlevel10k
+#znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
+#znap prompt romkatv/powerlevel10k
 
 ##
 # Paths
@@ -26,7 +25,6 @@ export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agen
 
 eval "$(direnv hook zsh)"
 
-export PATH="${PATH}:/opt/homebrew/bin:${HOME}/.krew/bin"
 
 source "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
 
@@ -41,10 +39,10 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 
 # bun completions
 [ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
-
-# bun
 export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
 
-export PATH="/opt//homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin:$PATH"
+path=("${BUN_INSTALL}/bin" $path)
+path=("/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin" $path)
+path=("/opt/homebrew/bin" $path)
+path=("${HOME}/.krew/bin" $path)
 
