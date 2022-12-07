@@ -1,1 +1,1 @@
-znap source ellie/atuin
+#znap source ellie/atuin
