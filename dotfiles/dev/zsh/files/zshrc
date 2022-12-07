@@ -6,7 +6,23 @@
 source ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh
 
 #znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
-#znap prompt romkatv/powerlevel10k
+znap source romkatv/powerlevel10k
+
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+# Initialization code that may require console input (password prompts, [y/n]
+# confirmations, etc.) must go above this block; everything else may go below.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+path=("/usr/local/bin" $path)
+path=("/opt/homebrew/bin" $path)
+path=("/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin" $path)
+#source "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
+
+path=("/opt/homebrew/bin" $path)
+path=("${HOME}/.krew/bin" $path)
+
 
 ##
 # Paths
@@ -23,13 +39,7 @@ done
 
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 
-eval "$(direnv hook zsh)"
-
-
-source "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
-
-add-zsh-hook -Uz chpwd(){ source <(tea -Eds) }  #tea
-
+add-zsh-hook -Uz chpwd(){ source <(tea -Eds) }
 
 if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
   . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
@@ -40,9 +50,6 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 # bun completions
 [ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
 export BUN_INSTALL="$HOME/.bun"
-
 path=("${BUN_INSTALL}/bin" $path)
-path=("/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin" $path)
-path=("/opt/homebrew/bin" $path)
-path=("${HOME}/.krew/bin" $path)
 
+eval "$(direnv hook zsh)"

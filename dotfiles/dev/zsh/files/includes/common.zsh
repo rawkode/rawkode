@@ -6,3 +6,5 @@ znap source zsh-users/zsh-autosuggestions
 ZSH_HIGHLIGHT_HIGHLIGHTERS=( main brackets )
 znap source zsh-users/zsh-syntax-highlighting
 znap source zdharma-continuum/fast-syntax-highlighting
+
+znap fpath _kubectl 'kubectl completion  zsh'
