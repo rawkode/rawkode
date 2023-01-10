@@ -1,0 +1,9 @@
+[[actions]]
+action = "package.install"
+name = "alacritty"
+
+[[actions]]
+action = "file.copy"
+template = true
+from = "alacritty.yaml"
+to = "{{ user.home_dir }}/.config/alacritty/alacritty.yml"
