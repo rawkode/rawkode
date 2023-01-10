@@ -1,0 +1,8 @@
+actions:
+  - action: package.install
+    name: alacritty
+
+  - action: file.copy
+    template: true
+    from: alacritty.yaml
+    to: "{{ user.home_dir }}/.config/alacritty/alacritty.yml"
