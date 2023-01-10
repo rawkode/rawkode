@@ -2,7 +2,6 @@ actions:
   - action: package.install
     list:
       - fzf
-      - cantino/mcfly/mcfly
       - zsh
       - zoxide
 

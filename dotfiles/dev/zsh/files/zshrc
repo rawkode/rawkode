@@ -25,6 +25,7 @@ path=("${HOME}/.krew/bin" $path)
 
 # No Per Directory History 😔
 export MCFLY_INTERFACE_VIEW=BOTTOM
+export MCFLY_RESULTS_FILTER=CURRENT_DIRECTORY
 export MCFLY_FUZZY=2
 eval "$(mcfly init zsh)"
 
@@ -57,3 +58,5 @@ export BUN_INSTALL="$HOME/.bun"
 path=("${BUN_INSTALL}/bin" $path)
 
 eval "$(direnv hook zsh)"
+
+export USE_GKE_GCLOUD_AUTH_PLUGIN=True

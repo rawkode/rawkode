@@ -45,7 +45,7 @@ font:
   bold_italic:
     family: ShureTechMono Nerd Font Mono
     style: Bold Italic
-  size: 18.0
+  size: {% if os.hostname is containing("Studio") %} 24.0 {% else %} 18.0 {% endif %}
 draw_bold_text_with_bright_colors: true
 
 # GruvBox Dark
