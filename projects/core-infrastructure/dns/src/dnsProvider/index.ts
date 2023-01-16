@@ -117,6 +117,38 @@ export class ManagedDomain extends Construct {
 			value: "in2-smtp.messagingengine.com.",
 		});
 
+		new Record(this, "dkim1", {
+			zoneId: this.cloudflareZone.id,
+			name: "fm1._domainkey",
+			type: "CNAME",
+			ttl: 300,
+			value: `fm1.${this.cloudflareZone.zone}.dkim.fmhosted.com`,
+		});
+
+		new Record(this, "dkim2", {
+			zoneId: this.cloudflareZone.id,
+			name: "fm2._domainkey",
+			type: "CNAME",
+			ttl: 300,
+			value: `fm2.${this.cloudflareZone.zone}.dkim.fmhosted.com`,
+		});
+
+		new Record(this, "dkim3", {
+			zoneId: this.cloudflareZone.id,
+			name: "fm3._domainkey",
+			type: "CNAME",
+			ttl: 300,
+			value: `fm3.${this.cloudflareZone.zone}.dkim.fmhosted.com`,
+		});
+
+		new Record(this, "spf", {
+			zoneId: this.cloudflareZone.id,
+			name: "@",
+			type: "TXT",
+			ttl: 300,
+			value: "v=spf1 include:spf.messagingengine.com ?all",
+		});
+
 		return this;
 	}
 
