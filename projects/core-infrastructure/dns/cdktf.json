@@ -1,0 +1,15 @@
+{
+  "language": "typescript",
+  "app": "pnpm exec ts-node src/index.ts",
+  "sendCrashReports": "false",
+  "terraformProviders": [
+    "cloudflare/cloudflare@~> 3.32",
+    "go-gandi/gandi@~> 2.2"
+  ],
+  "terraformModules": [],
+  "context": {
+    "excludeStackIdFromLogicalIds": "true",
+    "allowSepCharsInLogicalIds": "true"
+  },
+  "projectId": "472d2794-aadd-4c55-bc0c-3bcdb7cece31"
+}

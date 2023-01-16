@@ -1,4 +1,0 @@
-name: dns
-runtime: nodejs
-description: Management of DNS
-main: src
