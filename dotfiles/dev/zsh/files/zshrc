@@ -60,3 +60,6 @@ path=("${BUN_INSTALL}/bin" $path)
 eval "$(direnv hook zsh)"
 
 export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+
+export PNPM_HOME="/Users/rawkode/.local/share/pnpm"
+path=("${PNPM_HOME}" $path)
