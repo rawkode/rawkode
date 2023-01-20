@@ -1,6 +1,3 @@
-depends:
-  - ./zsh.pure
-
 actions:
   - action: package.install
     list:
