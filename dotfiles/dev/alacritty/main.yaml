@@ -6,7 +6,6 @@ actions:
     repository: https://github.com/eendroroy/alacritty-theme.git
     directory: "{{ user.home_dir }}/.alacritty-colorscheme"
 
-  - action: file.copy
-    template: true
+  - action: file.link
     from: alacritty.yaml
     to: "{{ user.home_dir }}/.config/alacritty/alacritty.yml"
