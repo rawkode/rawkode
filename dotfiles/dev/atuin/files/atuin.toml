@@ -1,0 +1,3 @@
+search_mode = "fuzzy"
+filter_mode = "directory"
+style = "compact"

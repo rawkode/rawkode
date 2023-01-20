@@ -1,3 +1,16 @@
+depends:
+  - apps.1password
+  - ./atuin
+  - ./git
+  - ./go
+  - ./just
+  - ./kubernetes
+  - ./nodejs
+  - ./rust
+  - ./zellij
+  - ./zsh
+  - ./zoxide
+
 actions:
   - action: package.install
     list:

@@ -3,16 +3,11 @@ actions:
     list:
       - fzf
       - zsh
-      - zoxide
 
-  - action: file.link
-    from: includes
-    to: "{{ user.home_dir }}/.zsh/includes"
+  - action: git.clone
+    repository: https://github.com/jandamm/zgenom.git
+    directory: "{{ user.home_dir }}/.zgenom"
 
   - action: file.link
     from: zshrc
     to: "{{ user.home_dir }}/.zshrc"
-
-  - action: file.link
-    from: atuin.toml
-    to: "{{ user.home_dir }}/.config/atuin/config.toml"

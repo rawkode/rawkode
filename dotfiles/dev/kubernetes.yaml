@@ -1,6 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - kind
-      - kubernetes-cli
-      - minikube

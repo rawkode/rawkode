@@ -1,65 +1,96 @@
-[[ -f ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh ]] ||
-    (mkdir -p ${HOME}/Code/src/github.com/marlonrichert/zsh-snap && \
-    git clone --depth 1 -- \
-        https://github.com/marlonrichert/zsh-snap.git ${HOME}/Code/src/github.com/marlonrichert/zsh-snap)
+# Plugin Manager
+source "${HOME}/.zgenom/zgenom.zsh"
+zgenom autoupdate
 
-source ${HOME}/Code/src/github.com/marlonrichert/zsh-snap/znap.zsh
+if ! zgenom saved; then
+  # Core Settings
+  export HOMEBREW_NO_AUTO_UPDATE=1
 
-#znap eval iterm2 'curl -fsSL https://iterm2.com/shell_integration/zsh'
-znap source romkatv/powerlevel10k
+  ## Treat $PATH as a set, allows adding new directories to be more
+  # code like.
+  typeset -U path
+  path=("/usr/local/bin" $path)
+  path=("/opt/homebrew/bin" $path)
 
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block; everything else may go below.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
-  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+  # Theme
+  zgenom load sindresorhus/pure
+
+  # Expand aliases with space
+  typeset -U GLOBALIAS_FILTER_VALUES
+  zgenom ohmyzsh plugins/globalias
+
+  ##
+  # Always Clear Screen & Run `ls`
+  ##
+  AUTO_LS_COMMANDS=(exa git-status)
+
+  zgenom load desyncr/auto-ls
+
+  auto-ls-exa () {
+    exa -l
+    [[ $AUTO_LS_NEWLINE != false ]] && echo ""
+  }
+
+  # Temp Sandbox
+  alias tmp='cd $(mktemp -d)'
+
+  # Completion/Suggestions
+  zgenom load zsh-users/zsh-autosuggestions
+  zgenom load marlonrichert/zsh-autocomplete
+  zstyle ':autocomplete:*' min-input 1
+
+  ZSH_HIGHLIGHT_HIGHLIGHTERS=( main brackets )
+  zgenom load zsh-users/zsh-syntax-highlighting
+  zgenom load zdharma-continuum/fast-syntax-highlighting
+
+  zgenom load ellie/atuin
+
+  # ls
+  TREE_IGNORE="cache|log|logs|node_modules|vendor"
+
+  alias ls='exa --group-directories-first'
+  alias la='ls -a'
+  alias ll='ls --git -l'
+  alias lt='ls --tree -D -L 2 -I ${TREE_IGNORE}'
+  alias ltt='ls --tree -D -L 3 -I ${TREE_IGNORE}'
+  alias lttt='ls --tree -D -L 4 -I ${TREE_IGNORE}'
+  alias ltttt='ls --tree -D -L 5 -I ${TREE_IGNORE}'
+
+  GLOBALIAS_FILTER_VALUES=(ls la ll lt ltt lttt lttt $GLOBALIAS_FILTER_VALUES)
+
+  # SSH
+  alias bssh="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+  alias bscp="scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+
+  # Development aliases
+  alias ghb="cd ${HOME}/Code/src/github.com"
+  alias glb="cd ${HOME}/Code/src/gitlab.com"
+
+  for file in ~/.zsh/includes/*; do
+      #source "$file"
+      zgenom load ${file}
+  done
 fi
 
-path=("/usr/local/bin" $path)
-path=("/opt/homebrew/bin" $path)
-path=("/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/bin" $path)
-#source "/opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
 
-path=("/opt/homebrew/bin" $path)
-path=("${HOME}/.krew/bin" $path)
 
-# No Per Directory History 😔
-export MCFLY_INTERFACE_VIEW=BOTTOM
-export MCFLY_RESULTS_FILTER=CURRENT_DIRECTORY
-export MCFLY_FUZZY=2
-eval "$(mcfly init zsh)"
 
-##
-# Paths
+
+
+# if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+#   . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+# fi
+
 #
-# In zsh, the $PATH variable is tied to the $path variable.
-# This makes the $path variable act like a set.
-typeset -U path
 
-##
-# My zsh includes
-for file in ~/.zsh/includes/*; do
-    source "$file"
-done
+# # bun completions
+# [ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
+# export BUN_INSTALL="$HOME/.bun"
+# path=("${BUN_INSTALL}/bin" $path)
 
-export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
+# eval "$(direnv hook zsh)"
 
-add-zsh-hook -Uz chpwd(){ source <(tea -Eds) }
+# export USE_GKE_GCLOUD_AUTH_PLUGIN=True
 
-if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-  . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-fi
-
-export HOMEBREW_NO_AUTO_UPDATE=1
-
-# bun completions
-[ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
-export BUN_INSTALL="$HOME/.bun"
-path=("${BUN_INSTALL}/bin" $path)
-
-eval "$(direnv hook zsh)"
-
-export USE_GKE_GCLOUD_AUTH_PLUGIN=True
-
-export PNPM_HOME="/Users/rawkode/.local/share/pnpm"
-path=("${PNPM_HOME}" $path)
+# export PNPM_HOME="/Users/rawkode/.local/share/pnpm"
+# path=("${PNPM_HOME}" $path)

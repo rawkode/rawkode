@@ -1,5 +1,0 @@
-actions:
-  - action: package.install
-    name: conftest
-    provider: brew
-    repository: instrumenta/instrumenta

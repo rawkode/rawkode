@@ -16,3 +16,7 @@ actions:
     from: allowed_signers
     to: "{{ user.home_dir }}/.config/git/allowed_signers"
     chmod: "644"
+
+  - action: file.link
+    from: git.zsh
+    to: "{{ user.home_dir }}/.zsh/includes/git.zsh"
