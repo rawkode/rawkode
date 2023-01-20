@@ -1,5 +1,8 @@
 live_config_reload: true
 
+import:
+  - ~/.alacritty-colorscheme/themes/snazzy.yaml
+
 shell:
   program: /opt/homebrew/bin/zellij
   args:
@@ -42,34 +45,6 @@ font:
   bold_italic:
     family: MonoLisa
     style: Bold Italic
-  size: {% if os.hostname is containing("Studio") %} 24.0 {% else %} 18.0 {% endif %}
+  size: 18
+
 draw_bold_text_with_bright_colors: true
-
-# Colors (Oceanic Next)
-colors:
-  # Default colors
-  primary:
-    background: '0x1b2b34'
-    foreground: '0xd8dee9'
-
-  # Normal colors
-  normal:
-    black:   '0x29414f'
-    red:     '0xec5f67'
-    green:   '0x99c794'
-    yellow:  '0xfac863'
-    blue:    '0x6699cc'
-    magenta: '0xc594c5'
-    cyan:    '0x5fb3b3'
-    white:   '0x65737e'
-
-  # Bright colors
-  bright:
-    black:   '0x405860'
-    red:     '0xec5f67'
-    green:   '0x99c794'
-    yellow:  '0xfac863'
-    blue:    '0x6699cc'
-    magenta: '0xc594c5'
-    cyan:    '0x5fb3b3'
-    white:   '0xadb5c0'

@@ -12,9 +12,6 @@ if ! zgenom saved; then
   path=("/usr/local/bin" $path)
   path=("/opt/homebrew/bin" $path)
 
-  # Theme
-  zgenom load sindresorhus/pure
-
   # Expand aliases with space
   typeset -U GLOBALIAS_FILTER_VALUES
   zgenom ohmyzsh plugins/globalias

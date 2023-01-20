@@ -2,6 +2,10 @@ actions:
   - action: package.install
     name: alacritty
 
+  - action: git.clone
+    repository: https://github.com/eendroroy/alacritty-theme.git
+    directory: "{{ user.home_dir }}/.alacritty-colorscheme"
+
   - action: file.copy
     template: true
     from: alacritty.yaml

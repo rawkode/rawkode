@@ -1,0 +1,4 @@
+actions:
+  - action: file.link
+    from: pure.zsh
+    to: "{{ user.home_dir }}/.zsh/includes/pure.zsh"
