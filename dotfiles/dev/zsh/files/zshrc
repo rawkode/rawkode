@@ -35,9 +35,9 @@ if ! zgenom saved; then
   alias tmp='cd $(mktemp -d)'
 
   # Completion/Suggestions
-  zgenom load zsh-users/zsh-autosuggestions
-  zgenom load marlonrichert/zsh-autocomplete
-  zstyle ':autocomplete:*' min-input 1
+  # zgenom load zsh-users/zsh-autosuggestions
+  # zgenom load marlonrichert/zsh-autocomplete
+  # zstyle ':autocomplete:*' min-input 1
 
   ZSH_HIGHLIGHT_HIGHLIGHTERS=( main brackets )
   zgenom load zsh-users/zsh-syntax-highlighting
@@ -70,6 +70,8 @@ if ! zgenom saved; then
       #source "$file"
       zgenom load ${file}
   done
+
+  autoload -Uz compinit && compinit
 fi
 
 
