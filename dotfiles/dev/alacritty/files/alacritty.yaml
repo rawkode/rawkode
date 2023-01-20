@@ -5,9 +5,6 @@ shell:
   args:
     - --layout
     - compact
-    # - options
-    # - --default-shell
-    # - nu
 
 window:
   opacity: 0.90
@@ -34,41 +31,45 @@ selection:
 
 font:
   normal:
-    family: ShureTechMono Nerd Font Mono
+    family: MonoLisa
     style: Regular
   bold:
-    family: ShureTechMono Nerd Font Mono
+    family: MonoLisa
     style: Bold
   italic:
-    family: ShureTechMono Nerd Font Mono
+    family: MonoLisa
     style: Italic
   bold_italic:
-    family: ShureTechMono Nerd Font Mono
+    family: MonoLisa
     style: Bold Italic
   size: {% if os.hostname is containing("Studio") %} 24.0 {% else %} 18.0 {% endif %}
 draw_bold_text_with_bright_colors: true
 
+# Colors (Oceanic Next)
 colors:
+  # Default colors
   primary:
-    background: '0x282828'
-    foreground: '0xdfbf8e'
+    background: '0x1b2b34'
+    foreground: '0xd8dee9'
 
+  # Normal colors
   normal:
-    black:   '0x665c54'
-    red:     '0xea6962'
-    green:   '0xa9b665'
-    yellow:  '0xe78a4e'
-    blue:    '0x7daea3'
-    magenta: '0xd3869b'
-    cyan:    '0x89b482'
-    white:   '0xdfbf8e'
+    black:   '0x29414f'
+    red:     '0xec5f67'
+    green:   '0x99c794'
+    yellow:  '0xfac863'
+    blue:    '0x6699cc'
+    magenta: '0xc594c5'
+    cyan:    '0x5fb3b3'
+    white:   '0x65737e'
 
+  # Bright colors
   bright:
-    black:   '0x928374'
-    red:     '0xea6962'
-    green:   '0xa9b665'
-    yellow:  '0xe3a84e'
-    blue:    '0x7daea3'
-    magenta: '0xd3869b'
-    cyan:    '0x89b482'
-    white:   '0xdfbf8e'
+    black:   '0x405860'
+    red:     '0xec5f67'
+    green:   '0x99c794'
+    yellow:  '0xfac863'
+    blue:    '0x6699cc'
+    magenta: '0xc594c5'
+    cyan:    '0x5fb3b3'
+    white:   '0xadb5c0'
