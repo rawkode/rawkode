@@ -1,7 +1,0 @@
-depends:
-  - homebrew
-
-actions:
-  - action: package.install
-    list:
-      - visual-studio-code

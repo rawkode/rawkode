@@ -74,6 +74,7 @@ if ! zgenom saved; then
   autoload -Uz compinit && compinit
 fi
 
+alias dagger="pnpm exec dagger"
 
 
 
