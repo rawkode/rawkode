@@ -33,3 +33,11 @@ autosetuprebase = "always"
 [rerere]
 enabled = 1
 autoupdate = 1
+
+[alias]
+  br = branch
+  cane = commit --amend --no-edit
+  ci = commit
+  co = checkout
+  fo = !git reset --hard && git clean -qfdx
+  st = status
