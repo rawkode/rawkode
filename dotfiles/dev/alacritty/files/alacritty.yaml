@@ -1,7 +1,7 @@
 live_config_reload: true
 
 import:
-  - ~/.alacritty-colorscheme/themes/rose-pine.yaml
+  - ~/.alacritty-colorscheme/themes/gruvbox_dark.yaml
 
 shell:
   program: /opt/homebrew/bin/zellij
