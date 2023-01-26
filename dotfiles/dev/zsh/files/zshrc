@@ -43,8 +43,6 @@ if ! zgenom saved; then
   zgenom load zsh-users/zsh-syntax-highlighting
   zgenom load zdharma-continuum/fast-syntax-highlighting
 
-  zgenom load ellie/atuin
-
   # ls
   TREE_IGNORE="cache|log|logs|node_modules|vendor"
 
