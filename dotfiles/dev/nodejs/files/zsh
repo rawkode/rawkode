@@ -1,0 +1,2 @@
+alias p="pnpm"
+alias pe="pnpm exec"

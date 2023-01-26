@@ -1,6 +1,6 @@
 depends:
   - apps.1password
-  - ./atuin
+  - ./direnv
   - ./git
   - ./go
   - ./just

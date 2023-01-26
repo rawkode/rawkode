@@ -4,3 +4,7 @@ actions:
       - node
       - pnpm
       - typescript
+
+  - action: file.link
+    from: zsh
+    to: "{{ user.home_dir }}/.zsh/includes/nodejs.zsh"
