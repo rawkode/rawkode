@@ -5,9 +5,6 @@ import:
 
 shell:
   program: /opt/homebrew/bin/zellij
-  args:
-    - --layout
-    - compact
 
 window:
   opacity: 0.90
