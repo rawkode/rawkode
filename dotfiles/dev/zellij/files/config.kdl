@@ -13,7 +13,7 @@ mouse_mode true
 scroll_buffer_size 500000
 
 // Themes
-theme "gruvbox"
+theme "catppuccin-frappe"
 
 themes {
   dracula {
@@ -42,6 +42,20 @@ themes {
     cyan 104 157 106
     white 251 241 199
     orange 214 93 14
+  }
+
+  catppuccin-frappe {
+    bg 98 104 128
+    fg 198 208 245
+    red 231 130 132
+    green 166 209 137
+    blue 140 170 238
+    yellow 229 200 144
+    magenta 244 184 228
+    orange 239 159 118
+    cyan 153 209 219
+    black 41 44 60
+    white 198 208 245
   }
 }
 

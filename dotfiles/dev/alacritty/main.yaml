@@ -3,8 +3,12 @@ actions:
     name: alacritty
 
   - action: git.clone
-    repository: https://github.com/eendroroy/alacritty-theme.git
-    directory: "{{ user.home_dir }}/.alacritty-colorscheme"
+    repository: https://github.com/alacritty/alacritty-theme
+    directory: "{{ user.home_dir }}/.config/alacritty/theme-alacritty"
+
+  - action: git.clone
+    repository: https://github.com/catppuccin/alacritty
+    directory: "{{ user.home_dir }}/.config/alacritty/theme-catppuccin"
 
   - action: file.link
     from: alacritty.yaml
