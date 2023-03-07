@@ -1,2 +1,6 @@
+export PNPM_HOME=${HOME}/.pnpm
+path=("${PNPM_HOME}" $path)
+
 alias p="pnpm"
+alias pi="pnpm install"
 alias pe="pnpm exec"

@@ -1,0 +1,14 @@
+depends:
+  - dev.nodejs
+
+actions:
+  - action: command.run
+    command: pnpm
+    args:
+      - "install"
+      - "-g"
+      - "@githubnext/github-copilot-cli"
+
+  - action: file.link
+    from: zsh
+    to: "{{ user.home_dir }}/.zsh/includes/z-github.zsh"
