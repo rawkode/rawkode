@@ -89,5 +89,7 @@ alias dagger="pnpm exec dagger"
 # export BUN_INSTALL="$HOME/.bun"
 # path=("${BUN_INSTALL}/bin" $path)
 
+eval "$(direnv hook zsh)"
+
 # export USE_GKE_GCLOUD_AUTH_PLUGIN=True
 
