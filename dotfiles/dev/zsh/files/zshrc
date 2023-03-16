@@ -93,3 +93,7 @@ eval "$(direnv hook zsh)"
 
 # export USE_GKE_GCLOUD_AUTH_PLUGIN=True
 
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
