@@ -11,6 +11,7 @@ if ! zgenom saved; then
   typeset -U path
   path=("/usr/local/bin" $path)
   path=("/opt/homebrew/bin" $path)
+  path=("${HOME}/.local/bin" $path)
 
   # Theme
   zgenom load sindresorhus/pure
@@ -91,9 +92,14 @@ alias dagger="pnpm exec dagger"
 
 eval "$(direnv hook zsh)"
 
-# export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
+source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc"
 
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
+export PATH="${PATH}:${HOME}/.slim/bin"
+
+export TERM=xterm-256color

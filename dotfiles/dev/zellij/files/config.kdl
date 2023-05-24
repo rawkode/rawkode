@@ -7,10 +7,17 @@ plugins {
 
 default_shell "zsh"
 on_force_close "quit" // or detach
-pane_frames false
 default_layout "compact"
+pane_frames false
 mouse_mode true
 scroll_buffer_size 500000
+hide_session_name true
+
+ui {
+    pane_frames {
+        hide_session_name true
+    }
+}
 
 // Themes
 theme "catppuccin-frappe"
