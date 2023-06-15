@@ -18,7 +18,6 @@ ui {
         hide_session_name true
     }
 }
-
 // Themes
 theme "catppuccin-frappe"
 

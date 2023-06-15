@@ -13,9 +13,6 @@ if ! zgenom saved; then
   path=("/opt/homebrew/bin" $path)
   path=("${HOME}/.local/bin" $path)
 
-  # Theme
-  zgenom load sindresorhus/pure
-
   # Expand aliases with space
   typeset -U GLOBALIAS_FILTER_VALUES
   zgenom ohmyzsh plugins/globalias
@@ -73,29 +70,16 @@ if ! zgenom saved; then
   autoload -Uz compinit && compinit
 fi
 
-alias dagger="pnpm exec dagger"
+if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+  . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
 
-
-
-
-
-# if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
-#   . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
-# fi
-
-#
-
-# # bun completions
-# [ -s "/Users/rawkode/.bun/_bun" ] && source "/Users/rawkode/.bun/_bun"
-# export BUN_INSTALL="$HOME/.bun"
-# path=("${BUN_INSTALL}/bin" $path)
-
+eval "$(starship init zsh)"
 eval "$(direnv hook zsh)"
 
 export USE_GKE_GCLOUD_AUTH_PLUGIN=True
 source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
 source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc"
-
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
