@@ -1,15 +1,14 @@
 local wezterm = require 'wezterm'
 
 function scheme_for_appearance(appearance)
-  if appearance:find("Dark") then
-    return "Catppuccin Mocha"
-  else
-    return "Catppuccin Frappe"
-  end
+  return "rose-pine-moon"
 end
 
 if wezterm.config_builder then
   config = wezterm.config_builder()
+
+  config.front_end = "WebGpu"
+  config.webgpu_power_preference = "HighPerformance"
 
   config.window_decorations = "RESIZE"
   config.enable_tab_bar = false
@@ -24,7 +23,7 @@ if wezterm.config_builder then
   config.macos_window_background_blur = 32
 
   config.font = wezterm.font 'MonoLisa'
-  config.font_size = 22.0
+  config.font_size = 24.0
 
   return config
 end
