@@ -5,7 +5,7 @@ plugins {
     compact-bar { path "compact-bar"; }
 }
 
-default_shell "zsh"
+default_shell "/opt/homebrew/bin/zsh"
 on_force_close "quit" // or detach
 default_layout "compact"
 pane_frames false
@@ -48,6 +48,20 @@ themes {
     cyan 139 233 253
     black 0 0 0
     white 255 255 255
+  }
+
+  rose-pine-moon {
+    bg "#232136"
+    fg "#e0def4"
+    red "#eb6f92"
+    green "#3e8fb0"
+    blue "#9ccfd8"
+    yellow "#f6c177"
+    magenta "#c4a7e7"
+    orange "#fe640b"
+    cyan "#ea9a97"
+    black "#393552"
+    white "#e0def4"
   }
 
   gruvbox {
