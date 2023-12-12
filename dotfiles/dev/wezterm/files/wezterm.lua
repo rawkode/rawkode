@@ -14,10 +14,6 @@ if wezterm.config_builder then
   config.enable_tab_bar = false
   config.window_close_confirmation = "NeverPrompt"
 
-  config.default_prog = {
-    "/opt/homebrew/bin/zellij"
-  }
-
   config.color_scheme = scheme_for_appearance(wezterm.gui.get_appearance())
   config.window_background_opacity = 0.9
   config.macos_window_background_blur = 32
