@@ -56,6 +56,7 @@
             name = "nome";
             packages = with pkgs; [
               nixpkgs-fmt
+							rnix-lsp
               reload
             ];
           };
@@ -72,8 +73,19 @@
 					rev = inputs.self.rev or inputs.self.dirtyRev or null;
       };
 
-			darwinConfigurations."P4X-Air" = inputs.nix-darwin.lib.darwinSystem {
+      darwinConfigurations."${username}-${system}" = inputs.nix-darwin.lib.darwinSystem {
 				inherit system;
+
+        modules = [
+          inputs.self.darwinModules.base
+					inputs.self.darwinModules.caching
+          inputs.home-manager.darwinModules.home-manager
+          inputs.self.darwinModules.home-manager
+        ];
+      };
+
+      darwinConfigurations."P4X-Air" = inputs.nix-darwin.lib.darwinSystem {
+        inherit system;
 
         modules = [
           inputs.self.darwinModules.base

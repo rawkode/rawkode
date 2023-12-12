@@ -38,6 +38,8 @@
 
   system = import ./macos.nix { inherit pkgs; };
 
+	programs.zsh.enable = true;
+
 	# programs.nushell.enable = true;
 
   users.users.${pkgs.username} = {

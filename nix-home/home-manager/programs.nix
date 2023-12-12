@@ -13,4 +13,8 @@
     enable = true;
     enableAliases = true;
   };
+
+	zsh = {
+		enable = true;
+	};
 }
