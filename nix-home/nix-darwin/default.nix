@@ -10,10 +10,6 @@
     ];
   };
 
-  networking.computerName = "${pkgs.username}-${pkgs.system}";
-
-  nix = import ./nix.nix;
-
   nixpkgs = {
     config = {
       allowBroken = true;
@@ -23,15 +19,17 @@
     inherit overlays;
   };
 
-  programs = {
-    ssh = {
-      knownHosts = {
-        nixbuild = {
-          hostNames = [ "eu.nixbuild.net" ];
-          publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPIQCZc54poJ8vqawd8TraNryQeJnvH1eLpIDgbiqymM";
-        };
-      };
+	nix = {
+    package = pkgs.nix;
+    gc = {
+      automatic = true;
+      interval.Day = 7;
+      options = "--delete-older-than 7d";
     };
+    extraOptions = ''
+      auto-optimise-store = true
+      experimental-features = nix-command flakes
+    '';
   };
 
   security.pam.enableSudoTouchIdAuth = true;
@@ -40,8 +38,18 @@
 
   system = import ./macos.nix { inherit pkgs; };
 
+	# programs.nushell.enable = true;
+
   users.users.${pkgs.username} = {
     name = pkgs.username;
     home = pkgs.homeDirectory;
+		shell = pkgs.nushell;
   };
+
+	# environment = {
+  #   shells = with pkgs; [ nushell ];
+	# 	variables = {                         # Environment Variables
+  #     DAVID = "RAWKODE";
+  #   };
+	# }
 }

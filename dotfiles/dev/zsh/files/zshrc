@@ -88,5 +88,4 @@ export PATH="${PATH}:${HOME}/.slim/bin"
 
 export TERM=xterm-256color
 
-source <(pkgx --shellcode)  #docs.pkgx.sh/shellcode
 
