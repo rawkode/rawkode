@@ -8,6 +8,7 @@
 		./home-manager/nushell
 		./home-manager/starship
 		./home-manager/wezterm
+		./home-manager/zoxide
 	];
 
   home = {
