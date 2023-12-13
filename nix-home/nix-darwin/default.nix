@@ -33,6 +33,27 @@
   security.pam.enableSudoTouchIdAuth = true;
   services.nix-daemon.enable = true;
 
+	homebrew = {
+		enable = true;
+		casks = [
+			"1password"
+			"1password-cli"
+			"alt-tab"
+			"arc"
+			"bartender"
+			"descript"
+			"discord"
+			"docker"
+			"fantastical"
+			"mimestream"
+			"raycast"
+			"slack"
+			"visual-studio-code-insiders"
+			"warp"
+			"wezterm"
+		];
+	};
+
   users.users.${pkgs.username} = {
     name = pkgs.username;
     home = pkgs.homeDirectory;

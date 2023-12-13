@@ -10,6 +10,7 @@ $env.PATH = (
 	| prepend '/run/current-system/sw/bin/'
 	| prepend '/nix/var/nix/profiles/default/bin'
 	| prepend $"/Users/($env.USER)/.local/bin"
+	| prepend $'/opt/homebrew/bin'
 )
 
 if ("~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" | path exists) {

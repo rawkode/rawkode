@@ -7,8 +7,6 @@
 		./home-manager/github
 		./home-manager/nushell
 		./home-manager/starship
-		./home-manager/vscode
-		./home-manager/warp
 		./home-manager/wezterm
 	];
 
