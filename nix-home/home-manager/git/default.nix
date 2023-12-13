@@ -1,10 +1,8 @@
-{ pkgs, name, email }:
-
-{
-  program.git = {
+{ pkgs, ... }: {
+  programs.git = {
     enable = true;
-    userName = name;
-    userEmail = email;
+    userName = "David Flanagan";
+    userEmail = "david@rawkode.dev";
     package = pkgs.gitAndTools.gitFull;
 
     delta = { enable = true; };

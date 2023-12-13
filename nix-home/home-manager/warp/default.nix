@@ -1,7 +1,8 @@
-{ pkgs }:
-
-{
-	packages = with pkgs; [
-		warp-terminal
-	];
+{ pkgs, ... }: {
+  home = {
+    packages = with pkgs;
+      [
+        warp-terminal
+      ];
+  };
 }

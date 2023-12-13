@@ -1,6 +1,4 @@
-{ overlays
-, pkgs
-}:
+{ overlays, pkgs }:
 
 {
   fonts = {
@@ -19,7 +17,7 @@
     inherit overlays;
   };
 
-	nix = {
+  nix = {
     package = pkgs.nix;
     gc = {
       automatic = true;
@@ -33,25 +31,25 @@
   };
 
   security.pam.enableSudoTouchIdAuth = true;
-
   services.nix-daemon.enable = true;
-
-  system = import ./macos.nix { inherit pkgs; };
-
-	programs.zsh.enable = true;
-
-	# programs.nushell.enable = true;
 
   users.users.${pkgs.username} = {
     name = pkgs.username;
     home = pkgs.homeDirectory;
-		shell = pkgs.nushell;
+    shell = pkgs.nushell;
   };
 
-	# environment = {
-  #   shells = with pkgs; [ nushell ];
-	# 	variables = {                         # Environment Variables
-  #     DAVID = "RAWKODE";
-  #   };
-	# }
+  environment = {
+    shells = with pkgs; [ nushell ];
+    systemPackages = with pkgs; [
+      nushell
+    ];
+    variables = { };
+  };
+
+  system = import ./macos.nix { inherit pkgs; }
+    // {
+    activationScripts.postActivation.text = ''sudo chsh -s ${pkgs.nushell}/bin/nu'';
+  };
+
 }

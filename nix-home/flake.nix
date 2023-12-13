@@ -2,17 +2,17 @@
   description = "Rawkode's Nix Configuration";
 
   inputs = {
-		nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.2311.*.tar.gz";
+    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.2311.*.tar.gz";
 
     nix-darwin = {
-			url = "github:LnL7/nix-darwin";
-			inputs.nixpkgs.follows = "nixpkgs";
-		};
+      url = "github:LnL7/nix-darwin";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     home-manager = {
-			url = "https://flakehub.com/f/nix-community/home-manager/0.2311.*.tar.gz";
-			inputs.nixpkgs.follows = "nixpkgs";
-		};
+      url = "https://flakehub.com/f/nix-community/home-manager/0.2311.*.tar.gz";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs:
@@ -27,7 +27,7 @@
 
       stateVersion = "23.11";
 
-			system = "aarch64-darwin";
+      system = "aarch64-darwin";
       username = "rawkode";
 
       caches = {
@@ -56,7 +56,7 @@
             name = "nome";
             packages = with pkgs; [
               nixpkgs-fmt
-							rnix-lsp
+              rnix-lsp
               reload
             ];
           };
@@ -70,15 +70,15 @@
           then "/Users/${username}"
           else "/home/${username}";
 
-					rev = inputs.self.rev or inputs.self.dirtyRev or null;
+        rev = inputs.self.rev or inputs.self.dirtyRev or null;
       };
 
       darwinConfigurations."${username}-${system}" = inputs.nix-darwin.lib.darwinSystem {
-				inherit system;
+        inherit system;
 
         modules = [
           inputs.self.darwinModules.base
-					inputs.self.darwinModules.caching
+          inputs.self.darwinModules.caching
           inputs.home-manager.darwinModules.home-manager
           inputs.self.darwinModules.home-manager
         ];
@@ -118,8 +118,13 @@
           inherit caches username;
         };
 
-        home-manager = { pkgs, ... }: import ./home-manager {
-          inherit pkgs stateVersion username;
+        home-manager.home-manager = {
+          useGlobalPkgs = true;
+          useUserPackages = true;
+
+          users.${username} = { pkgs, username, ... }: import ./home-manager.nix {
+						inherit pkgs username stateVersion;
+					};
         };
       };
     };

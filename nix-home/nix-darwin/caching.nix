@@ -1,6 +1,4 @@
-{ caches
-, username
-}:
+{ caches, username }:
 
 {
   config = {
