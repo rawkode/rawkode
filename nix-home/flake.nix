@@ -84,12 +84,23 @@
         ];
       };
 
+      darwinConfigurations."P4X-Studio" = inputs.nix-darwin.lib.darwinSystem {
+        inherit system;
+
+        modules = [
+          inputs.self.darwinModules.base
+          inputs.self.darwinModules.caching
+          inputs.home-manager.darwinModules.home-manager
+          inputs.self.darwinModules.home-manager
+        ];
+      };
+
       darwinConfigurations."P4X-Air" = inputs.nix-darwin.lib.darwinSystem {
         inherit system;
 
         modules = [
           inputs.self.darwinModules.base
-					inputs.self.darwinModules.caching
+          inputs.self.darwinModules.caching
           inputs.home-manager.darwinModules.home-manager
           inputs.self.darwinModules.home-manager
         ];
