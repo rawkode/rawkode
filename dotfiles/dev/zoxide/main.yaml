@@ -1,8 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - zoxide
-
-  - action: file.link
-    from: zoxide.zsh
-    to: "{{ user.home_dir }}/.zsh/includes/zoxide.zsh"

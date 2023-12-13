@@ -1,1 +1,0 @@
-zgenom load ajeetdsouza/zoxide

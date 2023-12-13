@@ -1,8 +1,0 @@
-name = "web-links"
-compatibility_date = "2022-01-20"
-workers_dev = true
-main = "src/index.ts"
-routes = [{ pattern = "rawkode.link", custom_domain = true }]
-
-[build]
-command = "yarn install && yarn run build"

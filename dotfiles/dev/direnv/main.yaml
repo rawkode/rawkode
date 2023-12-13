@@ -1,7 +1,0 @@
-actions:
-  - action: package.install
-    name: direnv
-
-  - action: file.link
-    from: zsh
-    to: "{{ user.home_dir }}/.zsh/includes/direnv.zsh"

@@ -1,5 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - elgato-control-center
-      - elgato-stream-deck
