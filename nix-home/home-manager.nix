@@ -5,6 +5,7 @@
 		./home-manager/eza
 		./home-manager/git
 		./home-manager/github
+		./home-manager/namespace
 		./home-manager/nushell
 		./home-manager/starship
 		./home-manager/wezterm
