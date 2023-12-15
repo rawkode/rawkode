@@ -38,6 +38,14 @@ if wezterm.config_builder then
     config.disable_default_key_bindings = true
 
     config.keys = {{
+        key = 'v',
+        mods = 'CMD',
+        action = actions.PasteFrom 'Clipboard'
+    }, {
+        key = 'c',
+        mods = 'CMD',
+        action = actions.CopyTo 'ClipboardAndPrimarySelection'
+    }, {
         key = "q",
         mods = "CMD",
         action = actions.QuitApplication

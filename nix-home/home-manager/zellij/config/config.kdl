@@ -19,7 +19,7 @@ ui {
 		}
 }
 // Themes
-theme "rose-pine-dawn"
+theme "rose-pine"
 
 themes {
 	rose-pine {
