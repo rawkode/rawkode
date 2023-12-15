@@ -64,6 +64,7 @@
     shells = with pkgs; [ nushell ];
     systemPackages = with pkgs; [
       nushell
+      zellij
     ];
     variables = { };
   };

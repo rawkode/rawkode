@@ -13,6 +13,8 @@ if wezterm.config_builder then
 
     actions = wezterm.action
 
+    config.default_prog = {"/run/current-system/sw/bin/zellij"}
+
     config.automatically_reload_config = true
 
     config.front_end = "WebGpu"
@@ -21,6 +23,9 @@ if wezterm.config_builder then
     config.window_decorations = "RESIZE"
 
     config.enable_tab_bar = true
+    config.hide_tab_bar_if_only_one_tab = true
+    config.use_fancy_tab_bar = false
+
     config.window_close_confirmation = "NeverPrompt"
 
     config.color_scheme = scheme_for_appearance(wezterm.gui.get_appearance())
@@ -30,26 +35,16 @@ if wezterm.config_builder then
     config.font = wezterm.font 'Monaspace Argon'
     config.font_size = 24.0
 
+    config.disable_default_key_bindings = true
+
     config.keys = {{
+        key = "q",
+        mods = "CMD",
+        action = actions.QuitApplication
+    }, {
         key = "P",
         mods = "CMD",
         action = actions.ActivateCommandPalette
-    }, {
-        key = 'p',
-        mods = 'CMD',
-        action = actions.PaneSelect
-    }, {
-        key = 'z',
-        mods = 'CMD',
-        action = actions.TogglePaneZoomState
-    }, {
-        key = ']',
-        mods = 'ALT',
-        action = actions.ActivatePaneDirection 'Next'
-    }, {
-        key = '[',
-        mods = 'ALT',
-        action = actions.ActivatePaneDirection 'Prev'
     }}
 
     return config

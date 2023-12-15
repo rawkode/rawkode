@@ -9,6 +9,7 @@
 		./home-manager/nushell
 		./home-manager/starship
 		./home-manager/wezterm
+		./home-manager/zellij
 		./home-manager/zoxide
 	];
 
