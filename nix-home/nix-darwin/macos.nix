@@ -22,8 +22,8 @@
       mru-spaces = true;
       orientation = "bottom";
       show-process-indicators = true;
-      show-recents = true;
-      showhidden = true;
+      show-recents = false;
+      showhidden = false;
       static-only = false;
       tilesize = 64;
       wvous-bl-corner = 1;
@@ -33,7 +33,7 @@
     };
 
     finder = {
-      AppleShowAllExtensions = true;
+      AppleShowAllExtensions = false;
       FXEnableExtensionChangeWarning = false;
       QuitMenuItem = true;
     };
@@ -43,15 +43,14 @@
       AppleEnableSwipeNavigateWithScrolls = true;
       AppleFontSmoothing = 2;
       AppleICUForce24HourTime = true;
-      AppleInterfaceStyle = "Dark";
-      AppleInterfaceStyleSwitchesAutomatically = false;
+      AppleInterfaceStyleSwitchesAutomatically = true;
       AppleKeyboardUIMode = 3;
-      AppleMeasurementUnits = "Inches";
-      AppleMetricUnits = 0;
+      AppleMeasurementUnits = "Centimeters";
+      AppleMetricUnits = 1;
       ApplePressAndHoldEnabled = true;
       AppleScrollerPagingBehavior = false;
       AppleShowAllExtensions = true;
-      AppleShowAllFiles = true;
+      AppleShowAllFiles = false;
       AppleShowScrollBars = "WhenScrolling";
       AppleTemperatureUnit = "Celsius";
       AppleWindowTabbingMode = "fullscreen";
@@ -88,7 +87,7 @@
       "com.apple.trackpad.trackpadCornerClickBehavior" = null;
     };
 
-    SoftwareUpdate.AutomaticallyInstallMacOSUpdates = false;
+    SoftwareUpdate.AutomaticallyInstallMacOSUpdates = true;
 
     trackpad = {
       Clicking = true;
