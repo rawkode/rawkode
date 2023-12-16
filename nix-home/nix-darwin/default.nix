@@ -48,7 +48,7 @@
 			"mimestream"
 			"raycast"
 			"slack"
-			"visual-studio-code-insiders"
+			"visual-studio-code"
 			"warp"
 			"wezterm"
 		];
