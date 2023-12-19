@@ -42,25 +42,26 @@
       };
     in
     {
-      devShells = forEachSupportedSystem ({ pkgs }: {
-        default =
-          let
-            reload = pkgs.writeScriptBin "reload" ''
-              CONFIG_NAME="''${USER}-$(nix eval --impure --raw --expr 'builtins.currentSystem')"
-              ${pkgs.nixFlakes}/bin/nix build .#darwinConfigurations."''${CONFIG_NAME}".system \
-                --option sandbox false
-              ./result/sw/bin/darwin-rebuild switch --flake .
-            '';
-          in
-          pkgs.mkShell {
-            name = "nome";
-            packages = with pkgs; [
-              nixpkgs-fmt
-              rnix-lsp
-              reload
-            ];
-          };
-      });
+      devShells = forEachSupportedSystem
+        ({ pkgs }: {
+          default =
+            let
+              reload = pkgs.writeScriptBin "reload" ''
+                CONFIG_NAME="''${USER}-$(nix eval --impure --raw --expr 'builtins.currentSystem')"
+                ${pkgs.nixFlakes}/bin/nix build .#darwinConfigurations."''${CONFIG_NAME}".system \
+                  --option sandbox false
+                darwin-rebuild switch --flake .
+              '';
+            in
+            pkgs.mkShell {
+              name = "nome";
+              packages = with pkgs; [
+                nixpkgs-fmt
+                rnix-lsp
+                reload
+              ];
+            };
+        });
 
       overlays.default = final: prev: {
         inherit username system;
@@ -72,6 +73,8 @@
 
         rev = inputs.self.rev or inputs.self.dirtyRev or null;
       };
+
+			packages.${system}.default = ./.;
 
       darwinConfigurations."${username}-${system}" = inputs.nix-darwin.lib.darwinSystem {
         inherit system;
@@ -123,8 +126,8 @@
           useUserPackages = true;
 
           users.${username} = { pkgs, username, ... }: import ./home-manager.nix {
-						inherit pkgs username stateVersion;
-					};
+            inherit pkgs username stateVersion;
+          };
         };
       };
     };

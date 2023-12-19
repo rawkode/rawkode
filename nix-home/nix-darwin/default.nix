@@ -37,20 +37,12 @@
 		enable = true;
 		casks = [
 			"1password"
-			"1password-cli"
-			"alt-tab"
 			"arc"
 			"bartender"
-			"descript"
-			"discord"
 			"docker"
 			"fantastical"
 			"mimestream"
-			"raycast"
-			"slack"
 			"visual-studio-code"
-			"warp"
-			"wezterm"
 		];
 	};
 
@@ -64,6 +56,7 @@
     shells = with pkgs; [ nushell ];
     systemPackages = with pkgs; [
       nushell
+			rnix-lsp
       zellij
     ];
     variables = { };
@@ -73,5 +66,4 @@
     // {
     activationScripts.postActivation.text = ''sudo chsh -s ${pkgs.nushell}/bin/nu'';
   };
-
 }
