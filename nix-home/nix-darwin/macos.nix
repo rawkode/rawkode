@@ -19,7 +19,7 @@
       mineffect = "genie";
       minimize-to-application = false;
       mouse-over-hilite-stack = null;
-      mru-spaces = true;
+      mru-spaces = false;
       orientation = "bottom";
       show-process-indicators = true;
       show-recents = false;
