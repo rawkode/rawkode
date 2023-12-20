@@ -1,0 +1,4 @@
+/.sync/*
+/asciidoctor-revealjs*
+/target
+/presentation.html

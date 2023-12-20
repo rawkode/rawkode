@@ -1,0 +1,302 @@
+:root {
+	--primary-color: var(--primary-color);
+}
+
+.reveal-viewport {
+    background-image: url(../images/logo.png);
+    background-size: 4%;
+    background-repeat: no-repeat;
+    background-position: 97% 3%;
+}
+
+#watermark {
+	height: 0px;
+}
+
+
+@media print {
+  .reveal-viewport {
+    background-image: none;
+    background-size: 12%;
+    background-repeat: no-repeat;
+    background-position: 97% 3%;
+  }
+
+  #watermark {
+    opacity: 1;
+  	position: fixed;
+  	height: 60px;
+	  z-index: 20;
+    top: 40px;
+    left: 1300px;
+  }
+
+  .reveal .slide-number-pdf {
+    display: block;
+	  position: absolute;
+	  font-size: 14px;
+    z-index: 21;
+  }
+}
+
+blockquote {
+  font-family: "Utopia";
+  box-shadow: none !important;
+}
+blockquote:before {
+  position: absolute;
+  left: -150px;
+  font-family: 'Font Awesome 5 Free';
+  top: 0;
+  font-weight: 900;
+
+  content:"\f10d";
+  font-size: 100px;
+  color: rgba(0,0,0,0.1);
+
+}
+
+blockquote::after {
+    content: "";
+    top: 5px;
+    left: 50%;
+    margin-left: -100px;
+    position: absolute;
+    border-bottom: 3px solid var(--primary-color);
+    height: 3px;
+    width: 200px;
+}
+
+.feature {
+    border-radius: 15px 30px 20px;
+    /*border: 2px solid var(--primary-color);*/
+    padding: 20px;
+    box-shadow: 0 0 24px rgba(22, 43, 66, 0.04),0 44px 74px rgba(22, 43, 66, 0.04);
+    margin-top: 20px;
+    margin-right: 15px;
+    margin-left: 15px;
+    height: 450px;
+}
+
+.right {
+  float: right;
+}
+.left {
+  float: left;
+}
+
+.icon > i,
+svg {
+   color: var(--primary-color);
+}
+
+.medium {
+  font-size: 30px;
+}
+
+.muchotxt {
+  margin-top: 15px;
+  font-size: 30px;
+}
+
+.muchotxt p {
+  margin-top: 5px;
+  margin-bottom: 0px;
+}
+
+.muchotxt ul > li {
+  margin-top: 5px;
+  margin-bottom: 15px;
+}
+
+section.white.background {
+  background-color: white;
+}
+
+/* latin @import url('https://fonts.googleapis.com/css?family=Permanent+Marker&display=swap'); */
+@font-face {
+  font-family: 'Permanent Marker';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/permanentmarker/v16/Fh4uPib9Iyv2ucM6pGQMWimMp004La2Cfw.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+.paragraph.important {
+    font-family: 'Permanent Marker', cursive;
+    text-transform: none;
+    font-size: 2em;
+}
+
+section.important h2 {
+    font-family: 'Permanent Marker', cursive;
+    text-transform: none;
+    font-size: 3em;
+}
+
+div.red > p > span.icon > i {
+  color: red;
+}
+
+/* theme overrides */
+.reveal pre code {
+  max-height: none;
+}
+.reveal section img {
+  background: none;
+  border: none;
+}
+
+
+.yellow-highlight {
+  background-size: 100%;
+  opacity: 1;
+  visibility: inherit;
+  background-image: linear-gradient(transparent 7px, #FBF719 0);
+  background-repeat: no-repeat;
+  display: inline;
+}
+
+
+.reveal .slides section .fragment.highlight-strong{
+  opacity: 1;
+  visibility: inherit;
+  background-image: linear-gradient(transparent 7px, #FBF719 0);
+  background-size: 0;
+  background-repeat: no-repeat;
+  display: inline;
+  -webkit-transition: 0.5s ease;
+  transition: 0.5s ease;
+}
+
+.reveal .slides section .fragment.highlight-strong.visible {
+  background-size: 100%;
+}
+
+.reveal .slides section :not(pre) > code {
+  padding: .2em .4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: #8787877a;
+  border-radius: 6px;
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+}
+
+.reveal .slides .paragraph + .ulist {
+  padding-top: 2rem;
+}
+
+.reveal .slides .paragraph + .openblock {
+  padding-top: 2rem;
+}
+
+.reveal .slides .paragraph + .listingblock {
+  padding-top: 2rem;
+}
+
+.footnotes {
+  border-top: 1px solid var(--primary-color)1c;
+  color: #c3c3c3;
+  margin-top: 20px;
+}
+
+.reveal .slides section :not(pre) > code.text-align-attr {
+  padding: 0;
+  margin: 0;
+  font-size: 1.5rem;
+  background-color: transparent;
+  border-radius: 6px;
+  color: #f5ab35;
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+}
+
+/*************************************************
+*                                                *
+* CSS for the Title-Footer plugin for Reveal.js  *
+*                                                *
+* Author: Igor Leturia                           *
+*                                                *
+* License: GPL v3                                *
+* http://www.gnu.org/copyleft/gpl.html           *
+*                                                *
+*************************************************/
+
+/* Style for the Title-Footer footer */
+
+#title-footer
+{
+  font-family: Source Sans Pro, Helvetica, sans-serif;
+	font-size: 15px;
+	opacity: 1;
+	transition: opacity 800ms ease-in-out;
+	position: fixed;
+	height: 2vh;
+	z-index: 0;
+	width: 100%;
+	text-align: center;
+	letter-spacing: 0em;
+	padding-top: 0.5vh;
+	padding-bottom: 0.5vh;
+}
+
+@media print {
+  #title-footer {
+    z-index: 0;
+  }
+}
+
+/* Bottom position for the Title-Footer footer when both progress bar and TOC-Progress are visible */
+
+div.progress[style="display: block;"] ~ #title-footer
+{
+	bottom: calc(3px + 3vh);
+}
+
+/* Bottom position for the Title-Footer footer when TOC-Progress is visible */
+
+#title-footer
+{
+	bottom: -3vh;
+}
+
+/* This is to fix the positioning of the title which goes off screen due to a new reveal.js CSS property. */
+#title-footer p{
+	margin: 0;
+}
+
+/* Bottom position for the Title-Footer footer when progress bar is visible */
+
+div.progress[style="display: block;"] ~ footer:last-of-type#title-footer
+{
+	bottom: 3px;
+}
+
+/* Bottom position for the Title-Footer footer when neither progress bar nor TOC-Progress are visible */
+
+footer:last-of-type#title-footer
+{
+	bottom: 0px;
+}
+
+/* Make Title-Footer invisible if explicitly indicated */
+
+.no-title-footer #title-footer
+{
+	opacity: 0;
+	transition: opacity 800ms ease-in-out;
+}
+
+.no-toc-progress #title-footer
+{
+	opacity: 0;
+	transition: opacity 800ms ease-in-out;
+}
+
+/* Make Title-Footer invisible in overview mode */
+
+.overview #title-footer
+{
+	opacity: 0;
+	transition: opacity 800ms ease-in-out;
+}

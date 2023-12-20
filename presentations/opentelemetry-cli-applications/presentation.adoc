@@ -1,0 +1,149 @@
+
+= OpenTelemetry for Command Line Applications
+:author: @rawkode
+:customcss: css/reveal-override.css
+:docinfo: shared
+:highlightjs-languages: asciidoc,rust
+:highlightjs-theme: a11y-dark.css
+:icons: font
+:imagesdir: images/
+:revealjs_controlsBackArrows: faded
+:revealjs_hash: true
+:revealjs_height: 792
+:revealjs_pdfSeparateFragments: false
+:revealjs_slideNumber: false
+:revealjs_theme: solarized
+:revealjs_transition: convex
+:revealjs_width: 1408
+:revealjsdir: reveal.js
+:source-highlighter: highlightjs
+:title-slide-transition: convex
+:title-slide-transition-speed: slow
+:title-slide-background-image: rawkode.jpg
+:title-slide-background-opacity: 0.2
+
+*IsItObservable*
+
+Lightning Talks ・ December 2023
+
+[background-opacity="0.2"]
+== Who Am I?
+
+image::rawkode.jpg[background]
+
+- 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish
+- 🏢 Founder, Rawkode Academy
+- 🚀 Cloud Native, Kubernetes, & Server-Side WebAssembly
+
+== Why are we here?
+
+=== Comtrya
+
+I started working on Comtrya around 2020, it was my first real Rust project.
+
+I reached out to a friend of mine that is a fantastic Rust developer and asked for some advice on implementing output.
+
+=== !
+
+[quote, "@a_hoverbear"]
+`cargo add tracing`
+
+=== !
+
+[quote, "@rawkode"]
+I mean for CLI output, not machine
+
+=== !
+
+[quote, "@a_hoverbear"]
+Yes
+
+=== !
+
+[quote, "@rawkode"]
+😵‍💫
+
+=== Fast-Forward, 2023
+
+It's far from the best Rust advice Ana has ever given me, as they've given me A LOT.
+
+=== But ...
+
+It's some of the most *valuable* because it led me to instrumenting my Rust projects more than I ever would have normally.
+
+[.important]
+=== It's Easy
+
+[.important]
+=== Like Really Easy!
+
+=== I Google'd
+
+=== !
+
+I couldn't find a single article or example of integrating into an application that didn't use a network protocol.
+
+=== !
+
+So I did what any sane person would do ...
+
+[.important]
+=== Ask the Machines!
+
+=== !
+
+[quote, "ChatGPT"]
+As of my last knowledge update in January 2022, OpenTelemetry was primarily focused on instrumenting distributed systems, microservices, and cloud-native applications. However, it is possible to use OpenTelemetry to instrument command-line applications as well, although this use case might not be as well-documented or as commonly discussed ...
+
+== So, What's the Plan?
+
+[.important]
+=== Things we're *not* going to discuss
+
+=== !
+
+[%step]
+- *What* is OpenTelemetry?
+- *When* should you use OpenTelemetry?
+- *Where* should you use OpenTelemetry?
+- *Why* should you use OpenTelemetry?
+
+[.important]
+=== Things we *are* going to discuss
+
+=== !
+
+[%step]
+- 🦀 Rust
+- 🐚 Command Line Applications
+- ⚙️ Rust Macros
+- 🐾 https://github.com/tokio-rs/tracing
+- 🤯 How amazing Rust is
+
+== OpenTelemetry for Command Line Applications
+
+Why should you use OpenTelemetry for a command line application?
+
+=== Tricky
+
+That's a hard question to answer, in all honesty.
+
+Profiling applications has been notoriously difficult for a long, long, time.
+
+=== eBPF & Parca
+
+With eBPF and Parca, this is getting easier; but there may still be benefits to instrumenting your application.
+
+=== !
+
+- You can't profile your applications when it's running on someone else's machine
+- Your users, customers, and colleagues can share the logs with you on tickets / issues
+- You need log output anyway, what if you can achieve both without extra effort?
+
+[.important]
+== Demo
+
+[.important]
+== Thank You
+
+*Questions?*

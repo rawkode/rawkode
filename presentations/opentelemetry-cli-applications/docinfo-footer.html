@@ -1,0 +1,66 @@
+<div id="watermark"><img src="images/logo.png" alt="logo"></div>
+<footer id="title-footer" class="footer">
+    <p>David Flanagan - 2023 - <a href="https://rawkode.academy">rawkode.academy</a></p>
+</footer>
+<script src="reveal.js-plugins/menu/menu.js"></script>
+<link rel="stylesheet" href="reveal.js-plugins/chalkboard/style.css">
+<script src="reveal.js-plugins/chalkboard/plugin.js"></script>
+<link rel="stylesheet" href="reveal.js-plugins/customcontrols/style.css">
+<script src="reveal.js-plugins/customcontrols/plugin.js"></script>
+<script src="reveal.js-plugins/countdown/countdown.js"></script>
+<script>
+  Reveal.configure({
+    menu: {
+      side: 'left',
+      openButton: true
+    },
+    customcontrols: {
+      controls: [
+        {
+          id: 'toggle-overview',
+          title: 'Toggle overview (O)',
+          icon: '<i class="fa fa-th"></i>',
+          action: 'Reveal.toggleOverview();'
+        },
+        {
+          icon: '<i class="fa fa-pen-square"></i>',
+          title: 'Toggle chalkboard (B)',
+          action: 'RevealChalkboard.toggleChalkboard();'
+        },
+        {
+          icon: '<i class="fa fa-pen"></i>',
+          title: 'Toggle notes canvas (C)',
+          action: 'RevealChalkboard.toggleNotesCanvas();'
+        },
+        {
+          icon: '<i class="fas fa-hourglass-start"></i>',
+          title: 'Pause/Unpause timer (T)',
+          action: 'RevealCountDown.togglePauseTimer()'
+        }
+      ]
+    },
+    keyboard: {
+      67: function() { RevealChalkboard.toggleNotesCanvas() },
+      66: function() { RevealChalkboard.toggleChalkboard() }
+    },
+    countdown: {
+      defaultTime: 900,
+      autostart: "no",
+      tDelta: 60,
+      playTickSoundLast: 15,
+      tickSound: "http://soundbible.com/grab.php?id=2044&type=mp3",
+      timeIsUpSound: "http://soundbible.com/grab.php?id=1746&type=mp3",
+      plusKey: 171,
+      minusKey: 173 //SPANISH keyboard
+    }
+  })
+
+
+  const params = new URLSearchParams(window.location.search);
+  if (! params.has("print-pdf")) {
+    Reveal.registerPlugin(RevealMenu)
+    Reveal.registerPlugin(RevealCustomControls)
+    Reveal.registerPlugin(RevealChalkboard)
+  }
+  Reveal.registerPlugin(RevealCountDown)
+</script>

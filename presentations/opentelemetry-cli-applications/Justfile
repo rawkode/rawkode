@@ -1,0 +1,9 @@
+demo: kill && open
+	docker container run --name jaeger -d -p6831:6831/udp -p6832:6832/udp -p16686:16686 jaegertracing/all-in-one:latest
+	sleep 5
+
+kill:
+	docker container rm -f jaeger || true
+
+open:
+	open http://localhost:16686/
