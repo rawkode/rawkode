@@ -1,0 +1,7 @@
+actions:
+  - action: package.install
+    name: zellij
+
+  - action: file.link
+    from: config.kdl
+    to: "{{ user.home_dir }}/.config/zellij/config.kdl"

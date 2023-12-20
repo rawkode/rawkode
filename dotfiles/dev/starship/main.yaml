@@ -1,0 +1,7 @@
+actions:
+  - action: package.install
+    name: starship
+
+  - action: file.link
+    source: starship.toml
+    target: "{{ user.home_dir }}/.config/starship.toml"

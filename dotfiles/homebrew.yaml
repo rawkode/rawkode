@@ -1,0 +1,12 @@
+actions:
+  - action: package.repository
+    provider: homebrew
+    name: homebrew/cask
+
+  - action: package.repository
+    provider: homebrew
+    name: homebrew/cask-versions
+
+  - action: package.repository
+    provider: homebrew
+    name: homebrew/cask-drivers

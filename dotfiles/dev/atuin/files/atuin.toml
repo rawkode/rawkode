@@ -1,0 +1,4 @@
+search_mode = "fuzzy"
+filter_mode = "directory"
+filter_mode_shell_up_key_binding = "directory"
+style = "compact"

@@ -1,0 +1,8 @@
+actions:
+  - action: package.install
+    name: go
+
+  - action: file.link
+    from: go.zsh
+    to: "{{ user.home_dir }}/.zsh/includes/go.zsh"
+    chmod: "644"
