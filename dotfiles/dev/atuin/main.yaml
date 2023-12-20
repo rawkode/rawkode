@@ -1,0 +1,11 @@
+actions:
+  - action: package.install
+    name: atuin
+
+  - action: file.link
+    from: atuin.toml
+    to: "{{ user.home_dir }}/.config/atuin/config.toml"
+
+  - action: file.link
+    from: zsh
+    to: "{{ user.home_dir }}/.zsh/includes/atuin.zsh"

@@ -1,0 +1,8 @@
+export MCFLY_LIGHT=true
+export MCFLY_RESULTS_SORT=LAST_RUN
+export MCFLY_FUZZY=2
+export MCFLY_RESULTS=10
+export MCFLY_DISABLE_MENU=true
+export MCFLY_RESULTS_FILTER=CURRENT_DIRECTORY
+
+eval "$(mcfly init zsh)"

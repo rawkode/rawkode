@@ -1,0 +1,13 @@
+actions:
+  - action: package.install
+    list:
+      - fzf
+      - zsh
+
+  - action: git.clone
+    repository: https://github.com/jandamm/zgenom.git
+    directory: "{{ user.home_dir }}/.zgenom"
+
+  - action: file.link
+    from: zshrc
+    to: "{{ user.home_dir }}/.zshrc"

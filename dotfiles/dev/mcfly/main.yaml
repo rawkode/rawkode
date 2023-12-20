@@ -1,0 +1,8 @@
+actions:
+  - action: package.install
+    name: mcfly
+
+  - action: file.link
+    from: mcfly.zsh
+    to: "{{ user.home_dir }}/.zsh/includes/mcfly.zsh"
+    chmod: "644"

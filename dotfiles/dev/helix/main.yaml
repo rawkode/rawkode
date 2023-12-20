@@ -1,0 +1,6 @@
+actions:
+- action: package.install
+  name: helix
+- action: file.link
+  from: config.toml
+  to: "{{ user.home_dir }}/.config/helix/config.toml"

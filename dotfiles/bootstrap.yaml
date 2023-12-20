@@ -1,0 +1,4 @@
+depends:
+  - homebrew
+  - fonts
+  - dev.zsh

@@ -1,0 +1,3 @@
+depends:
+  - apps.live-streaming.elgato
+  - apps.live-streaming.loopback
