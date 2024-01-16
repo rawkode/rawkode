@@ -1,0 +1,27 @@
+depends:
+  - ./apps
+  - ./dock
+  - ./finder
+  - ./menubar
+  - ./mission-control
+  - ./trackpad
+
+actions:
+  - action: package.install
+    name: raycast
+  - action: command.run
+    command: killall
+    args:
+      - Dock
+  - action: command.run
+    command: killall
+    args:
+      - ControlCenter
+  - action: command.run
+    command: killall
+    args:
+      - SystemUIServer
+  - action: command.run
+    command: killall
+    args:
+      - Finder

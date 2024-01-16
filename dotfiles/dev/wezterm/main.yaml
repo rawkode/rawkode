@@ -5,4 +5,4 @@ actions:
   - action: file.link
     from: wezterm.lua
     to: "{{ user.home_dir }}/.wezterm.lua"
-    chmod: "644"
+

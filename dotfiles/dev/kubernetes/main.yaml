@@ -8,4 +8,4 @@ actions:
   - action: file.link
     from: kubernetes.zsh
     to: "{{ user.home_dir }}/.zsh/includes/kubernetes.zsh"
-    chmod: "644"
+

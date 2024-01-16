@@ -2,4 +2,4 @@ actions:
   - action: file.link
     from: just.zsh
     to: "{{ user.home_dir }}/.zsh/includes/just.zsh"
-    chmod: "644"
+

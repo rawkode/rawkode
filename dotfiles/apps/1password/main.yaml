@@ -5,4 +5,4 @@ actions:
   - action: file.link
     from: 1password.zsh
     to: "{{ user.home_dir }}/.zsh/includes/1password.zsh"
-    chmod: "644"
+

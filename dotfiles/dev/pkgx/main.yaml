@@ -1,0 +1,6 @@
+actions:
+  - action: package.repository
+    name: pkgxdev/made
+
+  - action: package.install
+    name: pkgx

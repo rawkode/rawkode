@@ -9,4 +9,4 @@ actions:
   - action: file.link
     from: vscode.zsh
     to: "{{ user.home_dir }}/.zsh/includes/vscode.zsh"
-    chmod: "644"
+

@@ -2,4 +2,4 @@ actions:
   - action: file.link
     from: google-cloud.zsh
     to: "{{ user.home_dir }}/.zsh/includes/google-cloud.zsh"
-    chmod: "644"
+

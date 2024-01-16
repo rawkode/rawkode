@@ -1,0 +1,41 @@
+actions:
+  - action: macos.default
+    domain: com.apple.finder
+    key: ShowPathbar
+    kind: bool
+    value: "true"
+  - action: macos.default
+    domain: com.apple.finder
+    key: _FXSortFoldersFirst
+    kind: bool
+    value: "true"
+  - action: macos.default
+    domain: com.apple.finder
+    key: FXDefaultSearchScope
+    kind: string
+    value: SCcf
+  - action: macos.default
+    domain: com.apple.finder
+    key: FXRemoveOldTrashItems
+    kind: bool
+    value: "true"
+  - action: macos.default
+    domain: NSGlobalDomain
+    key: NSTableViewDefaultSizeMode
+    kind: int
+    value: "1"
+  - action: macos.default
+    domain: com.apple.finder
+    key: FXPreferredViewStyle
+    kind: string
+    value: Nlsv
+  - action: macos.default
+    domain: com.apple.finder
+    key: FXICloudDriveDesktop
+    kind: int
+    value: "1"
+  - action: macos.default
+    domain: com.apple.finder
+    key: FXICloudDriveDocuments
+    kind: int
+    value: "1"

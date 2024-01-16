@@ -1,0 +1,5 @@
+actions:
+- action: package.repository
+  name: infisical/get-cli
+- action: package.install
+  name: infisical
