@@ -15,7 +15,7 @@ if wezterm.config_builder then
   config.window_close_confirmation = "NeverPrompt"
 
   config.default_prog = {
-    "/usr/local/bin/zellij"
+    "/opt/homebrew/bin/zellij"
   }
 
   config.color_scheme = scheme_for_appearance(wezterm.gui.get_appearance())

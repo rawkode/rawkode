@@ -6,7 +6,6 @@ actions:
   - action: package.install
     list:
       - font-cascadia-code
-      - font-cascadia-code-pl
       - font-courgette
+      - font-monaspace
       - font-redressed
-      - font-shure-tech-mono-nerd-font
