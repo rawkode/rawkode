@@ -5,25 +5,27 @@ set -eox pipefail
 if [ ! command -v comtrya >/dev/null 2>&1 ]
 then
 	echo "Installing Homebrew ..."
-	curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | sh
+	curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | bash
 fi
 
 # Do we have Comtrya?
 if [ ! command -v comtrya >/dev/null 2>&1 ]
 then
+	echo "Installing Rust ..."
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 	echo "Installing Comtrya ..."
-	curl -fsSL https://get.comtrya.dev | sh
+	${HOME}/.cargo/bin/cargo install comtrya
 fi
 
 # Check if we're in a GitHub Codespaces environment
 if [ ! -z "${CODESPACES}" ]
 then
-	sudo apt update && apt install build-essential gcc
+	sudo apt update && sudo apt install build-essential gcc
 	(echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/codespace/.bashrc
 	(echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/codespace/.zshrc
 
 	echo "Running a Comtrya apply for codespaces ..."
-	comtrya apply -l codespaces
+	${HOME}/.cargo/bin/comtrya apply -l codespaces
 	exit 0
 fi
 
