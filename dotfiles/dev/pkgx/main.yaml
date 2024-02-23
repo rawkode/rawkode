@@ -1,6 +1,11 @@
+labels:
+  - codespaces
+
 actions:
   - action: package.repository
+    provider: homebrew
     name: pkgxdev/made
 
   - action: package.install
+    provider: homebrew
     name: pkgx

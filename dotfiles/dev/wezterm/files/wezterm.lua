@@ -23,7 +23,7 @@ if wezterm.config_builder then
   config.macos_window_background_blur = 32
 
   config.font = wezterm.font 'Monaspace Neon'
-  config.font_size = 16.0
+  config.font_size = 24.0
 
   return config
 end

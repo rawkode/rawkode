@@ -1,3 +1,6 @@
+labels:
+  - codespaces
+
 actions:
   - action: package.install
     name: starship

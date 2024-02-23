@@ -1,0 +1,7 @@
+labels:
+  - codespaces
+
+actions:
+  - action: file.link
+    from: zsh
+    to: "{{ user.home_dir }}/.zsh/includes/codespaces.zsh"

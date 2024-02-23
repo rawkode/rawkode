@@ -1,5 +1,9 @@
+labels:
+  - codespaces
+
 actions:
   - action: package.install
+    provider: homebrew
     name: atuin
 
   - action: file.link
