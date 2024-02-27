@@ -5,7 +5,7 @@ plugins {
     compact-bar { path "compact-bar"; }
 }
 
-default_shell "/opt/homebrew/bin/nu"
+default_shell "/opt/homebrew/bin/zsh"
 on_force_close "quit" // or detach
 default_layout "compact"
 pane_frames false

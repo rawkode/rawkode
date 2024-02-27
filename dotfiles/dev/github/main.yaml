@@ -1,14 +1,16 @@
-depends:
-  - dev.nodejs
-
 actions:
+  - action: package.install
+    provider: homebrew
+    name: gh
+
   - action: command.run
-    command: pnpm
+    command: gh
     args:
-      - "install"
-      - "-g"
-      - "@githubnext/github-copilot-cli"
+    - extension
+    - install
+    - github/gh-copilot
+    - --force
 
   - action: file.link
     from: zsh
-    to: "{{ user.home_dir }}/.zsh/includes/z-github.zsh"
+    to: "{{ user.home_dir }}/.zsh/includes/github.zsh"

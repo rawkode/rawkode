@@ -5,7 +5,6 @@ depends:
   - ./go
   - ./just
   - ./kubernetes
-  - ./nodejs
   - ./rust
   - ./zellij
   - ./zsh
