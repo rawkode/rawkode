@@ -19,11 +19,15 @@ if wezterm.config_builder then
   }
 
   config.color_scheme = scheme_for_appearance(wezterm.gui.get_appearance())
+
   config.window_background_opacity = 0.9
   config.macos_window_background_blur = 32
 
   config.font = wezterm.font 'Monaspace Neon'
   config.font_size = 24.0
+
+	-- Clickable Links
+	config.hyperlink_rules = wezterm.default_hyperlink_rules()
 
   return config
 end
