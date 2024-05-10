@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-set -eoux
+set -ouex pipefail
 
 cat << EOF | sudo tee -a /etc/yum.repos.d/1password.repo
 [1password]
