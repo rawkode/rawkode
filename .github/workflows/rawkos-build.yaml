@@ -9,8 +9,8 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - '**/README.md'
+    paths:
+      - 'rawkOS/**'
   workflow_dispatch:
 
 env:
@@ -92,7 +92,8 @@ jobs:
         uses: redhat-actions/buildah-build@v2
         with:
           containerfiles: |
-            ./Containerfile
+            ./rawkOS/Containerfile
+          context: ./rawkOS
           # Postfix image name with -custom to make it a little more descriptive
           # Syntax: https://docs.github.com/en/actions/learn-github-actions/expressions#format
           image: ${{ env.MY_IMAGE_NAME }}
