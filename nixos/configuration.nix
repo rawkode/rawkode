@@ -20,13 +20,6 @@
       };
     };
 
-    initrd.luks.devices = {
-      root = {
-        device = "/dev/disk/by-label/root";
-        preLVM = true;
-      }
-    };
-
     cleanTmpDir = true;
   };
 
@@ -64,18 +57,6 @@
   # Set your time zone.
   time.timeZone = "Europe/London";
 
-  # List packages installed in system profile.
-  environment.systemPackages = (with pkgs; [
-    gnome3.dconf
-    gnome3.vte
-  ]);
-
-  environment.interactiveShellInit = ''
-    if [[ "$VTE_VERSION" > 3405 ]]; then
-      source "${pkgs.gnome3.vte}/etc/profile.d/vte.sh"
-    fi
-  '';
-
   fonts = {
     enableFontDir = true;
 
@@ -104,7 +85,6 @@
 
   hardware.pulseaudio = {
     enable = true;
-    extraModules = [ pkgs.pulseaudio-modules-bt ];
     package = pkgs.pulseaudioFull;
   };
 
@@ -119,6 +99,7 @@
     layout = "us";
 
     displayManager = {
+      defaultSession = "gnome";
       gdm = {
         enable = true;
         wayland = true;
@@ -126,7 +107,6 @@
     };
 
     desktopManager = {
-      default = "none";
       gnome3.enable = true;
     };
 
@@ -146,6 +126,8 @@
   nixpkgs.config = {
     allowUnfree = true;
   };
+
+  progams.zsh.enable = true;
 
   users.groups.rawkode = {};
 
