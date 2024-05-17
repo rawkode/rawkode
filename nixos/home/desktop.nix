@@ -69,6 +69,7 @@ in
         "gsconnect@andyholmes.github.io"
         "blur-my-shell@aunetx"
         "appindicatorsupport@rgcjonas.gmail.com"
+        "paperwm@paperwm.github.com"
       ];
 
       favorite-apps = [

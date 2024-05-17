@@ -1,5 +1,9 @@
 { config, pkgs, ... }:
 
+let
+  home = config.home.homeDirectory;
+  sockPath = "${home}/.1password/agent.sock";
+in
 {
   home.file.".zshrc".source = ./shell/zsh/zshrc.zsh;
   home.file.".zsh/aliases.zsh".source = ./shell/zsh/aliases.zsh;
@@ -13,19 +17,27 @@
   home.file.".config/fish/config.fish".source = ./shell/fish/config.fish;
   home.file.".config/fish/fishfile".source = ./shell/fish/fishfile;
 
-  home.packages = (with pkgs; [
-    bat
-    direnv
-    eza
-    fzf
-    ripgrep
-    tldr
-    unzip
-    vim
-    wget
-    zsh
-  ]);
+  home.packages = (
+    with pkgs;
+    [
+      bat
+      direnv
+      eza
+      fzf
+      ripgrep
+      tldr
+      unzip
+      vim
+      wget
+      zsh
+    ]
+  );
 
   programs.direnv.enable = true;
-  programs.ssh.enable = true;
+  programs.ssh = {
+    enable = true;
+    extraConfig = ''
+      IdentityAgent "${sockPath}"
+    '';
+  };
 }

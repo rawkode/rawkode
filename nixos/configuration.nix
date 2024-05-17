@@ -8,9 +8,15 @@
 
   services.fwupd.enable = true;
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
-  fileSystems."/".options = [ "noatime" "nodiratime" ];
+  fileSystems."/".options = [
+    "noatime"
+    "nodiratime"
+  ];
 
   boot = {
     kernelPackages = pkgs.linuxPackages_latest;
@@ -61,7 +67,6 @@
     powerOnBoot = false;
     settings.General.Experimental = true; # for gnome-bluetooth percentage
   };
-
 
   nix = {
     gc = {
@@ -178,14 +183,21 @@
   programs.hyprland.enable = true;
   programs.hyprland.xwayland.enable = true;
 
-
   users.groups.rawkode = { };
 
   users.users.rawkode = {
     isNormalUser = true;
     home = "/home/rawkode";
     description = "David Flanagan";
-    extraGroups = [ "rawkode" "audio" "disk" "docker" "networkmanager" "plugdev" "wheel" ];
+    extraGroups = [
+      "rawkode"
+      "audio"
+      "disk"
+      "docker"
+      "networkmanager"
+      "plugdev"
+      "wheel"
+    ];
     shell = pkgs.zsh;
   };
 

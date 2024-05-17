@@ -12,18 +12,17 @@
 
   programs.home-manager = {
     enable = true;
-
-
   };
 
-  home.packages = (with pkgs; [
-    nil
-    nixfmt-rfc-style
-  ]);
+  home.packages = (
+    with pkgs;
+    [
+      nil
+      nixfmt-rfc-style
+    ]
+  );
 
   home.username = "rawkode";
   home.homeDirectory = "/home/rawkode";
   home.stateVersion = "23.11";
-
-
 }
