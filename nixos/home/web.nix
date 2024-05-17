@@ -2,7 +2,7 @@
 
 {
   home.packages = (with pkgs; [
-    slack
-    zoom-us
+    firefox-devedition
+    vivaldi
   ]);
 }

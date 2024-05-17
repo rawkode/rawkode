@@ -2,31 +2,24 @@
   description = "home-manager configuration";
 
   inputs = {
-    utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    catppuccin.url = "github:catppuccin/nix";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, home-manager, nixpkgs, utils }:
+  outputs = { self, home-manager, nixpkgs, utils, catppuccin }:
     let
-      pkgsForSystem = system: import nixpkgs {
-        inherit system;
-        config.allowUnfree = true;
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      homeConfigurations.rawkode = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        modules = [
+          catppuccin.homeManagerModules.catppuccin
+          ./home.nix
+        ];
       };
-
-      mkHomeConfiguration = args: home-manager.lib.homeManagerConfiguration (rec {
-        modules = [ (import ./home.nix) ] ++ (args.modules or []);
-        pkgs = pkgsForSystem (args.system or "x86_64-linux");
-      } // { inherit (args) extraSpecialArgs; });
-
-    in utils.lib.eachSystem [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ] (system: rec {
-      legacyPackages = pkgsForSystem system;
-  }) // {
-    # non-system suffixed items should go here
-    nixosModules.home = import ./home.nix; # attr set or list
-
-    inherit home-manager;
-    inherit (home-manager) packages;
-  };
+    };
 }
