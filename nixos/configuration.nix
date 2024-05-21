@@ -110,6 +110,7 @@
 
     packages = with pkgs; [
       corefonts
+      displaylink
       emojione
       google-fonts
       merriweather
@@ -143,13 +144,18 @@
 
   services.udev.packages = with pkgs; [ gnome.gnome-settings-daemon ];
 
+  programs.hyprland.enable = true;
+
   services.xserver = {
     enable = true;
 
     layout = "us";
 
+    videoDrivers = [ "displaylink" "modesetting" ];
+
     displayManager = {
       defaultSession = "gnome";
+      sddm.enable = false;
       gdm = {
         enable = true;
         wayland = true;
@@ -158,6 +164,7 @@
 
     desktopManager = {
       gnome.enable = true;
+      plasma6.enable = false;
     };
 
     libinput = {
@@ -173,15 +180,35 @@
     };
   };
 
+  environment.gnome.excludePackages = with pkgs; [
+    gedit
+    gnome.yelp
+    gnome.file-roller
+    gnome.geary
+    gnome.gnome-maps
+    gnome.gnome-music
+    gnome-photos
+    gnome.gnome-system-monitor
+    gnome.gnome-weather
+
+    gnomeExtensions.applications-menu
+    gnomeExtensions.auto-move-windows
+    gnomeExtensions.launch-new-instance
+    gnomeExtensions.light-style
+    gnomeExtensions.native-window-placement
+    gnomeExtensions.places-status-indicator
+    gnomeExtensions.removable-drive-menu
+    gnomeExtensions.window-list
+    gnomeExtensions.windownavigator
+    gnomeExtensions.workspace-indicator
+  ];
+
   nixpkgs.config = {
     allowUnfree = true;
   };
 
   programs.zsh.enable = true;
   programs.git.enable = true;
-
-  programs.hyprland.enable = true;
-  programs.hyprland.xwayland.enable = true;
 
   users.groups.rawkode = { };
 

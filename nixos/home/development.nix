@@ -11,6 +11,7 @@
   home.packages = (with pkgs; [
     rustup
     wezterm
+    zed-editor
     zellij
   ]);
 }
