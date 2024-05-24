@@ -32,6 +32,7 @@
 
       modules = [
         inputs.catppuccin.homeManagerModules.catppuccin
+        inputs.anyrun.homeManagerModules.default
         inputs.walker.homeManagerModules.default
         inputs.ironbar.homeManagerModules.default
         ./home.nix

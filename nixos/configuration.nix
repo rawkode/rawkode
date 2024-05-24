@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ pkgs, ... }:
 
 {
   imports = [
@@ -7,6 +7,10 @@
   ];
 
   services.fwupd.enable = true;
+
+  nixpkgs.config = {
+    allowUnfree = true;
+  };
 
   nix.settings.experimental-features = [
     "nix-command"
@@ -43,6 +47,7 @@
 
     firewall = rec {
       allowedTCPPortRanges = [
+        # KDE Connect
         {
           from = 1714;
           to = 1764;
@@ -64,7 +69,7 @@
   # bluetooth
   hardware.bluetooth = {
     enable = true;
-    powerOnBoot = false;
+    powerOnBoot = true;
     settings.General.Experimental = true; # for gnome-bluetooth percentage
   };
 
@@ -86,6 +91,7 @@
     polkitPolicyOwners = [ "rawkode" ];
   };
 
+  environment.sessionVariables.NIXOS_OZONE_WL = "1";
   environment.etc = {
     "1password/custom_allowed_browsers" = {
       text = ''
@@ -95,7 +101,11 @@
     };
   };
 
-  # Set your time zone.
+  security.rtkit.enable = true;
+  services.pipewire.enable = true;
+  services.pipewire.pulse.enable = true;
+  services.pipewire.wireplumber.enable = true;
+
   time.timeZone = "Europe/London";
 
   fonts = {
@@ -110,7 +120,6 @@
 
     packages = with pkgs; [
       corefonts
-      displaylink
       emojione
       google-fonts
       merriweather
@@ -133,7 +142,7 @@
   sound.enable = true;
 
   hardware.pulseaudio = {
-    enable = true;
+    enable = false;
     package = pkgs.pulseaudioFull;
   };
 
@@ -151,11 +160,10 @@
 
     layout = "us";
 
-    videoDrivers = [ "displaylink" "modesetting" ];
+    videoDrivers = [ "modesetting" ];
 
     displayManager = {
       defaultSession = "gnome";
-      sddm.enable = false;
       gdm = {
         enable = true;
         wayland = true;
@@ -164,14 +172,10 @@
 
     desktopManager = {
       gnome.enable = true;
-      plasma6.enable = false;
     };
 
     libinput = {
       enable = true;
-
-      # This only applies to the trackpad, need to check if we
-      # can find a way to do this for mice too.
       naturalScrolling = true;
       scrollMethod = "twofinger";
       tapping = true;
@@ -202,10 +206,6 @@
     gnomeExtensions.windownavigator
     gnomeExtensions.workspace-indicator
   ];
-
-  nixpkgs.config = {
-    allowUnfree = true;
-  };
 
   programs.zsh.enable = true;
   programs.git.enable = true;
