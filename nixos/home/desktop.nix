@@ -13,11 +13,6 @@ in
 {
   fonts.fontconfig.enable = true;
 
-  programs.ironbar = {
-    enable = true;
-    config = import ./ironbar.nix;
-  };
-
   dconf.settings = {
     "org/gnome/desktop/interface" = {
       font-antialiasing = "rgba";

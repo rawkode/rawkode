@@ -30,6 +30,7 @@ in
       vim
       wget
       zsh
+      zplug
     ]
   );
 

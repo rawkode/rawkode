@@ -19,6 +19,7 @@
     [
       nil
       nixfmt-rfc-style
+      zplug
     ]
   );
 
