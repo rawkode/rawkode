@@ -6,12 +6,6 @@
   ...
 }:
 {
-  imports = [ inputs.niri.homeModules.niri ];
-
-  services.wired = {
-    enable = true;
-  };
-
   programs.anyrun = {
     enable = true;
     config = {
@@ -36,7 +30,6 @@
   };
 
   programs.niri = {
-    enable = true;
     settings = {
       outputs = {
         eDP-1 = {
@@ -56,39 +49,38 @@
         natural-scroll = true;
       };
 
+      window-rules = [
+        {
+          matches = [ { app-id = "^org.wezfurlong.wezterm$"; } ];
+          default-column-width = { };
+        }
+      ];
+
       spawn-at-startup = [
-         {
-              command = [
-                "${pkgs.dbus}/bin/dbus-update-activation-environment"
-                "--systemd"
-                "DISPLAY"
-                "WAYLAND_DISPLAY"
-                "SWAYSOCK"
-                "XDG_CURRENT_DESKTOP"
-                "XDG_SESSION_TYPE"
-                "NIXOS_OZONE_WL"
-                "XCURSOR_THEME"
-                "XCURSOR_SIZE"
-                "XDG_DATA_DIRS"
-              ];
-            }
-            {
-              command = [
-                "/usr/libexec/polkit-gnome-authentication-agent-1"
-              ];
-            }
-            {
-              command = [
-                (lib.getExe' config.services.mako.package "mako")
-              ];
-            }
-                       {
-              command = [
-                (lib.getExe pkgs.cage)
-                "--"
-                "1password"
-              ];
-            }
+        {
+          command = [
+            "${pkgs.dbus}/bin/dbus-update-activation-environment"
+            "--systemd"
+            "DISPLAY"
+            "WAYLAND_DISPLAY"
+            "SWAYSOCK"
+            "XDG_CURRENT_DESKTOP"
+            "XDG_SESSION_TYPE"
+            "NIXOS_OZONE_WL"
+            "XCURSOR_THEME"
+            "XCURSOR_SIZE"
+            "XDG_DATA_DIRS"
+          ];
+        }
+        { command = [ "/usr/libexec/polkit-gnome-authentication-agent-1" ]; }
+        { command = [ (lib.getExe' config.services.mako.package "mako") ]; }
+        {
+          command = [
+            (lib.getExe pkgs.cage)
+            "--"
+            "1password"
+          ];
+        }
       ];
 
       layout = {

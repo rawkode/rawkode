@@ -22,29 +22,29 @@
       url = "github:abenz1267/walker";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    wired.url = "github:Toqozz/wired-notify";
   };
 
-  outputs = inputs: let system = "x86_64-linux"; in {
-    homeConfigurations.rawkode = inputs.home-manager.lib.homeManagerConfiguration {
-      pkgs = import inputs.nixpkgs {
-        inherit system;
+  outputs =
+    inputs:
+    let
+      system = "x86_64-linux";
+    in
+    {
+      homeConfigurations.rawkode = inputs.home-manager.lib.homeManagerConfiguration {
+        pkgs = import inputs.nixpkgs { inherit system; };
 
-        overlays = [ inputs.wired.overlays.default ];
+        extraSpecialArgs = {
+          inherit inputs;
+        };
+
+        modules = [
+          inputs.catppuccin.homeManagerModules.catppuccin
+          inputs.anyrun.homeManagerModules.default
+          inputs.walker.homeManagerModules.default
+          inputs.niri.homeModules.niri
+          inputs.ironbar.homeManagerModules.default
+          ./home.nix
+        ];
       };
-
-      extraSpecialArgs = {
-        inherit inputs;
-      };
-
-      modules = [
-        inputs.catppuccin.homeManagerModules.catppuccin
-        inputs.anyrun.homeManagerModules.default
-        inputs.walker.homeManagerModules.default
-        inputs.ironbar.homeManagerModules.default
-        inputs.wired.homeManagerModules.default
-        ./home.nix
-      ];
     };
-  };
 }
