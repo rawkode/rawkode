@@ -15,17 +15,24 @@
       url = "github:JakeStanger/ironbar";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     utils.url = "github:numtide/flake-utils";
     walker = {
       url = "github:abenz1267/walker";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    wired.url = "github:Toqozz/wired-notify";
   };
 
-  outputs = inputs: {
+  outputs = inputs: let system = "x86_64-linux"; in {
     homeConfigurations.rawkode = inputs.home-manager.lib.homeManagerConfiguration {
-      pkgs = inputs.nixpkgs.legacyPackages.x86_64-linux;
+      pkgs = import inputs.nixpkgs {
+        inherit system;
+
+        overlays = [ inputs.wired.overlays.default ];
+      };
+
       extraSpecialArgs = {
         inherit inputs;
       };
@@ -35,6 +42,7 @@
         inputs.anyrun.homeManagerModules.default
         inputs.walker.homeManagerModules.default
         inputs.ironbar.homeManagerModules.default
+        inputs.wired.homeManagerModules.default
         ./home.nix
       ];
     };

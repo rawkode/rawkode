@@ -4,6 +4,7 @@
   imports = [
     ./desktop.nix
     ./development.nix
+    ./niri.nix
     ./shell.nix
     ./web.nix
   ];
@@ -17,6 +18,8 @@
   home.packages = (
     with pkgs;
     [
+      cage
+      mako
       nil
       nixfmt-rfc-style
       zplug
