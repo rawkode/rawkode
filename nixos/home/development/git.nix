@@ -1,16 +1,26 @@
 { config, pkgs, ... }:
 
+let
+  name = "David Flanagan";
+  email = "david@rawkode.dev";
+  publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
+in
 {
+  xdg.configFile."git/allowed_signers".text = ''
+    ${email} namespaces="git" ${publicKey}
+  '';
+
   programs.git = {
     enable = true;
+    lfs.enable = true;
 
-    userName  = "David Flanagan";
-    userEmail = "david@rawkode.dev";
+    userName = name;
+    userEmail = email;
 
-    # signing = {
-    #   key = "2D8641614CBEDB36443A1F1C4E81F61612CDF165";
-    #   signByDefault = true;
-    # };
+    signing = {
+      key = publicKey;
+      signByDefault = true;
+    };
 
     aliases = {
       cane = "commit --amend --no-edit";
@@ -23,6 +33,15 @@
     };
 
     extraConfig = {
+      push.autoSetupRemote = true;
+      init.defaultBranch = "main";
+
+      gpg = {
+        format = "ssh";
+        ssh.program = "${pkgs._1password-gui}/bin/op-ssh-sign";
+        ssh.allowedSignersFile = "~/.config/git/allowed_signers";
+      };
+
       advice = {
         statusHints = false;
       };
