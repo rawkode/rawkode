@@ -7,13 +7,6 @@
     niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
-    stylix = {
-      url = "github:danth/stylix";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        home-manager.follows = "home-manager";
-      };
-    };
   };
 
   outputs =
@@ -33,7 +26,6 @@
           ./configuration.nix
           home-manager.nixosModules.default
           nixos-hardware.nixosModules.framework-13-7040-amd
-          niri.nixosModules.niri
         ];
       };
     };

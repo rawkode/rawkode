@@ -1,13 +1,9 @@
-{
-  lib,
-  pkgs,
-  ...
-}:
+{ lib, pkgs, ... }:
 
 with lib.hm.gvariant;
 let
-  catppuccin_variant = "mocha";
-  catppuccin_accent = "lavender";
+  catppuccin_variant = "frappe";
+  catppuccin_accent = "mauve";
 in
 {
   fonts.fontconfig.enable = true;
@@ -19,7 +15,6 @@ in
       font-name = "QuickSand 12";
       monospace-font-name = "Monaspace Neon 12";
       document-font-name = "Monaspace Neon 12";
-      text-scaling-factor = mkDouble 1.25;
     };
 
     "org/gnome/desktop/peripherals/mouse" = {
@@ -28,6 +23,7 @@ in
 
     "org/gnome/desktop/peripherals/touchpad" = {
       two-finger-scrolling-enabled = true;
+      disable-while-typing = true;
     };
 
     "org/gnome/desktop/privacy" = {
@@ -53,8 +49,38 @@ in
       ];
     };
 
+    # Disable Windows key
+    # "org.gnome.mutter overlay-key" = "";
+
     "org/gnome/desktop/wm/preferences" = {
       focus-mode = "sloppy";
+    };
+
+    "org/gnome/desktop/wm/keybindings" = {
+      toggle-maximized = [ "<Super>Return" ];
+      close = [ "<super>q" ];
+
+      unmaximize = [ ];
+      maximize = [ ];
+
+      switch-to-workspace-1 = [ "<super>1" ];
+      switch-to-workspace-2 = [ "<super>2" ];
+      switch-to-workspace-3 = [ "<super>3" ];
+      switch-to-workspace-4 = [ "<super>4" ];
+      switch-to-workspace-5 = [ "<super>5" ];
+      move-to-workspace-1 = [ "<super><shift>1" ];
+      move-to-workspace-2 = [ "<super><shift>2" ];
+      move-to-workspace-3 = [ "<super><shift>3" ];
+      move-to-workspace-4 = [ "<super><shift>4" ];
+      move-to-workspace-5 = [ "<super><shift>5" ];
+    };
+
+    "org/gnome/shell/keybindings" = {
+      switch-to-application-1 = [ ];
+      switch-to-application-2 = [ ];
+      switch-to-application-3 = [ ];
+      switch-to-application-4 = [ ];
+      switch-to-application-5 = [ ];
     };
 
     "org/gnome/mutter" = {
@@ -67,12 +93,12 @@ in
     "org/gnome/shell" = {
       disable-user-extensions = false;
       enabled-extensions = [
+        "appindicatorsupport@rgcjonas.gmail.com"
+        "blur-my-shell@aunetx"
+        "gsconnect@andyholmes.github.io"
+        "gnome-one-window-wonderland@jqno.nl"
         "sound-output-device-chooser@kgshank.net"
         "user-theme@gnome-shell-extensions.gcampax.github.com"
-        "gsconnect@andyholmes.github.io"
-        "blur-my-shell@aunetx"
-        "appindicatorsupport@rgcjonas.gmail.com"
-        "paperwm@paperwm.github.com"
       ];
 
       favorite-apps = [
@@ -90,43 +116,21 @@ in
       current-workspace-only = true;
     };
 
-    "org/gnome/shell/extensions/paperwm" = {
-      default-focus-mode = 1; # center
-
-      horizontal-margin = 64;
-      vertical-margin = 64;
-      top-margin = 32;
-      bottom-margin = 32;
-      window-gap = 64;
-      selection-border-size = 4;
-
-      show-window-position-bar = false;
-      show-workspace-indicator = false;
-
-      cycle-height-steps = [
-        0.5
-        1.0
-      ];
-      cycle-width-steps = [
-        0.25
-        0.5
-        0.75
-        1.0
-      ];
+    "org/gnome/shell/extensions/one-window-wonderland" = {
+      force-list = "Vivaldi";
+      gap-size = 32;
     };
   };
 
   home.packages = (
     with pkgs;
     [
-      bibata-cursors
       bruno
       discord
       gnome.gnome-tweaks
       gnomeExtensions.appindicator
       gnomeExtensions.blur-my-shell
-      gnomeExtensions.paperwm
-      gnomeExtensions.pop-shell
+      gnomeExtensions.one-window-wonderland
       gnomeExtensions.sound-output-device-chooser
       (wrapOBS { plugins = [ obs-studio-plugins.obs-source-record ]; })
       slack
@@ -135,12 +139,6 @@ in
       zoom-us
     ]
   );
-
-  programs.wezterm = {
-    enable = true;
-    enableZshIntegration = true;
-    extraConfig = builtins.readFile ./wezterm/wezterm.lua;
-  };
 
   xdg.enable = true;
 
@@ -154,10 +152,11 @@ in
   };
 
   programs.zellij.enable = true;
-  programs.zellij.catppuccin.enable = true;
 
   gtk = {
     enable = true;
+
+    cursorTheme.size = 32;
 
     catppuccin = {
       enable = true;
@@ -168,8 +167,6 @@ in
       gnomeShellTheme = true;
       cursor.enable = true;
       icon.enable = true;
-
-      tweaks = [ "normal" ];
     };
   };
 }

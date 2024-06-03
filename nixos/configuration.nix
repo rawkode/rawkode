@@ -24,11 +24,8 @@
 
   services.fwupd.enable = true;
 
-  nixpkgs.overlays = [ inputs.niri.overlays.niri ];
-  programs.niri.enable = true;
 
   systemd = {
-    user.services.niri-flake-polkit.enable = false;
     user.services.polkit-gnome-authentication-agent-1 = {
       description = "polkit-gnome-authentication-agent-1";
       wantedBy = [ "graphical-session.target" ];
@@ -43,6 +40,7 @@
       };
     };
   };
+
   nixpkgs.config = {
     allowUnfree = true;
   };
@@ -201,6 +199,8 @@
     enable = true;
     xkb.layout = "us";
     videoDrivers = [ "modesetting" ];
+
+    desktopManager.gnome.enable = true;
   };
 
   environment.gnome.excludePackages = with pkgs; [
@@ -226,8 +226,8 @@
     gnomeExtensions.workspace-indicator
   ];
 
-  programs.zsh.enable = true;
   programs.git.enable = true;
+  programs.fish.enable = true;
 
   users.groups.rawkode = { };
 
@@ -244,7 +244,7 @@
       "plugdev"
       "wheel"
     ];
-    shell = pkgs.zsh;
+    shell = pkgs.fish;
   };
 
   system.stateVersion = "23.11";
