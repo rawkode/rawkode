@@ -153,6 +153,14 @@ in
 
   programs.zellij.enable = true;
 
+  home.pointerCursor = {
+    gtk.enable = true;
+    x11.enable = true;
+    name = "catppuccin-frappe-mauve-cursors";
+    size = 32;
+    package = pkgs.catppuccin-cursors.frappeMauve;
+  };
+
   gtk = {
     enable = true;
 
