@@ -1,4 +1,4 @@
-{ inputs, pkgs, ... }:
+{ lib, pkgs, ... }:
 
 {
   imports = [ ./hardware-configuration.nix ];
@@ -23,7 +23,6 @@
   };
 
   services.fwupd.enable = true;
-
 
   systemd = {
     user.services.polkit-gnome-authentication-agent-1 = {
@@ -173,7 +172,7 @@
   security.pam.services.gdm.enableGnomeKeyring = true;
   services.gnome.gnome-keyring.enable = true;
 
-  services.udev.packages = with pkgs; [ gnome.gnome-settings-daemon ];
+  services.udev.packages = with pkgs; [ gnome.gnome-settings-daemon pkgs.espanso-wayland ];
 
   services.libinput = {
     enable = true;
@@ -225,6 +224,19 @@
     gnomeExtensions.windownavigator
     gnomeExtensions.workspace-indicator
   ];
+
+  # I'd love for this to live in home-manager,
+  # but espanso on wayland needs this additional
+  # capability
+  # security.wrappers.espanso = {
+  #   source = "${pkgs.espanso-wayland}/bin/espanso";
+  #   capabilities = "cap_dac_override+p";
+  #   owner = "root";
+  #   group = "root";
+  # };
+
+  # services.espanso.enable = true;
+  # systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "/run/wrappers/bin/espanso worker";
 
   programs.git.enable = true;
   programs.fish.enable = true;
