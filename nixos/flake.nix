@@ -16,11 +16,13 @@
       niri,
       nixos-hardware,
       ...
-    } @inputs:
+    }@inputs:
     {
       nixosConfigurations.p4x-nixos = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
-        specialArgs = { inherit inputs; };
+        specialArgs = {
+          inherit inputs;
+        };
 
         modules = [
           ./configuration.nix
