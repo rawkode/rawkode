@@ -18,6 +18,7 @@
     settings = {
       default_mode = "normal";
       default_layout = "compact";
+      pane_frames = false;
       simplified_ui = true;
       ui = {
         pane_frames = {
@@ -33,7 +34,6 @@
       rustup
       wezterm
       zed-editor
-      zellij
     ]
   );
 }

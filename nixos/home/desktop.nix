@@ -3,7 +3,7 @@
 with lib.hm.gvariant;
 let
   catppuccin_variant = "frappe";
-  catppuccin_accent = "mauve";
+  catppuccin_accent = "lavender";
 in
 {
   fonts.fontconfig.enable = true;
@@ -156,9 +156,9 @@ in
   home.pointerCursor = {
     gtk.enable = true;
     x11.enable = true;
-    name = "catppuccin-frappe-mauve-cursors";
+    name = "catppuccin-frappe-lavender-cursors";
     size = 32;
-    package = pkgs.catppuccin-cursors.frappeMauve;
+    package = pkgs.catppuccin-cursors.frappeLavender;
   };
 
   gtk = {

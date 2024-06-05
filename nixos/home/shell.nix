@@ -14,9 +14,6 @@ in
   home.file.".zsh/powerlevel9k.zsh".source = ./shell/zsh/powerlevel9k.zsh;
   home.file.".zsh/zplug.zsh".source = ./shell/zsh/zplug.zsh;
 
-  home.file.".config/fish/config.fish".source = ./shell/fish/config.fish;
-  home.file.".config/fish/fishfile".source = ./shell/fish/fishfile;
-
   home.packages = (
     with pkgs;
     [
