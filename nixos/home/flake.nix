@@ -17,6 +17,7 @@
     };
     niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixvim.url = "github:nix-community/nixvim";
     utils.url = "github:numtide/flake-utils";
     walker = {
       url = "github:abenz1267/walker";
@@ -39,10 +40,7 @@
 
         modules = [
           inputs.catppuccin.homeManagerModules.catppuccin
-          inputs.anyrun.homeManagerModules.default
-          inputs.walker.homeManagerModules.default
-          inputs.niri.homeModules.niri
-          inputs.ironbar.homeManagerModules.default
+          inputs.nixvim.homeManagerModules.nixvim
           ./home.nix
         ];
       };
