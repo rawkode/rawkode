@@ -32,7 +32,9 @@ in
         term = "xterm-256color";
         font = "Monaspace Neon:size=16";
         dpi-aware = true;
+        pad = "16x16";
       };
+      csd.preferred = "none";
     };
   };
 
