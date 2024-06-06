@@ -109,6 +109,25 @@
   services.xserver.displayManager.gdm.enable = true;
   services.xserver.displayManager.gdm.wayland = true;
 
+  programs.dconf.profiles.gdm.databases = [
+    { settings."org/gnome/login-screen".enable-fingerprint-authentication = false; }
+  ];
+
+  virtualisation.containers.enable = true;
+  virtualisation = {
+    podman = {
+      enable = true;
+      dockerCompat = true;
+      defaultNetwork.settings.dns_enabled = true;
+    };
+  };
+
+  environment.systemPackages = with pkgs; [
+    dive
+    podman-tui
+    docker-compose
+  ];
+
   environment.sessionVariables.NIXOS_OZONE_WL = "1";
   environment.etc = {
     "1password/custom_allowed_browsers" = {
@@ -172,7 +191,10 @@
   security.pam.services.gdm.enableGnomeKeyring = true;
   services.gnome.gnome-keyring.enable = true;
 
-  services.udev.packages = with pkgs; [ gnome.gnome-settings-daemon pkgs.espanso-wayland ];
+  services.udev.packages = with pkgs; [
+    gnome.gnome-settings-daemon
+    pkgs.espanso-wayland
+  ];
 
   services.libinput = {
     enable = true;

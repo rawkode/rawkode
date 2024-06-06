@@ -30,7 +30,7 @@ in
       main = {
         shell = "${pkgs.zellij}/bin/zellij";
         term = "xterm-256color";
-        font = "Monaspace Neon:size=16";
+        font = "Monaspace Neon:size=12";
         dpi-aware = true;
         pad = "16x16";
       };
@@ -108,6 +108,10 @@ in
   programs.fish = {
     enable = true;
 
+    shellAliases = {
+      "ghb" = "cd ~/Code/src/github.com";
+    };
+
     interactiveShellInit = ''
       ${getExe pkgs.direnv} hook fish | source
       ${getExe pkgs._1password} completion fish | source
@@ -145,6 +149,8 @@ in
       };
     };
   };
+
+  programs.gh.enable = true;
 
   home.packages = (
     with pkgs;
