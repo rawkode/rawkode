@@ -2,6 +2,9 @@
   description = "p4x-nixos";
 
   inputs = {
+    ghostty = {
+      url = "git+ssh://git@github.com/ghostty-org/ghostty";
+    };
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     niri.url = "github:sodiboo/niri-flake";
@@ -11,6 +14,7 @@
 
   outputs =
     {
+      ghostty,
       home-manager,
       nixpkgs,
       niri,
@@ -26,6 +30,7 @@
 
         modules = [
           ./configuration.nix
+          { environment.systemPackages = [ ghostty.packages.x86_64-linux.default ]; }
           home-manager.nixosModules.default
           nixos-hardware.nixosModules.framework-13-7040-amd
         ];
