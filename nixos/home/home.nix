@@ -117,6 +117,8 @@ in
       ${getExe pkgs.direnv} hook fish | source
       ${getExe pkgs._1password} completion fish | source
       bind \r magic-enter
+      set fish_greeting ""
+      fish_vi_key_bindings
     '';
 
     functions = {
