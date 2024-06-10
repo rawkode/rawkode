@@ -185,6 +185,7 @@ in
     with pkgs;
     [
       bruno
+      clickup
       discord
       gnome.gnome-tweaks
       gnomeExtensions.appindicator
