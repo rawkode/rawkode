@@ -57,8 +57,6 @@ in
       ];
     };
 
-    # Disable Windows key
-    # "org.gnome.mutter overlay-key" = "";
 
     "org/gnome/shell/extensions/forge" = {
       auto-split-enabled = false;
@@ -90,6 +88,7 @@ in
     "org/gnome/desktop/wm/keybindings" = {
       close = [ "<super>q" ];
 
+      switch-input-source = [ ];
       unmaximize = [ ];
       maximize = [ ];
 
@@ -128,6 +127,7 @@ in
     "org/gnome/shell" = {
       disable-user-extensions = false;
       enabled-extensions = [
+        "advanced-alt-tab@G-dH.github.com"
         "appindicatorsupport@rgcjonas.gmail.com"
         "blur-my-shell@aunetx"
         "forge@jmmaranan.com"
@@ -202,6 +202,7 @@ in
       slack
       wf-recorder
       wl-clipboard
+      wmctrl
       zoom-us
     ]
   );

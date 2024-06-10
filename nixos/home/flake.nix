@@ -2,8 +2,6 @@
   description = "home-manager configuration";
 
   inputs = {
-    anyrun.url = "github:anyrun-org/anyrun";
-    anyrun.inputs.nixpkgs.follows = "nixpkgs";
     catppuccin.url = "github:catppuccin/nix";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
@@ -15,18 +13,8 @@
     ghostty-hm-module.url = "github:clo4/ghostty-hm-module";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    ironbar = {
-      url = "github:JakeStanger/ironbar";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixvim.url = "github:nix-community/nixvim";
     utils.url = "github:numtide/flake-utils";
-    walker = {
-      url = "github:abenz1267/walker";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -45,7 +33,6 @@
         modules = [
           inputs.catppuccin.homeManagerModules.catppuccin
           inputs.ghostty-hm-module.homeModules.default
-          inputs.nixvim.homeManagerModules.nixvim
           ./home.nix
         ];
       };
