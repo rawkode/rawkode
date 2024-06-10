@@ -11,7 +11,6 @@ in
   dconf.settings = {
     "org/gnome/desktop/interface" = {
       clock-show-date = false;
-      color-scheme = "default";
       font-antialiasing = "rgba";
       font-hinting = "slight";
       font-name = "QuickSand 12";
@@ -65,7 +64,7 @@ in
       auto-split-enabled = false;
       stacked-tiling-mode-enabled = true;
       window-gap-size = lib.hm.gvariant.mkUint32 8;
-      showtab-decoration-enabled = false;
+      showtab-decoration-enabled = true;
     };
 
     "org/gnome/shell/extensions/forge/keybindings" = {
