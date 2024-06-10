@@ -523,17 +523,32 @@
         "zls": "zls"
       },
       "locked": {
-        "lastModified": 1717899019,
-        "narHash": "sha256-MY65SsRV86BEpkhzxlYsl6fUBoo3eify2vuOZYTtUKI=",
+        "lastModified": 1717982703,
+        "narHash": "sha256-384NbaLel8Gg9jP02/7ivKGqONKXu6P6T7WPWAAaKG4=",
         "ref": "refs/heads/main",
-        "rev": "c69dc0e0e14b89bdbda6a035fd864386cc1b86fa",
-        "revCount": 6305,
+        "rev": "4e4b6ea6de4bb513fb03d39b09b0ea3a740a127f",
+        "revCount": 6308,
         "type": "git",
         "url": "ssh://git@github.com/ghostty-org/ghostty"
       },
       "original": {
         "type": "git",
         "url": "ssh://git@github.com/ghostty-org/ghostty"
+      }
+    },
+    "ghostty-hm-module": {
+      "locked": {
+        "lastModified": 1702368251,
+        "narHash": "sha256-hafrDmzGplzm+vdIo+LkOjRfA4qRcy5JmpGGksnht5c=",
+        "owner": "clo4",
+        "repo": "ghostty-hm-module",
+        "rev": "887e13a6e7acf5ffaab0119d96e476d84db90904",
+        "type": "github"
+      },
+      "original": {
+        "owner": "clo4",
+        "repo": "ghostty-hm-module",
+        "type": "github"
       }
     },
     "git-hooks": {
@@ -1034,6 +1049,7 @@
         "catppuccin": "catppuccin",
         "flake-parts": "flake-parts_2",
         "ghostty": "ghostty",
+        "ghostty-hm-module": "ghostty-hm-module",
         "home-manager": "home-manager",
         "ironbar": "ironbar",
         "niri": "niri",

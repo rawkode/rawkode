@@ -1,7 +1,7 @@
 { lib, pkgs, ... }:
 
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [ /etc/nixos/hardware-configuration.nix ];
 
   nix = {
     gc = {
@@ -258,6 +258,7 @@
   # };
 
   # services.espanso.enable = true;
+  # services.espanso.wayland = true;
   # systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "/run/wrappers/bin/espanso worker";
 
   programs.git.enable = true;

@@ -9,6 +9,10 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
+    ghostty = {
+      url = "git+ssh://git@github.com/ghostty-org/ghostty";
+    };
+    ghostty-hm-module.url = "github:clo4/ghostty-hm-module";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
     ironbar = {
@@ -40,6 +44,7 @@
 
         modules = [
           inputs.catppuccin.homeManagerModules.catppuccin
+          inputs.ghostty-hm-module.homeModules.default
           inputs.nixvim.homeManagerModules.nixvim
           ./home.nix
         ];

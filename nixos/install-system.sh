@@ -1,5 +1,2 @@
 #!/usr/bin/env bash
-
-sudo cp configuration.nix flake.* /etc/nixos/
-
-sudo nixos-rebuild switch --upgrade --flake /etc/nixos
+sudo -E -s nixos-rebuild switch --impure --upgrade --flake .

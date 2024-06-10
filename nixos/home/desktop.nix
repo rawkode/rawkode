@@ -10,20 +10,29 @@ in
 
   dconf.settings = {
     "org/gnome/desktop/interface" = {
+      clock-show-date = false;
+      color-scheme = "default";
       font-antialiasing = "rgba";
       font-hinting = "slight";
       font-name = "QuickSand 12";
       monospace-font-name = "Monaspace Neon 12";
       document-font-name = "Monaspace Neon 12";
     };
+    "org/gnome/desktop/peripherals/keyboard" = {
+      numlock-state = true;
+    };
 
     "org/gnome/desktop/peripherals/mouse" = {
       natural-scroll = true;
     };
 
+    "org/gnome/desktop/datetime" = {
+      automatic-timezone = true;
+    };
+
     "org/gnome/desktop/peripherals/touchpad" = {
-      two-finger-scrolling-enabled = true;
       disable-while-typing = true;
+      two-finger-scrolling-enabled = true;
     };
 
     "org/gnome/desktop/privacy" = {
@@ -52,12 +61,34 @@ in
     # Disable Windows key
     # "org.gnome.mutter overlay-key" = "";
 
+    "org/gnome/shell/extensions/forge" = {
+      auto-split-enabled = false;
+      stacked-tiling-mode-enabled = true;
+      window-gap-size = lib.hm.gvariant.mkUint32 8;
+      showtab-decoration-enabled = false;
+    };
+
+    "org/gnome/shell/extensions/forge/keybindings" = {
+      window-toggle-float = [ "<Super>f" ];
+      con-tabbed-layout-toggle = [ "<Super>t" ];
+      con-stacked-layout-toggle = [ "<Super><Shift>s" ];
+
+      window-focus-down = [ "<Super>Down" ];
+      window-focus-left = [ "<Super>Left" ];
+      window-focus-right = [ "<Super>Right" ];
+      window-focus-up = [ "<Super>Up" ];
+      window-move-down = [ "<Shift><Super>Down" ];
+      window-move-left = [ "<Shift><Super>Left" ];
+      window-move-right = [ "<Shift><Super>Right" ];
+      window-move-up = [ "<Shift><Super>Up" ];
+    };
+
     "org/gnome/desktop/wm/preferences" = {
       focus-mode = "sloppy";
+      num-workspaces = 3;
     };
 
     "org/gnome/desktop/wm/keybindings" = {
-      toggle-maximized = [ "<Super>Return" ];
       close = [ "<super>q" ];
 
       unmaximize = [ ];
@@ -84,10 +115,15 @@ in
     };
 
     "org/gnome/mutter" = {
-      dynamic-workspaces = true;
+      dynamic-workspaces = false;
       edge-tiling = false;
       workspaces-only-on-primary = true;
       experimental-features = [ "scale-monitor-framebuffer" ];
+    };
+
+    "org/gnome/mutter/keybindings" = {
+      toggle-tiled-left = [ ];
+      toggle-tiled-right = [ ];
     };
 
     "org/gnome/shell" = {
@@ -95,8 +131,9 @@ in
       enabled-extensions = [
         "appindicatorsupport@rgcjonas.gmail.com"
         "blur-my-shell@aunetx"
+        "forge@jmmaranan.com"
         "gsconnect@andyholmes.github.io"
-        "gnome-one-window-wonderland@jqno.nl"
+        "just-perfection-desktop@just-perfection"
         "sound-output-device-chooser@kgshank.net"
         "user-theme@gnome-shell-extensions.gcampax.github.com"
       ];
@@ -112,13 +149,36 @@ in
       welcome-dialog-last-shown-version = "42.0";
     };
 
+    "org/gnome/shell/extensions/just-perfection" = {
+      notification-banner-position = 5;
+      osd-position = 6;
+      panel = true;
+      theme = true;
+      window-demands-attention-focus = true;
+      window-maximized-on-create = true;
+    };
+
     "org/gnome/shell/app-switcher" = {
       current-workspace-only = true;
     };
 
-    "org/gnome/shell/extensions/one-window-wonderland" = {
-      force-list = "Vivaldi";
-      gap-size = 32;
+    "org/gnome/shell/extensions/advanced-alt-tab-window-switcher" = {
+      app-switcher-popup-fav-apps = false;
+      app-switcher-popup-filter = 3;
+      app-switcher-popup-include-show-apps-icon = false;
+      switcher-popup-interactive-indicators = true;
+      switcher-popup-monitor = 3;
+      switcher-popup-position = 3;
+      switcher-popup-start-search = false;
+      switcher-popup-status = true;
+      switcher-popup-sync-filter = true;
+      switcher-popup-timeout = 250;
+      switcher-popup-tooltip-title = 1;
+      switcher-ws-thumbnails = 0;
+      win-switch-skip-minimized = true;
+      win-switcher-popup-filter = 3;
+      win-switcher-popup-order = 4;
+      win-switcher-popup-search-all = false;
     };
   };
 
@@ -129,9 +189,15 @@ in
       discord
       gnome.gnome-tweaks
       gnomeExtensions.appindicator
+      gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
+      gnomeExtensions.fly-pie
+      gnomeExtensions.forge
+      gnomeExtensions.just-perfection
       gnomeExtensions.one-window-wonderland
+      gnomeExtensions.pano
       gnomeExtensions.sound-output-device-chooser
+      gnomeExtensions.useless-gaps
       (wrapOBS { plugins = [ obs-studio-plugins.obs-source-record ]; })
       slack
       wf-recorder

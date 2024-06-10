@@ -7,6 +7,7 @@ in
   imports = [
     ./desktop.nix
     ./development.nix
+    ./ghostty.nix
     ./neovim.nix
     ./shell.nix
     ./web.nix
