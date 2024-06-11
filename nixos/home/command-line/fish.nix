@@ -8,9 +8,6 @@
 
     interactiveShellInit = ''
       set fish_greeting ""
-
-      direnv hook fish | source
-      op completion fish | source
       bind \r magic-enter
     '';
 
