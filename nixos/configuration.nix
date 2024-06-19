@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ pkgs, ... }:
 
 {
   imports = [ /etc/nixos/hardware-configuration.nix ];
@@ -113,19 +113,28 @@
     { settings."org/gnome/login-screen".enable-fingerprint-authentication = false; }
   ];
 
-  virtualisation.containers.enable = true;
   virtualisation = {
+    containers.enable = true;
+
+    lxc.enable = true;
+    lxd.enable = true;
+
     podman = {
       enable = true;
       dockerCompat = true;
       defaultNetwork.settings.dns_enabled = true;
     };
+
+    waydroid.enable = true;
   };
 
   environment.systemPackages = with pkgs; [
     dive
     podman-tui
     docker-compose
+
+    # Waydroid needs this for clipboard support
+    python3Packages.pyclip
   ];
 
   environment.sessionVariables.NIXOS_OZONE_WL = "1";
@@ -223,6 +232,8 @@
 
     desktopManager.gnome.enable = true;
   };
+
+  services.desktopManager.cosmic.enable = true;
 
   environment.gnome.excludePackages = with pkgs; [
     gedit
