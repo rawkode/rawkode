@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-sudo -E -s nixos-rebuild switch --impure --upgrade --flake .
+sudo -E -s nixos-rebuild switch --flake .#laptop --fast

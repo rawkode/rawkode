@@ -1,8 +1,6 @@
 { pkgs, ... }:
 
 {
-  imports = [ /etc/nixos/hardware-configuration.nix ];
-
   nix = {
     gc = {
       automatic = true;
@@ -70,8 +68,6 @@
   };
 
   networking = {
-    hostName = "p4x-nixos";
-
     firewall = rec {
       allowedTCPPortRanges = [
         # KDE Connect
