@@ -7,6 +7,7 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
+    firefox.url = "github:nix-community/flake-firefox-nightly";
     ghostty = {
       url = "git+ssh://git@github.com/ghostty-org/ghostty";
     };

@@ -57,7 +57,6 @@ in
       ];
     };
 
-
     "org/gnome/shell/extensions/forge" = {
       auto-split-enabled = false;
       stacked-tiling-mode-enabled = true;
