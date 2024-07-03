@@ -1,10 +1,6 @@
 { lib, pkgs, ... }:
 
 with lib.hm.gvariant;
-let
-  catppuccin_variant = "frappe";
-  catppuccin_accent = "lavender";
-in
 {
   fonts.fontconfig.enable = true;
 
@@ -80,7 +76,7 @@ in
     };
 
     "org/gnome/desktop/wm/preferences" = {
-      focus-mode = "sloppy";
+      focus-mode = "click";
       num-workspaces = 3;
     };
 
@@ -184,19 +180,14 @@ in
     with pkgs;
     [
       bruno
-      clickup
       discord
       gnome.gnome-tweaks
       gnomeExtensions.appindicator
       gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
-      gnomeExtensions.fly-pie
       gnomeExtensions.forge
       gnomeExtensions.just-perfection
-      gnomeExtensions.one-window-wonderland
-      gnomeExtensions.pano
       gnomeExtensions.sound-output-device-chooser
-      gnomeExtensions.useless-gaps
       (wrapOBS { plugins = [ obs-studio-plugins.obs-source-record ]; })
       slack
       wf-recorder
@@ -206,15 +197,15 @@ in
     ]
   );
 
-  xdg.enable = true;
-
-  xdg.portal = {
+  xdg = {
     enable = true;
-    extraPortals = with pkgs; [
-      xdg-desktop-portal-gtk
-      xdg-desktop-portal-wlr
-    ];
-    xdgOpenUsePortal = true;
+
+    portal = {
+      enable = true;
+      config.common.default = "*";
+      extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+      xdgOpenUsePortal = true;
+    };
   };
 
   programs.zellij.enable = true;
@@ -222,24 +213,12 @@ in
   home.pointerCursor = {
     gtk.enable = true;
     x11.enable = true;
-    name = "catppuccin-frappe-lavender-cursors";
     size = 32;
-    package = pkgs.catppuccin-cursors.frappeLavender;
   };
 
   gtk = {
     enable = true;
-
-    cursorTheme.size = 32;
-
     catppuccin = {
-      enable = true;
-      flavor = catppuccin_variant;
-      accent = catppuccin_accent;
-      size = "standard";
-
-      gnomeShellTheme = true;
-      cursor.enable = true;
       icon.enable = true;
     };
   };

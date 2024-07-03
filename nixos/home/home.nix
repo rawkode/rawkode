@@ -11,8 +11,10 @@
   };
 
   catppuccin = {
-    flavor = "frappe";
     enable = true;
+    flavor = "frappe";
+    accent = "blue";
+    pointerCursor.enable = true;
   };
 
   home.packages = (

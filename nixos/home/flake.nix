@@ -14,8 +14,10 @@
     ghostty-hm-module.url = "github:clo4/ghostty-hm-module";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     utils.url = "github:numtide/flake-utils";
+    walker.url = "github:abenz1267/walker";
   };
 
   outputs =
@@ -34,6 +36,8 @@
         modules = [
           inputs.catppuccin.homeManagerModules.catppuccin
           inputs.ghostty-hm-module.homeModules.default
+          inputs.niri.homeModules.niri
+          inputs.walker.homeManagerModules.walker
           ./home.nix
         ];
       };
