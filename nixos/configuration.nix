@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 
 {
   nix = {
@@ -198,10 +198,13 @@
 
   services.udev.packages = with pkgs; [
     gnome.gnome-settings-daemon
-    pkgs.espanso-wayland
   ];
 
-
+  # Get around permission denied error on /dev/uinput
+  # for espanso
+  services.udev.extraRules = ''
+    KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput", GROUP="input", MODE="0660"
+  '';
 
   services.libinput = {
     enable = true;
@@ -232,14 +235,14 @@
   };
 
   environment.gnome.excludePackages = with pkgs; [
+    geary
     gedit
-    gnome.yelp
-    gnome.file-roller
-    gnome.geary
+    gnome-system-monitor
+    yelp
+
     gnome.gnome-maps
     gnome.gnome-music
     gnome-photos
-    gnome.gnome-system-monitor
     gnome.gnome-weather
 
     gnomeExtensions.applications-menu
@@ -257,16 +260,16 @@
   # I'd love for this to live in home-manager,
   # but espanso on wayland needs this additional
   # capability
-  # security.wrappers.espanso = {
-  #   source = "${pkgs.espanso-wayland}/bin/espanso";
-  #   capabilities = "cap_dac_override+p";
-  #   owner = "root";
-  #   group = "root";
-  # };
+  security.wrappers.espanso = {
+    source = "${pkgs.espanso-wayland}/bin/espanso";
+    capabilities = "cap_dac_override+p";
+    owner = "root";
+    group = "root";
+  };
 
-  # services.espanso.enable = true;
-  # services.espanso.wayland = true;
-  # systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "/run/wrappers/bin/espanso worker";
+  services.espanso.enable = true;
+  services.espanso.wayland = true;
+  systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
 
   programs.git.enable = true;
   programs.fish.enable = true;
@@ -282,6 +285,7 @@
       "audio"
       "disk"
       "docker"
+      "input"
       "networkmanager"
       "plugdev"
       "wheel"

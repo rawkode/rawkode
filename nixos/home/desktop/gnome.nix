@@ -181,7 +181,7 @@ with lib.hm.gvariant;
     [
       bruno
       discord
-      gnome.gnome-tweaks
+      gnome-tweaks
       gnomeExtensions.appindicator
       gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell

@@ -1,7 +1,13 @@
 { inputs, pkgs, ... }:
 
 {
-  home.packages = (with pkgs; [ vivaldi ]);
+  home.packages = (
+    with pkgs;
+    [
+      microsoft-edge-dev
+      vivaldi
+    ]
+  );
 
   programs.firefox = {
     enable = true;

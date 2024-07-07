@@ -2,13 +2,8 @@
   description = "Rawkode's Dotfiles";
 
   inputs = {
-    cosmic = {
-      url = "github:lilyinstarlight/nixos-cosmic";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    niri.url = "github:sodiboo/niri-flake";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
   };
@@ -32,9 +27,7 @@
             }
             { networking.hostName = "p4x-${device-name}"; }
             ./configuration.nix
-            inputs.cosmic.nixosModules.default
             inputs.home-manager.nixosModules.default
-            inputs.niri.nixosModules.niri
             (./. + "/hardware/${device-name}/configuration.nix")
           ] ++ other-modules;
         };

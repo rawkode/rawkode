@@ -27,6 +27,18 @@
     ]
   );
 
+  services.espanso = {
+    enable = true;
+    package = pkgs.espanso-wayland;
+    matches.default.matches = [
+      {
+        # Simple text replacement
+        trigger = "]espanso";
+        replace = "Hi there!";
+      }
+    ];
+  };
+
   imports = [
     ./command-line/default.nix
     ./desktop/default.nix
