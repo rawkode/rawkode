@@ -4,9 +4,13 @@ ARG SOURCE_TAG="latest"
 
 FROM ghcr.io/ublue-os/${SOURCE_IMAGE}${SOURCE_SUFFIX}:${SOURCE_TAG}
 
+RUN mkdir -p /var/opt
 
-COPY build.sh /tmp/build.sh
+COPY etc /etc/
 
-RUN mkdir -p /var/lib/alternatives && \
-    /tmp/build.sh && \
-    ostree container commit
+RUN rpm --import https://downloads.1password.com/linux/keys/1password.asc
+RUN rpm --import http://repo.vivaldi.com/archive/linux_signing_key.pub
+RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc
+RUN rpm-ostree install 1password 1password-cli vivaldi
+    
+RUN ostree container commit

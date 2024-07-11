@@ -1,0 +1,7 @@
+[vivaldi]
+name=vivaldi
+type=rpm
+baseurl=http://repo.vivaldi.com/archive/rpm/x86_64
+enabled=1
+gpgcheck=0
+gpgkey=http://repo.vivaldi.com/archive/linux_signing_key.pub
