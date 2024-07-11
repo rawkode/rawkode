@@ -6,6 +6,12 @@
   ...
 }:
 {
+  home.packages = with pkgs; [
+    fuzzel
+    xwayland
+    xwayland-satellite
+  ];
+
   programs.walker = {
     enable = true;
     runAsService = false;
@@ -42,6 +48,8 @@
   };
 
   programs.niri = {
+    enable = true;
+
     settings = {
       outputs = {
         eDP-1 = {
@@ -68,7 +76,17 @@
         }
       ];
 
+      environment = {
+        DISPLAY = ":25";
+      };
+
       spawn-at-startup = [
+        {
+          command = [
+            "${pkgs.xwayland-satellite}/bin/xwayland-satellite"
+            ":25"
+          ];
+        }
         {
           command = [
             "${pkgs.dbus}/bin/dbus-update-activation-environment"
@@ -86,13 +104,6 @@
         }
         { command = [ "/usr/libexec/polkit-gnome-authentication-agent-1" ]; }
         { command = [ (lib.getExe' config.services.mako.package "mako") ]; }
-        {
-          command = [
-            (lib.getExe pkgs.cage)
-            "--"
-            "1password"
-          ];
-        }
       ];
 
       layout = {
@@ -150,7 +161,7 @@
           "Mod+Shift+Slash".action = show-hotkey-overlay;
 
           # Launcher
-          "Super+Space".action = spawn "${pkgs.walker}/bin/walker";
+          "Super+Space".action = spawn "${pkgs.fuzzel}/bin/fuzzel";
 
           # Windows
           "Super+W".action = spawn "${inputs.ghostty.packages.x86_64-linux.default}/bin/ghostty";

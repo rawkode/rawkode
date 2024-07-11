@@ -1,6 +1,6 @@
-import archinstall
-import argparse
-
+import archinstall, getpass
+import re
+import subprocess
 from archinstall import GfxDriver
 from archinstall import Installer
 from archinstall import profile
@@ -14,17 +14,16 @@ from archinstall.default_profiles.desktops.gnome import GnomeProfile
 from archinstall.default_profiles.profile import GreeterType
 from pathlib import Path
 
+machine_info = subprocess.check_output(["hostnamectl", "status"], universal_newlines=True)
+m = re.search('Chassis: (.+?)\n', machine_info)
+chassis_type = m.group(1)
+print("Your chassis type is", chassis_type)
+
 username = "rawkode"
+boot_partition_size = 2048
 
-parser = argparse.ArgumentParser(description='Arch Installation')
-parser.add_argument('--hostname', '-h', required=True, help='Hostname')
-parser.add_argument('--userpassword', '-u', required=True, help='User password')
-parser.add_argument('--diskpassword', '-d', required=True, help='Disk encrption password')
-args = parser.parse_args()
-
-hostname = args.hostname
-user_password = args.userpassword
-disk_password = args.diskpassword
+hostname = input('Hostname: ')
+password =  getpass.getpass(prompt='User/Disk Encryption Password: ')
 
 fs_type = disk.FilesystemType.Btrfs
 device_path = Path('/dev/nvme0n1')
@@ -32,7 +31,7 @@ device_path = Path('/dev/nvme0n1')
 device = disk.device_handler.get_device(device_path)
 
 if not device:
-	raise ValueError('No device found for given path')
+	raise ValueError('Could not find device. Maybe try wipefs --all /dev/nvme0n1?')
 
 device_modification = disk.DeviceModification(device, wipe=True)
 
@@ -40,7 +39,7 @@ boot_partition = disk.PartitionModification(
 	status=disk.ModificationStatus.Create,
 	type=disk.PartitionType.Primary,
 	start=disk.Size(1, disk.Unit.MiB, device.device_info.sector_size),
-	length=disk.Size(1024, disk.Unit.MiB, device.device_info.sector_size),
+	length=disk.Size(boot_partition_size, disk.Unit.MiB, device.device_info.sector_size),
 	mountpoint=Path('/boot'),
 	fs_type=disk.FilesystemType.Fat32,
 	flags=[disk.PartitionFlag.Boot, disk.PartitionFlag.ESP]
@@ -48,14 +47,17 @@ boot_partition = disk.PartitionModification(
 
 device_modification.add_partition(boot_partition)
 
-root_start = boot_partition.length
-root_length = device.device_info.total_size - root_start
+root_start = disk.Size(1025, disk.Unit.MiB, device.device_info.sector_size)
+# We remove root_start twice because we need some extra space at the end
+# for the partition table to be valid
+root_length = device.device_info.total_size - root_start - root_start
 
 subvolumes = [
 	disk.SubvolumeModification(Path('@'), Path('/')),
 	disk.SubvolumeModification(Path('@home'), Path('/home')),
 	disk.SubvolumeModification(Path('@log'), Path('/var/log')),
 	disk.SubvolumeModification(Path('@pkg'), Path('/var/cache/pacman/pkg')),
+	disk.SubvolumeModification(Path('@nix'), Path('/nix')),
 	disk.SubvolumeModification(Path('@.snapshots'), Path('/.snapshots'))
 ]
 
@@ -66,7 +68,7 @@ root_partition = disk.PartitionModification(
 	length=root_length,
 	mountpoint=None,
 	fs_type=fs_type,
-	mount_options=['compress=zstd'],
+	mount_options=['compress=zstd', 'noatime'],
  	btrfs_subvols=subvolumes,
 )
 
@@ -77,12 +79,8 @@ disk_config = disk.DiskLayoutConfiguration(
 	device_modifications=[device_modification]
 )
 
-encpassword = archinstall.get_password(
-		prompt="Enter disk encryption password: "
-)
-
 disk_encryption = disk.DiskEncryption(
-	encryption_password=disk_password,
+	encryption_password=password,
 	encryption_type=disk.EncryptionType.Luks,
 	partitions=[root_partition],
 	hsm_device=None
@@ -97,16 +95,13 @@ mountpoint = Path('/tmp')
 bootloader = models.Bootloader.Systemd
 kernels = [
 	"linux",
-	"linux-hardened",
-	"linux-lts",
 	"linux-zen"
 ]
 
 enable_testing = True
 enable_multilib = True
-swap = False
 locale_config = locale.LocaleConfiguration(
-	kb_layout="en",
+	kb_layout="us",
 	sys_enc="UTF-8",
 	sys_lang="en_GB"
 )
@@ -137,11 +132,10 @@ audio_config = models.AudioConfiguration(
 gfx_driver = GfxDriver.AmdOpenSource
 
 users = [
-    models.User(username, user_password, True),
+    models.User(username, password, sudo=True),
 ]
 
 base_packages = [
-	"alacritty",
 	"base-devel",
 	"bat",
 	"bluez-cups",
@@ -151,8 +145,9 @@ base_packages = [
 	"brightnessctl",
 	"code",
 	"dialog",
-	"docker-compose",
+	"distrobox",
 	"docker",
+ 	"ffmpeg",
 	"fd",
 	"ffmpegthumbnailer",
 	"ffmpegthumbs",
@@ -164,35 +159,26 @@ base_packages = [
 	"man-db",
 	"man-pages",
 	"networkmanager",
-	"noise-suppression-for-voice",
-	"playerctl",
+	"nix",
+	"otf-monaspace",
+	"otf-monaspace-nerd",
+	"otf-monaspace-variable",
 	"ripgrep",
-	"starship",
-	"ttf-dejavu",
-	"ttf-fira-code",
-	"ttf-hack-nerd",
 	"vivaldi-ffmpeg-codecs",
 	"vivaldi",
-	"zsh-autosuggestions",
-	"zsh-completions",
-	"zsh-syntax-highlighting",
+	"wezterm",
 	"zsh",
- 	"distrobox",
- 	"ffmpeg",
- 	"git",
 ]
 
 services = [
 	"bluetooth",
 	"docker",
+	"nix-daemon",
 ]
 
 custom_commands = [
-	"cd /opt; git clone https://aur.archlinux.org/yay-bin.git",
-	f"chown -R {username} /opt/yay-bin",
-	"cd yay-bin",
-	"makepkg -si",
 	f"usermod -aG docker {username}",
+	f"usermod -aG nix-users {username}",
 ]
 
 my_profile = DesktopProfile(
@@ -224,7 +210,7 @@ with Installer(mountpoint, disk_config, disk_encryption=disk_encryption, kernels
 		locale_config=locale_config,
     )
 
-	if swap:
+	if chassis_type == "laptop":
 		installation.setup_swap('zram')
 
 	installation.add_bootloader(bootloader)
@@ -241,7 +227,6 @@ with Installer(mountpoint, disk_config, disk_encryption=disk_encryption, kernels
 
 	installation.set_timezone(timezone)
 
-	# configure ntp
 	installation.activate_time_synchronization()
 
 	profile.profile_handler.install_profile_config(installation, profile_config)
