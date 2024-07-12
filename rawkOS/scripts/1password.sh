@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -e
 
+## Modified from
+## https://github.com/b-/bluefin/blob/bri/scripts/1password.sh
 echo "Installing 1Password"
 
 # On libostree systems, /opt is a symlink to /var/opt,
@@ -14,19 +16,25 @@ echo "Installing 1Password"
 mkdir -p /var/opt
 rpm-ostree install 1password 1password-cli
 
-mv /var/opt/1Password /usr/lib/1Password
 rm /usr/bin/1password
+
+mv /var/opt/1Password /usr/lib/1Password
 ln -s /opt/1Password/1password /usr/bin/1password
 
-chmod 4755 /usr/lib/1Password/chrome-sandbox
 cd /usr/lib/1Password
+chmod 4755 ./chrome-sandbox
 
 GID_ONEPASSWORD="1500"
 GID_ONEPASSWORDCLI="1600"
-BROWSER_SUPPORT_PATH="/usr/lib/1Password/1Password-BrowserSupport"
+
+BROWSER_SUPPORT_PATH="./1Password-BrowserSupport"
 
 chgrp "${GID_ONEPASSWORD}" "${BROWSER_SUPPORT_PATH}"
 chmod g+s "${BROWSER_SUPPORT_PATH}"
+
+cat >/usr/lib/sysusers.d/onepassword.conf <<EOF
+g     onepassword ${BROWSER_SUPPORT_PATH}
+EOF
 
 cat >/usr/lib/tmpfiles.d/onepassword.conf <<EOF
 L  /opt/1Password  -  -  -  -  /usr/lib/1Password
