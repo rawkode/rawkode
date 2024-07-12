@@ -4,7 +4,7 @@ ARG SOURCE_TAG="latest"
 
 FROM ghcr.io/ublue-os/${SOURCE_IMAGE}${SOURCE_SUFFIX}:${SOURCE_TAG}
 
-RUN mkdir -p /var/opt
+RUN mkdir -p /var/opt && ln -s /var/opt /opt
 
 COPY etc /etc/
 
@@ -14,5 +14,7 @@ RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc
 
 COPY scripts /tmp/scripts
 RUN /tmp/scripts/1password.sh
+
+RUN rpm-ostree install vivaldi
     
 RUN ostree container commit
