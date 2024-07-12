@@ -21,5 +21,6 @@ RUN /tmp/scripts/vivaldi.sh
 COPY usr /usr/
 
 RUN /tmp/scripts/branding.sh
+COPY usr/share/plymouth/themes/spinner/watermark.png /usr/share/pixmaps/fedora-logo-small.png
     
 RUN ostree container commit
