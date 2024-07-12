@@ -19,5 +19,7 @@ RUN /tmp/scripts/1password.sh
 RUN /tmp/scripts/vivaldi.sh
 
 COPY usr /usr/
+
+RUN /tmp/scripts/branding.sh
     
 RUN ostree container commit

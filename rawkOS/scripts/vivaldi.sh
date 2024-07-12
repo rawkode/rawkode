@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/bash
+set -ouex pipefail
 
 mv /var/opt/vivaldi-snapshot /usr/lib/vivaldi-snapshot
 

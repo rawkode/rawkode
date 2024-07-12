@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/bash
+set -ouex pipefail
 
 ## Modified from
 ## https://github.com/b-/bluefin/blob/bri/scripts/1password.sh
