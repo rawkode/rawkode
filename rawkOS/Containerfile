@@ -4,7 +4,7 @@ ARG SOURCE_TAG="latest"
 
 FROM ghcr.io/ublue-os/${SOURCE_IMAGE}${SOURCE_SUFFIX}:${SOURCE_TAG}
 
-RUN mkdir -p /var/opt && ln -s /var/opt /opt
+RUN mkdir -p /var/opt
 
 COPY etc /etc/
 
@@ -12,9 +12,12 @@ RUN rpm --import https://downloads.1password.com/linux/keys/1password.asc
 RUN rpm --import http://repo.vivaldi.com/archive/linux_signing_key.pub
 RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc
 
+RUN rpm-ostree install 1password 1password-cli vivaldi
+
 COPY scripts /tmp/scripts
 RUN /tmp/scripts/1password.sh
+RUN /tmp/scripts/vivaldi.sh
 
-RUN rpm-ostree install vivaldi
+RUN touch /opt/test-me
     
 RUN ostree container commit
