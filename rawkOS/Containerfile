@@ -18,6 +18,6 @@ COPY scripts /tmp/scripts
 RUN /tmp/scripts/1password.sh
 RUN /tmp/scripts/vivaldi.sh
 
-RUN touch /opt/test-me
+COPY usr /usr/
     
 RUN ostree container commit

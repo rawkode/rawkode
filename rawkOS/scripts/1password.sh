@@ -13,24 +13,8 @@ chmod 4755 /usr/lib/1Password/chrome-sandbox
 GID_ONEPASSWORD="1500"
 GID_ONEPASSWORDCLI="1600"
 
-cat >/usr/lib/tmpfiles.d/onepassword.conf <<EOF
-L  /opt/1Password  -  -  -  -  /usr/lib/1Password
-EOF
-
-BROWSER_SUPPORT_PATH="/usr/lib/1Password/1Password-BrowserSupport"
-
-chgrp "${GID_ONEPASSWORD}" "${BROWSER_SUPPORT_PATH}"
-chmod g+s "${BROWSER_SUPPORT_PATH}"
+chgrp ${GID_ONEPASSWORD} /usr/lib/1Password/1Password-BrowserSupport
+chmod g+s /usr/lib/1Password/1Password-BrowserSupport
 
 chown root:${GID_ONEPASSWORDCLI} /usr/bin/op
 chmod g+s /usr/bin/op
-
-cat >/usr/lib/sysusers.d/onepassword.conf <<EOF
-g     onepassword ${BROWSER_SUPPORT_PATH}
-g     onepassword-cli /usr/bin/op
-EOF
-
-mkdir -p /etc/1password
-cat >/etc/1password/custom_allowed_browsers <<EOF
-vivaldi
-EOF
