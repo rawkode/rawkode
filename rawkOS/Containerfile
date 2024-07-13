@@ -1,4 +1,4 @@
-ARG SOURCE_IMAGE="bluefin"
+ARG SOURCE_IMAGE="aurora"
 ARG SOURCE_SUFFIX="-dx"
 ARG SOURCE_TAG="latest"
 
