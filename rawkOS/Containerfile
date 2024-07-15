@@ -1,8 +1,4 @@
-ARG SOURCE_IMAGE="aurora"
-ARG SOURCE_SUFFIX="-dx"
-ARG SOURCE_TAG="latest"
-
-FROM ghcr.io/ublue-os/${SOURCE_IMAGE}${SOURCE_SUFFIX}:${SOURCE_TAG}
+FROM quay.io/fedora-ostree-desktops/kinoite:40
 
 RUN mkdir -p /var/opt
 
@@ -10,7 +6,6 @@ COPY etc /etc/
 
 RUN rpm --import https://downloads.1password.com/linux/keys/1password.asc
 RUN rpm --import http://repo.vivaldi.com/archive/linux_signing_key.pub
-RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc
 
 RUN rpm-ostree install 1password 1password-cli vivaldi
 
@@ -19,8 +14,5 @@ RUN /tmp/scripts/1password.sh
 RUN /tmp/scripts/vivaldi.sh
 
 COPY usr /usr/
-
-RUN /tmp/scripts/branding.sh
-COPY usr/share/plymouth/themes/spinner/watermark.png /usr/share/pixmaps/fedora-logo-small.png
-    
+   
 RUN ostree container commit
