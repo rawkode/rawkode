@@ -1,4 +1,4 @@
-FROM quay.io/fedora-ostree-desktops/kinoite:40
+FROM quay.io/fedora-ostree-desktops/silverblue:40
 
 RUN mkdir -p /var/opt
 
