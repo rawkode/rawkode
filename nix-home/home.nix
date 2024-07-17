@@ -32,7 +32,6 @@
     [
       aichat
       fzf
-			monaspace
       nil
       nixfmt-rfc-style
 			zoxide

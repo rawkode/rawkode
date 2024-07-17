@@ -12,6 +12,7 @@ install-flatpaks:
 	flatpak install com.slack.Slack
 	flatpak install org.wezfurlong.wezterm
 	flatpak install us.zoom.Zoom
+	flatpak install --user --from https://nightly.gnome.org/repo/appstream/org.gnome.Ptyxis.Devel.flatpakref
 
 # Setup the default shell
 set-default-shell:
