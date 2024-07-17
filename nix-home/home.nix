@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 {
   home.username = "rawkode";
   home.homeDirectory = "/home/rawkode";
@@ -12,9 +12,19 @@
 
   programs.nushell = {
     enable = true;
+
+		shellAliases = {
+			ai = "op run --account my.1password.eu -- aichat";
+		};
+
     environmentVariables = {
-			SSH_AUTH_SOCK = "\${SSH_AUTH_SOCK:$HOME/.1password/agent.sock}";
+      GEMINI_API_KEY = ''"op://Private/Google Gemini/password"'';
+      SSH_AUTH_SOCK = "($env.HOME | path join '1password' 'agent.sock')";
     };
+  };
+
+  home.file."${config.xdg.configHome}/aichat/config.yaml" = {
+		source = ./programs/aichat/config.yaml;
   };
 
   catppuccin = {
@@ -27,6 +37,7 @@
   home.packages = (
     with pkgs;
     [
+      aichat
       fishPlugins.github-copilot-cli-fish
       nil
       nixfmt-rfc-style
