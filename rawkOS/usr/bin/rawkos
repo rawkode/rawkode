@@ -5,3 +5,9 @@ default:
 
 nix-install:
     curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+
+secureboot-enroll:
+    sudo kmodgenca -a
+    sudo mokutil --timeout -1
+    sudo mokutil --import /etc/pki/akmods/certs/public_key.der
+    echo "Time to reboot and enter your password to enroll ..."

@@ -8,7 +8,7 @@ RUN rpm --import https://downloads.1password.com/linux/keys/1password.asc
 RUN rpm --import http://repo.vivaldi.com/archive/linux_signing_key.pub
 RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc
 
-RUN rpm-ostree install 1password 1password-cli code just podman vivaldi
+RUN rpm-ostree install 1password 1password-cli code just kmodtool podman vivaldi
 
 COPY scripts /tmp/scripts
 RUN /tmp/scripts/1password.sh
