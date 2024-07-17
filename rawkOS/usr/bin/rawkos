@@ -1,13 +1,19 @@
 #!/usr/bin/env -S just --justfile
 
+[private]
 default:
-    just --choose
+	@just --choose --justfile /usr/bin/rawkos
 
+# Make Nix available via Determinate Systems installer
 nix-install:
-    curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+	curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
 
-secureboot-enroll:
-    sudo kmodgenca -a
-    sudo mokutil --timeout -1
-    sudo mokutil --import /etc/pki/akmods/certs/public_key.der
-    echo "Time to reboot and enter your password to enroll ..."
+# Create Code directory and clone rawkode and RawkodeAcademy repositories
+code-init:
+	mkdir -p ${HOME}/Code/src/github.com/{rawkode,RawkodeAcademy}
+	git clone git@github.com:rawkode/rawkode.git ${HOME}/Code/src/github.com/rawkode/rawkode
+	git clone git@github.com:RawkodeAcademy/RawkodeAcademy.git ${HOME}/Code/src/github.com/RawkodeAcademy/RawkodeAcademy
+
+# Let's fetch the latest and greatest!
+upgrade:
+	rpm-ostree upgrade
