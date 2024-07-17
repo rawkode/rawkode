@@ -2,7 +2,17 @@
 
 [private]
 default:
-	@just --choose --justfile /usr/bin/rawkos
+	@just --choose --justfile {{justfile()}}
+
+# Make new installs a little easier
+init: nix-install code-init nix-home set-default-shell
+
+# Setup the default shell
+set-default-shell:
+	sudo usermod --shell $(which nu) $(whoami)
+
+nix-home:
+	nix run home-manager -- switch --flake ${HOME}/Code/src/github.com/rawkode/rawkode/nix-home
 
 # Make Nix available via Determinate Systems installer
 nix-install:

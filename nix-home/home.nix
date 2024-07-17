@@ -10,6 +10,13 @@
     enable = true;
   };
 
+  programs.nushell = {
+    enable = true;
+    environmentVariables = {
+			SSH_AUTH_SOCK = "\${SSH_AUTH_SOCK:$HOME/.1password/agent.sock}";
+    };
+  };
+
   catppuccin = {
     enable = true;
     flavor = "frappe";
