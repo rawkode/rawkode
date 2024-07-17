@@ -21,23 +21,10 @@
     with pkgs;
     [
       fishPlugins.github-copilot-cli-fish
-      morgen
       nil
       nixfmt-rfc-style
     ]
   );
-
-  services.espanso = {
-    enable = true;
-    package = pkgs.espanso-wayland;
-    matches.default.matches = [
-      {
-        # Simple text replacement
-        trigger = "]espanso";
-        replace = "Hi there!";
-      }
-    ];
-  };
 
   imports = [
     ./command-line/default.nix

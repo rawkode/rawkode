@@ -179,34 +179,15 @@ with lib.hm.gvariant;
   home.packages = (
     with pkgs;
     [
-      bruno
-      discord
-      gnome-tweaks
       gnomeExtensions.appindicator
       gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
       gnomeExtensions.forge
       gnomeExtensions.just-perfection
       gnomeExtensions.sound-output-device-chooser
-      (wrapOBS { plugins = [ obs-studio-plugins.obs-source-record ]; })
-      slack
-      wf-recorder
-      wl-clipboard
-      wmctrl
-      zoom-us
+      monaspace
     ]
   );
-
-  xdg = {
-    enable = true;
-
-    portal = {
-      enable = true;
-      config.common.default = "*";
-      extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
-      xdgOpenUsePortal = true;
-    };
-  };
 
   programs.zellij.enable = true;
 
