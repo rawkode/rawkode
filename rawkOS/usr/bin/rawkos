@@ -7,6 +7,12 @@ default:
 # Make new installs a little easier
 init: nix-install code-init nix-home set-default-shell
 
+install-flatpaks:
+	flatpak install com.discordapp.Discord
+	flatpak install com.slack.Slack
+	flatpak install org.wezfurlong.wezterm
+	flatpak install us.zoom.Zoom
+
 # Setup the default shell
 set-default-shell:
 	sudo usermod --shell $(which nu) $(whoami)

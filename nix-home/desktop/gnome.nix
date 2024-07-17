@@ -185,7 +185,6 @@ with lib.hm.gvariant;
       gnomeExtensions.forge
       gnomeExtensions.just-perfection
       gnomeExtensions.sound-output-device-chooser
-      monaspace
     ]
   );
 

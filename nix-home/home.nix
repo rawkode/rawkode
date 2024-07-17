@@ -4,6 +4,12 @@
   home.homeDirectory = "/home/rawkode";
   home.stateVersion = "23.11";
 
+  imports = [
+    ./command-line/default.nix
+    ./desktop/default.nix
+    ./development/default.nix
+  ];
+
   nixpkgs.config.allowUnfree = true;
 
   programs.home-manager = {
@@ -19,10 +25,10 @@
 
     environmentVariables = {
       GEMINI_API_KEY = ''"op://Private/Google Gemini/password"'';
-			NIX_LINK = "/nix/var/nix/profiles/default";
+			NIX_LINK = ''"/nix/var/nix/profiles/default"'';
 			NIX_PROFILES = "/nix/var/nix/profiles/default ($env.NIX_LINK)";
-			PATH = "($.env.PATH | split row (char esep) | prepend $'($env.HOME/.nix-profile/bin)' | append $'($env.nix_link)/bin'";
-      SSH_AUTH_SOCK = "($env.HOME | path join '1password' 'agent.sock')";
+			PATH = ''"($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin)' | append $'($env.NIX_LINK)/bin')"'';
+      SSH_AUTH_SOCK = ''"($env.HOME | path join '1password' 'agent.sock')"'';
     };
   };
 
@@ -42,14 +48,9 @@
     [
       aichat
       fzf
+			monaspace
       nil
       nixfmt-rfc-style
     ]
   );
-
-  imports = [
-    ./command-line/default.nix
-    ./desktop/default.nix
-    ./development/default.nix
-  ];
 }
