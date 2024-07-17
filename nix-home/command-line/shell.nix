@@ -12,8 +12,6 @@
       unzip
       vim
       wget
-      zsh
-      zplug
     ]
   );
 

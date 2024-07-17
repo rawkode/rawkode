@@ -179,6 +179,7 @@ with lib.hm.gvariant;
   home.packages = (
     with pkgs;
     [
+			gnome-extension-manager
       gnomeExtensions.appindicator
       gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
