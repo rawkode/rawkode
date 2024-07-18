@@ -38,7 +38,7 @@ partition-disks:
 
 	sudo mount -o compress=zstd,noatime,subvol=root /dev/disk/by-label/nixos /mnt
 
-	mkdir -p /mnt/{boot,home,nix,snapshots,var/log}
+	sudo mkdir -p /mnt/{boot,home,nix,snapshots,var/log}
 
 	sudo mount -o compress=zstd,noatime,subvol=home /dev/disk/by-label/nixos /mnt/home
 	sudo mount -o compress=zstd,noatime,subvol=nix /dev/disk/by-label/nixos /mnt/nix
