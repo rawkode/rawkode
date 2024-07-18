@@ -1,0 +1,64 @@
+default:
+	@just --choose
+
+partition-disks:
+	#! /usr/bin/env bash
+	set -eou pipefail
+
+	if [ ! -v "1" ] || [ ! -b "${1}" ]; then
+		echo "Argv[1] must be a suitable device."
+		exit 1
+	fi
+
+	if [ ! -v "2" ] || [ ! -b "${2}" ]; then
+		echo "Argv[2] must be a suitable hardware configuration."
+		ls -l ./hardware
+		exit 1
+	fi
+
+	device="${1}"
+	hardware="${2}"
+
+	sudo parted "${device}" -- mklabel gpt
+	sudo parted "${device}" -- mkpart boot fat32 0% 2GB
+	sudo parted "${device}" -- set 1 boot on
+	sudo parted "${device}" -- mkpart root 1GB 100%
+
+	sleep 5
+
+	sudo mkfs.fat -F 32 -n boot /dev/disk/by-partlabel/boot
+	sudo cryptsetup luksFormat --type luks2 /dev/disk/by-partlabel/root
+	sudo cryptsetup luksOpen /dev/disk/by-partlabel/root root
+
+	sleep 5
+
+	sudo mkfs.btrfs -L nixos /dev/mapper/root
+
+	sleep 5
+
+	sudo mkdir -p /mnt
+	sudo mount /dev/disk/by-label/nixos /mnt
+
+	sudo btrfs subvolume create /mnt/root
+	sudo btrfs subvolume create /mnt/home
+	sudo btrfs subvolume create /mnt/nix
+	sudo btrfs subvolume create /mnt/log
+	sudo btrfs subvolume create /mnt/snapshots
+
+	sudo umount /mnt
+
+	sudo mount -o compress=zstd,noatime,subvol=root /dev/disk/by-label/nixos /mnt
+
+	mkdir -p /mnt/{boot,home,nix,snapshots,var/log}
+
+	sudo mount -o compress=zstd,noatime,subvol=home /dev/disk/by-label/nixos /mnt/home
+	sudo mount -o compress=zstd,noatime,subvol=nix /dev/disk/by-label/nixos /mnt/nix
+	sudo mount -o compress=zstd,noatime,subvol=snapshots /dev/disk/by-label/nixos /mnt/snapshots
+	sudo mount -o compress=zstd,noatime,subvol=log /dev/disk/by-label/nixos /mnt/var/log
+
+	sudo mount /dev/disk/by-label/boot /mnt/boot
+
+	sudo btrfs subvolume snapshot /mnt/ /mnt/snapshots/empty-root
+
+	sudo nixos-install --no-root-passwd --root /mnt --flake .#${hardware}
+	sudo nixos-enter --root /mnt --command "passwd rawkode"

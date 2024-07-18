@@ -64,17 +64,6 @@
       };
     };
 
-    # Lanzaboote currently replaces the systemd-boot module.
-    # This setting is usually set to true in configuration.nix
-    # generated at installation time. So we force it to false
-    # for now.
-    loader.systemd-boot.enable = lib.mkForce false;
-
-    lanzaboote = {
-      enable = true;
-      pkiBundle = "/etc/secureboot";
-    };
-
     tmp.cleanOnBoot = true;
   };
 
@@ -89,6 +78,11 @@
         {
           from = 1714;
           to = 1764;
+        }
+        # RQuickShare
+        {
+          from = 12345;
+          to = 12345;
         }
       ];
       allowedUDPPortRanges = allowedTCPPortRanges;
@@ -123,8 +117,8 @@
     { settings."org/gnome/login-screen".enable-fingerprint-authentication = true; }
   ];
 
-  services.desktopManager.cosmic.enable = true;
-  services.displayManager.cosmic-greeter.enable = false;
+  #services.desktopManager.cosmic.enable = true;
+  #services.displayManager.cosmic-greeter.enable = false;
 
   virtualisation = {
     containers.enable = true;
@@ -199,10 +193,8 @@
   services.printing.enable = true;
   services.pcscd.enable = true;
 
-  sound.enable = true;
-
   hardware.pulseaudio = {
-    enable = true;
+    enable = false;
     package = pkgs.pulseaudioFull;
   };
 
@@ -279,11 +271,9 @@
   };
 
   services.espanso.enable = true;
-  services.espanso.wayland = true;
   systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
 
   programs.git.enable = true;
-  programs.nushell.enable = true;
 
   users.groups.rawkode = { };
 

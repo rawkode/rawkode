@@ -1,6 +1,6 @@
 { inputs, lib, pkgs, ... }:
 {
-  imports = [ inputs.lanzaboote.nixosModules.lanzaboote ];
+  #imports = [ inputs.lanzaboote.nixosModules.lanzaboote ];
 
   boot = {
     # Lanzaboote currently replaces the systemd-boot module.

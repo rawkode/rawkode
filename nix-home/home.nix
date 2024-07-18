@@ -31,9 +31,12 @@
     with pkgs;
     [
       aichat
+      discord
+      slack
       fzf
       nil
       nixfmt-rfc-style
+      rquickshare
 			zoxide
     ]
   );

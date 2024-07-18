@@ -4,4 +4,4 @@ select configuration in hardware/*/; do test -n "${configuration}" && break; ech
 
 configurationName=$(basename "${configuration}")
 
-sudo -E -s nixos-rebuild switch --flake .#${configurationName} --fast
+sudo -E -s nixos-rebuild switch --fast --flake .#${configurationName}
