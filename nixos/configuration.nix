@@ -1,6 +1,10 @@
 { lib, pkgs, ... }:
 
 {
+  imports = [
+    ./modules/secureboot/default.nix
+  ];
+
   nix = {
     gc = {
       automatic = true;
@@ -50,14 +54,25 @@
   boot = {
     kernelPackages = pkgs.linuxPackages_latest;
 
-    loader = {
-      systemd-boot = {
-        enable = true;
-      };
+    initrd.systemd.enable = true;
 
+    plymouth.enable = true;
+
+    loader = {
       efi = {
         canTouchEfiVariables = true;
       };
+    };
+
+    # Lanzaboote currently replaces the systemd-boot module.
+    # This setting is usually set to true in configuration.nix
+    # generated at installation time. So we force it to false
+    # for now.
+    loader.systemd-boot.enable = lib.mkForce false;
+
+    lanzaboote = {
+      enable = true;
+      pkiBundle = "/etc/secureboot";
     };
 
     tmp.cleanOnBoot = true;
@@ -105,7 +120,7 @@
   services.xserver.displayManager.gdm.wayland = true;
 
   programs.dconf.profiles.gdm.databases = [
-    { settings."org/gnome/login-screen".enable-fingerprint-authentication = false; }
+    { settings."org/gnome/login-screen".enable-fingerprint-authentication = true; }
   ];
 
   services.desktopManager.cosmic.enable = true;
@@ -119,7 +134,7 @@
 
     podman = {
       enable = true;
-      dockerCompat = true;
+      dockerCompat = false;
       defaultNetwork.settings.dns_enabled = true;
     };
 
@@ -127,9 +142,7 @@
   };
 
   environment.systemPackages = with pkgs; [
-    dive
     podman-tui
-    docker-compose
 
     # Waydroid needs this for clipboard support
     python3Packages.pyclip
@@ -189,7 +202,7 @@
   sound.enable = true;
 
   hardware.pulseaudio = {
-    enable = false;
+    enable = true;
     package = pkgs.pulseaudioFull;
   };
 
@@ -198,19 +211,14 @@
   security.pam.services.gdm.enableGnomeKeyring = true;
   services.gnome.gnome-keyring.enable = true;
 
-  services.udev.packages = with pkgs; [
-    gnome.gnome-settings-daemon
-  ];
+  services.udev.packages = with pkgs; [ gnome.gnome-settings-daemon ];
 
-<<<<<<< Updated upstream
   # Get around permission denied error on /dev/uinput
   # for espanso
   services.udev.extraRules = ''
     KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput", GROUP="input", MODE="0660"
   '';
 
-=======
->>>>>>> Stashed changes
   services.libinput = {
     enable = true;
 
@@ -242,25 +250,11 @@
   environment.gnome.excludePackages = with pkgs; [
     geary
     gedit
-<<<<<<< Updated upstream
-    gnome-system-monitor
-    yelp
-
-    gnome.gnome-maps
-    gnome.gnome-music
-    gnome-photos
-=======
-    yelp
-    file-roller
-    geary
     gnome-photos
     gnome-system-monitor
-
     gnome.gnome-maps
     gnome.gnome-music
->>>>>>> Stashed changes
     gnome.gnome-weather
-
     gnomeExtensions.applications-menu
     gnomeExtensions.auto-move-windows
     gnomeExtensions.launch-new-instance
@@ -271,6 +265,7 @@
     gnomeExtensions.window-list
     gnomeExtensions.windownavigator
     gnomeExtensions.workspace-indicator
+    yelp
   ];
 
   # I'd love for this to live in home-manager,
@@ -285,14 +280,10 @@
 
   services.espanso.enable = true;
   services.espanso.wayland = true;
-<<<<<<< Updated upstream
   systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
-=======
-  systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "/run/wrappers/bin/espanso worker";
->>>>>>> Stashed changes
 
   programs.git.enable = true;
-  programs.fish.enable = true;
+  programs.nushell.enable = true;
 
   users.groups.rawkode = { };
 
@@ -310,8 +301,8 @@
       "plugdev"
       "wheel"
     ];
-    shell = pkgs.fish;
+    shell = pkgs.nushell;
   };
 
-  system.stateVersion = "23.11";
+  system.stateVersion = "24.05";
 }
