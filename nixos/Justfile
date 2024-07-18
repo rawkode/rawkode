@@ -50,4 +50,6 @@ partition-disks:
 	sudo btrfs subvolume snapshot /mnt/ /mnt/snapshots/empty-root
 
 	sudo nixos-install --no-root-passwd --root /mnt --flake .#${hardware}
+	sudo nixos-enter --root /mnt --command "sbctl create-keys"
+	sudo nixos-install --no-root-passwd --root /mnt --flake .#${hardware}
 	sudo nixos-enter --root /mnt --command "passwd rawkode"
