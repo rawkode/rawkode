@@ -5,19 +5,8 @@ partition-disks:
 	#! /usr/bin/env bash
 	set -eou pipefail
 
-	if [ ! -v "1" ] || [ ! -b "${1}" ]; then
-		echo "Argv[1] must be a suitable device."
-		exit 1
-	fi
-
-	if [ ! -v "2" ] || [ ! -b "${2}" ]; then
-		echo "Argv[2] must be a suitable hardware configuration."
-		ls -l ./hardware
-		exit 1
-	fi
-
-	device="${1}"
-	hardware="${2}"
+	read -p 'Hardware Configuration: ' hardware
+	read -p 'Block Device: ' device
 
 	sudo parted "${device}" -- mklabel gpt
 	sudo parted "${device}" -- mkpart boot fat32 0% 2GB
