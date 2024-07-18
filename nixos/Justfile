@@ -11,7 +11,7 @@ partition-disks:
 	sudo parted "${device}" -- mklabel gpt
 	sudo parted "${device}" -- mkpart boot fat32 0% 2GB
 	sudo parted "${device}" -- set 1 boot on
-	sudo parted "${device}" -- mkpart root 1GB 100%
+	sudo parted "${device}" -- mkpart root 2GB 100%
 
 	sleep 5
 
