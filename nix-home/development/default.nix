@@ -9,6 +9,7 @@
   home.packages = (
     with pkgs;
     [
+			glab
       rustup
       zed-editor
     ]

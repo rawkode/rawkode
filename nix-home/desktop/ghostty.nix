@@ -12,7 +12,7 @@
       command = "zellij";
 
       gtk-single-instance = true;
-      window-decoration = false;
+      window-decoration = true;
       window-vsync = true;
       window-padding-x = 8;
       window-padding-y = 8;

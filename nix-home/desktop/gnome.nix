@@ -125,9 +125,12 @@ with lib.hm.gvariant;
         "advanced-alt-tab@G-dH.github.com"
         "appindicatorsupport@rgcjonas.gmail.com"
         "blur-my-shell@aunetx"
-        "forge@jmmaranan.com"
+				"compiz-windows-effect@hermes83.github.com"
+				"emoji-copy@felipeftn"
+				"forge@jmmaranan.com"
         "gsconnect@andyholmes.github.io"
         "just-perfection-desktop@just-perfection"
+				# "material-shell@papyelgringo"
         "sound-output-device-chooser@kgshank.net"
         "user-theme@gnome-shell-extensions.gcampax.github.com"
       ];
@@ -183,8 +186,11 @@ with lib.hm.gvariant;
       gnomeExtensions.appindicator
       gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
+			gnomeExtensions.compiz-windows-effect
+			gnomeExtensions.emoji-copy
       gnomeExtensions.forge
       gnomeExtensions.just-perfection
+			gnomeExtensions.material-shell
       gnomeExtensions.sound-output-device-chooser
     ]
   );
