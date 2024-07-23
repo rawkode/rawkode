@@ -127,7 +127,7 @@ with lib.hm.gvariant;
         "blur-my-shell@aunetx"
 				"compiz-windows-effect@hermes83.github.com"
 				"emoji-copy@felipeftn"
-				"forge@jmmaranan.com"
+				# "forge@jmmaranan.com"
         "gsconnect@andyholmes.github.io"
         "just-perfection-desktop@just-perfection"
 				# "material-shell@papyelgringo"
@@ -191,7 +191,9 @@ with lib.hm.gvariant;
       gnomeExtensions.forge
       gnomeExtensions.just-perfection
 			gnomeExtensions.material-shell
+			gnomeExtensions.one-window-wonderland
       gnomeExtensions.sound-output-device-chooser
+			gnomeExtensions.useless-gaps
     ]
   );
 
