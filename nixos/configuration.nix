@@ -33,6 +33,12 @@
     package = pkgs.nixVersions.git;
   };
 
+  catppuccin = {
+    enable = true;
+    flavor = "mocha";
+    accent = "blue";
+  };
+
   services.fwupd.enable = true;
 
   nixpkgs.config = {
@@ -123,11 +129,6 @@
     ];
   };
 
-  services.xserver.displayManager.gdm.enable = true;
-  services.xserver.displayManager.gdm.wayland = true;
-  #services.desktopManager.cosmic.enable = true;
-  #services.displayManager.cosmic-greeter.enable = false;
-
   virtualisation = {
     containers.enable = true;
 
@@ -201,12 +202,33 @@
     };
   };
 
+  programs.ssh.askPassword = lib.mkForce "${pkgs.seahorse}/libexec/seahorse/ssh-askpass";
+
+  services.desktopManager = {
+    cosmic.enable = true;
+    plasma6.enable = true;
+  };
+
+  services.displayManager = {
+      cosmic-greeter.enable = false;
+      sddm.enable = false;
+  };
+
   services.xserver = {
     enable = true;
     xkb.layout = "us";
     videoDrivers = [ "modesetting" ];
 
-    desktopManager.gnome.enable = true;
+    desktopManager = {
+      gnome.enable = true;
+    };
+
+    displayManager = {
+      gdm = {
+        enable = true;
+        wayland = true;
+      };
+    };
   };
 
   environment.gnome.excludePackages = with pkgs; [

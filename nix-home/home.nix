@@ -17,12 +17,12 @@
   };
 
   home.file."${config.xdg.configHome}/aichat/config.yaml" = {
-		source = ./programs/aichat/config.yaml;
+    source = ./programs/aichat/config.yaml;
   };
 
   catppuccin = {
     enable = true;
-    flavor = "frappe";
+    flavor = "mocha";
     accent = "blue";
     pointerCursor.enable = true;
   };
@@ -31,13 +31,14 @@
     with pkgs;
     [
       aichat
+			zoom-us
       discord
       slack
       fzf
       nil
       nixfmt-rfc-style
       rquickshare
-			zoxide
+      zoxide
     ]
   );
 }

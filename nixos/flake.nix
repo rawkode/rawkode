@@ -2,6 +2,11 @@
   description = "rawkOS";
 
   inputs = {
+    catppuccin.url = "github:catppuccin/nix";
+    cosmic = {
+      url = "github:lilyinstarlight/nixos-cosmic";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -29,7 +34,11 @@
               };
             }
             { networking.hostName = "p4x-${device-name}-nixos"; }
+
+            inputs.catppuccin.nixosModules.catppuccin
+            inputs.cosmic.nixosModules.default
             inputs.home-manager.nixosModules.default
+
             (./. + "/hardware/${device-name}/configuration.nix")
             ./configuration.nix
           ] ++ other-modules;

@@ -7,11 +7,13 @@ end
 if wezterm.config_builder then
   config = wezterm.config_builder()
 
-  -- config.front_end = "WebGpu"
-  -- config.webgpu_power_preference = "HighPerformance"
+	config.enable_wayland = true
 
-  -- config.window_decorations = "RESIZE"
-  -- config.enable_tab_bar = true
+  config.front_end = "OpenGL"
+  config.webgpu_power_preference = "HighPerformance"
+
+  config.window_decorations = "RESIZE"
+  config.enable_tab_bar = false
   config.window_close_confirmation = "NeverPrompt"
 
   config.default_prog = {

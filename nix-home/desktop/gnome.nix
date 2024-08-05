@@ -7,11 +7,6 @@ with lib.hm.gvariant;
   dconf.settings = {
     "org/gnome/desktop/interface" = {
       clock-show-date = false;
-      font-antialiasing = "rgba";
-      font-hinting = "slight";
-      font-name = "QuickSand 12";
-      monospace-font-name = "Monaspace Neon 12";
-      document-font-name = "Monaspace Neon 12";
     };
     "org/gnome/desktop/peripherals/keyboard" = {
       numlock-state = true;
