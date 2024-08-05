@@ -2,7 +2,9 @@
 
 {
   imports = [
+    ./substituters.nix
     ./modules/secureboot/default.nix
+    ./system/default.nix
   ];
 
   nix = {
@@ -15,32 +17,23 @@
     settings = {
       sandbox = true;
       trusted-users = [ "rawkode" ];
+      auto-optimise-store = true;
+      builders-use-substitutes = true;
+
       experimental-features = [
         "nix-command"
         "flakes"
       ];
+
+      # for direnv GC roots
+      keep-derivations = true;
+      keep-outputs = true;
     };
 
     package = pkgs.nixVersions.git;
   };
 
   services.fwupd.enable = true;
-
-  systemd = {
-    user.services.polkit-gnome-authentication-agent-1 = {
-      description = "polkit-gnome-authentication-agent-1";
-      wantedBy = [ "graphical-session.target" ];
-      wants = [ "graphical-session.target" ];
-      after = [ "graphical-session.target" ];
-      serviceConfig = {
-        Type = "simple";
-        ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
-        Restart = "on-failure";
-        RestartSec = 1;
-        TimeoutStopSec = 10;
-      };
-    };
-  };
 
   nixpkgs.config = {
     allowUnfree = true;
@@ -54,16 +47,19 @@
   boot = {
     kernelPackages = pkgs.linuxPackages_latest;
 
-    initrd.systemd.enable = true;
-
-    plymouth.enable = true;
+    initrd = {
+      systemd.enable = true;
+      supportedFilesystems = [ "btrfs" ];
+    };
 
     loader = {
       efi = {
         canTouchEfiVariables = true;
       };
+      systemd-boot.enable = true;
     };
 
+    plymouth.enable = true;
     tmp.cleanOnBoot = true;
   };
 
@@ -72,24 +68,25 @@
   };
 
   networking = {
-    firewall = rec {
-      allowedTCPPortRanges = [
-        # KDE Connect
-        {
-          from = 1714;
-          to = 1764;
-        }
-        # RQuickShare
-        {
-          from = 12345;
-          to = 12345;
-        }
-      ];
-      allowedUDPPortRanges = allowedTCPPortRanges;
-    };
+    # firewall = rec {
+    #   allowedTCPPortRanges = [
+    #     # KDE Connect
+    #     {
+    #       from = 1714;
+    #       to = 1764;
+    #     }
+    #     # RQuickShare
+    #     {
+    #       from = 12345;
+    #       to = 12345;
+    #     }
+    #   ];
+    #   allowedUDPPortRanges = allowedTCPPortRanges;
+    # };
 
     networkmanager = {
       enable = true;
+      dns = "systemd-resolved";
     };
 
     nameservers = [
@@ -98,10 +95,17 @@
     ];
   };
 
+  services.resolved = {
+    enable = true;
+    dnsovertls = "opportunistic";
+  };
+
   hardware.bluetooth = {
     enable = true;
     powerOnBoot = true;
-    settings.General.Experimental = true; # for gnome-bluetooth battery percentage
+
+    # for gnome-bluetooth battery percentage
+    settings.General.Experimental = true;
   };
 
   programs._1password.enable = true;
@@ -110,13 +114,17 @@
     polkitPolicyOwners = [ "rawkode" ];
   };
 
+  programs.kdeconnect.enable = true;
+
+  programs.dconf = {
+    enable = true;
+    profiles.gdm.databases = [
+      { settings."org/gnome/login-screen".enable-fingerprint-authentication = true; }
+    ];
+  };
+
   services.xserver.displayManager.gdm.enable = true;
   services.xserver.displayManager.gdm.wayland = true;
-
-  programs.dconf.profiles.gdm.databases = [
-    { settings."org/gnome/login-screen".enable-fingerprint-authentication = true; }
-  ];
-
   #services.desktopManager.cosmic.enable = true;
   #services.displayManager.cosmic-greeter.enable = false;
 
@@ -154,49 +162,11 @@
   };
 
   security.rtkit.enable = true;
-  services.pipewire.enable = true;
-  services.pipewire.pulse.enable = true;
-  services.pipewire.wireplumber.enable = true;
 
   time.timeZone = "Europe/London";
 
-  fonts = {
-    fontDir = {
-      enable = true;
-    };
-
-    enableDefaultPackages = true;
-
-    fontconfig = {
-      antialias = true;
-      hinting.enable = true;
-      hinting.autohint = true;
-    };
-
-    packages = with pkgs; [
-      corefonts
-      google-fonts
-      merriweather
-      monaspace
-      quicksand
-    ];
-
-    fontconfig = {
-      defaultFonts = {
-        monospace = [ "Monaspace Neon" ];
-        sansSerif = [ "Quicksand" ];
-        serif = [ "Merriweather" ];
-      };
-    };
-  };
-
   services.printing.enable = true;
   services.pcscd.enable = true;
-
-  hardware.pulseaudio = {
-    enable = false;
-    package = pkgs.pulseaudioFull;
-  };
 
   console.useXkbConfig = true;
 

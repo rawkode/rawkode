@@ -6,11 +6,7 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    lanzaboote = {
-      url = "github:nix-community/lanzaboote/v0.3.0";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    #nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
+    lanzaboote.url = "github:nix-community/lanzaboote";
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
@@ -33,7 +29,6 @@
               };
             }
             { networking.hostName = "p4x-${device-name}-nixos"; }
-            inputs.lanzaboote.nixosModules.lanzaboote
             inputs.home-manager.nixosModules.default
             (./. + "/hardware/${device-name}/configuration.nix")
             ./configuration.nix
