@@ -31,7 +31,7 @@
     with pkgs;
     [
       aichat
-			zoom-us
+      zoom-us
       discord
       slack
       fzf

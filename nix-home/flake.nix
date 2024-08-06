@@ -3,6 +3,7 @@
 
   inputs = {
     catppuccin.url = "github:catppuccin/nix";
+    firefox.url = "github:nix-community/flake-firefox-nightly";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";

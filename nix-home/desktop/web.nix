@@ -1,16 +1,10 @@
 { inputs, pkgs, ... }:
 
 {
-  home.packages = (
-    with pkgs;
-    [
-      microsoft-edge-dev
-      vivaldi
-    ]
-  );
+  home.packages = (with pkgs; [ vivaldi ]);
 
-#  programs.firefox = {
-#    enable = true;
-#    package = inputs.firefox.packages.${pkgs.system}.firefox-nightly-bin;
-#  };
+  programs.firefox = {
+    enable = true;
+    package = inputs.firefox.packages.${pkgs.system}.firefox-nightly-bin;
+  };
 }

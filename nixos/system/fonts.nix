@@ -9,8 +9,8 @@
       hinting.autohint = true;
 
       defaultFonts = {
-        monospace = [ "Monaspace Neon" ];
-        sansSerif = [ "Quicksand" ];
+        monospace = [ "Monaspace Krypton" ];
+        sansSerif = [ "Monaspace Krypton" ];
         serif = [ "Merriweather" ];
       };
     };

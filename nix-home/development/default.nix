@@ -9,7 +9,10 @@
   home.packages = (
     with pkgs;
     [
-			glab
+      devenv
+			# Currently pending nixpkgs fix
+      # gitbutler
+			nixfmt-rfc-style
       rustup
       zed-editor
     ]

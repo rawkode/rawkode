@@ -22,7 +22,10 @@ if wezterm.config_builder then
 
   config.color_scheme = scheme_for_appearance(wezterm.gui.get_appearance())
 
-  config.font = wezterm.font 'Monaspace Neon'
+  config.font = wezterm.font_with_fallback {
+		'Monaspace Krypton',
+		'Symbols Nerd Font Mono',
+	}
   config.font_size = 24.0
 
 	-- Clickable Links
