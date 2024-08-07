@@ -35,8 +35,8 @@
 
   catppuccin = {
     enable = true;
-    flavor = "mocha";
-    accent = "blue";
+    flavor = "macchiato";
+    accent = "lavender";
   };
 
   services.fwupd.enable = true;

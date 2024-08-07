@@ -1,7 +1,7 @@
 local wezterm = require 'wezterm'
 
 function scheme_for_appearance(appearance)
-  return "catppuccin-mocha"
+  return "catppuccin-macchiato"
 end
 
 if wezterm.config_builder then

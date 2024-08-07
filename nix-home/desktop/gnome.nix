@@ -225,11 +225,4 @@ with lib.hm.gvariant;
     x11.enable = true;
     size = 32;
   };
-
-  gtk = {
-    enable = true;
-    catppuccin = {
-      icon.enable = true;
-    };
-  };
 }
