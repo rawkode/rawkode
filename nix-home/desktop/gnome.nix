@@ -80,7 +80,9 @@ with lib.hm.gvariant;
 
       switch-input-source = [ ];
       unmaximize = [ ];
-      maximize = [ ];
+      maximize = [ "<super>Return" ];
+      toggle-maximized = [ "<super><shift>Return" ];
+
 
       switch-to-workspace-1 = [ "<super>1" ];
       switch-to-workspace-2 = [ "<super>2" ];
@@ -114,19 +116,38 @@ with lib.hm.gvariant;
       toggle-tiled-right = [ ];
     };
 
+    "org/gnome/shell/extensions/auto-move-windows" = {
+      application-list = [
+        "vivaldi-stable.desktop:1"
+        "org.wezfurlong.wezterm.desktop:2"
+        "code.desktop:2"
+        "discord.desktop:3"
+        "slack.desktop:3"
+      ];
+    };
+
+    "org/gnome/shell/extensions/coverflowalttab" = {
+      switch-per-monitor = true;
+    };
+
     "org/gnome/shell" = {
       disable-user-extensions = false;
       enabled-extensions = [
-        "advanced-alt-tab@G-dH.github.com"
         "appindicatorsupport@rgcjonas.gmail.com"
+        "auto-move-windows@gnome-shell-extensions.gcampax.github.com"
         "blur-my-shell@aunetx"
         "compiz-windows-effect@hermes83.github.com"
+        "CoverflowAltTab@palatis.blogspot.com"
         "emoji-copy@felipeftn"
         # "forge@jmmaranan.com"
+        # "gnome-one-window-wonderland@jqno.nl"
         "gsconnect@andyholmes.github.io"
         "just-perfection-desktop@just-perfection"
         # "material-shell@papyelgringo"
+        "rclone-manager@germanztz.com"
         "sound-output-device-chooser@kgshank.net"
+        "tailscale@joaophi.github.com"
+        "useless-gaps@pimsnel.com"
         "user-theme@gnome-shell-extensions.gcampax.github.com"
       ];
 
@@ -179,16 +200,21 @@ with lib.hm.gvariant;
     [
       gnome-extension-manager
       gnomeExtensions.appindicator
-      gnomeExtensions.advanced-alttab-window-switcher
       gnomeExtensions.blur-my-shell
       gnomeExtensions.compiz-windows-effect
+      gnomeExtensions.coverflow-alt-tab
       gnomeExtensions.emoji-copy
       gnomeExtensions.forge
+      gnomeExtensions.gsconnect
       gnomeExtensions.just-perfection
       gnomeExtensions.material-shell
       gnomeExtensions.one-window-wonderland
+      gnomeExtensions.rclone-manager
       gnomeExtensions.sound-output-device-chooser
+      gnomeExtensions.tailscale-qs
       gnomeExtensions.useless-gaps
+      rclone
+      tailscale
     ]
   );
 
