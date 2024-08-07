@@ -205,12 +205,10 @@
   programs.ssh.askPassword = lib.mkForce "${pkgs.seahorse}/libexec/seahorse/ssh-askpass";
 
   services.desktopManager = {
-    cosmic.enable = true;
-    plasma6.enable = true;
+    plasma6.enable = false;
   };
 
   services.displayManager = {
-      cosmic-greeter.enable = false;
       sddm.enable = false;
   };
 

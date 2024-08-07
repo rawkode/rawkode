@@ -7,7 +7,7 @@ end
 if wezterm.config_builder then
   config = wezterm.config_builder()
 
-	config.enable_wayland = true
+	config.enable_wayland = false
 
   config.front_end = "OpenGL"
   config.webgpu_power_preference = "HighPerformance"
@@ -26,7 +26,7 @@ if wezterm.config_builder then
 		'Monaspace Neon',
 		'Symbols Nerd Font Mono',
 	}
-  config.font_size = 24.0
+  config.font_size = 16.0
 
 	-- Clickable Links
 	config.hyperlink_rules = wezterm.default_hyperlink_rules()
