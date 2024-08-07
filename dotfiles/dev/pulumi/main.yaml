@@ -1,3 +1,0 @@
-actions:
-  - action: package.install
-    name: pulumi

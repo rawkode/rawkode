@@ -1,9 +1,0 @@
-actions:
-  - action: package.install
-    name: raycast
-  - action: package.install
-    list:
-      - alt-tab
-      - bartender
-      - fantastical
-      - mimestream

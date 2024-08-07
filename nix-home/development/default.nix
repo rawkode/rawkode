@@ -10,9 +10,10 @@
     with pkgs;
     [
       devenv
-			# Currently pending nixpkgs fix
+      # Currently pending nixpkgs fix
       # gitbutler
-			nixfmt-rfc-style
+      helix
+      nixfmt-rfc-style
       rustup
       zed-editor
     ]

@@ -3,6 +3,7 @@
     enable = true;
 
     shellAliases = {
+			"docker" = "podman";
       "ghb" = "cd ~/Code/src/github.com";
     };
 

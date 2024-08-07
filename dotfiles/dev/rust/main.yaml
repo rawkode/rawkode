@@ -1,4 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - rustup-init

@@ -137,7 +137,7 @@
 
     podman = {
       enable = true;
-      dockerCompat = false;
+      dockerCompat = true;
       defaultNetwork.settings.dns_enabled = true;
     };
 
@@ -265,6 +265,7 @@
   services.espanso.enable = true;
   systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
 
+  programs.fish.enable = true;
   programs.git.enable = true;
 
   users.groups.rawkode = { };
@@ -283,7 +284,7 @@
       "plugdev"
       "wheel"
     ];
-    shell = pkgs.nushell;
+    shell = pkgs.fish;
   };
 
   system.stateVersion = "24.05";

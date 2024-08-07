@@ -1,6 +1,0 @@
-actions:
-  - action: package.install
-    name: fish
-  - action: file.link
-    from: config.fish
-    to: "{{ user.home_dir }}/.config/fish/config.fish"

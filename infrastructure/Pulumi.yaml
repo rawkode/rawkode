@@ -1,4 +1,0 @@
-name: infrastructure
-runtime: nodejs
-description: Rawkode's Infrastructure for taking over the world
-main: src/index.ts

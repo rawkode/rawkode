@@ -2,7 +2,7 @@
   programs.atuin = {
     enable = true;
 
-    enableNushellIntegration = true;
+		enableFishIntegration = true;
 
     settings = {
       style = "compact";

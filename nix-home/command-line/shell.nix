@@ -4,7 +4,6 @@
     with pkgs;
     [
       bat
-      direnv
       eza
       fzf
       ripgrep

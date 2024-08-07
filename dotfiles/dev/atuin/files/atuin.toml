@@ -1,8 +1,0 @@
-enter_accept = true
-
-style = "compact"
-show_preview = false
-inline_height = 16
-
-filter_mode = "directory"
-filter_mode_shell_up_key_binding = "session"
