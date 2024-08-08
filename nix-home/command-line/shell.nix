@@ -10,7 +10,6 @@
       tldr
       unzip
       vim
-      wget
     ]
   );
 

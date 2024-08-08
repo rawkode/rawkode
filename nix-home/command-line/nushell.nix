@@ -3,16 +3,11 @@
     enable = true;
 
     shellAliases = {
-      ai = "op run --account my.1password.eu -- aichat";
-
+      ai = "GEMINI_API_KEY=\"op://Private/Google Gemini/password\" op run --account my.1password.eu -- aichat";
       ghb = "cd ~/Code/src/github.com";
-      glb = "cd ~/Code/src/gitlab.com";
-
-      gl = "op plugin run -- glab";
     };
 
     environmentVariables = {
-      GEMINI_API_KEY = ''"op://Private/Google Gemini/password"'';
       NIX_LINK = ''"/nix/var/nix/profiles/default"'';
       NIX_PROFILES = ''"/nix/var/nix/profiles/default ($env.NIX_LINK)"'';
       OP_PLUGIN_ALIASES_SOURCED = "1";

@@ -36,6 +36,10 @@ in
       push.autoSetupRemote = true;
       init.defaultBranch = "main";
 
+			core = {
+				editor = "code --wait";
+			};
+
       gpg = {
         format = "ssh";
         ssh.program = "${pkgs._1password-gui}/bin/op-ssh-sign";

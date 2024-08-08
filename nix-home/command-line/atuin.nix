@@ -7,9 +7,7 @@
     settings = {
       style = "compact";
       show_preview = true;
-
       enter_accept = true;
-
       search_mode = "skim";
       filter_mode = "directory";
       filter_mode_shell_up_key_binding = "session";

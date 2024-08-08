@@ -1,5 +1,4 @@
 { pkgs, ... }:
-
 {
   imports = [
     ./git.nix
@@ -14,7 +13,6 @@
       # gitbutler
       helix
       nixfmt-rfc-style
-      rustup
       zed-editor
     ]
   );

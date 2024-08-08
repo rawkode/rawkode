@@ -5,19 +5,20 @@ with lib.hm.gvariant;
   fonts.fontconfig.enable = true;
 
   dconf.settings = {
+    "org/gnome/desktop/datetime" = {
+      automatic-timezone = true;
+    };
+
     "org/gnome/desktop/interface" = {
       clock-show-date = false;
     };
+
     "org/gnome/desktop/peripherals/keyboard" = {
       numlock-state = true;
     };
 
     "org/gnome/desktop/peripherals/mouse" = {
       natural-scroll = true;
-    };
-
-    "org/gnome/desktop/datetime" = {
-      automatic-timezone = true;
     };
 
     "org/gnome/desktop/peripherals/touchpad" = {
@@ -33,46 +34,19 @@ with lib.hm.gvariant;
       disabled = [ "org.gnome.Boxes.desktop" ];
       enabled = [ "org.gnome.Weather.desktop" ];
       sort-order = [
+        "org.gnome.Boxes.desktop"
+        "org.gnome.Calculator.desktop"
+        "org.gnome.Calendar.desktop"
+        "org.gnome.clocks.desktop"
         "org.gnome.Contacts.desktop"
+        "org.gnome.design.IconLibrary.desktop"
         "org.gnome.Documents.desktop"
         "org.gnome.Nautilus.desktop"
-        "org.gnome.Calendar.desktop"
-        "org.gnome.Calculator.desktop"
-        "org.gnome.Software.desktop"
-        "org.gnome.Settings.desktop"
-        "org.gnome.clocks.desktop"
-        "org.gnome.design.IconLibrary.desktop"
         "org.gnome.seahorse.Application.desktop"
+        "org.gnome.Settings.desktop"
+        "org.gnome.Software.desktop"
         "org.gnome.Weather.desktop"
-        "org.gnome.Boxes.desktop"
       ];
-    };
-
-    "org/gnome/shell/extensions/forge" = {
-      auto-split-enabled = false;
-      stacked-tiling-mode-enabled = true;
-      window-gap-size = lib.hm.gvariant.mkUint32 8;
-      showtab-decoration-enabled = true;
-    };
-
-    "org/gnome/shell/extensions/forge/keybindings" = {
-      window-toggle-float = [ "<Super>f" ];
-      con-tabbed-layout-toggle = [ "<Super>t" ];
-      con-stacked-layout-toggle = [ "<Super><Shift>s" ];
-
-      window-focus-down = [ "<Super>Down" ];
-      window-focus-left = [ "<Super>Left" ];
-      window-focus-right = [ "<Super>Right" ];
-      window-focus-up = [ "<Super>Up" ];
-      window-move-down = [ "<Shift><Super>Down" ];
-      window-move-left = [ "<Shift><Super>Left" ];
-      window-move-right = [ "<Shift><Super>Right" ];
-      window-move-up = [ "<Shift><Super>Up" ];
-    };
-
-    "org/gnome/desktop/wm/preferences" = {
-      focus-mode = "click";
-      num-workspaces = 3;
     };
 
     "org/gnome/desktop/wm/keybindings" = {
@@ -80,15 +54,15 @@ with lib.hm.gvariant;
 
       switch-input-source = [ ];
       unmaximize = [ ];
-      maximize = [ "<super>Return" ];
-      toggle-maximized = [ "<super><shift>Return" ];
-
+      maximize = [ ];
+      toggle-maximized = [ "<super>Return" ];
 
       switch-to-workspace-1 = [ "<super>1" ];
       switch-to-workspace-2 = [ "<super>2" ];
       switch-to-workspace-3 = [ "<super>3" ];
       switch-to-workspace-4 = [ "<super>4" ];
       switch-to-workspace-5 = [ "<super>5" ];
+
       move-to-workspace-1 = [ "<super><shift>1" ];
       move-to-workspace-2 = [ "<super><shift>2" ];
       move-to-workspace-3 = [ "<super><shift>3" ];
@@ -96,12 +70,9 @@ with lib.hm.gvariant;
       move-to-workspace-5 = [ "<super><shift>5" ];
     };
 
-    "org/gnome/shell/keybindings" = {
-      switch-to-application-1 = [ ];
-      switch-to-application-2 = [ ];
-      switch-to-application-3 = [ ];
-      switch-to-application-4 = [ ];
-      switch-to-application-5 = [ ];
+    "org/gnome/desktop/wm/preferences" = {
+      focus-mode = "click";
+      num-workspaces = 4;
     };
 
     "org/gnome/mutter" = {
@@ -116,20 +87,6 @@ with lib.hm.gvariant;
       toggle-tiled-right = [ ];
     };
 
-    "org/gnome/shell/extensions/auto-move-windows" = {
-      application-list = [
-        "vivaldi-stable.desktop:1"
-        "org.wezfurlong.wezterm.desktop:2"
-        "code.desktop:2"
-        "discord.desktop:3"
-        "slack.desktop:3"
-      ];
-    };
-
-    "org/gnome/shell/extensions/coverflowalttab" = {
-      switch-per-monitor = true;
-    };
-
     "org/gnome/shell" = {
       disable-user-extensions = false;
       enabled-extensions = [
@@ -139,11 +96,8 @@ with lib.hm.gvariant;
         "compiz-windows-effect@hermes83.github.com"
         "CoverflowAltTab@palatis.blogspot.com"
         "emoji-copy@felipeftn"
-        # "forge@jmmaranan.com"
-        # "gnome-one-window-wonderland@jqno.nl"
         "gsconnect@andyholmes.github.io"
         "just-perfection-desktop@just-perfection"
-        # "material-shell@papyelgringo"
         "rclone-manager@germanztz.com"
         "sound-output-device-chooser@kgshank.net"
         "tailscale@joaophi.github.com"
@@ -162,6 +116,42 @@ with lib.hm.gvariant;
       welcome-dialog-last-shown-version = "42.0";
     };
 
+    "org/gnome/shell/app-switcher" = {
+      current-workspace-only = true;
+    };
+
+    "org/gnome/shell/keybindings" = {
+      switch-to-application-1 = [ ];
+      switch-to-application-2 = [ ];
+      switch-to-application-3 = [ ];
+      switch-to-application-4 = [ ];
+      switch-to-application-5 = [ ];
+    };
+
+    "org/gnome/shell/extensions/auto-move-windows" = {
+      application-list = [
+        "vivaldi-stable.desktop:1"
+        "org.wezfurlong.wezterm.desktop:2"
+        "code.desktop:2"
+        "discord.desktop:3"
+        "slack.desktop:3"
+      ];
+    };
+
+    "org/gnome/shell/extensions/coverflowalttab" = {
+      animation-time = 5.0e-2;
+      hide-panel = false;
+      highlight-mouse-over = false;
+      icon-has-shadow = true;
+      position = "Bottom";
+      preview-to-monitor-ratio = 0.5;
+      raise-mouse-over = false;
+      randomize-animation-times = false;
+      switcher-looping-method = "Flip Stack";
+      switcher-style = "Coverflow";
+      switch-per-monitor = true;
+    };
+
     "org/gnome/shell/extensions/just-perfection" = {
       notification-banner-position = 5;
       osd-position = 6;
@@ -171,27 +161,8 @@ with lib.hm.gvariant;
       window-maximized-on-create = true;
     };
 
-    "org/gnome/shell/app-switcher" = {
-      current-workspace-only = true;
-    };
-
-    "org/gnome/shell/extensions/advanced-alt-tab-window-switcher" = {
-      app-switcher-popup-fav-apps = false;
-      app-switcher-popup-filter = 3;
-      app-switcher-popup-include-show-apps-icon = false;
-      switcher-popup-interactive-indicators = true;
-      switcher-popup-monitor = 3;
-      switcher-popup-position = 3;
-      switcher-popup-start-search = false;
-      switcher-popup-status = true;
-      switcher-popup-sync-filter = true;
-      switcher-popup-timeout = 250;
-      switcher-popup-tooltip-title = 1;
-      switcher-ws-thumbnails = 0;
-      win-switch-skip-minimized = true;
-      win-switcher-popup-filter = 3;
-      win-switcher-popup-order = 4;
-      win-switcher-popup-search-all = false;
+    "org/gnome/shell/extensions/useless-gaps" = {
+      gap-size = 32;
     };
   };
 
@@ -204,11 +175,8 @@ with lib.hm.gvariant;
       gnomeExtensions.compiz-windows-effect
       gnomeExtensions.coverflow-alt-tab
       gnomeExtensions.emoji-copy
-      gnomeExtensions.forge
       gnomeExtensions.gsconnect
       gnomeExtensions.just-perfection
-      gnomeExtensions.material-shell
-      gnomeExtensions.one-window-wonderland
       gnomeExtensions.rclone-manager
       gnomeExtensions.sound-output-device-chooser
       gnomeExtensions.tailscale-qs
@@ -217,8 +185,6 @@ with lib.hm.gvariant;
       tailscale
     ]
   );
-
-  programs.zellij.enable = true;
 
   home.pointerCursor = {
     gtk.enable = true;
