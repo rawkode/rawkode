@@ -1,23 +1,20 @@
 { pkgs, ... }:
 {
-  environment.systemPackages = with pkgs; [
-    xdg-desktop-portal-gnome
-    xdg-desktop-portal-gtk
-  ];
-
   xdg.portal = {
     enable = true;
 
     xdgOpenUsePortal = true;
 
-    config = {
-      common = {
-        default = [ "gtk" ];
-        "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
-      };
-    };
+    config.common.default = "*";
+
+    configPackages = with pkgs; [
+      xdg-desktop-portal-gnome
+      xdg-desktop-portal-gtk
+      xdg-desktop-portal
+    ];
 
     extraPortals = with pkgs; [
+      xdg-desktop-portal
       xdg-desktop-portal-gnome
     ];
   };

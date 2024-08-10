@@ -145,6 +145,7 @@
   };
 
   environment.systemPackages = with pkgs; [
+    pinentry-gnome3
     podman-tui
 
     # Waydroid needs this for clipboard support
@@ -202,6 +203,9 @@
     };
   };
 
+  programs.goldwarden.enable = true;
+  programs.goldwarden.useSshAgent = true;
+
   programs.ssh.askPassword = lib.mkForce "${pkgs.seahorse}/libexec/seahorse/ssh-askpass";
 
   services.desktopManager = {
@@ -209,7 +213,7 @@
   };
 
   services.displayManager = {
-      sddm.enable = false;
+    sddm.enable = false;
   };
 
   services.xserver = {

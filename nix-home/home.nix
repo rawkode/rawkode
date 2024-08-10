@@ -31,13 +31,13 @@
     with pkgs;
     [
       aichat
-      zoom-us
       discord
-      slack
       fzf
       nil
       nixfmt-rfc-style
       rquickshare
+      slack
+      zoom-us
       zoxide
     ]
   );
