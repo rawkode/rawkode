@@ -177,12 +177,12 @@ with lib.hm.gvariant;
       gnomeExtensions.emoji-copy
       gnomeExtensions.gsconnect
       gnomeExtensions.just-perfection
+			gnomeExtensions.night-theme-switcher
       gnomeExtensions.rclone-manager
       gnomeExtensions.sound-output-device-chooser
       gnomeExtensions.tailscale-qs
       gnomeExtensions.useless-gaps
       rclone
-      tailscale
     ]
   );
 

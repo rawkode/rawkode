@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 {
   imports = [
@@ -203,6 +203,12 @@
       disableWhileTyping = true;
     };
   };
+
+  services.tailscale = {
+    enable = true;
+    port = 41641;
+  };
+  networking.firewall.allowedUDPPorts = [ config.services.tailscale.port ];
 
   programs.goldwarden.enable = true;
   programs.goldwarden.useSshAgent = true;

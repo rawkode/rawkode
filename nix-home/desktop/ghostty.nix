@@ -6,13 +6,13 @@
     settings = {
       theme = "catppuccin-macchiato";
       font-family = "Monaspace Neon";
-      font-size = 24;
+      font-size = 12;
       cursor-style = "bar";
 
       command = "zellij";
 
       gtk-single-instance = true;
-      window-decoration = true;
+      window-decoration = false;
       window-vsync = true;
       window-padding-x = 8;
       window-padding-y = 8;

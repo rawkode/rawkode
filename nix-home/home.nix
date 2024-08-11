@@ -1,4 +1,9 @@
-{ config, pkgs, ... }:
+{
+  config,
+  inputs,
+  pkgs,
+  ...
+}:
 {
   home.username = "rawkode";
   home.homeDirectory = "/home/rawkode";
@@ -30,6 +35,8 @@
   home.packages = (
     with pkgs;
     [
+      inputs.dagger.packages.${system}.dagger
+
       aichat
       discord
       fzf
