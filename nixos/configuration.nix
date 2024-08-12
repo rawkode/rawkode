@@ -162,7 +162,6 @@
   };
 
   environment.systemPackages = with pkgs; [
-    displaylink
     pinentry-gnome3
     podman-tui
 
@@ -239,10 +238,6 @@
   services.xserver = {
     enable = true;
     xkb.layout = "us";
-    videoDrivers = [
-      "displaylink"
-      "modesetting"
-    ];
 
     desktopManager = {
       gnome.enable = true;
