@@ -2,7 +2,7 @@
   imports = [
     ./ghostty.nix
     ./gnome.nix
-		./spotify.nix
+    ./spotify.nix
     ./wezterm/default.nix
     ./web.nix
   ];

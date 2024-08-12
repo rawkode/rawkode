@@ -36,9 +36,9 @@ in
       push.autoSetupRemote = true;
       init.defaultBranch = "main";
 
-			core = {
-				editor = "code --wait";
-			};
+      core = {
+        editor = "code --wait";
+      };
 
       gpg = {
         format = "ssh";

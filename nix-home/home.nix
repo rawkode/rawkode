@@ -39,6 +39,7 @@
 
       aichat
       fzf
+      just
       nil
       nixfmt-rfc-style
       rquickshare

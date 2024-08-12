@@ -3,8 +3,10 @@
 
   inputs = {
     catppuccin.url = "github:catppuccin/nix";
-    dagger.url = "github:dagger/nix";
-    dagger.inputs.nixpkgs.follows = "nixpkgs";
+    dagger = {
+      url = "github:dagger/nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
@@ -12,14 +14,20 @@
     };
     ghostty = {
       url = "git+ssh://git@github.com/ghostty-org/ghostty";
+      inputs.nixpkgs-stable.follows = "nixpkgs";
+      inputs.nixpkgs-unstable.follows = "nixpkgs";
     };
-    ghostty.inputs.nixpkgs-stable.follows = "nixpkgs";
-    ghostty.inputs.nixpkgs-unstable.follows = "nixpkgs";
     ghostty-hm-module.url = "github:clo4/ghostty-hm-module";
-    home-manager.url = "github:nix-community/home-manager";
-    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     utils.url = "github:numtide/flake-utils";
+    wezterm = {
+      url = "github:wez/wezterm?dir=nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -29,9 +37,7 @@
     in
     {
       homeConfigurations.rawkode = inputs.home-manager.lib.homeManagerConfiguration {
-        pkgs = import inputs.nixpkgs {
-          inherit system;
-        };
+        pkgs = import inputs.nixpkgs { inherit system; };
 
         extraSpecialArgs = {
           inherit inputs;
