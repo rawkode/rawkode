@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   imports = [
@@ -51,7 +56,10 @@
   ];
 
   boot = {
-    kernelPackages = pkgs.linuxPackages_latest;
+    kernelPackages = pkgs.linuxKernel.packages.linux_zen;
+    kernelModules = [ "v4l2loopback" ];
+
+    kernelParams = [ "video4linux" ];
 
     initrd = {
       systemd.enable = true;
@@ -62,8 +70,16 @@
       efi = {
         canTouchEfiVariables = true;
       };
-      systemd-boot.enable = true;
+      systemd-boot = {
+        enable = true;
+        consoleMode = "max";
+      };
     };
+
+    extraModulePackages = with config.boot.kernelPackages; [
+      evdi
+      v4l2loopback
+    ];
 
     plymouth.enable = true;
     tmp.cleanOnBoot = true;
@@ -146,6 +162,7 @@
   };
 
   environment.systemPackages = with pkgs; [
+    displaylink
     pinentry-gnome3
     podman-tui
 
@@ -154,7 +171,6 @@
     python3Packages.setuptools
   ];
 
-  environment.sessionVariables.NIXOS_OZONE_WL = "1";
   environment.etc = {
     "1password/custom_allowed_browsers" = {
       text = ''
@@ -226,7 +242,10 @@
   services.xserver = {
     enable = true;
     xkb.layout = "us";
-    videoDrivers = [ "modesetting" ];
+    videoDrivers = [
+      "displaylink"
+      "modesetting"
+    ];
 
     desktopManager = {
       gnome.enable = true;

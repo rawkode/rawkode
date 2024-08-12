@@ -2,6 +2,25 @@
 
 with lib.hm.gvariant;
 {
+  nixpkgs.overlays = [
+    # GNOME 46: triple-buffering-v4-46
+    (final: prev: {
+      gnome = prev.gnome.overrideScope (
+        gnomeFinal: gnomePrev: {
+          mutter = gnomePrev.mutter.overrideAttrs (old: {
+            src = pkgs.fetchFromGitLab {
+              domain = "gitlab.gnome.org";
+              owner = "vanvugt";
+              repo = "mutter";
+              rev = "triple-buffering-v4-46";
+              hash = "sha256-fkPjB/5DPBX06t7yj0Rb3UEuu5b9mu3aS+jhH18+lpI=";
+            };
+          });
+        }
+      );
+    })
+  ];
+
   fonts.fontconfig.enable = true;
 
   dconf.settings = {
@@ -133,7 +152,7 @@ with lib.hm.gvariant;
         "vivaldi-stable.desktop:1"
         "org.wezfurlong.wezterm.desktop:2"
         "code.desktop:2"
-        "discord.desktop:3"
+        "vesktop.desktop:3"
         "slack.desktop:3"
       ];
     };
@@ -177,12 +196,13 @@ with lib.hm.gvariant;
       gnomeExtensions.emoji-copy
       gnomeExtensions.gsconnect
       gnomeExtensions.just-perfection
-			gnomeExtensions.night-theme-switcher
+      gnomeExtensions.night-theme-switcher
       gnomeExtensions.rclone-manager
       gnomeExtensions.sound-output-device-chooser
       gnomeExtensions.tailscale-qs
       gnomeExtensions.useless-gaps
       rclone
+      xwaylandvideobridge
     ]
   );
 

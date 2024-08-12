@@ -38,12 +38,12 @@
       inputs.dagger.packages.${system}.dagger
 
       aichat
-      discord
       fzf
       nil
       nixfmt-rfc-style
       rquickshare
       slack
+      vesktop
       zoom-us
       zoxide
     ]
