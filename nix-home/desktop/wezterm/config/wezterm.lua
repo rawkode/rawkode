@@ -4,11 +4,7 @@ local appearance = require 'appearance'
 if wezterm.config_builder then
     config = wezterm.config_builder()
 
-    if appearance.is_dark() then
-        config.color_scheme = 'catppuccin-macchiato'
-    else
-        config.color_scheme = 'catppuccin-latte'
-    end
+    config.color_scheme = 'catppuccin-mocha'
 
     config.automatically_reload_config = true
     config.detect_password_input = true

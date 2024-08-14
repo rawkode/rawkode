@@ -1,9 +1,13 @@
 { pkgs, ... }:
 {
-  environment.sessionVariables.NIXOS_OZONE_WL = "1";
+  environment.sessionVariables = {
+    NIXOS_OZONE_WL = "1";
+    QT_QPA_PLATFORM = "wayland";
+  };
 
   environment.systemPackages = with pkgs; [
     slurp
+    qt6.qtwayland
     xdg-desktop-portal
     xdg-desktop-portal-gnome
     xdg-desktop-portal-gtk
