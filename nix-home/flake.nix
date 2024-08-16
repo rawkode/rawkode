@@ -23,6 +23,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    plasma-manager = {
+      url = "github:nix-community/plasma-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     utils.url = "github:numtide/flake-utils";
     wezterm = {
       url = "github:wez/wezterm?dir=nix";
@@ -46,6 +51,7 @@
         modules = [
           inputs.catppuccin.homeManagerModules.catppuccin
           inputs.ghostty-hm-module.homeModules.default
+          inputs.plasma-manager.homeManagerModules.plasma-manager
           ./home.nix
         ];
       };

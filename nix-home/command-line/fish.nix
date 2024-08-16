@@ -4,7 +4,7 @@
 
     shellAliases = {
       ai = "GEMINI_API_KEY=\"op://Private/Google Gemini/password\" op run --account my.1password.eu -- aichat";
-      docker = "podman";
+      # docker = "podman";
       ghb = "cd ~/Code/src/github.com";
     };
 

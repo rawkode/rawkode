@@ -21,7 +21,7 @@ if wezterm.config_builder then
     config.window_decorations = "NONE"
     config.window_close_confirmation = "NeverPrompt"
 
-    config.window_background_opacity = 0.9
+    config.window_background_opacity = 1
 
     config.window_frame = {
         font = wezterm.font({family = 'Monaspace Neon', weight = 'Bold'}),

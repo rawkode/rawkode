@@ -441,6 +441,29 @@
         "type": "github"
       }
     },
+    "plasma-manager": {
+      "inputs": {
+        "home-manager": [
+          "home-manager"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1723587631,
+        "narHash": "sha256-FZ27DsgOROvv/4Cvo34UcIqEJLQ6cKIWHcQsM3zLN3I=",
+        "owner": "nix-community",
+        "repo": "plasma-manager",
+        "rev": "76dab4ba280ddd1b6c5aec0bb0aa0ace201c39ae",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "plasma-manager",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "catppuccin": "catppuccin",
@@ -451,6 +474,7 @@
         "ghostty-hm-module": "ghostty-hm-module",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs_2",
+        "plasma-manager": "plasma-manager",
         "utils": "utils",
         "wezterm": "wezterm"
       }

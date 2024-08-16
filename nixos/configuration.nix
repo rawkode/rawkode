@@ -155,10 +155,12 @@
     lxd.enable = true;
 
     podman = {
-      enable = true;
+      enable = false;
       dockerCompat = true;
       defaultNetwork.settings.dns_enabled = true;
     };
+
+    docker.enable = true;
 
     waydroid.enable = true;
   };
@@ -321,6 +323,7 @@
   systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
 
   programs.fish.enable = true;
+  programs.zsh.enable = true;
   programs.git.enable = true;
 
   users.groups.rawkode = { };
