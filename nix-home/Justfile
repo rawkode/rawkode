@@ -1,3 +1,0 @@
-format:
-	lua-format -i $(find . -name '*.lua')
-	nixfmt .
