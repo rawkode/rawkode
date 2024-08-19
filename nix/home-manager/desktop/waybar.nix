@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ hostname, lib, pkgs, ... }:
 let
   bluetoothToggle = pkgs.writeShellApplication {
     name = "bluetooth-toggle";
@@ -15,6 +15,7 @@ let
       fi
     '';
   };
+
   sessionMenu = pkgs.writeShellApplication {
     name = "session-menu";
     runtimeInputs = with pkgs; [
@@ -62,10 +63,11 @@ in
     waybar = {
       enable = true;
       catppuccin.enable = true;
+
       style = ''
         * {
-          font-family: FiraCode Nerd Font Mono;
-          font-size: 20px;
+          font-family: Monaspace Neon;
+          font-size: 16px;
           min-height: 0;
         }
 
@@ -210,6 +212,8 @@ in
       '';
       settings = [
         {
+          output = if hostname == "desktop" then "DP-1" else "eDP-1";
+
           exclusive = true;
           layer = "top";
           position = "top";
@@ -406,7 +410,7 @@ in
             tooltip-format = "󰁹 {time} ({capacity}%)";
           };
           "custom/session" = {
-            format = "<big></big>";
+            format = "<big>⚛️</big>";
             on-click = "${lib.getExe sessionMenu}";
             tooltip-format = " Session Menu";
           };
