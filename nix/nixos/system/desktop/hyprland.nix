@@ -1,6 +1,8 @@
 { lib, pkgs, ... }:
 {
-  programs.hyprland.enable = true;
+  programs.hyprland = {
+    enable = true;
+  };
 
   systemd.services.greetd.serviceConfig = {
     Type = "idle";

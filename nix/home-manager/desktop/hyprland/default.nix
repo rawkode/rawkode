@@ -1,5 +1,12 @@
 { lib, pkgs, ... }:
 {
+  imports = [
+    ./fuzzel.nix
+    ./hyprlock.nix
+    ./swaync.nix
+    ./waybar.nix
+  ];
+
   home.sessionVariables = {
     NIXOS_OZONE_WL = 1;
     MOZ_ENABLE_WAYLAND = 1;
@@ -10,6 +17,13 @@
     QT_QPA_PLATFORM = "wayland;xcb";
   };
 
+  home = {
+    packages = with pkgs; [
+      grimblast
+      nwg-displays
+    ];
+  };
+
   xdg.configFile."electron-flags.conf".text = ''
     --enable-features=UseOzonePlatform
     --ozone-platform=wayland
@@ -17,6 +31,9 @@
 
   xdg.portal = {
     enable = true;
+
+    xdgOpenUsePortal = true;
+
     config = {
       common = {
         default = [ "hyprland" ];
@@ -28,20 +45,20 @@
         ];
       };
     };
+
     extraPortals = with pkgs; [
       xdg-desktop-portal-gtk
       xdg-desktop-portal-hyprland
     ];
-    xdgOpenUsePortal = true;
+
   };
 
   wayland.windowManager.hyprland = {
     enable = true;
+    catppuccin.enable = true;
+    sourceFirst = true;
 
-    plugins = with pkgs.hyprlandPlugins; [
-      hyprexpo
-      # hyprscroller
-    ];
+    # plugins = with pkgs.hyprlandPlugins; [  ];
 
     settings = {
       monitor = [
@@ -51,69 +68,83 @@
         "DVI-I-1,preferredm,auto-up,1"
       ];
 
+      xwayland = {
+        force_zero_scaling = true;
+      };
+
       exec-once = lib.concatStringsSep "&" [ "hyprpaper" ];
 
       input = {
         natural_scroll = true;
         sensitivity = 0;
+        # click focus
+        follow_mouse = 2;
+        numlock_by_default = true;
+
+        touchpad = {
+          natural_scroll = "yes";
+          disable_while_typing = true;
+          drag_lock = true;
+        };
       };
 
       general = {
+        "$mainMod" = "SUPER";
+
+        layout = "dwindle";
+
+        "col.active_border" = "$accent";
+
         gaps_in = 16;
         gaps_out = 16;
-        border_size = 4;
+
+        border_size = 2;
+        border_part_of_window = true;
+        no_border_on_floating = false;
+      };
+
+      dwindle = {
+        no_gaps_when_only = false;
+        force_split = 0;
+        special_scale_factor = 1.0;
+        split_width_multiplier = 1.0;
+        use_active_for_splits = true;
+        pseudotile = "yes";
+        preserve_split = "yes";
+      };
+
+      misc = {
+        disable_hyprland_logo = true;
+      };
+
+      cursor = {
+        inactive_timeout = 3;
+        hide_on_touch = true;
       };
 
       decoration = {
-        rounding = 0;
+        rounding = 16;
 
         blur = {
           enabled = true;
           size = 16;
           passes = 2;
+          ignore_opacity = true;
+          noise = 0;
+          new_optimizations = true;
+          xray = true;
         };
-
-        drop_shadow = true;
-        shadow_offset = "4 4";
-        shadow_range = 10;
-        shadow_render_power = 1;
-        "col.shadow" = lib.mkForce "rgba(0e0e0eb0)";
-
-        dim_inactive = true;
-        dim_strength = 0.1;
       };
 
-      animations = {
-        enabled = true;
+      group = {
+        "col.border_active" = "$accent";
 
-        bezier = "myBezier, 0.05, 0.9, 0.1, 1.05";
-
-        animation = [
-          "windows, 1, 7, myBezier"
-          "windowsOut, 1, 7, default, popin 80%"
-          "border, 1, 10, default"
-          "borderangle, 1, 8, default"
-          "fade, 1, 7, default"
-          "workspaces, 1, 6, default"
-        ];
-      };
-
-      dwindle = {
-        pseudotile = true;
-        preserve_split = true;
-      };
-
-      master = {
-        new_status = "master";
-      };
-
-      gestures = {
-        workspace_swipe = false;
-      };
-
-      misc = {
-        force_default_wallpaper = 0;
-        focus_on_activate = true;
+        groupbar = {
+          height = 8;
+          render_titles = false;
+          "col.active" = "$accent";
+          "col.inactive" = "rgba(8839ef55)";
+        };
       };
 
       windowrule = [
@@ -123,19 +154,16 @@
         "float,title:^(MainPicker)$"
       ];
 
-      "$mainMod" = "SUPER";
-
       bind = [
+        "$mainMod, F1, exec, show-keybinds"
+        "bind = $mainMod, G, togglegroup,"
+        "$mainMod, F, fullscreen, 0"
         "$mainMod, Return, exec, wezterm"
         "$mainMod, Q, killactive,"
         "$mainMod SHIFT, Q, exec, swaynag -t warning -m 'You pressed the exit shortcut. Do you really want to exit Hyprland? This will end your Wayland session.' -b 'Yes, exit' 'hyprctl dispatch exit'"
         "$mainMod, V, togglefloating,"
-        "ALT CTRL, L, exec, systemctl --user kill --signal SIGUSR1 swayidle.service"
-        "$mainMod, P, pseudo," # dwindle
-        "$mainMod, J, togglesplit," # dwindle
-        "$mainMod, G, togglegroup," # dwindle
-        "$mainMod, COMMA, changegroupactive, b" # dwindle
-        "$mainMod, PERIOD, changegroupactive, f" # dwindle
+
+        "$mainMod, Print, exec, grimblast --notify --cursor --freeze save area ~/Pictures/$(date +'%Y-%m-%d-At-%Ih%Mm%Ss').png"
 
         # Move focus with mainMod + arrow keys
         "$mainMod, left, movefocus, l"
@@ -143,7 +171,8 @@
         "$mainMod, up, movefocus, u"
         "$mainMod, down, movefocus, d"
 
-        "$mainMod, grave, hyprexpo:expo, toggle"
+        "$mainMod, Page_Up, changegroupactive, b"
+        "$mainMod, Page_Down, changegroupactive, f"
 
         # Switch workspaces with mainMod + [0-9]
         "$mainMod, 1, moveworkspacetomonitor, 1 current"
@@ -187,28 +216,11 @@
         "$mainMod, Minus, togglespecialworkspace"
         "$mainMod SHIFT, Minus, movetoworkspace, special"
       ];
+      bindn = [ ",Print, exec, grimblast --notify --cursor --freeze copy area" ];
       bindm = [
         "$mainMod, mouse:272, movewindow"
         "$mainMod, mouse:273, resizewindow"
       ];
-
-      plugin = {
-        hyprexpo = {
-          columns = 3;
-          gap_size = 5;
-          bg_col = "rgb(111111)";
-          workspace_method = "center current";
-
-          enable_gesture = true;
-          gesture_fingers = 3;
-          gesture_distance = 300;
-          gesture_positive = true;
-        };
-        # scroller = {
-        #   column_default_width = "twothirds";
-        #   focus_wrap = false;
-        # };
-      };
     };
 
     extraConfig = ''

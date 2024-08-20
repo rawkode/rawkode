@@ -29,8 +29,8 @@
 
   catppuccin = {
     enable = true;
-    flavor = "macchiato";
-    accent = "lavender";
+    flavor = "mocha";
+    accent = "mauve";
     pointerCursor.enable = true;
   };
 

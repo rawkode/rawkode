@@ -40,38 +40,27 @@
       url = "github:Kirottu/anyrun";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
     catppuccin.url = "github:catppuccin/nix";
-
     dagger = {
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
     flatpaks.url = "github:GermanBread/declarative-flatpak/stable";
-
     firefox.url = "github:nix-community/flake-firefox-nightly";
-
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    hyprland.url = "git+https://github.com/hyprwm/Hyprland?submodules=1";
-
+    hyprland.url = "github:hyprwm/Hyprland";
     lanzaboote.url = "github:nix-community/lanzaboote";
-
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
-
     nixpkgs-stable.url = "github:nixos/nixpkgs/release-24.05";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-
     plasma-manager = {
       url = "github:nix-community/plasma-manager";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
-
     wezterm = {
       url = "github:wez/wezterm?dir=nix";
       inputs.nixpkgs.follows = "nixpkgs";

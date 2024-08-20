@@ -4,7 +4,7 @@
     enable = true;
     package = inputs.ghostty.packages.x86_64-linux.default;
     settings = {
-      theme = "catppuccin-macchiato";
+      theme = "catppuccin-mocha";
       font-family = "Monaspace Neon";
       font-size = 12;
       cursor-style = "bar";
