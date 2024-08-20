@@ -19,6 +19,7 @@
     };
 
     optimise.automatic = true;
+
     settings = {
       trusted-users = [ username ];
       auto-optimise-store = true;

@@ -1,25 +1,32 @@
-{ lib, pkgs, ... }:
+{ pkgs, ... }:
 {
   programs.hyprland = {
     enable = true;
-  };
-
-  systemd.services.greetd.serviceConfig = {
-    Type = "idle";
-    StandardInput = "tty";
-    StandardOutput = "tty";
-    StandardError = "journal";
-    TTYReset = true;
-    TTYVHangup = true;
-    TTYVTDisallocate = true;
+    package = pkgs.stable.hyprland;
   };
 
   xdg.portal = {
     enable = true;
+
+    xdgOpenUsePortal = true;
+
+    config = {
+      common = {
+        default = [ "hyprland" ];
+      };
+      hyprland = {
+        default = [
+          "gtk"
+          "hyprland"
+        ];
+      };
+    };
+
     extraPortals = with pkgs; [
       xdg-desktop-portal-gtk
       xdg-desktop-portal-wlr
     ];
+
   };
 
   systemd = {
@@ -60,23 +67,11 @@
       tracker.enable = true;
     };
 
-    greetd = {
+    xserver = {
       enable = true;
-      settings = rec {
-        tuigreet_session =
-          let
-            session = "${pkgs.hyprland}/bin/Hyprland";
-            tuigreet = "${lib.getExe pkgs.greetd.tuigreet}";
-          in
-          {
-            command = "${tuigreet} --time --remember --cmd ${session}";
-            user = "greeter";
-          };
-        default_session = tuigreet_session;
-      };
+      displayManager.gdm.enable = true;
+      displayManager.gdm.wayland = true;
     };
-
-    seatd.enable = true;
 
     displayManager = {
       defaultSession = "hyprland";

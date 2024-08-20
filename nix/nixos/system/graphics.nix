@@ -4,20 +4,16 @@
     enable = true;
 
     extraPackages = with pkgs; [
-      displaylink
-      libva
-      libvdpau-va-gl
-      vaapiVdpau
-    ];
-    extraPackages32 = with pkgs.pkgsi686Linux; [
-      vaapiVdpau
-      libvdpau-va-gl
+      stable.displaylink
+      stable.libva
+      stable.libvdpau-va-gl
+      stable.vaapiVdpau
     ];
   };
 
   services.xserver.videoDrivers = [
     "modesetting"
-    "displaylink"
+    # "displaylink"
   ];
 
 }

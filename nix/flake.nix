@@ -49,7 +49,7 @@
     firefox.url = "github:nix-community/flake-firefox-nightly";
     home-manager = {
       url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     hyprland.url = "github:hyprwm/Hyprland";
     lanzaboote.url = "github:nix-community/lanzaboote";

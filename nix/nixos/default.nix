@@ -27,7 +27,9 @@
   boot = {
     consoleLogLevel = 0;
 
-    kernelPackages = pkgs.linuxKernel.packages.linux_zen;
+    # Kernel 6.10.5 breaks all my GUI/wayland.
+    # Wait for next
+    kernelPackages = pkgs.stable.linuxPackages_zen;
     kernelParams = [ "video4linux" ];
     kernelModules = [ "v4l2loopback" ];
 
@@ -46,7 +48,7 @@
     };
 
     extraModulePackages = with config.boot.kernelPackages; [
-      evdi
+      # evdi
       v4l2loopback
     ];
 
@@ -136,7 +138,6 @@
   systemd.tmpfiles.rules = [ "d /nix/var/nix/profiles/per-user/${username} 0755 ${username} root" ];
 
   system = {
-    nixos.label = "-";
     inherit stateVersion;
   };
 

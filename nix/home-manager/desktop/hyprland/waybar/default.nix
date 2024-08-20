@@ -1,4 +1,9 @@
-{ hostname, lib, pkgs, ... }:
+{
+  hostname,
+  lib,
+  pkgs,
+  ...
+}:
 let
   bluetoothToggle = pkgs.writeShellApplication {
     name = "bluetooth-toggle";
@@ -62,167 +67,30 @@ in
   programs = {
     waybar = {
       enable = true;
-      catppuccin.enable = true;
+      catppuccin.mode = "createLink";
 
-      style = ''
-        * {
-          font-family: Monaspace Neon;
-          font-size: 16px;
-          min-height: 0;
-        }
+      systemd = {
+        enable = true;
+        target = "graphical-session.target";
+      };
 
-        tooltip {
-          background: @base;
-          border: 1px solid @blue;
-        }
+      style = ./style.css;
 
-        tooltip label {
-          color: @text;
-        }
-
-        #waybar {
-          background: transparent;
-          color: @text;
-          margin: 5px 5px;
-        }
-
-        #workspaces {
-          border-radius: 1rem;
-          margin: 5px;
-          background-color: @base;
-          margin-left: 0.5rem;
-        }
-
-        #workspaces button {
-          color: @lavender;
-          border-radius: 1rem;
-          padding: 0.5rem 0.9rem;
-        }
-
-        #workspaces button.active {
-          color: @sky;
-        }
-
-        #workspaces button:hover {
-          color: @mauve;
-        }
-
-        #idle_inhibitor {
-          border-radius: 1rem 0px 0px 1rem;
-        }
-
-        #idle_inhibitor.activated{
-          color: @text;
-        }
-
-        #idle_inhibitor.deactivated{
-          color: @sky;
-        }
-
-        #clock {
-          border-radius: 0px 1rem 1rem 0px;
-          color: @blue;
-        }
-
-        #tray {
-          margin-right: 1rem;
-          border-radius: 1rem;
-        }
-
-        #idle_inhibitor,
-        #clock,
-        #tray,
-        #wireplumber,
-        #pulseaudio,
-        #network,
-        #bluetooth,
-        #backlight,
-        #power-profiles-daemon,
-        #temperature,
-        #battery,
-        #custom-session {
-          background-color: @base;
-          padding: 0.5rem 0.9rem;
-          margin: 5px 0;
-        }
-
-        #wireplumber {
-          color: @mauve;
-          border-radius: 1rem 0px 0px 1rem;
-          margin-left: 1rem;
-        }
-
-        #pulseaudio {
-          color: @mauve;
-        }
-
-        #network {
-          color: @sapphire;
-        }
-
-        #bluetooth {
-          color: @blue;
-        }
-
-        #pulseaudio,
-        #network,
-        #bluetooth,
-        #backlight,
-        #power-profiles-daemon,
-        #temperature,
-        #battery {
-          border-radius: 0;
-        }
-
-        #backlight {
-          color: @yellow;
-        }
-
-        #power-profiles-daemon {
-          color: @teal;
-        }
-
-        #temperature {
-          color: @maroon;
-        }
-
-        #temperature.critical {
-          color: @red;
-        }
-
-        #battery {
-          color: @green;
-          border-radius: 0px 1rem 1rem 0px;
-          margin-right: 1rem;
-        }
-
-        #battery.charging {
-          color: @green;
-        }
-
-        #battery.warning:not(.charging) {
-          color: @red;
-        }
-
-        #custom-session {
-          margin-right: 0.5rem;
-          border-radius: 1rem 1rem 1rem 1rem;
-          color: @red;
-        }
-      '';
       settings = [
         {
-          output = if hostname == "desktop" then "DP-1" else "eDP-1";
+          # output = if hostname == "desktop" then "DP-1" else "eDP-1";
 
           exclusive = true;
+          passthrough = false;
+          reload_style_on_change = true;
+
           layer = "top";
           position = "top";
-          passthrough = false;
+
           modules-left = [ "hyprland/workspaces" ];
-          modules-center = [
-            "idle_inhibitor"
-            "clock"
-          ];
+
+          modules-center = [ "clock" ];
+
           modules-right = [
             "tray"
             "wireplumber"
@@ -235,28 +103,36 @@ in
             "battery"
             "custom/session"
           ];
+
           "hyprland/workspaces" = {
             active-only = false;
             format = "<big>{icon}</big>";
-            format-icons = {
-              "1" = "";
-              "2" = "";
-              "3" = "";
-              "4" = "";
-              "5" = "";
-              "6" = "";
-              "7" = "";
-              "8" = "";
-            };
             "persistent_workspaces" = {
-              "1" = [ ];
-              "2" = [ ];
-              "3" = [ ];
-              "4" = [ ];
-              "5" = [ ];
-              "6" = [ ];
-              "7" = [ ];
-              "8" = [ ];
+              "1" = [
+                "DP-1"
+                "eDP-1"
+              ];
+              "2" = [
+                "DP-1"
+                "eDP-1"
+              ];
+              "3" = [
+                "DP-1"
+                "eDP-1"
+              ];
+              "4" = [
+                "DP-1"
+                "eDP-1"
+              ];
+              "5" = [
+                "DP-1"
+                "eDP-1"
+              ];
+              "6" = [ "DP-2" ];
+              "7" = [ "DP-2" ];
+              "8" = [ "DP-2" ];
+              "9" = [ "DP-2" ];
+              "0" = [ "DP-2" ];
             };
             on-click = "activate";
           };
@@ -271,8 +147,8 @@ in
             tooltip-format-deactivated = " Presentation mode: {status}";
           };
           clock = {
-            format = "<small>{:%a, %d %b %R}</small>";
-            format-alt = "<small>{:%H:%M}</small>";
+            format = "<small>{:%H:%M}</small>";
+            format-alt = "<small>{:%a, %d %b %R}</small>";
             timezone = "Europe/London";
             tooltip-format = "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>";
           };
@@ -416,10 +292,6 @@ in
           };
         }
       ];
-      systemd = {
-        enable = true;
-        target = "hyprland-session.target";
-      };
     };
   };
 }
