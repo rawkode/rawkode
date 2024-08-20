@@ -173,6 +173,8 @@
 
         "$mainMod, Page_Up, changegroupactive, b"
         "$mainMod, Page_Down, changegroupactive, f"
+        "$mainMod shift, Page_Up, movegroupwindow, b"
+        "$mainMod shift, Page_Down, movegroupwindow, f"
 
         # Switch workspaces with mainMod + [0-9]
         "$mainMod, 1, moveworkspacetomonitor, 1 current"
