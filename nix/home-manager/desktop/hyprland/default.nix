@@ -1,4 +1,10 @@
 { pkgs, ... }:
+
+let
+  playerctl = "${pkgs.playerctl}/bin/playerctl";
+  brightnessctl = "${pkgs.brightnessctl}/bin/brightnessctl";
+  pactl = "${pkgs.pulseaudio}/bin/pactl";
+in
 {
   imports = [
     ./darkman.nix
@@ -160,7 +166,7 @@
     };
 
     extraConfig = ''
-      workspace = 1, monitor:DP-1, persistent:true, default:true
+      workspace = 1, persistent:true, default:true
       workspace = 2, monitor:DP-1, persistent:true
       workspace = 3, monitor:DP-1, persistent:true
       workspace = 4, monitor:DP-1, persistent:true
@@ -169,6 +175,21 @@
       workspace = 7, monitor:DP-2, persistent:true
       workspace = 8, monitor:DP-2, persistent:true
       workspace = 9, monitor:DP-2, persistent:true
+
+      bindle = ,XF86MonBrightnessUp,   exec, ${brightnessctl} set +5%
+      bindle = ,XF86MonBrightnessDown, exec, ${brightnessctl} set 5%-
+      bindle = ,XF86KbdBrightnessUp,   exec, ${brightnessctl} -d asus::kbd_backlight set +1
+      bindle = ,XF86KbdBrightnessDown, exec, ${brightnessctl} -d asus::kbd_backlight set  1-
+
+      bindle = ,XF86AudioRaiseVolume,  exec, ${pactl} set-sink-volume @DEFAULT_SINK@ +5%
+      bindle = ,XF86AudioLowerVolume,  exec, ${pactl} set-sink-volume @DEFAULT_SINK@ -5%
+      bindl  = ,XF86AudioMute,         exec, ${pactl} set-mute @DEFAULT_SINK@ toggle
+
+      bindl = ,XF86AudioPlay,    exec, ${playerctl} play-pause
+      bindl = ,XF86AudioStop,    exec, ${playerctl} pause
+      bindl = ,XF86AudioPause,   exec, ${playerctl} pause
+      bindl = ,XF86AudioPrev,    exec, ${playerctl} previous
+      bindl = ,XF86AudioNext,    exec, ${playerctl} next
     '';
   };
 }

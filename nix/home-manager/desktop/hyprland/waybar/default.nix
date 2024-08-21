@@ -18,15 +18,15 @@
         modules-left = [ "hyprland/workspaces" ];
         modules-center = [ "hyprland/window" ];
         modules-right =
-          lib.optionals (hostname == "laptop") [
-            "battery"
-            "backlight"
-          ]
-          ++ [
+          [
             "tray"
             "wireplumber"
-            "clock"
-          ];
+          ]
+          ++ lib.optionals (hostname == "laptop") [
+            "backlight"
+            "battery"
+          ]
+          ++ [ "clock" ];
 
         backlight = {
           device = "intel_backlight";
