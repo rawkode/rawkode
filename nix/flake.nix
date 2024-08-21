@@ -24,12 +24,20 @@
           hostname = "desktop";
           desktop = "hyprland";
         };
+        "laptop" = helper.mkNixos {
+          hostname = "laptop";
+          desktop = "hyprland";
+        };
       };
 
       homeConfigurations = {
         "desktop" = helper.mkHome {
           hostname = "desktop";
           platform = "x86_64-linux";
+          desktop = "hyprland";
+        };
+        "laptop" = helper.mkHome {
+          hostname = "laptop";
           desktop = "hyprland";
         };
       };

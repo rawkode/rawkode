@@ -33,7 +33,7 @@
       ];
 
       monitor = [
-        "eDP-1,preferred,auto,1"
+        "eDP-1,preferred,auto,1.333333"
         "DP-1,preferred,auto-right,1.5"
         "DP-2,preferred,auto-right,1.5"
         "DVI-I-1,preferred,auto-up,1"
