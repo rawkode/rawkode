@@ -20,9 +20,7 @@
   };
 
   home = {
-    packages = with pkgs; [
-      grimblast
-    ];
+    packages = with pkgs; [ grimblast ];
   };
 
   xdg.configFile."electron-flags.conf".text = ''
@@ -111,25 +109,34 @@
 
       bind = [
         "bind = $mainMod, G, togglegroup,"
+
         "$mainMod, F, fullscreen, 0"
         "$mainMod, Return, exec, wezterm"
-        "$mainMod, V, togglefloating,"
-        "$mainMod, Q, killactive,"
 
-        "$mainMod SHIFT, Q, exec, swaynag -t warning -m 'You pressed the exit shortcut. Do you really want to exit Hyprland? This will end your Wayland session.' -b 'Yes, exit' 'hyprctl dispatch exit'"
+        "$mainMod, V, togglefloating,"
+
+        "$mainMod, Q, killactive,"
+        "$mainMod, W, closewindow,"
 
         "$mainMod, Print, exec, grimblast --notify --cursor --freeze save area ~/Pictures/$(date +'%Y-%m-%d-At-%Ih%Mm%Ss').png"
 
         # Move focus with mainMod + arrow keys
-        "$mainMod, left, movefocus, l"
-        "$mainMod, right, movefocus, r"
-        "$mainMod, up, movefocus, u"
-        "$mainMod, down, movefocus, d"
+        "$mainMod, Page_Down, workspace, m+1"
+        "$mainMod, Page_Up, workspace, m-1"
 
-        "$mainMod, Page_Up, changegroupactive, b"
-        "$mainMod, Page_Down, changegroupactive, f"
-        "$mainMod shift, Page_Up, movegroupwindow, b"
-        "$mainMod shift, Page_Down, movegroupwindow, f"
+        "$mainMod ctrl, left, movefocus, l"
+        "$mainMod ctrl shift, left, movewindow, l"
+        "$mainMod ctrl, right, movefocus, r"
+        "$mainMod ctrl shift, right, movewindow, r"
+        "$mainMod ctrl, up, movefocus, u"
+        "$mainMod ctrl shift, up, movewindow, u"
+        "$mainMod ctrl, down, movefocus, d"
+        "$mainMod ctrl shift, down, movewindow, d"
+
+        "$mainMod, left, changegroupactive, b"
+        "$mainMod, right, changegroupactive, f"
+        "$mainMod shift, left, movegroupwindow, b"
+        "$mainMod shift, right, movegroupwindow, f"
 
         # Switch workspaces with mainMod + [0-9]
         "$mainMod, 1, workspace, 1"
@@ -152,7 +159,6 @@
         "$mainMod SHIFT, 7, movetoworkspace, 7"
         "$mainMod SHIFT, 8, movetoworkspace, 8"
         "$mainMod SHIFT, 9, movetoworkspace, 9"
-        "$mainMod SHIFT, 0, movetoworkspace, 10"
 
         # Scratchpad
         "$mainMod, Minus, togglespecialworkspace"
