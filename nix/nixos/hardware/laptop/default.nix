@@ -68,7 +68,7 @@
   ];
 
   services.xserver.videoDrivers = [ "modesetting" ];
-
+  services.fprintd.enable = true;
   networking.useDHCP = lib.mkDefault true;
   networking.networkmanager.wifi.powersave = true;
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";

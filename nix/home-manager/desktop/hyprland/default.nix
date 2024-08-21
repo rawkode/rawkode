@@ -19,6 +19,16 @@ in
     packages = with pkgs; [ grimblast ];
   };
 
+  home.sessionVariables = {
+    GDK_BACKEND = "wayland,x11";
+    MOZ_ENABLE_WAYLAND = 1;
+    NIXOS_OZONE_WL = 1;
+    QT_QPA_PLATFORM = "wayland;xcb";
+    XDG_CURRENT_DESKTOP = "Hyprland";
+    XDG_SESSION_DESKTOP = "Hyprland";
+    XDG_SESSION_TYPE = "wayland";
+  };
+
   wayland.windowManager.hyprland = {
     enable = true;
 
@@ -28,16 +38,6 @@ in
     };
 
     settings = {
-      env = [
-        "GDK_BACKEND, wayland,x11"
-        "QT_QPA_PLATFORM,wayland;xcb"
-        "MOZ_ENABLE_WAYLAND,1"
-        "NIXOS_OZONE_WL,1"
-        "XDG_CURRENT_DESKTOP,Hyprland"
-        "XDG_SESSION_DESKTOP,Hyprland"
-        "XDG_SESSION_TYPE,wayland"
-      ];
-
       monitor = [
         "eDP-1,preferred,auto,1.333333"
         "DP-1,preferred,auto-right,1.5"

@@ -5,5 +5,6 @@
     --ozone-platform=wayland
     --enable-features=WebRTCPipeWireCapturer
     --enable-features=WaylandWindowDecorations
+    --password-store=gnome-libsecret
   '';
 }

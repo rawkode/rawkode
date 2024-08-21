@@ -1,6 +1,7 @@
 {
   config,
   inputs,
+  outputs,
   pkgs,
   ...
 }:
@@ -20,6 +21,13 @@
   ];
 
   nixpkgs.config.allowUnfree = true;
+
+  nixpkgs = {
+    overlays = [
+      outputs.overlays.modifications
+      outputs.overlays.stable-packages
+    ];
+  };
 
   programs.home-manager = {
     enable = true;
