@@ -1,8 +1,10 @@
-{ hostname, pkgs, ... }:
+{ pkgs, ... }:
 {
   imports = [
+    ./darkman.nix
     ./fuzzel.nix
     ./hyprlock.nix
+    ./hyprpaper.nix
     ./swaync.nix
     ./waybar/default.nix
   ];
@@ -20,7 +22,6 @@
   home = {
     packages = with pkgs; [
       grimblast
-      hyprpaper
     ];
   };
 
@@ -32,8 +33,6 @@
   wayland.windowManager.hyprland = {
     enable = true;
     package = pkgs.hyprland;
-
-    catppuccin.enable = true;
     sourceFirst = true;
 
     # plugins = with pkgs.hyprlandPlugins; [  ];
@@ -87,7 +86,7 @@
       };
 
       misc = {
-        disable_hyprland_logo = false;
+        disable_hyprland_logo = true;
       };
 
       cursor = {
@@ -160,7 +159,6 @@
         "$mainMod SHIFT, Minus, movetoworkspace, special"
       ];
     };
-  };
 
     extraConfig = ''
       workspace = 1, monitor:DP-1, persistent:true, default:true

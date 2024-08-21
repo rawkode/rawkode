@@ -11,13 +11,16 @@
 
   imports = [
     inputs.catppuccin.homeManagerModules.catppuccin
+    inputs.flatpaks.homeManagerModules.nix-flatpak
 
     ./command-line/default.nix
     ./desktop/default.nix
     ./development/default.nix
+    ./flatpak.nix
   ];
 
   nixpkgs.config.allowUnfree = true;
+
   programs.home-manager = {
     enable = true;
   };

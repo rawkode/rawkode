@@ -45,8 +45,8 @@
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    flatpaks.url = "github:GermanBread/declarative-flatpak/stable";
     firefox.url = "github:nix-community/flake-firefox-nightly";
+    flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs-stable";

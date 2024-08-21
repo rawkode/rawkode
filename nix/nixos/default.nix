@@ -103,6 +103,7 @@
   };
 
   services = {
+    flatpak.enable = true;
     fwupd.enable = true;
     gnome.gnome-keyring.enable = true;
     hardware.bolt.enable = true;
