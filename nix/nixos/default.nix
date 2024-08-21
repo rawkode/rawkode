@@ -71,10 +71,11 @@
   documentation.doc.enable = false;
 
   environment = {
-    defaultPackages = with pkgs; lib.mkForce [ coreutils-full ];
-
     systemPackages = with pkgs; [
+      coreutils-full
       git
+      glib.dev
+      gnome-tweaks
       pinentry-gnome3
     ];
 

@@ -36,10 +36,6 @@
     };
 
   inputs = {
-    anyrun = {
-      url = "github:Kirottu/anyrun";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     catppuccin.url = "github:catppuccin/nix";
     dagger = {
       url = "github:dagger/nix";
@@ -56,11 +52,6 @@
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     nixpkgs-stable.url = "github:nixos/nixpkgs/release-24.05";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    plasma-manager = {
-      url = "github:nix-community/plasma-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
-    };
     wezterm = {
       url = "github:wez/wezterm?dir=nix";
       inputs.nixpkgs.follows = "nixpkgs";
