@@ -24,11 +24,6 @@
     packages = with pkgs; [ grimblast ];
   };
 
-  xdg.configFile."electron-flags.conf".text = ''
-    --enable-features=UseOzonePlatform
-    --ozone-platform=wayland
-  '';
-
   wayland.windowManager.hyprland = {
     enable = true;
     package = pkgs.hyprland;
@@ -41,22 +36,19 @@
         "eDP-1,preferred,auto,1"
         "DP-1,preferred,auto-right,1.5"
         "DP-2,preferred,auto-right,1.5"
-        "DVI-I-1,preferredm,auto-up,1"
+        "DVI-I-1,preferred,auto-up,1"
       ];
 
       xwayland = {
         force_zero_scaling = true;
       };
 
-      # exec-once = lib.concatStringsSep "&" [ "hyprpaper" ];
-
       input = {
         natural_scroll = true;
         sensitivity = 0;
         numlock_by_default = true;
 
-        # click focus
-        follow_mouse = 2;
+        follow_mouse = 1;
 
         touchpad = {
           natural_scroll = "yes";
@@ -79,7 +71,7 @@
         no_gaps_when_only = false;
         force_split = 0;
         split_width_multiplier = 1.0;
-        use_active_for_splits = true;
+        use_active_for_splits = false;
         pseudotile = "yes";
         preserve_split = "yes";
       };

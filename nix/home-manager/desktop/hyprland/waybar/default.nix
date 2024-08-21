@@ -16,9 +16,7 @@
         position = "top";
 
         modules-left = [ "hyprland/workspaces" ];
-
         modules-center = [ "hyprland/window" ];
-
         modules-right =
           lib.optionals (hostname == "laptop") [
             "battery"
@@ -32,32 +30,21 @@
 
         backlight = {
           device = "intel_backlight";
-          format = "{percent}% {icon}";
-          format-icons = [
-            ""
-            ""
-            ""
-            ""
-            ""
-            ""
-            ""
-          ];
+          format = "💡 {percent}%";
         };
 
         battery = {
-          interval = 60;
+          interval = 120;
           states = {
-            warning = 30;
+            warning = 25;
             critical = 15;
           };
           format = "{icon} {capacity}%";
-          format-charging = "<span color=\"#e0af68\">󱐌</span> {capacity}%";
+          format-charging = "⚡ {capacity}%";
           format-icons = [
-            "<span color=\"#f7768e\"> </span>"
-            "<span color=\"#f7768e\"> </span>"
-            "<span color=\"#7aa2f7\"> </span>"
-            "<span color=\"#7aa2f7\"> </span>"
-            "<span color=\"#7aa2f7\"> </span>"
+            "🔋"
+            "🪫"
+            "⚠️"
           ];
           on-update = "$HOME/.config/waybar/scripts/check_battery.sh";
         };
@@ -67,7 +54,7 @@
         };
 
         "hyprland/window" = {
-          max-length = 64;
+          max-length = 128;
           separate-outputs = true;
           icon = true;
         };
@@ -79,8 +66,8 @@
         };
 
         tray = {
-          icon-size = 12;
-          spacing = 6;
+          icon-size = 32;
+          spacing = 16;
         };
 
         wireplumber = {
@@ -107,11 +94,8 @@
         @import "catppuccin.css";
 
         * {
-          font-family:
-            "Monaspace Krypton",
-            feather;
-          font-weight: 500;
-          font-size: 11pt;
+          font-family: "Monaspace Krypton";
+          font-size: 12px;
           color: @text;
         }
 
@@ -119,7 +103,6 @@
         window#waybar {
           padding: 0;
           margin: 0;
-          /* background: rgba(26, 27, 38, 0.7); */
           background: @base;
         }
 
@@ -131,6 +114,10 @@
 
         #workspaces button {
           padding: 2px;
+
+          border-bottom: 2px solid @crust;
+          border-radius: 0;
+          margin-top: 2px;
         }
 
         /* Sets active workspace to have a solid line on the bottom */
@@ -168,7 +155,6 @@
         #tray,
         #backlight,
         #battery {
-          /* background: rgba(26, 27, 38, 0); */
           background: @base;
           padding: 0 10px;
           border: 0;
