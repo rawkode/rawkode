@@ -2,28 +2,17 @@
 {
   programs.hyprland = {
     enable = true;
-    package = pkgs.stable.hyprland;
+    xwayland.enable = true;
+
+    # Hyprland portal doesn't let me screenshare.
+    # Maybe try again after 0.42
+    portalPackage = pkgs.xdg-desktop-portal-wlr;
   };
 
   xdg.portal = {
     enable = true;
-
     xdgOpenUsePortal = true;
-
-    config = {
-      common = {
-        default = [ "hyprland" ];
-      };
-      hyprland = {
-        default = [
-          "gtk"
-          "hyprland"
-        ];
-      };
-    };
-
     extraPortals = with pkgs; [ xdg-desktop-portal-gtk ];
-
   };
 
   security = {
@@ -33,6 +22,22 @@
       gdm-password.enableGnomeKeyring = true;
     };
     polkit.enable = true;
+  };
+
+  systemd = {
+    user.services.polkit-gnome-authentication-agent-1 = {
+      description = "polkit-gnome-authentication-agent-1";
+      wantedBy = [ "graphical-session.target" ];
+      wants = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+        Restart = "on-failure";
+        RestartSec = 1;
+        TimeoutStopSec = 10;
+      };
+    };
   };
 
   services = {
@@ -52,17 +57,7 @@
       tracker.enable = true;
     };
 
-    xserver = {
-      enable = true;
-      displayManager.gdm.enable = true;
-      displayManager.gdm.wayland = true;
-    };
-
-    displayManager = {
-      defaultSession = "hyprland";
-    };
-
-    xserver.xkb.layout = "us";
+    displayManager.defaultSession = "hyprland";
   };
 
   environment.systemPackages = with pkgs; [
@@ -75,10 +70,11 @@
     gnome.gnome-control-center
     gnome.gnome-software
     gnome.gnome-weather
+    grim
+    grimblast
     loupe
     nautilus
     wl-clipboard
     wl-gammactl
   ];
-
 }

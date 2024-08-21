@@ -2,10 +2,12 @@
 {
   home.packages = [ pkgs.swaynotificationcenter ];
 
+  xdg.configFile."swaync/style.css".source = ./style.css;
+
   systemd.user.services.swaync = {
     Unit.Description = "Notifications center for sway";
-    Unit.PartOf = [ "graphical-session.target" ];
-    Install.WantedBy = [ "graphical-session.target" ];
+    Unit.PartOf = [ "hyprland-session.target" ];
+    Install.WantedBy = [ "hyprland-session.target" ];
     Service = {
       ExecStart = "${pkgs.swaynotificationcenter}/bin/swaync";
       Restart = "always";

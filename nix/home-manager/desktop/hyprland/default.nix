@@ -3,22 +3,11 @@
   imports = [
     ./darkman.nix
     ./fuzzel.nix
-    ./gnome-polkit.nix
     ./hyprlock.nix
     ./hyprpaper.nix
-    ./swaync.nix
+    ./swaync/default.nix
     ./waybar/default.nix
   ];
-
-  home.sessionVariables = {
-    GDK_BACKEND = "wayland,x11";
-    QT_QPA_PLATFORM = "wayland;xcb";
-    MOZ_ENABLE_WAYLAND = 1;
-    NIXOS_OZONE_WL = 1;
-    XDG_CURRENT_DESKTOP = "Hyprland";
-    XDG_SESSION_DESKTOP = "Hyprland";
-    XDG_SESSION_TYPE = "wayland";
-  };
 
   home = {
     packages = with pkgs; [ grimblast ];
@@ -26,12 +15,23 @@
 
   wayland.windowManager.hyprland = {
     enable = true;
-    package = pkgs.hyprland;
-    sourceFirst = true;
 
-    # plugins = with pkgs.hyprlandPlugins; [  ];
+    systemd = {
+      enable = true;
+      variables = [ "--all" ];
+    };
 
     settings = {
+      env = [
+        "GDK_BACKEND, wayland,x11"
+        "QT_QPA_PLATFORM,wayland;xcb"
+        "MOZ_ENABLE_WAYLAND,1"
+        "NIXOS_OZONE_WL,1"
+        "XDG_CURRENT_DESKTOP,Hyprland"
+        "XDG_SESSION_DESKTOP,Hyprland"
+        "XDG_SESSION_TYPE,wayland"
+      ];
+
       monitor = [
         "eDP-1,preferred,auto,1"
         "DP-1,preferred,auto-right,1.5"

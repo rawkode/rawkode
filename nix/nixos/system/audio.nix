@@ -1,6 +1,11 @@
 { lib, pkgs, ... }:
 {
-  environment.systemPackages = with pkgs; [ pavucontrol ];
+  hardware.pulseaudio.enable = lib.mkForce false;
+
+  environment.systemPackages = with pkgs; [
+    pavucontrol
+    pulseaudioFull
+  ];
 
   services.pipewire = {
     enable = true;
@@ -9,7 +14,6 @@
     alsa.support32Bit = true;
     jack.enable = true;
     pulse.enable = true;
-
     wireplumber.enable = true;
 
     extraConfig.pipewire."92-low-latency" = {
@@ -23,6 +27,4 @@
   };
 
   security.rtkit.enable = true;
-
-  hardware.pulseaudio.enable = lib.mkForce false;
 }
