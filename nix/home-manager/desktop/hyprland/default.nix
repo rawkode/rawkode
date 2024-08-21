@@ -92,17 +92,20 @@ in
       };
 
       decoration = {
-        rounding = 8;
+        rounding = 16;
+        drop_shadow = true;
+        dim_inactive = true;
+
       };
 
       group = {
         "col.border_active" = "$accent";
 
         groupbar = {
-          height = 8;
+          height = 12;
           render_titles = false;
-          "col.active" = "$accent";
-          "col.inactive" = "rgba(8839ef55)";
+          "col.active" = "$sky";
+          "col.inactive" = "rgba(89dceb55)";
         };
       };
 
