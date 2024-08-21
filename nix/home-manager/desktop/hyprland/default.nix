@@ -112,6 +112,7 @@ in
         "$mainMod, F, fullscreen, 0"
         "$mainMod, Return, exec, wezterm"
 
+        "$mainMod, T, pseudo"
         "$mainMod, V, togglefloating,"
 
         "$mainMod, Q, killactive,"
@@ -123,19 +124,19 @@ in
         "$mainMod, Page_Down, workspace, m+1"
         "$mainMod, Page_Up, workspace, m-1"
 
-        "$mainMod ctrl, left, movefocus, l"
-        "$mainMod ctrl shift, left, movewindow, l"
-        "$mainMod ctrl, right, movefocus, r"
-        "$mainMod ctrl shift, right, movewindow, r"
-        "$mainMod ctrl, up, movefocus, u"
-        "$mainMod ctrl shift, up, movewindow, u"
-        "$mainMod ctrl, down, movefocus, d"
-        "$mainMod ctrl shift, down, movewindow, d"
+        "$mainMod, left, movefocus, l"
+        "$mainMod shift, left, movewindow, l"
+        "$mainMod, right, movefocus, r"
+        "$mainMod shift, right, movewindow, r"
+        "$mainMod, up, movefocus, u"
+        "$mainMod shift, up, movewindow, u"
+        "$mainMod, down, movefocus, d"
+        "$mainMod shift, down, movewindow, d"
 
-        "$mainMod, left, changegroupactive, b"
-        "$mainMod, right, changegroupactive, f"
-        "$mainMod shift, left, movegroupwindow, b"
-        "$mainMod shift, right, movegroupwindow, f"
+        "$mainMod, comma, changegroupactive, b"
+        "$mainMod, period, changegroupactive, f"
+        "$mainMod shift, comma, movegroupwindow, b"
+        "$mainMod shift, period, movegroupwindow, f"
 
         # Switch workspaces with mainMod + [0-9]
         "$mainMod, 1, workspace, 1"
