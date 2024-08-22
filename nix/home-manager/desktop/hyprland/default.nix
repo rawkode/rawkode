@@ -94,8 +94,7 @@ in
       decoration = {
         rounding = 16;
         drop_shadow = true;
-        dim_inactive = true;
-
+        dim_inactive = false;
       };
 
       group = {
