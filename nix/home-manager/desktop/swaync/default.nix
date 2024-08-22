@@ -1,4 +1,8 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
+
+let
+  swaync-client = "${pkgs.swaynotificationcenter}/bin/swaync-client";
+in
 {
   home.packages = [ pkgs.swaynotificationcenter ];
 
@@ -15,16 +19,19 @@
     };
   };
 
-  wayland.windowManager.hyprland.settings =
-    let
-      swaync-client = "${pkgs.swaynotificationcenter}/bin/swaync-client";
-    in
-    {
-      bindn = [ ", escape, exec, ${swaync-client} --close-latest" ];
-      bind = [
-        "shift, escape, exec, ${swaync-client} --close-all"
-        "$mainMod, d, exec, ${swaync-client} --toggle-dnd"
-        "$mainMod, n, exec, ${swaync-client} --toggle-panel"
-      ];
-    };
+  programs.niri.settings.binds = with config.lib.niri.actions; {
+    "Shift+Escape".action = spawn "${swaync-client}" "--close-latest";
+    "Shift+Alt+Escape".action = spawn "${swaync-client}" "--close-all";
+    "Super+N".action = spawn "${swaync-client}" "--toggle-panel";
+    "Super+D".action = spawn "${swaync-client}" "--toggle-dnd";
+  };
+
+  wayland.windowManager.hyprland.settings = {
+    bindn = [ ", escape, exec, ${swaync-client} --close-latest" ];
+    bind = [
+      "shift, escape, exec, ${swaync-client} --close-all"
+      "$mainMod, d, exec, ${swaync-client} --toggle-dnd"
+      "$mainMod, n, exec, ${swaync-client} --toggle-panel"
+    ];
+  };
 }
