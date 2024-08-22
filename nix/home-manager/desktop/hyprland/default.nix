@@ -7,12 +7,8 @@ let
 in
 {
   imports = [
-    ./darkman.nix
-    ./fuzzel.nix
     ./hyprlock.nix
     ./hyprpaper.nix
-    ./swaync/default.nix
-    ./waybar/default.nix
   ];
 
   home = {

@@ -50,6 +50,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     firefox.url = "github:nix-community/flake-firefox-nightly";
+    niri.url = "github:sodiboo/niri-flake";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
       url = "github:nix-community/home-manager";

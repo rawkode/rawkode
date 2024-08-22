@@ -15,6 +15,7 @@
 
     inputs.catppuccin.nixosModules.catppuccin
     inputs.home-manager.nixosModules.default
+    inputs.niri.nixosModules.niri
 
     ./hardware/${hostname}
     ./networking

@@ -44,34 +44,6 @@
     '';
   };
 
-  xdg = {
-    portal = {
-      enable = true;
-      xdgOpenUsePortal = true;
-
-      extraPortals = with pkgs; [
-        xdg-desktop-portal-gnome
-        xdg-desktop-portal-gtk
-      ];
-
-      config = {
-        common = {
-          default = [ "gtk" ];
-        };
-
-        hyprland = {
-          default = [
-            "wlr"
-            "gnome"
-            "gtk"
-          ];
-
-          "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
-        };
-      };
-    };
-  };
-
   systemd = {
     user.services.polkit-gnome-authentication-agent-1 = {
       description = "polkit-gnome-authentication-agent-1";

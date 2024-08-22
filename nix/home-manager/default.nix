@@ -24,6 +24,7 @@
 
   nixpkgs = {
     overlays = [
+      inputs.niri.overlays.niri
       outputs.overlays.modifications
       outputs.overlays.stable-packages
     ];

@@ -6,8 +6,8 @@
 
   systemd.user.services.swaync = {
     Unit.Description = "Notifications center for sway";
-    Unit.PartOf = [ "hyprland-session.target" ];
-    Install.WantedBy = [ "hyprland-session.target" ];
+    Unit.PartOf = [ "graphical-session.target" ];
+    Install.WantedBy = [ "graphical-session.target" ];
     Service = {
       ExecStart = "${pkgs.swaynotificationcenter}/bin/swaync";
       Restart = "always";

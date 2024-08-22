@@ -3,7 +3,7 @@
   programs.waybar = {
     enable = true;
     systemd.enable = true;
-    systemd.target = "hyprland-session.target";
+    systemd.target = "graphical-session.target";
 
     catppuccin = {
       enable = true;
