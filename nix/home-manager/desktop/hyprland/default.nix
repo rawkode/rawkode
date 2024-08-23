@@ -88,7 +88,7 @@ in
       };
 
       decoration = {
-        rounding = 16;
+        rounding = 0;
         drop_shadow = true;
         dim_inactive = false;
       };

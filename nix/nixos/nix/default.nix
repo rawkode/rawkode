@@ -10,7 +10,7 @@
   imports = [ ./substituters.nix ];
 
   nix = {
-    package = pkgs.nixVersions.git;
+    package = pkgs.nixVersions.nix_2_23;
 
     gc = {
       automatic = true;

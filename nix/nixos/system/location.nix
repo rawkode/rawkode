@@ -14,7 +14,7 @@
     };
 
     geoclue2 = {
-      enable = false;
+      enable = true;
 
       # With these all disabled, should use GeoIP
       # Everything else appears to be broken since
