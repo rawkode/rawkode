@@ -2,7 +2,6 @@
   config,
   hostname,
   inputs,
-  lib,
   modulesPath,
   pkgs,
   stateVersion,
@@ -14,6 +13,7 @@
     (modulesPath + "/installer/scan/not-detected.nix")
 
     inputs.catppuccin.nixosModules.catppuccin
+    inputs.cosmic.nixosModules.default
     inputs.home-manager.nixosModules.default
     inputs.niri.nixosModules.niri
 

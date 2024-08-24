@@ -1,7 +1,7 @@
 {
   imports = [
     ./audio.nix
-    ./desktop
+    ./desktop.nix
     ./fonts.nix
     ./graphics.nix
     ./location.nix

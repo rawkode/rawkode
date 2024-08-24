@@ -45,6 +45,10 @@
 
   inputs = {
     catppuccin.url = "github:catppuccin/nix";
+    cosmic = {
+      url = "github:lilyinstarlight/nixos-cosmic";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     dagger = {
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
