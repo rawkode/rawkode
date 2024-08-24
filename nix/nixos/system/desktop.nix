@@ -1,13 +1,14 @@
 { ... }:
 {
   services = {
-    displayManager.cosmic-greeter.enable = true;
+    displayManager.cosmic-greeter.enable = false;
     desktopManager.cosmic.enable = true;
 
     xserver.xkb.layout = "us";
     xserver = {
       enable = true;
-      displayManager.gdm.enable = false;
+      desktopManager.gnome.enable = true;
+      displayManager.gdm.enable = true;
       displayManager.gdm.wayland = true;
     };
   };
