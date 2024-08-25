@@ -24,7 +24,6 @@
     };
 
     extraModulePackages = with config.boot.kernelPackages; [
-      evdi
       v4l2loopback
     ];
 

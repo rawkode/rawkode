@@ -5,7 +5,6 @@
   ...
 }:
 with lib;
-with lib.rawkOS;
 let
   cfg = config.rawkOS.desktop.niri;
 in
@@ -27,7 +26,7 @@ in
   config = mkIf cfg.enable {
     programs.niri.enable = true;
 
-    hardware.opengl.package = pkgs.unstable.mesa.drivers;
+    hardware.opengl.package = pkgs.mesa.drivers;
 
     services.gnome.gnome-keyring = {
       enable = true;

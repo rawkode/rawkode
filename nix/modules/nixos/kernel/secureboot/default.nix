@@ -1,11 +1,10 @@
 {
-  inputs,
+  config,
   lib,
   pkgs,
   ...
 }:
 with lib;
-with lib.rawkOS;
 let
   cfg = config.rawkOS.secureboot;
 in
@@ -19,8 +18,6 @@ in
   };
 
   config = mkIf cfg.enable {
-    imports = [ inputs.lanzaboote.nixosModules.lanzaboote ];
-
     boot = {
       # Lanzaboote currently replaces the systemd-boot module.
       # This setting is usually set to true in configuration.nix

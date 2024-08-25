@@ -1,6 +1,5 @@
-{ lib, config, ... }:
+{ config, lib, ... }:
 with lib;
-with lib.rawkOS;
 let
   cfg = config.rawkOS.desktop.wayland;
 in

@@ -1,22 +1,14 @@
-{ lib, ... }:
-with lib;
-with lib.rawkOS;
+{ ... }:
 {
   imports = [ ./hardware.nix ];
 
   rawkOS = {
     desktop = {
-      niri = enabled;
+      niri.enable = true;
+      wayland.force = true;
     };
-    wayland.force = true;
-
     secureboot.enable = true;
   };
-
-  networking.hostName = "p4x-desktop-nixos";
-
-  # User Setup
-  users.mutableUsers = false;
 
   # Wireless
   hardware.bluetooth.enable = true;

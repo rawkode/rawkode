@@ -1,11 +1,10 @@
-{ lib, config, ... }:
+{ config, lib, ... }:
 with lib;
-with lib.rawkOS;
 let
   cfg = config.rawkOS.user;
 in
 {
-  options.rawkOS.user = with types; {
+  options.rawkOS.user = with lib.types; {
     enable = mkOption {
       type = bool;
       default = false;
@@ -37,28 +36,30 @@ in
         like `programs.zsh.enable = true;`.
       '';
     };
-  };
 
-  users.groups.${cfg.username} = { };
+    config = {
+      users.groups.${cfg.username} = { };
 
-  config.users.users.${cfg.username} = {
-    description = cfg.name;
-    isNormalUser = true;
-    shell = cfg.shell;
-    extraGroups = [
-      "${cfg.username}"
-      "adbusers"
-      "audio"
-      "dialout"
-      "input"
-      "lxd"
-      "networkmanager"
-      "osboxes"
-      "plugdev"
-      "sound"
-      "tty"
-      "video"
-      "wheel"
-    ];
+      config.users.users.${cfg.username} = {
+        description = cfg.name;
+        isNormalUser = true;
+        shell = cfg.shell;
+        extraGroups = [
+          "${cfg.username}"
+          "adbusers"
+          "audio"
+          "dialout"
+          "input"
+          "lxd"
+          "networkmanager"
+          "osboxes"
+          "plugdev"
+          "sound"
+          "tty"
+          "video"
+          "wheel"
+        ];
+      };
+    };
   };
 }

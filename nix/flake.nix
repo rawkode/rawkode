@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
     catppuccin.url = "github:catppuccin/nix";
     cosmic = {
@@ -45,7 +45,7 @@
         src = ./.;
 
         snowfall = {
-          namespace = "rawkode";
+          namespace = "rawkOS";
           meta = {
             name = "rawkOS";
             title = "rawkOS: Rawkode's Nix Configured Operating System";
@@ -65,13 +65,14 @@
         cosmic.nixosModules.default
         home-manager.nixosModules.default
         impermanence.nixosModules.impermanence
+        lanzaboote.nixosModules.lanzaboote
         niri.nixosModules.niri
 
         (
           { ... }:
           {
             nix.registry.nixpkgs.flake = nixpkgs;
-            nix.registry.nixpkgs-unstable.flake = nixpkgs-unstable;
+            nix.registry.unstable.flake = unstable;
             nix.registry.rawkode.flake = self;
             nix.registry.templates.flake = self;
 

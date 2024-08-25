@@ -1,8 +1,6 @@
-{ lib, pkgs, ... }:
-with lib;
-with lib.rawkode;
+{ config, pkgs, ... }:
 let
-  cfg = config.rawkode.user;
+  cfg = config.rawkOS.user;
 in
 {
   nix = {
