@@ -1,10 +1,6 @@
-{ lib, ... }:
-with lib;
-with lib.rawkOS;
+{ ... }:
 {
-  imports = [
-    ./hardware.nix
-  ];
+  imports = [ ./hardware.nix ];
 
   # olistrik = {
   #   collections = {
@@ -17,9 +13,6 @@ with lib.rawkOS;
   #     ags = enabled;
   #   };
   # };
-
-  # User Setup
-  users.mutableUsers = false;
 
   # Wireless
   hardware.bluetooth.enable = true;
