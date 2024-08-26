@@ -1,5 +1,10 @@
 { ... }:
 {
+  services.resolved = {
+    enable = true;
+    # dnsovertls = "opportunistic";
+  };
+
   networking = {
     networkmanager = {
       enable = true;

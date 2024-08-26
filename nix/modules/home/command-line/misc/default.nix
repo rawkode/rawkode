@@ -3,15 +3,17 @@
   home.packages = (
     with pkgs;
     [
-      bat
       eza
-      fzf
       ripgrep
       tldr
       unzip
       vim
     ]
   );
+
+  programs.bat.enable = true;
+  programs.fzf.enable = true;
+  programs.skim.enable = true;
 
   programs.direnv = {
     enable = true;

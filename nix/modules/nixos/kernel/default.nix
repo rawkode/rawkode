@@ -32,20 +32,4 @@
   };
 
   console.useXkbConfig = true;
-
-  # environment = {
-  #   systemPackages = with pkgs; [
-  #     coreutils-full
-  #     git
-  #     glib.dev
-  #     gnome-tweaks
-  #     pinentry-gnome3
-  #   ];
-
-  #   variables = {
-  #     EDITOR = "code";
-  #     SYSTEMD_EDITOR = "code";
-  #     VISUAL = "code";
-  #   };
-  # };
 }

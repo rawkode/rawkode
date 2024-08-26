@@ -4,6 +4,8 @@
     enableDefaultPackages = false;
 
     fontconfig = {
+      enable = true;
+
       antialias = true;
       hinting.enable = true;
       hinting.autohint = true;
