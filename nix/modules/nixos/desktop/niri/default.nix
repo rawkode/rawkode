@@ -26,18 +26,22 @@ in
   config = mkIf cfg.enable {
     programs.niri.enable = true;
 
-    hardware.opengl.package = pkgs.mesa.drivers;
-
     services.gnome.gnome-keyring = {
       enable = true;
     };
 
     xdg.portal = {
       extraPortals = with pkgs; [
-        xdg-desktop-portal-gtk
         xdg-desktop-portal-gnome
         xdg-desktop-portal-wlr
       ];
+
+      wlr = {
+        enable = true;
+        settings.screencast = {
+          max_fps = 60;
+        };
+      };
 
       config = {
         niri-session = {

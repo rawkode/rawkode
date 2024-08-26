@@ -6,6 +6,10 @@
     unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
     catppuccin.url = "github:catppuccin/nix";
+    comma = {
+      url = "github:nix-community/comma";
+      inputs.nixpkgs.follows = "unstable";
+    };
     cosmic = {
       url = "github:lilyinstarlight/nixos-cosmic";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -17,23 +21,40 @@
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
-      url = "github:nix-community/home-manager";
+      url = "github:nix-community/home-manager/release-24.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    hyprland.url = "github:hyprwm/Hyprland";
+    # Pinned to 0.42, which is what Hyprscroller needs for now.
+    hyprland = {
+      url = "git+https://github.com/hyprwm/Hyprland?rev=9a09eac79b85c846e3a865a9078a3f8ff65a9259&submodules=1";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    hyprscroller = {
+      url = "github:dawsers/hyprscroller";
+      inputs.hyprland.follows = "hyprland";
+    };
     impermanence.url = "github:nix-community/impermanence";
-    lanzaboote.url = "github:nix-community/lanzaboote";
+    ironbar = {
+      url = "github:JakeStanger/ironbar";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     niri.url = "github:sodiboo/niri-flake";
+    nix-colors.url = "github:misterio77/nix-colors";
+    nix-index-database = {
+      url = "github:nix-community/nix-index-database";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     snowfall-lib = {
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    stylix.url = "github:danth/stylix";
-    wezterm = {
-      url = "github:wez/wezterm?dir=nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # 24.05
+    stylix.url = "github:danth/stylix?ref=e59d2c1725b237c362e4a62f5722f5b268d566c7";
   };
 
   outputs =
@@ -60,14 +81,22 @@
 
       overlays = with inputs; [ niri.overlays.niri ];
 
+      specialArgs = with inputs; {
+        inherit nix-colors;
+      };
+
+      homes.modules = with inputs; [
+        catppuccin.homeManagerModules.catppuccin
+        ironbar.homeManagerModules.default
+        nix-index-database.hmModules.nix-index
+      ];
+
       systems.modules.nixos = with inputs; [
         catppuccin.nixosModules.catppuccin
         cosmic.nixosModules.default
-        home-manager.nixosModules.default
         impermanence.nixosModules.impermanence
         lanzaboote.nixosModules.lanzaboote
         niri.nixosModules.niri
-
         (
           { ... }:
           {
@@ -76,11 +105,6 @@
             nix.registry.rawkode.flake = self;
             nix.registry.templates.flake = self;
 
-            nix.settings = {
-              auto-optimise-store = true;
-              substituters = [ "https://cache.nixos.org" ];
-              trusted-public-keys = [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
-            };
           }
         )
       ];
