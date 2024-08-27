@@ -113,6 +113,7 @@ in
         dynamic-workspaces = false;
         experimental-features = [ "scale-monitor-framebuffer" ];
         num-workspaces = 4;
+        overlay-key = [ "" ];
       };
 
       "org/gnome/mutter/keybindings" = {

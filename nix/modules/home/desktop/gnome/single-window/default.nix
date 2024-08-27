@@ -13,6 +13,7 @@ in
     dconf.settings = {
       "org/gnome/mutter" = {
         attach-modal-dialogs = true;
+        center-new-windows = true;
         edge-tiling = true;
         workspaces-only-on-primary = true;
       };
