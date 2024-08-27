@@ -14,6 +14,10 @@
       }
       {
         origin = "flathub";
+        appId = "org.ferdium.Ferdium";
+      }
+      {
+        origin = "flathub";
         appId = "org.nickvision.tubeconverter";
       }
       {
