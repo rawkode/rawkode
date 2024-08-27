@@ -9,12 +9,20 @@ let
   cfg = osConfig.rawkOS.desktop.gnome;
 in
 {
-  config = mkIf not cfg.paperwm {
+  config = mkIf (!cfg.paperwm) {
     dconf.settings = {
       "org/gnome/mutter" = {
         attach-modal-dialogs = true;
         edge-tiling = true;
         workspaces-only-on-primary = true;
+      };
+
+      "org/gnome/shell" = {
+        disable-user-extensions = false;
+        enabled-extensions = [
+          "CoverflowAltTab@palatis.blogspot.com"
+          "useless-gaps@pimsnel.com"
+        ];
       };
 
       "org/gnome/desktop/wm/keybindings" = {
@@ -46,12 +54,29 @@ in
         toggle-tiled-right = [ "<super>Right" ];
       };
 
+      "org/gnome/shell/extensions/coverflowalttab" = {
+        animation-time = 5.0e-2;
+        hide-panel = false;
+        highlight-mouse-over = false;
+        icon-has-shadow = true;
+        position = "Bottom";
+        preview-to-monitor-ratio = 0.5;
+        raise-mouse-over = false;
+        randomize-animation-times = false;
+        switcher-looping-method = "Flip Stack";
+        switcher-style = "Coverflow";
+        switch-per-monitor = true;
+      };
+
       "org/gnome/shell/extensions/useless-gaps" = {
         gap-size = 16;
         no-gap-when-maximized = false;
       };
     };
 
-    home.packages = with pkgs.gnomeExtensions; [ useless-gaps ];
+    home.packages = with pkgs.gnomeExtensions; [
+      coverflow-alt-tab
+      useless-gaps
+    ];
   };
 }
