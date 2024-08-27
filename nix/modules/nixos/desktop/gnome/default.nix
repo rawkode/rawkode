@@ -10,6 +10,11 @@ in
       default = false;
       description = "Whether to enable the GNOME";
     };
+
+    paperwm = mkOption {
+      type = types.bool;
+      default = false;
+    };
   };
 
   config = mkIf cfg.enable {

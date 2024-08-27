@@ -6,7 +6,7 @@
 }:
 with lib;
 let
-  cfg = osConfig.rawkOS.desktop.gnome or { enable = false; };
+  cfg = osConfig.rawkOS.desktop.gnome;
   file-chooser = {
     date-format = "regular";
     location-mode = "path-bar";

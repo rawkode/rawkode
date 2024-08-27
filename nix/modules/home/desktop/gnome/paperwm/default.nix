@@ -6,10 +6,10 @@
 }:
 with lib;
 let
-  cfg = osConfig.rawkOS.desktop.gnome or { enable = false; };
+  cfg = osConfig.rawkOS.desktop.gnome;
 in
 {
-  config = mkIf cfg.enable {
+  config = mkIf cfg.paperwm {
     dconf.settings = {
       "org/gnome/mutter" = {
         attach-modal-dialogs = mkForce false;
