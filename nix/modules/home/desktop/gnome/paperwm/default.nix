@@ -19,7 +19,6 @@ in
       };
 
       "org/gnome/shell" = {
-        disable-user-extensions = false;
         enabled-extensions = [ "paperwm@paperwm.github.com" ];
       };
 

@@ -136,7 +136,6 @@ in
           "gsconnect@andyholmes.github.io"
           #          "just-perfection-desktop@just-perfection"
           "nightthemeswitcher@romainvigier.fr"
-          "rclone-manager@germanztz.com"
           "sound-output-device-chooser@kgshank.net"
           "space-bar@luchrioh"
           "tailscale@joaophi.github.com"
@@ -270,7 +269,6 @@ in
         gsconnect
         just-perfection
         night-theme-switcher
-        rclone-manager
         sound-output-device-chooser
         space-bar
         tailscale-qs

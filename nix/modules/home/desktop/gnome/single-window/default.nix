@@ -21,7 +21,6 @@ in
       "org/gnome/shell" = {
         disable-user-extensions = false;
         enabled-extensions = [
-          "CoverflowAltTab@palatis.blogspot.com"
           "useless-gaps@pimsnel.com"
         ];
       };
@@ -55,20 +54,6 @@ in
         toggle-tiled-right = [ "<super>Right" ];
       };
 
-      "org/gnome/shell/extensions/coverflowalttab" = {
-        animation-time = 5.0e-2;
-        hide-panel = false;
-        highlight-mouse-over = false;
-        icon-has-shadow = true;
-        position = "Bottom";
-        preview-to-monitor-ratio = 0.5;
-        raise-mouse-over = false;
-        randomize-animation-times = false;
-        switcher-looping-method = "Flip Stack";
-        switcher-style = "Coverflow";
-        switch-per-monitor = true;
-      };
-
       "org/gnome/shell/extensions/useless-gaps" = {
         gap-size = 16;
         no-gap-when-maximized = false;
@@ -76,7 +61,6 @@ in
     };
 
     home.packages = with pkgs.gnomeExtensions; [
-      coverflow-alt-tab
       useless-gaps
     ];
   };
