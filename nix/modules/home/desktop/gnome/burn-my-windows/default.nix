@@ -7,6 +7,12 @@
 with lib;
 let
   cfg = osConfig.rawkOS.desktop.gnome;
+  burnMyWindowsProfile = pkgs.writeText "burn-my-windows.conf" ''
+    [burn-my-windows-profile]
+    energize-b-enable-effect=true
+    energize-b-scale=10.0
+    energize-b-animation-time=768
+  '';
 in
 {
   config = mkIf cfg.enable {
@@ -15,16 +21,9 @@ in
         enabled-extensions = [ "burn-my-windows@schneegans.github.com" ];
       };
       "org/gnome/shell/extensions/burn-my-windows" = {
-        active-profile = "${cfg.home}/.config/burn-my-windows/profiles/rawkode.conf";
+        active-profile = "${burnMyWindowsProfile}";
       };
     };
-
-    home.file.".config/burn-my-windows/profiles/rawkode.conf".text = ''
-      [burn-my-windows-profile]
-      energize-b-enable-effect=true
-      energize-b-scale=10.0
-      energize-b-animation-time=768
-    '';
 
     home.packages = with pkgs.gnomeExtensions; [ burn-my-windows ];
   };
