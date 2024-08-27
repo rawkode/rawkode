@@ -87,6 +87,7 @@
 
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
+        flatpaks.homeManagerModules.nix-flatpak
         ironbar.homeManagerModules.default
         nix-index-database.hmModules.nix-index
       ];
@@ -94,6 +95,7 @@
       systems.modules.nixos = with inputs; [
         catppuccin.nixosModules.catppuccin
         cosmic.nixosModules.default
+        flatpaks.nixosModules.nix-flatpak
         impermanence.nixosModules.impermanence
         lanzaboote.nixosModules.lanzaboote
         niri.nixosModules.niri
