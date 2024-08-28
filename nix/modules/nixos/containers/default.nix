@@ -1,10 +1,13 @@
 { pkgs, ... }:
 {
   virtualisation = {
-    containers.enable = true;
-
-    lxc.enable = true;
-    lxd.enable = true;
+    containers = {
+      enable = true;
+      containersConf.settings = {
+        cgroup_manager = "systemd";
+        events_logger = "journald";
+      };
+    };
 
     podman = {
       enable = true;
