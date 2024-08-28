@@ -1,12 +1,10 @@
 { pkgs, ... }:
 {
+  systemd.enableUnifiedCgroupHierarchy = true;
+
   virtualisation = {
     containers = {
       enable = true;
-      containersConf.settings = {
-        cgroup_manager = "systemd";
-        events_logger = "journald";
-      };
     };
 
     podman = {

@@ -10,9 +10,6 @@
       nil
       nixfmt-rfc-style
       rquickshare
-      slack
-      vesktop
-      zoom-us
       zoxide
     ]
   );
