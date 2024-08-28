@@ -140,7 +140,6 @@ in
           "space-bar@luchrioh"
           "tailscale@joaophi.github.com"
           "user-theme@gnome-shell-extensions.gcampax.github.com"
-          "vertical-workspaces@G-dH.github.com"
         ];
 
         favorite-apps = [ ];
