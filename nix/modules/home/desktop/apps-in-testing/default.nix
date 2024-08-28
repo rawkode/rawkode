@@ -54,10 +54,6 @@
       }
       {
         origin = "flathub";
-        appId = "re.sonny.Junction";
-      }
-      {
-        origin = "flathub";
         appId = "io.github.seadve.Kooha";
       }
       {

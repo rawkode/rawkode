@@ -1,0 +1,12 @@
+--- a/src/gui/main_window.rs	2024-07-03 11:10:00.948384462 +0900
++++ b/src/gui/main_window.rs	2024-07-03 11:11:17.748563768 +0900
+@@ -213,8 +213,8 @@ impl MainWindow {
+ }
+
+ fn calculate_visible_browser_count(browsers_total: usize) -> usize {
+-    // max 6 items without scrollbar
+-    let item_count = cmp::min(6, browsers_total);
++    // max 9 items without scrollbar
++    let item_count = cmp::min(9, browsers_total);
+     // but at least 1 item in case of errors (or window size is too small)
+     let item_count = cmp::max(1, item_count);
