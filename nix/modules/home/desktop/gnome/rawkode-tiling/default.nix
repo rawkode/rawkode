@@ -39,7 +39,7 @@ in
         switch-to-workspace-5 = [ "<super>5" ];
 
         switch-windows = [ "<super>Right" ];
-        switch-windows-backwards = [ "<super>Left" ];
+        switch-windows-backward = [ "<super>Left" ];
 
         move-to-workspace-1 = [ "<super><shift>1" ];
         move-to-workspace-2 = [ "<super><shift>2" ];
@@ -51,6 +51,22 @@ in
       "org/gnome/mutter/keybindings" = {
         toggle-tiled-left = [ "<shift><super>Left" ];
         toggle-tiled-right = [ "<shift><super>Right" ];
+      };
+
+      "org/gnome/shell/extensions/advanced-alt-tab-window-switcher" = {
+        enable-super = false;
+        super-double-press-action = 2;
+        super-key-mode = 3;
+        switcher-popup-hover-select = false;
+        switcher-popup-monitor = 3;
+        switcher-popup-position = 3;
+        switcher-popup-preview-selected = 3;
+        switcher-popup-timeout = 0;
+        win-switch-include-modals = true;
+        win-switcher-popup-sorting = 3;
+        win-switcher-popup-titles = 2;
+        win-switcher-popup-ws-indexes = false;
+        ws-switch-popup = false;
       };
     };
 
