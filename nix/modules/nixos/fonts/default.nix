@@ -27,7 +27,12 @@
       material-symbols
       merriweather
       monaspace
-      (nerdfonts.override { fonts = [ "NerdFontsSymbolsOnly" ]; })
+      (nerdfonts.override {
+        fonts = [
+          "Monaspace"
+          "NerdFontsSymbolsOnly"
+        ];
+      })
       noto-fonts
       noto-fonts-cjk
       noto-fonts-emoji

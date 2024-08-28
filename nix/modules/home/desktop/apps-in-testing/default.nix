@@ -50,10 +50,6 @@
       }
       {
         origin = "flathub";
-        appId = "app.devsuite.Ptyxis";
-      }
-      {
-        origin = "flathub";
         appId = "com.feaneron.Boatswain";
       }
       {
@@ -67,10 +63,6 @@
       {
         origin = "flathub";
         appId = "com.mardojai.ForgeSparks";
-      }
-            {
-        origin = "flathub";
-        appId = "";
       }
     ];
   };

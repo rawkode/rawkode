@@ -217,22 +217,6 @@ in
         smart-workspace-names = false;
       };
 
-      "org/gnome/shell/extensions/vertical-workspaces" = {
-        app-grid-incomplete-pages = false;
-        center-app-grid = false;
-        dash-isolate-workspaces = true;
-        dash-position = 4;
-        overview-mode = 0;
-        panel-position = 0;
-        recent-files-search-provider-module = true;
-        running-dot-style = 0;
-        show-search-entry = false;
-        startup-state = 0;
-        ws-switcher-wraparound = true;
-        ws-thumbnails-full = true;
-        ws-thumbnails-position = 0;
-      };
-
       "org/gnome/shell/keybindings" = {
         focus-active-notification = [ ];
         shift-overview-down = [ ];
