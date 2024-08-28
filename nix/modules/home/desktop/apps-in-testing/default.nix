@@ -10,7 +10,7 @@
     packages = [
       {
         origin = "flathub";
-        appId = "re.sonny.Tangram";
+        appId = "com.jeffser.Alpaca";
       }
       {
         origin = "flathub";
@@ -27,10 +27,6 @@
       {
         origin = "flathub";
         appId = "io.github.nokse22.teleprompter";
-      }
-      {
-        origin = "flathub";
-        appId = "io.github.alainm23.planify";
       }
       {
         origin = "flathub";
