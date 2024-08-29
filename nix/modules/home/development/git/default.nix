@@ -10,6 +10,8 @@ in
     ${email} namespaces="git" ${publicKey}
   '';
 
+  home.packages = with pkgs; [ jujutsu ];
+
   programs.git = {
     enable = true;
     lfs.enable = true;

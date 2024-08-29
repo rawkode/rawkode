@@ -2,4 +2,4 @@
 
 final: prev:
 
-{ inherit (channels.unstable) vscode; }
+{ inherit (channels.unstable) zed-editor; }
