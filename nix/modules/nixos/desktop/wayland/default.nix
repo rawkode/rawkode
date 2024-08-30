@@ -12,5 +12,10 @@ in
     };
   };
 
-  config = mkIf cfg.force { environment.sessionVariables.NIXOS_OZONE_WL = "1"; };
+  config = mkIf cfg.force {
+    environment.sessionVariables = {
+      NIXOS_OZONE_WL = "1";
+      QT_QPA_PLATFORM = "wayland";
+    };
+  };
 }

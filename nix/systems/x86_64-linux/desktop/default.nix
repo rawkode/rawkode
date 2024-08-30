@@ -5,12 +5,14 @@
   rawkOS = {
     desktop = {
       gnome = {
-        enable = true;
+        enable = false;
         paperwm = false;
       };
+      plasma.enable = true;
       wayland.force = true;
     };
     secureboot.enable = true;
+    # displayLink.enable = true;
   };
 
   hardware.opengl = {

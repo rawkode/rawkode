@@ -49,6 +49,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    plasma-manager = {
+      url = "github:nix-community/plasma-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     snowfall-lib = {
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -90,6 +95,7 @@
         flatpaks.homeManagerModules.nix-flatpak
         ironbar.homeManagerModules.default
         nix-index-database.hmModules.nix-index
+        plasma-manager.homeManagerModules.plasma-manager
       ];
 
       systems.modules.nixos = with inputs; [

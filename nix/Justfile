@@ -1,5 +1,8 @@
 machine := `hostname | grep '^p4x-\(.*\)-nixos$' | cut -d - -f 2`
 
+default:
+	@just --choose
+
 nix:
 	#!/usr/bin/env bash
 	if [[ -z "{{ machine }}" ]]; then
@@ -16,8 +19,9 @@ nix-home:
 	fi
 	nix run home-manager -- switch --flake .#{{ machine }}
 
-default:
-	@just --choose
+[group('helpers')]
+get-sha256 url:
+	nix-prefetch-url --unpack {{ url }}
 
 [group('format')]
 format: format-nix format-lua
@@ -30,6 +34,7 @@ format-lua:
 
 # Last checked, August 2024
 displaylink:
+	nix-prefetch-url --name displaylink-580.zip https://www.synaptics.com/sites/default/files/exe_files/2023-08/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu5.8-EXE.zip
 	nix-prefetch-url --name displaylink-600.zip https://www.synaptics.com/sites/default/files/exe_files/2024-05/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.0-EXE.zip
 
 partition-disks:
