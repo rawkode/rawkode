@@ -33,5 +33,9 @@ in
     services.displayManager.sddm.wayland.enable = false;
 
     programs.ssh.askPassword = mkForce "${pkgs.ksshaskpass}/bin/ksshaskpass";
+
+    environment.systemPackages = with pkgs; [
+      merkuro
+    ];
   };
 }

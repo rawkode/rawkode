@@ -48,6 +48,7 @@ in
         "audio"
         "dialout"
         "input"
+        "kvm"
         "lxd"
         "networkmanager"
         "osboxes"
