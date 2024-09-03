@@ -25,9 +25,6 @@
     "usb_storage"
     "sd_mod"
   ];
-  boot.initrd.kernelModules = [ ];
-  boot.kernelModules = [ "kvm-amd" ];
-  boot.extraModulePackages = [ ];
   boot.initrd.luks.devices."root".device = "/dev/disk/by-partlabel/root";
 
   boot.loader.systemd-boot.enable = true;
@@ -80,7 +77,6 @@
     }
   ];
 
-  services.xserver.videoDrivers = [ "modesetting" ];
   services.fprintd.enable = true;
 
   networking.useDHCP = lib.mkDefault true;

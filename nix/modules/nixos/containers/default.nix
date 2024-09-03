@@ -1,6 +1,7 @@
 { pkgs, ... }:
 {
-  systemd.enableUnifiedCgroupHierarchy = true;
+  # Default on NixOS 24.11
+  # systemd.enableUnifiedCgroupHierarchy = true;
 
   virtualisation = {
     containers = {

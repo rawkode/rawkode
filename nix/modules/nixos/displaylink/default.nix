@@ -22,7 +22,7 @@ in
       extraModulePackages = with config.boot.kernelPackages; [ evdi ];
     };
 
-    hardware.opengl = {
+    hardware.graphics = {
       enable = true;
       extraPackages = with pkgs; [ displaylink ];
     };

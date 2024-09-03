@@ -13,7 +13,12 @@
     inputs.nixos-hardware.nixosModules.common-cpu-amd-pstate
     inputs.nixos-hardware.nixosModules.common-gpu-amd
     inputs.nixos-hardware.nixosModules.common-hidpi
+    inputs.nixos-hardware.nixosModules.common-pc
+    inputs.nixos-hardware.nixosModules.common-pc-ssd
   ];
+
+  hardware.amdgpu.amdvlk.enable = true;
+  hardware.amdgpu.opencl.enable = true;
 
   boot.initrd.availableKernelModules = [
     "ahci"
@@ -24,10 +29,6 @@
     "usbhid"
     "xhci_pci"
   ];
-
-  boot.kernelModules = [ "kvm-amd" ];
-  boot.extraModulePackages = [ ];
-  boot.initrd.kernelModules = [ ];
 
   fileSystems."/" = {
     device = "/dev/disk/by-uuid/87b9151f-3f38-470c-8ad0-3f9e52d61699";

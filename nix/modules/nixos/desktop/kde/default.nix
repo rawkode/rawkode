@@ -28,9 +28,9 @@ in
       configPackages = with pkgs; [ xdg-desktop-portal-kde ];
     };
 
-    services.displayManager.sddm.enable = true;
+    services.displayManager.sddm.enable = false;
     services.displayManager.sddm.wayland.enable = true;
-    services.xserver.displayManager.gdm.enable = mkForce false;
+    services.xserver.displayManager.gdm.enable = mkForce true;
 
     programs.ssh.askPassword = mkForce "${pkgs.ksshaskpass}/bin/ksshaskpass";
 

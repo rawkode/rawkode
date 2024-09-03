@@ -2,5 +2,5 @@
 {
   languages.nix.enable = true;
 
-  packages = with pkgs; [ runme ];
+  packages = with pkgs; [ runme xc ];
 }

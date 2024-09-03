@@ -1,16 +1,9 @@
 local wezterm = require 'wezterm'
-local appearance = require 'appearance'
 
 if wezterm.config_builder then
     config = wezterm.config_builder()
 
-    -- There's no decent way to have Zellij or fish
-		-- update yet; so pending
-    if appearance.is_dark() then
-      config.color_scheme = 'catppuccin-frappe'
-    else
-      config.color_scheme = 'catppuccin-frappe'
-    end
+		config.color_scheme = 'catppuccin-frappe'
 
     config.automatically_reload_config = true
     config.detect_password_input = true
@@ -19,12 +12,12 @@ if wezterm.config_builder then
 
     config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
 
-    config.front_end = "OpenGL"
-    config.enable_wayland = true
+    config.front_end = "WebGpu"
+    config.enable_wayland = false
     config.webgpu_power_preference = "HighPerformance"
 
     config.enable_tab_bar = false
-    -- config.window_decorations = "RESIZE"
+    config.window_decorations = "RESIZE"
     config.window_close_confirmation = "NeverPrompt"
 
     config.window_background_opacity = 1

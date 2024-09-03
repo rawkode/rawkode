@@ -3,11 +3,11 @@
   boot = {
     consoleLogLevel = 0;
 
-    # Kernel 6.10.5 breaks all my GUI/wayland.
-    # so avoid unstable for now
     kernelPackages = pkgs.linuxPackages_zen;
     kernelParams = [ "video4linux" ];
-    kernelModules = [ "v4l2loopback" ];
+    kernelModules = [
+      "v4l2loopback"
+    ];
 
     initrd = {
       systemd.enable = true;
@@ -23,9 +23,7 @@
       timeout = 10;
     };
 
-    extraModulePackages = with config.boot.kernelPackages; [
-      v4l2loopback
-    ];
+    extraModulePackages = with config.boot.kernelPackages; [ v4l2loopback ];
 
     plymouth.enable = true;
     tmp.cleanOnBoot = true;
