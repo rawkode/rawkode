@@ -10,11 +10,6 @@ let
 in
 {
   config = mkIf cfg.enable {
-    home.packages = with pkgs; [
-      materia-kde-theme
-      nordic
-    ];
-
     programs.plasma = {
       enable = true;
 
@@ -37,23 +32,36 @@ in
         "kdeglobals"."General"."TerminalApplication" = "wezterm start --cwd .";
         "kdeglobals"."General"."TerminalService" = "org.wezfurlong.wezterm.desktop";
 
-        "kwinrc"."Effect-wobblywindows"."Drag" = 90;
-        "kwinrc"."Effect-wobblywindows"."Stiffness" = 6;
-        "kwinrc"."Effect-wobblywindows"."WobblynessLevel" = 2;
-
         "kwinrc"."NightColor"."Active" = true;
         "kwinrc"."NightColor"."LatitudeFixed" = 54.383218315466216;
         "kwinrc"."NightColor"."LongitudeFixed" = "-4.322097870527756";
         "kwinrc"."NightColor"."Mode" = "Location";
 
         "kwinrc"."Plugins"."cubeEnabled" = true;
+        "kwinrc"."Effect-cube"."BorderActivate" = 7;
+        "kwinrc"."Effect-cube"."CubeFaceDisplacement" = 300;
+        "kwinrc"."Effect-cube"."DistanceFactor" = 1.97;
+
         "kwinrc"."Plugins"."diminactiveEnabled" = true;
         "kwinrc"."Plugins"."fadedesktopEnabled" = false;
         "kwinrc"."Plugins"."slideEnabled" = true;
+        "kwinrc"."Plugins"."glideEnabled" = true;
+
         "kwinrc"."Plugins"."wobblywindowsEnabled" = true;
+        "kwinrc"."Effect-wobblywindows"."Drag" = 92;
+        "kwinrc"."Effect-wobblywindows"."MoveFactor" = 20;
+        "kwinrc"."Effect-wobblywindows"."Stiffness" = 3;
+        "kwinrc"."Effect-wobblywindows"."WobblynessLevel" = 3;
 
         "kwinrc"."Windows"."SeparateScreenFocus" = true;
         "kwinrc"."Windows"."TitlebarDoubleClickCommand" = "Shade";
+
+        "kwinrc"."Plugins"."hidecursorEnabled" = true;
+        "kwinrc"."Plugins"."scaleEnabled" = false;
+        "kwinrc"."Plugins"."slidebackEnabled" = true;
+        "kwinrc"."Plugins"."trackmouseEnabled" = true;
+        "kwinrc"."Plugins"."translucencyEnabled" = true;
+        "kwinrc"."Plugins"."virtual-desktops-only-on-primaryEnabled" = true;
 
         "kwinrc"."Xwayland"."Scale" = 1.5;
       };
@@ -139,6 +147,10 @@ in
       };
 
       shortcuts = {
+        kaccess = {
+          "Toggle Screen Reader On and Off" = [ ];
+        };
+
         ksmserver = {
           "Lock Session" = [
             "Screensaver"
