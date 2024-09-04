@@ -20,8 +20,9 @@
     };
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
+    fluentci.url = "github:fluentci-io/fluentci-engine";
     home-manager = {
-      url = "github:nix-community/home-manager/master";
+      url = "github:nix-community/home-manager/release-24.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Pinned to 0.42, which is what Hyprscroller needs for now.
