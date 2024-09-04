@@ -10,6 +10,10 @@ let
 in
 {
   config = mkIf cfg.enable {
+    home.packages = with pkgs; [
+      systemdgenie
+    ];
+
     programs.plasma = {
       enable = true;
 
