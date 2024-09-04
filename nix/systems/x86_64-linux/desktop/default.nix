@@ -35,9 +35,14 @@
   environment.variables.VK_ICD_FILENAMES = "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json";
 
   hardware.keyboard.qmk.enable = true;
-  hardware.graphics = {
+  hardware.opengl = {
     enable = true;
-    enable32Bit = true;
+
+    #  error: The option `hardware.opengl.driSupport32Bit' has conflicting definition values:
+    #  - In `/nix/store/mad6lfrg6hd540gfgiy15xa5fcgh9g1a-source/common/gpu/24.05-compat.nix': true
+    #  - In `/nix/store/1h99qq6970gkx3j0m9w4yrrl9y99y1nk-source/nixos/modules/services/hardware/amdvlk.nix': false
+    # We want to force amdvlk, so lets mkForce this to false
+    driSupport32Bit = lib.mkForce false;
 
     extraPackages = with pkgs; [
       amdvlk

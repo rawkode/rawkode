@@ -6,6 +6,4 @@
     # Bluetooth device battery percentage display
     settings.General.Experimental = true;
   };
-
-  services.blueman.enable = true;
 }

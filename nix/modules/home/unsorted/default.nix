@@ -13,7 +13,6 @@ with lib.${namespace};
       just
       nil
       nixfmt-rfc-style
-      rquickshare
       zoxide
     ]
   );

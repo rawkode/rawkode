@@ -51,7 +51,7 @@
       coreutils-full
       git
       glib.dev
-      gnome-tweaks
+      gnome.gnome-tweaks
       pinentry-gnome3
     ];
 

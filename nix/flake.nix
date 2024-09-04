@@ -2,8 +2,8 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    stable.url = "github:nixos/nixpkgs/nixos-24.05";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
+    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
     catppuccin.url = "github:catppuccin/nix";
     comma = {
@@ -110,7 +110,7 @@
           {
             nix.registry.nixpkgs.flake = nixpkgs;
             nix.registry.rawkode.flake = self;
-            nix.registry.stable.flake = stable;
+            nix.registry.unstable.flake = unstable;
             nix.registry.templates.flake = self;
 
           }
