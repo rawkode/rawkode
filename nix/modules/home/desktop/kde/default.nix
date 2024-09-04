@@ -11,6 +11,8 @@ in
 {
   config = mkIf cfg.enable {
     home.packages = with pkgs; [
+      kdePackages.kdepim-addons
+      kdePackages.kio-gdrive
       systemdgenie
     ];
 
