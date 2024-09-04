@@ -4,12 +4,12 @@
   # https://github.com/nix-community/home-manager/pull/5735
   services = {
     ollama = {
-      enable = true;
+      enable = false;
       acceleration = "rocm";
     };
 
     open-webui = {
-      enable = true;
+      enable = false;
     };
   };
 }
