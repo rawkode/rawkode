@@ -38,8 +38,8 @@ in
         switch-to-workspace-4 = [ "<super>4" ];
         switch-to-workspace-5 = [ "<super>5" ];
 
-        switch-windows = [ "<super>Right" ];
-        switch-windows-backward = [ "<super>Left" ];
+        switch-windows = [ "<alt>Tab" ];
+        switch-windows-backward = [ "<alt><shift>Tab" ];
 
         move-to-workspace-1 = [ "<super><shift>1" ];
         move-to-workspace-2 = [ "<super><shift>2" ];

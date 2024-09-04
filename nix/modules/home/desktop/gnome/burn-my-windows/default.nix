@@ -11,7 +11,7 @@ let
     [burn-my-windows-profile]
     energize-b-enable-effect=true
     energize-b-scale=10.0
-    energize-b-animation-time=768
+    energize-b-animation-time=500
   '';
 in
 {

@@ -13,7 +13,7 @@ if wezterm.config_builder then
     config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
 
     config.front_end = "WebGpu"
-    config.enable_wayland = false
+    config.enable_wayland = true
     config.webgpu_power_preference = "HighPerformance"
 
     config.enable_tab_bar = false

@@ -6,19 +6,22 @@
 }:
 with lib;
 let
-  cfg = osConfig.rawkOS.desktop.plasma;
+  # gnome = osConfig.rawkOS.desktop.gnome;
+  plasma = osConfig.rawkOS.desktop.plasma;
 in
 {
   programs.vivaldi.enable = true;
-  home.packages = mkIf cfg.enable (
-    with pkgs;
-    [
-      kdePackages.plasma-browser-integration
-      libsForQt5.qt5.qtwayland
-    ]
-  );
+  home.packages =
+    [ ]
+    ++ (
+      with pkgs;
+      optionals (plasma.enable) [
+        kdePackages.plasma-browser-integration
+        libsForQt5.qt5.qtwayland
+      ]
+    );
 
-  home.file.".config/vivaldi/NativeMessagingHosts/org.kde.plasma.browser_integration.json".text = mkIf cfg.enable ''
+  home.file.".config/vivaldi/NativeMessagingHosts/org.kde.plasma.browser_integration.json".text = ''
     {
       "name": "org.kde.plasma.browser_integration",
       "description": "Native connector for KDE Plasma",

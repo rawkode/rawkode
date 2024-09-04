@@ -13,7 +13,7 @@ let
     show-hidden = false;
     show-size-column = true;
     show-type-column = true;
-    sidebar-width = 256;
+    sidebar-width = 512;
     sort-column = "name";
     sort-directories-first = true;
     sort-order = "ascending";
@@ -106,7 +106,7 @@ in
       };
 
       "org/gnome/file-roller/ui" = {
-        sidebar-width = 256;
+        sidebar-width = 512;
       };
 
       "org/gnome/mutter" = {
@@ -231,16 +231,6 @@ in
 
       "org/gtk/gtk4/settings/file-chooser" = file-chooser;
       "org/gtk/settings/file-chooser" = file-chooser;
-    };
-
-    gtk = {
-      iconTheme = {
-        package = pkgs.catppuccin-papirus-folders.override {
-          flavor = "mocha";
-          accent = "mauve";
-        };
-        name = "Papirus-Dark";
-      };
     };
 
     home.packages = (

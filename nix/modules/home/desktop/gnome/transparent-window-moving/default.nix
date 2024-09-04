@@ -16,7 +16,7 @@ in
       };
 
       "org/gnome/shell/extensions/transparent-window-moving" = {
-        window-opacity = 192;
+        window-opacity = 128;
       };
     };
 

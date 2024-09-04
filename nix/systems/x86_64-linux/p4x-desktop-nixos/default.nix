@@ -5,10 +5,10 @@
   rawkOS = {
     desktop = {
       gnome = {
-        enable = false;
+        enable = true;
         paperwm = false;
       };
-      plasma.enable = true;
+      plasma.enable = false;
       wayland.force = true;
     };
     secureboot.enable = true;

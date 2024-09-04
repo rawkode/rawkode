@@ -16,11 +16,12 @@ in
       };
 
       "org/gnome/shell/extensions/com/github/hermes83/compiz-windows-effect" = {
-        friction = 3.4;
-        mass = 71.0;
         resize-effect = true;
-        speedup-factor-divider = 12.1;
+
+        friction = 4;
         spring-k = 4.0;
+        mass = 32.0;
+        speedup-factor-divider = 8;
       };
     };
 
