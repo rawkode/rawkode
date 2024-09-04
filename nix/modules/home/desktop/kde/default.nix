@@ -10,11 +10,19 @@ let
 in
 {
   config = mkIf cfg.enable {
-    home.packages = with pkgs; [
-      kdePackages.kdepim-addons
-      kdePackages.kio-gdrive
-      systemdgenie
-    ];
+    home.packages =
+      with pkgs;
+      [ systemdgenie ]
+      ++ (with pkgs.kdePackages; [
+        accounts-qt
+        calendarsupport
+        kaccounts-integration
+        kaccounts-providers
+        kdepim-addons
+        kio-gdrive
+        kcmutils
+        sddm-kcm
+      ]);
 
     programs.plasma = {
       enable = true;
@@ -27,16 +35,16 @@ in
 
       configFile = {
         "kactivitymanagerdrc"."activities"."aad84731-74d6-49c4-bad5-ba1676b3d8cc" = "General";
-        "kactivitymanagerdrc"."activities-icons"."aad84731-74d6-49c4-bad5-ba1676b3d8cc" = "vivaldi";
+        "kactivitymanagerdrc"."activities-icons"."aad84731-74d6-49c4-bad5-ba1676b3d8cc" = "globe-symbolic";
 
         "kactivitymanagerdrc"."activities"."29c39fef-8a07-4f0d-90f8-ae33d02881a1" = "Live Stream";
-        "kactivitymanagerdrc"."activities-icons"."29c39fef-8a07-4f0d-90f8-ae33d02881a1" = "camera-video";
+        "kactivitymanagerdrc"."activities-icons"."29c39fef-8a07-4f0d-90f8-ae33d02881a1" = "camera-video-symbolic";
 
-        "kdeglobals"."General"."AccentColor" = "146,110,228";
+        "kdeglobals"."General"."accentColorFromWallpaper" = true;
         "kdeglobals"."General"."AllowKDEAppsToRememberWindowPositions" = true;
 
-        "kdeglobals"."General"."TerminalApplication" = "wezterm start --cwd .";
         "kdeglobals"."General"."TerminalService" = "org.wezfurlong.wezterm.desktop";
+        "kdeglobals"."General"."TerminalApplication" = "wezterm start";
 
         "kwinrc"."NightColor"."Active" = true;
         "kwinrc"."NightColor"."LatitudeFixed" = 54.383218315466216;
