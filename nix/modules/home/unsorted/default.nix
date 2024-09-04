@@ -8,7 +8,6 @@ with lib.${namespace};
       rawkOS.browsers
 
       inputs.dagger.packages.${system}.dagger
-      inputs.fluentci.packages.${system}.default
 
       aichat
       just

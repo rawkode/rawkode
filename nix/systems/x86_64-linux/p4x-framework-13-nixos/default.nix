@@ -14,12 +14,6 @@
   systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
 
   programs.dconf.enable = true;
-  # dconf = {
-  #   enable = true;
-  #   profiles.gdm.databases = [
-  #     { settings."org/gnome/login-screen".enable-fingerprint-authentication = true; }
-  #   ];
-  # };
 
   # Powersaving Settings
   services.thermald.enable = true;

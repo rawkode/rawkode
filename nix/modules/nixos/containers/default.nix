@@ -1,23 +1,20 @@
 { pkgs, ... }:
 {
   # Default on NixOS 24.11
-  # systemd.enableUnifiedCgroupHierarchy = true;
+  systemd.enableUnifiedCgroupHierarchy = true;
 
   virtualisation = {
     containers = {
       enable = true;
     };
 
-    podman = {
-      enable = true;
-      dockerCompat = true;
-      defaultNetwork.settings.dns_enabled = true;
-    };
+    # I keep trying podman, but
+    # there are too many problems.
+    docker.enable = true;
   };
 
   environment.systemPackages = with pkgs; [
     dive
     docker-compose
-    podman-tui
   ];
 }
