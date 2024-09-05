@@ -31,6 +31,9 @@ in
       "org/gnome/desktop/interface" = {
         clock-show-date = false;
         enable-animations = true;
+        enable-hot-corners = gvariant.mkBoolean false;
+        font-hinting = gvariant.mkString "slight";
+        font-antialiasing = gvariant.mkString "rgba";
       };
 
       "org/gnome/desktop/peripherals/keyboard" = {
@@ -69,30 +72,6 @@ in
         ];
       };
 
-      "org/gnome/desktop/wm/keybindings" = {
-        close = [ "<super>q" ];
-
-        switch-input-source = [ ];
-        unmaximize = [ ];
-        maximize = [ ];
-        toggle-maximized = [ "<super>Return" ];
-
-        switch-to-workspace-1 = [ "<super>1" ];
-        switch-to-workspace-2 = [ "<super>2" ];
-        switch-to-workspace-3 = [ "<super>3" ];
-        switch-to-workspace-4 = [ "<super>4" ];
-        switch-to-workspace-5 = [ "<super>5" ];
-
-        move-to-monitor-left = [ "<Shift><Super>Page_Up" ];
-        move-to-monitor-right = [ "<Shift><Super>Page_Down" ];
-
-        move-to-workspace-1 = [ "<super><shift>1" ];
-        move-to-workspace-2 = [ "<super><shift>2" ];
-        move-to-workspace-3 = [ "<super><shift>3" ];
-        move-to-workspace-4 = [ "<super><shift>4" ];
-        move-to-workspace-5 = [ "<super><shift>5" ];
-      };
-
       "org/gnome/desktop/wm/preferences" = {
         button-layout = ":close";
         focus-mode = "click";
@@ -113,7 +92,7 @@ in
         dynamic-workspaces = false;
         experimental-features = [ "scale-monitor-framebuffer" ];
         num-workspaces = 4;
-        overlay-key = [ "" ];
+        overlay-key = [ ];
       };
 
       "org/gnome/mutter/keybindings" = {
@@ -164,20 +143,6 @@ in
 
       "org/gnome/shell/extensions/emoji-copy" = {
         emoji-keybind = [ "<Super>e" ];
-      };
-
-      "org/gnome/shell/extensions/just-perfection" = {
-        panel = true;
-        theme = true;
-        panel-size = 48;
-
-        activities-button = false;
-
-        notification-banner-position = 5;
-        osd-position = 6;
-
-        window-demands-attention-focus = true;
-        window-maximized-on-create = true;
       };
 
       "org/gnome/shell/extensions/nightthemeswitcher/commands" = {
