@@ -12,6 +12,15 @@ in
 
   home.packages = with pkgs; [ jujutsu ];
 
+  programs.fish = {
+    shellAbbrs = {
+      gr = {
+        expansion = "cd (git root)";
+        position = "command";
+      };
+    };
+  };
+
   programs.git = {
     enable = true;
     lfs.enable = true;
@@ -32,6 +41,7 @@ in
       pl = "pull --ff-only";
       prune = "fetch --prune";
       ps = "push";
+      root = "rev-parse --show-toplevel";
     };
 
     extraConfig = {
