@@ -13,9 +13,9 @@ in
     home.packages = with pkgs.gnomeExtensions; [ useless-gaps ];
 
     dconf.settings = {
-      "org/gnome/shell" = {
-        enabled-extensions = [ "useless-gaps@pimsnel.com" ];
-      };
+      # "org/gnome/shell" = {
+      #   enabled-extensions = [ "useless-gaps@pimsnel.com" ];
+      # };
 
       "org/gnome/shell/extensions/useless-gaps" = {
         gap-size = 16;

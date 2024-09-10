@@ -18,7 +18,8 @@ if wezterm.config_builder then
 
     config.enable_tab_bar = false
     config.window_decorations = "RESIZE"
-    config.window_close_confirmation = "NeverPrompt"
+    -- config.window_close_confirmation = "NeverPrompt"
+		config.window_close_confirmation = 'AlwaysPrompt'
 
     config.window_background_opacity = 1
 
