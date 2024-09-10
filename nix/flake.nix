@@ -60,6 +60,7 @@
     };
     # 24.05
     stylix.url = "github:danth/stylix?ref=e59d2c1725b237c362e4a62f5722f5b268d566c7";
+    wezterm.url = "github:wez/wezterm?dir=nix";
   };
 
   outputs =

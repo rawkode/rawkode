@@ -1,8 +1,8 @@
-{ pkgs, ... }:
+{ inputs, pkgs, ... }:
 {
   programs.wezterm = {
     enable = true;
-    package = pkgs.wezterm;
+    package = inputs.wezterm.packages.${pkgs.system}.default;
   };
 
   xdg.configFile."wezterm" = {

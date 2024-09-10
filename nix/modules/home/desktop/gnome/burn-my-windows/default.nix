@@ -25,6 +25,10 @@ in
       };
     };
 
+    systemd.user.tmpfiles.rules = [
+      "L+ %h/.config/burn-my-windows/profiles/nix-profile.conf 0755 - - - ${burnMyWindowsProfile}"
+    ];
+
     home.packages = with pkgs.gnomeExtensions; [ burn-my-windows ];
   };
 }
