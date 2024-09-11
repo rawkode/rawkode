@@ -110,10 +110,7 @@ in
         disable-user-extensions = false;
         enabled-extensions = [
           "appindicatorsupport@rgcjonas.gmail.com"
-          "auto-move-windows@gnome-shell-extensions.gcampax.github.com"
-          "emoji-copy@felipeftn"
           "gsconnect@andyholmes.github.io"
-          #          "just-perfection-desktop@just-perfection"
           "nightthemeswitcher@romainvigier.fr"
           "sound-output-device-chooser@kgshank.net"
           "space-bar@luchrioh"
@@ -128,21 +125,6 @@ in
 
       "org/gnome/shell/app-switcher" = {
         current-workspace-only = true;
-      };
-
-      "org/gnome/shell/extensions/auto-move-windows" = {
-        application-list = [
-          "vivaldi-stable.desktop:1"
-          "org.wezfurlong.wezterm.desktop:2"
-          "code.desktop:2"
-          "vesktop.desktop:3"
-          "slack.desktop:3"
-          "spotify.desktop:4"
-        ];
-      };
-
-      "org/gnome/shell/extensions/emoji-copy" = {
-        emoji-keybind = [ "<Super>e" ];
       };
 
       "org/gnome/shell/extensions/nightthemeswitcher/commands" = {
@@ -203,9 +185,7 @@ in
       [ gnome-extension-manager ]
       ++ (with pkgs.gnomeExtensions; [
         appindicator
-        emoji-copy
         gsconnect
-        just-perfection
         night-theme-switcher
         sound-output-device-chooser
         space-bar

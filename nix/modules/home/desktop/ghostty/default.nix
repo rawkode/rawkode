@@ -10,13 +10,10 @@
   xdg.configFile."ghostty/config".text = ''
     theme = "catppuccin-frappe"
 
-    font-size = 24
+    font-size = 16
     font-family = "Monaspace Argon"
 
     shell-integration = fish
-
-    cursor-style = bar;
-    mouse-hide-while-typing = true
 
     command = "${lib.getExe pkgs.zellij}"
 

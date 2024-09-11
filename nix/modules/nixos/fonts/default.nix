@@ -11,9 +11,10 @@
       hinting.autohint = true;
 
       defaultFonts = {
+        sansSerif = [ "Lato" ];
+        serif = [ "Merriweather" ];
         monospace = [ "Monaspace Argon" ];
-        sansSerif = [ "Monaspace Argon" ];
-        serif = [ "Monaspace Argon" ];
+        emoji = [ "Noto Color Emoji" ];
       };
     };
 
@@ -23,7 +24,6 @@
 
     packages = with pkgs; [
       corefonts
-      (google-fonts.override { fonts = [ "Inter" ]; })
       material-symbols
       merriweather
       monaspace
@@ -36,6 +36,7 @@
       noto-fonts
       noto-fonts-cjk
       noto-fonts-emoji
+      poppins
       quicksand
       roboto
     ];
