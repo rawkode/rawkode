@@ -38,7 +38,7 @@ in
         theme = true;
         top-panel-position = 0;
         window-demands-attention-focus = true;
-        window-maximized-on-create = true;
+        window-maximized-on-create = false;
         workspace = false;
         workspace-peek = true;
         workspace-popup = false;

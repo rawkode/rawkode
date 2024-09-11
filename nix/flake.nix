@@ -42,6 +42,7 @@
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    ghostty.url = "git+ssh://git@github.com/ghostty-org/ghostty";
     niri.url = "github:sodiboo/niri-flake";
     nix-colors.url = "github:misterio77/nix-colors";
     nix-index-database = {
