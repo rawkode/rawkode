@@ -18,7 +18,7 @@ in
       };
 
       "org/gnome/shell/extensions/draw-on-your-screen2" = {
-        erase-drawings = [ "Escape" ];
+        erase-drawings = [ "<Super><Shift>d" ];
         toggle-drawing = [ "<Super>d" ];
         toggle-modal = [ "<Control><Alt><Super>d" ];
       };

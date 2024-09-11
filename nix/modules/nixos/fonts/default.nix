@@ -2,6 +2,7 @@
 {
   fonts = {
     enableDefaultPackages = false;
+    enableGhostscriptFonts = true;
 
     fontconfig = {
       enable = true;
@@ -10,22 +11,26 @@
       hinting.enable = true;
       hinting.autohint = true;
 
+      allowBitmaps = true;
+      useEmbeddedBitmaps = true;
+
       defaultFonts = {
-        sansSerif = [ "Lato" ];
-        serif = [ "Merriweather" ];
-        monospace = [ "Monaspace Argon" ];
-        emoji = [ "Noto Color Emoji" ];
+        sansSerif = [ "Nato Sans" ];
+        serif = [ "Nato" ];
+        monospace = [ "Monaspace Neon" ];
+        emoji = [
+          "EmojiOne Color"
+          "Noto Color Emoji"
+          "Noto Emoji"
+        ];
       };
     };
 
-    fontDir = {
-      enable = true;
-    };
+    fontDir.enable = true;
 
     packages = with pkgs; [
       corefonts
-      material-symbols
-      merriweather
+      emojione
       monaspace
       (nerdfonts.override {
         fonts = [
@@ -34,11 +39,7 @@
         ];
       })
       noto-fonts
-      noto-fonts-cjk
       noto-fonts-emoji
-      poppins
-      quicksand
-      roboto
     ];
   };
 }
