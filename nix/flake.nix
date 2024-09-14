@@ -18,6 +18,7 @@
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    devshell.url = "github:numtide/devshell";
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
@@ -86,7 +87,10 @@
         allowUnfree = true;
       };
 
-      overlays = with inputs; [ niri.overlays.niri ];
+      overlays = with inputs; [
+        devshell.overlays.default
+        niri.overlays.niri
+      ];
 
       specialArgs = with inputs; {
         inherit nix-colors;

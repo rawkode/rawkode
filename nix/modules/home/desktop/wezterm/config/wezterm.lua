@@ -24,7 +24,7 @@ if wezterm.config_builder then
     config.window_background_opacity = 1
 
     config.window_frame = {
-        font = wezterm.font({family = 'Monaspace Argon', weight = 'Bold'}),
+        font = wezterm.font({family = 'Monaspace Neon', weight = 'Bold'}),
         font_size = 11
     }
 

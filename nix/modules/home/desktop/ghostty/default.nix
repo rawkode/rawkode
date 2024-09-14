@@ -5,13 +5,12 @@
   ...
 }:
 {
-  home.packages = [ inputs.ghostty.packages.${pkgs.system}.default ];
 
   xdg.configFile."ghostty/config".text = ''
     theme = "catppuccin-frappe"
 
     font-size = 16
-    font-family = "Monaspace Argon"
+    font-family = "Monaspace Neon"
 
     shell-integration = fish
 
