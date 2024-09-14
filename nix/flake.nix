@@ -18,44 +18,24 @@
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    devshell.url = "github:numtide/devshell";
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
       url = "github:nix-community/home-manager/release-24.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Pinned to 0.42, which is what Hyprscroller needs for now.
-    hyprland = {
-      url = "git+https://github.com/hyprwm/Hyprland?rev=9a09eac79b85c846e3a865a9078a3f8ff65a9259&submodules=1";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    hyprscroller = {
-      url = "github:dawsers/hyprscroller";
-      inputs.hyprland.follows = "hyprland";
-    };
     impermanence.url = "github:nix-community/impermanence";
-    ironbar = {
-      url = "github:JakeStanger/ironbar";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     ghostty.url = "git+ssh://git@github.com/ghostty-org/ghostty";
-    niri.url = "github:sodiboo/niri-flake";
     nix-colors.url = "github:misterio77/nix-colors";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
-    plasma-manager = {
-      url = "github:nix-community/plasma-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
-    };
     snowfall-lib = {
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -87,11 +67,6 @@
         allowUnfree = true;
       };
 
-      overlays = with inputs; [
-        devshell.overlays.default
-        niri.overlays.niri
-      ];
-
       specialArgs = with inputs; {
         inherit nix-colors;
       };
@@ -99,9 +74,7 @@
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
         flatpaks.homeManagerModules.nix-flatpak
-        ironbar.homeManagerModules.default
         nix-index-database.hmModules.nix-index
-        plasma-manager.homeManagerModules.plasma-manager
       ];
 
       systems.modules.nixos = with inputs; [
@@ -110,7 +83,6 @@
         flatpaks.nixosModules.nix-flatpak
         impermanence.nixosModules.impermanence
         lanzaboote.nixosModules.lanzaboote
-        niri.nixosModules.niri
         (
           { ... }:
           {

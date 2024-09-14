@@ -8,7 +8,6 @@
         enable = true;
         paperwm = false;
       };
-      plasma.enable = false;
       wayland.force = true;
     };
     secureboot.enable = true;
@@ -35,27 +34,7 @@
   environment.variables.VK_ICD_FILENAMES = "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json";
 
   hardware.keyboard.qmk.enable = true;
-  hardware.opengl = {
-    enable = true;
-
-    #  error: The option `hardware.opengl.driSupport32Bit' has conflicting definition values:
-    #  - In `/nix/store/mad6lfrg6hd540gfgiy15xa5fcgh9g1a-source/common/gpu/24.05-compat.nix': true
-    #  - In `/nix/store/1h99qq6970gkx3j0m9w4yrrl9y99y1nk-source/nixos/modules/services/hardware/amdvlk.nix': false
-    # We want to force amdvlk, so lets mkForce this to false
-    driSupport32Bit = lib.mkForce false;
-
-    extraPackages = with pkgs; [
-      amdvlk
-      libva
-      libva-utils
-      libvdpau
-      libvdpau-va-gl
-      mesa
-      vaapiVdpau
-    ];
-
-    extraPackages32 = with pkgs; [ driversi686Linux.amdvlk ];
-  };
+  hardware.opengl.enable = true;
 
   systemd.services.lactd = {
     description = "AMDGPU Control Daemon";
