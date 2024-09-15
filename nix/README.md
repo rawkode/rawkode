@@ -1,3 +1,7 @@
+---
+shell: bash
+---
+
 # Rawkode's Operating System (rawkOS)
 
 ## Tasks
@@ -6,6 +10,6 @@
 
 Applys the NixOS and home-manager configuration.
 
-```shell
-sudo nixos-rebuild switch --fast --flake .#`hostname`
+```shell '{"name": "rebuild"}
+sudo nixos-rebuild switch --fast --flake .#$(hostname)
 ```

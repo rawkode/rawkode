@@ -10,14 +10,12 @@ let
 in
 {
   config = mkIf cfg.enable {
-    home.packages = with pkgs.gnomeExtensions; [ pano ];
-
     dconf.settings = {
       "org/gnome/shell" = {
-        enabled-extensions = [ "pano@elhan.io" ];
+        enabled-extensions = [ "emoji-copy@felipeftn" ];
       };
-
-      "org/gnome/shell/extensions/pano" = { };
     };
+
+    home.packages = with pkgs.gnomeExtensions; [ emoji-copy ];
   };
 }

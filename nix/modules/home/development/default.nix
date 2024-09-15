@@ -3,7 +3,7 @@
   home.packages = (
     with pkgs;
     [
-      rawkOS.runme
+      runme
 
       biome
       devenv
