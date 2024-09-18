@@ -1,0 +1,146 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "version": 1,
+    "install": {
+      "cue": {
+        "pkg-path": "cue"
+      }
+    },
+    "vars": {},
+    "hook": {},
+    "profile": {},
+    "options": {
+      "systems": [
+        "aarch64-darwin",
+        "aarch64-linux",
+        "x86_64-darwin",
+        "x86_64-linux"
+      ],
+      "allow": {
+        "licenses": []
+      },
+      "semver": {}
+    },
+    "services": {},
+    "build": {}
+  },
+  "packages": [
+    {
+      "attr_path": "cue",
+      "broken": false,
+      "derivation": "/nix/store/mlqfipzal0r2ac1n9ssl5dwjc5yvg6ss-cue-0.10.0.drv",
+      "description": "Data constraint language which aims to simplify tasks involving defining and using data",
+      "install_id": "cue",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "name": "cue-0.10.0",
+      "pname": "cue",
+      "rev": "99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "rev_count": 681973,
+      "rev_date": "2024-09-16T05:08:36Z",
+      "scrape_date": "2024-09-18T03:14:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/wacmq5zjx9mljanqbnpvrgv4nj42ka0b-cue-0.10.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "cue",
+      "broken": false,
+      "derivation": "/nix/store/xp30kmgzvyd43hvxai1c3ch2bpnqrv31-cue-0.10.0.drv",
+      "description": "Data constraint language which aims to simplify tasks involving defining and using data",
+      "install_id": "cue",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "name": "cue-0.10.0",
+      "pname": "cue",
+      "rev": "99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "rev_count": 681973,
+      "rev_date": "2024-09-16T05:08:36Z",
+      "scrape_date": "2024-09-18T03:14:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/2l8xhg0klm6s9vsij96xwgzk05zyzbs1-cue-0.10.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "cue",
+      "broken": false,
+      "derivation": "/nix/store/d72n608i7hhzsf64p6vi9kwwwwh6cydp-cue-0.10.0.drv",
+      "description": "Data constraint language which aims to simplify tasks involving defining and using data",
+      "install_id": "cue",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "name": "cue-0.10.0",
+      "pname": "cue",
+      "rev": "99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "rev_count": 681973,
+      "rev_date": "2024-09-16T05:08:36Z",
+      "scrape_date": "2024-09-18T03:14:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/m42a49vp59i3kzkkbh39h2grpcvzpasl-cue-0.10.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "cue",
+      "broken": false,
+      "derivation": "/nix/store/f7ms07mgfc36xwh65vcydvz6vvvpvpmb-cue-0.10.0.drv",
+      "description": "Data constraint language which aims to simplify tasks involving defining and using data",
+      "install_id": "cue",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "name": "cue-0.10.0",
+      "pname": "cue",
+      "rev": "99dc8785f6a0adac95f5e2ab05cc2e1bf666d172",
+      "rev_count": 681973,
+      "rev_date": "2024-09-16T05:08:36Z",
+      "scrape_date": "2024-09-18T03:14:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.10.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/p0zh18ys9ym1kiyvn1cnmq20803vhzzm-cue-0.10.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ]
+}
