@@ -112,10 +112,7 @@ in
           "appindicatorsupport@rgcjonas.gmail.com"
           "gsconnect@andyholmes.github.io"
           "nightthemeswitcher@romainvigier.fr"
-          "sound-output-device-chooser@kgshank.net"
-          "space-bar@luchrioh"
           "tailscale@joaophi.github.com"
-          "user-theme@gnome-shell-extensions.gcampax.github.com"
         ];
 
         favorite-apps = [ ];
