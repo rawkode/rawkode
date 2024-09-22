@@ -33,7 +33,7 @@ if wezterm.config_builder then
     config.font = wezterm.font_with_fallback {
         'Monaspace Neon', 'Symbols Nerd Font Mono'
     }
-    config.font_size = 16.0
+    config.font_size = 12.0
 
     -- Clickable Links
     config.hyperlink_rules = wezterm.default_hyperlink_rules()

@@ -5,6 +5,10 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
     unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
+    auto-cpufreq = {
+      url = "github:AdnanHodzic/auto-cpufreq";
+      inputs.nixpkgs.follows = "unstable";
+    };
     catppuccin.url = "github:catppuccin/nix";
     comma = {
       url = "github:nix-community/comma";
@@ -78,6 +82,7 @@
       ];
 
       systems.modules.nixos = with inputs; [
+        auto-cpufreq.nixosModules.default
         catppuccin.nixosModules.catppuccin
         cosmic.nixosModules.default
         flatpaks.nixosModules.nix-flatpak

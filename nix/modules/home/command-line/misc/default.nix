@@ -3,8 +3,10 @@
   home.packages = (
     with pkgs;
     [
+      clifm
       eza
       ripgrep
+      superfile
       tldr
       unzip
       vim
