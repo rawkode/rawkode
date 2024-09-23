@@ -16,6 +16,11 @@ in
   systemd.services.NetworkManager-wait-online.enable = lib.mkForce false;
   systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
 
+  hardware.enableRedistributableFirmware = true;
+  hardware.cpu.amd.updateMicrocode = true;
+  hardware.keyboard.qmk.enable = true;
+  hardware.graphics.enable = true;
+
   programs.dconf.enable = true;
 
   environment.systemPackages = with pkgs; [
