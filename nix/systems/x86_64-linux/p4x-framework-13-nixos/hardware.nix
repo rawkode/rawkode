@@ -16,6 +16,9 @@
     inputs.nixos-hardware.nixosModules.common-hidpi
   ];
 
+  hardware.amdgpu.amdvlk.enable = true;
+  programs.corectrl.enable = true;
+
   services.tlp.enable = lib.mkForce false;
 
   boot.initrd.availableKernelModules = [

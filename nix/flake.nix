@@ -2,12 +2,12 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
-    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    stable.url = "github:nixos/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
-      inputs.nixpkgs.follows = "unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     browser-previews = {
       url = "github:nix-community/browser-previews";
@@ -29,7 +29,7 @@
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
-      url = "github:nix-community/home-manager/release-24.05";
+      url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     impermanence.url = "github:nix-community/impermanence";
@@ -96,10 +96,9 @@
           { ... }:
           {
             nix.registry.nixpkgs.flake = nixpkgs;
+            nix.registry.stable.flake = stable;
             nix.registry.rawkode.flake = self;
-            nix.registry.unstable.flake = unstable;
             nix.registry.templates.flake = self;
-
           }
         )
       ];

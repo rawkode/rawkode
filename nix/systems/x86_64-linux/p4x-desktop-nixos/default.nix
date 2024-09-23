@@ -34,7 +34,7 @@
   environment.variables.VK_ICD_FILENAMES = "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json";
 
   hardware.keyboard.qmk.enable = true;
-  hardware.opengl.enable = true;
+  hardware.graphics.enable = true;
 
   systemd.services.lactd = {
     description = "AMDGPU Control Daemon";
