@@ -1,0 +1,11 @@
+name: rawkOS
+description: This is my personal OS image.
+base-image: quay.io/fedora/fedora-silverblue
+image-version: 41
+
+modules:
+  - type: files
+    files:
+      - etc: /etc
+      - usr: /usr
+  - type: signing
