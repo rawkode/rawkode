@@ -36,12 +36,18 @@ chmod g+s /usr/bin/op
 
 mkdir -p /etc/1password
 
-echo <<EOF >/usr/lib/sysusers.d/1password.conf
-g     onepassword /usr/lib/1Password/1Password-BrowserSupport
-g     onepassword-cli /usr/bin/op
+cat >/usr/lib/sysusers.d/onepassword.conf <<EOF
+g     onepassword ${GID_ONEPASSWORD}
 EOF
 
-echo <<EOF >/usr/lib/tmpfiles.d/1password.conf
+cat >/usr/lib/sysusers.d/onepassword-cli.conf <<EOF
+g     onepassword-cli ${GID_ONEPASSWORDCLI}
+EOF
+
+rm -f /usr/lib/sysusers.d/30-rpmostree-pkg-group-onepassword.conf
+rm -f /usr/lib/sysusers.d/30-rpmostree-pkg-group-onepassword-cli.conf
+
+cat >/usr/lib/tmpfiles.d/onepassword.conf <<EOF
 L  /opt/1Password  -  -  -  -  /usr/lib/1Password
 EOF
 
