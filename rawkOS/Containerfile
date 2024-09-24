@@ -18,6 +18,7 @@ RUN /tmp/installer/1password.sh
 RUN /tmp/installer/docker.sh
 RUN /tmp/installer/google-chrome.sh
 RUN /tmp/installer/tailscale.sh
+RUN /tmp/installer/visual-studio-code.sh
 RUN /tmp/installer/vivaldi.sh
 
 RUN /tmp/installer/rawkOS.sh
