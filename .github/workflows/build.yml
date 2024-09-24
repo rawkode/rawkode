@@ -23,6 +23,7 @@ jobs:
       - name: BlueBuild
         uses: blue-build/github-action@v1.6
         with:
+          working_directory: ./rawkOS
           recipe: ${{ matrix.recipe }}
           cosign_private_key: ${{ secrets.COSIGN_SIGNING_PRIVATE_KEY }}
           registry_token: ${{ github.token }}

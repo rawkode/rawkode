@@ -1,0 +1,20 @@
+[Unit]
+Description=Nix overlay mount
+Wants=nix-rootfs.service
+After=nix-rootfs.service
+Wants=nix-cleanup.service
+After=nix-cleanup.service
+After=var.mount
+ConditionPathIsDirectory=%S/nix
+ConditionPathIsDirectory=%C/nix
+ConditionPathExists=/usr/share/nix/store
+ConditionPathExists=!/nix/store
+
+[Mount]
+Type=overlay
+What=overlay
+Options=noauto,nofail,lowerdir=/usr/share/nix,upperdir=%S/nix,workdir=%C/nix
+Where=/nix
+
+[Install]
+WantedBy=local-fs.target

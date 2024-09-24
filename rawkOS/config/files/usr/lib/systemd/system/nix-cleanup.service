@@ -1,0 +1,18 @@
+[Unit]
+Description=Cleanup Nix workdir
+Wants=systemd-tmpfiles-setup.service
+After=systemd-tmpfiles-setup.service
+After=var.mount
+Before=nix.mount
+ConditionPathIsDirectory=%C/nix
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/rm -rf %C/nix/.*
+ExecStart=-/usr/bin/rm -rf %C/nix/*
+ExecStop=-/usr/bin/rm -rf %C/nix/.*
+ExecStop=-/usr/bin/rm -rf %C/nix/*
+
+[Install]
+WantedBy=multi-user.target
