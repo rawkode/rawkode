@@ -13,14 +13,14 @@ let
   '';
 in
 {
-    dconf.settings = {
-      "org/gnome/shell" = {
-        enabled-extensions = [ "burn-my-windows@schneegans.github.com" ];
-      };
-      "org/gnome/shell/extensions/burn-my-windows" = {
-        active-profile = "${burnMyWindowsProfile}";
-      };
+  dconf.settings = {
+    "org/gnome/shell" = {
+      enabled-extensions = [ "burn-my-windows@schneegans.github.com" ];
     };
+    "org/gnome/shell/extensions/burn-my-windows" = {
+      active-profile = "${burnMyWindowsProfile}";
+    };
+  };
 
-    home.packages = with pkgs.gnomeExtensions; [ burn-my-windows ];
+  home.packages = with pkgs.gnomeExtensions; [ burn-my-windows ];
 }

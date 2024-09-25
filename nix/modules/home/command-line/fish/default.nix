@@ -3,8 +3,19 @@
   programs.fish = {
     enable = true;
 
+    plugins = with pkgs.fishPlugins; [
+      {
+        name = "nix-env";
+        src = pkgs.fetchFromGitHub {
+          owner = "lilyball";
+          repo = "nix-env.fish";
+          rev = "7b65bd228429e852c8fdfa07601159130a818cfa";
+          hash = "sha256-RG/0rfhgq6aEKNZ0XwIqOaZ6K5S4+/Y5EEMnIdtfPhk";
+        };
+      }
+    ];
+
     shellAliases = {
-      ai = "GEMINI_API_KEY=\"op://Private/Google Gemini/password\" op run --account my.1password.eu -- aichat";
       ghb = "cd ~/Code/src/github.com";
     };
 

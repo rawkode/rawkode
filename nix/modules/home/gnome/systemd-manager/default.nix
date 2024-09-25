@@ -7,12 +7,12 @@ with lib;
 
 {
 
-    home.packages = with pkgs.gnomeExtensions; [ systemd-manager ];
+  home.packages = with pkgs.gnomeExtensions; [ systemd-manager ];
 
-    dconf.settings = {
-      "org/gnome/shell" = {
-        enabled-extensions = [ "systemd-manager@hardpixel.eu" ];
-      };
+  dconf.settings = {
+    "org/gnome/shell" = {
+      enabled-extensions = [ "systemd-manager@hardpixel.eu" ];
     };
+  };
 
 }
