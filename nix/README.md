@@ -4,7 +4,7 @@ shell: bash
 
 # Rawkode's Operating System (rawkOS)
 
-### Deploy
+## NixOS
 
 Applys the NixOS and home-manager configuration.
 
@@ -12,7 +12,7 @@ Applys the NixOS and home-manager configuration.
 sudo nixos-rebuild switch --fast --flake .#$(hostname)
 ```
 
-## Home-Manager
+## Others
 
 ```shell '{"name": "home-manager switch"}'
 nix run home-manager -- switch --flake .#rawkode

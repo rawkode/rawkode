@@ -5,13 +5,9 @@
 }:
 with lib;
 {
+  home.packages = with pkgs; [ rclone ];
 
-  dconf.settings = {
-    "org/gnome/shell" = {
-      enabled-extensions = [ "rclone-manager@germanztz.com" ];
-    };
-  };
-
-  home.packages = with pkgs; [ rclone ] ++ (with pkgs.gnomeExtensions; [ rclone-manager ]);
-
+  programs.gnome-shell.extensions = with pkgs.gnomeExtensions; [
+    { package = rclone-manager;  }
+  ];
 }

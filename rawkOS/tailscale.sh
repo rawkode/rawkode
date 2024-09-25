@@ -12,4 +12,7 @@ gpgcheck=1
 gpgkey=https://pkgs.tailscale.com/stable/fedora/repo.gpg
 EOF
 
+rpm-ostree install tailscale
+sudo systemctl enable --now tailscaled
+
 rm -f /etc/yum.repos.d/tailscale.repo

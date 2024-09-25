@@ -3,7 +3,6 @@
   pkgs,
   ...
 }:
-with lib;
 let
   file-chooser = {
     date-format = "regular";
@@ -28,9 +27,9 @@ in
     "org/gnome/desktop/interface" = {
       clock-show-date = false;
       enable-animations = true;
-      enable-hot-corners = gvariant.mkBoolean false;
-      font-hinting = gvariant.mkString "slight";
-      font-antialiasing = gvariant.mkString "rgba";
+      enable-hot-corners = lib.gvariant.mkBoolean false;
+      font-hinting = lib.gvariant.mkString "slight";
+      font-antialiasing = lib.gvariant.mkString "rgba";
     };
 
     "org/gnome/desktop/peripherals/keyboard" = {
@@ -175,9 +174,7 @@ in
   };
 
   home.packages = (
-    with pkgs;
-    [ gnome-extension-manager ]
-    ++ (with pkgs.gnomeExtensions; [
+    with pkgs.gnomeExtensions; [
       appindicator
       gsconnect
       night-theme-switcher
@@ -187,6 +184,6 @@ in
       tailscale-qs
       top-bar-organizer
       vertical-workspaces
-    ])
+    ]
   );
 }
