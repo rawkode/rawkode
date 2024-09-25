@@ -14,6 +14,4 @@ rpm-ostree install docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 
 systemctl enable docker.socket
 
-usermod -a -G docker 1000
-
 rm -f /etc/yum.repos.d/docker-ce.repo
