@@ -4,13 +4,12 @@
     with pkgs;
     [
       runme
-
       biome
       devenv
-      gitbutler
-      helix
+      # gitbutler
+      # helix
       nixfmt-rfc-style
-      zed-editor
+      # zed-editor
     ]
   );
 }

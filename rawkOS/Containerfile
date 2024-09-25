@@ -13,6 +13,7 @@ RUN mkdir -p /var/lib/alternatives
 COPY . /tmp/installer
 
 RUN /tmp/installer/bootstrap.sh
+RUN /tmp/installer/amdgpu.sh
 
 RUN /tmp/installer/1password.sh
 #RUN /tmp/installer/docker.sh

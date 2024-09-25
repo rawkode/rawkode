@@ -1,8 +1,10 @@
+{ lib, pkgs, ... }:
 {
   programs.zellij = {
     enable = true;
 
     settings = {
+      default_shell = "${lib.getExe pkgs.fish}";
       default_mode = "normal";
       default_layout = "compact";
       pane_frames = false;
