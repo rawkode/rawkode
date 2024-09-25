@@ -16,6 +16,7 @@ RUN /tmp/installer/bootstrap.sh
 RUN /tmp/installer/amdgpu.sh
 
 RUN /tmp/installer/1password.sh
+RUN /tmp/installer/cloudflare-warp.sh
 #RUN /tmp/installer/docker.sh
 RUN /tmp/installer/fish.sh
 RUN /tmp/installer/google-chrome.sh
