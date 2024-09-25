@@ -15,4 +15,6 @@ rpm --import https://pkg.cloudflareclient.com/pubkey.gpg
 
 rpm-ostree install cloudflare-warp
 
+systemctl enable warp-svc.service
+
 rm -f /etc/yum.repos.d/cloudflare-warp.repo

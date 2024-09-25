@@ -1,3 +1,5 @@
+# Waiting for all my extensions to work on GNBOME 47
+# before updating this to 41
 FROM quay.io/fedora-ostree-desktops/silverblue:40
 
 ARG IMAGE_NAME="${IMAGE_NAME:-rawkOS}"
@@ -19,6 +21,7 @@ RUN /tmp/installer/1password.sh
 RUN /tmp/installer/cloudflare-warp.sh
 #RUN /tmp/installer/docker.sh
 RUN /tmp/installer/fish.sh
+RUN /tmp/installer/github-monaspace.sh
 RUN /tmp/installer/google-chrome.sh
 RUN /tmp/installer/tailscale.sh
 RUN /tmp/installer/visual-studio-code.sh
@@ -28,6 +31,6 @@ RUN /tmp/installer/rawkOS.sh
 
 RUN rm -rf /tmp/installer
 
-#RUN /usr/bin/bootupctl backend generate-update-metadata
+RUN /usr/bin/bootupctl backend generate-update-metadata
 
 RUN ostree container commit
