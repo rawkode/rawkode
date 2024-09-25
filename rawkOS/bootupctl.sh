@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eoux pipefile
+set -eoux pipefail
 
 cat <<EOF | sudo tee /etc/yum.repos.d/bootupctl.repo
 [bootc-fedora]
