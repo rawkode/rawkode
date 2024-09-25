@@ -1,14 +1,9 @@
 {
   lib,
-  osConfig ? { },
   ...
 }:
 with lib;
-let
-  cfg = osConfig.rawkOS.desktop.gnome;
-in
 {
-  config = mkIf cfg.enable {
     dconf.settings = {
       "org/gnome/settings-daemon/plugins/media-keys" = {
         custom-keybindings = [
@@ -22,5 +17,4 @@ in
         name = "Search 1Password";
       };
     };
-  };
 }

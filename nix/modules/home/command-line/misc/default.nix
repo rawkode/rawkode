@@ -3,10 +3,9 @@
   home.packages = (
     with pkgs;
     [
-      # clifm
       eza
+      nixfmt-rfc-style
       ripgrep
-      # superfile
       tldr
       unzip
       vim
