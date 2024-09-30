@@ -8,6 +8,5 @@ let
   ];
 in
 final: prev: {
-  vivaldi = prev.vivaldi.override { commandLineArgs = electron-flags; };
   vscode = prev.vscode.override { commandLineArgs = electron-flags; };
 }

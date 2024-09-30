@@ -1,7 +1,6 @@
 { pkgs, inputs, ... }:
-
 {
-  system.environmentPackages = [
+  environment.systemPackages = [
     inputs.browser-previews.packages.${pkgs.system}.google-chrome-dev
   ];
 }

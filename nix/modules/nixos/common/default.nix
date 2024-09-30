@@ -35,7 +35,7 @@
     printing.enable = true;
     pcscd.enable = true;
     smartd.enable = true;
-    udev.packages = with pkgs; [ gnome-settings-daemon ];
+    udev.packages = with pkgs; [ gnome.gnome-settings-daemon ];
   };
 
   programs = {
@@ -51,7 +51,7 @@
       coreutils-full
       git
       glib.dev
-      gnome-tweaks
+      gnome.gnome-tweaks
       pinentry-gnome3
     ];
 
