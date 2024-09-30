@@ -1,0 +1,7 @@
+SHELL=/bin/zsh
+GROUP=users
+HOME=/home
+INACTIVE=-1
+EXPIRE=
+SKEL=/etc/skel
+CREATE_MAIL_SPOOL=no
