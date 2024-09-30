@@ -39,11 +39,9 @@
   };
 
   programs = {
-    command-not-found.enable = false;
     fish.enable = true;
     git.enable = true;
     kdeconnect.enable = true;
-    zsh.enable = true;
   };
 
   environment = {
@@ -53,12 +51,13 @@
       glib.dev
       gnome.gnome-tweaks
       pinentry-gnome3
+      vscode
     ];
 
     variables = {
-      EDITOR = "code";
-      SYSTEMD_EDITOR = "code";
-      VISUAL = "code";
+      EDITOR = "code --wait";
+      SYSTEMD_EDITOR = "code --wait";
+      VISUAL = "code --wait";
     };
   };
 

@@ -4,7 +4,6 @@
     with pkgs;
     [
       eza
-      nixfmt-rfc-style
       ripgrep
       tldr
       unzip

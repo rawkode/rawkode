@@ -36,12 +36,10 @@
       url = "github:nix-community/home-manager/release-24.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    impermanence.url = "github:nix-community/impermanence";
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-colors.url = "github:misterio77/nix-colors";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -51,8 +49,6 @@
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    stylix.url = "github:danth/stylix";
-    wezterm.url = "github:wez/wezterm?dir=nix";
   };
 
   outputs =
@@ -84,7 +80,6 @@
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
         flatpaks.homeManagerModules.nix-flatpak
-        impermanence.nixosModules.home-manager.impermanence
         nix-index-database.hmModules.nix-index
       ];
 
@@ -94,7 +89,6 @@
         cosmic.nixosModules.default
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
-        impermanence.nixosModules.impermanence
         lanzaboote.nixosModules.lanzaboote
         (
           { ... }:
