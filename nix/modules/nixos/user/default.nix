@@ -24,9 +24,9 @@ in
 
     shell = mkOption {
       type = types.shellPackage;
-      default = pkgs.fish;
-      defaultText = literalExpression "pkgs.fish";
-      example = literalExpression "pkgs.fish";
+      default = pkgs.nushell;
+      defaultText = literalExpression "pkgs.nushell";
+      example = literalExpression "pkgs.nushell";
       description = ''
         The path to the user's shell. Can use shell derivations,
         like `pkgs.bashInteractive`. Don’t

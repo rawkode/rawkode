@@ -4,10 +4,6 @@ let
 in
 {
   nix = {
-    # >=2.24 Breaks Devenv at present
-    # https://github.com/cachix/devenv/issues/1364
-    package = pkgs.nixVersions.nix_2_23;
-
     gc = {
       automatic = true;
       dates = "daily";
@@ -24,8 +20,6 @@ in
         "flakes"
       ];
       warn-dirty = false;
-
-      # for direnv GC roots
       keep-derivations = true;
       keep-outputs = true;
 

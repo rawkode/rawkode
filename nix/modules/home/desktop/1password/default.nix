@@ -4,10 +4,6 @@
 }:
 with lib;
 {
-        home.persistence."/persist/home" = {
-        directories = [ ".config/1Password" ];
-      };
-
   dconf.settings = {
     "org/gnome/settings-daemon/plugins/media-keys" = {
       custom-keybindings = [
