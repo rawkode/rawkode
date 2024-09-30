@@ -2,12 +2,12 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    stable.url = "github:nixos/nixpkgs/nixos-24.05";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
+    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "unstable";
     };
     browser-previews = {
       url = "github:nix-community/browser-previews";
@@ -26,10 +26,14 @@
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
-      url = "github:nix-community/home-manager/master";
+      url = "github:nix-community/home-manager/release-24.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     impermanence.url = "github:nix-community/impermanence";
@@ -37,7 +41,6 @@
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    ghostty.url = "git+ssh://git@github.com/ghostty-org/ghostty";
     nix-colors.url = "github:misterio77/nix-colors";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
@@ -48,8 +51,7 @@
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # 24.05
-    stylix.url = "github:danth/stylix?ref=e59d2c1725b237c362e4a62f5722f5b268d566c7";
+    stylix.url = "github:danth/stylix";
     wezterm.url = "github:wez/wezterm?dir=nix";
   };
 
@@ -82,6 +84,7 @@
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
         flatpaks.homeManagerModules.nix-flatpak
+        impermanence.nixosModules.home-manager.impermanence
         nix-index-database.hmModules.nix-index
       ];
 
@@ -89,6 +92,7 @@
         auto-cpufreq.nixosModules.default
         catppuccin.nixosModules.catppuccin
         cosmic.nixosModules.default
+        disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         impermanence.nixosModules.impermanence
         lanzaboote.nixosModules.lanzaboote
@@ -96,7 +100,7 @@
           { ... }:
           {
             nix.registry.nixpkgs.flake = nixpkgs;
-            nix.registry.stable.flake = stable;
+            nix.registry.unstable.flake = unstable;
             nix.registry.rawkode.flake = self;
             nix.registry.templates.flake = self;
           }
