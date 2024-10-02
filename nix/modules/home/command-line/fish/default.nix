@@ -3,7 +3,7 @@
   programs.fish = {
     enable = true;
 
-    plugins = with pkgs.fishPlugins; [
+    plugins = [
       {
         name = "nix-env";
         src = pkgs.fetchFromGitHub {
