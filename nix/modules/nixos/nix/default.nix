@@ -4,6 +4,8 @@ let
 in
 {
   nix = {
+    package = pkgs.nixVersions.nix_2_23;
+
     gc = {
       automatic = true;
       dates = "daily";
@@ -23,7 +25,7 @@ in
       keep-derivations = true;
       keep-outputs = true;
 
-      substituters = [ "https://cache.nixos.org?priority=10" ];
+      substituters = [ "https://cache.nixos.org" ];
 
       trusted-public-keys = [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
     };

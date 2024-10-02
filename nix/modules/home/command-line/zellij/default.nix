@@ -4,9 +4,10 @@
     enable = true;
 
     settings = {
-      default_shell = "${lib.getExe pkgs.fish}";
+      default_shell = "${lib.getExe pkgs.nushell}";
       default_mode = "normal";
       default_layout = "compact";
+      mouse_mode = false;
       pane_frames = false;
       simplified_ui = false;
       ui = {
