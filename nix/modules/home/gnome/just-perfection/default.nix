@@ -34,7 +34,7 @@ with lib;
       top-panel-position = 0;
       window-demands-attention-focus = true;
       window-maximized-on-create = false;
-      workspace = false;
+      workspace = true;
       workspace-peek = true;
       workspace-popup = false;
       workspace-wrap-around = true;

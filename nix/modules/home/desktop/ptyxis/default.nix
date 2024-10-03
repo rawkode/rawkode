@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   services.flatpak = {
     packages = [
@@ -23,8 +23,8 @@
     label='Rawkode'
     palette='Catppuccin Frappé'
     bold-is-bright=true
-    # use-custom-command=true
-    # custom-command='fish'
+    use-custom-command=true
+    custom-command=${lib.getExe pkgs.nushell}
     preserve-container='never'
   '';
   };
