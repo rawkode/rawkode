@@ -51,7 +51,4 @@ tpm2_ptool init
 tpm2_ptool addtoken --pid=1 --label=$(whoami) --sopin=${PIN} --userpin=${PIN}
 tpm2_ptool addkey --label=$(whoami) --userpin=${PIN} --algorithm=ecc256
 ssh-tpm-keygen
-cat <<EOF >>${HOME}/.config/git/allowed_signers
-david@rawkode.dev namespaces="git" $(cat ${HOME}/.ssh/id_ecdsa.pub)
-EOF
 ```
