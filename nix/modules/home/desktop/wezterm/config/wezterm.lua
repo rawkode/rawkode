@@ -19,6 +19,8 @@ if wezterm.config_builder then
 
     config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
 
+		config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
+
     config.front_end = "OpenGL"
     config.enable_wayland = true
     config.webgpu_power_preference = "HighPerformance"
@@ -46,6 +48,22 @@ if wezterm.config_builder then
         regex = [[["]?([\w\d]{1}[-\w\d]+)(/){1}([-\w\d\.]+)["]?]],
         format = 'https://www.github.com/$1/$3'
     })
+
+
+		-- Disappearing cursor fix
+		-- https://github.com/wez/wezterm/issues/1742#issuecomment-1075333507
+		local xcursor_size = nil
+		local xcursor_theme = nil
+
+		local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-theme"})
+		if success then
+			config.xcursor_theme = stdout:gsub("'(.+)'\n", "%1")
+		end
+
+		local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-size"})
+		if success then
+			config.xcursor_size = tonumber(stdout)
+		end
 
     return config
 end
