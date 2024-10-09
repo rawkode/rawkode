@@ -2,6 +2,10 @@
 {
   home.packages = with pkgs; [ gitsign ];
 
+  programs.fish.interactiveShellInit = ''
+    set -x GITSIGN_CREDENTIAL_CACHE {$HOME}/.cache/sigstore/gitsign/cache.sock
+  '';
+
   systemd.user.services.gitsign-credential-cache = {
     Install.WantedBy = [ "default.target" ];
 
@@ -23,7 +27,7 @@
     extraConfig = {
       gpg = {
         format = "x509";
-        x509.program = "${lib.getExe pkgs.gitsign}";
+        x509.program = "${pkgs.gitsign}/bin/gitsign";
       };
 
       commit.gpgsign = true;
