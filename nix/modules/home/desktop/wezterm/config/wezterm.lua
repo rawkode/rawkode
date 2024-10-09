@@ -7,9 +7,9 @@ if wezterm.config_builder then
     -- There's no decent way to have Zellij or fish
 		-- update yet; so pending
     if appearance.is_dark() then
-      config.color_scheme = 'catppuccin-latte'
-    else
       config.color_scheme = 'catppuccin-frappe'
+    else
+      config.color_scheme = 'catppuccin-latte'
     end
 
     config.automatically_reload_config = true
