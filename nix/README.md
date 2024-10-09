@@ -2,7 +2,7 @@
 shell: bash
 ---
 
-# Rawkode's Operating System (rawkOS)
+# rawkOS: Rawkode's Operating System
 
 ## Installation & Maintenance
 
