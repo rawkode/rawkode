@@ -9,7 +9,7 @@ if wezterm.config_builder then
     if appearance.is_dark() then
       config.color_scheme = 'catppuccin-frappe'
     else
-      config.color_scheme = 'catppuccin-latte'
+      config.color_scheme = 'catppuccin-frappe'
     end
 
     config.automatically_reload_config = true
