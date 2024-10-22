@@ -6,10 +6,7 @@
       runme
       biome
       devenv
-      # gitbutler
-      # helix
-
-      # zed-editor
+      zed-editor
     ]
   );
 }

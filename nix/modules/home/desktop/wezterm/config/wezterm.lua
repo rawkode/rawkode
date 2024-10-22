@@ -26,7 +26,7 @@ if wezterm.config_builder then
     config.webgpu_power_preference = "HighPerformance"
 
     config.enable_tab_bar = false
-    -- config.window_decorations = "RESIZE"
+    config.window_decorations = "RESIZE"
     config.window_close_confirmation = "NeverPrompt"
 
     config.window_background_opacity = 1
