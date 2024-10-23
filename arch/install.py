@@ -1,6 +1,4 @@
-import archinstall, getpass
-import re
-import subprocess
+import getpass
 from archinstall import GfxDriver
 from archinstall import Installer
 from archinstall import profile
@@ -14,34 +12,29 @@ from archinstall.default_profiles.desktops.gnome import GnomeProfile
 from archinstall.default_profiles.profile import GreeterType
 from pathlib import Path
 
-# Config
 username = "rawkode"
-boot_partition_size = 2048
 
-# Establish if this is a laptop or not, as this determines
-# if we're going to enable hibernate.
-machine_info = subprocess.check_output(["hostnamectl", "status"], universal_newlines=True)
-m = re.search('Chassis: (.+?)\n', machine_info)
-chassis_type = m.group(1)
-print("Your chassis type is", chassis_type)
+print("Hi, f{username}! We're about to blow away your disk and install Arch Linux.")
+print("Use SIGINT (Ctrl+C) to abort the installation.")
 
-hostname = input('Hostname: ')
-password =  getpass.getpass(prompt='User/Disk Encryption Password: ')
+device = (input('Which disk? (Defaults to /dev/nvme0n1): ').strip() or "/dev/nvme0n1")
 
 fs_type = disk.FilesystemType.Btrfs
-device_path = Path('/dev/nvme0n1')
+device_path = Path(device)
 
 device = disk.device_handler.get_device(device_path)
 
 if not device:
-	raise ValueError('Could not find device. Maybe try wipefs --all /dev/nvme0n1?')
+	raise ValueError("Could not find device. Maybe try `wipefs --all f{device}` ?")
 
 device_modification = disk.DeviceModification(device, wipe=True)
+
+boot_partition_size = int(1024)
 
 boot_partition = disk.PartitionModification(
 	status=disk.ModificationStatus.Create,
 	type=disk.PartitionType.Primary,
-	start=disk.Size(1, disk.Unit.MiB, device.device_info.sector_size),
+	start=disk.Size(0, disk.Unit.MiB, device.device_info.sector_size),
 	length=disk.Size(boot_partition_size, disk.Unit.MiB, device.device_info.sector_size),
 	mountpoint=Path('/boot'),
 	fs_type=disk.FilesystemType.Fat32,
@@ -50,10 +43,8 @@ boot_partition = disk.PartitionModification(
 
 device_modification.add_partition(boot_partition)
 
-root_start = disk.Size(1025, disk.Unit.MiB, device.device_info.sector_size)
-# We remove root_start twice because we need some extra space at the end
-# for the partition table to be valid
-root_length = device.device_info.total_size - root_start - root_start
+root_start = disk.Size(boot_partition_size+1, disk.Unit.MiB, device.device_info.sector_size)
+root_length = device.device_info.total_size - root_start
 
 subvolumes = [
 	disk.SubvolumeModification(Path('@root'), Path('/')),
@@ -61,7 +52,7 @@ subvolumes = [
 	disk.SubvolumeModification(Path('@log'), Path('/var/log')),
 	disk.SubvolumeModification(Path('@pkg'), Path('/var/cache/pacman/pkg')),
 	disk.SubvolumeModification(Path('@nix'), Path('/nix')),
-	disk.SubvolumeModification(Path('@.snapshots'), Path('/snapshots'))
+	disk.SubvolumeModification(Path('@.snapshots'), Path('/snapshots')),
 ]
 
 root_partition = disk.PartitionModification(
@@ -82,8 +73,17 @@ disk_config = disk.DiskLayoutConfiguration(
 	device_modifications=[device_modification]
 )
 
+hostname = input('Hostname for this install? ')
+disk_password = ""
+disk_password_confirm = "_"
+while disk_password != disk_password_confirm:
+	disk_password =  getpass.getpass(prompt='Disk Encryption Password? ')
+	disk_password_confirm =  getpass.getpass(prompt='Confirm Disk Encryption Password: ')
+	if disk_password != disk_password_confirm:
+		raise ValueError("Passwords do not match. Try again.")
+
 disk_encryption = disk.DiskEncryption(
-	encryption_password=password,
+	encryption_password=disk_password,
 	encryption_type=disk.EncryptionType.Luks,
 	partitions=[root_partition],
 	hsm_device=None
@@ -91,23 +91,22 @@ disk_encryption = disk.DiskEncryption(
 
 fs_handler = disk.FilesystemHandler(disk_config, disk_encryption)
 
-fs_handler.perform_filesystem_operations(show_countdown=False)
+fs_handler.perform_filesystem_operations(show_countdown=True)
 
 mountpoint = Path('/tmp')
 
 bootloader = models.Bootloader.Systemd
-kernels = [
-	"linux",
-	"linux-zen"
-]
+kernels = [ "linux-zen" ]
 
 enable_testing = True
 enable_multilib = True
+
 locale_config = locale.LocaleConfiguration(
 	kb_layout="us",
 	sys_enc="UTF-8",
 	sys_lang="en_GB"
 )
+
 timezone = 'Europe/London'
 
 mirror_config = mirrors.MirrorConfiguration(
@@ -129,37 +128,42 @@ network_config = models.NetworkConfiguration(
 )
 
 audio_config = models.AudioConfiguration(
-	audio=models.Audio.Pulseaudio
+	audio=models.Audio.Pipewire
 )
 
 gfx_driver = GfxDriver.AmdOpenSource
 
+user_password = ""
+user_password_confirm = "_"
+while user_password != user_password_confirm:
+	user_password =  getpass.getpass(prompt='User Password? ')
+	user_password_confirm =  getpass.getpass(prompt='Confirm User Password: ')
+	if user_password != user_password_confirm:
+		raise ValueError("Passwords do not match. Try again.")
+
 users = [
-    models.User(username, password, sudo=True),
+    models.User(username, user_password, sudo=True),
 ]
 
 base_packages = [
+	"1password-beta",
+	"1password-cli",
 	"base-devel",
-	"bat",
 	"bluez-cups",
 	"bluez-tools",
 	"bluez-utils",
 	"bluez",
 	"brightnessctl",
-	"code",
 	"dialog",
-	"distrobox",
 	"docker",
  	"ffmpeg",
 	"fd",
 	"ffmpegthumbnailer",
 	"ffmpegthumbs",
-	"firefox",
 	"fish",
 	"git",
 	"github-cli",
 	"htop",
-	"lxappearance",
 	"man-db",
 	"man-pages",
 	"networkmanager",
@@ -167,11 +171,10 @@ base_packages = [
 	"otf-monaspace",
 	"otf-monaspace-nerd",
 	"otf-monaspace-variable",
-	"ripgrep",
-	"vivaldi-ffmpeg-codecs",
+	"podman",
+	"ptyxis",
 	"vivaldi",
-	"wezterm",
-	"zsh",
+	"vivaldi-ffmpeg-codecs",
 ]
 
 services = [
@@ -213,9 +216,6 @@ with Installer(mountpoint, disk_config, disk_encryption=disk_encryption, kernels
 		hostname=hostname,
 		locale_config=locale_config,
     )
-
-	if chassis_type == "laptop":
-		installation.setup_swap('zram')
 
 	installation.add_bootloader(bootloader)
 
