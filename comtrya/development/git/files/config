@@ -1,0 +1,15 @@
+[user]
+    name = "David Flanagan"
+    email = david@rawkode.dev
+
+[commit]
+    gpgsign = true
+
+[tag]
+    gpgsign = true
+
+[gpg "x509"]
+    program = gitsign
+
+[gpg]
+    format = x509

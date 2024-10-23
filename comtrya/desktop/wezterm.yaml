@@ -1,0 +1,7 @@
+depends:
+- ./fonts
+
+actions:
+- action: package.install
+  list:
+    - wezterm-git
