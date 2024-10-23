@@ -1,7 +1,7 @@
 depends:
-- ./fonts
+  - ./fonts
 
 actions:
-- action: package.install
-  list:
-    - wezterm-git
+  - action: package.install
+    list:
+      - wezterm-git

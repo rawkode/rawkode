@@ -1,4 +1,4 @@
 actions:
-- action: package.install
-  list:
-    - otf-monaspace
+  - action: package.install
+    list:
+      - otf-monaspace

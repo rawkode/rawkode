@@ -1,4 +1,4 @@
 actions:
   - action: package.install
     list:
-      - gitsign
+      - visual-studio-code-bin

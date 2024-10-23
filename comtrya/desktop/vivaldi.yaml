@@ -1,5 +1,5 @@
 actions:
-- action: package.install
-  list:
-    - vivaldi
-    - vivaldi-ffmpeg-codecs
+  - action: package.install
+    list:
+      - vivaldi
+      - vivaldi-ffmpeg-codecs

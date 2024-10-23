@@ -1,7 +1,9 @@
 actions:
-- action: package.install
-  list:
-  - git
-- action: file.copy
-  from: config
-  to: "{{ user.config_dir }}/git/config"
+  - action: package.install
+    list:
+      - git
+      - gitbutler
+
+  - action: file.copy
+    from: config
+    to: "{{ user.config_dir }}/git/config"
