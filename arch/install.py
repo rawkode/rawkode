@@ -14,13 +14,16 @@ from archinstall.default_profiles.desktops.gnome import GnomeProfile
 from archinstall.default_profiles.profile import GreeterType
 from pathlib import Path
 
+# Config
+username = "rawkode"
+boot_partition_size = 2048
+
+# Establish if this is a laptop or not, as this determines
+# if we're going to enable hibernate.
 machine_info = subprocess.check_output(["hostnamectl", "status"], universal_newlines=True)
 m = re.search('Chassis: (.+?)\n', machine_info)
 chassis_type = m.group(1)
 print("Your chassis type is", chassis_type)
-
-username = "rawkode"
-boot_partition_size = 2048
 
 hostname = input('Hostname: ')
 password =  getpass.getpass(prompt='User/Disk Encryption Password: ')
@@ -53,12 +56,12 @@ root_start = disk.Size(1025, disk.Unit.MiB, device.device_info.sector_size)
 root_length = device.device_info.total_size - root_start - root_start
 
 subvolumes = [
-	disk.SubvolumeModification(Path('@'), Path('/')),
+	disk.SubvolumeModification(Path('@root'), Path('/')),
 	disk.SubvolumeModification(Path('@home'), Path('/home')),
 	disk.SubvolumeModification(Path('@log'), Path('/var/log')),
 	disk.SubvolumeModification(Path('@pkg'), Path('/var/cache/pacman/pkg')),
 	disk.SubvolumeModification(Path('@nix'), Path('/nix')),
-	disk.SubvolumeModification(Path('@.snapshots'), Path('/.snapshots'))
+	disk.SubvolumeModification(Path('@.snapshots'), Path('/snapshots'))
 ]
 
 root_partition = disk.PartitionModification(
@@ -152,6 +155,7 @@ base_packages = [
 	"ffmpegthumbnailer",
 	"ffmpegthumbs",
 	"firefox",
+	"fish",
 	"git",
 	"github-cli",
 	"htop",

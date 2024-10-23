@@ -4,7 +4,13 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
     unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+
+    # Using this for deno 2
     master.url = "github:nixos/nixpkgs/master";
+
+    # This can be removed when this is merged.
+    # https://github.com/NixOS/nixpkgs/pull/344700
+    evdi.url = "github:nixos/nixpkgs/b6d57c6bf0238f386ab6170e118b610c7d542f9c";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";

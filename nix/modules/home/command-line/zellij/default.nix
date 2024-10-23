@@ -21,6 +21,12 @@
     source = ./zellij.nu;
   };
 
+  programs.fish.interactiveShellInit = ''
+    set ZELLIJ_AUTO_ATTACH true
+    set ZELLIJ_AUTO_EXIT true
+    eval (zellij setup --generate-auto-start fish | string collect)
+  '';
+
   programs.nushell.extraConfig = ''
     source /home/rawkode/.config/zellij/init.nu
   '';

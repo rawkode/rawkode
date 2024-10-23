@@ -4,11 +4,11 @@ final: prev: {
 
   vivaldi = (
     prev.vivaldi.overrideAttrs (oldAttrs: rec {
-      version = "6.10.3491.4";
+      version = "7.0.3495.5";
 
       src = prev.fetchurl {
         url = "https://downloads.vivaldi.com/snapshot/vivaldi-snapshot_${version}-1_amd64.deb";
-        hash = "sha256-jbDLdcyjwrsvmSM1MbPSeGMtcewiSDDKzN4nVYo/V/U=";
+        hash = "sha256-Y+weoZWFlnoGXa31bDmVMcXvU5fd6gX7zd7r2VKPZLk=";
       };
     })
   );

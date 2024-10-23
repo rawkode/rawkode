@@ -40,6 +40,12 @@ nix run home-manager -- switch --flake .#rawkode
 
 ## Post Installation
 
+### DisplayLink
+
+```shell {name=displaylink-prefetch}
+nix-prefetch-url --name displaylink-600.zip https://www.synaptics.com/sites/default/files/exe_files/2024-05/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.0-EXE.zip
+```
+
 ### TPM2 SSH Key
 
 ```shell {name=ssh-key}

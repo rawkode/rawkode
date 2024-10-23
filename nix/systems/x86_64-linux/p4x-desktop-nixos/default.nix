@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ lib, ... }:
 {
   imports = [ ./hardware.nix ];
 
@@ -8,7 +8,7 @@
       wayland.force = true;
     };
     secureboot.enable = true;
-    # displayLink.enable = true;
+    displayLink.enable = true;
   };
 
   systemd.services.NetworkManager-wait-online.enable = lib.mkForce false;
