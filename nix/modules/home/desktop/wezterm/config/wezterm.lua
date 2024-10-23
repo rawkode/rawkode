@@ -5,13 +5,15 @@ if wezterm.config_builder then
     config = wezterm.config_builder()
 
     -- There's no decent way to have Zellij or fish
-		-- update yet; so pending
+    -- update yet; so pending
     if appearance.is_dark() then
       config.color_scheme = 'catppuccin-frappe'
     else
       config.color_scheme = 'catppuccin-frappe'
     end
 
+
+    config.enable_kitty_graphics = true
     config.automatically_reload_config = true
     config.detect_password_input = true
     config.hide_mouse_cursor_when_typing = true
@@ -19,7 +21,7 @@ if wezterm.config_builder then
 
     config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
 
-		config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
+    config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
 
     config.front_end = "OpenGL"
     config.enable_wayland = true
@@ -50,20 +52,20 @@ if wezterm.config_builder then
     })
 
 
-		-- Disappearing cursor fix
-		-- https://github.com/wez/wezterm/issues/1742#issuecomment-1075333507
-		local xcursor_size = nil
-		local xcursor_theme = nil
+    -- Disappearing cursor fix
+    -- https://github.com/wez/wezterm/issues/1742#issuecomment-1075333507
+    local xcursor_size = nil
+    local xcursor_theme = nil
 
-		local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-theme"})
-		if success then
-			config.xcursor_theme = stdout:gsub("'(.+)'\n", "%1")
-		end
+    local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-theme"})
+    if success then
+      config.xcursor_theme = stdout:gsub("'(.+)'\n", "%1")
+    end
 
-		local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-size"})
-		if success then
-			config.xcursor_size = tonumber(stdout)
-		end
+    local success, stdout, stderr = wezterm.run_child_process({"gsettings", "get", "org.gnome.desktop.interface", "cursor-size"})
+    if success then
+      config.xcursor_size = tonumber(stdout)
+    end
 
     return config
 end
