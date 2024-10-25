@@ -1,0 +1,11 @@
+depends:
+  - ./nix
+
+actions:
+  - action: command.run
+    command: nix
+    args:
+      - profile
+      - install
+      - --accept-flake-config
+      - 'github:flox/flox'

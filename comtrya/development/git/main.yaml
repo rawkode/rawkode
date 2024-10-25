@@ -2,8 +2,29 @@ actions:
   - action: package.install
     list:
       - git
-      - gitbutler
+      - gitbutler-bin
 
   - action: file.copy
     from: config
     to: "{{ user.config_dir }}/git/config"
+    # owner: root
+    # group: root
+    chmod: "755"
+
+  - action: file.copy
+    from: git-root.fish
+    to: "{{ user.config_dir }}/fish/conf.d/git-root.fish"
+    # owner: root
+    # group: root
+    chmod: "755"
+
+  - action: command.run
+    command: chown
+    privileged: true
+    args:
+      - root:root
+      - /etc/1password/custom_allowed_browsers
+
+  - action: package.install
+    list:
+      - gitsign

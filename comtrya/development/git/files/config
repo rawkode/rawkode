@@ -13,3 +13,30 @@
 
 [gpg]
     format = x509
+
+[credential "https://github.com"]
+	helper = "!$(which gh) auth git-credential"
+[credential "https://gist.github.com"]
+	helper = "!$(which gh) auth git-credential"
+
+[push]
+default = "current"
+
+[pull]
+default = "current"
+rebase = true
+
+[branch]
+autosetuprebase = "always"
+
+[rerere]
+enabled = 1
+autoupdate = 1
+
+[alias]
+  br = branch
+  cane = commit --amend --no-edit
+  ci = commit
+  co = checkout
+  fo = !git reset --hard && git clean -qfdx
+  st = status

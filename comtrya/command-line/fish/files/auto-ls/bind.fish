@@ -1,0 +1,1 @@
+bind \r auto-ls

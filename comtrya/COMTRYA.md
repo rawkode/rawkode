@@ -3,9 +3,6 @@
 - dconf
 - Flatpak installations
 
-## Defects
-
-- nocleanmenu isn't a option with yay any longer
 
 ## Questions
 
