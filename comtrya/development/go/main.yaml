@@ -1,0 +1,8 @@
+actions:
+  - action: package.install
+    list:
+      - go
+
+  - action: file.link
+    from: init.fish
+    to: "{{ user.config_dir }}/fish/conf.d/go.fish"

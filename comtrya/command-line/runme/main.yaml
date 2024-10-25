@@ -1,0 +1,13 @@
+depends:
+  - development.go
+
+actions:
+  - action: command.run
+    command: go
+    args:
+      - install
+      - github.com/stateful/runme@latest
+
+  - action: file.link
+    from: init.fish
+    to: "{{ user.config_dir }}/fish/conf.d/runme.fish"

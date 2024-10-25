@@ -29,13 +29,13 @@ if not device:
 
 device_modification = disk.DeviceModification(device, wipe=True)
 
-boot_partition_size = int(1024)
+boot_partition_size = int(1)
 
 boot_partition = disk.PartitionModification(
 	status=disk.ModificationStatus.Create,
 	type=disk.PartitionType.Primary,
-	start=disk.Size(0, disk.Unit.MiB, device.device_info.sector_size),
-	length=disk.Size(boot_partition_size, disk.Unit.MiB, device.device_info.sector_size),
+	start=disk.Size(1, disk.Unit.MiB, device.device_info.sector_size),
+	length=disk.Size(boot_partition_size, disk.Unit.GiB, device.device_info.sector_size),
 	mountpoint=Path('/boot'),
 	fs_type=disk.FilesystemType.Fat32,
 	flags=[disk.PartitionFlag.Boot, disk.PartitionFlag.ESP]
@@ -43,8 +43,8 @@ boot_partition = disk.PartitionModification(
 
 device_modification.add_partition(boot_partition)
 
-root_start = disk.Size(boot_partition_size+1, disk.Unit.MiB, device.device_info.sector_size)
-root_length = device.device_info.total_size - root_start
+root_start = disk.Size(boot_partition_size + 1, disk.Unit.GiB, device.device_info.sector_size)
+root_length = device.device_info.total_size - root_start - root_start
 
 subvolumes = [
 	disk.SubvolumeModification(Path('@root'), Path('/')),
@@ -146,8 +146,8 @@ users = [
 ]
 
 base_packages = [
-	"1password-beta",
-	"1password-cli",
+	#"1password-beta",
+	#"1password-cli",
 	"base-devel",
 	"bluez-cups",
 	"bluez-tools",
@@ -170,9 +170,9 @@ base_packages = [
 	"nix",
 	"otf-monaspace",
 	"otf-monaspace-nerd",
-	"otf-monaspace-variable",
+	#"otf-monaspace-variable",
 	"podman",
-	"ptyxis",
+	#"ptyxis",
 	"vivaldi",
 	"vivaldi-ffmpeg-codecs",
 ]

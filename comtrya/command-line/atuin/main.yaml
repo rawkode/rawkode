@@ -1,0 +1,11 @@
+actions:
+  - action: package.install
+    name: atuin
+
+  - action: file.link
+    from: atuin.toml
+    to: "{{ user.config_dir }}/atuin/config.toml"
+
+  - action: file.link
+    from: init.fish
+    to: "{{ user.config_dir }}/fish/conf.d/atuin.fish"
