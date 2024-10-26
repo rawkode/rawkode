@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   fileSystems."/".options = [
     "noatime"
@@ -61,5 +61,5 @@
     };
   };
 
-  time.timeZone = "Europe/London";
+  time.timeZone = lib.mkForce null;
 }
