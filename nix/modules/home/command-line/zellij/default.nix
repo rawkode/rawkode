@@ -1,5 +1,4 @@
-{ ... }:
-{
+{ ... }: {
   programs.zellij = {
     enable = true;
 
@@ -9,17 +8,11 @@
       mouse_mode = true;
       pane_frames = false;
       simplified_ui = false;
-      ui = {
-        pane_frames = {
-          hide_session_name = true;
-        };
-      };
+      ui = { pane_frames = { hide_session_name = true; }; };
     };
   };
 
-  xdg.configFile."zellij/init.nu" = {
-    source = ./zellij.nu;
-  };
+  xdg.configFile."zellij/init.nu" = { source = ./zellij.nu; };
 
   programs.fish.interactiveShellInit = ''
     set ZELLIJ_AUTO_ATTACH true

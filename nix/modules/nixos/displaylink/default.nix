@@ -1,14 +1,7 @@
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, lib, pkgs, ... }:
 with lib;
-let
-  cfg = config.rawkOS.displayLink;
-in
-{
+let cfg = config.rawkOS.displayLink;
+in {
   options.rawkOS.displayLink = {
     enable = mkOption {
       type = types.bool;
@@ -18,9 +11,7 @@ in
   };
 
   config = mkIf cfg.enable {
-    boot = {
-      extraModulePackages = with config.boot.kernelPackages; [ evdi ];
-    };
+    boot = { extraModulePackages = with config.boot.kernelPackages; [ evdi ]; };
 
     hardware.graphics = {
       enable = true;

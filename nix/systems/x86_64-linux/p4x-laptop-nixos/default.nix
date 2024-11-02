@@ -1,8 +1,6 @@
 { lib, pkgs, ... }:
-let
-  Minutes = x: x * 60;
-in
-{
+let Minutes = x: x * 60;
+in {
   imports = [ ./hardware.nix ];
 
   rawkOS = {
@@ -61,5 +59,5 @@ in
     HibernateDelaySec=${toString (Minutes 10)}
   '';
 
-  system.stateVersion = "24.05";
+  system.stateVersion = "24.11";
 }

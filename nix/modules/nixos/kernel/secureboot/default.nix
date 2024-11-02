@@ -1,14 +1,7 @@
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, lib, pkgs, ... }:
 with lib;
-let
-  cfg = config.rawkOS.secureboot;
-in
-{
+let cfg = config.rawkOS.secureboot;
+in {
   options.rawkOS.secureboot = {
     enable = mkOption {
       type = types.bool;

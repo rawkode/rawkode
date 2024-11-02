@@ -2,15 +2,7 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.05";
-    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
-
-    # Using this for deno 2
-    master.url = "github:nixos/nixpkgs/master";
-
-    # This can be removed when this is merged.
-    # https://github.com/NixOS/nixpkgs/pull/344700
-    evdi.url = "github:nixos/nixpkgs/b6d57c6bf0238f386ab6170e118b610c7d542f9c";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -40,7 +32,7 @@
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
     home-manager = {
-      url = "github:nix-community/home-manager/release-24.05";
+      url = "github:nix-community/home-manager/release-24.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     ghostty.url = "git+ssh://git@github.com/ghostty-org/ghostty";
@@ -59,8 +51,7 @@
     };
   };
 
-  outputs =
-    inputs:
+  outputs = inputs:
     let
       lib = inputs.snowfall-lib.mkLib {
         inherit inputs;
@@ -75,15 +66,10 @@
           };
         };
       };
-    in
-    lib.mkFlake {
-      channels-config = {
-        allowUnfree = true;
-      };
+    in lib.mkFlake {
+      channels-config = { allowUnfree = true; };
 
-      specialArgs = with inputs; {
-        inherit nix-colors;
-      };
+      specialArgs = with inputs; { inherit nix-colors; };
 
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
@@ -98,15 +84,11 @@
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote
-        (
-          { ... }:
-          {
-            nix.registry.nixpkgs.flake = nixpkgs;
-            nix.registry.unstable.flake = unstable;
-            nix.registry.rawkode.flake = self;
-            nix.registry.templates.flake = self;
-          }
-        )
+        ({ ... }: {
+          nix.registry.nixpkgs.flake = nixpkgs;
+          nix.registry.rawkode.flake = self;
+          nix.registry.templates.flake = self;
+        })
       ];
     };
 }

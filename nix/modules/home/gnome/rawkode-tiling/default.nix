@@ -1,10 +1,5 @@
-{
-  lib,
-  pkgs,
-  ...
-}:
-with lib;
-{
+{ lib, pkgs, ... }:
+with lib; {
   dconf.settings = {
     "org/gnome/mutter" = {
       attach-modal-dialogs = true;
@@ -77,6 +72,7 @@ with lib;
     };
   };
 
-  home.packages = with pkgs.gnomeExtensions; [ advanced-alttab-window-switcher ];
+  home.packages = with pkgs.gnomeExtensions;
+    [ advanced-alttab-window-switcher ];
 
 }

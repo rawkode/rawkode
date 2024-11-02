@@ -1,7 +1,7 @@
-{ lib, pkgs, ... }:
-{
+{ lib, pkgs, ... }: {
   services.espanso.enable = true;
-  systemd.user.services.espanso.serviceConfig.ExecStart = lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
+  systemd.user.services.espanso.serviceConfig.ExecStart =
+    lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";
 
   # I'd love for this to live in home-manager,
   # but espanso on wayland needs this additional

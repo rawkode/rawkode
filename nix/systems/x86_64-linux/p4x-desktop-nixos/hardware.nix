@@ -1,10 +1,4 @@
-{
-  config,
-  inputs,
-  lib,
-  modulesPath,
-  ...
-}:
+{ config, inputs, lib, modulesPath, ... }:
 
 {
   imports = [
@@ -21,16 +15,10 @@
   hardware.amdgpu.amdvlk.enable = true;
   hardware.amdgpu.opencl.enable = true;
 
-  boot.initrd.availableKernelModules = [
-    "ahci"
-    "nvme"
-    "sd_mod"
-    "thunderbolt"
-    "usb_storage"
-    "usbhid"
-    "xhci_pci"
-  ];
+  boot.initrd.availableKernelModules =
+    [ "ahci" "nvme" "sd_mod" "thunderbolt" "usb_storage" "usbhid" "xhci_pci" ];
 
   networking.useDHCP = lib.mkDefault true;
-  hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+  hardware.cpu.amd.updateMicrocode =
+    lib.mkDefault config.hardware.enableRedistributableFirmware;
 }
