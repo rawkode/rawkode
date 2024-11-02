@@ -25,22 +25,20 @@
               content = {
                 type = "luks";
                 name = "encrypted";
-                
+
                 askPassword = true;
 
-                              extraFormatArgs = [
-                "--type luks2"
-                "--cipher aes-xts-plain64"
-                "--hash sha512"
-                "--iter-time 5000"
-                "--key-size 256"
-                "--pbkdf argon2id"
-                "--use-random"
-              ];
+                extraFormatArgs = [
+                  "--type luks2"
+                  "--cipher aes-xts-plain64"
+                  "--hash sha512"
+                  "--iter-time 5000"
+                  "--key-size 256"
+                  "--pbkdf argon2id"
+                  "--use-random"
+                ];
 
-                settings = {
-                  allowDiscards = true;
-                };
+                settings = { allowDiscards = true; };
 
                 content = {
                   type = "btrfs";
@@ -48,25 +46,17 @@
                   subvolumes = {
                     "@root" = {
                       mountpoint = "/";
-                      mountOptions = [
-                        "compress=zstd"
-                        "noatime"
-                      ];
+                      mountOptions = [ "compress=zstd" "noatime" ];
                     };
+
                     "@persist" = {
                       mountpoint = "/persist";
-                      mountOptions = [
-                        "compress=zstd"
-                        "noatime"
-                      ];
+                      mountOptions = [ "compress=zstd" "noatime" ];
                     };
 
                     "@nix" = {
                       mountpoint = "/nix";
-                      mountOptions = [
-                        "compress=zstd"
-                        "noatime"
-                      ];
+                      mountOptions = [ "compress=zstd" "noatime" ];
                     };
                   };
                 };

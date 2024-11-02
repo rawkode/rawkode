@@ -1,5 +1,1 @@
-{ pkgs, ... }: {
-  home.packages = with pkgs; [
-    zed-editor
-  ];
-}
+{ pkgs, ... }: { home.packages = with pkgs; [ zed-editor ]; }

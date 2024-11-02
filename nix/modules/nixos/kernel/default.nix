@@ -1,13 +1,10 @@
-{ config, pkgs, ... }:
-{
+{ config, pkgs, ... }: {
   boot = {
     consoleLogLevel = 0;
 
     kernelPackages = pkgs.linuxPackages_zen;
     kernelParams = [ "video4linux" ];
-    kernelModules = [
-      "v4l2loopback"
-    ];
+    kernelModules = [ "v4l2loopback" ];
 
     initrd = {
       systemd.enable = true;

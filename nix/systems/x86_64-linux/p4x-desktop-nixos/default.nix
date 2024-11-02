@@ -1,5 +1,4 @@
-{ lib, ... }:
-{
+{ lib, ... }: {
   imports = [ ./hardware.nix ];
 
   rawkOS = {
@@ -55,5 +54,5 @@
   #   rocmPackages.rocm-smi
   # ];
 
-  system.stateVersion = "24.05";
+  system.stateVersion = "24.11";
 }

@@ -1,10 +1,5 @@
-{
-  lib,
-  pkgs,
-  ...
-}:
-with lib;
-{
+{ lib, pkgs, ... }:
+with lib; {
   dconf.settings = {
     "org/gnome/shell" = {
       enabled-extensions = [ "clipboard-indicator@tudmotu.com" ];

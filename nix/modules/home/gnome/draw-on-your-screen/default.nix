@@ -1,10 +1,5 @@
-{
-  lib,
-  pkgs,
-  ...
-}:
-with lib;
-{
+{ lib, pkgs, ... }:
+with lib; {
 
   home.packages = with pkgs; [ rawkOS.draw-on-your-screen ];
 

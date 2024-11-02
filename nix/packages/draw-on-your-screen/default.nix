@@ -1,7 +1,4 @@
-{
-  stdenv,
-  fetchFromGitHub,
-}:
+{ stdenv, fetchFromGitHub, }:
 stdenv.mkDerivation {
   pname = "draw-on-your-screen";
   version = "1.1.0";

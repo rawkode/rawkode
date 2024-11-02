@@ -1,4 +1,1 @@
-{ pkgs, ... }:
-{
-  home.packages = with pkgs; [ gitbutler ];
-}
+{ pkgs, ... }: { home.packages = with pkgs; [ gitbutler ]; }

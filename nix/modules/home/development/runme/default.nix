@@ -1,4 +1,1 @@
-{ pkgs, ... }:
-{
-  home.packages = with pkgs; [ runme ];
-}
+{ pkgs, ... }: { home.packages = with pkgs; [ runme ]; }

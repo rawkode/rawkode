@@ -1,9 +1,5 @@
-{
-  lib,
-  ...
-}:
-with lib;
-{
+{ lib, ... }:
+with lib; {
   programs.ssh = {
     enable = true;
 
@@ -21,10 +17,11 @@ with lib;
       ];
     };
 
-    "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p" = {
-      binding = "<Super>period";
-      command = "1password --quick-access";
-      name = "Search 1Password";
-    };
+    "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p" =
+      {
+        binding = "<Super>period";
+        command = "1password --quick-access";
+        name = "Search 1Password";
+      };
   };
 }
