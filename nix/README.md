@@ -32,6 +32,20 @@ Applys the NixOS and home-manager configuration.
 sudo nixos-rebuild switch --fast --flake .#$(hostname)
 ```
 
+### Flatpaks
+
+```shell {name=install-flatpaks}
+flatpak install flathub com.discordapp.Discord
+flatpak install flathub com.feaneron.Boatswain
+flatpak install flathub com.slack.Slack
+flatpak install flathub com.spotify.Client
+flatpak install flathub com.usebottles.bottles
+flatpak install flathub io.github.nokse22.teleprompter
+flatpak install flathub md.obsidian.Obsidian
+flatpak install flathub org.gnome.Fractal
+flatpak install flathub org.nickvision.tubeconverter
+```
+
 ### Others
 
 ```sh {"name":"home"}
@@ -44,6 +58,13 @@ nix run home-manager -- switch --flake .#rawkode
 
 ```shell {name=displaylink-prefetch}
 nix-prefetch-url --name displaylink-600.zip https://www.synaptics.com/sites/default/files/exe_files/2024-05/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.0-EXE.zip
+```
+
+### TPM2 SecureBoot
+
+```shell {name=tpm-secure-boot}
+sbctl enroll-keys
+systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2 --tpm2-pcrs=7,11 --tpm2-with-pin=true
 ```
 
 ### TPM2 SSH Key
