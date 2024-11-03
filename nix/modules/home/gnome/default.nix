@@ -160,11 +160,8 @@ in {
     appindicator
     gsconnect
     night-theme-switcher
-    sound-output-device-chooser
     space-bar
     systemd-manager
     tailscale-qs
-    top-bar-organizer
-    vertical-workspaces
   ]);
 }
