@@ -29,7 +29,7 @@
     printing.enable = true;
     pcscd.enable = true;
     smartd.enable = true;
-    udev.packages = with pkgs; [ gnome.gnome-settings-daemon ];
+    udev.packages = with pkgs; [ gnome-settings-daemon ];
   };
 
   programs = {
@@ -43,7 +43,7 @@
       coreutils-full
       git
       glib.dev
-      gnome.gnome-tweaks
+      gnome-tweaks
       pinentry-gnome3
       vscode
     ];

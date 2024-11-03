@@ -12,7 +12,9 @@
     ./disko.nix
   ];
 
-  hardware.amdgpu.amdvlk.enable = true;
+  # Propritary firmware causes problems with GTK
+  # https://gitlab.gnome.org/GNOME/gtk/-/issues/6890
+  hardware.amdgpu.amdvlk.enable = false;
   hardware.amdgpu.opencl.enable = true;
 
   boot.initrd.availableKernelModules =

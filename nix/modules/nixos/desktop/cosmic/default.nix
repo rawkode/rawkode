@@ -1,6 +1,7 @@
 {
-  services.desktopManager.cosmic.enable = true;
-  services.displayManager.cosmic-greeter.enable = false;
+  # Keeping an eye on it, but not for me yet.
+  # services.desktopManager.cosmic.enable = true;
+  # services.displayManager.cosmic-greeter.enable = false;
 
   nix = {
     settings = {
