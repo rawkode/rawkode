@@ -93,6 +93,7 @@ in {
         "appindicatorsupport@rgcjonas.gmail.com"
         "gsconnect@andyholmes.github.io"
         "nightthemeswitcher@romainvigier.fr"
+        "space-bar@luchrioh"
         "tailscale@joaophi.github.com"
       ];
 
