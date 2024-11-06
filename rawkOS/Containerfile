@@ -25,7 +25,6 @@ RUN /tmp/installer/visual-studio-code.sh
 RUN /tmp/installer/vivaldi.sh
 
 RUN /tmp/installer/rawkOS.sh
-RUN /tmp/installer/bootupctl.sh
 
 RUN rm -rf /tmp/installer
 RUN ostree container commit
