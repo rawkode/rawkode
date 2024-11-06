@@ -15,10 +15,11 @@ RUN rpm-ostree install nu
 
 COPY . /tmp/installer
 
+RUN /tmp/installer/main.nu
+
 RUN /tmp/installer/bootstrap.sh
 RUN /tmp/installer/amdgpu.sh
 
-RUN /tmp/installer/1password.sh
 RUN /tmp/installer/docker.sh
 RUN /tmp/installer/firefox.sh
 RUN /tmp/installer/fish.sh
