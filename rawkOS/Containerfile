@@ -20,6 +20,7 @@ RUN /tmp/installer/firefox.sh
 RUN /tmp/installer/fish.sh
 RUN /tmp/installer/github-monaspace.sh
 RUN /tmp/installer/google-chrome.sh
+RUN /tmp/installer/runme.sh
 RUN /tmp/installer/tailscale.sh
 RUN /tmp/installer/visual-studio-code.sh
 RUN /tmp/installer/vivaldi.sh
