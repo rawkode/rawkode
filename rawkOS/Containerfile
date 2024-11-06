@@ -9,6 +9,10 @@ ARG IMAGE_FLAVOR="${IMAGE_FLAVOR:-main}"
 RUN mkdir -p /var/opt
 RUN mkdir -p /var/lib/alternatives
 
+# The scripts for configuring this system will be written
+# in nu, so lets ensure it's available before anything else.
+RUN rpm-ostree install nu
+
 COPY . /tmp/installer
 
 RUN /tmp/installer/bootstrap.sh
