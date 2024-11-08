@@ -1,11 +1,13 @@
 #!/usr/bin/env nu
 export def "repo key import" [keyUrl: string] {
+	print $"Importing repository key ($keyUrl)"
 	do -c {
 		rpm --import $keyUrl
 	}
 }
 
 export def "repo add" [--name: string, --url: string, --keyUrl: string] {
+	print $"Adding repository ($name)"
 	do -c {
 		{
 			$name: {
@@ -23,6 +25,7 @@ export def "repo add" [--name: string, --url: string, --keyUrl: string] {
 }
 
 export def "install" [...packages: string] {
+	print $"Installing packages ($packages | join)"
   do -c {
 		echo rpm-ostree install $packages
 	}
