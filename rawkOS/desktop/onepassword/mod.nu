@@ -2,7 +2,7 @@
 use ../../utils *
 
 export def main [] {
-	package repo add --name "1password" --url "https://downloads.1password.com/linux/rpm" --keyUrl "https://downloads.1password.com/linux/keys/1password.asc"
+	package repo add --name "1password" --url "https://downloads.1password.com/linux/rpm/stable/$basearch" --keyUrl "https://downloads.1password.com/linux/keys/1password.asc"
 	package repo key import "https://downloads.1password.com/linux/keys/1password.asc"
 	package install 1password 1password-cli
 

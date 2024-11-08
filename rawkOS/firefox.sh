@@ -18,4 +18,10 @@ rpm --import https://download.copr.fedorainfracloud.org/results/the4runner/firef
 
 rpm-ostree install firefox-dev
 
-rm /etc/yum.repos.d/google-chrome.repo -f
+mv /var/opt/firefox-dev /usr/lib/firefox-dev
+
+cat >/usr/lib/tmpfiles.d/firefox.conf <<EOF
+L  /opt/firefox-dev  -  -  -  -  /usr/lib/firefox-dev
+EOF
+
+rm /etc/yum.repos.d/firefox-dev.repo -f

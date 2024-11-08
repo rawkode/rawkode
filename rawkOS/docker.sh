@@ -12,6 +12,6 @@ EOF
 
 rpm-ostree install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-systemctl enable docker.socket
+systemctl disable docker.socket
 
 rm -f /etc/yum.repos.d/docker-ce.repo
