@@ -19,6 +19,7 @@ rpm --import https://download.copr.fedorainfracloud.org/results/the4runner/firef
 rpm-ostree install firefox-dev
 
 mv /var/opt/firefox-dev /usr/lib/firefox-dev
+rm /usr/share/icons/hicolor/128x128/apps/firefox-developer-edition.png
 cp /usr/lib/firefox-dev/browser/chrome/icons/default/default128.png /usr/share/icons/hicolor/128x128/apps/firefox-developer-edition.png
 
 cat >/usr/lib/tmpfiles.d/firefox.conf <<EOF
