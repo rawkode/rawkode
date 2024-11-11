@@ -1,5 +1,5 @@
 import { $ } from "zx";
-import { installPackages } from "../../utils/package/mod.ts";
+import { installPackages } from "../utils/package/mod.ts";
 
 export default async () => {
 	await installPackages(["just"]);

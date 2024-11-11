@@ -48,5 +48,5 @@ await setupTailscale();
 import fixAmdIssue from "./fixes/amd/mod.ts";
 await fixAmdIssue();
 
-import rawkOS from "./command-line/rawkOS/mod.ts";
+import rawkOS from "./rawkOS/mod.ts";
 await rawkOS();
