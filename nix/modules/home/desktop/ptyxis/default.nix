@@ -1,6 +1,4 @@
 { pkgs, ... }: {
-  home.packages = with pkgs; [ ptyxis ];
-
   dconf.settings = {
     "org/gnome/Ptyxis" = {
       profile-uuids = [ "rawkode" ];

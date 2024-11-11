@@ -10,8 +10,8 @@ export default async () => {
 	// This is simple for interactive shells, but less so for the process that launches the desktop
 	// (I think)
 	// I should try sometime.
-	await Deno.writeFileSync(
-		"/etc/profile.d/nushell.sh",
-		Deno.readFileSync(`${import.meta.dirname}/nushell.sh`),
-	);
+	// await Deno.writeFileSync(
+	// 	"/etc/profile.d/nushell.sh",
+	// 	Deno.readFileSync(`${import.meta.dirname}/nushell.sh`),
+	// );
 };

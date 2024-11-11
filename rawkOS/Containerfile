@@ -8,24 +8,7 @@ COPY --from=mirror.gcr.io/denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
 WORKDIR /build
 COPY . /build
+
 RUN DENO_DIR=/deno deno run --allow-all build.ts && rm -rf /build
 
-# RUN /tmp/installer/main.nu
-
-# RUN /tmp/installer/bootstrap.sh
-# RUN /tmp/installer/amdgpu.sh
-
-# RUN /tmp/installer/docker.sh
-# RUN /tmp/installer/firefox.sh
-# RUN /tmp/installer/fish.sh
-# RUN /tmp/installer/github-monaspace.sh
-# RUN /tmp/installer/google-chrome.sh
-# RUN /tmp/installer/runme.sh
-# RUN /tmp/installer/tailscale.sh
-# RUN /tmp/installer/visual-studio-code.sh
-# RUN /tmp/installer/vivaldi.sh
-
-# RUN /tmp/installer/rawkOS.sh
-
-# RUN rm -rf /tmp/installer
 RUN ostree container commit
