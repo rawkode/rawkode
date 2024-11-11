@@ -5,8 +5,8 @@ export default async () => {
 	await installPackages(["just"]);
 
 	Deno.writeFileSync(
-		"/usr/local/bin/rawkOS",
+		"/usr/bin/rawkOS",
 		Deno.readFileSync(`${import.meta.dirname}/rawkOS`),
 	);
-	$`chmod +x /usr/local/bin/rawkOS`;
+	$`chmod +x /usr/bin/rawkOS`;
 };
