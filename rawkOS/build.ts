@@ -30,6 +30,9 @@ await setupFish();
 import setupDirenv from "./command-line/direnv/mod.ts";
 await setupDirenv();
 
+import setupGit from "./command-line/git/mod.ts";
+await setupGit();
+
 import setupDocker from "./command-line/docker/mod.ts";
 await setupDocker();
 
