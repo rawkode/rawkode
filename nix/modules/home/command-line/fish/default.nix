@@ -1,5 +1,7 @@
 { pkgs, ... }:
 {
+  home.file.".bashrc" = { source = ./auto-fish.sh; };
+
   programs.fish = {
     enable = true;
 
