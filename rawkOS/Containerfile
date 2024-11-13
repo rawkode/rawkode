@@ -1,4 +1,5 @@
-FROM quay.io/fedora-ostree-desktops/silverblue:41 AS base
+ARG VERSION=41
+FROM quay.io/fedora-ostree-desktops/silverblue:${VERSION} AS base
 
 ARG IMAGE_NAME="${IMAGE_NAME:-rawkOS}"
 ARG IMAGE_VENDOR="${IMAGE_VENDOR:-rawkode}"
@@ -8,6 +9,12 @@ COPY --from=mirror.gcr.io/denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
 WORKDIR /build
 COPY . /build
+
+# ARGs in the Global scope aren't automatically passed down to
+# each stage. We need to reference them to get the value.
+# https://docs.docker.com/build/building/variables/#scoping
+ARG VERSION
+ENV FEDORA_VERSION=$VERSION
 
 RUN DENO_DIR=/deno deno run --allow-all build.ts && rm -rf /build
 

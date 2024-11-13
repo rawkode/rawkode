@@ -6,6 +6,9 @@ await $`mkdir --parents /var/opt`;
 await $`mkdir --parents /var/lib/alternatives`;
 await $`ln --symbolic /usr/bin/ld.bfd /etc/alternatives/ld`;
 
+import setupTerra from "./terra/mod.ts";
+await setupTerra();
+
 import setupMonaspace from "./fonts/monaspace/mod.ts";
 await setupMonaspace();
 
@@ -17,6 +20,9 @@ await setupChrome();
 
 import setupOnePassword from "./desktop/onepassword/mod.ts";
 await setupOnePassword();
+
+import setupZed from "./desktop/zed/mod.ts";
+await setupZed();
 
 import setupVisualStudioCode from "./desktop/visual-studio-code/mod.ts";
 await setupVisualStudioCode();
