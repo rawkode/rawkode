@@ -1,22 +1,33 @@
-{ pkgs, ... }: {
+{ pkgs, ... }:
+{
   programs.fish = {
     enable = true;
 
-    plugins = [{
-      name = "nix-env";
-      src = pkgs.fetchFromGitHub {
-        owner = "lilyball";
-        repo = "nix-env.fish";
-        rev = "7b65bd228429e852c8fdfa07601159130a818cfa";
-        hash = "sha256-RG/0rfhgq6aEKNZ0XwIqOaZ6K5S4+/Y5EEMnIdtfPhk";
-      };
-    }];
+    plugins = [
+      {
+        name = "nix-env";
+        src = pkgs.fetchFromGitHub {
+          owner = "lilyball";
+          repo = "nix-env.fish";
+          rev = "7b65bd228429e852c8fdfa07601159130a818cfa";
+          hash = "sha256-RG/0rfhgq6aEKNZ0XwIqOaZ6K5S4+/Y5EEMnIdtfPhk";
+        };
+      }
+    ];
 
-    shellAliases = { ghb = "cd ~/Code/src/github.com"; };
+    shellAliases = {
+      ghb = "cd ~/Code/src/github.com";
+    };
 
     interactiveShellInit = ''
       set fish_greeting ""
       bind \r magic-enter
+      set -gx ZELLIJ_AUTO_ATTACH true
+      set -gx ZELLIJ_AUTO_EXIT true
+
+      if test -z $ZELLIJ
+        exec zellij
+      end
     '';
 
     functions = {
