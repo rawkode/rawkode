@@ -5,7 +5,7 @@
     settings = {
       default_mode = "normal";
       default_layout = "compact";
-      mouse_mode = false;
+      mouse_mode = true;
       pane_frames = false;
       simplified_ui = false;
       copy_on_select = true;

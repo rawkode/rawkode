@@ -21,25 +21,22 @@ if wezterm.config_builder then
 
     config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
 
-    config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
-
     config.front_end = "OpenGL"
     config.enable_wayland = true
     config.webgpu_power_preference = "HighPerformance"
 
     config.enable_tab_bar = false
-    config.window_decorations = "RESIZE"
     config.window_close_confirmation = "NeverPrompt"
 
     config.window_background_opacity = 1
 
     config.window_frame = {
-        font = wezterm.font({family = 'Monaspace Argon', weight = 'Bold'}),
+        font = wezterm.font({family = 'MonaspiceAr Nerd Font', weight = 'Bold'}),
         font_size = 11
     }
 
     config.font = wezterm.font_with_fallback {
-        'Monaspace Neon', 'Symbols Nerd Font Mono'
+        'MonaspiceAr Nerd Font', 'Symbols Nerd Font Mono'
     }
     config.font_size = 16.0
 
