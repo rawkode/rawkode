@@ -15,6 +15,9 @@ await setupMonaspace();
 import setupFirefox from "./desktop/firefox/mod.ts";
 await setupFirefox();
 
+import setupWezterm from "./desktop/wezterm/mod.ts";
+await setupWezterm();
+
 import setupChrome from "./desktop/google-chrome/mod.ts";
 await setupChrome();
 
@@ -44,6 +47,7 @@ await setupDocker();
 
 import setupGitHub from "./command-line/github/mod.ts";
 await setupGitHub();
+
 
 import setupDistroBox from "./dev/distrobox/mod.ts";
 await setupDistroBox();

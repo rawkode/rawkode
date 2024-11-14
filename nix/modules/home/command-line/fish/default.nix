@@ -26,10 +26,6 @@
       bind \r magic-enter
       set -gx ZELLIJ_AUTO_ATTACH true
       set -gx ZELLIJ_AUTO_EXIT true
-
-      if test -z $ZELLIJ
-        exec zellij
-      end
     '';
 
     functions = {
