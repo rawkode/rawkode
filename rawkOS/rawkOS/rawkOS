@@ -17,6 +17,12 @@ nix-install:
 	sudo systemctl stop nix-daemon.service
 	sudo systemctl restart nix-daemon.socket
 
+devenv-install:
+	nix profile install \
+		--experimental-features "nix-command flakes" \
+		--accept-flake-config \
+		nixpkgs#devenv
+
 flox-install:
 	nix profile install \
 		--experimental-features "nix-command flakes" \

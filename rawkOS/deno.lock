@@ -1,11 +1,21 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@std/fs@^1.0.5": "1.0.5",
     "jsr:@std/ini@~0.225.2": "0.225.2",
+    "jsr:@std/path@^1.0.7": "1.0.8",
     "jsr:@std/path@^1.0.8": "1.0.8",
-    "npm:zx@^8.2.1": "8.2.1"
+    "npm:@types/graphlib@^2.1.12": "2.1.12",
+    "npm:graphlib@^2.1.8": "2.1.8",
+    "npm:zx@^8.2.2": "8.2.2"
   },
   "jsr": {
+    "@std/fs@1.0.5": {
+      "integrity": "41806ad6823d0b5f275f9849a2640d87e4ef67c51ee1b8fb02426f55e02fd44e",
+      "dependencies": [
+        "jsr:@std/path@^1.0.7"
+      ]
+    },
     "@std/ini@0.225.2": {
       "integrity": "c70f6560dacb7e333c2f868aa09aaa4117e6618cc66c60d0b4ca716c135c8e67"
     },
@@ -20,6 +30,9 @@
         "@types/jsonfile",
         "@types/node@22.5.4"
       ]
+    },
+    "@types/graphlib@2.1.12": {
+      "integrity": "sha512-abRfQWMphT2qlXwppQa+CTCtUz/GqxBeozQcMjnOFD/WOKD6sRgxkfG8vq1yagV03447BBzCYhuJ0wiNb+/r+Q=="
     },
     "@types/jsonfile@6.1.4": {
       "integrity": "sha512-D5qGUYwjvnNNextdU59/+fI+spnwtTFmyQP0h+PfIOSkNfpU6AOICUOkm4i0OnSk+NyjdPJrxCDro0sJsWlRpQ==",
@@ -39,11 +52,20 @@
         "undici-types"
       ]
     },
+    "graphlib@2.1.8": {
+      "integrity": "sha512-jcLLfkpoVGmH7/InMC/1hIvOPSUh38oJtGhvrOFGzioE1DZ+0YW16RgmOJhHiuWTvGiJQ9Z1Ik43JvkRPRvE+A==",
+      "dependencies": [
+        "lodash"
+      ]
+    },
+    "lodash@4.17.21": {
+      "integrity": "sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg=="
+    },
     "undici-types@6.19.8": {
       "integrity": "sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw=="
     },
-    "zx@8.2.1": {
-      "integrity": "sha512-E3TZRg76QC14RXU8LLKGCnsd8omfM220TJKU4O4R1YuitE4IzDB3cmX6+tF2iffJ8JtlWxBo35YS1TCmpINuaQ==",
+    "zx@8.2.2": {
+      "integrity": "sha512-HSIdpU5P2ONI0nssnhsUZNCH9Sd/Z8LIFk9n8QTbu6JufzJx7qR7ajrMN21s06JqWSApcN012377iWsv8Vs5bg==",
       "dependencies": [
         "@types/fs-extra",
         "@types/node@22.9.0"
@@ -52,9 +74,12 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/fs@^1.0.5",
       "jsr:@std/ini@~0.225.2",
       "jsr:@std/path@^1.0.8",
-      "npm:zx@^8.2.1"
+      "npm:@types/graphlib@^2.1.12",
+      "npm:graphlib@^2.1.8",
+      "npm:zx@^8.2.2"
     ]
   }
 }

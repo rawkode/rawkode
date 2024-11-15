@@ -1,5 +1,7 @@
-import { installPackages } from "../../utils/package/mod.ts";
+import { archInstall } from "../../utils/package/mod.ts";
 
-export default async () => {
-	await installPackages(["gh"]);
-};
+const home = Deno.env.get("HOME");
+
+Deno.writeFileSync(`${home}/.ssh/known_hosts`, Deno.readFileSync(`${home}/known_hosts`));
+
+await archInstall(["gh"]);

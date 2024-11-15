@@ -1,5 +1,3 @@
-import { installPackages } from "../../utils/package/mod.ts";
+import { archInstall } from "../../utils/package/mod.ts";
 
-export default async () => {
-	await installPackages(["direnv"]);
-};
+await archInstall(["direnv"]);

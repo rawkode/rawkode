@@ -1,8 +1,8 @@
 import { $ } from "zx";
-import { installPackages } from "../utils/package/mod.ts";
+import { archInstall } from "../utils/package/mod.ts";
 
 export default async () => {
-	await installPackages(["just"]);
+	await archInstall(["just"]);
 
 	Deno.writeFileSync(
 		"/usr/bin/rawkOS",

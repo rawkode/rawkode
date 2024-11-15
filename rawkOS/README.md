@@ -4,6 +4,12 @@ shell: bash
 
 # rawkOS: Rawkode's Silverblue Configuration
 
+## Install Deno
+
+```shell
+curl -fsSL https://deno.land/install.sh | sh
+```
+
 ## Install Nix
 
 ```shell { "name": "install-nix" }
