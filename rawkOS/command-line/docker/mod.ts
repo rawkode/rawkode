@@ -1,13 +1,12 @@
-import { $ } from "zx";
 import { archInstall } from "../../utils/package/mod.ts";
+import { runPrivilegedCommand } from "../../utils/commands/mod.ts";
 
-await archInstall([
-	"docker-ce",
-	"docker-ce-cli",
-	"containerd.io",
-	"docker-buildx-plugin",
-	"docker-compose-plugin",
+archInstall([
+	"docker",
+	"docker-compose",
 ]);
 
+runPrivilegedCommand("usermod", ["-aG", "docker", "rawkode"]);
+
 // Mostly using podman, but need this on-demand
-await $`systemctl disable docker.service`;
+runPrivilegedCommand("systemctl", ["disable", "docker.service"]);

@@ -28,9 +28,11 @@ export class SystemdUnit<T extends UnitConfig> {
 	constructor(public name: string, public unit: T) {}
 
 	private getDirectory() {
+		Deno.mkdirSync(`${Deno.env.get("HOME")!}/.config/systemd/user`, { recursive: true });
+
 		return this.unit.scope === "system"
 			? "/etc/systemd/system"
-			: "/etc/systemd/user";
+			: `${Deno.env.get("HOME")!}/.config/systemd/user`;
 	}
 
 	install(): this {

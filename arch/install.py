@@ -150,38 +150,25 @@ base_packages = [
     "bluez",
     "brightnessctl",
     "dialog",
-    "docker",
     "ffmpeg",
     "fd",
     "ffmpegthumbnailer",
     "ffmpegthumbs",
     "fish",
     "git",
-    "github-cli",
     "htop",
     "man-db",
     "man-pages",
     "networkmanager",
-    "nix",
-    "nushell",
     "otf-monaspace",
     "otf-monaspace-nerd",
     "ttf-monaspace-variable",
-    "podman",
     "vivaldi",
     "vivaldi-ffmpeg-codecs",
-    "wezterm",
 ]
 
 services = [
     "bluetooth",
-    "docker",
-    "nix-daemon",
-]
-
-custom_commands = [
-    f"usermod -aG docker {username}",
-    f"usermod -aG nix-users {username}",
 ]
 
 my_profile = DesktopProfile(
@@ -238,6 +225,6 @@ with Installer(
 
     installation.enable_service(services)
 
-    run_custom_user_commands(custom_commands, installation)
+    # run_custom_user_commands(custom_commands, installation)
 
     installation.genfstab()

@@ -1,13 +1,41 @@
-import { $ } from "zx";
+import { runCommand } from "../commands/mod.ts";
 
-export const archInstall = async (packages: string[]) => {
+export const archInstall = (packages: string[]) => {
 	console.log(`Installing packages: ${packages.join(", ")}...`);
-	await $`paru --sync --refresh ${packages} --needed --noconfirm --skipreview --removemake --cleanafter`;
+
+	runCommand("paru", [
+		"--sync",
+		...packages,
+		"--needed",
+		"--noconfirm",
+		"--skipreview",
+		"--removemake",
+		"--cleanafter",
+	]);
+
 	console.log(`Finished installing packages: ${packages.join(", ")}`);
 };
 
-export const brewInstall = async (packages: string[]) => {
+export const flatpakInstall = (packages: string[]) => {
 	console.log(`Installing packages: ${packages.join(", ")}...`);
-	await $`brew install ${packages}`;
+
+	runCommand("flatpak", [
+		"install",
+		"--assumeyes",
+		"flathub",
+		...packages,
+	]);
+
+	console.log(`Finished installing packages: ${packages.join(", ")}`);
+};
+
+export const brewInstall = (packages: string[]) => {
+	console.log(`Installing packages: ${packages.join(", ")}...`);
+
+	runCommand("/home/linuxbrew/.linuxbrew/bin/brew", [
+		"install",
+		...packages,
+	]);
+
 	console.log(`Finished installing packages: ${packages.join(", ")}`);
 };

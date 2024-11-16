@@ -1,6 +1,7 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@david/which@~0.4.1": "0.4.1",
     "jsr:@std/fs@^1.0.5": "1.0.5",
     "jsr:@std/ini@~0.225.2": "0.225.2",
     "jsr:@std/path@^1.0.7": "1.0.8",
@@ -10,6 +11,9 @@
     "npm:zx@^8.2.2": "8.2.2"
   },
   "jsr": {
+    "@david/which@0.4.1": {
+      "integrity": "896a682b111f92ab866cc70c5b4afab2f5899d2f9bde31ed00203b9c250f225e"
+    },
     "@std/fs@1.0.5": {
       "integrity": "41806ad6823d0b5f275f9849a2640d87e4ef67c51ee1b8fb02426f55e02fd44e",
       "dependencies": [
@@ -74,6 +78,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@david/which@~0.4.1",
       "jsr:@std/fs@^1.0.5",
       "jsr:@std/ini@~0.225.2",
       "jsr:@std/path@^1.0.8",

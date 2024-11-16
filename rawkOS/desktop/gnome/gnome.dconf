@@ -1,0 +1,17 @@
+[org/gnome/desktop/peripherals/mouse]
+natural-scroll=true
+
+[org/gnome/desktop/datetime]
+automatic-timezone=true
+
+[org/gnome/desktop/input-sources]
+sources=[('xkb', 'us')]
+xkb-options=['terminate:ctrl_alt_bksp']
+
+[org/gnome/desktop/interface]
+clock-format='24h'
+clock-show-date=false
+enable-animations=true
+
+[org/gnome/settings-daemon/plugins/color]
+night-light-schedule-automatic=true
