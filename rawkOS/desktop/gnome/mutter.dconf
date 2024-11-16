@@ -1,0 +1,7 @@
+[org/gnome/mutter]
+workspaces-only-on-primary = true
+edge-tiling = true
+
+center-new-windows = true
+
+attach-modal-dialogs = true

@@ -1,4 +1,3 @@
-import { $ } from "zx";
 import { archInstall } from "../utils/package/mod.ts";
 
 export default async () => {
@@ -8,5 +7,6 @@ export default async () => {
 		"/usr/bin/rawkOS",
 		Deno.readFileSync(`${import.meta.dirname}/rawkOS`),
 	);
-	$`chmod +x /usr/bin/rawkOS`;
+
+	Deno.chmodSync("/usr/bin/rawkOS", 0o755);
 };
