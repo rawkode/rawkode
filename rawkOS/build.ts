@@ -46,6 +46,7 @@ await import("./command-line/direnv/mod.ts");
 await import("./command-line/docker/mod.ts");
 await import("./command-line/fish/mod.ts");
 await import("./command-line/git/mod.ts");
+await import("./command-line/google-cloud/mod.ts");
 await import("./command-line/jj/mod.ts");
 await import("./command-line/nix/mod.ts");
 await import("./command-line/nushell/mod.ts");
