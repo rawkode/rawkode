@@ -8,10 +8,10 @@ archInstall(["fish"]);
 const fishShell = whichSync("fish");
 
 if (!fishShell) {
-	console.error(
-		"Cannot set the default shell to fish, as it could not be found.",
-	);
-	Deno.exit(1);
+  console.error(
+    "Cannot set the default shell to fish, as it could not be found.",
+  );
+  Deno.exit(1);
 }
 
 // Could do this without sudo,
@@ -21,11 +21,11 @@ if (!fishShell) {
 runPrivilegedCommand("chsh", ["-s", fishShell, "rawkode"]);
 
 ensureHomeSymlink(
-	`${import.meta.dirname}/magic-enter.fish`,
-	`.config/fish/conf.d/magic-enter.fish`,
+  `${import.meta.dirname}/magic-enter.fish`,
+  `.config/fish/conf.d/magic-enter.fish`,
 );
 
 ensureHomeSymlink(
-	`${import.meta.dirname}/aliases.fish`,
-	`.config/fish/conf.d/aliases.fish`,
+  `${import.meta.dirname}/aliases.fish`,
+  `.config/fish/conf.d/aliases.fish`,
 );

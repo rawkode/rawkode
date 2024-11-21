@@ -6,7 +6,10 @@ import { archInstall } from "../../utils/package/mod.ts";
 await dconfImport(`${import.meta.dirname}/gnome.dconf`);
 await dconfImport(`${import.meta.dirname}/keybindings.dconf`);
 
-ensureHomeSymlink(`${import.meta.dirname}/bookmarks`, ".config/gtk-3.0/bookmarks");
+ensureHomeSymlink(
+  `${import.meta.dirname}/bookmarks`,
+  ".config/gtk-3.0/bookmarks",
+);
 
 archInstall(["gnome-extensions-cli"]);
 
@@ -17,7 +20,10 @@ runCommand("gext", ["install", "blur-my-shell@aunetx"]);
 
 runCommand("gext", ["install", "burn-my-windows@schneegans.github.com"]);
 await dconfImport(`${import.meta.dirname}/burn-my-windows.dconf`);
-ensureHomeSymlink(`${import.meta.dirname}/burn-my-windows.conf`, ".config/burn-my-windows/profiles/focus.conf");
+ensureHomeSymlink(
+  `${import.meta.dirname}/burn-my-windows.conf`,
+  ".config/burn-my-windows/profiles/focus.conf",
+);
 
 runCommand("gext", ["install", "caffeine@patapon.info"]);
 runCommand("gext", ["install", "clipboard-indicator@tudmotu.com"]);

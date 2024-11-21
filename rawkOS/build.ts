@@ -10,22 +10,22 @@ const home = Deno.env.get("HOME")!;
 
 console.log("Checking for 1Password SSH agent...");
 while (!(await exists(`${home}/.1password/agent.sock`))) {
-	switch (
-		await question(
-			"Please enable the 1Password SSH agent. Press: \n\t'y' to continue\n\t'n' to quit\n\t'z' to continue without the agent\n",
-		)
-	) {
-		case "n":
-			Deno.exit();
-			break;
+  switch (
+    await question(
+      "Please enable the 1Password SSH agent. Press: \n\t'y' to continue\n\t'n' to quit\n\t'z' to continue without the agent\n",
+    )
+  ) {
+    case "n":
+      Deno.exit();
+      break;
 
-		case "z":
-			break;
+    case "z":
+      break;
 
-		default:
-			Deno.env.set("SSH_AUTH_SOCK", "~/.1password/agent.sock");
-			break;
-	}
+    default:
+      Deno.env.set("SSH_AUTH_SOCK", "~/.1password/agent.sock");
+      break;
+  }
 }
 
 // Let's ensure we have GitHub known_hosts

@@ -2,8 +2,8 @@ import { archInstall } from "../../utils/package/mod.ts";
 import { runPrivilegedCommand } from "../../utils/commands/mod.ts";
 
 archInstall([
-	"docker",
-	"docker-compose",
+  "docker",
+  "docker-compose",
 ]);
 
 runPrivilegedCommand("usermod", ["-aG", "docker", "rawkode"]);
