@@ -6,6 +6,8 @@ import { archInstall } from "../../utils/package/mod.ts";
 await dconfImport(`${import.meta.dirname}/gnome.dconf`);
 await dconfImport(`${import.meta.dirname}/keybindings.dconf`);
 
+ensureHomeSymlink(`${import.meta.dirname}/bookmarks`, ".config/gtk-3.0/bookmarks");
+
 archInstall(["gnome-extensions-cli"]);
 
 runCommand("gext", ["install", "advanced-alt-tab@G-dH.github.com"]);

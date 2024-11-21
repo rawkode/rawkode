@@ -15,3 +15,39 @@ enable-animations=true
 
 [org/gnome/settings-daemon/plugins/color]
 night-light-schedule-automatic=true
+
+[org/gnome/desktop/wm/preferences]
+focus-mode="mouse"
+button-layout="apppmenu:close"
+titlebar-font="MonaspiceAr Nerd Font"
+titlebar-uses-system-font=false
+audible-bell=false
+
+[org/gnome/shell/weather]
+automatic-location=true
+
+[org/gnome/login-screen]
+logo = "/home/rawkode/Code/src/github.com/RawkodeAcademy/RawkodeAcademy/branding/icon-blue.svg"
+
+[org/gnome/nautilus/preferences]
+default-folder-viewer='list-view'
+
+[org/gnome/datetime]
+automatic-timezone=true
+
+[org/gnome/desktop/appplications/terminal]
+exec="ghostty"
+
+[org.gnome.desktop.background]
+picture-uri='/home/rawkode/Code/src/github.com/RawkodeAcademy/RawkodeAcademy/wallpapers/dark-rawkode-logo.svg'
+
+[org/gnome/clocks]
+geolocation=true
+
+[org/gnome/desktop/peripherals/mouse]
+natural-scroll=true
+
+[org/gnome/desktop/interface]
+accent-color='pink'
+clock-format='24h'
+clock-show-date=false
