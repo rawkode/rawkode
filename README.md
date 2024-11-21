@@ -1,8 +1,3 @@
-# Rawkode's Modern Life
+# Hi, I'm David!
 
 Welcome! 👋🏻
-
-
-```
-sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko /tmp/disk-config.nix
-```

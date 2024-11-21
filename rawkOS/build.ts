@@ -74,8 +74,6 @@ await import("./desktop/wezterm/mod.ts");
 await import("./desktop/zed/mod.ts");
 await import("./desktop/zulip/mod.ts");
 
-await import("./rawkOS/mod.ts");
-
 await import("./system/amd/mod.ts");
 await import("./system/dns/mod.ts");
 await import("./system/fprintd/mod.ts");

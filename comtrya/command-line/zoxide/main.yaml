@@ -1,9 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - fzf
-      - zoxide
-
-  - action: file.link
-    from: init.fish
-    to: "{{ user.config_dir }}/fish/conf.d/zoxide.fish"

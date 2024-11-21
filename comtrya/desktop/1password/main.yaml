@@ -1,5 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - 1password-beta
-      - 1password-cli

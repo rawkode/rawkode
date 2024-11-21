@@ -1,7 +1,0 @@
-actions:
-  - action: package.install
-    name: direnv
-
-  - action: file.link
-    from: direnv.fish
-    to: "{{ user.config_dir }}/fish/conf.d/direnv.fish"

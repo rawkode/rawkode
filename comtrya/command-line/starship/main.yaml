@@ -1,8 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - starship
-
-  - action: file.link
-    from: init.fish
-    to: "{{ user.config_dir }}/fish/conf.d/starship.fish"

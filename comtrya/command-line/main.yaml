@@ -1,7 +1,0 @@
-actions:
-  - action: package.install
-    list:
-      - bat
-      - eza
-      - ripgrep
-      - tldr
