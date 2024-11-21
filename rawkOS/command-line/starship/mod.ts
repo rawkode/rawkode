@@ -6,3 +6,8 @@ ensureHomeSymlink(
 	`${import.meta.dirname}/starship.fish`,
 	".config/fish/conf.d/starship.fish",
 );
+
+ensureHomeSymlink(
+	`${import.meta.dirname}/config.toml`,
+	".config/starship.toml",
+);
