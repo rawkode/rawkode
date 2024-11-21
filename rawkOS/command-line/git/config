@@ -16,7 +16,7 @@ format = "x509"
 program = "gitsign"
 
 [commit]
-gpgSign = true
+gpgSign = false
 
 [alias]
 cane = "commit --amend --no-edit"
