@@ -14,6 +14,11 @@ output "DP-2" {
 	variable-refresh-rate
 }
 
+output "DP-4" {
+	scale 1.75
+	variable-refresh-rate
+}
+
 input {
 	touchpad {
 		tap
@@ -29,9 +34,11 @@ input {
 environment {
 	DISPLAY ":0"
 	QT_QPA_PLATFORM "wayland"
+	ELECTRON_OZONE_PLATFORM_HINT "auto"
 }
 
 spawn-at-startup "waybar"
+spawn-at-startup "mako"
 spawn-at-startup "xwayland-satellite"
 
 prefer-no-csd
