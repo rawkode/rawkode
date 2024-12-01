@@ -2,7 +2,8 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs = { url = "github:nixos/nixpkgs/nixos-24.11"; };
+    nixpkgs-unstable = { url = "github:nixos/nixpkgs/nixos-unstable"; };
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -17,10 +18,6 @@
       url = "github:nix-community/comma";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    cosmic = {
-      url = "github:lilyinstarlight/nixos-cosmic";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     dagger = {
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -30,7 +27,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     firefox.url = "github:nix-community/flake-firefox-nightly";
-    flatpaks.url = "github:gmodena/nix-flatpak/?ref=v0.4.1";
+    flatpaks.url = "github:gmodena/nix-flatpak";
     home-manager = {
       url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -79,7 +76,6 @@
       systems.modules.nixos = with inputs; [
         auto-cpufreq.nixosModules.default
         catppuccin.nixosModules.catppuccin
-        cosmic.nixosModules.default
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote

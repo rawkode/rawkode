@@ -16,43 +16,11 @@
   hardware.enableRedistributableFirmware = true;
   hardware.cpu.amd.updateMicrocode = true;
 
-  # boot.initrd.kernelModules = lib.mkBefore [ "amdgpu" ];
-  # boot.initrd.availableKernelModules = [ "amdgpu" ];
-  # boot.kernelModules = [ "amdgpu" ];
-  # services.xserver.videoDrivers = [ "modesetting" ];
-  # environment.sessionVariables.AMD_VULKAN_ICD = "RADV";
-  # services.xserver.deviceSection = ''
-  #   Option "VariableRefresh" "true"
-  # '';
-  # powerManagement.cpuFreqGovernor = "performance";
-
-  # environment.variables.VK_ICD_FILENAMES = "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json";
-
   hardware.keyboard.qmk.enable = true;
-  hardware.graphics.enable = true;
-
-  # systemd.services.lactd = {
-  #   description = "AMDGPU Control Daemon";
-  #   enable = true;
-  #   serviceConfig = {
-  #     ExecStart = "${pkgs.lact}/bin/lact daemon";
-  #   };
-  #   wantedBy = [ "multi-user.target" ];
-  # };
-
-  # systemd.tmpfiles.rules = [ "L+	   /opt/amdgpu	   -    -    -     -    ${pkgs.libdrm}" ];
-
-  # environment.systemPackages = with pkgs; [
-  #   clinfo
-  #   libva-utils
-  #   vdpauinfo
-  #   vulkan-tools
-  #   lact
-  #   virtualgl
-
-  #   rocmPackages.rocminfo
-  #   rocmPackages.rocm-smi
-  # ];
+  hardware.graphics = {
+    enable = true;
+    enable32Bit = true;
+  };
 
   system.stateVersion = "24.11";
 }

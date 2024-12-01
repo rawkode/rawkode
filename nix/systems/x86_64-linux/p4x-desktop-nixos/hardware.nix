@@ -17,6 +17,11 @@
   hardware.amdgpu.amdvlk.enable = false;
   hardware.amdgpu.opencl.enable = true;
 
+  boot.kernelParams = [
+    "video=DP-1:3840x2160@144"
+    "video=DP-2:3840x2160@144"
+  ];
+
   boot.initrd.availableKernelModules =
     [ "ahci" "nvme" "sd_mod" "thunderbolt" "usb_storage" "usbhid" "xhci_pci" ];
 
