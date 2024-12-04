@@ -35,13 +35,19 @@ sudo nixos-rebuild switch --fast --flake .#$(hostname)
 ### Flatpaks
 
 ```shell {name=install-flatpaks}
-flatpak install flathub dev.vencord.Vesktop
-flatpak install flathub com.feaneron.Boatswain
+flatpak install flatub org.zulip.Zulip
 flatpak install flathub com.slack.Slack
+flatpak install flathub com.discordapp.Discord
+
+flatpak install flathub com.feaneron.Boatswain
+flatpak install flathub com.rafaelmardojai.SharePreview
 flatpak install flathub com.spotify.Client
 flatpak install flathub com.usebottles.bottles
-flatpak install flathub io.github.nokse22.teleprompter
+flatpak install flathub es.danirod.Cartero
+flatpak install flathub io.github.pieterdd.RcloneShuttle
+flatpak install flathub net.mkiol.Jupii
 flatpak install flathub org.nickvision.tubeconverter
+flatpak install flathub org.gnome.Showtime
 ```
 
 ### Others
