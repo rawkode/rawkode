@@ -24,6 +24,6 @@ in {
       };
     };
 
-    environment.systemPackages = with pkgs; [ sbctl ];
+    environment.systemPackages = with pkgs; [ sbctl tpm2-tss ];
   };
 }

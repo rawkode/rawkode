@@ -1,4 +1,11 @@
-{ config, inputs, lib, modulesPath, ... }:
+{
+  config,
+  inputs,
+  lib,
+  modulesPath,
+  pkgs,
+  ...
+}:
 
 {
   imports = [
@@ -12,20 +19,32 @@
     ./disko.nix
   ];
 
-  # Propritary firmware causes problems with GTK
-  # https://gitlab.gnome.org/GNOME/gtk/-/issues/6890
-  hardware.amdgpu.amdvlk.enable = false;
-  hardware.amdgpu.opencl.enable = true;
+  boot.initrd.kernelModules = lib.mkBefore [ "amdgpu" ];
+  services.xserver.videoDrivers = [ "modesetting" ];
+  environment.sessionVariables.AMD_VULKAN_ICD = "RADV";
+
+  hardware.graphics = {
+    enable = true;
+    extraPackages = with pkgs; [
+      amdvlk
+    ];
+  };
 
   boot.kernelParams = [
     "video=DP-1:3840x2160@144"
     "video=DP-2:3840x2160@144"
   ];
 
-  boot.initrd.availableKernelModules =
-    [ "ahci" "nvme" "sd_mod" "thunderbolt" "usb_storage" "usbhid" "xhci_pci" ];
+  boot.initrd.availableKernelModules = [
+    "ahci"
+    "nvme"
+    "sd_mod"
+    "thunderbolt"
+    "usb_storage"
+    "usbhid"
+    "xhci_pci"
+  ];
 
   networking.useDHCP = lib.mkDefault true;
-  hardware.cpu.amd.updateMicrocode =
-    lib.mkDefault config.hardware.enableRedistributableFirmware;
+  hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }

@@ -18,6 +18,7 @@
       url = "github:nix-community/comma";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    cosmic.url = "github:lilyinstarlight/nixos-cosmic";
     dagger = {
       url = "github:dagger/nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -81,6 +82,7 @@
       systems.modules.nixos = with inputs; [
         auto-cpufreq.nixosModules.default
         catppuccin.nixosModules.catppuccin
+        cosmic.nixosModules.default
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote

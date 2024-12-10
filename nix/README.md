@@ -67,8 +67,8 @@ nix-prefetch-url --name displaylink-600.zip https://www.synaptics.com/sites/defa
 ### TPM2 SecureBoot
 
 ```shell {name=tpm-secure-boot}
-sbctl enroll-keys
-systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2 --tpm2-pcrs=7,11 --tpm2-with-pin=true
+sudo sbctl enroll-keys
+sudo systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2 --tpm2-pcrs=0,2,7 --tpm2-with-pin=true
 ```
 
 ### TPM2 SSH Key
