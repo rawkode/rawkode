@@ -1,5 +1,9 @@
-{ ... }:
+{ pkgs, ... }:
 {
+  home.packages = with pkgs; [
+    nixd
+  ];
+
   programs.fish.functions = {
     nixpkgs-hash-git = {
       description = "Get a nixpkgs hash for a Git revision";

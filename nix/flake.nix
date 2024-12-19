@@ -2,8 +2,12 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs = { url = "github:nixos/nixpkgs/nixos-24.11"; };
-    nixpkgs-unstable = { url = "github:nixos/nixpkgs/nixos-unstable"; };
+    nixpkgs = {
+      url = "github:nixos/nixpkgs/nixos-24.11";
+    };
+    nixpkgs-unstable = {
+      url = "github:nixos/nixpkgs/nixos-unstable";
+    };
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -51,9 +55,11 @@
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    zen-browser.url = "github:MarceColl/zen-browser-flake";
   };
 
-  outputs = inputs:
+  outputs =
+    inputs:
     let
       lib = inputs.snowfall-lib.mkLib {
         inherit inputs;
@@ -68,10 +74,15 @@
           };
         };
       };
-    in lib.mkFlake {
-      channels-config = { allowUnfree = true; };
+    in
+    lib.mkFlake {
+      channels-config = {
+        allowUnfree = true;
+      };
 
-      specialArgs = with inputs; { inherit nix-colors; };
+      specialArgs = with inputs; {
+        inherit nix-colors;
+      };
 
       homes.modules = with inputs; [
         catppuccin.homeManagerModules.catppuccin
@@ -86,11 +97,14 @@
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote
-        ({ ... }: {
-          nix.registry.nixpkgs.flake = nixpkgs;
-          nix.registry.rawkode.flake = self;
-          nix.registry.templates.flake = self;
-        })
+        (
+          { ... }:
+          {
+            nix.registry.nixpkgs.flake = nixpkgs;
+            nix.registry.rawkode.flake = self;
+            nix.registry.templates.flake = self;
+          }
+        )
       ];
     };
 }
