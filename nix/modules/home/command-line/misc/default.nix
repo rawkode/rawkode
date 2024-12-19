@@ -1,7 +1,6 @@
 { pkgs, ... }: {
-  home.packages = (with pkgs; [ eza ripgrep tldr unzip vim ]);
+  home.packages = (with pkgs; [ ripgrep tldr unzip vim ]);
 
-  programs.bat.enable = true;
   programs.fzf.enable = true;
   programs.skim.enable = true;
 

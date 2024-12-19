@@ -26,6 +26,7 @@
       bind \r magic-enter
       set -gx ZELLIJ_AUTO_ATTACH true
       set -gx ZELLIJ_AUTO_EXIT true
+      set -Ux EDITOR "code --wait"
     '';
 
     functions = {
