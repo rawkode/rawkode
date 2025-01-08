@@ -5,7 +5,6 @@
     "@std/ini": "jsr:@std/ini@^0.225.2",
     "@std/path": "jsr:@std/path@^1.0.8",
     "@types/graphlib": "npm:@types/graphlib@^2.1.12",
-    "graphlib": "npm:graphlib@^2.1.8",
-    "zx": "npm:zx@^8.2.2"
+    "graphlib": "npm:graphlib@^2.1.8"
   }
 }

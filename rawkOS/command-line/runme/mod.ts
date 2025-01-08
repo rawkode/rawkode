@@ -1,3 +1,3 @@
-import { brewInstall } from "../../utils/package/mod.ts";
+import { goInstall } from "../../utils/package/mod.ts";
 
-brewInstall(["runme"]);
+goInstall("github.com/stateful/runme@latest");

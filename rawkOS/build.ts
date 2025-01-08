@@ -32,13 +32,8 @@ while (!(await exists(`${home}/.1password/agent.sock`))) {
 // configured early.
 await import("./command-line/github/mod.ts");
 
-// While we don't use homebrew an awful lot,
-// it's a good idea to have it installed early.
-await import("./command-line/homebrew/mod.ts");
-
 // Essentials
 await import("./desktop/firefox/mod.ts");
-await import("./desktop/microsoft-edge/mod.ts");
 
 // Everything else
 await import("./command-line/atuin/mod.ts");

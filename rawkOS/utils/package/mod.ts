@@ -39,3 +39,14 @@ export const brewInstall = (packages: string[]) => {
 
   console.log(`Finished installing packages: ${packages.join(", ")}`);
 };
+
+export const goInstall = (packageName: string) => {
+	console.log(`Installing package: ${packageName}...`);
+
+	runCommand("go", [
+		"install",
+		packageName,
+	]);
+
+	console.log(`Finished installing package: ${packageName}`);
+}
