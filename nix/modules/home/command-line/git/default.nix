@@ -4,6 +4,7 @@ let
 in
 {
   imports = [
+    ./delta.nix
     ./fish.nix
     ./gitsign.nix
     ./jujutsu.nix
