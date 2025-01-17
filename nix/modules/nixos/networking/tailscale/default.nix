@@ -1,8 +1,14 @@
-{ config, lib, pkgs, ... }:
-let port = 41641;
-in {
-  networking.firewall.interfaces.${config.services.tailscale.interfaceName}.allowedTCPPorts =
-    [ 22 ];
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  port = 41641;
+in
+{
+  networking.firewall.interfaces.${config.services.tailscale.interfaceName}.allowedTCPPorts = [ 22 ];
   networking.firewall.checkReversePath = "loose";
 
   services.tailscale = {

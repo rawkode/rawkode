@@ -1,7 +1,13 @@
-{ lib, pkgs, ... }: {
-  fileSystems."/".options = [ "noatime" "nodiratime" ];
+{ lib, pkgs, ... }:
+{
+  fileSystems."/".options = [
+    "noatime"
+    "nodiratime"
+  ];
 
-  i18n = { defaultLocale = "en_GB.UTF-8"; };
+  i18n = {
+    defaultLocale = "en_GB.UTF-8";
+  };
 
   services = {
     fwupd.enable = true;

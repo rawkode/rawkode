@@ -1,4 +1,5 @@
-{ lib, pkgs, ... }: {
+{ lib, pkgs, ... }:
+{
   services.espanso.enable = true;
   systemd.user.services.espanso.serviceConfig.ExecStart =
     lib.mkForce "${pkgs.espanso-wayland}/bin/espanso worker";

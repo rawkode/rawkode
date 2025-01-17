@@ -1,4 +1,5 @@
-{ pkgs, ... }: {
+{ pkgs, ... }:
+{
   fonts = {
     enableDefaultPackages = false;
     enableGhostscriptFonts = true;
@@ -17,7 +18,11 @@
         sansSerif = [ "Nato Sans" ];
         serif = [ "Nato" ];
         monospace = [ "Monaspace Neon" ];
-        emoji = [ "EmojiOne Color" "Noto Color Emoji" "Noto Emoji" ];
+        emoji = [
+          "EmojiOne Color"
+          "Noto Color Emoji"
+          "Noto Emoji"
+        ];
       };
     };
 
@@ -27,7 +32,12 @@
       corefonts
       emojione
       monaspace
-      (nerdfonts.override { fonts = [ "Monaspace" "NerdFontsSymbolsOnly" ]; })
+      (nerdfonts.override {
+        fonts = [
+          "Monaspace"
+          "NerdFontsSymbolsOnly"
+        ];
+      })
       noto-fonts
       noto-fonts-emoji
     ];

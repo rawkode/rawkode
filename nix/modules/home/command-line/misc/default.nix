@@ -1,5 +1,14 @@
-{ pkgs, ... }: {
-  home.packages = (with pkgs; [ ripgrep tldr unzip vim ]);
+{ pkgs, ... }:
+{
+  home.packages = (
+    with pkgs;
+    [
+      ripgrep
+      tldr
+      unzip
+      vim
+    ]
+  );
 
   programs.fzf.enable = true;
   programs.skim.enable = true;

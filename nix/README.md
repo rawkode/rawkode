@@ -29,7 +29,7 @@ sudo nixos-enter --root /mnt --command "passwd rawkode"
 Applys the NixOS and home-manager configuration.
 
 ```sh {"name":"rebuild"}
-sudo nixos-rebuild switch --fast --flake .#$(hostname)
+nh os switch .
 ```
 
 ### Flatpaks
@@ -53,7 +53,7 @@ flatpak install flathub org.gnome.Showtime
 ### Others
 
 ```sh {"name":"home"}
-nix run home-manager -- switch --flake .#rawkode
+nh home switch .
 ```
 
 ## Post Installation

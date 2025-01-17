@@ -1,7 +1,11 @@
-{ lib, pkgs, ... }: {
+{ lib, pkgs, ... }:
+{
   hardware.pulseaudio.enable = lib.mkForce false;
 
-  environment.systemPackages = with pkgs; [ pavucontrol pulseaudioFull ];
+  environment.systemPackages = with pkgs; [
+    pavucontrol
+    pulseaudioFull
+  ];
 
   services.pipewire = {
     enable = true;

@@ -1,6 +1,5 @@
-# Devenv
-.devenv*
-devenv.local.nix
-
 # direnv
 .direnv
+
+# Nix
+result*

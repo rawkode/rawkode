@@ -1,4 +1,5 @@
-{ lib, pkgs, ... }: {
+{ lib, pkgs, ... }:
+{
   home.packages = with pkgs; [ gitsign ];
 
   programs.fish.interactiveShellInit = ''

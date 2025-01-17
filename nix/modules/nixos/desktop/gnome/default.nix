@@ -1,7 +1,9 @@
 { config, lib, ... }:
 with lib;
-let cfg = config.rawkOS.desktop.gnome;
-in {
+let
+  cfg = config.rawkOS.desktop.gnome;
+in
+{
   options.rawkOS.desktop.gnome = {
     enable = mkOption {
       type = types.bool;
@@ -16,6 +18,8 @@ in {
   };
 
   config = mkIf cfg.enable {
-    services = { xserver.desktopManager.gnome.enable = true; };
+    services = {
+      xserver.desktopManager.gnome.enable = true;
+    };
   };
 }

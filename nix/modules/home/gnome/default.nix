@@ -13,9 +13,12 @@ let
     type-format = "category";
     view-type = "list";
   };
-in {
+in
+{
   dconf.settings = {
-    "org/gnome/desktop/datetime" = { automatic-timezone = true; };
+    "org/gnome/desktop/datetime" = {
+      automatic-timezone = true;
+    };
 
     "org/gnome/desktop/interface" = {
       clock-show-date = false;
@@ -25,16 +28,22 @@ in {
       font-antialiasing = lib.gvariant.mkString "rgba";
     };
 
-    "org/gnome/desktop/peripherals/keyboard" = { numlock-state = true; };
+    "org/gnome/desktop/peripherals/keyboard" = {
+      numlock-state = true;
+    };
 
-    "org/gnome/desktop/peripherals/mouse" = { natural-scroll = true; };
+    "org/gnome/desktop/peripherals/mouse" = {
+      natural-scroll = true;
+    };
 
     "org/gnome/desktop/peripherals/touchpad" = {
       disable-while-typing = true;
       two-finger-scrolling-enabled = true;
     };
 
-    "org/gnome/desktop/privacy" = { report-technical-problems = false; };
+    "org/gnome/desktop/privacy" = {
+      report-technical-problems = false;
+    };
 
     "org/gnome/desktop/search-providers" = {
       disabled = [ "org.gnome.Boxes.desktop" ];
@@ -67,7 +76,9 @@ in {
       sort-type = "ascending";
     };
 
-    "org/gnome/file-roller/ui" = { sidebar-width = 512; };
+    "org/gnome/file-roller/ui" = {
+      sidebar-width = 512;
+    };
 
     "org/gnome/mutter" = {
       dynamic-workspaces = false;
@@ -102,7 +113,9 @@ in {
       welcome-dialog-last-shown-version = "42.0";
     };
 
-    "org/gnome/shell/app-switcher" = { current-workspace-only = true; };
+    "org/gnome/shell/app-switcher" = {
+      current-workspace-only = true;
+    };
 
     "org/gnome/shell/extensions/nightthemeswitcher/commands" = {
       enabled = true;
@@ -157,12 +170,15 @@ in {
     "org/gtk/settings/file-chooser" = file-chooser;
   };
 
-  home.packages = (with pkgs.gnomeExtensions; [
-    appindicator
-    gsconnect
-    night-theme-switcher
-    space-bar
-    systemd-manager
-    tailscale-qs
-  ]);
+  home.packages = (
+    with pkgs.gnomeExtensions;
+    [
+      appindicator
+      gsconnect
+      night-theme-switcher
+      space-bar
+      systemd-manager
+      tailscale-qs
+    ]
+  );
 }

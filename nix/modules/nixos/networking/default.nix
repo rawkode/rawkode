@@ -1,4 +1,5 @@
-{ ... }: {
+{ ... }:
+{
   services.resolved = {
     enable = true;
     # dnsovertls = "opportunistic";
@@ -10,6 +11,9 @@
       dns = "systemd-resolved";
     };
 
-    nameservers = [ "1.1.1.1" "1.0.0.1" ];
+    nameservers = [
+      "1.1.1.1"
+      "1.0.0.1"
+    ];
   };
 }

@@ -1,10 +1,15 @@
 { config, pkgs, ... }:
-let cfg = config.rawkOS.user;
-in {
-  environment.systemPackages = with pkgs; [ tpm2-pkcs11 tpm2-tools tpm2-tss ];
+let
+  cfg = config.rawkOS.user;
+in
+{
+  environment.systemPackages = with pkgs; [
+    tpm2-pkcs11
+    tpm2-tools
+    tpm2-tss
+  ];
 
-  programs.ssh.agentPKCS11Whitelist =
-    "${config.security.tpm2.pkcs11.package}/lib/libtpm_pkcs11.so";
+  programs.ssh.agentPKCS11Whitelist = "${config.security.tpm2.pkcs11.package}/lib/libtpm_pkcs11.so";
 
   security = {
     tpm2 = {
@@ -24,5 +29,7 @@ in {
     };
   };
 
-  users.users.${cfg.username} = { extraGroups = [ "tss" ]; };
+  users.users.${cfg.username} = {
+    extraGroups = [ "tss" ];
+  };
 }

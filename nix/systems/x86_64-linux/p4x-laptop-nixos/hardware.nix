@@ -1,4 +1,10 @@
-{ config, inputs, lib, modulesPath, ... }:
+{
+  config,
+  inputs,
+  lib,
+  modulesPath,
+  ...
+}:
 
 {
   imports = [
@@ -18,22 +24,28 @@
 
   services.tlp.enable = lib.mkForce false;
 
-  boot.initrd.availableKernelModules =
-    [ "nvme" "xhci_pci" "thunderbolt" "usb_storage" "sd_mod" ];
+  boot.initrd.availableKernelModules = [
+    "nvme"
+    "xhci_pci"
+    "thunderbolt"
+    "usb_storage"
+    "sd_mod"
+  ];
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
   boot.loader.efi.efiSysMountPoint = "/boot";
 
-  swapDevices = [{
-    device = "/var/lib/swapfile";
-    size = 96 * 1024;
-  }];
+  swapDevices = [
+    {
+      device = "/var/lib/swapfile";
+      size = 96 * 1024;
+    }
+  ];
 
   services.fprintd.enable = true;
 
   networking.useDHCP = lib.mkDefault true;
   networking.networkmanager.wifi.powersave = true;
-  hardware.cpu.amd.updateMicrocode =
-    lib.mkDefault config.hardware.enableRedistributableFirmware;
+  hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }

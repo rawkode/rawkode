@@ -7,7 +7,8 @@ let
     energize-b-scale=10.0
     energize-b-animation-time=500
   '';
-in {
+in
+{
   dconf.settings = {
     "org/gnome/shell" = {
       enabled-extensions = [ "burn-my-windows@schneegans.github.com" ];

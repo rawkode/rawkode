@@ -1,7 +1,14 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 with lib;
-let cfg = config.rawkOS.user;
-in {
+let
+  cfg = config.rawkOS.user;
+in
+{
   options.rawkOS.user = with lib.types; {
     username = mkOption {
       type = str;
@@ -31,7 +38,9 @@ in {
   };
 
   config = {
-    users.groups.${cfg.username} = { gid = 1000; };
+    users.groups.${cfg.username} = {
+      gid = 1000;
+    };
 
     users.users.${cfg.username} = {
       isNormalUser = true;

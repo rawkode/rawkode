@@ -1,6 +1,8 @@
 { lib, pkgs, ... }:
-let Minutes = x: x * 60;
-in {
+let
+  Minutes = x: x * 60;
+in
+{
   imports = [ ./hardware.nix ];
 
   rawkOS = {

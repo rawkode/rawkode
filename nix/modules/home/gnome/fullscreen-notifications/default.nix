@@ -1,4 +1,5 @@
 { lib, pkgs, ... }:
-with lib; {
+with lib;
+{
   home.packages = with pkgs.gnomeExtensions; [ fullscreen-notifications ];
 }

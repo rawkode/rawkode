@@ -1,10 +1,10 @@
 { lib, pkgs, ... }:
-with lib; {
+with lib;
+{
 
   dconf.settings = {
     "org/gnome/shell" = {
-      enabled-extensions =
-        [ "status-area-horizontal-spacing@mathematical.coffee.gmail.com" ];
+      enabled-extensions = [ "status-area-horizontal-spacing@mathematical.coffee.gmail.com" ];
     };
 
     "org/gnome/shell/extensions/status-area-horizontal-spacing" = {

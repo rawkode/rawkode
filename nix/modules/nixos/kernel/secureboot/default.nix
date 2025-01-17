@@ -1,7 +1,14 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 with lib;
-let cfg = config.rawkOS.secureboot;
-in {
+let
+  cfg = config.rawkOS.secureboot;
+in
+{
   options.rawkOS.secureboot = {
     enable = mkOption {
       type = types.bool;
@@ -24,6 +31,9 @@ in {
       };
     };
 
-    environment.systemPackages = with pkgs; [ sbctl tpm2-tss ];
+    environment.systemPackages = with pkgs; [
+      sbctl
+      tpm2-tss
+    ];
   };
 }

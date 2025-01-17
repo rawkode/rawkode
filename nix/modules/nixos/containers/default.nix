@@ -1,6 +1,9 @@
-{ pkgs, ... }: {
+{ pkgs, ... }:
+{
   virtualisation = {
-    containers = { enable = true; };
+    containers = {
+      enable = true;
+    };
 
     # I keep trying podman, but
     # there are too many problems.
@@ -8,5 +11,8 @@
     podman.enable = true;
   };
 
-  environment.systemPackages = with pkgs; [ dive docker-compose ];
+  environment.systemPackages = with pkgs; [
+    dive
+    docker-compose
+  ];
 }

@@ -1,7 +1,10 @@
 { lib, pkgs, ... }:
-with lib; {
+with lib;
+{
   dconf.settings = {
-    "org/gnome/shell" = { enabled-extensions = [ "caffeine@patapon.info" ]; };
+    "org/gnome/shell" = {
+      enabled-extensions = [ "caffeine@patapon.info" ];
+    };
 
     "org/gnome/shell/extensions/caffeine" = {
       countdown-timer = 0;

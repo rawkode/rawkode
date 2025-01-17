@@ -1,5 +1,6 @@
 { lib, pkgs, ... }:
-with lib; {
+with lib;
+{
 
   dconf.settings = {
     "org/gnome/shell" = {
