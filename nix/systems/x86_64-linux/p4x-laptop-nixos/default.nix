@@ -6,6 +6,11 @@ in
   imports = [ ./hardware.nix ];
 
   rawkOS = {
+    hardware = {
+      cpu = "amd";
+      gpu = "amd";
+    };
+
     desktop = {
       gnome.enable = true;
       wayland.force = true;
