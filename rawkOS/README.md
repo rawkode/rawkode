@@ -2,7 +2,7 @@
 shell: bash
 ---
 
-# rawkOS: Rawkode's Silverblue Configuration
+# rawkOS: Rawkode's Linux Automation
 
 ## Install Deno
 
