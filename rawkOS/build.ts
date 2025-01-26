@@ -39,6 +39,7 @@ await import("./desktop/firefox/mod.ts");
 await import("./command-line/atuin/mod.ts");
 await import("./command-line/direnv/mod.ts");
 await import("./command-line/docker/mod.ts");
+await import("./command-line/espanso/mod.ts");
 await import("./command-line/fish/mod.ts");
 await import("./command-line/git/mod.ts");
 await import("./command-line/google-cloud/mod.ts");
@@ -56,6 +57,7 @@ await import("./command-line/zoxide/mod.ts");
 
 await import("./development/deno/mod.ts");
 await import("./development/go/mod.ts");
+await import("./development/python/mod.ts");
 await import("./development/rust/mod.ts");
 
 await import("./desktop/dconf-editor/mod.ts");
@@ -71,4 +73,5 @@ await import("./desktop/zulip/mod.ts");
 
 await import("./system/amd/mod.ts");
 await import("./system/dns/mod.ts");
+await import("./system/fonts/mod.ts");
 await import("./system/fprintd/mod.ts");

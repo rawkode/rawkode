@@ -1,6 +1,14 @@
 import { whichSync } from "@david/which";
 
-export const runCommand = (command: string, args: string[]) => {
+interface Options {
+	allowFailure: boolean;
+}
+
+const DefaultOptions: Options = {
+	allowFailure: false,
+}
+
+export const runCommand = (command: string, args: string[], options: Options = DefaultOptions) => {
   const commandPath = command.startsWith("/") ? command : whichSync(command);
 
   if (!commandPath) {
@@ -14,6 +22,12 @@ export const runCommand = (command: string, args: string[]) => {
     stderr: "inherit",
     stdout: "inherit",
   }).outputSync();
+
+	if (options.allowFailure) {
+		// Doesn't really matter what the exit code is
+		// unless we decide to print some warnings later
+		return;
+	}
 
   if (result.code !== 0) {
     console.error(`Error running command: ${command} ${args.join(" ")}`);

@@ -2,9 +2,8 @@
   "version": "4",
   "specifiers": {
     "jsr:@david/which@~0.4.1": "0.4.1",
-    "jsr:@std/fs@^1.0.5": "1.0.5",
-    "jsr:@std/ini@~0.225.2": "0.225.2",
-    "jsr:@std/path@^1.0.7": "1.0.8",
+    "jsr:@std/fs@^1.0.5": "1.0.10",
+    "jsr:@std/ini@^1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@std/path@^1.0.8": "1.0.8",
     "npm:@types/graphlib@^2.1.12": "2.1.12",
     "npm:graphlib@^2.1.8": "2.1.8",
@@ -14,14 +13,14 @@
     "@david/which@0.4.1": {
       "integrity": "896a682b111f92ab866cc70c5b4afab2f5899d2f9bde31ed00203b9c250f225e"
     },
-    "@std/fs@1.0.5": {
-      "integrity": "41806ad6823d0b5f275f9849a2640d87e4ef67c51ee1b8fb02426f55e02fd44e",
+    "@std/fs@1.0.10": {
+      "integrity": "bf041f9d7a0a460817f0421be8946d0e06011b3433e6c83a215628de5e3c7c2c",
       "dependencies": [
-        "jsr:@std/path@^1.0.7"
+        "jsr:@std/path"
       ]
     },
-    "@std/ini@0.225.2": {
-      "integrity": "c70f6560dacb7e333c2f868aa09aaa4117e6618cc66c60d0b4ca716c135c8e67"
+    "@std/ini@1.0.0-rc.5": {
+      "integrity": "d3cb36ceaed576f8eb1954ddb4a6c9ec82520d55745eacbcadc4ae24a09eec3e"
     },
     "@std/path@1.0.8": {
       "integrity": "548fa456bb6a04d3c1a1e7477986b6cffbce95102d0bb447c67c4ee70e0364be"
@@ -44,8 +43,8 @@
         "@types/node@22.5.4"
       ]
     },
-    "@types/node@22.10.7": {
-      "integrity": "sha512-V09KvXxFiutGp6B7XkpaDXlNadZxrzajcY50EuoLIpQ6WWYCSvf19lVIazzfIzQvhUN2HjX12spLojTnhuKlGg==",
+    "@types/node@22.10.10": {
+      "integrity": "sha512-X47y/mPNzxviAGY5TcYPtYL8JsY3kAq2n8fMmKoRCxq/c4v4pyGNCzM2R6+M5/umG4ZfHuT+sgqDYqWc9rJ6ww==",
       "dependencies": [
         "undici-types@6.20.0"
       ]
@@ -75,7 +74,7 @@
       "integrity": "sha512-L8mY3yfJwo3a8ZDD6f9jZzAcRWJZYcV8GauZmBxLB/aSTwaMzMIEVpPp2Kyx+7yF0gdvuxKnMxAZRft9UCawiw==",
       "dependencies": [
         "@types/fs-extra",
-        "@types/node@22.10.7"
+        "@types/node@22.10.10"
       ]
     }
   },
@@ -83,7 +82,7 @@
     "dependencies": [
       "jsr:@david/which@~0.4.1",
       "jsr:@std/fs@^1.0.5",
-      "jsr:@std/ini@~0.225.2",
+      "jsr:@std/ini@^1.0.0-rc.5",
       "jsr:@std/path@^1.0.8",
       "npm:@types/graphlib@^2.1.12",
       "npm:graphlib@^2.1.8",
