@@ -35,19 +35,20 @@ nh os switch .
 ### Flatpaks
 
 ```shell {name=install-flatpaks}
-flatpak install flatub org.zulip.Zulip
-flatpak install flathub com.slack.Slack
-flatpak install flathub com.discordapp.Discord
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-flatpak install flathub com.feaneron.Boatswain
-flatpak install flathub com.rafaelmardojai.SharePreview
-flatpak install flathub com.spotify.Client
-flatpak install flathub com.usebottles.bottles
-flatpak install flathub es.danirod.Cartero
-flatpak install flathub io.github.pieterdd.RcloneShuttle
-flatpak install flathub net.mkiol.Jupii
-flatpak install flathub org.nickvision.tubeconverter
-flatpak install flathub org.gnome.Showtime
+flatpak install --system --or-update --assumeyes flathub org.zulip.Zulip
+flatpak install --system --or-update --assumeyes flathub com.slack.Slack
+flatpak install --system --or-update --assumeyes flathub com.discordapp.Discord
+flatpak install --system --or-update --assumeyes flathub com.feaneron.Boatswain
+flatpak install --system --or-update --assumeyes flathub com.rafaelmardojai.SharePreview
+flatpak install --system --or-update --assumeyes flathub com.spotify.Client
+flatpak install --system --or-update --assumeyes flathub com.usebottles.bottles
+flatpak install --system --or-update --assumeyes flathub es.danirod.Cartero
+flatpak install --system --or-update --assumeyes flathub io.github.pieterdd.RcloneShuttle
+flatpak install --system --or-update --assumeyes flathub net.mkiol.Jupii
+flatpak install --system --or-update --assumeyes flathub org.nickvision.tubeconverter
+flatpak install --system --or-update --assumeyes flathub org.gnome.Showtime
 ```
 
 ### Others

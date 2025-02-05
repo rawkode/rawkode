@@ -15,7 +15,26 @@ let
   };
 in
 {
+  home.pointerCursor = {
+    gtk.enable = true;
+    package = pkgs.bibata-cursors;
+    name = "Bibata-Modern-Ice";
+    size = 24;
+  };
+
   dconf.settings = {
+    "org/gnome/desktop/background" = {
+      picture-uri = "${pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/RawkodeAcademy/RawkodeAcademy/refs/heads/main/wallpapers/dark-rawkode-logo.svg";
+        sha256 = "1l6778s6n24mnfx3idsyq1v7qzqaixpd458y390i1kx4a6lvany9";
+      }}";
+      picture-uri-dark = "${pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/RawkodeAcademy/RawkodeAcademy/refs/heads/main/wallpapers/dark-rawkode-logo.svg";
+        sha256 = "1l6778s6n24mnfx3idsyq1v7qzqaixpd458y390i1kx4a6lvany9";
+      }}";
+      picture-options = "zoom";
+    };
+
     "org/gnome/desktop/datetime" = {
       automatic-timezone = true;
     };
