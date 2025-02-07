@@ -2,9 +2,7 @@
 {
   home.packages = with pkgs; [ gitsign ];
 
-  programs.fish.interactiveShellInit = ''
-    set -x GITSIGN_CREDENTIAL_CACHE {$HOME}/.cache/sigstore/gitsign/cache.sock
-  '';
+  programs.fish.interactiveShellInit = lib.rawkOS.fileAsSeparatedString ./gitsign-credential-cache.fish;
 
   systemd.user.services.gitsign-credential-cache = {
     Install.WantedBy = [ "default.target" ];

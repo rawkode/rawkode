@@ -1,8 +1,6 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
-  home.file.".bashrc" = {
-    source = ./auto-fish.sh;
-  };
+  home.file.".bashrc".source = ./auto-fish.sh;
 
   programs.fish = {
     enable = true;
@@ -23,43 +21,17 @@
       ghb = "cd ~/Code/src/github.com";
     };
 
-    interactiveShellInit = ''
-      set fish_greeting ""
-      bind \r magic-enter
-
-      eval (zellij setup --generate-auto-start fish | string collect)
-
-      set -Ux EDITOR "code --wait"
-    '';
+    interactiveShellInit = lib.rawkOS.fileAsSeparatedString ./interactiveInit.fish;
 
     functions = {
       magic-enter = {
         description = "Magic Enter";
-        body = ''
-          set -l cmd (commandline)
-          if test -z "$cmd"
-            commandline -r (magic-enter-command)
-            commandline -f suppress-autosuggestion
-          end
-          commandline -f execute
-        '';
+        body = lib.rawkOS.fileAsSeparatedString ./magic-enter.fish;
       };
 
       magic-enter-command = {
         description = "Magic Enter AutoCommands";
-        body = ''
-          set -l cmd ls
-          set -l is_git_repository (fish -c "git rev-parse --is-inside-work-tree >&2" 2>| grep true)
-
-          if test -n "$is_git_repository"
-            set -l repo_has_changes (git status -s --ignore-submodules=dirty)
-            if test -n "$repo_has_changes"
-              set cmd git status
-            end
-          end
-
-          echo $cmd
-        '';
+        body = lib.rawkOS.fileAsSeparatedString ./magic-enter-command.fish;
       };
     };
   };

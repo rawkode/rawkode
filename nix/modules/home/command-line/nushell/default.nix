@@ -22,7 +22,5 @@
     '';
   };
 
-  xdg.configFile."nushell/auto-ls.nu" = {
-    source = ./auto-ls.nu;
-  };
+  xdg.configFile."nushell/auto-ls.nu".source = ./auto-ls.nu;
 }

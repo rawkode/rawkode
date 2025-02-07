@@ -1,0 +1,1 @@
+runme completion fish | source
