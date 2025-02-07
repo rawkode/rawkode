@@ -1,6 +1,11 @@
-{ lib, ... }:
+{ inputs, lib, ... }:
 {
-  imports = [ ./hardware.nix ];
+  imports = [
+    inputs.nixos-facter-modules.nixosModules.facter
+    { config.facter.reportPath = ./facter.json; }
+
+    ./disko.nix
+  ];
 
   rawkOS = {
     hardware = {
