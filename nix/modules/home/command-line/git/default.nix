@@ -29,19 +29,23 @@ in
     };
 
     extraConfig = {
-      push.autoSetupRemote = true;
       init.defaultBranch = "main";
-
-      core = {
-        editor = "code --wait";
-      };
 
       advice = {
         statusHints = false;
       };
 
+      core = {
+        editor = "code --wait";
+      };
+
+      column = {
+        ui = "auto";
+      };
+
       branch = {
         autosetuprebase = "always";
+        sort = "committerdate";
       };
 
       color = {
@@ -52,10 +56,15 @@ in
         ui = "true";
       };
 
-      commit.template = "~/.config/git/templates/commit.txt";
+      commit = {
+        template = "~/.config/git/templates/commit.txt";
+        verbose = true;
+      };
 
       diff = {
-        algorithm = "minimal";
+        algorithm = "histogram";
+        colorMoved = "plain";
+        mnemonicPrefix = true;
         renames = "copies";
         tool = "code";
       };
@@ -64,8 +73,18 @@ in
         cmd = "code --wait --diff $LOCAL $REMOTE";
       };
 
+      fetch = {
+        all = true;
+        prune = true;
+        pruneTags = true;
+      };
+
       log = {
         date = "relative";
+      };
+
+      merge = {
+        conflictStyle = "zdiff3";
       };
 
       pretty = {
@@ -79,18 +98,27 @@ in
 
       push = {
         default = "current";
+        autoSetupRemote = true;
+        followTags = true;
       };
 
       rebase = {
-        autostash = true;
+        autoSquash = true;
+        autoStash = true;
+        updateRefs = true;
       };
 
       rerere = {
         enabled = true;
+        autoupdate = true;
       };
 
       stash = {
         showPatch = true;
+      };
+
+      tag = {
+        sort = "version:refname";
       };
     };
 
