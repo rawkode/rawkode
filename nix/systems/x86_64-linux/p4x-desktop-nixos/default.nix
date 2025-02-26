@@ -1,8 +1,18 @@
-{ inputs, lib, ... }:
+{
+  inputs,
+  lib,
+  pkgs,
+  ...
+}:
 {
   imports = [
     inputs.nixos-facter-modules.nixosModules.facter
     { config.facter.reportPath = ./facter.json; }
+
+    inputs.nixos-hardware.nixosModules.common-pc-ssd
+    inputs.nixos-hardware.nixosModules.common-cpu-amd
+    inputs.nixos-hardware.nixosModules.common-gpu-amd
+    inputs.nixos-hardware.nixosModules.common-cpu-amd-pstate
 
     ./disko.nix
   ];
@@ -21,6 +31,11 @@
     displayLink.enable = true;
   };
 
+  boot.kernelParams = [
+    "video=DP-1:2160@144"
+    "video=DP-2:3840x2160@144"
+  ];
+
   systemd.services.NetworkManager-wait-online.enable = lib.mkForce false;
   systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
 
@@ -28,10 +43,6 @@
   hardware.cpu.amd.updateMicrocode = true;
 
   hardware.keyboard.qmk.enable = true;
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true;
-  };
 
   system.stateVersion = "24.11";
 }
