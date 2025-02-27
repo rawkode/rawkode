@@ -1,5 +1,5 @@
-{ ... }:
+{ channels, ... }:
 
 final: prev: {
-#   inherit (channels.nixpkgs-unstable) claude-code;
+  inherit (channels.nixpkgs-unstable) claude-code;
 }
