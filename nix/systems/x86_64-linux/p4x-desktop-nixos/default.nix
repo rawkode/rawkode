@@ -24,7 +24,6 @@
     };
 
     desktop = {
-      gnome.enable = true;
       wayland.force = true;
     };
     secureboot.enable = true;

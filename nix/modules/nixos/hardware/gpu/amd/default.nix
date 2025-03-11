@@ -15,15 +15,13 @@ in
       enable32Bit = true;
     };
     hardware.amdgpu.opencl.enable = true;
-    hardware.graphics.extraPackages = with pkgs; [
-      mesa.opencl
-      rocmPackages.clr
-      rocmPackages.clr.icd
-    ];
 
-    hardware.opengl = {
+    hardware.graphics = {
       extraPackages = with pkgs; [
         amdvlk
+        mesa.opencl
+        rocmPackages.clr
+        rocmPackages.clr.icd
       ];
       extraPackages32 = with pkgs; [
         driversi686Linux.amdvlk
