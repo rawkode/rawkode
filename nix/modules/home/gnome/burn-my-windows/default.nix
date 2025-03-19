@@ -3,9 +3,10 @@ with lib;
 let
   burnMyWindowsProfile = pkgs.writeText "burn-my-windows.conf" ''
     [burn-my-windows-profile]
-    energize-b-enable-effect=true
-    energize-b-scale=10.0
-    energize-b-animation-time=500
+    profile-window-type=1
+    profile-animation-type=2
+    fire-enable-effect=false
+    wisps-enable-effect=true
   '';
 in
 {

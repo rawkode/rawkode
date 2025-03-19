@@ -15,7 +15,27 @@
 
       desktopManager.gnome.enable = lib.mkDefault true;
     };
+
+    # Disable file search, never used it once
+    # and it consumes more resources than I'd like
+    gnome = {
+      localsearch.enable = lib.mkForce false;
+      tinysparql.enable = lib.mkForce false;
+    };
   };
+
+  qt = {
+    enable = true;
+    platformTheme = "gnome";
+    style = "adwaita-dark";
+  };
+
+  environment.systemPackages = with pkgs; [
+    cheese
+    dconf-editor
+    gnome-extension-manager
+    nautilus-open-any-terminal
+  ];
 
   environment.gnome.excludePackages = with pkgs; [
     baobab
