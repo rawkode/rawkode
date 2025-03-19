@@ -16,10 +16,25 @@ let
 in
 {
   home.pointerCursor = {
-    gtk.enable = true;
-    package = pkgs.bibata-cursors;
-    name = "Bibata-Modern-Ice";
+    package = pkgs.catppuccin-cursors.mochaTeal;
+    name = "catppuccin-mocha-teal-cursors";
     size = 24;
+    x11 = {
+      enable = true;
+      defaultCursor = "crosshair";
+    };
+    gtk.enable = true;
+  };
+
+  gtk = {
+    enable = true;
+    iconTheme = {
+      name = "Papirus-Dark";
+      package = pkgs.catppuccin-papirus-folders.override {
+        accent = "teal";
+        flavor = "mocha";
+      };
+    };
   };
 
   dconf.settings = {
@@ -40,6 +55,7 @@ in
     };
 
     "org/gnome/desktop/interface" = {
+      accent-color = "teal";
       clock-show-date = false;
       enable-animations = true;
       enable-hot-corners = lib.gvariant.mkBoolean false;
@@ -189,15 +205,12 @@ in
     "org/gtk/settings/file-chooser" = file-chooser;
   };
 
-  home.packages = (
-    with pkgs.gnomeExtensions;
-    [
-      appindicator
-      gsconnect
-      night-theme-switcher
-      space-bar
-      systemd-manager
-      tailscale-qs
-    ]
-  );
+  home.packages = with pkgs.gnomeExtensions; [
+    appindicator
+    gsconnect
+    night-theme-switcher
+    space-bar
+    systemd-manager
+    tailscale-qs
+  ];
 }
