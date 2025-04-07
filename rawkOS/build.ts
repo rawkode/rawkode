@@ -35,6 +35,9 @@ await import("./command-line/github/mod.ts");
 // Essentials
 await import("./desktop/firefox/mod.ts");
 
+// Other packages have Go as a dependency, notably runme
+await import("./development/go/mod.ts");
+
 // Everything else
 await import("./command-line/atuin/mod.ts");
 await import("./command-line/direnv/mod.ts");
@@ -56,7 +59,6 @@ await import("./command-line/zellij/mod.ts");
 await import("./command-line/zoxide/mod.ts");
 
 await import("./development/deno/mod.ts");
-await import("./development/go/mod.ts");
 await import("./development/python/mod.ts");
 await import("./development/rust/mod.ts");
 
