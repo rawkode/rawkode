@@ -1,11 +1,4 @@
 {
   "nix.enableLanguageServer": true,
-  "nix.serverPath": "nixd",
-  "nix.serverSettings": {
-    "nixd": {
-      "formatting": {
-        "command": ["nixfmt"],
-      },
-    },
-  },
+  "nix.serverPath": "nixd"
 }

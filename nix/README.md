@@ -4,7 +4,7 @@ shell: bash
 
 # rawkOS: Rawkode's Operating System
 
-## Installation & Maintenance
+## Installation
 
 ### NixOS
 
@@ -24,7 +24,9 @@ sudo nixos-install --no-root-passwd --root /mnt --flake .#${DEVICE}
 sudo nixos-enter --root /mnt --command "passwd rawkode"
 ```
 
-#### Update
+## Maintenance
+
+### Update
 
 Applys the NixOS and home-manager configuration.
 
@@ -51,18 +53,10 @@ flatpak install --system --or-update --assumeyes flathub org.nickvision.tubeconv
 flatpak install --system --or-update --assumeyes flathub org.gnome.Showtime
 ```
 
-### Others
+### Home Manager
 
 ```sh {"name":"home"}
 nh home switch .
-```
-
-## Post Installation
-
-### DisplayLink
-
-```shell {name=displaylink-prefetch}
-nix-prefetch-url --name displaylink-600.zip https://www.synaptics.com/sites/default/files/exe_files/2024-05/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.0-EXE.zip
 ```
 
 ### TPM2 SecureBoot

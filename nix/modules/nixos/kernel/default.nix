@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 {
   boot = {
     consoleLogLevel = 0;
@@ -10,6 +10,11 @@
     initrd = {
       systemd.enable = true;
       supportedFilesystems = [ "btrfs" ];
+    };
+
+    bootspec = {
+      enable = true;
+      enableValidation = true;
     };
 
     loader = {
@@ -26,6 +31,11 @@
     plymouth.enable = true;
     tmp.cleanOnBoot = true;
   };
+
+	networking.useNetworkd = true;
+	systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
+
+	nix.channel.enable = false;
 
   console.useXkbConfig = true;
 }
