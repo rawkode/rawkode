@@ -3,6 +3,12 @@ let
   cfg = config.rawkOS.user;
 in
 {
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    backupFileExtension = "backup";
+  };
+
   environment.systemPackages = with pkgs; [
     nix-forecast
     nixd
@@ -14,8 +20,6 @@ in
     clean.enable = true;
     clean.extraArgs = "--keep-since 7d --keep 3";
   };
-
-  home-manager.backupFileExtension = ".bak";
 
   nix = {
     optimise.automatic = true;
