@@ -27,7 +27,6 @@
       wayland.force = true;
     };
     secureboot.enable = true;
-    displayLink.enable = true;
   };
 
   boot.kernelParams = [

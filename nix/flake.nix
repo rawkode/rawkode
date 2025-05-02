@@ -76,7 +76,7 @@
       };
 
       homes.modules = with inputs; [
-        catppuccin.homeManagerModules.catppuccin
+        catppuccin.homeModules.catppuccin
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.hmModules.nix-index
       ];
