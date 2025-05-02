@@ -10,37 +10,55 @@ let
 in
 {
   config = mkIf (cfg.gpu == "amd") {
-    boot = {
-      initrd.kernelModules = [ "amdgpu" ];
-      kernelModules = [ "amdgpu" ];
+    boot.initrd.kernelModules = [ "amdgpu" ];
+
+    services.xserver.videoDrivers = lib.mkDefault [
+      "modesetting"
+      "amdgpu"
+    ];
+
+    hardware = {
+      amdgpu = {
+        amdvlk = {
+          enable = true;
+          support32Bit = {
+            enable = true;
+          };
+          supportExperimental.enable = true;
+        };
+        opencl.enable = true;
+      };
+
+      graphics = {
+        graphics = {
+          extraPackages = with pkgs; [
+            # mesa
+            mesa
+
+            # vulkan
+            vulkan-tools
+            vulkan-loader
+            vulkan-validation-layers
+            vulkan-extension-layer
+          ];
+        };
+      };
     };
-    services.xserver.videoDrivers = [ "amdgpu" ];
 
-    hardware.graphics = {
-      enable = true;
-      enable32Bit = true;
+    systemd.tmpfiles.rules = [
+      "L+    /opt/rocm/hip   -    -    -     -    ${pkgs.rocmPackages.clr}"
+    ];
+
+    environment = {
+      systemPackages = with pkgs; [ lact ];
+      variables = {
+        # VAAPI and VDPAU config for accelerated video.
+        # See https://wiki.archlinux.org/index.php/Hardware_video_acceleration
+        "VDPAU_DRIVER" = "radeonsi";
+        "LIBVA_DRIVER_NAME" = "radeonsi";
+      };
     };
 
-    # hardware.amdgpu.amdvlk.enable = true;
-    # hardware.amdgpu.opencl.enable = true;
-
-    # hardware.graphics = {
-    #   extraPackages = with pkgs; [
-    #     amdvlk
-    #     mesa.opencl
-    #     rocmPackages.clr
-    #     rocmPackages.clr.icd
-    #   ];
-    #   extraPackages32 = with pkgs; [
-    #     driversi686Linux.amdvlk
-    #   ];
-    # };
-
-    # systemd.tmpfiles.rules = [
-    #   "L+    /opt/rocm/hip   -    -    -     -    ${pkgs.rocmPackages.clr}"
-    # ];
-
-    environment.systemPackages = with pkgs; [ lact ];
     systemd.packages = with pkgs; [ lact ];
     systemd.services.lactd.wantedBy = [ "multi-user.target" ];
 

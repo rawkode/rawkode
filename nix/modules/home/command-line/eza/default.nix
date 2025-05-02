@@ -5,10 +5,21 @@
   ];
 
   programs = {
-    fish = {
-      shellAliases = {
-        ls = "eza -al --icons -m --no-user --time-style relative --git";
-      };
-    };
+		eza = {
+			enable = true;
+			enableFishIntegration = true;
+
+			colors = "always";
+			git = true;
+			icons = "always";
+
+			extraOptions = [
+				"--time-style"
+				"relative"
+				"--git-ignore"
+				"--group-directories-first"
+				"--no-quotes"
+			];
+		};
   };
 }
