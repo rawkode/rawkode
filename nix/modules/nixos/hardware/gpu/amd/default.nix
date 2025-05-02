@@ -30,18 +30,16 @@ in
       };
 
       graphics = {
-        graphics = {
-          extraPackages = with pkgs; [
-            # mesa
-            mesa
+        extraPackages = with pkgs; [
+          # mesa
+          mesa
 
-            # vulkan
-            vulkan-tools
-            vulkan-loader
-            vulkan-validation-layers
-            vulkan-extension-layer
-          ];
-        };
+          # vulkan
+          vulkan-tools
+          vulkan-loader
+          vulkan-validation-layers
+          vulkan-extension-layer
+        ];
       };
     };
 
