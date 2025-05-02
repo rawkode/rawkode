@@ -15,6 +15,8 @@ in
     clean.extraArgs = "--keep-since 7d --keep 3";
   };
 
+  home-manager.backupFileExtension = ".bak";
+
   nix = {
     optimise.automatic = true;
 

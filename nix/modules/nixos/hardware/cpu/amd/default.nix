@@ -11,8 +11,6 @@ in
 {
   config = mkIf (cfg.cpu == "amd") {
     boot = {
-      extraModulePackages = [ config.boot.kernelPackages.zenpower ];
-
       kernelModules = [
         "kvm-amd" # amd virtualization
         "amd-pstate" # load pstate module in case the device has a newer gpu
