@@ -1,7 +1,7 @@
-{ pkgs, ... }:
+{ inputs, system, ... }:
 {
-  home.packages = with pkgs; [
-    wezterm
+  home.packages = [
+    inputs.wezterm.packages.${system}.default
   ];
 
   xdg.configFile."wezterm" = {
