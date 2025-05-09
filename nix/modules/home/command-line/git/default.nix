@@ -1,3 +1,5 @@
+{ pkgs, ... }:
+
 let
   name = "David Flanagan";
   email = "david@rawkode.dev";
@@ -8,6 +10,10 @@ in
     ./fish.nix
     ./gitsign.nix
     ./jujutsu.nix
+  ];
+
+  home.packages = with pkgs; [
+    git-credential-oauth
   ];
 
   programs.git = {
@@ -30,6 +36,11 @@ in
 
     extraConfig = {
       init.defaultBranch = "main";
+
+      credential.helper = [
+        "cache --timeout 21600"
+        "${pkgs.git-credential-oauth}/bin/git-credential-oauth"
+      ];
 
       advice = {
         statusHints = false;
