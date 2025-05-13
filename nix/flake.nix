@@ -47,7 +47,7 @@
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    wezterm.url = "github:wez/wezterm/main?dir=nix";
+    wezterm.url = "github:wez/wezterm/bc3dde9e75b7f656f32a996378ec6048df2bfda4?dir=nix";
   };
 
   outputs =

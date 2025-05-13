@@ -1,4 +1,8 @@
-{ config, pkgs, ... }:
+{
+  config,
+  pkgs,
+  ...
+}:
 let
   cfg = config.rawkOS.user;
 in
@@ -7,6 +11,8 @@ in
     useGlobalPkgs = true;
     useUserPackages = true;
     backupFileExtension = "backup";
+
+    extraSpecialArgs = { inherit cfg; };
   };
 
   environment.systemPackages = with pkgs; [
