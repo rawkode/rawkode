@@ -1,25 +1,25 @@
 import { ensureDirSync, ensureSymlinkSync, removeSync } from "fs-extra";
 
 interface Options {
-  force?: boolean;
+	force?: boolean;
 }
 
 const DefaultOptions: Options = {
-  force: false,
+	force: false,
 };
 
 const home = import.meta.env.HOME;
 
 export const ensureHomeSymlink = (
-  file: string,
-  link: string,
-  options: Options = DefaultOptions,
+	file: string,
+	link: string,
+	options: Options = DefaultOptions,
 ) => {
-  ensureDirSync(`${home}/.config/starship`);
+	ensureDirSync(`${home}/.config/starship`);
 
-  if (options.force) {
-    removeSync(`${home}/${link}`);
-  }
+	if (options.force) {
+		removeSync(`${home}/${link}`);
+	}
 
-  ensureSymlinkSync(file, `${home}/${link}`);
+	ensureSymlinkSync(file, `${home}/${link}`);
 };

@@ -4,6 +4,6 @@ import { archInstall } from "../../utils/package/mod.ts";
 await archInstall(["wezterm"]);
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/config.lua`,
-  ".config/wezterm/wezterm.lua",
+	`${import.meta.dirname}/config.lua`,
+	".config/wezterm/wezterm.lua",
 );

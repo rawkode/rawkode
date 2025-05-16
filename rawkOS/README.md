@@ -4,13 +4,20 @@ shell: bash
 
 # rawkOS: Rawkode's Linux Automation
 
-## Install Deno
+## Format & Lint
 
 ```shell
-curl -fsSL https://deno.land/install.sh | sh
+bunx biome format --write
+bunx biome lint --write
 ```
 
-## Install Nix
+## Install Bun
+
+```shell
+
+```
+
+## Install Nix (Optional)
 
 ```shell { "name": "install-nix" }
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | \

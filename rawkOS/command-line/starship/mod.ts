@@ -3,11 +3,11 @@ import { archInstall } from "../../utils/package/mod.ts";
 
 await archInstall(["starship"]);
 ensureHomeSymlink(
-  `${import.meta.dirname}/starship.fish`,
-  ".config/fish/conf.d/starship.fish",
+	`${import.meta.dirname}/starship.fish`,
+	".config/fish/conf.d/starship.fish",
 );
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/config.toml`,
-  ".config/starship.toml",
+	`${import.meta.dirname}/config.toml`,
+	".config/starship.toml",
 );

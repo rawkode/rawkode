@@ -1,12 +1,5 @@
 {
-  "password-store": "gnome-libsecret"
-,
-
-	// Allows to disable crash reporting.
-	// Should restart the app if the value is changed.
+	"password-store": "gnome-libsecret",
 	"enable-crash-reporter": true,
-
-	// Unique id used for correlating crash reports sent from this instance.
-	// Do not edit this value.
 	"crash-reporter-id": "521bfdaa-436c-438a-a54b-7b820b9754b0"
 }

@@ -4,6 +4,6 @@ import { archInstall } from "../../utils/package/mod.ts";
 await archInstall(["zoxide", "fzf"]);
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/zoxide.fish`,
-  ".config/fish/conf.d/zoxide.fish",
+	`${import.meta.dirname}/zoxide.fish`,
+	".config/fish/conf.d/zoxide.fish",
 );

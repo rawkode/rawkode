@@ -4,11 +4,11 @@ import { archInstall } from "../../utils/package/mod.ts";
 await archInstall(["atuin"]);
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/config.toml`,
-  ".config/atuin/config.toml",
+	`${import.meta.dirname}/config.toml`,
+	".config/atuin/config.toml",
 );
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/atuin.fish`,
-  ".config/fish/conf.d/atuin.fish",
+	`${import.meta.dirname}/atuin.fish`,
+	".config/fish/conf.d/atuin.fish",
 );
