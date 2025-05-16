@@ -1,4 +1,4 @@
-FROM quay.io/fedora-ostree-desktops/silverblue:41
+FROM quay.io/fedora-ostree-desktops/silverblue:42
 
 ARG IMAGE_NAME="${IMAGE_NAME:-rawkOS}"
 ARG IMAGE_VENDOR="${IMAGE_VENDOR:-rawkode}"
