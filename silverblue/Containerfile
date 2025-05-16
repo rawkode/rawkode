@@ -1,8 +1,8 @@
 FROM quay.io/fedora-ostree-desktops/silverblue:42
 
-ARG IMAGE_NAME="${IMAGE_NAME:-rawkOS}"
-ARG IMAGE_VENDOR="${IMAGE_VENDOR:-rawkode}"
-ARG IMAGE_FLAVOR="${IMAGE_FLAVOR:-main}"
+ARG IMAGE_NAME 		"${IMAGE_NAME:-rawkOS}"
+ARG IMAGE_VENDOR 	"${IMAGE_VENDOR:-rawkode}"
+ARG IMAGE_FLAVOR 	"${IMAGE_FLAVOR:-main}"
 
 # This stops some rpm packages from failing to install
 # such as 1Password, Chrome, and Vivaldi.
@@ -15,15 +15,17 @@ RUN /tmp/installer/bootstrap.sh
 RUN /tmp/installer/amdgpu.sh
 
 RUN /tmp/installer/1password.sh
-RUN /tmp/installer/cloudflare-warp.sh
 RUN /tmp/installer/docker.sh
+RUN /tmp/installer/espanso.sh
 RUN /tmp/installer/firefox.sh
 RUN /tmp/installer/fish.sh
+RUN /tmp/installer/ghostty.sh
 RUN /tmp/installer/github-monaspace.sh
 RUN /tmp/installer/google-chrome.sh
 RUN /tmp/installer/tailscale.sh
-RUN /tmp/installer/visual-studio-code.sh
+RUN /tmp/installer/visual-studio-c7ode.sh
 RUN /tmp/installer/vivaldi.sh
+RUN /tmp/installer/zed.sh
 
 RUN /tmp/installer/rawkOS.sh
 RUN /tmp/installer/bootupctl.sh
