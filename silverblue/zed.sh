@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -eoux pipefail
-dnf install zed-nightly
+rpm-ostree install zed-nightly

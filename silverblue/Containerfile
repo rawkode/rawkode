@@ -14,8 +14,10 @@ COPY . /tmp/installer
 RUN /tmp/installer/bootstrap.sh
 RUN /tmp/installer/amdgpu.sh
 
+
 RUN /tmp/installer/1password.sh
 RUN /tmp/installer/docker.sh
+RUN /tmp/installer/espanso.sh
 RUN /tmp/installer/firefox.sh
 RUN /tmp/installer/fish.sh
 RUN /tmp/installer/ghostty.sh
