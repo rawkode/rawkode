@@ -1,0 +1,36 @@
+---
+image: quay.io/buildah/stable
+
+stages:
+  - build
+
+variables:
+  MY_IMAGE_NAME: "rawkos"
+  MY_IMAGE_DESC: "rawkOS"
+  IMAGE_REGISTRY: "$CI_REGISTRY_IMAGE"
+  TIMESTAMP: "$(date +%Y%m%d)"
+  SHA_SHORT: "$(echo $CI_COMMIT_SHA | cut -c1-7)"
+  REGISTRY_USER: "$CI_REGISTRY_USER"
+  REGISTRY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+
+build:
+  before_script:
+    - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  stage: build
+  script:
+    - echo "Generating tags..."
+    - |
+      if [ "$CI_PIPELINE_SOURCE" == "merge_request_event" ]; then
+        export ALIAS_TAGS="pr-$CI_MERGE_REQUEST_IID $SHA_SHORT"
+      else
+        export ALIAS_TAGS="$TIMESTAMP latest"
+      fi
+    - echo "Building image..."
+    - buildah bud --file ./silverblue/Containerfile --tag "$CI_REGISTRY_IMAGE/$MY_IMAGE_NAME:$ALIAS_TAGS" --label "io.artifacthub.package.readme-url=$CI_PROJECT_URL/-/blob/main/README.md" --label "org.opencontainers.image.description=$MY_IMAGE_DESC" --label "org.opencontainers.image.title=$MY_IMAGE_NAME" ./silverblue
+    - buildah push "$CI_REGISTRY_IMAGE/$MY_IMAGE_NAME:$ALIAS_TAGS"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - "rawkOS/**"
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
