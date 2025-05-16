@@ -1,5 +1,3 @@
 import { archInstall } from "../../utils/package/mod.ts";
 
-archInstall([
-  "podman",
-]);
+await archInstall(["podman"]);

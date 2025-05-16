@@ -1,0 +1,15 @@
+{
+  "name": "rawkos",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/fs-extra": "11.0.4"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "fs-extra": "11.3.0",
+    "meow": "13.2.0"
+  }
+}

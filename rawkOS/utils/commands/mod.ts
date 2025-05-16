@@ -1,40 +1,41 @@
-import { whichSync } from "@david/which";
+import { $, which } from "bun";
+import * as console from "node:console";
+import * as process from "node:process";
 
 interface Options {
-	allowFailure: boolean;
+  allowFailure: boolean;
 }
 
 const DefaultOptions: Options = {
-	allowFailure: false,
-}
+  allowFailure: false,
+};
 
-export const runCommand = (command: string, args: string[], options: Options = DefaultOptions) => {
-  const commandPath = command.startsWith("/") ? command : whichSync(command);
+export const runCommand = async (
+  command: string,
+  args: string[],
+  options: Options = DefaultOptions,
+) => {
+  const commandPath = command.startsWith("/") ? command : which(command);
 
   if (!commandPath) {
     console.error(`Command not found: ${command}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
-  const result = new Deno.Command(commandPath, {
-    args,
-    stdin: "inherit",
-    stderr: "inherit",
-    stdout: "inherit",
-  }).outputSync();
+  if (options.allowFailure) {
+    $.nothrow();
+  }
 
-	if (options.allowFailure) {
-		// Doesn't really matter what the exit code is
-		// unless we decide to print some warnings later
-		return;
-	}
+  const result = await $`${commandPath} ${args}`;
 
-  if (result.code !== 0) {
+  $.throws(true);
+
+  if (!options.allowFailure && result.exitCode !== 0) {
     console.error(`Error running command: ${command} ${args.join(" ")}`);
-    Deno.exit();
+    process.exit(1);
   }
 };
 
-export const runPrivilegedCommand = (command: string, args: string[]) => {
-  runCommand("sudo", [command, ...args]);
+export const runPrivilegedCommand = async (command: string, args: string[]) => {
+  return await runCommand("sudo", [command, ...args]);
 };

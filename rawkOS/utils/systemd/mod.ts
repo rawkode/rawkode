@@ -1,4 +1,5 @@
-import { $ } from "zx";
+import { $ } from "bun";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 interface UnitConfig {
   type:
@@ -25,21 +26,28 @@ interface Socket extends UnitConfig {
 }
 
 export class SystemdUnit<T extends UnitConfig> {
-  constructor(public name: string, public unit: T) {}
+  private readonly home: string;
+
+  constructor(
+    public name: string,
+    public unit: T,
+  ) {
+    this.home = import.meta.env.HOME!;
+  }
 
   private getDirectory() {
-    Deno.mkdirSync(`${Deno.env.get("HOME")!}/.config/systemd/user`, {
+    mkdirSync(`${this.home!}/.config/systemd/user`, {
       recursive: true,
     });
 
     return this.unit.scope === "system"
       ? "/etc/systemd/system"
-      : `${Deno.env.get("HOME")!}/.config/systemd/user`;
+      : `${this.home}/.config/systemd/user`;
   }
 
   install(): this {
     const unitPath = `${this.getDirectory()}/${this.name}`;
-    Deno.writeFileSync(unitPath, new TextEncoder().encode(this.toString()));
+    writeFileSync(unitPath, new TextEncoder().encode(this.toString()));
     return this;
   }
 

@@ -1,24 +1,25 @@
-import { whichSync } from "@david/which";
 import { runPrivilegedCommand } from "../../utils/commands/mod.ts";
 import { archInstall } from "../../utils/package/mod.ts";
 import { ensureHomeSymlink } from "../../utils/files/mod.ts";
+import * as process from "node:process";
+import { which } from "bun";
 
-archInstall(["fish"]);
+await archInstall(["fish"]);
 
-const fishShell = whichSync("fish");
+const fishShell = which("fish");
 
 if (!fishShell) {
   console.error(
     "Cannot set the default shell to fish, as it could not be found.",
   );
-  Deno.exit(1);
+  process.exit(1);
 }
 
 // Could do this without sudo,
 // but want to rely on sudo caching.
 // Running as a user always requires
 // a password prompt
-runPrivilegedCommand("chsh", ["-s", fishShell, "rawkode"]);
+//runPrivilegedCommand("chsh", ["-s", fishShell, "rawkode"]);
 
 ensureHomeSymlink(
   `${import.meta.dirname}/magic-enter.fish`,

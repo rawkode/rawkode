@@ -6,4 +6,4 @@ ensureHomeSymlink(
   ".config/fish/conf.d/go.fish",
 );
 
-archInstall(["go"]);
+await archInstall(["go"]);

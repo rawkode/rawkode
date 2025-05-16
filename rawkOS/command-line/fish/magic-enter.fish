@@ -18,7 +18,7 @@ function magic-enter-command
     if test -n "$is_git_repository"
         set -l repo_has_changes (git status -s --ignore-submodules=dirty)
         if test -n "$repo_has_changes"
-            set cmd git status
+            set cmd git status --short
         end
     end
 

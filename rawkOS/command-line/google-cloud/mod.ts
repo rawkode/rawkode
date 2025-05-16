@@ -1,17 +1,17 @@
-import { exists } from "@std/fs/exists";
+import { existsSync } from "node:fs";
 import { runCommand } from "../../utils/commands/mod.ts";
 import { ensureHomeSymlink } from "../../utils/files/mod.ts";
 
-const home = Deno.env.get("HOME")!;
+const home = import.meta.env.HOME;
 
-if (!(await exists(`${home}/.local/google-cloud-sdk`))) {
-  runCommand("curl", [
+if (!existsSync(`${home}/.local/google-cloud-sdk`)) {
+  await runCommand("curl", [
     "-o",
     "/tmp/google-cloud-sdk.tar.gz",
     "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz",
   ]);
 
-  runCommand("tar", [
+  await runCommand("tar", [
     "-xzf",
     "/tmp/google-cloud-sdk.tar.gz",
     "-C",
@@ -19,7 +19,7 @@ if (!(await exists(`${home}/.local/google-cloud-sdk`))) {
   ]);
 }
 
-runCommand("bash", [
+await runCommand("bash", [
   `${home}/.local/google-cloud-sdk/install.sh`,
   "--usage-reporting=false",
   "--path-update=false",

@@ -1,5 +1,4 @@
-import { ensureSymlinkSync } from "@std/fs/ensure-symlink";
-import { ensureDirSync } from "@std/fs";
+import { ensureDirSync, ensureSymlinkSync, removeSync } from "fs-extra";
 
 interface Options {
   force?: boolean;
@@ -9,19 +8,18 @@ const DefaultOptions: Options = {
   force: false,
 };
 
+const home = import.meta.env.HOME;
+
 export const ensureHomeSymlink = (
   file: string,
   link: string,
   options: Options = DefaultOptions,
 ) => {
-  ensureDirSync(`${Deno.env.get("HOME")}/.config/starship`);
+  ensureDirSync(`${home}/.config/starship`);
 
   if (options.force) {
-    Deno.removeSync(`${Deno.env.get("HOME")}/${link}`);
+    removeSync(`${home}/${link}`);
   }
 
-  ensureSymlinkSync(
-    file,
-    `${Deno.env.get("HOME")}/${link}`,
-  );
+  ensureSymlinkSync(file, `${home}/${link}`);
 };

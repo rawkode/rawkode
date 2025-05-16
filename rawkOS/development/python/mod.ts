@@ -1,3 +1,3 @@
 import { archInstall } from "../../utils/package/mod.ts";
 
-archInstall(["uv"]);
+await archInstall(["uv"]);
