@@ -22,6 +22,7 @@ ln -s /usr/lib/vivaldi-snapshot/vivaldi-snapshot /usr/bin/vivaldi-snapshot
 mkdir -p  /etc/1password
 echo <<EOF >>/etc/1password/custom_allowed_browsers
 vivaldi
+vivaldi-snapshot
 EOF
 
 rm -f /etc/yum.repos.d/vivaldi.repo
