@@ -24,7 +24,7 @@ RUN /tmp/installer/ghostty.sh
 RUN /tmp/installer/github-monaspace.sh
 RUN /tmp/installer/google-chrome.sh
 RUN /tmp/installer/tailscale.sh
-RUN /tmp/installer/visual-studio-c7ode.sh
+RUN /tmp/installer/visual-studio-code.sh
 RUN /tmp/installer/vivaldi.sh
 RUN /tmp/installer/zed.sh
 
