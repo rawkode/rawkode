@@ -74,7 +74,9 @@ layout {
 }
 
 binds {
-	Super+Space { spawn "gauntlet"; }
+	Mod+Space { spawn "gauntlet"; }
+
+	Mod+P { spawn "toggle-overview"; }
 
 	Super+Q { close-window; }
 
