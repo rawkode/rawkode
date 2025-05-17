@@ -6,7 +6,6 @@ await archInstall([
   "catppuccin-cursors-mocha",
   "gauntlet-bin",
   "mako",
-  "waybar",
   "xwayland-satellite",
 ]);
 
@@ -16,4 +15,4 @@ ensureHomeSymlink(
 );
 
 await import("./waybar/mod.ts");
-await import("./waybar/mod.ts");
+await import("./swaync/mod.ts");
