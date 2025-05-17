@@ -1,0 +1,123 @@
+output "eDP-1" {
+	scale 1.75
+	position x=0 y=0
+}
+
+output "DP-1" {
+	scale 2.0
+	variable-refresh-rate
+	position x=0 y=0
+}
+
+output "DP-2" {
+	scale 2.0
+	variable-refresh-rate
+}
+
+output "Samsung Electric Company LS32A70 HK2WB00305" {
+	scale 1.75
+}
+
+input {
+	touchpad {
+		tap
+		natural-scroll
+		disabled-on-external-mouse
+	}
+
+	mouse {
+		natural-scroll
+	}
+}
+
+environment {
+	DISPLAY ":0"
+	QT_QPA_PLATFORM "wayland"
+	ELECTRON_OZONE_PLATFORM_HINT "auto"
+}
+
+spawn-at-startup "waybar"
+spawn-at-startup "mako"
+spawn-at-startup "xwayland-satellite"
+
+prefer-no-csd
+
+cursor {
+    xcursor-theme "catppuccin-mocha-teal-cursors"
+    xcursor-size 24
+
+    hide-when-typing
+    hide-after-inactive-ms 1000
+}
+
+switch-events {
+    lid-close { spawn "systemctl" "poweroff"; }
+}
+
+window-rule {
+    open-maximized true
+}
+
+layout {
+	gaps 16
+	center-focused-column "always"
+
+	preset-column-widths {
+		proportion 0.25
+		proportion 0.50
+		proportion 0.75
+	}
+
+	default-column-width {
+		proportion 0.5
+	}
+}
+
+binds {
+	Super+Space { spawn "gauntlet"; }
+
+	Super+Q { close-window; }
+
+	Super+Shift+Q { quit; }
+
+	Super+Return { spawn "ghostty"; }
+
+	Mod+Q { close-window; }
+
+	Mod+Left  { focus-column-left; }
+	Mod+Shift+Left  { move-column-left; }
+	Mod+Right { focus-column-right; }
+	Mod+Shift+Right { move-column-right; }
+
+	Mod+Up { focus-monitor-left; }
+	Mod+Down { focus-monitor-right; }
+	Mod+Shift+Up  { move-column-to-monitor-left; }
+	Mod+Shift+Down { move-column-to-monitor-right; }
+
+	Mod+1 { focus-workspace 1; }
+	Mod+2 { focus-workspace 2; }
+	Mod+3 { focus-workspace 3; }
+	Mod+4 { focus-workspace 4; }
+	Mod+5 { focus-workspace 5; }
+	Mod+6 { focus-workspace 6; }
+	Mod+7 { focus-workspace 7; }
+	Mod+8 { focus-workspace 8; }
+	Mod+9 { focus-workspace 9; }
+
+	Mod+Shift+1 { move-column-to-workspace 1; }
+	Mod+Shift+2 { move-column-to-workspace 2; }
+	Mod+Shift+3 { move-column-to-workspace 3; }
+	Mod+Shift+4 { move-column-to-workspace 4; }
+	Mod+Shift+5 { move-column-to-workspace 5; }
+	Mod+Shift+6 { move-column-to-workspace 6; }
+	Mod+Shift+7 { move-column-to-workspace 7; }
+	Mod+Shift+8 { move-column-to-workspace 8; }
+	Mod+Shift+9 { move-column-to-workspace 9; }
+
+	Mod+F { maximize-column; }
+	Mod+Shift+F { fullscreen-window; }
+
+	Print { screenshot; }
+	Mod+Print { screenshot-window; }
+	Mod+Ctrl+Print { screenshot-screen; }
+}

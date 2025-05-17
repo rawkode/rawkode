@@ -1,0 +1,78 @@
+{
+	"layer": "top",
+	"position": "top",
+	"mod": "dock",
+	"exclusive": true,
+	"gtk-layer-shell": true,
+	"passthrough": false,
+	"fixed-center": true,
+	"reload_style_on_change": true,
+
+	"modules-left": [
+		"niri/workspaces"
+	],
+	"modules-center": ["niri/window"],
+	"modules-right": [
+		"tray",
+		"wireplumber",
+		"network",
+		"clock"
+	],
+
+	"tray": {
+		"icon-size": 16,
+		"spacing": 16
+	},
+
+	"niri/workspaces": {
+		"format": "{icon}",
+		"format-icons": {
+			"default": ""
+		}
+	},
+
+	"niri/window": {
+		"separate-outputs": true,
+		"icon": true
+	},
+
+	"clock": {
+		"format": "      {:%R}"
+	},
+
+	"network": {
+		"format-wifi": " {icon}",
+		"format-ethernet": "  ",
+		"format-disconnected": "󰌙",
+		"format-icons": [
+			"󰤯 ",
+			"󰤟 ",
+			"󰤢 ",
+			"󰤢 ",
+			"󰤨 "
+		]
+	},
+
+	"wireplumber": {
+		"format": "{icon} {volume}%",
+		"format-muted": "",
+		"on-click": "helvum",
+		"format-icons": ["", "", ""]
+	},
+
+	"pulseaudio": {
+		"max-volume": 100,
+		"scroll-step": 10,
+		"format": "{icon}",
+		"tooltip-format": "{volume}%",
+		"format-muted": " ",
+		"format-icons": {
+			"default": [
+				" ",
+				" ",
+				" "
+			]
+		},
+		"on-click": "pwvucontrol"
+	}
+}
