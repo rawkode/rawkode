@@ -1,12 +1,12 @@
 [user]
 name = "David Flanagan"
-email = "david@rawkode.dev"
+email = "david@rawkode.academy"
 
 [init]
 defaultBranch = "main"
 
 [core]
-editor = "code --wait"
+editor = "zeditor --wait"
 
 [gpg]
 program = "gpg"
@@ -21,11 +21,16 @@ gpgSign = false
 [alias]
 cane = "commit --amend --no-edit"
 co = "checkout"
+
 logp = "log --pretty=shortlog"
 logs = "log --show-signatures"
+
 pl = "pull --ff-only"
+
 prune = "fetch --prune"
+
 ps = "push"
+
 root = "rev-parse --show-toplevel"
 
 [branch]
@@ -69,9 +74,11 @@ cmd = "code --wait --diff $LOCAL $REMOTE"
 
 [pretty]
 shortlog = "format:%C(auto,yellow)%h%C(auto,magenta)% G? %C(auto,cyan)%>(12,trunc)%ad%C(auto,green) %aN %C(auto,reset)%s%C(auto,red)% gD% D"
+
 [credential "https://github.com"]
-	helper = 
+	helper =
 	helper = !/usr/bin/gh auth git-credential
+
 [credential "https://gist.github.com"]
-	helper = 
+	helper =
 	helper = !/usr/bin/gh auth git-credential

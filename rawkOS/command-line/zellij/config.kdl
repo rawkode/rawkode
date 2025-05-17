@@ -21,7 +21,7 @@ plugins {
 support_kitty_keyboard_protocol false
 on_force_close "detach"
 default_layout "compact"
-default_shell "fish"
+default_shell "nu"
 simplified_ui false
 pane_frames false
 default_mode "normal"
