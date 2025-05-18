@@ -22,6 +22,7 @@ input {
 	touchpad {
 		tap
 		natural-scroll
+		click-method "clickfinger"
 		disabled-on-external-mouse
 	}
 

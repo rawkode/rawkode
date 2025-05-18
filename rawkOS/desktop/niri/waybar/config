@@ -15,9 +15,7 @@
 	"modules-right": [
 		"tray",
 		"wireplumber",
-		"network",
-		"custom/notification",
-		"clock"
+	    "custom/notification"
 	],
 
 	"tray": {
