@@ -1,8 +1,10 @@
+// Always laptop screen
 output "eDP-1" {
-	scale 1.75
+	scale 2.0
 	position x=0 y=0
 }
 
+// Office monitors
 output "DP-1" {
 	scale 2.0
 	variable-refresh-rate
@@ -14,6 +16,7 @@ output "DP-2" {
 	variable-refresh-rate
 }
 
+// Home monitor
 output "Samsung Electric Company LS32A70 HK2WB00305" {
 	scale 1.75
 }
@@ -54,7 +57,7 @@ spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
 prefer-no-csd
 
 cursor {
-    xcursor-theme "catppuccin-mocha-teal-cursors"
+    xcursor-theme "catppuccin-mocha-rose-cursors"
     xcursor-size 24
 
     hide-when-typing
@@ -74,20 +77,15 @@ layout {
 	center-focused-column "always"
 
 	preset-column-widths {
-		proportion 0.25
-		proportion 0.50
-		proportion 0.75
-	}
-
-	default-column-width {
-		proportion 0.5
+		proportion 0.35
+		proportion 0.70
 	}
 }
 
 binds {
 	Mod+Space { spawn "gauntlet"; }
 
-	Mod+P { spawn "toggle-overview"; }
+	Mod+P { "toggle-overview"; }
 
 	Super+Q { close-window; }
 
