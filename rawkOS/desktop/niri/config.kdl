@@ -32,13 +32,23 @@ input {
 
 environment {
 	DISPLAY ":0"
+
 	QT_QPA_PLATFORM "wayland"
+
+	XDG_CURRENT_DESKTOP "niri"
+    XDG_SESSION_TYPE "wayland"
+
 	ELECTRON_OZONE_PLATFORM_HINT "auto"
+}
+
+hotkey-overlay {
+    skip-at-startup
 }
 
 spawn-at-startup "waybar"
 spawn-at-startup "swaync"
 spawn-at-startup "xwayland-satellite"
+spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
 
 prefer-no-csd
 
@@ -118,6 +128,8 @@ binds {
 
 	Mod+F { maximize-column; }
 	Mod+Shift+F { fullscreen-window; }
+
+	Mod+R { switch-preset-column-width; }
 
 	Print { screenshot; }
 	Mod+Print { screenshot-window; }

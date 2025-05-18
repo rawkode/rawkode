@@ -6,6 +6,7 @@ await archInstall([
   "catppuccin-cursors-mocha",
   "gauntlet-bin",
   "mako",
+  "polkit-gnome",
   "xwayland-satellite",
 ]);
 
