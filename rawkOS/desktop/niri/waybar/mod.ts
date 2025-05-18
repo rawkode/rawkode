@@ -1,7 +1,7 @@
 import { ensureHomeSymlink } from "../../../utils/files/mod.ts";
 import { archInstall } from "../../../utils/package/mod.ts";
 
-archInstall(["waybar", "helvum"]);
+await archInstall(["waybar", "helvum"]);
 
 ensureHomeSymlink(`${import.meta.dirname}/config`, ".config/waybar/config");
 ensureHomeSymlink(

@@ -11,8 +11,13 @@ await archInstall([
 ]);
 
 ensureHomeSymlink(
-  import.meta.dirname + "/config.kdl",
+  `${import.meta.dirname}/config.kdl`,
   ".config/niri/config.kdl",
+);
+
+ensureHomeSymlink(
+  `${import.meta.dirname}/portals.conf`,
+  ".config/xdg-desktop-portal/niri-portals.conf",
 );
 
 await import("./waybar/mod.ts");

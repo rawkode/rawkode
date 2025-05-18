@@ -88,6 +88,7 @@ if (app.flags.dotfiles) {
 	await import("./command-line/google-cloud/mod.ts");
 	await import("./command-line/jj/mod.ts");
 	await import("./command-line/kubernetes/mod.ts");
+	await import("./command-line/nushell/mod.ts");
 	await import("./command-line/ripgrep/mod.ts");
 	await import("./command-line/runme/mod.ts");
 	await import("./command-line/starship/mod.ts");
@@ -99,10 +100,12 @@ if (app.flags.dotfiles) {
 	await import("./development/python/mod.ts");
 	await import("./development/rust/mod.ts");
 
+	await import("./desktop/catppuccin/mod.ts");
 	await import("./desktop/dconf-editor/mod.ts");
 	await import("./desktop/ghostty/mod.ts");
+	await import("./desktop/gitbutler/mod.ts");
 	await import("./desktop/gnome/mod.ts");
-	await import("./desktop/onepassword/mod.ts");
+	await import("./desktop/niri/mod.ts");
 	await import("./desktop/slack/mod.ts");
 	await import("./desktop/spotify/mod.ts");
 	await import("./desktop/visual-studio-code/mod.ts");
