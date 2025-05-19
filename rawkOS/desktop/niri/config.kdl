@@ -52,8 +52,6 @@ environment {
 
 	XDG_CURRENT_DESKTOP "niri"
     XDG_SESSION_TYPE "wayland"
-
-	ELECTRON_OZONE_PLATFORM_HINT "auto"
 }
 
 hotkey-overlay {
@@ -62,7 +60,12 @@ hotkey-overlay {
 
 spawn-at-startup "waybar"
 spawn-at-startup "swaync"
+
 spawn-at-startup "xwayland-satellite"
+
+spawn-at-startup "blueman-applet"
+
+spawn-at-startup "/usr/bin/gnome-keyring-daemon" "--start" "--components=pkcs11,secrets"
 spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
 
 prefer-no-csd
