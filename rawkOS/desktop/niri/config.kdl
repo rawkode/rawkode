@@ -7,14 +7,12 @@ output "eDP-1" {
 // Office monitors
 output "DP-1" {
 	scale 2.0
-	variable-refresh-rate
 	position x=0 y=0
 	focus-at-startup
 }
 
 output "DP-2" {
 	scale 2.0
-	variable-refresh-rate
 }
 
 // Home monitor
@@ -22,6 +20,7 @@ output "Samsung Electric Company LS32A70 HK2WB00305" {
 	scale 1.75
 }
 
+// Teleprompter
 output "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL" {
     scale 2.0
     mode "1920x1080@60.000"
@@ -29,10 +28,12 @@ output "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL" {
     // Let's just move it out of the way, the mouse cannot get here.
     // It's used purely as a Teleprompter anyway.
     // Do this until niri supports mirroring.
-    position x=-12000 y=-12000
+    position x=0 y=1080
 }
 
 input {
+    focus-follows-mouse max-scroll-amount="0%"
+
 	touchpad {
 		tap
 		natural-scroll
@@ -82,65 +83,157 @@ switch-events {
     lid-close { spawn "systemctl" "poweroff"; }
 }
 
+overview {
+    zoom 0.32
+}
+
 layout {
 	gaps 16
 	center-focused-column "always"
 
+	focus-ring {
+	    width 2
+        active-gradient from="#5f5ed7" to="#00ceff" angle=45
+        inactive-gradient from="#9e9dcc" to="#a8e0f0" angle=45 relative-to="workspace-view"
+        urgent-gradient from="#d75f5e" to="#ffb800" angle=45
+    }
+
+	border {
+	    off
+	}
+
+    shadow {
+        on
+        softness 30
+        spread 5
+        offset x=0 y=5
+        draw-behind-window true
+        color "#5f5ed720"
+        inactive-color "#d75f5e30"
+    }
+
+    struts {
+        left 4
+        right 4
+        top 4
+        bottom 4
+    }
+
+    default-column-width { proportion 1.0; }
+
 	preset-column-widths {
-		proportion 0.35
-		proportion 0.70
+		proportion 0.25
+		proportion 0.50
+		proportion 0.75
+		proportion 1.0
+	}
+
+	preset-window-heights {
+		proportion 0.25
+		proportion 0.50
+		proportion 0.75
+		proportion 1.0
 	}
 }
 
+window-rule {
+   geometry-corner-radius 16
+    clip-to-geometry true
+}
+
+window-rule {
+    match is-window-cast-target=true
+
+    focus-ring {
+        active-color "#d75f5e"
+    }
+
+    shadow {
+        color "#d75f5e40"
+    }
+
+    tab-indicator {
+        active-color "#ffb800"
+        inactive-color "#9e5f5e"
+    }
+}
+
+window-rule {
+    match app-id=r#"1Password"#
+    match title=r#"[Gg]mail"#
+    match app-id=r#".*[Ss]waync.*"#
+
+    block-out-from "screen-capture"
+}
+
+window-rule {
+  match is-floating=false
+    shadow {
+      on
+      color "#00000060"
+      softness 10
+      spread 3
+      offset x=0 y=3
+      draw-behind-window true
+
+  }
+}
+
 binds {
-	Mod+Space { spawn "gauntlet"; }
-
-	Mod+P { "toggle-overview"; }
-
 	Super+Q { close-window; }
-
 	Super+Shift+Q { quit; }
+
+	Super+Space { spawn "gauntlet"; }
+
+	Super+P { "toggle-overview"; }
 
 	Super+Return { spawn "ghostty"; }
 
-	Mod+Q { close-window; }
+    Super+Comma  { consume-window-into-column; }
+    Super+Period { expel-window-from-column; }
 
-	Mod+Left  { focus-column-left; }
-	Mod+Shift+Left  { move-column-left; }
-	Mod+Right { focus-column-right; }
-	Mod+Shift+Right { move-column-right; }
+   	Super+Up { focus-window-up; }
+	Super+Down { focus-window-down; }
 
-	Mod+Up { focus-monitor-left; }
-	Mod+Down { focus-monitor-right; }
-	Mod+Shift+Up  { move-column-to-monitor-left; }
-	Mod+Shift+Down { move-column-to-monitor-right; }
+	Super+Left  { focus-column-left; }
+	Super+Shift+Left  { move-column-left; }
+	Super+Right { focus-column-right; }
+	Super+Shift+Right { move-column-right; }
 
-	Mod+1 { focus-workspace 1; }
-	Mod+2 { focus-workspace 2; }
-	Mod+3 { focus-workspace 3; }
-	Mod+4 { focus-workspace 4; }
-	Mod+5 { focus-workspace 5; }
-	Mod+6 { focus-workspace 6; }
-	Mod+7 { focus-workspace 7; }
-	Mod+8 { focus-workspace 8; }
-	Mod+9 { focus-workspace 9; }
+	Super+1 { focus-workspace 1; }
+	Super+2 { focus-workspace 2; }
+	Super+3 { focus-workspace 3; }
+	Super+4 { focus-workspace 4; }
+	Super+5 { focus-workspace 5; }
+	Super+6 { focus-workspace 6; }
+	Super+7 { focus-workspace 7; }
+	Super+8 { focus-workspace 8; }
+	Super+9 { focus-workspace 9; }
 
-	Mod+Shift+1 { move-column-to-workspace 1; }
-	Mod+Shift+2 { move-column-to-workspace 2; }
-	Mod+Shift+3 { move-column-to-workspace 3; }
-	Mod+Shift+4 { move-column-to-workspace 4; }
-	Mod+Shift+5 { move-column-to-workspace 5; }
-	Mod+Shift+6 { move-column-to-workspace 6; }
-	Mod+Shift+7 { move-column-to-workspace 7; }
-	Mod+Shift+8 { move-column-to-workspace 8; }
-	Mod+Shift+9 { move-column-to-workspace 9; }
+	Super+Shift+1 { move-column-to-workspace 1; }
+	Super+Shift+2 { move-column-to-workspace 2; }
+	Super+Shift+3 { move-column-to-workspace 3; }
+	Super+Shift+4 { move-column-to-workspace 4; }
+	Super+Shift+5 { move-column-to-workspace 5; }
+	Super+Shift+6 { move-column-to-workspace 6; }
+	Super+Shift+7 { move-column-to-workspace 7; }
+	Super+Shift+8 { move-column-to-workspace 8; }
+	Super+Shift+9 { move-column-to-workspace 9; }
 
-	Mod+F { maximize-column; }
-	Mod+Shift+F { fullscreen-window; }
+	Super+F { fullscreen-window; }
 
-	Mod+R { switch-preset-column-width; }
+	Super+R { switch-preset-column-width; }
+	Super+Shift+R { switch-preset-window-height; }
+
+    Ctrl+Space       { toggle-window-floating; }
 
 	Print { screenshot; }
-	Mod+Print { screenshot-window; }
-	Mod+Ctrl+Print { screenshot-screen; }
+	Super+Print { screenshot-window; }
+	Super+Ctrl+Print { screenshot-screen; }
+}
+
+// This stops wezterm from crashing
+window-rule {
+    match app-id=r#"^org\.wezfurlong\.wezterm$"#
+    default-column-width {}
 }
