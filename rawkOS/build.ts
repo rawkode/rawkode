@@ -105,7 +105,7 @@ if (app.flags.dotfiles) {
   await import("./desktop/dconf-editor/mod.ts");
   await import("./desktop/ghostty/mod.ts");
   await import("./desktop/gitbutler/mod.ts");
-  await import("./desktop/gnome/mod.ts");
+  // await import("./desktop/gnome/mod.ts");
   await import("./desktop/niri/mod.ts");
   await import("./desktop/slack/mod.ts");
   await import("./desktop/spotify/mod.ts");
