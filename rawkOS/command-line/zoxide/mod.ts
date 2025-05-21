@@ -7,6 +7,6 @@ await archInstall(["zoxide", "fzf"]);
 await $`nu -c 'zoxide init nushell | save -f ($nu.user-autoload-dirs | path join "zoxide.nu")'`;
 
 ensureHomeSymlink(
-  `${import.meta.dirname}/zoxide.fish`,
-  ".config/fish/conf.d/zoxide.fish",
+	`${import.meta.dirname}/zoxide.fish`,
+	".config/fish/conf.d/zoxide.fish",
 );

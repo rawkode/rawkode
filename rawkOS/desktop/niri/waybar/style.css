@@ -26,81 +26,81 @@
 @define-color crust #11111b;
 
 * {
-    font-family: "Monaspace Neon";
-    font-weight: 400;
-    font-size: 12px;
+	font-family: "Monaspace Neon";
+	font-weight: 400;
+	font-size: 12px;
 }
 
 window#waybar {
-    background-color: shade(@base, 0.9);
-    border: 2px solid alpha(@crust, 0.3);
-    color: @text;
+	background-color: shade(@base, 0.9);
+	border: 2px solid alpha(@crust, 0.3);
+	color: @text;
 }
 
 tooltip {
-    background: @crust;
+	background: @crust;
 }
 
 tooltip label {
-    color: @teal;
+	color: @teal;
 }
 
 #workspaces {
-    color: transparent;
-    margin-right: 2px;
-    margin-left: 2px;
+	color: transparent;
+	margin-right: 2px;
+	margin-left: 2px;
 }
 
 #workspaces button {
-    color: @surface1;
-    background: transparent;
+	color: @surface1;
+	background: transparent;
 }
 
 #workspaces button.active {
-    color: shade(@teal, 0.5);
+	color: shade(@teal, 0.5);
 }
 
 #workspaces button.focused {
-    color: @teal;
+	color: @teal;
 }
 
 #workspaces button.urgent {
-    color: @rosewater;
+	color: @rosewater;
 }
 
 #workspaces button:hover {
-    color: @flamingo;
-    background: transparent;
+	color: @flamingo;
+	background: transparent;
 }
 
 #custom-notification {
-    padding-right: 16px;
-    font-size: 16px;
+	padding-right: 16px;
+	font-size: 16px;
 }
 
 #tray {
-    margin-left: 0px;
-    margin-right: 16px;
+	margin-left: 0px;
+	margin-right: 16px;
 }
 
 #wireplumber {
-    margin-right: 16px;
+	margin-right: 16px;
 }
 
 #tray > .needs-attention {
-    border-bottom: 3px solid @rose;
+	border-bottom: 3px solid @rose;
 }
 
 #tray > widget {
-    transition: all 0.25s cubic-bezier(0.165, 0.84, 0.44, 1);
+	transition: all 0.25s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 #tray > widget:hover {
-    background: @rose;
+	background: @rose;
 }
 
 #clock {
-    background: @rose;
-    padding-right: 8px;
-    padding-left: 8px;
+	background: @rose;
+	padding-right: 8px;
+	padding-left: 8px;
 }
