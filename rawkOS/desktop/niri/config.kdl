@@ -60,7 +60,6 @@ hotkey-overlay {
 }
 
 spawn-at-startup "swww-daemon"
-spawn-at-startup "swww" "img" "~/.config/wallpapers/rawkode-academy.png"
 
 spawn-at-startup "waybar"
 spawn-at-startup "swaync"
@@ -191,6 +190,8 @@ binds {
 	Super+P { "toggle-overview"; }
 
 	Super+Return { spawn "ghostty"; }
+
+	Super+Backslash { spawn "1password" "--quick-access"; }
 
     Super+Comma  { consume-window-into-column; }
     Super+Period { expel-window-from-column; }
