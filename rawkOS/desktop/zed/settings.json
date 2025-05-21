@@ -1,29 +1,31 @@
 {
-	"theme": {
-		"mode": "system",
-		"light": "Catppuccin Mocha",
-		"dark": "Catppuccin Mocha"
-	},
-	"icon_theme": "Catppuccin Macchiato",
-	"ui_font_size": 16,
-	"buffer_font_size": 16,
-	"git_panel": {
-		"dock": "right"
-	},
-	"project_panel": {
-		"dock": "right"
-	},
-	"agent": {
-		"dock": "left",
-		"default_model": {
-			"provider": "google",
-			"model": "gemini-2.5-pro-preview-03-25"
-		},
-		"model_parameters": [],
-		"always_allow_tool_actions": true,
-		"version": "2"
-	},
-	"features": {
-		"edit_prediction_provider": "zed"
-	}
+  "theme": {
+    "mode": "system",
+    "light": "Catppuccin Mocha",
+    "dark": "Catppuccin Mocha"
+  },
+  "icon_theme": "Catppuccin Macchiato",
+  "ui_font_family": "Monaspace Argon",
+  "buffer_font_family": "Monaspace Argon",
+  "ui_font_size": 16,
+  "buffer_font_size": 16,
+  "git_panel": {
+    "dock": "right"
+  },
+  "project_panel": {
+    "dock": "right"
+  },
+  "agent": {
+    "dock": "left",
+    "default_model": {
+      "provider": "google",
+      "model": "gemini-2.5-pro-preview-03-25"
+    },
+    "model_parameters": [],
+    "always_allow_tool_actions": true,
+    "version": "2"
+  },
+  "features": {
+    "edit_prediction_provider": "zed"
+  }
 }

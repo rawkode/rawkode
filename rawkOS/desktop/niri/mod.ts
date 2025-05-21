@@ -8,6 +8,7 @@ await archInstall([
   "niri",
   "polkit-gnome",
   "seahorse",
+  "swww",
   "wireplumber",
   "xdg-desktop-portal-gnome",
   "xwayland-satellite",

@@ -59,6 +59,9 @@ hotkey-overlay {
     skip-at-startup
 }
 
+spawn-at-startup "swww-daemon"
+spawn-at-startup "swww" "img" "~/.config/wallpapers/rawkode-academy.png"
+
 spawn-at-startup "waybar"
 spawn-at-startup "swaync"
 
