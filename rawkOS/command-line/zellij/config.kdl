@@ -1,6 +1,8 @@
 clear-defaults true
 
-theme "catppuccin-mocha"
+theme "catppuccin-macchiato"
+
+show_startup_tips false
 
 plugins {
     tab-bar location="zellij:tab-bar"

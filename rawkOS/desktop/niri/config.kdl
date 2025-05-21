@@ -225,7 +225,7 @@ binds {
 	Super+R { switch-preset-column-width; }
 	Super+Shift+R { switch-preset-window-height; }
 
-    Ctrl+Space       { toggle-window-floating; }
+    Ctrl+Shift+Space       { toggle-window-floating; }
 
 	Print { screenshot; }
 	Super+Print { screenshot-window; }

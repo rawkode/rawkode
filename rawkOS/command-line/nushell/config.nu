@@ -1,14 +1,15 @@
+$env.config.show_banner = false
+
 def --env ghb [group?: string, repository?: string] {
     let path = $nu.home-path;
     cd $"($nu.home-path)/Code/src/github.com/($group)/($repository)"
 };
 
-
 def --env rkc [group?: string, repository?: string] {
     cd $"($nu.home-path)/Code/src/code.rawkode.academy/($group)/($repository)"
 };
 
-# Useless to keep around
+# Useful to keep around
 # $env.config = (
 #     $env.config
 #     | upsert hooks.pre_execution [ {||
@@ -16,7 +17,6 @@ def --env rkc [group?: string, repository?: string] {
 #         print $"Command: ($env.repl_commandline)"
 #     } ]
 # )
-
 
 def is-git-repo []: [ nothing -> bool] {
   git rev-parse --is-inside-work-tree out+err> /dev/null
@@ -43,3 +43,5 @@ $env.config.hooks = {
         ]
     }
 }
+
+source ./catppuccin.nu
