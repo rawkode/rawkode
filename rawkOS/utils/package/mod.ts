@@ -1,49 +1,68 @@
 import { runCommand } from "../commands/mod.ts";
 
 export const archInstall = async (packages: string[]) => {
-	console.log(`Installing packages: ${packages.join(", ")}...`);
+  console.log(`Installing packages: ${packages.join(", ")}...`);
 
-	await runCommand("paru", [
-		"--sync",
-		...packages,
-		"--needed",
-		"--noconfirm",
-		"--skipreview",
-		"--removemake",
-		"--cleanafter",
-	]);
+  await runCommand("paru", [
+    "--sync",
+    ...packages,
+    "--needed",
+    "--noconfirm",
+    "--skipreview",
+    "--removemake",
+    "--cleanafter",
+  ]);
 
-	console.log(`Finished installing packages: ${packages.join(", ")}`);
+  console.log(`Finished installing packages: ${packages.join(", ")}`);
 };
 
 export const flatpakInstall = async (packages: string[]) => {
-	console.log(`Installing packages: ${packages.join(", ")}...`);
+  console.log(`Installing packages: ${packages.join(", ")}...`);
 
-	await runCommand("flatpak", [
-		"install",
-		"--assumeyes",
-		"flathub",
-		...packages,
-	]);
+  await runCommand("flatpak", [
+    "install",
+    "--assumeyes",
+    "flathub",
+    ...packages,
+  ]);
 
-	console.log(`Finished installing packages: ${packages.join(", ")}`);
+  console.log(`Finished installing packages: ${packages.join(", ")}`);
 };
 
 export const brewInstall = async (packages: string[]) => {
-	console.log(`Installing packages: ${packages.join(", ")}...`);
+  console.log(`Installing packages: ${packages.join(", ")}...`);
 
-	await runCommand("/home/linuxbrew/.linuxbrew/bin/brew", [
-		"install",
-		...packages,
-	]);
+  await runCommand("/home/linuxbrew/.linuxbrew/bin/brew", [
+    "install",
+    ...packages,
+  ]);
 
-	console.log(`Finished installing packages: ${packages.join(", ")}`);
+  console.log(`Finished installing packages: ${packages.join(", ")}`);
 };
 
 export const goInstall = async (packageName: string) => {
-	console.log(`Installing package: ${packageName}...`);
+  console.log(`Installing package: ${packageName}...`);
 
-	await runCommand("go", ["install", packageName]);
+  await runCommand("go", ["install", packageName]);
 
-	console.log(`Finished installing package: ${packageName}`);
+  console.log(`Finished installing package: ${packageName}`);
+};
+
+interface CargoInstallOptions {
+  useGit?: boolean;
+}
+
+export const cargoInstall = async (
+  packageName: string,
+  options: CargoInstallOptions,
+) => {
+  console.log(`Installing package: ${packageName}...`);
+
+  await runCommand("cargo", [
+    "install",
+    ...(options.useGit ? ["--git"] : []),
+    packageName,
+  ]);
+
+  console.log(`Finished installing package: ${packageName}`);
 };

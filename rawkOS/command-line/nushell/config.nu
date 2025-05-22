@@ -1,4 +1,36 @@
-$env.config.show_banner = false
+$env.config = {
+    show_banner: false
+
+    # I use Atuin
+    history: {
+        max_size: 0
+    }
+
+    completions: {
+        case_sensitive: false
+        quick: true
+        algorithm: prefix
+        partial: false
+    }
+
+    rm: {
+        always_trash: true
+    }
+
+    buffer_editor: [
+        "zeditor",
+        "--wait",
+        "--add"
+    ]
+
+    ls: {
+        clickable_links: true
+    }
+
+    table: {
+        mode: "rounded"
+    }
+}
 
 def --env ghb [group?: string, repository?: string] {
     let path = $nu.home-path;
@@ -8,15 +40,6 @@ def --env ghb [group?: string, repository?: string] {
 def --env rkc [group?: string, repository?: string] {
     cd $"($nu.home-path)/Code/src/code.rawkode.academy/($group)/($repository)"
 };
-
-# Useful to keep around
-# $env.config = (
-#     $env.config
-#     | upsert hooks.pre_execution [ {||
-#         $env.repl_commandline = (commandline)
-#         print $"Command: ($env.repl_commandline)"
-#     } ]
-# )
 
 def is-git-repo []: [ nothing -> bool] {
   git rev-parse --is-inside-work-tree out+err> /dev/null

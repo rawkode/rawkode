@@ -1,5 +1,13 @@
 {
-	"theme": {
+	"context_servers": {
+  "mcp-server-gitlab": {
+   "settings": {
+    "gitlab_personal_access_token": "rkdevgoQ4RXLsVobKvd65nSec",
+    "gitlab_api_url": "https://code.rawkode.academy/api/v4"
+   }
+  }
+ },
+ "theme": {
 		"mode": "system",
 		"light": "Catppuccin Mocha",
 		"dark": "Catppuccin Mocha"
