@@ -14,13 +14,15 @@
 	"modules-center": ["niri/window"],
 	"modules-right": [
 		"tray",
+		"backlight",
 		"wireplumber",
+		"battery",
 	    "custom/notification"
 	],
 
 	"tray": {
 		"icon-size": 16,
-		"spacing": 16
+		"spacing": 20
 	},
 
 	"niri/workspaces": {
@@ -35,45 +37,33 @@
 		"icon": true
 	},
 
-	"clock": {
-		"format": "      {:%R}"
+	"backlight": {
+		"format": "{icon}",
+		"tooltip-format": "{percent}%",
+		"format-icons": ["󰛩", "󰛪", "󰛫", "󰛬", "󰛭", "󰛮", "󰛯", "󰛰"]
 	},
 
-	"network": {
-		"format-wifi": " {icon}",
-		"format-ethernet": "  ",
-		"format-disconnected": "󰌙",
-		"format-icons": [
-			"󰤯 ",
-			"󰤟 ",
-			"󰤢 ",
-			"󰤢 ",
-			"󰤨 "
-		]
+	"battery": {
+		"states": {
+			// "good": 95,
+			"warning": 30,
+			"critical": 15
+		},
+		"format": "{icon}",
+		"format-charging": "",
+		"format-plugged": "",
+		"format-alt": "{capacity}% {time}",
+		"format-icons": ["", "", "", "", ""],
+		"tooltip-format": "{capacity}%",
 	},
 
 	"wireplumber": {
-		"format": "{icon} {volume}%",
+		"format": "{icon}",
+		"tooltip-format": "{volume}%",
 		"format-muted": "",
 		"on-click": "pavucontrol",
 		"on--right-click": "helvum",
 		"format-icons": ["", "", ""]
-	},
-
-	"pulseaudio": {
-		"max-volume": 100,
-		"scroll-step": 10,
-		"format": "{icon}",
-		"tooltip-format": "{volume}%",
-		"format-muted": " ",
-		"format-icons": {
-			"default": [
-				" ",
-				" ",
-				" "
-			]
-		},
-		"on-click": "pwvucontrol"
 	},
 
 	"custom/notification": {
