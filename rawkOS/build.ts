@@ -84,6 +84,7 @@ if (app.flags.dotfiles) {
   // // Everything else
   await import("./command-line/atuin/mod.ts");
   await import("./command-line/bat/mod.ts");
+  await import("./command-line/carapace/mod.ts");
   await import("./command-line/direnv/mod.ts");
   await import("./command-line/docker/mod.ts");
   await import("./command-line/espanso/mod.ts");
