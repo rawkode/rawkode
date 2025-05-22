@@ -11,9 +11,4 @@ ensureHomeSymlink(
   ".config/nushell/config.nu",
 );
 
-ensureHomeSymlink(
-  `${import.meta.dirname}/catppuccin.nu`,
-  ".config/nushell/catppuccin.nu",
-);
-
 ensureHomeSymlink(`${import.meta.dirname}/env.nu`, ".config/nushell/env.nu");

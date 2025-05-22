@@ -66,5 +66,3 @@ $env.config.hooks = {
         ]
     }
 }
-
-source ./catppuccin.nu

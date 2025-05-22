@@ -73,7 +73,7 @@ if (app.flags.dotfiles) {
   // configured early.
   await import("./command-line/github/mod.ts");
 
-  // // Essentials
+  // Essentials
   await import("./desktop/firefox/mod.ts");
 
   // We provision these early because they provide what we need
@@ -81,7 +81,11 @@ if (app.flags.dotfiles) {
   await import("./development/go/mod.ts");
   await import("./development/rust/mod.ts");
 
-  // // Everything else
+  // Themes are important
+  await import("./command-line/vivid/mod.ts");
+  await import("./themes/catppuccin/mod.ts");
+
+  // Everything else
   await import("./command-line/atuin/mod.ts");
   await import("./command-line/bat/mod.ts");
   await import("./command-line/carapace/mod.ts");
@@ -105,7 +109,6 @@ if (app.flags.dotfiles) {
   await import("./development/python/mod.ts");
   await import("./development/rust/mod.ts");
 
-  await import("./desktop/catppuccin/mod.ts");
   await import("./desktop/dconf-editor/mod.ts");
   await import("./desktop/ghostty/mod.ts");
   await import("./desktop/gitbutler/mod.ts");
