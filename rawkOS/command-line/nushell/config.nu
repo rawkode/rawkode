@@ -41,6 +41,10 @@ def --env rkc [group?: string, repository?: string] {
     cd $"($nu.home-path)/Code/src/code.rawkode.academy/($group)/($repository)"
 };
 
+def --env gr [] {
+	cd (git rev-parse --show-toplevel)
+}
+
 def is-git-repo []: [ nothing -> bool] {
   git rev-parse --is-inside-work-tree out+err> /dev/null
   if ($env.LAST_EXIT_CODE != 0) {

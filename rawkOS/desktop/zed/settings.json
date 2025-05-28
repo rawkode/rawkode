@@ -24,7 +24,11 @@
 		"dock": "right"
 	},
 	"agent": {
-		"dock": "left",
+		"inline_assistant_model": {
+   "provider": "anthropic",
+   "model": "claude-opus-4-latest"
+  },
+  "dock": "left",
 		"default_model": {
 			"provider": "google",
 			"model": "gemini-2.5-pro-preview-03-25"
