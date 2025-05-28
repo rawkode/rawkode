@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["uv"]);
+export default defineModule("python")
+	.description("Python programming language")
+	.tags("development", "programming", "python")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["uv"],
+	})
+	.build();

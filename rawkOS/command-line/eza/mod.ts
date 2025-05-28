@@ -1,13 +1,14 @@
-import { archInstall } from "../../utils/package/mod.ts";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-// Install eza package using the Arch package manager helper.
-await archInstall(["eza"]);
-
-// Ensure the eza.fish configuration file is symlinked to the
-// fish shell's configuration directory. This will make our
-// aliases and eza's Fish integration available.
-ensureHomeSymlink(
-  `${import.meta.dirname}/eza.fish`,
-  ".config/fish/conf.d/eza.fish",
-);
+export default defineModule("eza")
+	.description("Modern ls replacement")
+	.tags("cli", "utilities", "files")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["eza"],
+	})
+	.symlink({
+		source: "eza.fish",
+		target: ".config/fish/conf.d/eza.fish",
+	})
+	.build();

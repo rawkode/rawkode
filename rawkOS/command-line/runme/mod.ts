@@ -1,3 +1,10 @@
-import { goInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await goInstall("github.com/stateful/runme@latest");
+export default defineModule("runme")
+	.description("Run commands from markdown")
+	.tags("cli", "documentation", "development")
+	.packageInstall({
+		manager: "go",
+		packages: ["github.com/stateful/runme@latest"],
+	})
+	.build();

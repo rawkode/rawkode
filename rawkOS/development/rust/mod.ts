@@ -1,17 +1,22 @@
-import { $ } from "bun";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["rustup"]);
-
-await $`rustup default stable`;
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/rust.fish`,
-  ".config/fish/conf.d/rust.fish",
-);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/rust.nu`,
-  ".config/nushell/autoload/rust.nu",
-);
+export default defineModule("rust")
+	.description("Rust programming language")
+	.tags("development", "programming", "rust")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["rustup"],
+	})
+	.command({
+		command: "rustup",
+		args: ["default", "stable"],
+	})
+	.symlink({
+		source: "rust.fish",
+		target: ".config/fish/conf.d/rust.fish",
+	})
+	.symlink({
+		source: "rust.nu",
+		target: ".config/nushell/autoload/rust.nu",
+	})
+	.build();

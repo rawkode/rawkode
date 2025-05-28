@@ -1,3 +1,10 @@
-import { flatpakInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-flatpakInstall(["ca.desrt.dconf-editor"]);
+export default defineModule("dconf-editor")
+	.description("GNOME configuration editor")
+	.tags("desktop", "gnome", "configuration")
+	.packageInstall({
+		manager: "flatpak",
+		packages: ["ca.desrt.dconf-editor"],
+	})
+	.build();

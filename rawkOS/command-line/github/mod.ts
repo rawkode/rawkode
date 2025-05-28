@@ -1,5 +1,15 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-ensureHomeSymlink(`${import.meta.dirname}/known_hosts`, ".ssh/known_hosts");
-await archInstall(["github-cli"]);
+export default defineModule("github")
+	.description("GitHub CLI and configuration")
+	.tags("cli", "git", "development")
+	.symlink({
+		source: "known_hosts",
+		target: ".ssh/known_hosts",
+		force: true,
+	})
+	.packageInstall({
+		manager: "pacman",
+		packages: ["github-cli"],
+	})
+	.build();

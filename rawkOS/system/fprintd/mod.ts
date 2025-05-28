@@ -1,6 +1,18 @@
-import { runPrivilegedCommand } from "../../utils/commands/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
+import { conditions } from "../../core/conditions.ts";
 
-await archInstall(["fprintd"]);
-
-runPrivilegedCommand("cp", [`${import.meta.dirname}/sudo`, "/etc/pam.d/sudo"]);
+export default defineModule("fprintd")
+	.description("Fingerprint authentication support")
+	.tags("security", "authentication")
+	.when(conditions.hasFingerprint)
+	.packageInstall({
+		manager: "pacman",
+		packages: ["fprintd"],
+	})
+	.when(conditions.hasFingerprint)
+	.fileCopy({
+		source: "sudo",
+		destination: "/etc/pam.d/sudo",
+		privileged: true,
+	})
+	.build();

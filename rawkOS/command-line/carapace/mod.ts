@@ -1,5 +1,17 @@
-import { $ } from "bun";
-import { archInstall } from "../../utils/package/mod";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["carapace-bin"]);
-await $`nu -c 'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")'`;
+export default defineModule("carapace")
+	.description("Shell completion framework")
+	.tags("cli", "shell", "completion")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["carapace-bin"],
+	})
+	.command({
+		command: "nu",
+		args: [
+			"-c",
+			'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
+		],
+	})
+	.build();

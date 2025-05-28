@@ -1,17 +1,25 @@
-import { $ } from "bun";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["starship"]);
-
-await $`nu -c 'starship init nu | save -f ($nu.user-autoload-dirs | path join "starship.nu")'`;
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/starship.fish`,
-	".config/fish/conf.d/starship.fish",
-);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/config.toml`,
-	".config/starship.toml",
-);
+export default defineModule("starship")
+	.description("Cross-shell prompt")
+	.tags("cli", "shell", "prompt")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["starship"],
+	})
+	.command({
+		command: "nu",
+		args: [
+			"-c",
+			'starship init nu | save -f ($nu.user-autoload-dirs | path join "starship.nu")',
+		],
+	})
+	.symlink({
+		source: "starship.fish",
+		target: ".config/fish/conf.d/starship.fish",
+	})
+	.symlink({
+		source: "config.toml",
+		target: ".config/starship.toml",
+	})
+	.build();

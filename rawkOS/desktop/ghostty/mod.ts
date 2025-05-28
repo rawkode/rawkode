@@ -1,9 +1,14 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["ghostty"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/config.ini`,
-	".config/ghostty/config",
-);
+export default defineModule("ghostty")
+	.description("GPU-accelerated terminal")
+	.tags("desktop", "terminal")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["ghostty"],
+	})
+	.symlink({
+		source: "config.ini",
+		target: ".config/ghostty/config",
+	})
+	.build();

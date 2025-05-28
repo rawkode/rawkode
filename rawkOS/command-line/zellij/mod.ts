@@ -1,14 +1,18 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["zellij"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/config.kdl`,
-	".config/zellij/config.kdl",
-);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/zellij.nu`,
-	".config/nushell/autoload/zellij.nu",
-);
+export default defineModule("zellij")
+	.description("Terminal multiplexer")
+	.tags("cli", "terminal", "multiplexer")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["zellij"],
+	})
+	.symlink({
+		source: "config.kdl",
+		target: ".config/zellij/config.kdl",
+	})
+	.symlink({
+		source: "zellij.nu",
+		target: ".config/nushell/autoload/zellij.nu",
+	})
+	.build();

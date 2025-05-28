@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["bat"]);
+export default defineModule("bat")
+	.description("Cat replacement with syntax highlighting")
+	.tags("cli", "utilities")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["bat"],
+	})
+	.build();

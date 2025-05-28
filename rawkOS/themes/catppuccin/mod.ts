@@ -1,22 +1,27 @@
-import { dconfImport } from "../../utils/dconf/mod.ts";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["catppuccin-cursors-mocha"]);
-
-dconfImport(`${import.meta.dirname}/dconf.ini`);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/gtk-settings.ini`,
-  ".config/gtk-3.0/settings.ini",
-);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/gtk-settings.ini`,
-  ".config/gtk-4.0/settings.ini",
-);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/nushell.nu`,
-  ".config/nushell/autoload/catppuccin.nu",
-);
+export default defineModule("catppuccin")
+	.description("Catppuccin theme configuration")
+	.tags("theme", "appearance")
+	.packageInstall({
+		manager: "arch",
+		packages: ["catppuccin-cursors-mocha"],
+	})
+	.command({
+		command: "dconf",
+		args: ["load", "/"],
+		stdin: `${import.meta.dirname}/dconf.ini`,
+	})
+	.symlink({
+		source: "gtk-settings.ini",
+		target: "~/.config/gtk-3.0/settings.ini",
+	})
+	.symlink({
+		source: "gtk-settings.ini",
+		target: "~/.config/gtk-4.0/settings.ini",
+	})
+	.symlink({
+		source: "nushell.nu",
+		target: "~/.config/nushell/autoload/catppuccin.nu",
+	})
+	.build();

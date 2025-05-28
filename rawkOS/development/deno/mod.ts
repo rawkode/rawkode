@@ -1,6 +1,10 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-ensureHomeSymlink(
-	`${import.meta.dirname}/deno.fish`,
-	".config/fish/conf.d/deno.fish",
-);
+export default defineModule("deno")
+	.description("Deno JavaScript runtime")
+	.tags("development", "programming", "javascript", "typescript")
+	.symlink({
+		source: "deno.fish",
+		target: ".config/fish/conf.d/deno.fish",
+	})
+	.build();

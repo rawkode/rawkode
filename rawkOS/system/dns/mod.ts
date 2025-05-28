@@ -1,8 +1,16 @@
-import { runPrivilegedCommand } from "../../utils/commands/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-// Why is this needed is beyond me ... 😂
-runPrivilegedCommand("cp", [`${import.meta.dirname}/hosts`, "/etc/hosts"]);
-runPrivilegedCommand("cp", [
-	`${import.meta.dirname}/resolved.conf`,
-	"/etc/systemd/resolved.conf",
-]);
+export default defineModule("dns")
+	.description("DNS configuration")
+	.tags("network", "dns")
+	.fileCopy({
+		source: "hosts",
+		destination: "/etc/hosts",
+		privileged: true,
+	})
+	.fileCopy({
+		source: "resolved.conf",
+		destination: "/etc/systemd/resolved.conf",
+		privileged: true,
+	})
+	.build();

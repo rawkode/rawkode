@@ -1,13 +1,13 @@
 {
 	"context_servers": {
-  "mcp-server-gitlab": {
-   "settings": {
-    "gitlab_personal_access_token": "rkdevgoQ4RXLsVobKvd65nSec",
-    "gitlab_api_url": "https://code.rawkode.academy/api/v4"
-   }
-  }
- },
- "theme": {
+		"mcp-server-gitlab": {
+			"settings": {
+				"gitlab_personal_access_token": "rkdevgoQ4RXLsVobKvd65nSec",
+				"gitlab_api_url": "https://code.rawkode.academy/api/v4"
+			}
+		}
+	},
+	"theme": {
 		"mode": "system",
 		"light": "Catppuccin Mocha",
 		"dark": "Catppuccin Mocha"
@@ -25,10 +25,10 @@
 	},
 	"agent": {
 		"inline_assistant_model": {
-   "provider": "anthropic",
-   "model": "claude-opus-4-latest"
-  },
-  "dock": "left",
+			"provider": "anthropic",
+			"model": "claude-opus-4-latest"
+		},
+		"dock": "left",
 		"default_model": {
 			"provider": "google",
 			"model": "gemini-2.5-pro-preview-03-25"

@@ -1,3 +1,10 @@
-import { flatpakInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-flatpakInstall(["com.slack.Slack"]);
+export default defineModule("slack")
+	.description("Team communication")
+	.tags("desktop", "communication", "chat")
+	.packageInstall({
+		manager: "flatpak",
+		packages: ["com.slack.Slack"],
+	})
+	.build();

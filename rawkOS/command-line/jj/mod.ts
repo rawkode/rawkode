@@ -1,9 +1,14 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["jujutsu"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/config.toml`,
-	".config/jj/config.toml",
-);
+export default defineModule("jj")
+	.description("Jujutsu version control")
+	.tags("cli", "vcs", "development")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["jujutsu"],
+	})
+	.symlink({
+		source: "config.toml",
+		target: ".config/jj/config.toml",
+	})
+	.build();

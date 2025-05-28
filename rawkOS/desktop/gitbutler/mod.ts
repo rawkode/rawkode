@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["gitbutler-bin"]);
+export default defineModule("gitbutler")
+	.description("Git branch management")
+	.tags("desktop", "git", "development")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["gitbutler-bin"],
+	})
+	.build();

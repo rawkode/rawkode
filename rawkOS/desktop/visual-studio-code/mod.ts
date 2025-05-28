@@ -1,6 +1,14 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["visual-studio-code-bin"]);
-
-ensureHomeSymlink(`${import.meta.dirname}/argv.json`, ".vscode/argv.json");
+export default defineModule("visual-studio-code")
+	.description("Code editor")
+	.tags("desktop", "development", "editor")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["visual-studio-code-bin"],
+	})
+	.symlink({
+		source: "argv.json",
+		target: ".vscode/argv.json",
+	})
+	.build();

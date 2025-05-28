@@ -1,3 +1,10 @@
-import { flatpakInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-flatpakInstall(["org.zulip.Zulip"]);
+export default defineModule("zulip")
+	.description("Team chat")
+	.tags("desktop", "communication", "chat")
+	.packageInstall({
+		manager: "flatpak",
+		packages: ["org.zulip.Zulip"],
+	})
+	.build();

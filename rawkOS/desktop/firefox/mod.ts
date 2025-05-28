@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["firefox-developer-edition"]);
+export default defineModule("firefox")
+	.description("Firefox web browser")
+	.tags("desktop", "browser", "web")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["firefox-developer-edition"],
+	})
+	.build();

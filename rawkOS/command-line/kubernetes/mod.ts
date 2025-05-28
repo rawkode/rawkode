@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["kubectl"]);
+export default defineModule("kubernetes")
+	.description("Kubernetes tools")
+	.tags("cli", "kubernetes", "cloud")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["kubectl"],
+	})
+	.build();

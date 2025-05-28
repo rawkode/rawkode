@@ -1,10 +1,24 @@
-import { $ } from "bun";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["1password", "1password-cli"]);
-
-await $`sudo mkdir --parents /etc/1password`;
-$`sudo cp ${import.meta.dirname}/custom_allowed_browsers /etc/1password/custom_allowed_browsers`;
-
-ensureHomeSymlink(`${import.meta.dirname}/ssh.conf`, ".ssh/config");
+export default defineModule("onepassword")
+	.description("Password manager")
+	.tags("desktop", "security", "passwords")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["1password", "1password-cli"],
+	})
+	.command({
+		command: "mkdir",
+		args: ["--parents", "/etc/1password"],
+		privileged: true,
+	})
+	.fileCopy({
+		source: "custom_allowed_browsers",
+		destination: "/etc/1password/custom_allowed_browsers",
+		privileged: true,
+	})
+	.symlink({
+		source: "ssh.conf",
+		target: ".ssh/config",
+	})
+	.build();

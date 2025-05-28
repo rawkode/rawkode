@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["otf-monaspace", "otf-monaspace-nerd"]);
+export default defineModule("fonts")
+	.description("System fonts")
+	.tags("fonts", "ui")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["otf-monaspace", "otf-monaspace-nerd"],
+	})
+	.build();

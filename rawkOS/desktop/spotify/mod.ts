@@ -1,3 +1,10 @@
-import { flatpakInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-flatpakInstall(["com.spotify.Client"]);
+export default defineModule("spotify")
+	.description("Music streaming")
+	.tags("desktop", "media", "music")
+	.packageInstall({
+		manager: "flatpak",
+		packages: ["com.spotify.Client"],
+	})
+	.build();

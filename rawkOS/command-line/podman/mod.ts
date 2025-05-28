@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["podman"]);
+export default defineModule("podman")
+	.description("Container runtime")
+	.tags("cli", "containers", "development")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["podman"],
+	})
+	.build();

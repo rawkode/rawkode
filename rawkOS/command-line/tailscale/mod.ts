@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["tailscale"]);
+export default defineModule("tailscale")
+	.description("VPN mesh network")
+	.tags("cli", "network", "vpn")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["tailscale"],
+	})
+	.build();

@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["vivid"]);
+export default defineModule("vivid")
+	.description("LS_COLORS generator")
+	.tags("cli", "utilities", "colors")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["vivid"],
+	})
+	.build();

@@ -1,10 +1,22 @@
-import { runCommand } from "../../utils/commands/mod.ts";
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["espanso-wayland"]);
-ensureHomeSymlink(`${import.meta.dirname}/config`, ".config/espanso/config");
-
-ensureHomeSymlink(`${import.meta.dirname}/match`, ".config/espanso/match");
-
-await runCommand("systemctl", ["--user", "enable", "--now", "espanso.service"]);
+export default defineModule("espanso")
+	.description("Text expander")
+	.tags("cli", "productivity", "text")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["espanso-wayland"],
+	})
+	.symlink({
+		source: "config",
+		target: ".config/espanso/config",
+	})
+	.symlink({
+		source: "match",
+		target: ".config/espanso/match",
+	})
+	.command({
+		command: "systemctl",
+		args: ["--user", "enable", "--now", "espanso.service"],
+	})
+	.build();

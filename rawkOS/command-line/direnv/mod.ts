@@ -1,14 +1,18 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["direnv"]);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/direnv.fish`,
-  ".config/fish/conf.d/direnv.fish",
-);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/direnv.nu`,
-  ".config/nushell/autoload/direnv.nu",
-);
+export default defineModule("direnv")
+	.description("Directory-based environment variables")
+	.tags("cli", "environment", "development")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["direnv"],
+	})
+	.symlink({
+		source: "direnv.fish",
+		target: ".config/fish/conf.d/direnv.fish",
+	})
+	.symlink({
+		source: "direnv.nu",
+		target: ".config/nushell/autoload/direnv.nu",
+	})
+	.build();

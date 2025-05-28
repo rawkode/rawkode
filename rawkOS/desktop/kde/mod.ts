@@ -1,3 +1,12 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
+import { conditions } from "../../core/conditions.ts";
 
-await archInstall(["kaccounts-providers", "kio-gdrive"]);
+export default defineModule("kde")
+	.description("KDE desktop environment")
+	.tags("desktop", "kde", "ui")
+	.when(conditions.isKde)
+	.packageInstall({
+		manager: "pacman",
+		packages: ["kaccounts-providers", "kio-gdrive"],
+	})
+	.build();

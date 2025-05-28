@@ -1,9 +1,14 @@
-import { archInstall } from "../../../utils/package/mod.ts";
-import { ensureHomeSymlink } from "../../../utils/files/mod.ts";
+import { defineModule } from "../../../core/module-builder.ts";
 
-await archInstall(["gitui"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/theme.ron`,
-	".config/gitui/theme.ron",
-);
+export default defineModule("gitui")
+	.description("Terminal UI for git")
+	.tags("cli", "git", "ui")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["gitui"],
+	})
+	.symlink({
+		source: "theme.ron",
+		target: ".config/gitui/theme.ron",
+	})
+	.build();

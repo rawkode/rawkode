@@ -1,30 +1,51 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall, flatpakInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
+import { conditions } from "../../core/conditions.ts";
 
-await archInstall([
-  "catppuccin-cursors-mocha",
-  "gauntlet-bin",
-  "mako",
-  "niri",
-  "polkit-gnome",
-  "seahorse",
-  "swww",
-  "wireplumber",
-  "xdg-desktop-portal-gnome",
-  "xwayland-satellite",
-]);
-
-await flatpakInstall(["io.github.dyegoaurelio.simple-wireplumber-gui"]);
-
-await import("./waybar/mod.ts");
-await import("./swaync/mod.ts");
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/config.kdl`,
-  ".config/niri/config.kdl",
-);
-
-ensureHomeSymlink(
-  `${import.meta.dirname}/portals.conf`,
-  ".config/xdg-desktop-portal/portals.conf",
-);
+export default defineModule("niri")
+	.description("Scrollable tiling compositor")
+	.tags("desktop", "compositor", "wayland")
+	.dependsOn("waybar", "swaync")
+	.when(conditions.isNiri)
+	.packageInstall({
+		manager: "pacman",
+		packages: [
+			"catppuccin-cursors-mocha",
+			"gauntlet-bin",
+			"mako",
+			"niri",
+			"polkit-gnome",
+			"seahorse",
+			"swww",
+			"swaylock",
+			"swayidle",
+			"wireplumber",
+			"xdg-desktop-portal-gnome",
+			"xwayland-satellite",
+		],
+	})
+	.when(conditions.isNiri)
+	.packageInstall({
+		manager: "flatpak",
+		packages: ["io.github.dyegoaurelio.simple-wireplumber-gui"],
+	})
+	.when(conditions.isNiri)
+	.symlink({
+		source: "config.kdl",
+		target: ".config/niri/config.kdl",
+	})
+	.when(conditions.isNiri)
+	.symlink({
+		source: "portals.conf",
+		target: ".config/xdg-desktop-portal/portals.conf",
+	})
+	.when(conditions.isNiri)
+	.symlink({
+		source: "../wallpapers/rawkode-academy.png",
+		target: ".config/niri/wallpaper.png",
+	})
+	.when(conditions.isNiri)
+	.symlink({
+		source: "swaylock.conf",
+		target: ".config/swaylock/config",
+	})
+	.build();

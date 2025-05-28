@@ -1,10 +1,22 @@
-import { ensureHomeSymlink } from "../../../utils/files/mod.ts";
-import { archInstall } from "../../../utils/package/mod.ts";
+import { defineModule } from "../../../core/module-builder.ts";
+import { conditions } from "../../../core/conditions.ts";
 
-await archInstall(["waybar", "helvum"]);
-
-ensureHomeSymlink(`${import.meta.dirname}/config`, ".config/waybar/config");
-ensureHomeSymlink(
-	`${import.meta.dirname}/style.css`,
-	".config/waybar/style.css",
-);
+export default defineModule("waybar")
+	.description("Wayland bar")
+	.tags("desktop", "wayland", "bar")
+	.when(conditions.and(conditions.isWayland, conditions.or(conditions.isNiri)))
+	.packageInstall({
+		manager: "pacman",
+		packages: ["waybar", "helvum"],
+	})
+	.when(conditions.and(conditions.isWayland, conditions.or(conditions.isNiri)))
+	.symlink({
+		source: "config",
+		target: ".config/waybar/config",
+	})
+	.when(conditions.and(conditions.isWayland, conditions.or(conditions.isNiri)))
+	.symlink({
+		source: "style.css",
+		target: ".config/waybar/style.css",
+	})
+	.build();

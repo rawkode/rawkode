@@ -1,9 +1,14 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["wezterm"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/config.lua`,
-	".config/wezterm/wezterm.lua",
-);
+export default defineModule("wezterm")
+	.description("GPU-accelerated terminal")
+	.tags("desktop", "terminal")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["wezterm"],
+	})
+	.symlink({
+		source: "config.lua",
+		target: ".config/wezterm/wezterm.lua",
+	})
+	.build();

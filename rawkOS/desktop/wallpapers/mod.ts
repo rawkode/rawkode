@@ -1,6 +1,10 @@
-import { ensureHomeSymlink } from "../../utils/files/mod";
+import { defineModule } from "../../core/module-builder.ts";
 
-ensureHomeSymlink(
-	`${import.meta.dirname}/rawkode-academy.png`,
-	".config/wallpapers/rawkode-academy.png",
-);
+export default defineModule("wallpapers")
+	.description("Desktop wallpapers")
+	.tags("desktop", "customization")
+	.symlink({
+		source: "rawkode-academy.png",
+		target: ".config/wallpapers/rawkode-academy.png",
+	})
+	.build();

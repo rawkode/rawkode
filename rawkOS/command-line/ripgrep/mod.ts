@@ -1,3 +1,10 @@
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["ripgrep"]);
+export default defineModule("ripgrep")
+	.description("Fast grep replacement")
+	.tags("cli", "utilities", "search")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["ripgrep"],
+	})
+	.build();

@@ -26,102 +26,102 @@
 @define-color crust #11111b;
 
 * {
-    font-family: "Monaspace Neon";
-    font-weight: 400;
-    font-size: 12px;
+	font-family: "Monaspace Neon";
+	font-weight: 400;
+	font-size: 12px;
 }
 
 window#waybar {
-    background-color: shade(@base, 0.9);
-    border: 2px solid alpha(@crust, 0.3);
-    color: @text;
+	background-color: shade(@base, 0.9);
+	border: 2px solid alpha(@crust, 0.3);
+	color: @text;
 }
 
 tooltip {
-    background: @crust;
+	background: @crust;
 }
 
 tooltip label {
-    color: @teal;
+	color: @teal;
 }
 
 #workspaces {
-    color: transparent;
+	color: transparent;
 }
 
 #workspaces button {
-    color: @surface1;
-    background: transparent;
+	color: @surface1;
+	background: transparent;
 }
 
 #workspaces button.active {
-    color: shade(@teal, 0.5);
+	color: shade(@teal, 0.5);
 }
 
 #workspaces button.focused {
-    color: @teal;
+	color: @teal;
 }
 
 #workspaces button.urgent {
-    color: @rosewater;
+	color: @rosewater;
 }
 
 #workspaces button:hover {
-    color: @flamingo;
-    background: transparent;
+	color: @flamingo;
+	background: transparent;
 }
 
 #custom-notification {
-    margin-right: 1em;
-    font-size: 18px;
+	margin-right: 1em;
+	font-size: 18px;
 }
 
 #backlight {
-    margin-right: 1em;
-    font-size: 20px;
+	margin-right: 1em;
+	font-size: 20px;
 }
 
 #wireplumber {
-    margin-right: 1em;
-    font-size: 20px;
+	margin-right: 1em;
+	font-size: 20px;
 }
 
 #battery {
-    margin-right: 1em;
-    font-size: 24px;
+	margin-right: 1em;
+	font-size: 24px;
 }
 
 #tray {
-    margin-right: 2em;
+	margin-right: 2em;
 }
 
 #tray > .needs-attention {
-    border-bottom: 3px solid @rose;
+	border-bottom: 3px solid @rose;
 }
 
 #tray > widget {
-    transition: all 0.25s cubic-bezier(0.165, 0.84, 0.44, 1);
+	transition: all 0.25s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 #tray > widget:hover {
-    background: @rose;
+	background: @rose;
 }
 
 /* Added styles for battery and wireplumber */
 #battery.charging,
 #battery.plugged {
-    color: @green;
+	color: @green;
 }
 
 #battery.warning {
-    color: @yellow;
+	color: @yellow;
 }
 
 #battery.critical {
-    color: @red;
+	color: @red;
 }
 
 #wireplumber.muted {
-    color: @overlay0;
+	color: @overlay0;
 }
 /* End of added styles */

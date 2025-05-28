@@ -1,14 +1,18 @@
-import { ensureHomeSymlink } from "../../utils/files/mod.ts";
-import { archInstall } from "../../utils/package/mod.ts";
+import { defineModule } from "../../core/module-builder.ts";
 
-await archInstall(["zed"]);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/keymap.json`,
-	".config/zed/keymap.json",
-);
-
-ensureHomeSymlink(
-	`${import.meta.dirname}/settings.json`,
-	".config/zed/settings.json",
-);
+export default defineModule("zed")
+	.description("Code editor")
+	.tags("desktop", "development", "editor")
+	.packageInstall({
+		manager: "pacman",
+		packages: ["zed"],
+	})
+	.symlink({
+		source: "keymap.json",
+		target: ".config/zed/keymap.json",
+	})
+	.symlink({
+		source: "settings.json",
+		target: ".config/zed/settings.json",
+	})
+	.build();
