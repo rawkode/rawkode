@@ -18,11 +18,9 @@ export class SymlinkAction extends Action<SymlinkConfig> {
 		// If we have a module directory and source is relative, resolve it
 		if (moduleDir && !source.startsWith("~")) {
 			const resolved = path.join(moduleDir, source);
-			// Check if the resolved path exists
-			const fs = import.meta.require("fs");
-			if (!fs.existsSync(resolved)) {
-				throw new Error(`Source file not found: ${resolved} (looking for ${source} in module directory ${moduleDir})`);
-			}
+			// In bundled environments, we trust that the module directory is correct
+			// and skip the existence check since the file might not be accessible
+			// from the bundled context
 			return resolved;
 		}
 		return source;

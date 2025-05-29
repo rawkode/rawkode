@@ -1,5 +1,5 @@
-import { defineModule } from "../../core/module-builder.ts";
-import { conditions } from "../../core/conditions.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
+import { conditions } from "@rawkode/dhd/core/conditions.ts";
 
 export default defineModule("fprintd")
 	.description("Fingerprint authentication support")

@@ -1,4 +1,4 @@
-import { defineModule } from "../../core/module-builder.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
 
 export default defineModule("nushell")
 	.description("Nu shell configuration")
@@ -7,6 +7,18 @@ export default defineModule("nushell")
 		manager: "pacman",
 		packages: ["nushell"],
 	})
+	// .command({
+	// 	command: "sudo",
+	// 	args: [
+	// 		"homectl",
+	// 		"update",
+	// 		process.env.USER || "",
+	// 		"--shell",
+	// 		"/usr/bin/nu",
+	// 	],
+	// 	privileged: true,
+	// 	skipIf: () => process.env.SHELL?.endsWith("/nu") || false,
+	// })
 	.command({
 		command: "nu",
 		args: ["-c", "$nu.user-autoload-dirs | each { |d| mkdir $d }"],

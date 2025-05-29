@@ -1,7 +1,7 @@
-import { defineModule } from "../../core/module-builder.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { Action, type ActionContext, type SideEffect } from "../../core/action.ts";
-import { SystemdUnit } from "../../utils/systemd/mod.ts";
+import { Action, type ActionContext, type SideEffect } from "@rawkode/dhd/core/action.ts";
+import { SystemdUnit } from "@rawkode/dhd/utils/systemd/mod.ts";
 
 const home = import.meta.env.HOME;
 const gitSignCredentialCachePath = `${home}/Code/bin`;

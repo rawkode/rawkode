@@ -1,4 +1,4 @@
-import { defineModule } from "../../core/module-builder.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
 
 export default defineModule("fish")
 	.description("Fish shell configuration")
@@ -6,13 +6,6 @@ export default defineModule("fish")
 	.packageInstall({
 		manager: "pacman",
 		packages: ["fish"],
-	})
-	.command({
-		command: "sudo",
-		args: ["homectl", "update", process.env.USER || "", "--shell", "/usr/bin/fish"],
-		description: "Set fish as default shell",
-		privileged: true,
-		skipIf: () => process.env.SHELL?.endsWith("/fish") || false,
 	})
 	.symlink({
 		source: "magic-enter.fish",

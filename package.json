@@ -1,0 +1,14 @@
+{
+  "workspaces": {
+    "packages": [
+      "dhd",
+      "rawkOS"
+    ]
+  },
+  "scripts": {
+    "dhd": "cd dhd && bun run cli.ts"
+  },
+  "trustedDependencies": [
+    "@parcel/watcher"
+  ]
+}

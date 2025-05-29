@@ -1,6 +1,6 @@
-import { defineModule } from "../../core/module-builder.ts";
-import { conditions } from "../../core/conditions.ts";
-import { Action, type ActionContext, type SideEffect } from "../../core/action.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
+import { conditions } from "@rawkode/dhd/core/conditions.ts";
+import { Action, type ActionContext, type SideEffect } from "@rawkode/dhd/core/action.ts";
 
 const gnomeExtensions = [
 	"advanced-alt-tab@G-dH.github.com",
@@ -50,7 +50,7 @@ class DconfImportAction extends Action {
 
 	async apply(context: ActionContext): Promise<void> {
 		if (context.dryRun || !context.system.desktop.isGnome) return;
-		const { dconfImport } = await import("../../utils/dconf/mod.ts");
+		const { dconfImport } = await import("@rawkode/dhd/utils/dconf/mod.ts");
 		const moduleDir = context.moduleDir || import.meta.dirname;
 		const options = { verbose: context.verbose };
 		await dconfImport(`${moduleDir}/gnome.dconf`, "/", options);
@@ -75,7 +75,7 @@ class InstallExtensionsAction extends Action {
 
 	async apply(context: ActionContext): Promise<void> {
 		if (context.dryRun || !context.system.desktop.isGnome) return;
-		const { runCommand } = await import("../../utils/commands/mod.ts");
+		const { runCommand } = await import("@rawkode/dhd/utils/commands/mod.ts");
 		for (const ext of gnomeExtensions) {
 			await runCommand("gext", ["install", ext], { verbose: context.verbose });
 		}
@@ -98,7 +98,7 @@ class RemoveUnwantedAppsAction extends Action {
 
 	async apply(context: ActionContext): Promise<void> {
 		if (context.dryRun || !context.system.desktop.isGnome) return;
-		const { runCommand } = await import("../../utils/commands/mod.ts");
+		const { runCommand } = await import("@rawkode/dhd/utils/commands/mod.ts");
 		await runCommand("paru", ["-Rcssun", "--noconfirm", ...unwantedApps], {
 			allowFailure: true,
 			verbose: context.verbose,

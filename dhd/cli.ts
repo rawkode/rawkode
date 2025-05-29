@@ -11,50 +11,53 @@ import { initSudoCache } from "./utils/commands/mod.ts";
 import { systemContext } from "./core/system-context.ts";
 import chalk from "chalk";
 
-registerCoreActions();
+export interface CLIOptions {
+	basePath?: string;
+}
 
-const cli = meow(
-	`
-  Usage
-    $ rks <command> [options] [modules...]
+export async function runCLI(options: CLIOptions = {}) {
+	registerCoreActions();
 
-  Commands
-    plan      Show what changes would be made
-    apply     Apply the changes
-    list      List available modules
+	const cli = meow(
+		`
+	  Usage
+	    $ dhd <command> [options] [modules...]
 
-  Options
-    --verbose, -v    Show detailed output
-    --tui            Use interactive TUI for execution
-    --dry-run        Don't make any changes (same as plan)
-    --help           Show this help
-    --version        Show version
+	  Commands
+	    plan      Show what changes would be made
+	    apply     Apply the changes
+	    list      List available modules
 
-  Examples
-    $ rks plan
-    $ rks apply
-    $ rks plan nushell
-    $ rks apply command-line/git desktop/firefox
+	  Options
+	    --verbose, -v    Show detailed output
+	    --tui            Use interactive TUI for execution
+	    --dry-run        Don't make any changes (same as plan)
+	    --help           Show this help
+	    --version        Show version
+
+	  Examples
+	    $ dhd plan
+	    $ dhd apply
+	    $ dhd plan nushell
+	    $ dhd apply command-line/git desktop/firefox
 `,
-	{
-		importMeta: import.meta,
-		flags: {
-			verbose: {
-				type: "boolean",
-				shortFlag: "v",
-			},
-			tui: {
-				type: "boolean",
-			},
-			dryRun: {
-				type: "boolean",
+		{
+			importMeta: import.meta,
+			flags: {
+				verbose: {
+					type: "boolean",
+					shortFlag: "v",
+				},
+				tui: {
+					type: "boolean",
+				},
+				dryRun: {
+					type: "boolean",
+				},
 			},
 		},
-	},
-);
+	);
 
-async function main() {
-	
 	const command = cli.input[0];
 	const targetModules = cli.input.slice(1);
 
@@ -64,7 +67,7 @@ async function main() {
 	}
 
 	const loader = new FileSystemModuleLoader();
-	const basePath = path.dirname(import.meta.url.replace("file://", ""));
+	const basePath = options.basePath || process.cwd();
 
 	try {
 		const modules = await loader.discover(basePath);
@@ -157,20 +160,29 @@ async function main() {
 				// Check if any effects require elevation
 				const requiresElevation = allEffects.some((effect) => effect.requiresElevation);
 
-				// Show plan first
-				visualizer.showPlan(effects);
+				// Show plan first (only for non-TUI mode)
+				if (!cli.flags.tui) {
+					visualizer.showPlan(effects);
+				}
 
 				// Initialize sudo cache if needed
 				if (requiresElevation) {
-					console.log(chalk.yellow("\n⚠️  This will require elevated privileges"));
-					await initSudoCache();
+					if (!cli.flags.tui) {
+						console.log(chalk.yellow("\n⚠️  This will require elevated privileges"));
+					}
+					await initSudoCache(!cli.flags.tui);
 				}
 
-				console.log(chalk.bold.blue("\n🔄 Applying changes...\n"));
+				if (!cli.flags.tui) {
+					console.log(chalk.bold.blue("\n🔄 Applying changes...\n"));
+				}
 				
 				if (cli.flags.tui) {
 					// Remove the basic visualizer event handlers
 					executor.removeAllListeners();
+					
+					// Clear the screen before starting TUI
+					console.clear();
 					
 					// Use TUI visualizer for better output handling
 					const tuiVisualizer = new InkInteractiveTUIVisualizer(cli.flags.verbose);
@@ -189,9 +201,7 @@ async function main() {
 					
 					try {
 						await executor.apply(context, effects);
-						// Don't cleanup - wait for user to exit
-						console.log(chalk.yellow("\n\nPress 'q' to exit"));
-						// Keep the process alive
+						// Keep the process alive - the TUI footer already shows the quit instruction
 						await new Promise(() => {}); // This will keep running until user presses 'q'
 					} catch (error) {
 						tuiVisualizer.cleanup();
@@ -222,7 +232,10 @@ async function main() {
 	}
 }
 
-main().catch((error) => {
-	console.error(chalk.red("Fatal error:"), error);
-	process.exit(1);
-});
+// Run CLI if called directly
+if (import.meta.main) {
+	runCLI().catch((error) => {
+		console.error(chalk.red("Fatal error:"), error);
+		process.exit(1);
+	});
+}

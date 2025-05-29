@@ -56,7 +56,8 @@ export const runCommand = async (
 				const text = new TextDecoder().decode(chunk);
 				stdout += text;
 				
-				if (options.verbose) {
+				// Only write to stdout if no callback is provided or if verbose is explicitly true
+				if (options.verbose && !options.onOutput) {
 					process.stdout.write(text);
 				}
 				if (options.onOutput) {
@@ -77,7 +78,8 @@ export const runCommand = async (
 				const text = new TextDecoder().decode(chunk);
 				stderr += text;
 				
-				if (options.verbose) {
+				// Only write to stderr if no callback is provided or if verbose is explicitly true
+				if (options.verbose && !options.onError) {
 					process.stderr.write(text);
 				}
 				if (options.onError) {
@@ -125,10 +127,12 @@ export const runPrivilegedCommand = async (
 
 let sudoCacheInitialized = false;
 
-export const initSudoCache = async () => {
+export const initSudoCache = async (showMessage = true) => {
 	if (sudoCacheInitialized) return;
 
-	console.log("Authenticating for system changes...");
+	if (showMessage) {
+		console.log("Authenticating for system changes...");
+	}
 
 	// Just validate sudo credentials once at the start
 	await runCommand("sudo", ["-v"]);

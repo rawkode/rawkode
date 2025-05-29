@@ -1,4 +1,4 @@
-import { defineModule } from "../../core/module-builder.ts";
+import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
 
 export default defineModule("eza")
 	.description("Modern ls replacement")
