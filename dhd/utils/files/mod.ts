@@ -24,22 +24,30 @@ export const ensureHomeSymlink = (
 		const stats = lstatSync(targetPath);
 		if (stats.isSymbolicLink()) {
 			const currentTarget = readlinkSync(targetPath);
-			if (currentTarget === file && !options.force) {
+			if (currentTarget === file) {
 				// Symlink already exists and points to the correct source
 				return;
 			}
+			// Symlink exists but points to different target, remove it
+			removeSync(targetPath);
+		} else {
+			// Non-symlink file exists, remove it if force is true
+			if (options.force) {
+				removeSync(targetPath);
+			} else {
+				throw new Error(`File exists at ${targetPath} and is not a symlink. Use force option to override.`);
+			}
 		}
-	} catch (error) {
-		// File doesn't exist, proceed to create symlink
+	} catch (error: any) {
+		// Only proceed if the file doesn't exist (ENOENT)
+		if (error.code !== 'ENOENT') {
+			throw error;
+		}
 	}
 
 	// Ensure parent directory exists
 	const targetDir = path.dirname(targetPath);
 	ensureDirSync(targetDir);
-
-	if (options.force) {
-		removeSync(targetPath);
-	}
 
 	ensureSymlinkSync(file, targetPath);
 };

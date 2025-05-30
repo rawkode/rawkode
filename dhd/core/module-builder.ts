@@ -12,6 +12,7 @@ import {
 import { CommandAction, type CommandConfig } from "./actions/command.ts";
 import { ConditionalAction, type ConditionFunction } from "./actions/conditional.ts";
 import { HttpDownloadAction, type HttpDownloadConfig } from "./actions/http.ts";
+import { SystemdServiceAction, SystemdSocketAction, type SystemdServiceConfig, type SystemdSocketConfig } from "./actions/systemd.ts";
 import { SystemContext } from "./system-context.ts";
 
 export class ModuleBuilder {
@@ -97,6 +98,28 @@ export class ModuleBuilder {
 			new HttpDownloadAction(
 				`Download ${config.url}`,
 				`Download ${config.url} to ${config.destination}`,
+				config,
+			),
+		);
+		return this;
+	}
+
+	systemdService(config: SystemdServiceConfig): this {
+		this.actions.push(
+			new SystemdServiceAction(
+				`Systemd service ${config.name}`,
+				`Configure systemd service ${config.name}`,
+				config,
+			),
+		);
+		return this;
+	}
+
+	systemdSocket(config: SystemdSocketConfig): this {
+		this.actions.push(
+			new SystemdSocketAction(
+				`Systemd socket ${config.name}`,
+				`Configure systemd socket ${config.name}`,
 				config,
 			),
 		);
@@ -220,6 +243,42 @@ export class ConditionalModuleBuilder {
 		const action = new HttpDownloadAction(
 			`Download ${config.url}`,
 			`Download ${config.url} to ${config.destination}`,
+			config,
+		);
+
+		this.parent.customAction(
+			new ConditionalAction(
+				`Conditional: ${action.name}`,
+				`Conditionally ${action.description}`,
+				{ condition: this.condition, action },
+			),
+		);
+
+		return this.parent;
+	}
+
+	systemdService(config: SystemdServiceConfig): ModuleBuilder {
+		const action = new SystemdServiceAction(
+			`Systemd service ${config.name}`,
+			`Configure systemd service ${config.name}`,
+			config,
+		);
+
+		this.parent.customAction(
+			new ConditionalAction(
+				`Conditional: ${action.name}`,
+				`Conditionally ${action.description}`,
+				{ condition: this.condition, action },
+			),
+		);
+
+		return this.parent;
+	}
+
+	systemdSocket(config: SystemdSocketConfig): ModuleBuilder {
+		const action = new SystemdSocketAction(
+			`Systemd socket ${config.name}`,
+			`Configure systemd socket ${config.name}`,
 			config,
 		);
 
