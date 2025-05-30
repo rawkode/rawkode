@@ -188,7 +188,9 @@ binds {
 	Super+Q { close-window; }
 	Super+Shift+Q { quit; }
 
-	Super+Space { spawn "gauntlet"; }
+	Super+Space { spawn "fuzzel"; }
+
+	Super+E { spawn "bemoji"; }
 
 	Super+P { "toggle-overview"; }
 
@@ -198,10 +200,10 @@ binds {
 
 	Super+Backslash { spawn "1password" "--quick-access"; }
 
-    Super+Comma  { consume-window-into-column; }
-    Super+Period { expel-window-from-column; }
+  Super+Comma  { consume-window-into-column; }
+  Super+Period { expel-window-from-column; }
 
-   	Super+Up { focus-window-up; }
+ 	Super+Up { focus-window-up; }
 	Super+Down { focus-window-down; }
 
 	Super+Left  { focus-column-left; }
@@ -234,21 +236,21 @@ binds {
 	Super+R { switch-preset-column-width; }
 	Super+Shift+R { switch-preset-window-height; }
 
-    Ctrl+Shift+Space       { toggle-window-floating; }
+  Ctrl+Shift+Space       { toggle-window-floating; }
 
 	Print { screenshot; }
 	Super+Print { screenshot-window; }
 	Super+Ctrl+Print { screenshot-screen; }
 
-    XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
-    XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"; }
-    XF86AudioMute        allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
-    XF86AudioMicMute     allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"; }
+  XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
+  XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"; }
+  XF86AudioMute        allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
+  XF86AudioMicMute     allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"; }
 
-    XF86MonBrightnessUp { spawn "brightnessctl" "s" "10%+"; }
-    XF86MonBrightnessDown { spawn "brightnessctl" "s" "10%-"; }
+  XF86MonBrightnessUp { spawn "brightnessctl" "s" "10%+"; }
+  XF86MonBrightnessDown { spawn "brightnessctl" "s" "10%-"; }
 
-    Super+L allow-inhibiting=false { spawn "swaylock"; }
+  Super+L allow-inhibiting=false { spawn "swaylock"; }
 }
 
 // This stops wezterm from crashing

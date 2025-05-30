@@ -5,11 +5,12 @@ export default defineModule("niri")
 	.description("Scrollable tiling compositor")
 	.tags("desktop", "compositor", "wayland")
 	.dependsOn("waybar", "swaync")
-	.when(conditions.isNiri)
 	.packageInstall({
-		manager: "pacman",
+		manager: "arch",
 		packages: [
+			"bemoji",
 			"catppuccin-cursors-mocha",
+			"fuzzel",
 			"gauntlet-bin",
 			"mako",
 			"niri",
@@ -23,29 +24,28 @@ export default defineModule("niri")
 			"xwayland-satellite",
 		],
 	})
-	.when(conditions.isNiri)
 	.packageInstall({
 		manager: "flatpak",
 		packages: ["io.github.dyegoaurelio.simple-wireplumber-gui"],
 	})
-	.when(conditions.isNiri)
 	.symlink({
 		source: "config.kdl",
 		target: ".config/niri/config.kdl",
 	})
-	.when(conditions.isNiri)
 	.symlink({
 		source: "portals.conf",
 		target: ".config/xdg-desktop-portal/portals.conf",
 	})
-	.when(conditions.isNiri)
 	.symlink({
 		source: "../wallpapers/rawkode-academy.png",
 		target: ".config/niri/wallpaper.png",
 	})
-	.when(conditions.isNiri)
 	.symlink({
 		source: "swaylock.conf",
 		target: ".config/swaylock/config",
+	})
+	.symlink({
+		source: "fuzzel.ini",
+		target: ".config/fuzzel/fuzzel.ini",
 	})
 	.build();
