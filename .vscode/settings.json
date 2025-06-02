@@ -1,0 +1,36 @@
+{
+	"mcp": {
+		"servers": {
+			"github": {
+				"command": "docker",
+				"args": [
+					"container",
+					"run",
+					"-i",
+					"--rm",
+					"-e",
+					"GITHUB_PERSONAL_ACCESS_TOKEN",
+					"ghcr.io/github/github-mcp-server"
+				],
+				"env": {
+					"GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
+				}
+			},
+			"cloudflare-observability": {
+				"command": "npx",
+				"args": ["mcp-remote", "https://observability.mcp.cloudflare.com/sse"]
+			},
+			"cloudflare-bindings": {
+				"command": "npx",
+				"args": ["mcp-remote", "https://bindings.mcp.cloudflare.com/sse"]
+			},
+			"pulumi": {
+				"command": "npx",
+				"args": ["-y", "@pulumi/mcp-server"],
+				"env": {
+					"PULUMI_ACCESS_TOKEN": "${env:PULUMI_ACCESS_TOKEN}"
+				}
+			}
+		}
+	}
+}
