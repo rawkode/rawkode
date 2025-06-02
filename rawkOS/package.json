@@ -13,6 +13,6 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@rawkode/dhd": "workspace:*"
+		"@korora-tech/dhd": "^0"
 	}
 }

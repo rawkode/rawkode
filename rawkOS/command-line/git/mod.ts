@@ -1,4 +1,4 @@
-import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
+import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
 
 const home = import.meta.env.HOME;
 const gitSignCredentialCachePath = `${home}/Code/bin`;

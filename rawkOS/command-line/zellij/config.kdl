@@ -39,9 +39,6 @@ ui {
 }
 
 keybinds {
-	unbind "Ctrl PageUp"
-	unbind "Ctrl PageDown"
-
     locked {
         bind "Ctrl g" { SwitchToMode "Normal"; }
     }
@@ -200,6 +197,8 @@ keybinds {
 
         bind "Alt PageUp" { GoToPreviousTab; }
         bind "Alt PageDown" { GoToNextTab; }
+        bind "Ctrl PageUp" { GoToPreviousTab; }
+        bind "Ctrl PageDown" { GoToNextTab; }
     }
 
     shared_except "normal" "locked" {

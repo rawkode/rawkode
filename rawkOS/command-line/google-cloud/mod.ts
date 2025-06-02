@@ -1,4 +1,4 @@
-import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
+import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
 import { existsSync } from "node:fs";
 
 const home = import.meta.env.HOME;
@@ -38,7 +38,7 @@ export default defineModule("google-cloud")
 			if (context.dryRun) return;
 
 			const sdkPath = `${context.system.user.home}/.local/google-cloud-sdk`;
-			const { runCommand } = await import("@rawkode/dhd/utils/commands/mod.ts");
+			const { runCommand } = await import("@korora-tech/dhd/utils/commands/mod.ts");
 
 			if (!existsSync(sdkPath)) {
 				await runCommand(

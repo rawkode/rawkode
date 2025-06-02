@@ -1,4 +1,4 @@
-import { defineModule } from "@rawkode/dhd/core/module-builder.ts";
+import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
 
 export default defineModule("visual-studio-code")
 	.description("Code editor")
