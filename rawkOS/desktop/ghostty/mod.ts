@@ -1,14 +1,14 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("ghostty")
 	.description("GPU-accelerated terminal")
 	.tags("desktop", "terminal")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["ghostty"],
-	})
-	.symlink({
-		source: "config.ini",
-		target: ".config/ghostty/config",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["ghostty"],
+	}),
+		linkDotfile({
+			source: "config.ini",
+		target: "ghostty/config",
+	}),
+	]);

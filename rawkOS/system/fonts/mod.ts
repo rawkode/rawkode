@@ -1,10 +1,9 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("fonts")
 	.description("System fonts")
-	.tags("fonts", "ui")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["otf-monaspace", "otf-monaspace-nerd"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["otf-monaspace", "otf-monaspace-nerd"],
+		}),
+	]);

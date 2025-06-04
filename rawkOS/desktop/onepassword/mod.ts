@@ -1,24 +1,19 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile, copyFile } from "@korora-tech/dhd";
 
 export default defineModule("onepassword")
 	.description("Password manager")
 	.tags("desktop", "security", "passwords")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["1password", "1password-cli"],
-	})
-	.command({
-		command: "mkdir",
-		args: ["--parents", "/etc/1password"],
-		privileged: true,
-	})
-	.fileCopy({
-		source: "custom_allowed_browsers",
+	.with(() => [
+		packageInstall({
+			names: ["1password", "1password-cli"],
+	}),
+		linkDotfile({
+			source: "ssh.conf",
+		target: ".ssh/config",
+	}),
+		copyFile({
+			source: "custom_allowed_browsers",
 		destination: "/etc/1password/custom_allowed_browsers",
 		privileged: true,
-	})
-	.symlink({
-		source: "ssh.conf",
-		target: ".ssh/config",
-	})
-	.build();
+	}),
+	]);

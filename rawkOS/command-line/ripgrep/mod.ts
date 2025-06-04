@@ -1,10 +1,9 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("ripgrep")
 	.description("Fast grep replacement")
-	.tags("cli", "utilities", "search")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["ripgrep"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["ripgrep"],
+		}),
+	]);

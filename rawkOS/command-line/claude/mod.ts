@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("claude")
-  .description("Claude AI CLI")
-  .tags("cli", "ai", "development")
-  .packageInstall({
-    manager: "bun",
-    packages: ["@anthropic-ai/claude-code"],
-  })
-  .build();
+	.description("Claude AI CLI")
+	.with(() => [
+		packageInstall({
+			names: ["@anthropic-ai/claude-code"],
+			manager: "bun",
+		}),
+	]);

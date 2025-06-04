@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("slack")
 	.description("Team communication")
 	.tags("desktop", "communication", "chat")
-	.packageInstall({
-		manager: "flatpak",
-		packages: ["com.slack.Slack"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["com.slack.Slack"],
+	}),
+	]);

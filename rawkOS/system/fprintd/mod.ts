@@ -1,18 +1,16 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
-import { conditions } from "@korora-tech/dhd/core/conditions.ts";
+import { defineModule, packageInstall, copyFile } from "@korora-tech/dhd";
+import { conditions } from "@korora-tech/dhd";
 
 export default defineModule("fprintd")
 	.description("Fingerprint authentication support")
 	.tags("security", "authentication")
-	.when(conditions.hasFingerprint)
-	.packageInstall({
-		manager: "pacman",
-		packages: ["fprintd"],
-	})
-	.when(conditions.hasFingerprint)
-	.fileCopy({
-		source: "sudo",
+	.with(() => [
+		packageInstall({
+			names: ["fprintd"],
+	}),
+		copyFile({
+			source: "sudo",
 		destination: "/etc/pam.d/sudo",
 		privileged: true,
-	})
-	.build();
+	}),
+	]);

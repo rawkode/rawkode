@@ -1,10 +1,9 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("btop")
 	.description("Resource monitor")
-	.tags("cli", "system", "monitoring")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["btop"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["btop"],
+		}),
+	]);

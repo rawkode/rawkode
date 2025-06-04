@@ -1,18 +1,18 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("zellij")
 	.description("Terminal multiplexer")
 	.tags("cli", "terminal", "multiplexer")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["zellij"],
-	})
-	.symlink({
-		source: "config.kdl",
-		target: ".config/zellij/config.kdl",
-	})
-	.symlink({
-		source: "zellij.nu",
-		target: ".config/nushell/autoload/zellij.nu",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["zellij"],
+	}),
+		linkDotfile({
+			source: "config.kdl",
+		target: "zellij/config.kdl",
+	}),
+		linkDotfile({
+			source: "zellij.nu",
+		target: "nushell/autoload/zellij.nu",
+	}),
+	]);

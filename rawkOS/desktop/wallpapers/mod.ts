@@ -1,10 +1,11 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("wallpapers")
 	.description("Desktop wallpapers")
 	.tags("desktop", "customization")
-	.symlink({
-		source: "rawkode-academy.png",
-		target: ".config/wallpapers/rawkode-academy.png",
-	})
-	.build();
+	.with(() => [
+		linkDotfile({
+			source: "rawkode-academy.png",
+		target: "wallpapers/rawkode-academy.png",
+	}),
+	]);

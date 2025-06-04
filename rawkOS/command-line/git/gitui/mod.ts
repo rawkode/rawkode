@@ -1,14 +1,14 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("gitui")
 	.description("Terminal UI for git")
 	.tags("cli", "git", "ui")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["gitui"],
-	})
-	.symlink({
-		source: "theme.ron",
-		target: ".config/gitui/theme.ron",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["gitui"],
+		}),
+		linkDotfile({
+			source: "theme.ron",
+			target: "gitui/theme.ron",
+		}),
+	]);

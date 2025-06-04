@@ -1,13 +1,13 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
-import { conditions } from "@korora-tech/dhd/core/conditions.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
+import { conditions } from "@korora-tech/dhd";
 
 export default defineModule("niri")
 	.description("Scrollable tiling compositor")
 	.tags("desktop", "compositor", "wayland")
 	.dependsOn("waybar", "swaync")
-	.packageInstall({
-		manager: "arch",
-		packages: [
+	.with(() => [
+		packageInstall({
+			names: [
 			"bemoji",
 			"catppuccin-cursors-mocha",
 			"fuzzel",
@@ -23,29 +23,28 @@ export default defineModule("niri")
 			"xdg-desktop-portal-gnome",
 			"xwayland-satellite",
 		],
-	})
-	.packageInstall({
-		manager: "flatpak",
-		packages: ["io.github.dyegoaurelio.simple-wireplumber-gui"],
-	})
-	.symlink({
-		source: "config.kdl",
-		target: ".config/niri/config.kdl",
-	})
-	.symlink({
-		source: "portals.conf",
-		target: ".config/xdg-desktop-portal/portals.conf",
-	})
-	.symlink({
-		source: "../wallpapers/rawkode-academy.png",
-		target: ".config/niri/wallpaper.png",
-	})
-	.symlink({
-		source: "swaylock.conf",
-		target: ".config/swaylock/config",
-	})
-	.symlink({
-		source: "fuzzel.ini",
-		target: ".config/fuzzel/fuzzel.ini",
-	})
-	.build();
+	}),
+		packageInstall({
+			names: ["io.github.dyegoaurelio.simple-wireplumber-gui"],
+	}),
+		linkDotfile({
+			source: "config.kdl",
+		target: "niri/config.kdl",
+	}),
+		linkDotfile({
+			source: "portals.conf",
+		target: "xdg-desktop-portal/portals.conf",
+	}),
+		linkDotfile({
+			source: "../wallpapers/rawkode-academy.png",
+		target: "niri/wallpaper.png",
+	}),
+		linkDotfile({
+			source: "swaylock.conf",
+		target: "swaylock/config",
+	}),
+		linkDotfile({
+			source: "fuzzel.ini",
+		target: "fuzzel/fuzzel.ini",
+	}),
+	]);

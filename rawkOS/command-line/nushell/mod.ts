@@ -1,34 +1,34 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, executeCommand, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("nushell")
 	.description("Nu shell configuration")
-	.tags("cli", "shell")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["nushell"],
-	})
-	// .command({
-	// 	command: "sudo",
-	// 	args: [
-	// 		"homectl",
-	// 		"update",
-	// 		process.env.USER || "",
-	// 		"--shell",
-	// 		"/usr/bin/nu",
-	// 	],
-	// 	privileged: true,
-	// 	skipIf: () => process.env.SHELL?.endsWith("/nu") || false,
-	// })
-	.command({
-		command: "nu",
-		args: ["-c", "$nu.user-autoload-dirs | each { |d| mkdir $d }"],
-	})
-	.symlink({
-		source: "config.nu",
-		target: ".config/nushell/config.nu",
-	})
-	.symlink({
-		source: "env.nu",
-		target: ".config/nushell/env.nu",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["nushell"],
+		}),
+		// TODO: Add skipIf condition support - not yet available in dhd
+		// executeCommand({
+		// 	command: "sudo",
+		// 	args: [
+		// 		"homectl",
+		// 		"update",
+		// 		process.env.USER || "",
+		// 		"--shell",
+		// 		"/usr/bin/nu",
+		// 	],
+		// 	privileged: true,
+		// 	skipIf: () => process.env.SHELL?.endsWith("/nu") || false,
+		// }),
+		executeCommand({
+			command: "nu",
+			args: ["-c", "$nu.user-autoload-dirs | each { |d| mkdir $d }"],
+		}),
+		linkDotfile({
+			source: "config.nu",
+			target: "nushell/config.nu",
+		}),
+		linkDotfile({
+			source: "env.nu",
+			target: "nushell/env.nu",
+		}),
+	]);

@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("spotify")
 	.description("Music streaming")
 	.tags("desktop", "media", "music")
-	.packageInstall({
-		manager: "flatpak",
-		packages: ["com.spotify.Client"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["com.spotify.Client"],
+	}),
+	]);

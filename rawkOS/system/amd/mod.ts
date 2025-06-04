@@ -1,13 +1,13 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
-import { conditions } from "@korora-tech/dhd/core/conditions.ts";
+import { defineModule, copyFile } from "@korora-tech/dhd";
+import { conditions } from "@korora-tech/dhd";
 
 export default defineModule("amd")
 	.description("AMD GPU power management rules")
 	.tags("hardware", "gpu")
-	.when(conditions.hasAmdGpu)
-	.fileCopy({
-		source: "udev.rules",
+	.with(() => [
+		copyFile({
+			source: "udev.rules",
 		destination: "/etc/udev/rules.d/30-amdgpu-pm.rules",
 		privileged: true,
-	})
-	.build();
+	}),
+	]);

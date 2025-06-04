@@ -1,16 +1,17 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, copyFile } from "@korora-tech/dhd";
 
 export default defineModule("dns")
 	.description("DNS configuration")
 	.tags("network", "dns")
-	.fileCopy({
-		source: "hosts",
+	.with(() => [
+		copyFile({
+			source: "hosts",
 		destination: "/etc/hosts",
 		privileged: true,
-	})
-	.fileCopy({
-		source: "resolved.conf",
+	}),
+		copyFile({
+			source: "resolved.conf",
 		destination: "/etc/systemd/resolved.conf",
 		privileged: true,
-	})
-	.build();
+	}),
+	]);

@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("tailscale")
 	.description("VPN mesh network")
 	.tags("cli", "network", "vpn")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["tailscale"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["tailscale"],
+	}),
+	]);

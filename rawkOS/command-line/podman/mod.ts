@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("podman")
 	.description("Container runtime")
 	.tags("cli", "containers", "development")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["podman"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["podman"],
+	}),
+	]);

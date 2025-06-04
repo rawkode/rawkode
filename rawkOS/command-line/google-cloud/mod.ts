@@ -1,4 +1,4 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, linkDotfile, customAction } from "@korora-tech/dhd";
 import { existsSync } from "node:fs";
 
 const home = import.meta.env.HOME;
@@ -6,7 +6,8 @@ const home = import.meta.env.HOME;
 export default defineModule("google-cloud")
 	.description("Google Cloud SDK")
 	.tags("cli", "cloud", "gcp")
-	.customAction({
+	.with(() => [
+		customAction({
 		name: "Install Google Cloud SDK",
 		description: "Download and install Google Cloud SDK",
 		async plan(context) {
@@ -74,9 +75,9 @@ export default defineModule("google-cloud")
 				{ verbose: context.verbose },
 			);
 		},
-	})
-	.symlink({
+	}),
+	linkDotfile({
 		source: "google-cloud.fish",
-		target: ".config/fish/conf.d/google-cloud.fish",
-	})
-	.build();
+		target: "fish/conf.d/google-cloud.fish",
+	}),
+]);

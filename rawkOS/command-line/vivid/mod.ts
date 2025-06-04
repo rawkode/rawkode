@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("vivid")
 	.description("LS_COLORS generator")
 	.tags("cli", "utilities", "colors")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["vivid"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["vivid"],
+	}),
+	]);

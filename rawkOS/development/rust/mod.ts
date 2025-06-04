@@ -1,22 +1,18 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("rust")
 	.description("Rust programming language")
 	.tags("development", "programming", "rust")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["rustup"],
-	})
-	.command({
-		command: "rustup",
-		args: ["default", "stable"],
-	})
-	.symlink({
-		source: "rust.fish",
-		target: ".config/fish/conf.d/rust.fish",
-	})
-	.symlink({
-		source: "rust.nu",
-		target: ".config/nushell/autoload/rust.nu",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["rustup"],
+	}),
+		linkDotfile({
+			source: "rust.fish",
+		target: "fish/conf.d/rust.fish",
+	}),
+		linkDotfile({
+			source: "rust.nu",
+		target: "nushell/autoload/rust.nu",
+	}),
+	]);

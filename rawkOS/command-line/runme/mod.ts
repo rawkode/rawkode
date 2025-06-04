@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("runme")
 	.description("Run commands from markdown")
 	.tags("cli", "documentation", "development")
-	.packageInstall({
-		manager: "go",
-		packages: ["github.com/stateful/runme@latest"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["github.com/stateful/runme@latest"],
+	}),
+	]);

@@ -1,15 +1,15 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("github")
 	.description("GitHub CLI and configuration")
 	.tags("cli", "git", "development")
-	.symlink({
-		source: "known_hosts",
-		target: ".ssh/known_hosts",
-		force: true,
-	})
-	.packageInstall({
-		manager: "pacman",
-		packages: ["github-cli"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["github-cli"],
+		}),
+		linkDotfile({
+			source: "known_hosts",
+			target: ".ssh/known_hosts",
+			force: true,
+		}),
+	]);

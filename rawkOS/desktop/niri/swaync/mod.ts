@@ -1,12 +1,11 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
-import { conditions } from "@korora-tech/dhd/core/conditions.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
+import { conditions } from "@korora-tech/dhd";
 
 export default defineModule("swaync")
 	.description("Notification center for Sway/Wayland")
 	.tags("desktop", "wayland", "notifications")
-	.when(conditions.and(conditions.isWayland, conditions.or(conditions.isNiri)))
-	.packageInstall({
-		manager: "pacman",
-		packages: ["swaync"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["swaync"],
+	}),
+	]);

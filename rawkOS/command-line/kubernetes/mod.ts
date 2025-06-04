@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("kubernetes")
 	.description("Kubernetes tools")
 	.tags("cli", "kubernetes", "cloud")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["kubectl"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["kubectl"],
+	}),
+	]);

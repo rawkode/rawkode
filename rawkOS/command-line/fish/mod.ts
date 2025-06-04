@@ -1,18 +1,17 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("fish")
 	.description("Fish shell configuration")
-	.tags("cli", "shell")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["fish"],
-	})
-	.symlink({
-		source: "magic-enter.fish",
-		target: ".config/fish/conf.d/magic-enter.fish",
-	})
-	.symlink({
-		source: "aliases.fish",
-		target: ".config/fish/conf.d/aliases.fish",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["fish"],
+		}),
+		linkDotfile({
+			source: "magic-enter.fish",
+			target: "fish/conf.d/magic-enter.fish",
+		}),
+		linkDotfile({
+			source: "aliases.fish",
+			target: "fish/conf.d/aliases.fish",
+		}),
+	]);

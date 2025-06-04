@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("dconf-editor")
 	.description("GNOME configuration editor")
 	.tags("desktop", "gnome", "configuration")
-	.packageInstall({
-		manager: "flatpak",
-		packages: ["ca.desrt.dconf-editor"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["ca.desrt.dconf-editor"],
+	}),
+	]);

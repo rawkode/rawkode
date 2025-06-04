@@ -1,14 +1,14 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("jj")
 	.description("Jujutsu version control")
 	.tags("cli", "vcs", "development")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["jujutsu"],
-	})
-	.symlink({
-		source: "config.toml",
-		target: ".config/jj/config.toml",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["jujutsu"],
+	}),
+		linkDotfile({
+			source: "config.toml",
+		target: "jj/config.toml",
+	}),
+	]);

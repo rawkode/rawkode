@@ -1,10 +1,9 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("bat")
 	.description("Cat replacement with syntax highlighting")
-	.tags("cli", "utilities")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["bat"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["bat"],
+		}),
+	]);

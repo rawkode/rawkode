@@ -1,14 +1,14 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("bun")
 	.description("Bun TypeScript runtime")
 	.tags("development", "programming")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["bun-bin"],
-	})
-	.symlink({
-		source: "bun.nu",
-		target: ".config/nushell/autoload/bun.nu",
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["bun-bin"],
+		}),
+		linkDotfile({
+			source: "bun.nu",
+			target: "nushell/autoload/bun.nu",
+		}),
+	]);

@@ -1,10 +1,11 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("deno")
 	.description("Deno JavaScript runtime")
 	.tags("development", "programming", "javascript", "typescript")
-	.symlink({
-		source: "deno.fish",
-		target: ".config/fish/conf.d/deno.fish",
-	})
-	.build();
+	.with(() => [
+		linkDotfile({
+			source: "deno.fish",
+		target: "fish/conf.d/deno.fish",
+	}),
+	]);

@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "dev": "deno run --watch main.ts"
+  },
+  "imports": {
+    "@korora-tech/dhd": "jsr:@korora-tech/dhd@^0.1.7",
+    "@std/assert": "jsr:@std/assert@1"
+  }
+}

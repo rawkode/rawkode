@@ -1,17 +1,16 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, executeCommand } from "@korora-tech/dhd";
 
 export default defineModule("carapace")
 	.description("Shell completion framework")
-	.tags("cli", "shell", "completion")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["carapace-bin"],
-	})
-	.command({
-		command: "nu",
-		args: [
-			"-c",
-			'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
-		],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["carapace-bin"],
+		}),
+		executeCommand({
+			command: "nu",
+			args: [
+				"-c",
+				'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
+			],
+		}),
+	]);

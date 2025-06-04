@@ -1,10 +1,10 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
 
 export default defineModule("zulip")
 	.description("Team chat")
 	.tags("desktop", "communication", "chat")
-	.packageInstall({
-		manager: "flatpak",
-		packages: ["org.zulip.Zulip"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["org.zulip.Zulip"],
+	}),
+	]);

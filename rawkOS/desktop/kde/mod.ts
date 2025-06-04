@@ -1,12 +1,11 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
-import { conditions } from "@korora-tech/dhd/core/conditions.ts";
+import { defineModule, packageInstall } from "@korora-tech/dhd";
+import { conditions } from "@korora-tech/dhd";
 
 export default defineModule("kde")
 	.description("KDE desktop environment")
 	.tags("desktop", "kde", "ui")
-	.when(conditions.isKde)
-	.packageInstall({
-		manager: "pacman",
-		packages: ["kaccounts-providers", "kio-gdrive"],
-	})
-	.build();
+	.with(() => [
+		packageInstall({
+			names: ["kaccounts-providers", "kio-gdrive"],
+	}),
+	]);

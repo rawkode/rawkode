@@ -1,14 +1,14 @@
-import { defineModule } from "@korora-tech/dhd/core/module-builder.ts";
+import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
 
 export default defineModule("visual-studio-code")
 	.description("Code editor")
 	.tags("desktop", "development", "editor")
-	.packageInstall({
-		manager: "pacman",
-		packages: ["visual-studio-code-bin"],
-	})
-	.symlink({
-		source: "argv.json",
+	.with(() => [
+		packageInstall({
+			names: ["visual-studio-code-bin"],
+	}),
+		linkDotfile({
+			source: "argv.json",
 		target: ".vscode/argv.json",
-	})
-	.build();
+	}),
+	]);
