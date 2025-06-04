@@ -7,10 +7,8 @@ export default defineModule("carapace")
 			names: ["carapace-bin"],
 		}),
 		executeCommand({
-			command: "nu",
-			args: [
-				"-c",
-				'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
-			],
+			shell: "nu",
+			command:
+				"carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join 'carapace.nu')",
 		}),
 	]);
