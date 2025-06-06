@@ -16,10 +16,8 @@ export default defineModule("atuin")
 			target: "atuin/config.toml",
 		}),
 		executeCommand({
-			command: "nu",
-			args: [
-				"-c",
-				'atuin init nu | save -f ($nu.user-autoload-dirs | path join "atuin.nu")',
-			],
+			shell: "nu",
+			command:
+				"atuin init nu | save -f ($nu.user-autoload-dirs | path join 'atuin.nu')",
 		}),
 	]);

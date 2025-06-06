@@ -1,13 +1,13 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@korora-tech/dhd@~0.2.2": "0.2.2",
+    "jsr:@korora-tech/dhd@~0.2.7": "0.2.7",
     "jsr:@std/assert@1": "1.0.13",
     "jsr:@std/internal@^1.0.6": "1.0.8"
   },
   "jsr": {
-    "@korora-tech/dhd@0.2.2": {
-      "integrity": "9c5bbbc916291889895d5a388ff7ff4519620d7df8f702cc4547bb20bd407138"
+    "@korora-tech/dhd@0.2.7": {
+      "integrity": "82cfa9a1bfb5391c058f46613e31709ceaab24b2828f44a003443d57fcf65821"
     },
     "@std/assert@1.0.13": {
       "integrity": "ae0d31e41919b12c656c742b22522c32fb26ed0cba32975cb0de2a273cb68b29",
@@ -21,7 +21,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@korora-tech/dhd@~0.2.2",
+      "jsr:@korora-tech/dhd@~0.2.7",
       "jsr:@std/assert@1"
     ]
   }
