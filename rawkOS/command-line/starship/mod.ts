@@ -8,6 +8,7 @@ export default defineModule("starship")
 			command:
 				"starship init nu | save -f ($nu.user-autoload-dirs | path join 'starship.nu')",
 			shell: "nu",
+			escalate: false,
 		}),
 		linkDotfile({
 			from: "starship.fish",

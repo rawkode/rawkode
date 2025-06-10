@@ -4,5 +4,6 @@ export default defineModule("spotify")
 	.actions([
 		packageInstall({
 			names: ["com.spotify.Client"],
+			manager: "flatpak",
 		}),
 	]);

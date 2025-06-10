@@ -5,6 +5,7 @@ export default defineModule("bun")
 		packageInstall({
 			names: ["bun-bin"],
 		}),
+		// TODO add path to fish
 		linkDotfile({
 			from: "bun.nu",
 			to: "nushell/autoload/bun.nu",

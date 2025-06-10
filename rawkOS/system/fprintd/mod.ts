@@ -1,11 +1,4 @@
-// Helper function for copyFile
-function copyFile(config: CopyFile): ActionType {
-	return {
-		type: "CopyFile",
-		...config,
-	};
-}
-
+// TODO Needs conditional constraint, only run when fingerprint reader is present
 export default defineModule("fprintd")
 	.description("Fingerprint authentication support")
 	.tags(["security", "authentication"])
@@ -13,9 +6,10 @@ export default defineModule("fprintd")
 		packageInstall({
 			names: ["fprintd"],
 		}),
-		copyFile({
-			source: "sudo",
-			destination: "/etc/pam.d/sudo",
-			requires_privilege_escalation: true,
-		}),
+		// TODO needs a proper action / atom for copying files
+		// copyFile({
+		// 	source: "sudo",
+		// 	destination: "/etc/pam.d/sudo",
+		// 	requires_privilege_escalation: true,
+		// }),
 	]);

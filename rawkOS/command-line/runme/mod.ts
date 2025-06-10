@@ -4,5 +4,7 @@ export default defineModule("runme")
 	.actions([
 		packageInstall({
 			names: ["github.com/stateful/runme@latest"],
+			// TODO Why is this not enumerated in the global types?
+			manager: "go",
 		}),
 	]);

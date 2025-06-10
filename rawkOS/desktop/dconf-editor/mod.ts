@@ -4,5 +4,6 @@ export default defineModule("dconf-editor")
 	.actions([
 		packageInstall({
 			names: ["ca.desrt.dconf-editor"],
+			manager: "flatpak",
 		}),
 	]);

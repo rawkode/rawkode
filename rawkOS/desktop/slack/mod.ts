@@ -4,5 +4,6 @@ export default defineModule("slack")
 	.actions([
 		packageInstall({
 			names: ["com.slack.Slack"],
+			manager: "flatpak",
 		}),
 	]);

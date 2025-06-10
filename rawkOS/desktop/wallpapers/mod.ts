@@ -1,3 +1,4 @@
+// TODO Configure swww with wallpaper?
 export default defineModule("wallpapers")
 	.description("Desktop wallpapers")
 	.tags(["desktop", "customization"])

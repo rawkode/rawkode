@@ -1,10 +1,10 @@
-// Helper function for copyFile
-function copyFile(config: CopyFile): ActionType {
-	return {
-		type: "CopyFile",
-		...config,
-	};
-}
+// // Helper function for copyFile
+// function copyFile(config: CopyFile): ActionType {
+// 	return {
+// 		type: "CopyFile",
+// 		...config,
+// 	};
+// }
 
 export default defineModule("onepassword")
 	.description("Password manager")
@@ -18,9 +18,10 @@ export default defineModule("onepassword")
 			to: ".ssh/config",
 			force: true,
 		}),
-		copyFile({
-			source: "custom_allowed_browsers",
-			destination: "/etc/1password/custom_allowed_browsers",
-			requires_privilege_escalation: true,
-		}),
+		// TODO needs a real action
+		// copyFile({
+		// 	source: "custom_allowed_browsers",
+		// 	destination: "/etc/1password/custom_allowed_browsers",
+		// 	requires_privilege_escalation: true,
+		// }),
 	]);

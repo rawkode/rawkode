@@ -8,6 +8,7 @@ export default defineModule("zoxide")
 			command:
 				"zoxide init nushell | save -f ($nu.user-autoload-dirs | path join 'zoxide.nu')",
 			shell: "nu",
+			escalate: false,
 		}),
 		linkDotfile({
 			from: "zoxide.fish",
