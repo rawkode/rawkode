@@ -1,8 +1,6 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
-
 export default defineModule("btop")
 	.description("Resource monitor")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["btop"],
 		}),

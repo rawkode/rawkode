@@ -1,10 +1,8 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
-
 export default defineModule("slack")
 	.description("Team communication")
-	.tags("desktop", "communication", "chat")
-	.with(() => [
+	.tags(["desktop", "communication", "chat"])
+	.actions([
 		packageInstall({
 			names: ["com.slack.Slack"],
-	}),
+		}),
 	]);

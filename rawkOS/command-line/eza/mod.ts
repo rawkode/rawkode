@@ -1,13 +1,12 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("eza")
 	.description("Modern ls replacement")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["eza"],
 		}),
 		linkDotfile({
-			source: "eza.fish",
-			target: "fish/conf.d/eza.fish",
+			from: "eza.fish",
+			to: "fish/conf.d/eza.fish",
+			force: true,
 		}),
 	]);

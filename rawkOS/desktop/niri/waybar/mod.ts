@@ -1,17 +1,19 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
+/// <reference path="../../../types.d.ts" />
 
 export default defineModule("waybar")
 	.description("Wayland bar")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["waybar", "helvum"],
 		}),
 		linkDotfile({
-			source: "config",
-			target: "waybar/config",
+			from: "config",
+			to: "waybar/config",
+			force: true,
 		}),
 		linkDotfile({
-			source: "style.css",
-			target: "waybar/style.css",
+			from: "style.css",
+			to: "waybar/style.css",
+			force: true,
 		}),
 	]);

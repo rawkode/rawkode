@@ -1,13 +1,18 @@
-import { defineModule, copyFile } from "@korora-tech/dhd";
-import { conditions } from "@korora-tech/dhd";
+// Helper function for copyFile
+function copyFile(config: CopyFile): ActionType {
+	return {
+		type: "CopyFile",
+		...config,
+	};
+}
 
 export default defineModule("amd")
 	.description("AMD GPU power management rules")
-	.tags("hardware", "gpu")
-	.with(() => [
+	.tags(["hardware", "gpu"])
+	.actions([
 		copyFile({
 			source: "udev.rules",
-		destination: "/etc/udev/rules.d/30-amdgpu-pm.rules",
-		privileged: true,
-	}),
+			destination: "/etc/udev/rules.d/30-amdgpu-pm.rules",
+			requires_privilege_escalation: true,
+		}),
 	]);

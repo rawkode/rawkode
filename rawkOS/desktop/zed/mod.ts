@@ -1,18 +1,18 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("zed")
 	.description("Code editor")
-	.tags("desktop", "development", "editor")
-	.with(() => [
+	.tags(["desktop", "development", "editor"])
+	.actions([
 		packageInstall({
 			names: ["zed"],
-	}),
+		}),
 		linkDotfile({
-			source: "keymap.json",
-		target: "zed/keymap.json",
-	}),
+			from: "keymap.json",
+			to: "zed/keymap.json",
+			force: true,
+		}),
 		linkDotfile({
-			source: "settings.json",
-		target: "zed/settings.json",
-	}),
+			from: "settings.json",
+			to: "zed/settings.json",
+			force: true,
+		}),
 	]);

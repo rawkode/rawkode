@@ -1,10 +1,8 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
-
 export default defineModule("spotify")
 	.description("Music streaming")
-	.tags("desktop", "media", "music")
-	.with(() => [
+	.tags(["desktop", "media", "music"])
+	.actions([
 		packageInstall({
 			names: ["com.spotify.Client"],
-	}),
+		}),
 	]);

@@ -1,18 +1,18 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("zellij")
 	.description("Terminal multiplexer")
-	.tags("cli", "terminal", "multiplexer")
-	.with(() => [
+	.tags(["cli", "terminal", "multiplexer"])
+	.actions([
 		packageInstall({
 			names: ["zellij"],
-	}),
+		}),
 		linkDotfile({
-			source: "config.kdl",
-		target: "zellij/config.kdl",
-	}),
+			from: "config.kdl",
+			to: "zellij/config.kdl",
+			force: true,
+		}),
 		linkDotfile({
-			source: "zellij.nu",
-		target: "nushell/autoload/zellij.nu",
-	}),
+			from: "zellij.fish",
+			to: "fish/conf.d/zellij.fish",
+			force: true,
+		}),
 	]);

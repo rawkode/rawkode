@@ -1,10 +1,8 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
-
 export default defineModule("firefox")
 	.description("Firefox web browser")
-	.tags("desktop", "browser", "web")
-	.with(() => [
+	.tags(["desktop", "browser", "web"])
+	.actions([
 		packageInstall({
 			names: ["firefox-developer-edition"],
-	}),
+		}),
 	]);

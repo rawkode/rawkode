@@ -1,22 +1,23 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("catppuccin")
 	.description("Catppuccin theme configuration")
-	.tags("theme", "appearance")
-	.with(() => [
+	.tags(["theme", "appearance"])
+	.actions([
 		packageInstall({
 			names: ["catppuccin-cursors-mocha"],
-	}),
+		}),
 		linkDotfile({
-			source: "gtk-settings.ini",
-		target: "~/.config/gtk-3.0/settings.ini",
-	}),
+			from: "gtk-settings.ini",
+			to: "~/.config/gtk-3.0/settings.ini",
+			force: true,
+		}),
 		linkDotfile({
-			source: "gtk-settings.ini",
-		target: "~/.config/gtk-4.0/settings.ini",
-	}),
+			from: "gtk-settings.ini",
+			to: "~/.config/gtk-4.0/settings.ini",
+			force: true,
+		}),
 		linkDotfile({
-			source: "nushell.nu",
-		target: "~/.config/nushell/autoload/catppuccin.nu",
-	}),
+			from: "nushell.nu",
+			to: "~/.config/nushell/autoload/catppuccin.nu",
+			force: true,
+		}),
 	]);

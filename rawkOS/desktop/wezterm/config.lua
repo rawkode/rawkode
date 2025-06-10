@@ -1,12 +1,13 @@
 local wezterm = require 'wezterm'
+local appearance = require 'appearance'
 
 if wezterm.config_builder then
     config = wezterm.config_builder()
 
-		-- While we have access to appearance.is_dark, we can't use it
-		-- that successfully yet because we can't notify Zellij or fish
-		-- of the color change and everything looks weird.
-		config.color_scheme = 'catppuccin-mocha'
+    -- While we have access to appearance.is_dark, we can't use it
+    -- that successfully yet because we can't notify Zellij or fish
+    -- of the color change and everything looks weird.
+    config.color_scheme = appearance.scheme_for_appearance()
 
     config.enable_kitty_graphics = true
     config.automatically_reload_config = true
@@ -14,9 +15,7 @@ if wezterm.config_builder then
     config.hide_mouse_cursor_when_typing = true
     config.adjust_window_size_when_changing_font_size = false
 
-    config.leader = {key = 'a', mods = 'CTRL', timeout_milliseconds = 1000}
-
-    --config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
+    -- config.xcursor_theme="Catppuccin-Mocha-Maroon-Cursors"
 
     config.front_end = "OpenGL"
     config.enable_wayland = true
@@ -29,13 +28,14 @@ if wezterm.config_builder then
     config.window_background_opacity = 1
 
     config.window_frame = {
-        font = wezterm.font({family = 'MonaspiceAr Nerd Font Mono', weight = 'Bold'}),
+        font = wezterm.font({
+            family = 'MonaspiceAr Nerd Font Mono',
+            weight = 'Bold'
+        }),
         font_size = 11
     }
 
-    config.font = wezterm.font_with_fallback {
-        'MonaspiceNe Nerd Font Mono',
-    }
+    config.font = wezterm.font_with_fallback {'MonaspiceNe Nerd Font Mono'}
     config.font_size = 16.0
 
     -- Clickable Links
@@ -45,6 +45,17 @@ if wezterm.config_builder then
         regex = [[["]?([\w\d]{1}[-\w\d]+)(/){1}([-\w\d\.]+)["]?]],
         format = 'https://www.github.com/$1/$3'
     })
+
+		-- We want these keys to work for Zellij
+    config.keys = {{
+        key = 'PageUp',
+        mods = 'CTRL',
+        action = wezterm.action.DisableDefaultAssignment
+    }, {
+        key = 'PageDown',
+        mods = 'CTRL',
+        action = wezterm.action.DisableDefaultAssignment
+    }}
 
     return config
 end

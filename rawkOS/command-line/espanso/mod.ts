@@ -1,18 +1,18 @@
-import { defineModule, packageInstall, linkDotfile, executeCommand } from "@korora-tech/dhd";
-
 export default defineModule("espanso")
 	.description("Text expander")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["espanso-wayland"],
 		}),
 		linkDotfile({
-			source: "config",
-			target: "espanso/config",
+			from: "config",
+			to: "espanso/config",
+			force: true,
 		}),
 		linkDotfile({
-			source: "match",
-			target: "espanso/match",
+			from: "match",
+			to: "espanso/match",
+			force: true,
 		}),
 		executeCommand({
 			command: "systemctl",

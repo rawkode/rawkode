@@ -1,8 +1,6 @@
-import { defineModule, packageInstall, executeCommand, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("nushell")
 	.description("Nu shell configuration")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["nushell"],
 		}),
@@ -24,11 +22,13 @@ export default defineModule("nushell")
 			args: ["-c", "$nu.user-autoload-dirs | each { |d| mkdir $d }"],
 		}),
 		linkDotfile({
-			source: "config.nu",
-			target: "nushell/config.nu",
+			from: "config.nu",
+			to: "nushell/config.nu",
+			force: true,
 		}),
 		linkDotfile({
-			source: "env.nu",
-			target: "nushell/env.nu",
+			from: "env.nu",
+			to: "nushell/env.nu",
+			force: true,
 		}),
 	]);

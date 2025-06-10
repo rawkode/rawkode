@@ -1,10 +1,8 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
-
 export default defineModule("kubernetes")
 	.description("Kubernetes tools")
-	.tags("cli", "kubernetes", "cloud")
-	.with(() => [
+	.tags(["cli", "kubernetes", "cloud"])
+	.actions([
 		packageInstall({
 			names: ["kubectl"],
-	}),
+		}),
 	]);

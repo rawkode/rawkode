@@ -1,14 +1,15 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
+/// <reference path="../../../types.d.ts" />
 
 export default defineModule("gitui")
 	.description("Terminal UI for git")
-	.tags("cli", "git", "ui")
-	.with(() => [
+	.tags(["cli", "git", "ui"])
+	.actions([
 		packageInstall({
 			names: ["gitui"],
 		}),
 		linkDotfile({
-			source: "theme.ron",
-			target: "gitui/theme.ron",
+			from: "theme.ron",
+			to: "gitui/theme.ron",
+			force: true,
 		}),
 	]);

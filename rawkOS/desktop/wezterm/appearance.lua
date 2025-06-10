@@ -1,19 +1,12 @@
 local wezterm = require 'wezterm'
 local module = {}
 
--- Returns a bool based on whether the host operating system's
--- appearance is light or dark.
-function module.is_dark()
-    -- wezterm.gui is not always available, depending on what
-    -- environment wezterm is operating in. Just return true
-    -- if it's not defined.
-    if wezterm.gui then
-        -- Some systems report appearance like "Dark High Contrast"
-        -- so let's just look for the string "Dark" and if we find
-        -- it assume appearance is dark.
-        return wezterm.gui.get_appearance():find("Dark")
+function module.scheme_for_appearance()
+    local appearance = wezterm.gui.get_appearance()
+    if appearance:find("Dark") then
+        return "Catppuccin Macchiato"
     end
-    return true
+    return "Catppuccin Latte"
 end
 
 return module

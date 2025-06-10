@@ -1,17 +1,17 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("direnv")
 	.description("Directory-based environment variables")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["direnv"],
 		}),
 		linkDotfile({
-			source: "direnv.fish",
-			target: "fish/conf.d/direnv.fish",
+			from: "direnv.fish",
+			to: "fish/conf.d/direnv.fish",
+			force: true,
 		}),
 		linkDotfile({
-			source: "direnv.nu",
-			target: "nushell/autoload/direnv.nu",
+			from: "direnv.nu",
+			to: "nushell/autoload/direnv.nu",
+			force: true,
 		}),
 	]);

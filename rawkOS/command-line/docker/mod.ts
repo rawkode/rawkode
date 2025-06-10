@@ -1,13 +1,6 @@
-import {
-	defineModule,
-	packageInstall,
-	executeCommand,
-	userGroup,
-} from "@korora-tech/dhd";
-
 export default defineModule("docker")
 	.description("Container runtime")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["docker", "docker-compose"],
 		}),

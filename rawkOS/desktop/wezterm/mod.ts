@@ -1,14 +1,18 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("wezterm")
 	.description("GPU-accelerated terminal")
-	.tags("desktop", "terminal")
-	.with(() => [
+	.tags(["desktop", "terminal"])
+	.actions([
 		packageInstall({
 			names: ["wezterm"],
-	}),
+		}),
 		linkDotfile({
-			source: "config.lua",
-		target: "wezterm/wezterm.lua",
-	}),
+			from: "config.lua",
+			to: "wezterm/wezterm.lua",
+			force: true,
+		}),
+		linkDotfile({
+			from: "appearance.lua",
+			to: "wezterm/appearance.lua",
+			force: true,
+		}),
 	]);

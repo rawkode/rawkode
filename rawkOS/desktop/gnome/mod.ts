@@ -1,5 +1,3 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 const gnomeExtensions = [
 	"advanced-alt-tab@G-dH.github.com",
 	"blur-my-shell@aunetx",
@@ -28,7 +26,7 @@ const unwantedApps = [
 
 export default defineModule("gnome")
 	.description("GNOME desktop environment")
-	.with(() => [
+	.actions([
 		// TODO: Add condition check when(conditions.isGnome) - not yet available in dhd
 		packageInstall({
 			names: ["gnome-extensions-cli"],
@@ -42,12 +40,14 @@ export default defineModule("gnome")
 		// 	),
 		// ),
 		linkDotfile({
-			source: "bookmarks",
-			target: "gtk-3.0/bookmarks",
+			from: "bookmarks",
+			to: "gtk-3.0/bookmarks",
+			force: true,
 		}),
 		linkDotfile({
-			source: "burn-my-windows.conf",
-			target: "burn-my-windows/profiles/focus.conf",
+			from: "burn-my-windows.conf",
+			to: "burn-my-windows/profiles/focus.conf",
+			force: true,
 		}),
 		// TODO: InstallExtensionsAction - customAction not yet available in dhd
 		// customAction(

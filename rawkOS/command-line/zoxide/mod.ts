@@ -1,13 +1,6 @@
-import {
-	defineModule,
-	executeCommand,
-	packageInstall,
-	linkDotfile,
-} from "@korora-tech/dhd";
-
 export default defineModule("zoxide")
 	.description("Smart cd command")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["zoxide", "fzf"],
 		}),
@@ -17,7 +10,8 @@ export default defineModule("zoxide")
 			shell: "nu",
 		}),
 		linkDotfile({
-			source: "zoxide.fish",
-			target: "fish/conf.d/zoxide.fish",
+			from: "zoxide.fish",
+			to: "fish/conf.d/zoxide.fish",
+			force: true,
 		}),
 	]);

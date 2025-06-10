@@ -1,8 +1,8 @@
-import { defineModule, packageInstall } from "@korora-tech/dhd";
+/// <reference path="../../../types.d.ts" />
 
 export default defineModule("swaync")
 	.description("Notification center for Sway/Wayland")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["swaync"],
 		}),

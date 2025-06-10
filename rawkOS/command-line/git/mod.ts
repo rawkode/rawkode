@@ -1,25 +1,26 @@
-import { defineModule, packageInstall, linkDotfile, executeCommand } from "@korora-tech/dhd";
-
 const home = import.meta.env.HOME;
 const gitSignCredentialCachePath = `${home}/Code/bin`;
 
 export default defineModule("git")
 	.description("Git version control")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["gitsign"],
 		}),
 		linkDotfile({
-			source: "config",
-			target: "git/config",
+			from: "config",
+			to: "git/config",
+			force: true,
 		}),
 		linkDotfile({
-			source: "gitsign.fish",
-			target: "fish/conf.d/gitsign.fish",
+			from: "gitsign.fish",
+			to: "fish/conf.d/gitsign.fish",
+			force: true,
 		}),
 		linkDotfile({
-			source: "gitsign.nu",
-			target: "nushell/autoload/gitsign.nu",
+			from: "gitsign.nu",
+			to: "nushell/autoload/gitsign.nu",
+			force: true,
 		}),
 		executeCommand({
 			command: "mkdir",

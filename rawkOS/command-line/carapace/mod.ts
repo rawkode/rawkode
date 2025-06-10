@@ -1,8 +1,6 @@
-import { defineModule, packageInstall, executeCommand } from "@korora-tech/dhd";
-
 export default defineModule("carapace")
 	.description("Shell completion framework")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["carapace-bin"],
 		}),

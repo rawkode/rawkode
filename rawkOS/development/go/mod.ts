@@ -1,18 +1,18 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("go")
 	.description("Go programming language")
-	.tags("development", "programming", "go")
-	.with(() => [
+	.tags(["development", "programming", "go"])
+	.actions([
 		packageInstall({
 			names: ["go"],
-	}),
+		}),
 		linkDotfile({
-			source: "go.fish",
-		target: "fish/conf.d/go.fish",
-	}),
+			from: "go.fish",
+			to: "fish/conf.d/go.fish",
+			force: true,
+		}),
 		linkDotfile({
-			source: "go.nu",
-		target: "nushell/autoload/go.nu",
-	}),
+			from: "go.nu",
+			to: "nushell/autoload/go.nu",
+			force: true,
+		}),
 	]);

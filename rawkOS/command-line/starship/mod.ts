@@ -1,26 +1,22 @@
-import {
-	defineModule,
-	packageInstall,
-	executeCommand,
-	linkDotfile,
-} from "@korora-tech/dhd";
-
 export default defineModule("starship")
 	.description("Cross-shell prompt")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["starship"],
 		}),
 		executeCommand({
-			command: "starship init nu | save -f ($nu.user-autoload-dirs | path join 'starship.nu')",
+			command:
+				"starship init nu | save -f ($nu.user-autoload-dirs | path join 'starship.nu')",
 			shell: "nu",
 		}),
 		linkDotfile({
-			source: "starship.fish",
-			target: "fish/conf.d/starship.fish",
+			from: "starship.fish",
+			to: "fish/conf.d/starship.fish",
+			force: true,
 		}),
 		linkDotfile({
-			source: "config.toml",
-			target: "starship.toml",
+			from: "config.toml",
+			to: "starship.toml",
+			force: true,
 		}),
 	]);

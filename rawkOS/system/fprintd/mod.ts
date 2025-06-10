@@ -1,16 +1,21 @@
-import { defineModule, packageInstall, copyFile } from "@korora-tech/dhd";
-import { conditions } from "@korora-tech/dhd";
+// Helper function for copyFile
+function copyFile(config: CopyFile): ActionType {
+	return {
+		type: "CopyFile",
+		...config,
+	};
+}
 
 export default defineModule("fprintd")
 	.description("Fingerprint authentication support")
-	.tags("security", "authentication")
-	.with(() => [
+	.tags(["security", "authentication"])
+	.actions([
 		packageInstall({
 			names: ["fprintd"],
-	}),
+		}),
 		copyFile({
 			source: "sudo",
-		destination: "/etc/pam.d/sudo",
-		privileged: true,
-	}),
+			destination: "/etc/pam.d/sudo",
+			requires_privilege_escalation: true,
+		}),
 	]);

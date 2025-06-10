@@ -1,9 +1,7 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("niri")
 	.description("Scrollable tiling compositor")
 	.depends("waybar", "swaync")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: [
 				"bemoji",
@@ -23,23 +21,28 @@ export default defineModule("niri")
 			],
 		}),
 		linkDotfile({
-			source: "config.kdl",
-			target: "niri/config.kdl",
+			from: "config.kdl",
+			to: "niri/config.kdl",
+			force: true,
 		}),
 		linkDotfile({
-			source: "portals.conf",
-			target: "xdg-desktop-portal/portals.conf",
+			from: "portals.conf",
+			to: "xdg-desktop-portal/portals.conf",
+			force: true,
 		}),
 		linkDotfile({
-			source: "../wallpapers/rawkode-academy.png",
-			target: "niri/wallpaper.png",
+			from: "../wallpapers/rawkode-academy.png",
+			to: "niri/wallpaper.png",
+			force: true,
 		}),
 		linkDotfile({
-			source: "swaylock.conf",
-			target: "swaylock/config",
+			from: "swaylock.conf",
+			to: "swaylock/config",
+			force: true,
 		}),
 		linkDotfile({
-			source: "fuzzel.ini",
-			target: "fuzzel/fuzzel.ini",
+			from: "fuzzel.ini",
+			to: "fuzzel/fuzzel.ini",
+			force: true,
 		}),
 	]);

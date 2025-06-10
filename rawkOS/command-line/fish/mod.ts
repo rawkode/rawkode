@@ -1,17 +1,17 @@
-import { defineModule, packageInstall, linkDotfile } from "@korora-tech/dhd";
-
 export default defineModule("fish")
 	.description("Fish shell configuration")
-	.with(() => [
+	.actions([
 		packageInstall({
 			names: ["fish"],
 		}),
 		linkDotfile({
-			source: "magic-enter.fish",
-			target: "fish/conf.d/magic-enter.fish",
+			from: "magic-enter.fish",
+			to: "fish/conf.d/magic-enter.fish",
+			force: true,
 		}),
 		linkDotfile({
-			source: "aliases.fish",
-			target: "fish/conf.d/aliases.fish",
+			from: "aliases.fish",
+			to: "fish/conf.d/aliases.fish",
+			force: true,
 		}),
 	]);
