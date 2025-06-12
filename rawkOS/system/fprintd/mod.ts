@@ -1,15 +1,19 @@
-// TODO Needs conditional constraint, only run when fingerprint reader is present
 export default defineModule("fprintd")
 	.description("Fingerprint authentication support")
-	.tags(["security", "authentication"])
+	.tags(["system"])
+	.when(
+		or([
+			property("hardware.fingerprint").isTrue(),
+			command("lsusb").contains("fingerprint", true)
+		])
+	)
 	.actions([
 		packageInstall({
 			names: ["fprintd"],
 		}),
-		// TODO needs a proper action / atom for copying files
-		// copyFile({
-		// 	source: "sudo",
-		// 	destination: "/etc/pam.d/sudo",
-		// 	requires_privilege_escalation: true,
-		// }),
+		copyFile({
+			source: "sudo",
+			target: "/etc/pam.d/sudo",
+			escalate: true,
+		}),
 	]);

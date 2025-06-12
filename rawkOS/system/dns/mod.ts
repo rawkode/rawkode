@@ -1,24 +1,15 @@
-// // Helper function for copyFile
-// function copyFile(config: CopyFile): ActionType {
-// 	return {
-// 		type: "CopyFile",
-// 		...config,
-// 	};
-// }
-
 export default defineModule("dns")
 	.description("DNS configuration")
-	.tags(["network", "dns"])
+	.tags(["system"])
 	.actions([
-		// TODO needs action / atom
-		// copyFile({
-		// 	source: "hosts",
-		// 	destination: "/etc/hosts",
-		// 	requires_privilege_escalation: true,
-		// }),
-		// copyFile({
-		// 	source: "resolved.conf",
-		// 	destination: "/etc/systemd/resolved.conf",
-		// 	requires_privilege_escalation: true,
-		// }),
+		copyFile({
+			source: "hosts",
+			target: "/etc/hosts",
+			escalate: true,
+		}),
+		copyFile({
+			source: "resolved.conf",
+			target: "/etc/systemd/resolved.conf",
+			escalate: true,
+		}),
 	]);

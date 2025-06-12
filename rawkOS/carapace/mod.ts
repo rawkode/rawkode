@@ -1,0 +1,14 @@
+export default defineModule("carapace")
+	.description("Shell completion framework")
+	.tags(["terminal"])
+	.actions([
+		packageInstall({
+			names: ["carapace-bin"],
+		}),
+		executeCommand({
+			shell: "nu",
+			escalate: false,
+			command:
+				'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
+		}),
+	]);
