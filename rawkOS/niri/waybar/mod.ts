@@ -8,7 +8,7 @@ export default defineModule("waybar")
 			names: ["waybar", "helvum"],
 		}),
 		linkFile({
-			target: "config",
+			target: "config.jsonc",
 			source: "waybar/config",
 			force: true,
 		}),
