@@ -12,7 +12,8 @@ export default defineModule("rust")
 		}),
 		linkFile({
 			target: "rust.nu",
-			source: "nushell/autoload/rust.nu",
+			// This needs early loading, as it configures PATH for Rust installed packages
+			source: "nushell/autoload/0-rust.nu",
 			force: true,
 		}),
 	]);

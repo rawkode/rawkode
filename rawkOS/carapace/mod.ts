@@ -3,7 +3,8 @@ export default defineModule("carapace")
 	.tags(["terminal"])
 	.actions([
 		packageInstall({
-			names: ["carapace-bin"],
+			names: ["carapace-sh/carapace-bin:carapace"],
+			manager: "github",
 		}),
 		executeCommand({
 			shell: "nu",

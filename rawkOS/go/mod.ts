@@ -12,7 +12,8 @@ export default defineModule("go")
 		}),
 		linkFile({
 			target: "go.nu",
-			source: "nushell/autoload/go.nu",
+			// This needs early loading, as it configures PATH for Go installed packages
+			source: "nushell/autoload/0-go.nu",
 			force: true,
 		}),
 	]);
