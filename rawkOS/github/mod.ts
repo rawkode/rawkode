@@ -5,4 +5,9 @@ export default defineModule("github")
 		packageInstall({
 			names: ["github-cli"],
 		}),
+		linkFile({
+			target: "github.nu",
+			source: "nushell/autoload/github.nu",
+			force: true,
+		}),
 	]);

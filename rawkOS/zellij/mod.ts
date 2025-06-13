@@ -11,6 +11,11 @@ export default defineModule("zellij")
 			force: true,
 		}),
 		linkFile({
+			target: "zellij.nu",
+			source: "nushell/autoload/zellij.nu",
+			force: true,
+		}),
+		linkFile({
 			target: "zellij.fish",
 			source: "fish/conf.d/zellij.fish",
 			force: true,

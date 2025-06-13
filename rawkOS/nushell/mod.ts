@@ -5,11 +5,6 @@ export default defineModule("nushell")
 		packageInstall({
 			names: ["nushell"],
 		}),
-		executeCommand({
-			command: "nu",
-			args: ["-c", "$nu.user-autoload-dirs | each { |d| mkdir $d }"],
-			escalate: false,
-		}),
 		linkFile({
 			target: "config.nu",
 			source: "nushell/config.nu",
