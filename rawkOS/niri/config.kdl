@@ -101,6 +101,11 @@ cursor {
 }
 
 window-rule {
+    match { }
+    focus-on-demand true
+}
+
+window-rule {
     open-on-workspace "Web"
     open-focused true
     open-maximized true
@@ -129,8 +134,7 @@ window-rule {
     open-maximized true
 
     match app-id="Code"
-		match app-id="^org\\.wezfurlong\\.wezterm$"
-		match app-id="com.mitchellh.ghostty"
+    match app-id="com.mitchellh.ghostty"
 }
 
 switch-events {
@@ -239,6 +243,11 @@ binds {
 		Super+Space {
 				spawn "fuzzel"
 		}
+
+		Ctrl+Space {
+				spawn "~/.local/bin/fuzzel-window-picker"
+		}
+
 		Super+C {
 				spawn "sh" "-c" "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"
 		}
@@ -407,6 +416,6 @@ binds {
 
 // This stops wezterm from crashing
 window-rule {
-		match app-id="^org\\.wezfurlong\\.wezterm$"
-		default-column-width {}
+	match app-id="^org\\.wezfurlong\\.wezterm$"
+	default-column-width {}
 }

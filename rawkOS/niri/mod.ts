@@ -22,6 +22,11 @@ export default defineModule("niri")
 			],
 		}),
 		linkFile({
+			target: "fuzzel-window-picker.sh",
+			source: "~/.local/bin/fuzzel-window-picker",
+			force: true,
+		}),
+		linkFile({
 			target: "config.kdl",
 			source: "niri/config.kdl",
 			force: true,
