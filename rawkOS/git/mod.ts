@@ -5,8 +5,6 @@ export default defineModule("git")
         packageInstall({
             names: ["gitsign"],
         }),
-
-        // All git configuration in one clean object
         gitConfig({
             global: {
                 user: {
@@ -89,8 +87,6 @@ export default defineModule("git")
                 }
             }
         }),
-
-        // Other actions remain the same
         linkFile({
             target: "git.nu",
             source: "nushell/autoload/git.nu",
@@ -105,9 +101,6 @@ export default defineModule("git")
             target: "gitsign.nu",
             source: "nushell/autoload/gitsign.nu",
             force: true,
-        }),
-        directory({
-            path: "~/Code/bin",
         }),
         directory({
             path: "~/.cache/sigstore/gitsign",

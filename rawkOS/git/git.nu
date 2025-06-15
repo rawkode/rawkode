@@ -29,11 +29,13 @@ $env.config = (
 
 $env.config = (
 		$env.config | update hooks.env_change {|config|
-			let hook = {|| if (is-git-repo) { git status --short } }
+			let hook = {|before, after| if (is-git-repo) { git status --short } }
 			if ($config.hooks.env_change? | is-empty) {
-				[$hook]
+				{ PWD: [$hook] }
+			} else if ($config.hooks.env_change.PWD? | is-empty) {
+				$config.hooks.env_change | insert PWD [$hook]
 			} else {
-				$config.hooks.env_change | append $hook
+				$config.hooks.env_change | update PWD {|pwd_hooks| $pwd_hooks | append $hook}
 			}
 		}
 )

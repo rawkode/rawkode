@@ -27,7 +27,7 @@
 	"niri/workspaces": {
 		"format": "{icon}",
 		"format-icons": {
-			"default": ""
+			"default": ""
 		}
 	},
 	"niri/window": {
@@ -54,43 +54,48 @@
 			"warning": 30,
 			"critical": 15
 		},
-		"format": "{icon}",
-		"format-charging": "",
-		"format-plugged": "",
+		"format": "<span size='small'>{icon}</span>",
+		"format-charging": "<span size='small'>󰢝</span>",
+		"format-plugged": "<span size='small'>󰂄</span>",
 		"format-alt": "{capacity}% {time}",
 		"format-icons": [
-			"",
-			"",
-			"",
-			"",
-			""
+			"󰁺",
+			"󰁻",
+			"󰁼",
+			"󰁽",
+			"󰁾",
+			"󰁿",
+			"󰂀",
+			"󰂁",
+			"󰂂",
+			"󰁹"
 		],
 		"tooltip-format": "{capacity}%",
 	},
 	"wireplumber": {
 		"format": "{icon}",
 		"tooltip-format": "{volume}%",
-		"format-muted": "",
+		"format-muted": "",
 		"on-click": "pavucontrol",
 		"on--right-click": "helvum",
 		"format-icons": [
-			"",
-			"",
-			""
+			"",
+			"",
+			""
 		]
 	},
 	"custom/notification": {
 		"tooltip": false,
 		"format": "{icon}",
 		"format-icons": {
-			"notification": "<span foreground='red'><sup></sup></span>",
-			"none": "",
-			"dnd-notification": "<span foreground='red'><sup></sup></span>",
-			"dnd-none": "",
-			"inhibited-notification": "<span foreground='red'><sup></sup></span>",
-			"inhibited-none": "",
-			"dnd-inhibited-notification": "<span foreground='red'><sup></sup></span>",
-			"dnd-inhibited-none": ""
+			"notification": "<span foreground='red'><sup></sup></span>",
+			"none": "",
+			"dnd-notification": "<span foreground='red'><sup></sup></span>",
+			"dnd-none": "",
+			"inhibited-notification": "<span foreground='red'><sup></sup></span>",
+			"inhibited-none": "",
+			"dnd-inhibited-notification": "<span foreground='red'><sup></sup></span>",
+			"dnd-inhibited-none": ""
 		},
 		"return-type": "json",
 		"exec-if": "which swaync-client",

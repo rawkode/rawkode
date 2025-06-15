@@ -100,9 +100,10 @@ cursor {
 		hide-after-inactive-ms 1000
 }
 
+// This stops wezterm from crashing
 window-rule {
-    match { }
-    focus-on-demand true
+	match app-id="^org\\.wezfurlong\\.wezterm$"
+	default-column-width {}
 }
 
 window-rule {
@@ -244,9 +245,9 @@ binds {
 				spawn "fuzzel"
 		}
 
-		Ctrl+Space {
-				spawn "~/.local/bin/fuzzel-window-picker"
-		}
+		// Ctrl+Space {
+		// 		spawn "~/.local/bin/fuzzel-window-picker"
+		// }
 
 		Super+C {
 				spawn "sh" "-c" "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"
@@ -412,10 +413,4 @@ binds {
 				spawn "swaylock"
 		}
 		Super+Shift+L { power-off-monitors; }
-}
-
-// This stops wezterm from crashing
-window-rule {
-	match app-id="^org\\.wezfurlong\\.wezterm$"
-	default-column-width {}
 }
