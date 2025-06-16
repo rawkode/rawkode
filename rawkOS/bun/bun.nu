@@ -1,1 +1,2 @@
-$env.PATH = ($env.PATH | split row (char esep) | append $"($env.HOME)/.bun/bin")
+use std/util "path add"
+path add "~/.bun/bin"

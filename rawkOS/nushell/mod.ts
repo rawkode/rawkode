@@ -15,4 +15,9 @@ export default defineModule("nushell")
 			source: "nushell/env.nu",
 			force: true,
 		}),
+		linkFile({
+			target: "local.nu",
+			source: "nushell/autoload/local.nu",
+			force: true,
+		}),
 	]);
