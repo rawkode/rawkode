@@ -100,11 +100,7 @@ cursor {
 		hide-after-inactive-ms 1000
 }
 
-// This stops wezterm from crashing
-window-rule {
-	match app-id="^org\\.wezfurlong\\.wezterm$"
-	default-column-width {}
-}
+animations { slowdown 0.6; }
 
 window-rule {
     open-on-workspace "Web"
@@ -153,9 +149,9 @@ layout {
 		center-focused-column "on-overflow"
 		focus-ring {
 				width 2
-				active-gradient from="#5f5ed7" to="#00ceff" angle=45
-				inactive-gradient from="#9e9dcc" to="#a8e0f0" angle=45 relative-to="workspace-view"
-				urgent-gradient from="#d75f5e" to="#ffb800" angle=45
+				active-gradient from="#ff00ff" to="#00ffff" angle=270 relative-to="window"
+				inactive-gradient from="#3a3a4a" to="#5a5a6a" angle=45 relative-to="workspace-view"
+				urgent-gradient from="#ff0000" to="#ffff00" angle=135
 		}
 
 		border {
@@ -164,12 +160,12 @@ layout {
 
 		shadow {
 				on
-				softness 30
-				spread 5
-				offset x=0 y=5
+				softness 50
+				spread 15
+				offset x=0 y=12
 				draw-behind-window true
-				color "#5f5ed720"
-				inactive-color "#d75f5e30"
+				color "#ff00ff40"
+				inactive-color "#00000030"
 		}
 
 		struts {

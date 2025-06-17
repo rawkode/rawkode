@@ -3,7 +3,7 @@ export default defineModule("wezterm")
 	.tags(["desktop"])
 	.actions([
 		packageInstall({
-			names: ["wezterm"],
+			names: ["wezterm-git"],
 		}),
 		linkFile({
 			source: "wezterm/wezterm.lua",
