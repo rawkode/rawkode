@@ -259,7 +259,7 @@ binds {
 				spawn "swaync-client" "-t"
 		}
 		Super+Return {
-				spawn "wezterm"
+				spawn "ghostty"
 		}
 		Super+Backslash {
 				spawn "1password" "--quick-access"
