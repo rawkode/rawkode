@@ -3,6 +3,39 @@
 
 declare global {
   // Type definitions
+  interface SystemdService {
+    name: string;
+    description: string;
+    execStart: string;
+    serviceType: string;
+    scope: string;
+    restart?: string | undefined;
+    restartSec?: number | undefined
+}
+
+  interface PackageInstallConfig {
+    names: PlatformSelect;
+    manager?: PackageManagerType | undefined;
+    module?: string | undefined
+}
+
+  /**
+   * ///  Creates a symbolic link at a specified location
+   */
+  ///  Creates a symbolic link at a specified location
+/// 
+///  * `source` - Path where the symlink will be created
+///    - If absolute: used as-is
+///    - If starts with `~/`: expanded to home directory
+///    - If relative: resolved relative to XDG_CONFIG_HOME (usually ~/.config)
+///  * `target` - Path to the target file that the symlink points to, relative to the module directory
+///  * `force` - If true, creates parent directories and overwrites existing files
+  interface LinkFile {
+    source: string;
+    target: string;
+    force: boolean
+}
+
   /**
    * ///  Creates a symbolic link at a specified location pointing to a directory
    */
@@ -20,11 +53,6 @@ declare global {
     force: boolean
 }
 
-  interface Directory {
-    path: string;
-    escalate?: boolean | undefined
-}
-
   interface HttpDownload {
     url: string;
     destination: string;
@@ -35,113 +63,6 @@ declare global {
   interface Checksum {
     algorithm: string;
     value: string
-}
-
-  interface CommandBuilder {
-    command: string
-;
-
-      succeeds(): Condition;
-      exists(): Condition;
-      contains(text: string, case_insensitive: boolean): Condition
-  }
-
-  interface PropertyBuilder {
-    path: string
-;
-
-      equals(value: Value): Condition;
-      notEquals(value: Value): Condition;
-      contains(value: string): Condition;
-      isTrue(): Condition;
-      isFalse(): Condition
-  }
-
-  type ComparisonOperator = 
-    | "Equals"
-    | "NotEquals"
-    | "Contains"
-    | "GreaterThan"
-    | "LessThan";
-
-  type Condition = 
-    | { type: "FileExists" }
-    | { type: "DirectoryExists" }
-    | { type: "CommandSucceeds" }
-    | { type: "EnvironmentVariable" }
-    | { type: "SystemProperty" }
-    | { type: "CommandExists" }
-    | { type: "AllOf" }
-    | { type: "AnyOf" }
-    | { type: "Not" };
-
-  interface UserInfo {
-    name: string;
-    shell: string;
-    home: string
-}
-
-  interface AuthInfo {
-    authType: string;
-    method: string
-}
-
-  interface HardwareInfo {
-    fingerprint: boolean;
-    tpm: boolean;
-    gpuVendor: string
-}
-
-  interface OsInfo {
-    family: string;
-    distro: string;
-    version: string;
-    codename: string
-}
-
-  /**
-   * ///  System information available to conditions
-   */
-  ///  System information available to conditions
-  interface SystemInfo {
-    os: OsInfo;
-    hardware: HardwareInfo;
-    auth: AuthInfo;
-    user: UserInfo
-}
-
-  type ActionType = 
-    | { type: "PackageInstall" } & PackageInstall
-    | { type: "LinkFile" } & LinkFile
-    | { type: "LinkDirectory" } & LinkDirectory
-    | { type: "ExecuteCommand" } & ExecuteCommand
-    | { type: "CopyFile" } & CopyFile
-    | { type: "Directory" } & Directory
-    | { type: "HttpDownload" } & HttpDownload
-    | { type: "SystemdSocket" } & SystemdSocket
-    | { type: "SystemdService" } & SystemdService
-    | { type: "Conditional" } & ConditionalAction
-    | { type: "DconfImport" } & DconfImport
-    | { type: "InstallGnomeExtensions" } & InstallGnomeExtensions
-    | { type: "PackageRemove" } & PackageRemove
-    | { type: "SystemdManage" } & SystemdManage
-    | { type: "GitConfig" } & GitConfig;
-
-  /**
-   * ///  Creates a symbolic link at a specified location
-   */
-  ///  Creates a symbolic link at a specified location
-/// 
-///  * `source` - Path where the symlink will be created
-///    - If absolute: used as-is
-///    - If starts with `~/`: expanded to home directory
-///    - If relative: resolved relative to XDG_CONFIG_HOME (usually ~/.config)
-///  * `target` - Path to the target file that the symlink points to, relative to the module directory
-///  * `force` - If true, creates parent directories and overwrites existing files
-  interface LinkFile {
-    source: string;
-    target: string;
-    force: boolean
 }
 
   /**
@@ -178,6 +99,26 @@ declare global {
     add?: boolean | undefined
 }
 
+  interface Directory {
+    path: string;
+    escalate?: boolean | undefined
+}
+
+  /**
+   * ///  Import dconf settings from a file
+   */
+  ///  Import dconf settings from a file
+  interface DconfImport {
+    /**
+     *  Path to the dconf file to import
+     */
+    source: string;
+    /**
+     *  The dconf path to import to (e.g., "/org/gnome/desktop/")
+     */
+    path: string
+}
+
   interface CopyFile {
     source: string;
     target: string;
@@ -191,6 +132,7 @@ declare global {
     | "Cargo"
     | "Dnf"
     | "Flatpak"
+    | "GitHub"
     | "Npm"
     | "Pacman"
     | "Snap"
@@ -199,7 +141,8 @@ declare global {
     | "Zypper"
     | "Pip"
     | "Gem"
-    | "Nix";
+    | "Nix"
+    | "Uv";
 
   interface SystemdSocket {
     name: string;
@@ -207,6 +150,59 @@ declare global {
     listenStream: string;
     scope: string
 }
+
+  /**
+   * ///  Configuration for executing a command.
+   */
+  ///  Configuration for executing a command.
+/// 
+///  This structure defines the parameters for executing a shell command.
+///  It supports specifying the shell, command, arguments, and whether to escalate privileges.
+  interface ExecuteCommand {
+    /**
+     *  If not specified, defaults to "sh".
+     */
+    shell?: string | undefined;
+    /**
+     *  This is the main command string that will be executed.
+     */
+    command: string;
+    /**
+     *  These are additional arguments passed to the command.
+     */
+    args?: string[] | undefined;
+    /**
+     *  If not specified, defaults to false.
+     */
+    escalate?: boolean | undefined;
+    /**
+     *  - "literal://value" for literal values
+     */
+    environment?: HashMap | undefined
+}
+
+  interface SystemdManage {
+    name: string;
+    operation: string;
+    scope: string
+}
+
+  type ActionType = 
+    | { type: "PackageInstall" } & PackageInstall
+    | { type: "LinkFile" } & LinkFile
+    | { type: "LinkDirectory" } & LinkDirectory
+    | { type: "ExecuteCommand" } & ExecuteCommand
+    | { type: "CopyFile" } & CopyFile
+    | { type: "Directory" } & Directory
+    | { type: "HttpDownload" } & HttpDownload
+    | { type: "SystemdSocket" } & SystemdSocket
+    | { type: "SystemdService" } & SystemdService
+    | { type: "Conditional" } & ConditionalAction
+    | { type: "DconfImport" } & DconfImport
+    | { type: "InstallGnomeExtensions" } & InstallGnomeExtensions
+    | { type: "PackageRemove" } & PackageRemove
+    | { type: "SystemdManage" } & SystemdManage
+    | { type: "GitConfig" } & GitConfig;
 
   interface PackageInstall {
     names: string[];
@@ -233,15 +229,43 @@ declare global {
     actions: ActionType[]
 }
 
-  interface SystemdService {
-    name: string;
-    description: string;
-    execStart: string;
-    serviceType: string;
-    scope: string;
-    restart?: string | undefined;
-    restartSec?: number | undefined
-}
+  interface PropertyBuilder {
+
+
+      equals(value: string): Condition;
+      notEquals(value: string): Condition;
+      contains(value: string): Condition;
+      startsWith(value: string): Condition;
+      endsWith(value: string): Condition
+  }
+
+  interface ConditionBuilder {
+
+
+      and(other: Condition): this;
+      or(other: Condition): this;
+      not(): this;
+      build(): Condition
+  }
+
+  type Condition = 
+    | { type: "AllOf" }
+    | { type: "AnyOf" }
+    | { type: "Not" }
+    | { type: "FileExists" }
+    | { type: "DirectoryExists" }
+    | { type: "CommandExists" }
+    | { type: "CommandSucceeds" }
+    | { type: "EnvironmentVariable" }
+    | { type: "SystemProperty" }
+    | { type: "SecretExists" };
+
+  type ComparisonOperator = 
+    | "Equals"
+    | "NotEquals"
+    | "Contains"
+    | "StartsWith"
+    | "EndsWith";
 
   /**
    * ///  Remove packages from the system
@@ -256,12 +280,6 @@ declare global {
      *  Optional package manager to use
      */
     manager?: PackageManager | undefined
-}
-
-  interface PackageInstallConfig {
-    names: PlatformSelect;
-    manager?: PackageManagerType | undefined;
-    module?: string | undefined
 }
 
   /**
@@ -294,51 +312,39 @@ declare global {
     skipOnSuccess: boolean
 }
 
-  interface SystemdManage {
+  interface UserInfo {
     name: string;
-    operation: string;
-    scope: string
+    shell: string;
+    home: string
+}
+
+  interface AuthInfo {
+    authType: string;
+    method: string
+}
+
+  interface HardwareInfo {
+    fingerprint: boolean;
+    tpm: boolean;
+    gpuVendor: string
+}
+
+  interface OsInfo {
+    family: string;
+    distro: string;
+    version: string;
+    codename: string
 }
 
   /**
-   * ///  Configuration for executing a command.
+   * ///  System information available to conditions
    */
-  ///  Configuration for executing a command.
-/// 
-///  This structure defines the parameters for executing a shell command.
-///  It supports specifying the shell, command, arguments, and whether to escalate privileges.
-  interface ExecuteCommand {
-    /**
-     *  If not specified, defaults to "sh".
-     */
-    shell?: string | undefined;
-    /**
-     *  This is the main command string that will be executed.
-     */
-    command: string;
-    /**
-     *  These are additional arguments passed to the command.
-     */
-    args?: string[] | undefined;
-    /**
-     *  If not specified, defaults to false.
-     */
-    escalate?: boolean | undefined
-}
-
-  /**
-   * ///  Import dconf settings from a file
-   */
-  ///  Import dconf settings from a file
-  interface DconfImport {
-    /**
-     *  Path to the dconf file to import
-     */
-    source: string;
-    /**
-     *  The dconf path to import to (e.g., "/org/gnome/desktop/")
-     */
-    path: string
+  ///  System information available to conditions
+  interface SystemInfo {
+    os: OsInfo;
+    hardware: HardwareInfo;
+    auth: AuthInfo;
+    user: UserInfo
 }
 
   // Utility type for extracting property paths from nested objects
@@ -352,37 +358,38 @@ declare global {
   type SystemInfoPaths = Paths<SystemInfo>;
 
   // Helper function signatures
+  function systemdService(config: SystemdService): ActionType;
+  function packageInstall(config: PackageInstallConfig): Box;
+  function linkFile(config: LinkFile): ActionType;
   function linkDirectory(config: LinkDirectory): ActionType;
-  function directory(config: Directory): ActionType;
   function httpDownload(config: HttpDownload): ActionType;
-  function and(conditions: Condition[]): Condition;
-  function or(conditions: Condition[]): Condition;
-  function command(cmd: string): CommandBuilder;
+  function gitConfig(config: GitConfig): ActionType;
+  function directory(config: Directory): ActionType;
+  function dconfImport(config: DconfImport): ActionType;
+  function copyFile(config: CopyFile): ActionType;
+  function systemdSocket(config: SystemdSocket): ActionType;
+  function executeCommand(config: ExecuteCommand): ActionType;
+  function systemdManage(config: SystemdManage): ActionType;
+  function packageInstall(config: PackageInstall): ActionType;
+  function defineModule(name: string): ModuleBuilder;
+  function secretExists(reference: string): Condition;
+  function command(command: string): Condition;
+  function or(a: Condition, b: Condition): Condition;
+  function and(a: Condition, b: Condition): Condition;
   function property(path: SystemInfoPaths): PropertyBuilder;
   function property(path: string): PropertyBuilder;
+  function envVar(name: string, value: string | undefined): Condition;
+  function commandSucceeds(command: string, args: string[] | undefined): Condition;
   function commandExists(command: string): Condition;
+  function directoryExists(path: string): Condition;
+  function fileExists(path: string): Condition;
   function not(condition: Condition): Condition;
   function anyOf(conditions: Condition[]): Condition;
   function allOf(conditions: Condition[]): Condition;
-  function envVar(name: string, value: string | undefined): Condition;
-  function commandSucceeds(command: string, args: string[] | undefined): Condition;
-  function directoryExists(path: string): Condition;
-  function fileExists(path: string): Condition;
-  function linkFile(config: LinkFile): ActionType;
-  function gitConfig(config: GitConfig): ActionType;
-  function copyFile(config: CopyFile): ActionType;
-  function systemdSocket(config: SystemdSocket): ActionType;
-  function packageInstall(config: PackageInstall): ActionType;
-  function defineModule(name: string): ModuleBuilder;
-  function systemdService(config: SystemdService): ActionType;
   function packageRemove(config: PackageRemove): ActionType;
-  function packageInstall(config: PackageInstallConfig): Box;
   function installGnomeExtensions(config: InstallGnomeExtensions): ActionType;
   function onlyIf(action: ActionType, conditions: Condition[]): ActionType;
   function skipIf(action: ActionType, conditions: Condition[]): ActionType;
-  function systemdManage(config: SystemdManage): ActionType;
-  function executeCommand(config: ExecuteCommand): ActionType;
-  function dconfImport(config: DconfImport): ActionType;
 
 }
 

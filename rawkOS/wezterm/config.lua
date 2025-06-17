@@ -4,10 +4,15 @@ local appearance = require 'appearance'
 if wezterm.config_builder then
     config = wezterm.config_builder()
 
-    -- While we have access to appearance.is_dark, we can't use it
-    -- that successfully yet because we can't notify Zellij or fish
-    -- of the color change and everything looks weird.
+    -- Dynamically set color scheme based on system appearance
     config.color_scheme = appearance.scheme_for_appearance()
+    
+    -- Force WezTerm to check appearance changes more frequently
+    wezterm.on("window-config-reloaded", function(window, pane)
+        window:set_config_overrides({
+            color_scheme = appearance.scheme_for_appearance(),
+        })
+    end)
 
     config.enable_kitty_graphics = true
     config.automatically_reload_config = true

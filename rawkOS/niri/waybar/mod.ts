@@ -13,8 +13,13 @@ export default defineModule("waybar")
 			force: true,
 		}),
 		linkFile({
-			target: "style.css",
-			source: "waybar/style.css",
+			target: "style-dark.css",
+			source: "waybar/style-dark.css",
+			force: true,
+		}),
+		linkFile({
+			target: "style-light.css",
+			source: "waybar/style-light.css",
 			force: true,
 		}),
 	]);

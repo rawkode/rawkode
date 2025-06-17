@@ -1,7 +1,6 @@
 $env.config = {
   show_banner: false
 
-	use_grid_icons: true
   use_ansi_coloring: true
 
   # I use Atuin
