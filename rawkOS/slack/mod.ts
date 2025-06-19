@@ -6,4 +6,9 @@ export default defineModule("slack")
 			names: ["com.slack.Slack"],
 			manager: "flatpak",
 		}),
+		linkFile({
+			target: "wayland.conf",
+			source: "~/.local/share/flatpak/overrides/com.slack.Slack",
+			force: true,
+		}),
 	]);
