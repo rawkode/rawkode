@@ -56,6 +56,7 @@ environment {
 		QT_QPA_PLATFORM "wayland"
 		XDG_CURRENT_DESKTOP "niri"
 		XDG_SESSION_TYPE "wayland"
+		ELECTRON_OZONE_PLATFORM_HINT "auto"
 }
 
 hotkey-overlay {
@@ -74,6 +75,9 @@ spawn-at-startup "wl-paste" "--watch" "cliphist" "store"
 spawn-at-startup "xwayland-satellite"
 
 spawn-at-startup "swww" "img" "~/.config/niri/wallpaper.png"
+
+// Force this to start with x11 until they fix wayland ...
+spawn-at-startup "1password" "--ozone-platform=x11" "--silent"
 
 prefer-no-csd
 
