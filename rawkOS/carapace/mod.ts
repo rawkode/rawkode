@@ -12,4 +12,9 @@ export default defineModule("carapace")
 			command:
 				'carapace _carapace nushell | save --force ($nu.user-autoload-dirs | path join "carapace.nu")',
 		}),
+		linkFile({
+			target: "init.fish",
+			source: "fish/conf.d/carapace.fish",
+			force: true,
+		}),
 	]);

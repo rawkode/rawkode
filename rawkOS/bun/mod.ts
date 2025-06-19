@@ -11,4 +11,9 @@ export default defineModule("bun")
 			source: "nushell/autoload/bun.nu",
 			force: true,
 		}),
+		linkFile({
+			target: "init.fish",
+			source: "fish/conf.d/bun.fish",
+			force: true,
+		}),
 	]);
