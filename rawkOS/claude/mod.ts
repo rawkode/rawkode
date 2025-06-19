@@ -6,4 +6,22 @@ export default defineModule("claude")
 			names: ["@anthropic-ai/claude-code"],
 			manager: "bun",
 		}),
+		linkFile({
+			source: "fish/conf.d/claude.fish",
+			target: "config.fish",
+			force: true,
+		}),
+		executeCommand({
+			command: "claude",
+			args: [
+				"mcp",
+				"add",
+				"-s",
+				"user",
+				"-t",
+				"http",
+				"github",
+				"https://api.githubcopilot.com/mcp/",
+			],
+		}),
 	]);
