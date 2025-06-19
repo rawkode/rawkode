@@ -14,6 +14,7 @@ if wezterm.config_builder then
         })
     end)
 
+    config.mux_enable_ssh_agent = false
     config.enable_kitty_graphics = true
     config.automatically_reload_config = true
     config.detect_password_input = true
