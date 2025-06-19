@@ -3,7 +3,7 @@ export default defineModule("dagger")
 	.tags(["developer"])
 	.actions([
 		packageInstall({
-			names: ["dagger/dagger"],
+			names: ["dagger/dagger", "dagger/container-use:cu"],
 			manager: "github",
 		}),
 	]);
