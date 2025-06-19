@@ -10,9 +10,4 @@ export default defineModule("zed")
 			source: "zed/keymap.json",
 			force: true,
 		}),
-		linkFile({
-			target: "settings.json",
-			source: "zed/settings.json",
-			force: true,
-		}),
 	]);
