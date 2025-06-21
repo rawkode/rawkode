@@ -7,7 +7,7 @@ export default defineModule("onepassword")
 		}),
 		linkFile({
 			target: "ssh.conf",
-			source: ".ssh/config",
+			source: "~/.ssh/config",
 			force: true,
 		}),
 		copyFile({
