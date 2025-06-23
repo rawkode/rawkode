@@ -250,7 +250,7 @@ binds {
 		// }
 
 		Super+C {
-				spawn "sh" "-c" "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"
+				spawn "sh" "-c" "clipcatctl list --no-id | fuzzel --dmenu | wl-copy"
 		}
 		Super+T { toggle-column-tabbed-display; }
 		Super+E {

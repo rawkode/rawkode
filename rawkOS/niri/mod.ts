@@ -1,7 +1,7 @@
 export default defineModule("niri")
 	.description("Scrollable tiling compositor")
 	.tags(["desktop"])
-	.dependsOn(["darkman", "swaync", "waybar"])
+	.dependsOn(["clipboard", "darkman", "swaync", "waybar"])
 	.actions([
 		packageInstall({
 			names: [
