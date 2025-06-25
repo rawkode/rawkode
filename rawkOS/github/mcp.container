@@ -1,0 +1,19 @@
+[Unit]
+Description=GitHub MCP Server
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/github/github-mcp-server
+AutoUpdate=registry
+Secret=github-token,type=env,target=GITHUB_PERSONAL_ACCESS_TOKEN
+
+Network=host
+StopTimeout=30
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target
