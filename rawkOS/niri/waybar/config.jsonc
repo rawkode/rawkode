@@ -32,7 +32,12 @@
 	},
 	"niri/window": {
 		"separate-outputs": true,
-		"icon": true
+		"icon": true,
+		"format": "{}",
+		"rewrite": {
+			"^(.{80}).*$": "$1…",
+			"^(.*)$": "$1"
+		}
 	},
 	"backlight": {
 		"format": "{icon}",

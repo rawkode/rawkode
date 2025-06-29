@@ -65,5 +65,5 @@ in
     HibernateDelaySec=${toString (Minutes 10)}
   '';
 
-  system.stateVersion = "24.11";
+  system.stateVersion = "25.05";
 }

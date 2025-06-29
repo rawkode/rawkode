@@ -3,7 +3,6 @@ set -l EZA_DEFAULT_OPTIONS \
     --git \
     --icons=always \
     --time-style=relative \
-    --git-ignore \
     --group-directories-first \
     --no-quotes
 
