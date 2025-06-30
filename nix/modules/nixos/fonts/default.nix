@@ -32,12 +32,8 @@
       corefonts
       emojione
       monaspace
-      (nerdfonts.override {
-        fonts = [
-          "Monaspace"
-          "NerdFontsSymbolsOnly"
-        ];
-      })
+      nerd-fonts.monaspace
+      nerd-fonts.symbols-only
       noto-fonts
       noto-fonts-emoji
     ];
