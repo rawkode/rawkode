@@ -3,8 +3,14 @@
 
   inputs = {
     nixpkgs = {
+      url = "github:nixos/nixpkgs/nixos-25.05";
+    };
+		unstable = {
       url = "github:nixos/nixpkgs/nixos-unstable";
     };
+		moon = {
+			url = "git+https://github.com/NixOS/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
+		};
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -27,7 +33,7 @@
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak";
     home-manager = {
-      url = "github:nix-community/home-manager/release-24.11";
+      url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     lanzaboote = {
