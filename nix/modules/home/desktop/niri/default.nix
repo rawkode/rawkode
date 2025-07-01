@@ -1,133 +1,39 @@
-{ config
-, lib
-, pkgs
-, ...
-}:
+{ pkgs, ... }:
 {
-  home.packages = with pkgs; [
-    # Core niri dependencies
-    niri
-    xwayland-satellite
+  programs.waybar = {
+    enable = true;
 
-    # Clipboard management
-    clipcat
-    wl-clipboard
-    cliphist
+    systemd.enable = false; # We'll configure our own service
+  };
 
-    # Screen management
-    swayidle
-    swaylock
-    brightnessctl
+  systemd.user.services.waybar = {
+    Unit = {
+      Description = "Waybar for niri";
+      Documentation = "https://github.com/Alexays/Waybar/wiki";
+      PartOf = [ "graphical-session.target" ];
+      After = [ "graphical-session-pre.target" ];
+    };
 
-    # Notification daemon
-    swaynotificationcenter
+    Service = {
+      Type = "simple";
+      ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
+      ExecStart = "${pkgs.waybar}/bin/waybar";
+      ExecReload = "${pkgs.coreutils}/bin/kill -SIGUSR2 $MAINPID";
+      Restart = "on-failure";
+      RestartSec = "1s";
+    };
 
-    # Wallpaper
-    swww
+    Install = {
+      WantedBy = [ "graphical-session.target" ];
+    };
+  };
 
-    # App launcher
-    fuzzel
-    bemoji
-
-    # Status bar
-    waybar
-
-    # Dark/light mode switcher
-    darkman
-
-    # Authentication agent
-    polkit_gnome
-
-    # Screenshot utilities
-    grim
-    slurp
-
-    # Other utilities
-    blueman
-    pavucontrol
-  ];
-
-  # Main niri configuration
-  xdg.configFile."niri/config.kdl".text = ''
-    ${builtins.readFile ./config.kdl}
-  '';
+  xdg.configFile."niri/config.kdl".source = ./config.kdl;
+  xdg.configFile."fuzzel/fuzzel.ini".source = ./fuzzel/config.ini;
+  xdg.configFile."swaylock/config".source = ./swaylock/config;
 
   services.clipcat.enable = true;
 
-  # Fuzzel configuration
-  xdg.configFile."fuzzel/fuzzel.ini".text = ''
-    [main]
-    font=Monaspace Neon:size=16
-    prompt=" "
-    layer=overlay
-    width=35
-    lines=10
-    horizontal-pad=20
-    vertical-pad=8
-
-    [colors]
-    background=0D0D0D99
-    text=EEEEEEff
-    match=9d79d6ff
-    selection=b8bb262e
-    selection-text=EEEEEEff
-    selection-match=9d79d6ff
-
-    [border]
-    width=3
-    radius=10
-
-    [dmenu]
-    exit-immediately-if-empty=yes
-  '';
-
-  # Swaylock configuration
-  xdg.configFile."swaylock/config".text = ''
-    ignore-empty-password
-    font=Monaspace Neon
-    font-size=24
-
-    clock
-    timestr=%I:%M %p
-    datestr=%A, %B %d
-
-    # Background
-    screenshots
-    effect-blur=10x5
-    effect-vignette=0.5:0.5
-    fade-in=0.2
-
-    # Colors
-    inside-color=1e1e2e00
-    inside-clear-color=f5e0dc00
-    inside-ver-color=89b4fa00
-    inside-wrong-color=f38ba800
-    ring-color=b4befeff
-    ring-clear-color=f5e0dcff
-    ring-ver-color=89b4faff
-    ring-wrong-color=f38ba8ff
-    line-color=1e1e2eff
-    line-clear-color=f5e0dcff
-    line-ver-color=89b4faff
-    line-wrong-color=f38ba8ff
-    text-color=cdd6f4ff
-    text-clear-color=f5e0dcff
-    text-ver-color=89b4faff
-    text-wrong-color=f38ba8ff
-    key-hl-color=a6e3a1ff
-    bs-hl-color=f38ba8ff
-    caps-lock-key-hl-color=fab387ff
-    caps-lock-bs-hl-color=f38ba8ff
-    separator-color=1e1e2e00
-
-    # Indicator
-    indicator-radius=100
-    indicator-thickness=10
-    indicator-x-position=50
-    indicator-y-position=800
-  '';
-
-  # Portal configuration
   xdg.configFile."xdg-desktop-portal/portals.conf".text = ''
     [preferred]
     default=gnome;gtk
@@ -136,12 +42,11 @@
     org.freedesktop.impl.portal.Screenshot=gnome
   '';
 
-  # Waybar configuration
   xdg.configFile."waybar/config.jsonc".source = ./waybar/config.jsonc;
+  xdg.configFile."waybar/style-common.css".source = ./waybar/style-common.css;
   xdg.configFile."waybar/style-dark.css".source = ./waybar/style-dark.css;
   xdg.configFile."waybar/style-light.css".source = ./waybar/style-light.css;
 
-  # Darkman configuration
   xdg.configFile."darkman/config.yaml".text = ''
     lat: 53.544389
     lng: -113.490927
@@ -152,7 +57,13 @@
     sunset: "17:00"
   '';
 
-  # Darkman mode scripts
+  services.darkman = {
+    enable = true;
+    settings = {
+      usegeoclue = true;
+    };
+  };
+
   xdg.configFile."darkman/dark-mode.d/fish.sh" = {
     executable = true;
     text = ''
@@ -219,7 +130,6 @@
     '';
   };
 
-  # SwayNC configuration
   xdg.configFile."swaync/config.json".text = ''
     {
       "positionX": "right",
@@ -323,7 +233,6 @@
     }
   '';
 
-  # Fuzzel window picker script
   home.file.".local/bin/fuzzel-window-picker" = {
     executable = true;
     text = ''

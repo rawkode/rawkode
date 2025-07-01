@@ -1,0 +1,104 @@
+* {
+	font-family: "Monaspace Neon", "MonaspiceNe Nerd Font";
+	font-weight: 400;
+	font-size: 16px;
+}
+
+tooltip {
+	background: @crust;
+}
+
+tooltip label {
+	color: @teal;
+}
+
+#workspaces {
+	margin-left: 1em;
+	padding: 0 0.5em;
+}
+
+#workspaces button {
+	color: @subtext0;
+	background: transparent;
+	padding: 0 8px;
+	margin: 0 3px;
+	border-radius: 8px;
+	transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+#workspaces button.active {
+	color: @teal;
+}
+
+#workspaces button.focused {
+	color: @lavender;
+}
+
+#workspaces button.urgent {
+	color: @rosewater;
+}
+
+#workspaces button:hover {
+	color: @flamingo;
+	background: alpha(@flamingo, 0.2);
+}
+
+#custom-notification {
+	margin-right: 1em;
+	padding: 0 0.5em;
+}
+
+#backlight {
+	margin-right: 1em;
+	padding: 0 0.5em;
+	color: @text;
+}
+
+#wireplumber {
+	margin-right: 1em;
+	padding: 0 0.5em;
+}
+
+#battery {
+	margin-right: 1em;
+	padding: 0 0.5em;
+}
+
+#tray {
+	margin-right: 1em;
+}
+
+#tray menu {
+	font-family: "Monaspace Neon", "MonaspiceNe Nerd Font";
+	font-size: 14px;
+}
+
+#tray > .needs-attention {
+	border-bottom: 2px solid @rose;
+}
+
+#window {
+	padding: 0 1em;
+}
+
+/* Battery and wireplumber states */
+#battery.charging,
+#battery.plugged {
+	color: @green;
+	transition: color 0.3s ease;
+}
+
+#battery.warning {
+	color: @yellow;
+	transition: color 0.3s ease;
+}
+
+#battery.critical {
+	color: @red;
+	transition: color 0.3s ease;
+}
+
+#wireplumber.muted {
+	color: @overlay0;
+	transition: color 0.3s ease;
+}
