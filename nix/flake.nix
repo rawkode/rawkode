@@ -5,12 +5,12 @@
     nixpkgs = {
       url = "github:nixos/nixpkgs/nixos-25.05";
     };
-		unstable = {
+    unstable = {
       url = "github:nixos/nixpkgs/nixos-unstable";
     };
-		moon = {
-			url = "git+https://github.com/NixOS/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
-		};
+    moon = {
+      url = "git+https://github.com/NixOS/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
+    };
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -50,6 +50,7 @@
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    treefmt-nix.url = "github:numtide/treefmt-nix";
     wezterm.url = "github:wez/wezterm/bc3dde9e75b7f656f32a996378ec6048df2bfda4?dir=nix";
   };
 
@@ -69,6 +70,11 @@
           };
         };
       };
+
+      # Eval the treefmt modules from ./treefmt.nix
+      treefmtEval = inputs.nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system:
+        inputs.treefmt-nix.lib.evalModule inputs.nixpkgs.legacyPackages.${system} ./treefmt.nix
+      );
     in
     lib.mkFlake {
       channels-config = {
@@ -114,5 +120,13 @@
           }
         )
       ];
+
+      outputs-builder = channels: {
+        # for `nix fmt`
+        formatter = treefmtEval.${channels.nixpkgs.system}.config.build.wrapper;
+
+        # for `nix flake check`
+        checks.formatting = treefmtEval.${channels.nixpkgs.system}.config.build.check inputs.self;
+      };
     };
 }

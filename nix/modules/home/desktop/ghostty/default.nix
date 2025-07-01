@@ -1,61 +1,45 @@
-{ config, lib, pkgs, ... }:
-
-let
-  cfg = config.programs.ghostty;
-in
+{ lib, pkgs, ... }:
 {
-  options.programs.ghostty = {
-    enable = lib.mkEnableOption "Ghostty terminal emulator";
-    
-    package = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.ghostty;
-      description = "The ghostty package to use";
-    };
-  };
+  home.packages = [ pkgs.ghostty ];
 
-  config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+  xdg.configFile."ghostty/config".text = ''
+    theme = dark:catppuccin-macchiato,light:catppuccin-latte
 
-    xdg.configFile."ghostty/config".text = ''
-theme = dark:catppuccin-macchiato,light:catppuccin-latte
+    font-size = 16
+    font-family = "Monaspace Neon"
 
-font-size = 16
-font-family = "Monaspace Neon"
+    shell-integration = detect
 
-shell-integration = detect
+    mouse-hide-while-typing = true
 
-mouse-hide-while-typing = true
+    clipboard-read = "allow"
+    clipboard-write = allow
+    copy-on-select = clipboard
 
-clipboard-read = "allow"
-clipboard-write = allow
-copy-on-select = clipboard
+    clipboard-trim-trailing-spaces = true
+    clipboard-paste-protection = true
 
-clipboard-trim-trailing-spaces = true
-clipboard-paste-protection = true
+    confirm-close-surface = false
 
-confirm-close-surface = false
+    background-opacity = 0.98
 
-background-opacity = 0.98
+    focus-follows-mouse = true
+    unfocused-split-opacity = 0.5
 
-focus-follows-mouse = true
-unfocused-split-opacity = 0.5
+    gtk-single-instance = true
+    gtk-titlebar = true
 
-gtk-single-instance = true
-gtk-titlebar = true
+    window-decoration = true
+    window-colorspace = display-p3
 
-window-decoration = true
-window-colorspace = display-p3
+    window-theme = "auto"
 
-window-theme = "auto"
+    window-padding-x = 8
+    window-padding-y = 8
+    window-padding-balance = true
 
-window-padding-x = 8
-window-padding-y = 8
-window-padding-balance = true
-
-keybind = ctrl+page_up=unbind
-keybind = ctrl+page_down=unbind
-keybind = shift+enter=text:\n
-    '';
-  };
+    keybind = ctrl+page_up=unbind
+    keybind = ctrl+page_down=unbind
+    keybind = shift+enter=text:\n
+  '';
 }

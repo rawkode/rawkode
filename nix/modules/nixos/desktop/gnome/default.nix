@@ -1,7 +1,6 @@
-{
-  lib,
-  pkgs,
-  ...
+{ lib
+, pkgs
+, ...
 }:
 {
   services = {
@@ -32,7 +31,6 @@
 
   environment.systemPackages = with pkgs; [
     cheese
-    dconf-editor
     gnome-extension-manager
     nautilus-open-any-terminal
   ];
