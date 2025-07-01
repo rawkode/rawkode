@@ -1,28 +1,19 @@
 {
 	"layer": "top",
 	"position": "top",
+	"height": 32,
 	"mod": "dock",
 	"exclusive": true,
 	"gtk-layer-shell": true,
 	"passthrough": false,
 	"fixed-center": true,
 	"reload_style_on_change": true,
-	"modules-left": [
-		"niri/workspaces"
-	],
-	"modules-center": [
-		"niri/window"
-	],
-	"modules-right": [
-		"tray",
-		"backlight",
-		"wireplumber",
-		"battery",
-		"custom/notification"
-	],
+	"modules-left": ["niri/workspaces"],
+	"modules-center": ["niri/window"],
+	"modules-right": ["tray", "backlight", "wireplumber", "battery", "custom/notification"],
 	"tray": {
 		"icon-size": 16,
-		"spacing": 20
+		"spacing": 32
 	},
 	"niri/workspaces": {
 		"format": "{icon}",
@@ -42,20 +33,11 @@
 	"backlight": {
 		"format": "{icon}",
 		"tooltip-format": "{percent}%",
-		"format-icons": [
-			"󰛩",
-			"󰛪",
-			"󰛫",
-			"󰛬",
-			"󰛭",
-			"󰛮",
-			"󰛯",
-			"󰛰"
-		]
+		"format-icons": ["󰛩", "󰛪", "󰛫", "󰛬", "󰛭", "󰛮", "󰛯", "󰛰"]
 	},
 	"battery": {
 		"states": {
-			// "good": 95,
+			"good": 95,
 			"warning": 30,
 			"critical": 15
 		},
@@ -63,19 +45,8 @@
 		"format-charging": "<span size='small'>󰢝</span>",
 		"format-plugged": "<span size='small'>󰂄</span>",
 		"format-alt": "{capacity}% {time}",
-		"format-icons": [
-			"󰁺",
-			"󰁻",
-			"󰁼",
-			"󰁽",
-			"󰁾",
-			"󰁿",
-			"󰂀",
-			"󰂁",
-			"󰂂",
-			"󰁹"
-		],
-		"tooltip-format": "{capacity}%",
+		"format-icons": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+		"tooltip-format": "Battery at {capacity}%"
 	},
 	"wireplumber": {
 		"format": "{icon}",
@@ -83,17 +54,13 @@
 		"format-muted": "🔇",
 		"on-click": "pavucontrol",
 		"on--right-click": "helvum",
-		"format-icons": [
-			"🔈",
-			"🔉",
-			"🔊"
-		]
+		"format-icons": ["🔈", "🔉", "🔊"]
 	},
 	"custom/notification": {
 		"tooltip": false,
 		"format": "{icon}",
 		"format-icons": {
-			"notification": "<span foreground='red'><sup></sup></span>🔔",
+			"notification": "<span foreground='red'><sup>1</sup></span>🔔",
 			"none": "🔔",
 			"dnd-notification": "<span foreground='red'><sup></sup></span>🔕",
 			"dnd-none": "🔕",

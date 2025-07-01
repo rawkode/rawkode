@@ -1,4 +1,4 @@
 { channels, ... }:
 final: prev: {
-    inherit (channels.unstable) claude-code;
+  inherit (channels.unstable) claude-code;
 }
