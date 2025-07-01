@@ -1,6 +1,6 @@
----
-shell: bash
----
+______________________________________________________________________
+
+## shell: bash
 
 # rawkOS: Rawkode's Operating System
 

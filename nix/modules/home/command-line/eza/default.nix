@@ -5,21 +5,21 @@
   ];
 
   programs = {
-		eza = {
-			enable = true;
-			enableFishIntegration = true;
+    eza = {
+      enable = true;
+      enableFishIntegration = true;
 
-			colors = "always";
-			git = true;
-			icons = "always";
+      colors = "always";
+      git = true;
+      icons = "always";
 
-			extraOptions = [
-				"--time-style"
-				"relative"
-				"--git-ignore"
-				"--group-directories-first"
-				"--no-quotes"
-			];
-		};
+      extraOptions = [
+        "--time-style"
+        "relative"
+        "--git-ignore"
+        "--group-directories-first"
+        "--no-quotes"
+      ];
+    };
   };
 }

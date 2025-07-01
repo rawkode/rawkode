@@ -1,25 +1,8 @@
-{ config, lib, pkgs, ... }:
-
-let
-  cfg = config.programs.zulip;
-in
+{ lib, pkgs, ... }:
 {
-  options.programs.zulip = {
-    enable = lib.mkEnableOption "Zulip team chat client";
-    
-    package = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.zulip;
-      description = "The Zulip package to use";
-    };
-  };
+  home.packages = [ pkgs.zulip ];
 
-  config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
-
-    # Enable Wayland support
-    home.sessionVariables = {
-      NIXOS_OZONE_WL = "1";
-    };
+  home.sessionVariables = {
+    NIXOS_OZONE_WL = "1";
   };
 }

@@ -32,10 +32,10 @@
     tmp.cleanOnBoot = true;
   };
 
-	networking.useNetworkd = true;
-	systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
+  networking.useNetworkd = true;
+  systemd.services.systemd-networkd-wait-online.enable = lib.mkForce false;
 
-	nix.channel.enable = false;
+  nix.channel.enable = false;
 
   console.useXkbConfig = true;
 }

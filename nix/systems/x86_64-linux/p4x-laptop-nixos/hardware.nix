@@ -1,9 +1,8 @@
-{
-  config,
-  inputs,
-  lib,
-  modulesPath,
-  ...
+{ config
+, inputs
+, lib
+, modulesPath
+, ...
 }:
 
 {
@@ -39,8 +38,6 @@
       size = 96 * 1024;
     }
   ];
-
-  services.fprintd.enable = true;
 
   networking.useDHCP = lib.mkDefault true;
   networking.networkmanager.wifi.powersave = true;

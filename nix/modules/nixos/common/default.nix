@@ -51,7 +51,6 @@
       glib.dev
       gnome-tweaks
       pinentry-gnome3
-      vscode
     ];
 
     variables = {
