@@ -1,0 +1,416 @@
+// Always laptop screen
+output "eDP-1" {
+		scale 2.0
+		position x=0 y=0
+}
+
+// Office monitors
+output "DP-1" {
+		scale 2.0
+		position x=0 y=0
+		focus-at-startup
+}
+
+output "DP-2" {
+		scale 2.0
+}
+
+// Teleprompter
+output "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL" {
+		scale 2.0
+		mode "1920x1080@60.000"
+		transform "180"
+		// Let's just move it out of the way, the mouse cannot get here.
+		// It's used purely as a Teleprompter anyway.
+		// Do this until niri supports mirroring.
+		position x=0 y=1080
+}
+
+// Home monitor
+output "Samsung Electric Company LS32A70 HK2WB00305" {
+		scale 1.75
+}
+
+input {
+		focus-follows-mouse max-scroll-amount="0%"
+
+		keyboard {
+			numlock
+		}
+
+		touchpad {
+				tap
+				natural-scroll
+				click-method "clickfinger"
+				dwt
+				disabled-on-external-mouse
+		}
+
+		mouse {
+				natural-scroll
+		}
+}
+
+environment {
+		DISPLAY ":0"
+		QT_QPA_PLATFORM "wayland"
+		XDG_CURRENT_DESKTOP "niri"
+		XDG_SESSION_TYPE "wayland"
+		ELECTRON_OZONE_PLATFORM_HINT "auto"
+}
+
+hotkey-overlay {
+		skip-at-startup
+}
+
+spawn-at-startup "/usr/bin/gnome-keyring-daemon" "--start" "--components=pkcs11,secrets"
+spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+
+spawn-at-startup "blueman-applet"
+spawn-at-startup "swayidle" "-w" "before-sleep" "swaylock -f" "timeout" "300" "niri msg output eDP-1 off" "resume" "niri msg output eDP-1 on"
+spawn-at-startup "swaync"
+spawn-at-startup "swww-daemon"
+spawn-at-startup "waybar"
+spawn-at-startup "wl-paste" "--watch" "cliphist" "store"
+spawn-at-startup "xwayland-satellite"
+
+spawn-at-startup "swww" "img" "~/.config/niri/wallpaper.png"
+
+// Force this to start with x11 until they fix wayland ...
+spawn-at-startup "1password" "--ozone-platform=x11" "--silent"
+
+prefer-no-csd
+
+workspace "Web" {
+	open-on-output "DP-1"
+}
+
+workspace "Code" {
+	open-on-output "DP-2"
+}
+
+workspace "Chat" {
+	open-on-output "DP-1"
+}
+
+workspace "Teleprompter" {
+	open-on-output "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL"
+}
+
+cursor {
+		xcursor-theme "catppuccin-mocha-rose-cursors"
+		xcursor-size 24
+		hide-when-typing
+		hide-after-inactive-ms 1000
+}
+
+animations { slowdown 0.6; }
+
+window-rule {
+    open-on-workspace "Web"
+    open-focused true
+    open-maximized true
+
+    match app-id="vivaldi"
+		match app-id="vivaldi-stable"
+}
+
+window-rule {
+    match app-id=r#"firefox$"# title="^Picture-in-Picture$"
+    open-floating true
+}
+
+window-rule {
+    open-on-workspace "Chat"
+    open-focused true
+    open-maximized true
+
+    match app-id="com.slack.Slack"
+		match app-id="org.zulip.Zulip"
+}
+
+window-rule {
+    open-on-workspace "Code"
+    open-focused true
+    open-maximized true
+
+    match app-id="Code"
+    match app-id="com.mitchellh.ghostty"
+}
+
+switch-events {
+		lid-close {
+				spawn "systemctl" "poweroff"
+		}
+}
+
+overview {
+		zoom 0.32
+}
+
+layout {
+		gaps 16
+		center-focused-column "on-overflow"
+		focus-ring {
+				width 2
+				active-gradient from="#ff00ff" to="#00ffff" angle=270 relative-to="window"
+				inactive-gradient from="#3a3a4a" to="#5a5a6a" angle=45 relative-to="workspace-view"
+				urgent-gradient from="#ff0000" to="#ffff00" angle=135
+		}
+
+		border {
+				off
+		}
+
+		shadow {
+				on
+				softness 50
+				spread 15
+				offset x=0 y=12
+				draw-behind-window true
+				color "#ff00ff40"
+				inactive-color "#00000030"
+		}
+
+		struts {
+				left 64
+				right 64
+				top 4
+				bottom 4
+		}
+
+		default-column-width {
+				proportion 1.0
+		}
+
+		preset-column-widths {
+				proportion 0.5
+				proportion 0.75
+				proportion 1.0
+		}
+
+		preset-window-heights {
+				proportion 0.5
+				proportion 0.75
+				proportion 1.0
+		}
+}
+
+window-rule {
+		geometry-corner-radius 16
+		clip-to-geometry true
+}
+
+window-rule {
+		match is-window-cast-target=true
+		focus-ring {
+				active-color "#d75f5e"
+		}
+		shadow {
+				color "#d75f5e40"
+		}
+		tab-indicator {
+				active-color "#ffb800"
+				inactive-color "#9e5f5e"
+		}
+}
+
+window-rule {
+		match app-id="1Password"
+		match title="[Gg]mail"
+		match app-id=".*[Ss]waync.*"
+		block-out-from "screen-capture"
+}
+
+window-rule {
+		match is-floating=false
+		shadow {
+				on
+				color "#00000060"
+				softness 10
+				spread 3
+				offset x=0 y=3
+				draw-behind-window true
+		}
+}
+
+binds {
+		Super+Q {
+				close-window
+		}
+		Super+Shift+Q {
+				quit
+		}
+		Super+Space {
+				spawn "fuzzel"
+		}
+
+		// Ctrl+Space {
+		// 		spawn "~/.local/bin/fuzzel-window-picker"
+		// }
+
+		Super+C {
+				spawn "sh" "-c" "clipcatctl list --no-id | fuzzel --dmenu | wl-copy"
+		}
+		Super+T { toggle-column-tabbed-display; }
+		Super+E {
+				spawn "bemoji"
+		}
+		Super+P {
+				toggle-overview
+		}
+		Super+N {
+				spawn "swaync-client" "-t"
+		}
+		Super+Return {
+				spawn "ghostty"
+		}
+		Super+Backslash {
+				spawn "1password" "--quick-access"
+		}
+		Super+Comma {
+				consume-window-into-column
+		}
+		Super+Period {
+				expel-window-from-column
+		}
+		Super+Page_Up {
+				focus-workspace-up
+		}
+		Super+Page_Down {
+				focus-workspace-down
+		}
+		Super+Shift+Page_Up {
+				move-column-to-workspace-up
+		}
+		Super+Shift+Page_Down {
+				move-column-to-workspace-down
+		}
+
+		Super+Control+Down {
+				move-column-to-monitor-down
+		}
+
+		Super+Control+Up {
+				move-column-to-monitor-up
+		}
+		Super+Control+Left {
+				move-column-to-monitor-left
+		}
+		Super+Control+Right {
+				move-column-to-monitor-right
+		}
+
+		Super+Up {
+				focus-window-up
+		}
+		Super+Down {
+				focus-window-down
+		}
+		Super+Left {
+				focus-column-left
+		}
+		Super+Shift+Left {
+				move-column-left
+		}
+		Super+Right {
+				focus-column-right
+		}
+		Super+Shift+Right {
+				move-column-right
+		}
+		Super+1 {
+				focus-workspace 1
+		}
+		Super+2 {
+				focus-workspace 2
+		}
+		Super+3 {
+				focus-workspace 3
+		}
+		Super+4 {
+				focus-workspace 4
+		}
+		Super+5 {
+				focus-workspace 5
+		}
+		Super+6 {
+				focus-workspace 6
+		}
+		Super+7 {
+				focus-workspace 7
+		}
+		Super+8 {
+				focus-workspace 8
+		}
+		Super+9 {
+				focus-workspace 9
+		}
+		Super+Shift+1 {
+				move-column-to-workspace 1
+		}
+		Super+Shift+2 {
+				move-column-to-workspace 2
+		}
+		Super+Shift+3 {
+				move-column-to-workspace 3
+		}
+		Super+Shift+4 {
+				move-column-to-workspace 4
+		}
+		Super+Shift+5 {
+				move-column-to-workspace 5
+		}
+		Super+Shift+6 {
+				move-column-to-workspace 6
+		}
+		Super+Shift+7 {
+				move-column-to-workspace 7
+		}
+		Super+Shift+8 {
+				move-column-to-workspace 8
+		}
+		Super+Shift+9 {
+				move-column-to-workspace 9
+		}
+		Super+F {
+				fullscreen-window
+		}
+		Super+R {
+				switch-preset-column-width
+		}
+		Super+Shift+R {
+				switch-preset-window-height
+		}
+		Ctrl+Shift+Space {
+				toggle-window-floating
+		}
+		Print {
+				screenshot-window
+		}
+		Super+Print {
+				screenshot
+		}
+		XF86AudioRaiseVolume allow-when-locked=true {
+				spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"
+		}
+		XF86AudioLowerVolume allow-when-locked=true {
+				spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"
+		}
+		XF86AudioMute allow-when-locked=true {
+				spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"
+		}
+		XF86AudioMicMute allow-when-locked=true {
+				spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"
+		}
+		XF86MonBrightnessUp {
+				spawn "brightnessctl" "s" "10%+"
+		}
+		XF86MonBrightnessDown {
+				spawn "brightnessctl" "s" "10%-"
+		}
+		Super+L allow-inhibiting=false {
+				spawn "swaylock"
+		}
+		Super+Shift+L { power-off-monitors; }
+}
