@@ -1,12 +1,10 @@
 project:
   name: rawkOS
   description: Rawkode's Operating System
-
 tasks:
   fresh-install-partition:
     description: Partition disk for fresh NixOS install
     command: sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- --mode disko ./systems/x86_64-linux/$DEVICE/disko.nix
-
   fresh-install-install:
     description: Install NixOS on prepared partitions
     script: |
@@ -14,11 +12,9 @@ tasks:
       sudo nixos-enter --root /mnt --command "sbctl create-keys"
       sudo nixos-install --no-root-passwd --root /mnt --flake .#${DEVICE}
       sudo nixos-enter --root /mnt --command "passwd rawkode"
-
   rebuild:
     description: Apply NixOS and home-manager configuration
     command: nh os switch .
-
   install-flatpaks:
     description: Install Flatpak applications
     script: |
@@ -36,17 +32,14 @@ tasks:
       flatpak install --system --or-update --assumeyes flathub net.mkiol.Jupii
       flatpak install --system --or-update --assumeyes flathub org.nickvision.tubeconverter
       flatpak install --system --or-update --assumeyes flathub org.gnome.Showtime
-
   home:
     description: Apply home-manager configuration
     command: nh home switch .
-
   tpm-secure-boot:
     description: Configure TPM2 SecureBoot
     script: |
       sudo sbctl enroll-keys
       sudo systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2 --tpm2-pcrs=3,7,11 --tpm2-with-pin=true
-
   ssh-key:
     description: Generate TPM2 SSH key
     script: |

@@ -8,12 +8,7 @@ in
   imports = [
     ./delta.nix
     ./fish.nix
-    ./gitsign.nix
     ./jujutsu.nix
-  ];
-
-  home.packages = with pkgs; [
-    git-credential-oauth
   ];
 
   programs.git = {
@@ -25,21 +20,19 @@ in
 
     aliases = {
       cane = "commit --amend --no-edit";
-      co = "checkout";
       logp = "log --pretty=shortlog";
       logs = "log --show-signatures";
-      pl = "pull --ff-only";
       prune = "fetch --prune";
-      ps = "push";
       root = "rev-parse --show-toplevel";
     };
+
+    signing.key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
 
     extraConfig = {
       init.defaultBranch = "main";
 
       credential.helper = [
         "cache --timeout 21600"
-        "${pkgs.git-credential-oauth}/bin/git-credential-oauth"
       ];
 
       advice = {
@@ -70,6 +63,7 @@ in
       commit = {
         template = "~/.config/git/templates/commit.txt";
         verbose = true;
+        gpgsign = true;
       };
 
       diff = {
@@ -130,6 +124,11 @@ in
 
       tag = {
         sort = "version:refname";
+      };
+
+      gpg = {
+        format = "ssh";
+        ssh.program = "${pkgs._1password-gui}/bin/op-ssh-sign";
       };
     };
 
