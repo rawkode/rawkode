@@ -1,6 +1,6 @@
 // Always laptop screen
 output "eDP-1" {
-		scale 1.75
+		scale 2.0
 		position x=0 y=0
 }
 

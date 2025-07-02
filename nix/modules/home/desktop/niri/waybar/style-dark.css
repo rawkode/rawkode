@@ -62,12 +62,6 @@ window#waybar {
 	background: alpha(@surface0, 0.4);
 }
 
-/* Window title */
-#window {
-	color: @subtext1;
-	font-weight: 500;
-}
-
 /* Workspace improvements */
 #workspaces button.active {
 	background: alpha(@teal, 0.15);
