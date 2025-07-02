@@ -59,6 +59,4 @@
       VISUAL = "code --wait";
     };
   };
-
-  time.timeZone = lib.mkForce null;
 }

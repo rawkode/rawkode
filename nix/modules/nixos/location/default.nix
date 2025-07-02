@@ -1,9 +1,8 @@
+{ lib, pkgs, ... }:
 {
-  location = {
-    provider = "manual";
-    latitude = 55.8617;
-    longitude = 4.2583;
-  };
+  location.provider = "geoclue2";
+
+  time.timeZone = lib.mkForce null;
 
   services = {
     avahi = {
@@ -11,32 +10,28 @@
       nssmdns4 = true;
     };
 
+    automatic-timezoned.enable = true;
+    localtimed.enable = true;
+
     geoclue2 = {
       enable = true;
-
-      # With these all disabled, should use GeoIP
-      # Everything else appears to be broken since
-      # Mozilla shutdown location services and
-      # I can't get beacondb to work because:
-      #
-      # Aug 21 11:08:17 p4x-desktop-nixos .geoclue-wrappe[10047]: Failed to query location: No WiFi networks found
-      # Aug 21 11:08:26 p4x-desktop-nixos .geoclue-wrappe[10047]: Failed to query location: Query location SOUP error: Not Found
-      #
-      enable3G = false;
-      enableCDMA = false;
-      enableModemGPS = false;
-      enableNmea = false;
-      enableWifi = false;
-
-      geoProviderUrl = "https://beacondb.net/v1/geolocate";
+      enableDemoAgent = lib.mkForce true;
+      enableWifi = true;
+      enableModemGPS = true;
+      enable3G = true;
+      enableCDMA = true;
 
       appConfig.darkman = {
         desktopID = "nl.whynothugo.darkman";
         isAllowed = true;
         isSystem = false;
       };
-    };
 
-    localtimed.enable = true;
+      appConfig.automatic-timezoned = {
+        isAllowed = true;
+        isSystem = true;
+        users = [ ];
+      };
+    };
   };
 }
