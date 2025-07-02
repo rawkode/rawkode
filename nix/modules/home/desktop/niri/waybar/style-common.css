@@ -45,27 +45,48 @@ tooltip label {
 
 #custom-notification {
 	margin-right: 1em;
-	padding: 0 0.5em;
+	padding: 0 0.75em;
+	min-width: 24px;
+	font-size: 18px;
 }
 
 #backlight {
 	margin-right: 1em;
-	padding: 0 0.5em;
+	padding: 0 0.75em;
+	min-width: 24px;
+	font-size: 18px;
 	color: @text;
+	background: transparent;
 }
 
 #wireplumber {
 	margin-right: 1em;
-	padding: 0 0.5em;
+	padding: 0 0.75em;
+	min-width: 24px;
+	font-size: 18px;
+	background: transparent;
 }
 
 #battery {
 	margin-right: 1em;
-	padding: 0 0.5em;
+	padding: 0 0.75em;
+	min-width: 24px;
+	font-size: 18px;
+	background: transparent;
 }
 
 #tray {
 	margin-right: 1em;
+	padding: 0 0.5em;
+	background: transparent;
+}
+
+#tray > widget > box {
+	min-width: 24px;
+}
+
+#tray > widget {
+	margin: 0 4px;
 }
 
 #tray menu {
