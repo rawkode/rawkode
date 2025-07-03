@@ -11,6 +11,8 @@
     };
   };
 
+  services.swayosd.enable = true;
+
   services.gnome-keyring = {
     enable = true;
     components = [
@@ -60,13 +62,24 @@
 
   services.clipcat.enable = true;
 
-  xdg.configFile."xdg-desktop-portal/portals.conf".text = ''
-    [preferred]
-    default=gnome;gtk
-    org.freedesktop.impl.portal.FileChooser=gtk
-    org.freedesktop.impl.portal.ScreenCast=gnome
-    org.freedesktop.impl.portal.Screenshot=gnome
-  '';
+  xdg.portal = {
+    extraPortals = with pkgs; [
+      xdg-desktop-portal-gtk
+      xdg-desktop-portal-wlr
+    ];
+    config.niri = {
+      default = [
+        "gnome"
+        "gtk"
+        "wlr"
+      ];
+      "org.freedesktop.impl.portal.FileChooser" = "gtk";
+      "org.freedesktop.impl.portal.Notification" = "gtk";
+      "org.freedesktop.impl.portal.Secret" = "gnome-keyring";
+      "org.freedesktop.impl.portal.ScreenCast" = "wlr";
+      "org.freedesktop.impl.portal.Screenshot" = "wlr";
+    };
+  };
 
   xdg.configFile."waybar/config.jsonc".source = ./waybar/config.jsonc;
   xdg.configFile."waybar/style-common.css".source = ./waybar/style-common.css;
