@@ -16,7 +16,6 @@
       extraOptions = [
         "--time-style"
         "relative"
-        "--git-ignore"
         "--group-directories-first"
         "--no-quotes"
       ];
