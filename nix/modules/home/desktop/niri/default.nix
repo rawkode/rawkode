@@ -56,7 +56,12 @@
     };
   };
 
-  xdg.configFile."niri/config.kdl".source = ./config.kdl;
+  xdg.configFile."niri/config.kdl".text = builtins.readFile (
+    pkgs.replaceVars ./config.kdl {
+      authAgent = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+    }
+  );
+
   xdg.configFile."fuzzel/fuzzel.ini".source = ./fuzzel/config.ini;
   xdg.configFile."swaylock/config".source = ./swaylock/config;
 

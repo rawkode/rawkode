@@ -64,9 +64,7 @@ hotkey-overlay {
 		skip-at-startup
 }
 
-spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
-
-spawn-at-startup "1password" "--ozone-platform=wayland" "--silent"
+spawn-at-startup "@authAgent@"
 
 spawn-at-startup "blueman-applet"
 spawn-at-startup "swayidle" "-w" "before-sleep" "swaylock -f" "timeout" "300" "niri msg output eDP-1 off" "resume" "niri msg output eDP-1 on"
@@ -392,18 +390,7 @@ binds {
 		Super+Print {
 				screenshot
 		}
-		XF86AudioRaiseVolume allow-when-locked=true {
-				spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"
-		}
-		XF86AudioLowerVolume allow-when-locked=true {
-				spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1-"
-		}
-		XF86AudioMute allow-when-locked=true {
-				spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"
-		}
-		XF86AudioMicMute allow-when-locked=true {
-				spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"
-		}
+
 		XF86MonBrightnessUp {
 				spawn "brightnessctl" "s" "10%+"
 		}
