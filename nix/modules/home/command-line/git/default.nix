@@ -39,7 +39,6 @@ in
       };
     };
 
-    editor = "code --wait";
     ignores = [
       "*logs*"
       "*.log"

@@ -1,5 +1,7 @@
-{ pkgs
-, ...
+{
+  config,
+  pkgs,
+  ...
 }:
 {
   programs.niri.enable = true;
@@ -13,6 +15,9 @@
     cliphist
 
     # Screen management
+    hyprlock
+    hyprcursor
+    hypridle
     swayidle
     swaylock
     brightnessctl
@@ -41,5 +46,4 @@
     blueman
     pavucontrol
   ];
-
 }

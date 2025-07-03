@@ -64,8 +64,9 @@ hotkey-overlay {
 		skip-at-startup
 }
 
-spawn-at-startup "/usr/bin/gnome-keyring-daemon" "--start" "--components=pkcs11,secrets"
 spawn-at-startup "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1"
+
+spawn-at-startup "1password" "--ozone-platform=wayland" "--silent"
 
 spawn-at-startup "blueman-applet"
 spawn-at-startup "swayidle" "-w" "before-sleep" "swaylock -f" "timeout" "300" "niri msg output eDP-1 off" "resume" "niri msg output eDP-1 on"

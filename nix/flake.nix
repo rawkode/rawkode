@@ -2,15 +2,9 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs = {
-      url = "github:nixos/nixpkgs/nixos-25.05";
-    };
-    unstable = {
-      url = "github:nixos/nixpkgs/nixos-unstable";
-    };
-    moon = {
-      url = "git+https://github.com/NixOS/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
-    };
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
+    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    master.url = "github:nixos/nixpkgs/master";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -72,8 +66,8 @@
       };
 
       # Eval the treefmt modules from ./treefmt.nix
-      treefmtEval = inputs.nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system:
-        inputs.treefmt-nix.lib.evalModule inputs.nixpkgs.legacyPackages.${system} ./treefmt.nix
+      treefmtEval = inputs.nixpkgs.lib.genAttrs [ "x86_64-linux" ] (
+        system: inputs.treefmt-nix.lib.evalModule inputs.nixpkgs.legacyPackages.${system} ./treefmt.nix
       );
     in
     lib.mkFlake {

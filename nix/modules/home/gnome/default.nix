@@ -15,16 +15,16 @@ let
   };
 in
 {
-  home.pointerCursor = {
-    package = pkgs.catppuccin-cursors.mochaTeal;
-    name = "catppuccin-mocha-teal-cursors";
-    size = 24;
-    x11 = {
-      enable = true;
-      defaultCursor = "crosshair";
-    };
-    gtk.enable = true;
-  };
+  # home.pointerCursor = {
+  #   package = pkgs.catppuccin-cursors.mochaTeal;
+  #   name = "catppuccin-mocha-teal-cursors";
+  #   size = 24;
+  #   x11 = {
+  #     enable = true;
+  #     defaultCursor = "crosshair";
+  #   };
+  #   gtk.enable = true;
+  # };
 
   gtk = {
     enable = true;

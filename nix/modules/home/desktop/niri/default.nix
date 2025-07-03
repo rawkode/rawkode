@@ -1,5 +1,31 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 {
+  home = {
+    pointerCursor = {
+      package = pkgs.simp1e-cursors;
+      name = "Simp1e-Catppuccin-Frappe";
+      size = 28;
+      gtk.enable = true;
+      x11.enable = true;
+      hyprcursor.enable = true;
+    };
+  };
+
+  services.gnome-keyring = {
+    enable = true;
+    components = [
+      "pkcs11"
+      "secrets"
+      "ssh"
+    ];
+  };
+
+  dconf.settings = {
+    "org/gnome/desktop/interface" = {
+      cursor-theme = config.home.pointerCursor.name;
+    };
+  };
+
   programs.waybar = {
     enable = true;
 

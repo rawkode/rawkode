@@ -483,20 +483,20 @@
         "type": "github"
       }
     },
-    "moon": {
+    "master": {
       "locked": {
-        "lastModified": 1751088070,
-        "narHash": "sha256-+JyuYHyoufwmtHU370mluxueru0liP1wkK6m1/17YqU=",
-        "ref": "refs/heads/master",
-        "rev": "78fcdda7edf3195d3840c01c17890797228f2441",
-        "revCount": 822713,
-        "type": "git",
-        "url": "https://github.com/NixOS/nixpkgs"
+        "lastModified": 1751542354,
+        "narHash": "sha256-KknavFFtoUpDYqg4huzJ+IHwAYB1oQFwPOKhFFhI9Us=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "dc44fa860b422052e71257e53d6e10d5f0bc1037",
+        "type": "github"
       },
       "original": {
-        "rev": "78fcdda7edf3195d3840c01c17890797228f2441",
-        "type": "git",
-        "url": "https://github.com/NixOS/nixpkgs"
+        "owner": "nixos",
+        "ref": "master",
+        "repo": "nixpkgs",
+        "type": "github"
       }
     },
     "naersk": {
@@ -737,7 +737,7 @@
         "flatpaks": "flatpaks",
         "home-manager": "home-manager",
         "lanzaboote": "lanzaboote",
-        "moon": "moon",
+        "master": "master",
         "nix-index-database": "nix-index-database",
         "nixos-facter-modules": "nixos-facter-modules",
         "nixos-hardware": "nixos-hardware",

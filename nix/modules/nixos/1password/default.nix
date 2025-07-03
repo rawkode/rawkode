@@ -1,4 +1,8 @@
-{ config, pkgs, ... }:
+{
+  config,
+  pkgs,
+  ...
+}:
 let
   cfg = config.rawkOS.user;
 in
@@ -7,7 +11,7 @@ in
     programs._1password.enable = true;
     programs._1password-gui = {
       enable = true;
-      package = pkgs._1password-gui;
+      package = pkgs._1password-gui-beta;
       polkitPolicyOwners = [ cfg.username ];
     };
 
