@@ -1,30 +1,30 @@
-/* Light theme (Catppuccin Latte) colors */
-@define-color rosewater #dc8a78;
-@define-color flamingo #dd7878;
-@define-color pink #ea76cb;
-@define-color mauve #8839ef;
-@define-color red #d20f39;
-@define-color maroon #e64553;
-@define-color peach #fe640b;
-@define-color yellow #df8e1d;
-@define-color green #40a02b;
-@define-color teal #179299;
-@define-color sky #04a5e5;
-@define-color sapphire #209fb5;
-@define-color blue #1e66f5;
-@define-color lavender #7287fd;
-@define-color text #4c4f69;
-@define-color subtext1 #5c5f77;
-@define-color subtext0 #6c6f85;
-@define-color overlay2 #7c7f93;
-@define-color overlay1 #8c8fa1;
-@define-color overlay0 #9ca0b0;
-@define-color surface2 #acb0be;
-@define-color surface1 #bcc0cc;
-@define-color surface0 #ccd0da;
-@define-color base #eff1f5;
-@define-color mantle #e6e9ef;
-@define-color crust #dce0e8;
+/* Light theme (Solarized Light) colors */
+@define-color rosewater #cb4b16;
+@define-color flamingo #dc322f;
+@define-color pink #d33682;
+@define-color mauve #6c71c4;
+@define-color red #dc322f;
+@define-color maroon #dc322f;
+@define-color peach #cb4b16;
+@define-color yellow #b58900;
+@define-color green #859900;
+@define-color teal #2aa198;
+@define-color sky #268bd2;
+@define-color sapphire #268bd2;
+@define-color blue #268bd2;
+@define-color lavender #6c71c4;
+@define-color text #002b36;
+@define-color subtext1 #073642;
+@define-color subtext0 #586e75;
+@define-color overlay2 #586e75;
+@define-color overlay1 #657b83;
+@define-color overlay0 #839496;
+@define-color surface2 #93a1a1;
+@define-color surface1 #93a1a1;
+@define-color surface0 #93a1a1;
+@define-color base #fdf6e3;
+@define-color mantle #eee8d5;
+@define-color crust #eee8d5;
 
 @import url("style-common.css");
 

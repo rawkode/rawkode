@@ -26,7 +26,26 @@ in
       root = "rev-parse --show-toplevel";
     };
 
-    signing.key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
+    signing = {
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
+      signByDefault = true;
+    };
+
+    delta = {
+      enable = true;
+      options = {
+        side-by-side = true;
+        line-numbers = true;
+      };
+    };
+
+    editor = "code --wait";
+    ignores = [
+      "*logs*"
+      "*.log"
+      "*~"
+      ".DS_Store"
+    ];
 
     extraConfig = {
       init.defaultBranch = "main";
@@ -37,10 +56,6 @@ in
 
       advice = {
         statusHints = false;
-      };
-
-      core = {
-        editor = "code --wait";
       };
 
       column = {
@@ -131,13 +146,6 @@ in
         ssh.program = "${pkgs._1password-gui}/bin/op-ssh-sign";
       };
     };
-
-    ignores = [
-      "*logs*"
-      "*.log"
-      "*~"
-      ".DS_Store"
-    ];
   };
 
   home.file.".config/git/templates/commit.txt".source = ./git-commit-template.txt;

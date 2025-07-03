@@ -81,27 +81,11 @@
     '';
   };
 
-  xdg.configFile."darkman/dark-mode.d/niri.nu" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env nu
-      try { ln -sf ~/.config/waybar/style-dark.css ~/.config/waybar/style.css }
-    '';
-  };
-
   xdg.configFile."darkman/dark-mode.d/zellij.sh" = {
     executable = true;
     text = ''
       #!/usr/bin/env bash
       ln -sf ~/.config/zellij/themes/catppuccin-mocha.kdl ~/.config/zellij/theme.kdl
-    '';
-  };
-
-  xdg.configFile."darkman/light-mode.d/fish.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      fish -c "yes | fish_config theme save 'Catppuccin Latte'"
     '';
   };
 
@@ -119,14 +103,6 @@
     text = ''
       #!/usr/bin/env nu
       try { ln -sf ~/.config/waybar/style-light.css ~/.config/waybar/style.css }
-    '';
-  };
-
-  xdg.configFile."darkman/light-mode.d/zellij.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      ln -sf ~/.config/zellij/themes/catppuccin-latte.kdl ~/.config/zellij/theme.kdl
     '';
   };
 

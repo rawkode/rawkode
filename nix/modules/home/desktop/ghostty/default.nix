@@ -3,7 +3,7 @@
   home.packages = [ pkgs.ghostty ];
 
   xdg.configFile."ghostty/config".text = ''
-    theme = dark:catppuccin-macchiato,light:catppuccin-latte
+    theme = dark:catppuccin-macchiato,light:rose-pine-dawn
 
     font-size = 16
     font-family = "Monaspace Neon"
