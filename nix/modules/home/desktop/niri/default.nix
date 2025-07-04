@@ -3,15 +3,12 @@ let
   makeCommand = command: { command = [ command ]; };
 in
 {
-  home = {
-    pointerCursor = {
-      package = pkgs.simp1e-cursors;
-      name = "Simp1e-Catppuccin-Frappe";
-      size = 28;
-      gtk.enable = true;
-      x11.enable = true;
-      hyprcursor.enable = true;
-    };
+  home.pointerCursor = {
+    package = pkgs.catppuccin-cursors.latteLavender;
+    name = "catppuccin-latte-lavender-cursors";
+    size = 20;
+    gtk.enable = true;
+    x11.enable = true;
   };
 
   services.swayosd.enable = true;
@@ -198,8 +195,8 @@ in
       };
 
       cursor = {
-        theme = "catppuccin-mocha-rose-cursors";
-        size = 24;
+        theme = config.home.pointerCursor.name;
+        size = config.home.pointerCursor.size;
         hide-when-typing = true;
         hide-after-inactive-ms = 1000;
       };
