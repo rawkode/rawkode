@@ -597,19 +597,18 @@ in
 
   services.darkman = {
     enable = true;
-    settings = {
-      usegeoclue = true;
-    };
+
+    settings.usegeoclue = true;
+
     darkModeScripts = {
-      gtk-theme = ''
-        ${pkgs.dconf}/bin/dconf write\
-        /org/gnome/desktop/interface/color-scheme "'prefer-dark'"
+      gtk = ''
+        gsettings set org.gnome.desktop.interface color-scheme prefer-dark
       '';
     };
+
     lightModeScripts = {
-      gtk-theme = ''
-        ${pkgs.dconf}/bin/dconf write\
-        /org/gnome/desktop/interface/color-scheme "'prefer-light'"
+      gtk = ''
+        gsettings set org.gnome.desktop.interface color-scheme prefer-light
       '';
     };
   };
