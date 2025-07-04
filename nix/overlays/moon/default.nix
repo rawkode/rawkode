@@ -1,4 +1,4 @@
 { channels, ... }:
 final: prev: {
-  inherit (channels.master) moon;
+  inherit (channels.moon) moon;
 }

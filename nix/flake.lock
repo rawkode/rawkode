@@ -580,6 +580,22 @@
         "type": "github"
       }
     },
+    "moon": {
+      "locked": {
+        "lastModified": 1751088070,
+        "narHash": "sha256-+JyuYHyoufwmtHU370mluxueru0liP1wkK6m1/17YqU=",
+        "ref": "refs/heads/master",
+        "rev": "78fcdda7edf3195d3840c01c17890797228f2441",
+        "revCount": 822713,
+        "type": "git",
+        "url": "https://github.com/NixOs/nixpkgs"
+      },
+      "original": {
+        "rev": "78fcdda7edf3195d3840c01c17890797228f2441",
+        "type": "git",
+        "url": "https://github.com/NixOs/nixpkgs"
+      }
+    },
     "naersk": {
       "inputs": {
         "nixpkgs": [
@@ -911,6 +927,7 @@
         "home-manager": "home-manager",
         "lanzaboote": "lanzaboote",
         "master": "master",
+        "moon": "moon",
         "niri": "niri",
         "nix-index-database": "nix-index-database",
         "nixos-facter-modules": "nixos-facter-modules",

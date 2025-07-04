@@ -5,6 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     master.url = "github:nixos/nixpkgs/master";
+    moon.url = "git+https://github.com/NixOs/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
