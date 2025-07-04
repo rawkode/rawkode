@@ -24,7 +24,7 @@
 	"niri/window": {
 		"separate-outputs": true,
 		"icon": true,
-		"format": "{}",
+		"format": "",
 		"rewrite": {
 			"^(.{80}).*$": "$1…",
 			"^(.*)$": "$1"
