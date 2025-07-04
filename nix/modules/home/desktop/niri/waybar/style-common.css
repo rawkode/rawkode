@@ -4,6 +4,21 @@
 	font-size: 12px;
 }
 
+window#waybar {
+	background-color: @base;
+	color: @text;
+}
+
+/* Module container spacing */
+.modules-left,
+.modules-center,
+.modules-right {
+	margin: 0;
+	padding: 0;
+}
+
+
+
 tooltip {
 	background: @crust;
 }
@@ -13,8 +28,8 @@ tooltip label {
 }
 
 #workspaces {
-	margin-left: 1em;
-	padding: 0 0.5em;
+	margin-left: 16px;
+	padding: 0 8px;
 }
 
 #workspaces button {
@@ -43,50 +58,36 @@ tooltip label {
 	background: alpha(@flamingo, 0.2);
 }
 
-#custom-notification {
-	margin-right: 1em;
-	padding: 0 0.75em;
-	min-width: 24px;
-	font-size: 18px;
-}
-
-#backlight {
-	margin-right: 1em;
-	padding: 0 0.75em;
-	min-width: 24px;
-	font-size: 18px;
-	color: @text;
-	background: transparent;
-}
-
-#wireplumber {
-	margin-right: 1em;
-	padding: 0 0.75em;
-	min-width: 24px;
-	font-size: 18px;
-	background: transparent;
-}
-
+/* Right side module styling */
+#custom-notification,
+#backlight,
+#wireplumber,
 #battery {
-	margin-right: 1em;
-	padding: 0 0.75em;
+	padding-left: 8px;
+	padding-right: 8px;
+	margin-left: 2px;
+	margin-right: 2px;
 	min-width: 24px;
 	font-size: 18px;
 	background: transparent;
+}
+
+#custom-notification {
+	margin-right: 16px;
 }
 
 #tray {
-	margin-right: 1em;
-	padding: 0 0.5em;
+	margin-right: 16px;
+	padding: 0 8px;
 	background: transparent;
 }
 
-#tray > widget > box {
-	min-width: 24px;
+#tray > .passive {
+	-gtk-icon-effect: dim;
 }
 
-#tray > widget {
-	margin: 0 4px;
+#tray > .needs-attention {
+	-gtk-icon-effect: highlight;
 }
 
 #tray menu {
@@ -94,12 +95,9 @@ tooltip label {
 	font-size: 14px;
 }
 
-#tray > .needs-attention {
-	border-bottom: 2px solid @rose;
-}
 
 #window {
-	padding: 0 1em;
+	padding: 0 16px;
 }
 
 /* Battery and wireplumber states */

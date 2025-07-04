@@ -1,5 +1,7 @@
 { pkgs, ... }:
 {
+  imports = [ ./portal.nix ];
+
   programs.niri.enable = true;
 
   environment.systemPackages = with pkgs; [

@@ -1,4 +1,7 @@
-{ pkgs, ... }:
+{
+  pkgs,
+  ...
+}:
 {
   fonts = {
     enableDefaultPackages = false;
@@ -19,6 +22,7 @@
         serif = [ "Nato" ];
         monospace = [ "Monaspace Neon" ];
         emoji = [
+          "JoyPixels"
           "EmojiOne Color"
           "Noto Color Emoji"
           "Noto Emoji"
@@ -31,6 +35,7 @@
     packages = with pkgs; [
       corefonts
       emojione
+      joypixels
       monaspace
       nerd-fonts.monaspace
       nerd-fonts.symbols-only

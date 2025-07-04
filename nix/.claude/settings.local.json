@@ -1,6 +1,12 @@
 {
-	"permissions": {
-		"allow": ["Bash(find:*)", "Bash(grep:*)", "Bash(ls:*)", "Bash(rg:*)"],
-		"deny": []
-	}
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(rg:*)",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": []
+  }
 }

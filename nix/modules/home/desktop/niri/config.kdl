@@ -68,7 +68,6 @@ spawn-at-startup "@authAgent@"
 
 spawn-at-startup "blueman-applet"
 spawn-at-startup "swayidle" "-w" "before-sleep" "swaylock -f" "timeout" "300" "niri msg output eDP-1 off" "resume" "niri msg output eDP-1 on"
-spawn-at-startup "swaync"
 spawn-at-startup "swww-daemon"
 spawn-at-startup "wl-paste" "--watch" "cliphist" "store"
 spawn-at-startup "xwayland-satellite"
@@ -244,9 +243,9 @@ binds {
 				spawn "fuzzel"
 		}
 
-		// Ctrl+Space {
-		// 		spawn "~/.local/bin/fuzzel-window-picker"
-		// }
+		Super+Shift+Space {
+				spawn "~/.local/bin/fuzzel-window-picker"
+		}
 
 		Super+C {
 				spawn "sh" "-c" "clipcatctl list --no-id | fuzzel --dmenu | wl-copy"

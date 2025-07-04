@@ -11,6 +11,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     catppuccin.url = "github:catppuccin/nix";
+    codex.url = "github:openai/codex";
     comma = {
       url = "github:nix-community/comma";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -40,6 +41,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    niri = {
+      url = "github:sodiboo/niri-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     snowfall-lib = {
       url = "github:snowfallorg/lib";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -73,6 +78,7 @@
     lib.mkFlake {
       channels-config = {
         allowUnfree = true;
+        joypixels.acceptLicense = true;
       };
 
       specialArgs = with inputs; {
@@ -83,6 +89,7 @@
         catppuccin.homeModules.catppuccin
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.hmModules.nix-index
+        niri.homeModules.niri
       ];
 
       systems.modules.nixos = with inputs; [
@@ -90,10 +97,12 @@
           nix.settings = {
             substituters = [
               "https://cosmic.cachix.org/"
+              "https://niri.cachix.org"
               "https://wezterm.cachix.org"
             ];
             trusted-public-keys = [
               "cosmic.cachix.org-1:Dya9IyXD4xdBehWjrkPv6rtxpmMdRel02smYzA85dPE="
+              "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
               "wezterm.cachix.org-1:kAbhjYUC9qvblTE+s7S+kl5XM1zVa4skO+E/1IDWdH0="
             ];
           };

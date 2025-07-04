@@ -1,6 +1,9 @@
 { lib, pkgs, ... }:
 {
-  home.packages = [ pkgs.ghostty ];
+  home.packages = [
+    pkgs.ghostty
+    pkgs.browsers
+  ];
 
   xdg.configFile."ghostty/config".text = ''
     theme = dark:catppuccin-macchiato,light:rose-pine-dawn

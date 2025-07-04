@@ -13,7 +13,7 @@
 	"modules-right": ["tray", "backlight", "wireplumber", "battery", "custom/notification"],
 	"tray": {
 		"icon-size": 16,
-		"spacing": 32
+		"spacing": 10
 	},
 	"niri/workspaces": {
 		"format": "{icon}",
@@ -51,23 +51,23 @@
 	"wireplumber": {
 		"format": "{icon}",
 		"tooltip-format": "{volume}%",
-		"format-muted": "🔇",
+		"format-muted": "󰝟",
 		"on-click": "pavucontrol",
-		"on--right-click": "helvum",
-		"format-icons": ["🔈", "🔉", "🔊"]
+		"on-click-right": "helvum",
+		"format-icons": ["󰕿", "󰖀", "󰕾"]
 	},
 	"custom/notification": {
 		"tooltip": false,
 		"format": "{icon}",
 		"format-icons": {
-			"notification": "<span foreground='red'><sup>1</sup></span>🔔",
-			"none": "🔔",
-			"dnd-notification": "<span foreground='red'><sup></sup></span>🔕",
-			"dnd-none": "🔕",
-			"inhibited-notification": "<span foreground='red'><sup></sup></span>🔔",
-			"inhibited-none": "🔔",
-			"dnd-inhibited-notification": "<span foreground='red'><sup></sup></span>🔕",
-			"dnd-inhibited-none": "🔕"
+			"notification": "<span foreground='red'><sup></sup></span>󰂚",
+			"none": "󰂜",
+			"dnd-notification": "<span foreground='red'><sup></sup></span>󰂛",
+			"dnd-none": "󰂛",
+			"inhibited-notification": "<span foreground='red'><sup></sup></span>󰂚",
+			"inhibited-none": "󰂜",
+			"dnd-inhibited-notification": "<span foreground='red'><sup></sup></span>󰂛",
+			"dnd-inhibited-none": "󰂛"
 		},
 		"return-type": "json",
 		"exec-if": "which swaync-client",
