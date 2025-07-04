@@ -7,5 +7,5 @@
     };
   };
 
-  catppuccin.vscode.enable = false;
+  catppuccin.vscode.profiles.default.enable = false;
 }

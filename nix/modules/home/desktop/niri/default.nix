@@ -88,11 +88,10 @@ in
         QT_QPA_PLATFORM = "wayland";
         XDG_CURRENT_DESKTOP = "niri";
         XDG_SESSION_TYPE = "wayland";
-        MOZ_ENABLE_WAYLAND = "true";
-        ELECTRON_OZONE_PLATFORM_HINT = "auto";
       };
 
       spawn-at-startup = [
+        (makeCommand "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1")
         (makeCommand "blueman-applet")
         {
           command = [
@@ -122,13 +121,6 @@ in
             "swww"
             "img"
             "~/.config/niri/wallpaper.png"
-          ];
-        }
-        {
-          command = [
-            "1password"
-            "--ozone-platform=x11"
-            "--silent"
           ];
         }
       ];
@@ -388,8 +380,12 @@ in
       ];
 
       binds = {
-        "Super+Q" = { action.close-window = {}; };
-        "Super+Shift+Q" = { action.quit = {}; };
+        "Super+Q" = {
+          action.close-window = { };
+        };
+        "Super+Shift+Q" = {
+          action.quit = { };
+        };
         "Super+Space" = {
           action = {
             spawn = [ "fuzzel" ];
@@ -409,13 +405,17 @@ in
             ];
           };
         };
-        "Super+T" = { action.toggle-column-tabbed-display = {}; };
+        "Super+T" = {
+          action.toggle-column-tabbed-display = { };
+        };
         "Super+E" = {
           action = {
             spawn = [ "bemoji" ];
           };
         };
-        "Super+P" = { action.toggle-overview = {}; };
+        "Super+P" = {
+          action.toggle-overview = { };
+        };
         "Super+N" = {
           action = {
             spawn = [
@@ -437,46 +437,126 @@ in
             ];
           };
         };
-        "Super+Comma" = { action.consume-window-into-column = {}; };
-        "Super+Period" = { action.expel-window-from-column = {}; };
-        "Super+Page_Up" = { action.focus-workspace-up = {}; };
-        "Super+Page_Down" = { action.focus-workspace-down = {}; };
-        "Super+Shift+Page_Up" = { action.move-column-to-workspace-up = {}; };
-        "Super+Shift+Page_Down" = { action.move-column-to-workspace-down = {}; };
-        "Super+Control+Down" = { action.move-column-to-monitor-down = {}; };
-        "Super+Control+Up" = { action.move-column-to-monitor-up = {}; };
-        "Super+Control+Left" = { action.move-column-to-monitor-left = {}; };
-        "Super+Control+Right" = { action.move-column-to-monitor-right = {}; };
-        "Super+Up" = { action.focus-window-up = {}; };
-        "Super+Down" = { action.focus-window-down = {}; };
-        "Super+Left" = { action.focus-column-left = {}; };
-        "Super+Shift+Left" = { action.move-column-left = {}; };
-        "Super+Right" = { action.focus-column-right = {}; };
-        "Super+Shift+Right" = { action.move-column-right = {}; };
-        "Super+1" = { action.focus-workspace = 1; };
-        "Super+2" = { action.focus-workspace = 2; };
-        "Super+3" = { action.focus-workspace = 3; };
-        "Super+4" = { action.focus-workspace = 4; };
-        "Super+5" = { action.focus-workspace = 5; };
-        "Super+6" = { action.focus-workspace = 6; };
-        "Super+7" = { action.focus-workspace = 7; };
-        "Super+8" = { action.focus-workspace = 8; };
-        "Super+9" = { action.focus-workspace = 9; };
-        "Super+Shift+1" = { action.move-column-to-workspace = 1; };
-        "Super+Shift+2" = { action.move-column-to-workspace = 2; };
-        "Super+Shift+3" = { action.move-column-to-workspace = 3; };
-        "Super+Shift+4" = { action.move-column-to-workspace = 4; };
-        "Super+Shift+5" = { action.move-column-to-workspace = 5; };
-        "Super+Shift+6" = { action.move-column-to-workspace = 6; };
-        "Super+Shift+7" = { action.move-column-to-workspace = 7; };
-        "Super+Shift+8" = { action.move-column-to-workspace = 8; };
-        "Super+Shift+9" = { action.move-column-to-workspace = 9; };
-        "Super+F" = { action.fullscreen-window = {}; };
-        "Super+R" = { action.switch-preset-column-width = {}; };
-        "Super+Shift+R" = { action.switch-preset-window-height = {}; };
-        "Ctrl+Shift+Space" = { action.toggle-window-floating = {}; };
-        "Print" = { action.screenshot-window = {}; };
-        "Super+Print" = { action.screenshot = {}; };
+        "Super+Comma" = {
+          action.consume-window-into-column = { };
+        };
+        "Super+Period" = {
+          action.expel-window-from-column = { };
+        };
+        "Super+Page_Up" = {
+          action.focus-workspace-up = { };
+        };
+        "Super+Page_Down" = {
+          action.focus-workspace-down = { };
+        };
+        "Super+Shift+Page_Up" = {
+          action.move-column-to-workspace-up = { };
+        };
+        "Super+Shift+Page_Down" = {
+          action.move-column-to-workspace-down = { };
+        };
+        "Super+Control+Down" = {
+          action.move-column-to-monitor-down = { };
+        };
+        "Super+Control+Up" = {
+          action.move-column-to-monitor-up = { };
+        };
+        "Super+Control+Left" = {
+          action.move-column-to-monitor-left = { };
+        };
+        "Super+Control+Right" = {
+          action.move-column-to-monitor-right = { };
+        };
+        "Super+Up" = {
+          action.focus-window-up = { };
+        };
+        "Super+Down" = {
+          action.focus-window-down = { };
+        };
+        "Super+Left" = {
+          action.focus-column-left = { };
+        };
+        "Super+Shift+Left" = {
+          action.move-column-left = { };
+        };
+        "Super+Right" = {
+          action.focus-column-right = { };
+        };
+        "Super+Shift+Right" = {
+          action.move-column-right = { };
+        };
+        "Super+1" = {
+          action.focus-workspace = 1;
+        };
+        "Super+2" = {
+          action.focus-workspace = 2;
+        };
+        "Super+3" = {
+          action.focus-workspace = 3;
+        };
+        "Super+4" = {
+          action.focus-workspace = 4;
+        };
+        "Super+5" = {
+          action.focus-workspace = 5;
+        };
+        "Super+6" = {
+          action.focus-workspace = 6;
+        };
+        "Super+7" = {
+          action.focus-workspace = 7;
+        };
+        "Super+8" = {
+          action.focus-workspace = 8;
+        };
+        "Super+9" = {
+          action.focus-workspace = 9;
+        };
+        "Super+Shift+1" = {
+          action.move-column-to-workspace = 1;
+        };
+        "Super+Shift+2" = {
+          action.move-column-to-workspace = 2;
+        };
+        "Super+Shift+3" = {
+          action.move-column-to-workspace = 3;
+        };
+        "Super+Shift+4" = {
+          action.move-column-to-workspace = 4;
+        };
+        "Super+Shift+5" = {
+          action.move-column-to-workspace = 5;
+        };
+        "Super+Shift+6" = {
+          action.move-column-to-workspace = 6;
+        };
+        "Super+Shift+7" = {
+          action.move-column-to-workspace = 7;
+        };
+        "Super+Shift+8" = {
+          action.move-column-to-workspace = 8;
+        };
+        "Super+Shift+9" = {
+          action.move-column-to-workspace = 9;
+        };
+        "Super+F" = {
+          action.fullscreen-window = { };
+        };
+        "Super+R" = {
+          action.switch-preset-column-width = { };
+        };
+        "Super+Shift+R" = {
+          action.switch-preset-window-height = { };
+        };
+        "Ctrl+Shift+Space" = {
+          action.toggle-window-floating = { };
+        };
+        "Print" = {
+          action.screenshot-window = { };
+        };
+        "Super+Print" = {
+          action.screenshot = { };
+        };
         "XF86MonBrightnessUp" = {
           action = {
             spawn = [
@@ -501,7 +581,9 @@ in
           };
           allow-inhibiting = false;
         };
-        "Super+Shift+L" = { action.power-off-monitors = {}; };
+        "Super+Shift+L" = {
+          action.power-off-monitors = { };
+        };
       };
     };
   };
@@ -516,63 +598,23 @@ in
   xdg.configFile."waybar/style-dark.css".source = ./waybar/style-dark.css;
   xdg.configFile."waybar/style-light.css".source = ./waybar/style-light.css;
 
-  xdg.configFile."darkman/config.yaml".text = ''
-    lat: 53.544389
-    lng: -113.490927
-    dbusserver: true
-    portal: true
-    pollingfreq: 5
-    sunrise: "7:00"
-    sunset: "17:00"
-  '';
-
   services.darkman = {
     enable = true;
     settings = {
       usegeoclue = true;
     };
-  };
-
-  xdg.configFile."darkman/dark-mode.d/fish.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      fish -c "yes | fish_config theme save 'Catppuccin Mocha'"
-    '';
-  };
-
-  xdg.configFile."darkman/dark-mode.d/gtk.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      gsettings set org.gnome.desktop.interface gtk-theme 'Catppuccin-Mocha-Standard-Rose-Dark'
-      gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
-    '';
-  };
-
-  xdg.configFile."darkman/dark-mode.d/zellij.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      ln -sf ~/.config/zellij/themes/catppuccin-mocha.kdl ~/.config/zellij/theme.kdl
-    '';
-  };
-
-  xdg.configFile."darkman/light-mode.d/gtk.sh" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      gsettings set org.gnome.desktop.interface gtk-theme 'Catppuccin-Latte-Standard-Rose-Light'
-      gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
-    '';
-  };
-
-  xdg.configFile."darkman/light-mode.d/niri.nu" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env nu
-      try { ln -sf ~/.config/waybar/style-light.css ~/.config/waybar/style.css }
-    '';
+    darkModeScripts = {
+      gtk-theme = ''
+        ${pkgs.dconf}/bin/dconf write\
+        /org/gnome/desktop/interface/color-scheme "'prefer-dark'"
+      '';
+    };
+    lightModeScripts = {
+      gtk-theme = ''
+        ${pkgs.dconf}/bin/dconf write\
+        /org/gnome/desktop/interface/color-scheme "'prefer-light'"
+      '';
+    };
   };
 
   xdg.configFile."swaync/config.json".text = ''
