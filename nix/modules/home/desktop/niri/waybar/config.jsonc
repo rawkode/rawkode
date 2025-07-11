@@ -10,10 +10,10 @@
 	"reload_style_on_change": true,
 	"modules-left": ["niri/workspaces"],
 	"modules-center": ["niri/window"],
-	"modules-right": ["tray", "backlight", "wireplumber", "battery", "custom/notification"],
+	"modules-right": ["tray", "wireplumber", "battery", "clock", "custom/notification"],
 	"tray": {
 		"icon-size": 16,
-		"spacing": 10
+		"spacing": 32
 	},
 	"niri/workspaces": {
 		"format": "{icon}",
@@ -24,16 +24,7 @@
 	"niri/window": {
 		"separate-outputs": true,
 		"icon": true,
-		"format": "",
-		"rewrite": {
-			"^(.{80}).*$": "$1…",
-			"^(.*)$": "$1"
-		}
-	},
-	"backlight": {
-		"format": "{icon}",
-		"tooltip-format": "{percent}%",
-		"format-icons": ["󰛩", "󰛪", "󰛫", "󰛬", "󰛭", "󰛮", "󰛯", "󰛰"]
+		"format": " "
 	},
 	"battery": {
 		"states": {
@@ -55,6 +46,10 @@
 		"on-click": "pavucontrol",
 		"on-click-right": "helvum",
 		"format-icons": ["󰕿", "󰖀", "󰕾"]
+	},
+	"clock": {
+		"format": "{:%H:%M}",
+		"tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>"
 	},
 	"custom/notification": {
 		"tooltip": false,

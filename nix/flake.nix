@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
+    chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
+
     unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     master.url = "github:nixos/nixpkgs/master";
     moon.url = "git+https://github.com/NixOs/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
@@ -92,6 +94,7 @@
 
       homes.modules = with inputs; [
         catppuccin.homeModules.catppuccin
+        chaotic.homeManagerModules.default
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.hmModules.nix-index
         niri.homeModules.niri
@@ -115,6 +118,9 @@
 
         auto-cpufreq.nixosModules.default
         catppuccin.nixosModules.catppuccin
+        chaotic.nixosModules.nyx-cache
+        chaotic.nixosModules.nyx-overlay
+        chaotic.nixosModules.nyx-registry
         cosmic.nixosModules.default
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak

@@ -58,18 +58,30 @@ tooltip label {
 	background: alpha(@flamingo, 0.2);
 }
 
-/* Right side module styling */
+#cpu,
+#memory,
+#clock,
+#custom-notification,
+#backlight,
+#wireplumber,
+#battery,
+#tray {
+	padding: 0 10px;
+	margin: 0 5px;
+	min-height: 30px;
+	border-radius: 8px;
+	transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
 #custom-notification,
 #backlight,
 #wireplumber,
 #battery {
-	padding-left: 8px;
-	padding-right: 8px;
-	margin-left: 2px;
-	margin-right: 2px;
-	min-width: 24px;
 	font-size: 18px;
-	background: transparent;
+}
+
+#clock {
+	font-weight: bold;
 }
 
 #custom-notification {
