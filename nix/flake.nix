@@ -34,6 +34,9 @@
     };
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak";
+    ghostty = {
+      url = "github:ghostty-org/ghostty";
+    };
     home-manager = {
       url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";

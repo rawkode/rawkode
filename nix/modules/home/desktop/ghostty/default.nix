@@ -1,48 +1,54 @@
-{ lib, pkgs, ... }:
+{ inputs, pkgs, ... }:
 {
-  home.packages = [
-    pkgs.ghostty
-    pkgs.browsers
-  ];
+  programs.ghostty = {
+    enable = true;
+    package = inputs.ghostty.packages.${pkgs.system}.ghostty;
+    enableFishIntegration = true;
 
-  xdg.configFile."ghostty/config".text = ''
-    theme = dark:catppuccin-macchiato,light:rose-pine-dawn
+    settings = {
+      theme = "dark:catppuccin-macchiato,light:rose-pine-dawn";
 
-    font-size = 16
-    font-family = "Monaspace Neon"
+      font-size = 16;
+      font-family = "Monospace Neon";
 
-    shell-integration = detect
+      shell-integration = "detect";
 
-    mouse-hide-while-typing = true
+      mouse-hide-while-typing = true;
 
-    clipboard-read = "allow"
-    clipboard-write = allow
-    copy-on-select = clipboard
+      clipboard-read = "allow";
+      clipboard-write = "allow";
+      copy-on-select = "clipboard";
+      clipboard-trim-trailing-spaces = true;
+      clipboard-paste-protection = true;
 
-    clipboard-trim-trailing-spaces = true
-    clipboard-paste-protection = true
+      confirm-close-surface = false;
 
-    confirm-close-surface = false
+      background-opacity = 0.98;
 
-    background-opacity = 0.98
+      focus-follows-mouse = true;
 
-    focus-follows-mouse = true
-    unfocused-split-opacity = 0.5
+      unfocused-split-opacity = 0.5;
 
-    gtk-single-instance = true
-    gtk-titlebar = true
+      gtk-single-instance = true;
+      gtk-titlebar = true;
 
-    window-decoration = true
-    window-colorspace = display-p3
+      window-decoration = true;
+      window-colorspace = "display-p3";
+      window-theme = "auto";
+      window-padding-x = 8;
+      window-padding-y = 8;
+      window-padding-balance = true;
 
-    window-theme = "auto"
+      keybind = [
+        "alt+shift+backslash=new_split:right"
+        "alt+backslash=new_split:down"
 
-    window-padding-x = 8
-    window-padding-y = 8
-    window-padding-balance = true
-
-    keybind = ctrl+page_up=unbind
-    keybind = ctrl+page_down=unbind
-    keybind = shift+enter=text:\n
-  '';
+        "alt+arrow_down=goto_split:down"
+        "alt+arrow_up=goto_split:up"
+        "alt+arrow_left=goto_split:left"
+        "alt+arrow_right=goto_split:right"
+        "shift+enter=text:\n"
+      ];
+    };
+  };
 }
