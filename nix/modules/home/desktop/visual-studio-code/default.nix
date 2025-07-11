@@ -2,9 +2,7 @@
 {
   programs.vscode = {
     enable = true;
-    package = pkgs.vscode.override {
-      commandLineArgs = "--password-store=gnome-libsecret";
-    };
+    package = pkgs.vscode;
   };
 
   catppuccin.vscode.profiles.default.enable = false;

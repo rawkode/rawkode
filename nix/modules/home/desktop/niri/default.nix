@@ -4,8 +4,8 @@ let
 in
 {
   home.pointerCursor = {
-    package = pkgs.catppuccin-cursors.latteLavender;
-    name = "catppuccin-latte-lavender-cursors";
+    package = pkgs.catppuccin-cursors.frappeSky;
+    name = "catppuccin-frappe-sky-cursors";
     size = 20;
     gtk.enable = true;
     x11.enable = true;
@@ -30,50 +30,88 @@ in
 
   programs.waybar = {
     enable = true;
-
-    systemd.enable = false; # We'll configure our own service
+    # We're using a custom service, we define below,
+    # so that we only run Waybar when Niri is running.
+    systemd.enable = false;
   };
 
-  systemd.user.services.waybar = {
-    Unit = {
-      Description = "Waybar for niri";
-      Documentation = "https://github.com/Alexays/Waybar/wiki";
-      PartOf = [ "graphical-session.target" ];
-      After = [ "graphical-session-pre.target" ];
+  systemd.user.services = {
+    polkit-gnome = {
+      Unit = {
+        Description = "PolicyKit Authentication Agent provided by niri-flake";
+        WantedBy = [ "niri.service" ];
+        After = [ "graphical-session.target" ];
+        PartOf = [ "graphical-session.target" ];
+      };
+      Service = {
+        Type = "simple";
+        ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
+        ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+        Restart = "on-failure";
+        RestartSec = 1;
+        TimeoutStopSec = 10;
+      };
     };
 
-    Service = {
-      Type = "simple";
-      ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
-      ExecStart = "${pkgs.waybar}/bin/waybar";
-      ExecReload = "${pkgs.coreutils}/bin/kill -SIGUSR2 $MAINPID";
-      Restart = "on-failure";
-      RestartSec = "1s";
+    swaync = {
+      Unit = {
+        Description = "SwayNotificationCenter for niri";
+        Documentation = "https://github.com/ErikReider/SwayNotificationCenter";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session-pre.target" ];
+      };
+
+      Service = {
+        Type = "simple";
+        ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
+        ExecStart = "${pkgs.swaynotificationcenter}/bin/swaync";
+        Restart = "on-failure";
+        RestartSec = "1s";
+      };
+
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
     };
 
-    Install = {
-      WantedBy = [ "graphical-session.target" ];
-    };
-  };
-
-  systemd.user.services.swaync = {
-    Unit = {
-      Description = "SwayNotificationCenter for niri";
-      Documentation = "https://github.com/ErikReider/SwayNotificationCenter";
-      PartOf = [ "graphical-session.target" ];
-      After = [ "graphical-session-pre.target" ];
-    };
-
-    Service = {
-      Type = "simple";
-      ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
-      ExecStart = "${pkgs.swaynotificationcenter}/bin/swaync";
-      Restart = "on-failure";
-      RestartSec = "1s";
+    swww = {
+      Unit = {
+        Description = "Efficient animated wallpaper daemon for wayland";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
+      Service = {
+        Type = "simple";
+        ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
+        ExecStart = ''
+          ${pkgs.swww}/bin/swww-daemon
+        '';
+        ExecStop = "${pkgs.swww}/bin/swww kill";
+        Restart = "on-failure";
+      };
     };
 
-    Install = {
-      WantedBy = [ "graphical-session.target" ];
+    waybar = {
+      Unit = {
+        Description = "Waybar for niri";
+        Documentation = "https://github.com/Alexays/Waybar/wiki";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session-pre.target" ];
+      };
+
+      Service = {
+        Type = "simple";
+        ExecCondition = "${pkgs.bash}/bin/bash -c 'pgrep -x niri'";
+        ExecStart = "${pkgs.waybar}/bin/waybar";
+        ExecReload = "${pkgs.coreutils}/bin/kill -SIGUSR2 $MAINPID";
+        Restart = "on-failure";
+        RestartSec = "1s";
+      };
+
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
     };
   };
 
@@ -88,38 +126,7 @@ in
       };
 
       spawn-at-startup = [
-        (makeCommand "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1")
         (makeCommand "blueman-applet")
-        {
-          command = [
-            "swayidle"
-            "-w"
-            "before-sleep"
-            "swaylock -f"
-            "timeout"
-            "300"
-            "niri msg output eDP-1 off"
-            "resume"
-            "niri msg output eDP-1 on"
-          ];
-        }
-        (makeCommand "swww-daemon")
-        {
-          command = [
-            "wl-paste"
-            "--watch"
-            "cliphist"
-            "store"
-          ];
-        }
-        (makeCommand "xwayland-satellite")
-        {
-          command = [
-            "swww"
-            "img"
-            "~/.config/niri/wallpaper.png"
-          ];
-        }
       ];
 
       outputs = {
@@ -604,11 +611,17 @@ in
       gtk = ''
         gsettings set org.gnome.desktop.interface color-scheme prefer-dark
       '';
+      swww = ''
+        ${pkgs.swww}/bin/swww img "${pkgs.rawkOS.wallpapers}/dark.png" --transition-type random
+      '';
     };
 
     lightModeScripts = {
       gtk = ''
         gsettings set org.gnome.desktop.interface color-scheme prefer-light
+      '';
+      swww = ''
+        ${pkgs.swww}/bin/swww img "${pkgs.rawkOS.wallpapers}/light.png" --transition-type random
       '';
     };
   };
@@ -717,6 +730,22 @@ in
   '';
 
   xdg.configFile."swaync/style.css".text = ''
+    @define-color base #303446;
+    @define-color surface #404559;
+    @define-color overlay #505469;
+    @define-color muted #70788d;
+    @define-color subtle #a3adc2;
+    @define-color text #c6d0f5;
+    @define-color love #e78284;
+    @define-color gold #e5c890;
+    @define-color rose #f2d5cf;
+    @define-color pine #81c8be;
+    @define-color foam #99d1db;
+    @define-color iris #ca9ee6;
+    @define-color highlightLow #404559;
+    @define-color highlightMed #505469;
+    @define-color highlightHigh #60667b;
+
     * {
       font-family: "Monaspace Neon", "MonaspiceNe Nerd Font";
       font-size: 14px;
@@ -724,10 +753,11 @@ in
 
     /* Window */
     .control-center {
-      background: #fdf6e3;
-      color: #002b36;
+      background: @base;
+      color: @text;
       border-radius: 16px;
       margin: 16px;
+      border: 1px solid @overlay;
     }
 
     .control-center-list {
@@ -740,15 +770,15 @@ in
 
     /* Header */
     .widget-title {
-      color: #002b36;
+      color: @text;
       font-size: 18px;
       font-weight: bold;
       margin: 16px;
     }
 
     .widget-title > button {
-      background: #2aa198;
-      color: #fdf6e3;
+      background: @foam;
+      color: @base;
       border: none;
       border-radius: 8px;
       padding: 8px 16px;
@@ -757,44 +787,44 @@ in
     }
 
     .widget-title > button:hover {
-      background: #268bd2;
+      background: @pine;
     }
 
     /* Notifications */
     .notification {
-      background: #eee8d5;
-      color: #002b36;
+      background: @surface;
+      color: @text;
       padding: 16px;
       margin: 8px 16px;
       border-radius: 12px;
-      border: 1px solid #93a1a1;
+      border: 1px solid @overlay;
     }
 
     .notification-default-action:hover .notification {
-      background: #fdf6e3;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      background: @highlightLow;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     }
 
     /* Notification content */
     .notification-content {
-      color: #002b36;
+      color: @text;
     }
 
     .summary {
       font-size: 16px;
       font-weight: bold;
-      color: #002b36;
+      color: @text;
     }
 
     .time {
       font-size: 12px;
-      opacity: 0.7;
+      color: @subtle;
       margin-right: 24px;
     }
 
     .body {
       font-size: 14px;
-      opacity: 0.8;
+      color: @text;
     }
 
     /* Action buttons */
@@ -804,8 +834,8 @@ in
     }
 
     .widget-buttons-grid > flowbox > flowboxchild > button {
-      background: #93a1a1;
-      color: #002b36;
+      background: @overlay;
+      color: @text;
       border: none;
       border-radius: 12px;
       padding: 16px;
@@ -814,33 +844,35 @@ in
     }
 
     .widget-buttons-grid > flowbox > flowboxchild > button:hover {
-      background: #eee8d5;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      background: @highlightMed;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
 
     /* Volume widget */
     .widget-volume {
-      background: #eee8d5;
+      background: @surface;
       padding: 16px;
       margin: 8px 16px;
       border-radius: 12px;
+      border: 1px solid @overlay;
     }
 
     .widget-volume > box > button {
-      background: #93a1a1;
+      background: @overlay;
       border: none;
       border-radius: 8px;
       padding: 8px;
       margin: 0 8px;
+      color: @text;
     }
 
     .widget-volume > box > button:hover {
-      background: #839496;
+      background: @highlightMed;
     }
 
     scale trough {
       all: unset;
-      background: #93a1a1;
+      background: @overlay;
       border-radius: 8px;
       min-height: 8px;
       min-width: 80px;
@@ -849,13 +881,13 @@ in
 
     scale trough highlight {
       all: unset;
-      background: #2aa198;
+      background: @foam;
       border-radius: 8px;
     }
 
     scale trough slider {
       all: unset;
-      background: #268bd2;
+      background: @pine;
       border-radius: 50%;
       min-width: 16px;
       min-height: 16px;
@@ -866,32 +898,32 @@ in
     .widget-dnd {
       margin: 8px 16px;
       font-size: 14px;
-      color: #002b36;
+      color: @text;
     }
 
     .widget-dnd > switch {
-      background: #93a1a1;
+      background: @overlay;
       border-radius: 16px;
     }
 
     .widget-dnd > switch:checked {
-      background: #2aa198;
+      background: @foam;
     }
 
     .widget-dnd > switch slider {
       all: unset;
-      background: #fdf6e3;
+      background: @base;
       border-radius: 50%;
       min-width: 22px;
       min-height: 22px;
       margin: 3px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
 
     /* Close button */
     .close-button {
-      background: #dc322f;
-      color: #fdf6e3;
+      background: @rose;
+      color: @base;
       text-shadow: none;
       border-radius: 50%;
       padding: 0;
@@ -903,7 +935,7 @@ in
     }
 
     .close-button:hover {
-      background: #cb4b16;
+      background: @love;
     }
   '';
 

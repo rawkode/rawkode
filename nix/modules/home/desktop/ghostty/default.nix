@@ -2,11 +2,11 @@
 {
   programs.ghostty = {
     enable = true;
-    package = inputs.ghostty.packages.${pkgs.system}.ghostty;
+    package = inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default;
     enableFishIntegration = true;
 
     settings = {
-      theme = "dark:catppuccin-macchiato,light:rose-pine-dawn";
+      theme = "dark:catppuccin-mocha,light:catppuccin-latte";
 
       font-size = 16;
       font-family = "Monospace Neon";
@@ -40,6 +40,9 @@
       window-padding-balance = true;
 
       keybind = [
+        "ctrl+space=toggle_tab_overview"
+        "ctrl+p=toggle_command_palette"
+
         "alt+shift+backslash=new_split:right"
         "alt+backslash=new_split:down"
 

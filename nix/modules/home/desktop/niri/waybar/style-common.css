@@ -46,7 +46,7 @@ tooltip label {
 }
 
 #workspaces button.focused {
-	color: @lavender;
+	color: @sky;
 }
 
 #workspaces button.urgent {
