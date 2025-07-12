@@ -14,6 +14,7 @@ in
     desktop = {
       wayland.force = true;
     };
+
     secureboot.enable = true;
   };
 

@@ -26,7 +26,7 @@
   xdg.configFile."zed/settings.json".text = ''
     {
       "theme": "Catppuccin Mocha",
-      "font_family": "Monaspace Neon",
+      "font_family": "Monaspace Argon",
       "font_size": 16,
       "vim_mode": false,
       "tab_size": 2,

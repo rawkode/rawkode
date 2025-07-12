@@ -170,14 +170,11 @@ in
         "Web" = {
           open-on-output = "DP-1";
         };
-        "Code" = {
-          open-on-output = "DP-2";
-        };
         "Chat" = {
           open-on-output = "DP-1";
         };
-        "Teleprompter" = {
-          open-on-output = "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL";
+        "Code" = {
+          open-on-output = "DP-2";
         };
       };
 
@@ -305,6 +302,7 @@ in
           matches = [
             { app-id = "vivaldi"; }
             { app-id = "vivaldi-stable"; }
+            { app-id = "firefox"; }
           ];
           open-on-workspace = "Web";
           open-focused = true;
@@ -405,7 +403,7 @@ in
             spawn = [
               "sh"
               "-c"
-              "clipcatctl list --no-id | fuzzel --dmenu | wl-copy"
+              "clipcatctl list --no-id | awk '{gsub(/\\\\n/, \" \"); if(length($0)>100) print NR \": \" substr($0,1,97) \"...\"; else print NR \": \" $0}' | fuzzel --dmenu --lines 20 --prompt 'clipboard: ' | awk -F: '{print $1-1}' | xargs clipcatctl get | sed 's/\\\\n/\\n/g' | wl-copy"
             ];
           };
         };
@@ -704,23 +702,23 @@ in
         "buttons-grid": {
           "actions": [
             {
-              "label": "󰐥",
+              "label": "⚡",
               "command": "systemctl poweroff"
             },
             {
-              "label": "󰜉",
+              "label": "🔃",
               "command": "systemctl reboot"
             },
             {
-              "label": "󰌾",
+              "label": "🔒",
               "command": "swaylock"
             },
             {
-              "label": "󰍃",
+              "label": "🚪",
               "command": "niri msg logout"
             },
             {
-              "label": "󰏥",
+              "label": "⏸️",
               "command": "systemctl suspend"
             }
           ]
@@ -747,7 +745,7 @@ in
     @define-color highlightHigh #60667b;
 
     * {
-      font-family: "Monaspace Neon", "MonaspiceNe Nerd Font";
+      font-family: "Monaspace Argon", "MonaspiceAr Nerd Font";
       font-size: 14px;
     }
 

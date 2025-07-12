@@ -20,7 +20,7 @@
       defaultFonts = {
         sansSerif = [ "Nato Sans" ];
         serif = [ "Nato" ];
-        monospace = [ "Monaspace Neon" ];
+        monospace = [ "Monaspace Argon" ];
         emoji = [
           "JoyPixels"
           "EmojiOne Color"
