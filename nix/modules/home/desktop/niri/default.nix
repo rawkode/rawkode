@@ -727,7 +727,7 @@ in
     }
   '';
 
-  xdg.configFile."swaync/style.css".text = ''''
+  xdg.configFile."swaync/style.css".text = ''
     @define-color base #1e1e2e;
     @define-color surface #313244;
     @define-color overlay #45475a;
@@ -935,7 +935,7 @@ in
     .close-button:hover {
       background: @love;
     }
-  '''';;
+  '';
 
   home.file.".local/bin/fuzzel-window-picker" = {
     executable = true;
