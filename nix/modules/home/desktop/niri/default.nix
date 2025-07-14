@@ -727,22 +727,22 @@ in
     }
   '';
 
-  xdg.configFile."swaync/style.css".text = ''
-    @define-color base #303446;
-    @define-color surface #404559;
-    @define-color overlay #505469;
-    @define-color muted #70788d;
-    @define-color subtle #a3adc2;
-    @define-color text #c6d0f5;
-    @define-color love #e78284;
-    @define-color gold #e5c890;
-    @define-color rose #f2d5cf;
-    @define-color pine #81c8be;
-    @define-color foam #99d1db;
-    @define-color iris #ca9ee6;
-    @define-color highlightLow #404559;
-    @define-color highlightMed #505469;
-    @define-color highlightHigh #60667b;
+  xdg.configFile."swaync/style.css".text = ''''
+    @define-color base #1e1e2e;
+    @define-color surface #313244;
+    @define-color overlay #45475a;
+    @define-color muted #6c7086;
+    @define-color subtle #a6adc8;
+    @define-color text #cdd6f4;
+    @define-color love #f38ba8;
+    @define-color gold #f9e2af;
+    @define-color rose #f5e0dc;
+    @define-color pine #94e2d5;
+    @define-color foam #89dceb;
+    @define-color iris #cba6f7;
+    @define-color highlightLow #45475a;
+    @define-color highlightMed #585b70;
+    @define-color highlightHigh #6c7086;
 
     * {
       font-family: "Monaspace Argon", "MonaspiceAr Nerd Font";
@@ -935,7 +935,7 @@ in
     .close-button:hover {
       background: @love;
     }
-  '';
+  '''';;
 
   home.file.".local/bin/fuzzel-window-picker" = {
     executable = true;
