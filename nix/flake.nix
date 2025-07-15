@@ -99,7 +99,7 @@
         catppuccin.homeModules.catppuccin
         chaotic.homeManagerModules.default
         flatpaks.homeManagerModules.nix-flatpak
-        nix-index-database.hmModules.nix-index
+        nix-index-database.homeModules.nix-index
         niri.homeModules.niri
       ];
 

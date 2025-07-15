@@ -327,6 +327,15 @@ in
           open-maximized = true;
         }
         {
+          matches = [ { app-id = "Zoom Workplace"; } ];
+          excludes = [
+            { title = "Zoom Meeting"; }
+            { title = "Meeting"; }
+          ];
+          open-floating = true;
+          open-focused = false;
+        }
+        {
           matches = [
             { app-id = "Code"; }
             { app-id = "com.mitchellh.ghostty"; }
