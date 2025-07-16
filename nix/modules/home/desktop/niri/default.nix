@@ -130,6 +130,7 @@ in
       ];
 
       outputs = {
+        # Laptop ...
         "eDP-1" = {
           scale = 2.0;
           position = {
@@ -137,17 +138,27 @@ in
             y = 0;
           };
         };
+
+        # Office Monitors
         "DP-1" = {
           scale = 2.0;
           position = {
             x = 0;
-            y = 0;
+            # Logical size of Teleprompter is x540, due to 2xScale
+            y = 540;
           };
           focus-at-startup = true;
         };
+
         "DP-2" = {
           scale = 2.0;
+          position = {
+            x = 1920;
+            y = 540;
+          };
         };
+
+        # This is my Teleprompter monitor
         "Invalid Vendor Codename - RTK Field Monitor J257M96B00FL" = {
           scale = 2.0;
           mode = {
@@ -158,22 +169,32 @@ in
           transform.rotation = 180;
           position = {
             x = 0;
-            y = 1080;
+            y = 0;
           };
         };
+
+        # Monitor for my laptop at home
         "Samsung Electric Company LS32A70 HK2WB00305" = {
           scale = 1.75;
         };
       };
 
+      # Nix attribute sets are ordered alphabetically when evaludated,
+      # so we use 01/02/etc to force the order of workspaces; which Niri
+      # relies on to determine the order of workspaces.
       workspaces = {
-        "Web" = {
+        "01" = {
+          name = "Web";
           open-on-output = "DP-1";
         };
-        "Chat" = {
+
+        "02" = {
+          name = "Chat";
           open-on-output = "DP-1";
         };
-        "Code" = {
+
+        "03" = {
+          name = "Code";
           open-on-output = "DP-2";
         };
       };
