@@ -5,6 +5,8 @@
     package = pkgs.vscode-fhs;
   };
 
+  stylix.targets.vscode.enable = false;
+
   home.file.".vscode/argv.json".text = builtins.toJSON {
     password-store = "gnome-libsecret";
     ozone-platform-hint = "auto";
@@ -13,6 +15,4 @@
     enable-wayland-ime = true;
     enable-crash-reporter = false;
   };
-
-  catppuccin.vscode.profiles.default.enable = false;
 }

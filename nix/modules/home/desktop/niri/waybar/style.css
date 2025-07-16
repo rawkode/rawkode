@@ -1,3 +1,69 @@
+/* Rosé Pine Moon colors */
+@define-color base #232136;
+@define-color surface #2a273f;
+@define-color overlay #393552;
+@define-color muted #6e6a86;
+@define-color subtle #908caa;
+@define-color text #e0def4;
+@define-color love #eb6f92;
+@define-color gold #f6c177;
+@define-color rose #ea9a97;
+@define-color pine #3e8fb0;
+@define-color foam #9ccfd8;
+@define-color iris #c4a7e7;
+@define-color highlightLow #2a283e;
+@define-color highlightMed #44415a;
+@define-color highlightHigh #56526e;
+
+window#waybar {
+	background-color: alpha(@base, 0.85);
+	color: @text;
+	margin: 16px;
+	padding: 2px 0;
+}
+
+#custom-notification {
+	color: @text;
+}
+
+#wireplumber {
+	color: @text;
+}
+
+#battery {
+	color: @text;
+}
+
+/* Module group styling */
+#backlight,
+#wireplumber,
+#battery {
+	background: alpha(@surface, 0.2);
+	border-radius: 8px;
+	margin: 0 2px;
+}
+
+#backlight:hover,
+#wireplumber:hover,
+#battery:hover {
+	background: alpha(@surface, 0.4);
+}
+
+/* Workspace improvements */
+#workspaces button.active {
+	color: @foam;
+	background: transparent;
+	box-shadow: none;
+	border: none;
+}
+
+/* Tray improvements */
+#tray {
+	background: alpha(@surface, 0.15);
+	border-radius: 8px;
+}
+
+
 * {
 	font-family: "Monaspace Argon", "MonaspiceAr Nerd Font";
 	font-weight: 400;
@@ -17,14 +83,12 @@ window#waybar {
 	padding: 0;
 }
 
-
-
 tooltip {
-	background: @crust;
+	background: @base;
 }
 
 tooltip label {
-	color: @teal;
+	color: @foam;
 }
 
 #workspaces {
@@ -33,7 +97,7 @@ tooltip label {
 }
 
 #workspaces button {
-	color: @subtext0;
+	color: @subtle;
 	background: transparent;
 	padding: 0 8px;
 	margin: 0 3px;
@@ -42,20 +106,20 @@ tooltip label {
 }
 
 #workspaces button.active {
-	color: @teal;
+	color: @foam;
 }
 
 #workspaces button.focused {
-	color: @sky;
+	color: @pine;
 }
 
 #workspaces button.urgent {
-	color: @rosewater;
+	color: @love;
 }
 
 #workspaces button:hover {
-	color: @flamingo;
-	background: alpha(@flamingo, 0.2);
+	color: @rose;
+	background: alpha(@rose, 0.2);
 }
 
 #cpu,
@@ -115,21 +179,21 @@ tooltip label {
 /* Battery and wireplumber states */
 #battery.charging,
 #battery.plugged {
-	color: @green;
+	color: @pine;
 	transition: color 0.3s ease;
 }
 
 #battery.warning {
-	color: @yellow;
+	color: @gold;
 	transition: color 0.3s ease;
 }
 
 #battery.critical {
-	color: @red;
+	color: @love;
 	transition: color 0.3s ease;
 }
 
 #wireplumber.muted {
-	color: @overlay0;
+	color: @muted;
 	transition: color 0.3s ease;
 }

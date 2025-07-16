@@ -1,26 +1,16 @@
-{ lib
-, pkgs
-, ...
+{
+  lib,
+  pkgs,
+  ...
 }:
 {
   services = {
-    xserver = {
-      enable = true;
-
-      displayManager.gdm = {
-        enable = lib.mkDefault true;
-        wayland = true;
-      };
-
-      desktopManager.gnome.enable = lib.mkDefault true;
+    displayManager.gdm = {
+      enable = lib.mkDefault true;
+      wayland = true;
     };
 
-    # Disable file search, never used it once
-    # and it consumes more resources than I'd like
-    gnome = {
-      localsearch.enable = lib.mkForce false;
-      tinysparql.enable = lib.mkForce false;
-    };
+    desktopManager.gnome.enable = lib.mkDefault true;
   };
 
   qt = {

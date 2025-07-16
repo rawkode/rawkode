@@ -2,10 +2,11 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
-    chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
-
-    unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    home-manager = {
+      url = "github:nix-community/home-manager/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     master.url = "github:nixos/nixpkgs/master";
     moon.url = "git+https://github.com/NixOs/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
 
@@ -17,7 +18,6 @@
       url = "github:nix-community/browser-previews";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    catppuccin.url = "github:catppuccin/nix";
     codex.url = "github:openai/codex";
     comma = {
       url = "github:nix-community/comma";
@@ -37,10 +37,6 @@
     ghostty = {
       url = "github:ghostty-org/ghostty";
     };
-    home-manager = {
-      url = "github:nix-community/home-manager/release-25.05";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -57,6 +53,10 @@
     };
     snowfall-lib = {
       url = "github:snowfallorg/lib";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    stylix = {
+      url = "github:danth/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -96,8 +96,6 @@
       };
 
       homes.modules = with inputs; [
-        catppuccin.homeModules.catppuccin
-        chaotic.homeManagerModules.default
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.homeModules.nix-index
         niri.homeModules.niri
@@ -120,14 +118,12 @@
         }
 
         auto-cpufreq.nixosModules.default
-        catppuccin.nixosModules.catppuccin
-        chaotic.nixosModules.nyx-cache
-        chaotic.nixosModules.nyx-overlay
-        chaotic.nixosModules.nyx-registry
         cosmic.nixosModules.default
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote
+        stylix.nixosModules.stylix
+
         (
           { ... }:
           {

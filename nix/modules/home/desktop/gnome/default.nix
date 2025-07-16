@@ -15,16 +15,6 @@ let
   };
 in
 {
-  # home.pointerCursor = {
-  #   package = pkgs.catppuccin-cursors.mochaTeal;
-  #   name = "catppuccin-mocha-teal-cursors";
-  #   size = 24;
-  #   x11 = {
-  #     enable = true;
-  #     defaultCursor = "crosshair";
-  #   };
-  #   gtk.enable = true;
-  # };
 
   gtk = {
     enable = true;
@@ -37,33 +27,9 @@ in
       gtk-xft-rgba = "rgb";
       gtk-recent-files-enabled = false;
     };
-
-    iconTheme = {
-      package = pkgs.fluent-icon-theme;
-      name = "Fluent-dark";
-    };
-    # iconTheme = {
-    #   name = "Papirus-Dark";
-    #   package = pkgs.catppuccin-papirus-folders.override {
-    #     accent = "teal";
-    #     flavor = "mocha";
-    #   };
-    # };
   };
 
   dconf.settings = {
-    "org/gnome/desktop/background" = {
-      picture-uri = "${pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/RawkodeAcademy/RawkodeAcademy/refs/heads/main/wallpapers/dark-rawkode-logo.svg";
-        sha256 = "1l6778s6n24mnfx3idsyq1v7qzqaixpd458y390i1kx4a6lvany9";
-      }}";
-      picture-uri-dark = "${pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/RawkodeAcademy/RawkodeAcademy/refs/heads/main/wallpapers/dark-rawkode-logo.svg";
-        sha256 = "1l6778s6n24mnfx3idsyq1v7qzqaixpd458y390i1kx4a6lvany9";
-      }}";
-      picture-options = "zoom";
-    };
-
     "org/gnome/desktop/datetime" = {
       automatic-timezone = true;
     };

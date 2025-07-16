@@ -1,7 +1,8 @@
-{ config
-, lib
-, pkgs
-, ...
+{
+  config,
+  lib,
+  pkgs,
+  ...
 }:
 let
   inherit (lib.modules) mkIf;
@@ -30,10 +31,7 @@ in
 
       graphics = {
         extraPackages = with pkgs; [
-          # mesa
           mesa
-
-          # vulkan
           vulkan-tools
           vulkan-loader
           vulkan-validation-layers

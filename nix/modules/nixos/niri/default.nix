@@ -2,7 +2,9 @@
 {
   imports = [ ./portal.nix ];
 
-  programs.niri.enable = true;
+  programs.niri = {
+    enable = true;
+  };
 
   environment.systemPackages = with pkgs; [
     xwayland-satellite
@@ -29,9 +31,6 @@
     # App launcher
     fuzzel
     bemoji
-
-    # Dark/light mode switcher
-    darkman
 
     # Authentication agent
     polkit_gnome

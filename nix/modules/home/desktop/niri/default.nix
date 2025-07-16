@@ -1,16 +1,9 @@
 { config, pkgs, ... }:
 let
   makeCommand = command: { command = [ command ]; };
+  wallpaper = config.stylix.image;
 in
 {
-  home.pointerCursor = {
-    package = pkgs.catppuccin-cursors.frappeSky;
-    name = "catppuccin-frappe-sky-cursors";
-    size = 20;
-    gtk.enable = true;
-    x11.enable = true;
-  };
-
   services.swayosd.enable = true;
 
   services.gnome-keyring = {
@@ -20,12 +13,6 @@ in
       "secrets"
       "ssh"
     ];
-  };
-
-  dconf.settings = {
-    "org/gnome/desktop/interface" = {
-      cursor-theme = config.home.pointerCursor.name;
-    };
   };
 
   programs.waybar = {
@@ -130,6 +117,7 @@ in
 
       spawn-at-startup = [
         (makeCommand "blueman-applet")
+        (makeCommand "swww img ${wallpaper}")
       ];
 
       outputs = {
@@ -623,39 +611,13 @@ in
     };
   };
 
-  xdg.configFile."fuzzel/fuzzel.ini".source = ./fuzzel/config.ini;
   xdg.configFile."swaylock/config".source = ./swaylock/config;
 
   services.clipcat.enable = true;
 
+  stylix.targets.waybar.enable = false;
   xdg.configFile."waybar/config.jsonc".source = ./waybar/config.jsonc;
-  xdg.configFile."waybar/style-common.css".source = ./waybar/style-common.css;
-  xdg.configFile."waybar/style-dark.css".source = ./waybar/style-dark.css;
-  xdg.configFile."waybar/style-light.css".source = ./waybar/style-light.css;
-
-  services.darkman = {
-    enable = true;
-
-    settings.usegeoclue = true;
-
-    darkModeScripts = {
-      gtk = ''
-        gsettings set org.gnome.desktop.interface color-scheme prefer-dark
-      '';
-      swww = ''
-        ${pkgs.swww}/bin/swww img "${pkgs.rawkOS.wallpapers}/dark.png" --transition-type random
-      '';
-    };
-
-    lightModeScripts = {
-      gtk = ''
-        gsettings set org.gnome.desktop.interface color-scheme prefer-light
-      '';
-      swww = ''
-        ${pkgs.swww}/bin/swww img "${pkgs.rawkOS.wallpapers}/light.png" --transition-type random
-      '';
-    };
-  };
+  xdg.configFile."waybar/style.css".source = ./waybar/style.css;
 
   xdg.configFile."swaync/config.json".text = ''
     {
@@ -757,216 +719,6 @@ in
           ]
         }
       }
-    }
-  '';
-
-  xdg.configFile."swaync/style.css".text = ''
-    @define-color base #1e1e2e;
-    @define-color surface #313244;
-    @define-color overlay #45475a;
-    @define-color muted #6c7086;
-    @define-color subtle #a6adc8;
-    @define-color text #cdd6f4;
-    @define-color love #f38ba8;
-    @define-color gold #f9e2af;
-    @define-color rose #f5e0dc;
-    @define-color pine #94e2d5;
-    @define-color foam #89dceb;
-    @define-color iris #cba6f7;
-    @define-color highlightLow #45475a;
-    @define-color highlightMed #585b70;
-    @define-color highlightHigh #6c7086;
-
-    * {
-      font-family: "Monaspace Argon", "MonaspiceAr Nerd Font";
-      font-size: 14px;
-    }
-
-    /* Window */
-    .control-center {
-      background: @base;
-      color: @text;
-      border-radius: 16px;
-      margin: 16px;
-      border: 1px solid @overlay;
-    }
-
-    .control-center-list {
-      background: transparent;
-    }
-
-    .control-center-list-placeholder {
-      opacity: 0.5;
-    }
-
-    /* Header */
-    .widget-title {
-      color: @text;
-      font-size: 18px;
-      font-weight: bold;
-      margin: 16px;
-    }
-
-    .widget-title > button {
-      background: @foam;
-      color: @base;
-      border: none;
-      border-radius: 8px;
-      padding: 8px 16px;
-      font-size: 14px;
-      font-weight: bold;
-    }
-
-    .widget-title > button:hover {
-      background: @pine;
-    }
-
-    /* Notifications */
-    .notification {
-      background: @surface;
-      color: @text;
-      padding: 16px;
-      margin: 8px 16px;
-      border-radius: 12px;
-      border: 1px solid @overlay;
-    }
-
-    .notification-default-action:hover .notification {
-      background: @highlightLow;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-    }
-
-    /* Notification content */
-    .notification-content {
-      color: @text;
-    }
-
-    .summary {
-      font-size: 16px;
-      font-weight: bold;
-      color: @text;
-    }
-
-    .time {
-      font-size: 12px;
-      color: @subtle;
-      margin-right: 24px;
-    }
-
-    .body {
-      font-size: 14px;
-      color: @text;
-    }
-
-    /* Action buttons */
-    .widget-buttons-grid {
-      padding: 16px;
-      margin: 0;
-    }
-
-    .widget-buttons-grid > flowbox > flowboxchild > button {
-      background: @overlay;
-      color: @text;
-      border: none;
-      border-radius: 12px;
-      padding: 16px;
-      margin: 4px;
-      font-size: 20px;
-    }
-
-    .widget-buttons-grid > flowbox > flowboxchild > button:hover {
-      background: @highlightMed;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    }
-
-    /* Volume widget */
-    .widget-volume {
-      background: @surface;
-      padding: 16px;
-      margin: 8px 16px;
-      border-radius: 12px;
-      border: 1px solid @overlay;
-    }
-
-    .widget-volume > box > button {
-      background: @overlay;
-      border: none;
-      border-radius: 8px;
-      padding: 8px;
-      margin: 0 8px;
-      color: @text;
-    }
-
-    .widget-volume > box > button:hover {
-      background: @highlightMed;
-    }
-
-    scale trough {
-      all: unset;
-      background: @overlay;
-      border-radius: 8px;
-      min-height: 8px;
-      min-width: 80px;
-      margin: 0 16px;
-    }
-
-    scale trough highlight {
-      all: unset;
-      background: @foam;
-      border-radius: 8px;
-    }
-
-    scale trough slider {
-      all: unset;
-      background: @pine;
-      border-radius: 50%;
-      min-width: 16px;
-      min-height: 16px;
-      margin: -4px 0;
-    }
-
-    /* DND widget */
-    .widget-dnd {
-      margin: 8px 16px;
-      font-size: 14px;
-      color: @text;
-    }
-
-    .widget-dnd > switch {
-      background: @overlay;
-      border-radius: 16px;
-    }
-
-    .widget-dnd > switch:checked {
-      background: @foam;
-    }
-
-    .widget-dnd > switch slider {
-      all: unset;
-      background: @base;
-      border-radius: 50%;
-      min-width: 22px;
-      min-height: 22px;
-      margin: 3px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    /* Close button */
-    .close-button {
-      background: @rose;
-      color: @base;
-      text-shadow: none;
-      border-radius: 50%;
-      padding: 0;
-      margin: 0;
-      box-shadow: none;
-      border: none;
-      min-width: 24px;
-      min-height: 24px;
-    }
-
-    .close-button:hover {
-      background: @love;
     }
   '';
 

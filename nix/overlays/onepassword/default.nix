@@ -1,6 +1,6 @@
 { ... }:
 final: prev: {
-  _1password-gui-beta = prev._1password-gui.overrideAttrs (oldAttrs: rec {
+  _1password-gui-beta = prev._1password-gui.overrideAttrs (oldAttrs: {
     version = "8.11.0-25.BETA";
     src =
       if prev.stdenv.isDarwin then

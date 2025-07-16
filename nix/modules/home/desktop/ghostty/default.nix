@@ -1,16 +1,13 @@
 { inputs, pkgs, ... }:
 {
+  stylix.targets.ghostty.enable = false;
+
   programs.ghostty = {
     enable = true;
     package = inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default;
     enableFishIntegration = true;
 
     settings = {
-      theme = "dark:catppuccin-mocha,light:catppuccin-latte";
-
-      font-size = 16;
-      font-family = "Monospace Neon";
-
       shell-integration = "detect";
 
       mouse-hide-while-typing = true;
