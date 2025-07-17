@@ -180,13 +180,13 @@ in
         };
 
         "02" = {
-          name = "Chat";
-          open-on-output = "DP-1";
+          name = "Code";
+          open-on-output = "DP-2";
         };
 
         "03" = {
-          name = "Code";
-          open-on-output = "DP-2";
+          name = "Chat";
+          open-on-output = "DP-1";
         };
       };
 
@@ -211,8 +211,6 @@ in
       };
 
       cursor = {
-        theme = config.home.pointerCursor.name;
-        size = config.home.pointerCursor.size;
         hide-when-typing = true;
         hide-after-inactive-ms = 1000;
       };

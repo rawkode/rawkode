@@ -9,6 +9,7 @@
     };
     master.url = "github:nixos/nixpkgs/master";
     moon.url = "git+https://github.com/NixOs/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
+    nur.url = "github:nix-community/NUR";
 
     auto-cpufreq = {
       url = "github:AdnanHodzic/auto-cpufreq";
@@ -99,6 +100,11 @@
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.homeModules.nix-index
         niri.homeModules.niri
+        nur.modules.homeManager.default
+      ];
+
+      overlays = with inputs; [
+        nur.overlays.default
       ];
 
       systems.modules.nixos = with inputs; [
@@ -122,6 +128,7 @@
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote
+        nur.modules.nixos.default
         stylix.nixosModules.stylix
 
         (

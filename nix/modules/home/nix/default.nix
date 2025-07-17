@@ -1,5 +1,7 @@
 { pkgs, ... }:
 {
+  stylix.enable = true;
+
   home.packages = with pkgs; [
     nixd
   ];

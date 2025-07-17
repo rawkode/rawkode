@@ -36,6 +36,8 @@
       window-padding-y = 8;
       window-padding-balance = true;
 
+      gtk-tabs-location = "hidden";
+
       keybind = [
         "ctrl+space=toggle_tab_overview"
         "ctrl+p=toggle_command_palette"
