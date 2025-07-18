@@ -1,6 +1,8 @@
 { pkgs, ... }:
 {
   home.packages = with pkgs; [
-    warp-terminal
+    (warp-terminal.override {
+      waylandSupport = true;
+    })
   ];
 }
