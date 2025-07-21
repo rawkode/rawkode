@@ -10,16 +10,12 @@
     xwayland-satellite
 
     # Clipboard management
-    clipcat
+    copyq
     wl-clipboard
-    cliphist
 
     # Screen management
     hyprlock
-    hyprcursor
     hypridle
-    swayidle
-    swaylock
     brightnessctl
 
     # Notification daemon

@@ -15,6 +15,13 @@ in
     ];
   };
 
+  services.copyq = {
+    systemdTarget = "desktop.target";
+  };
+  systemd.user.services.copyq = {
+    User.ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
+  };
+
   programs.waybar = {
     enable = true;
     # We're using a custom service, we define below,
@@ -102,6 +109,50 @@ in
       Install = {
         WantedBy = [ "graphical-session.target" ];
       };
+    };
+  };
+
+  services.hypridle = {
+    enable = true;
+    settings = {
+      general = {
+        # Avoid starting multiple instances of hyprlock.
+        # Then show the startup reminder after the lock has
+        # ended.
+        lock_cmd = "(pidof hyprlock || ${pkgs.hyprlock}); startup-reminder";
+
+        before_sleep_cmd = "loginctl lock-session; sleep 1;";
+        # After waking up, sometimes the timeout listener for shutting off the
+        # screens will shut them off again. Wait for that to settle…
+        after_sleep_cmd = "sleep 0.5; niri msg action power-on-monitors";
+      };
+
+      listener = [
+        # Monitor power save
+        {
+          timeout = 720; # 12 min
+          on-timeout = "niri msg action power-off-monitors";
+          on-resume = "niri msg action power-on-monitors";
+        }
+
+        # Dim screen
+        {
+          timeout = 300; # 5 min
+          on-timeout = "${pkgs.brightnessctl} -s set 10";
+          on-resume = "${pkgs.brightnessctl} -r";
+        }
+        # Dim keyboard
+        {
+          timeout = 300; # 5 min
+          on-timeout = "${pkgs.brightnessctl} -sd rgb:kbd_backlight set 0";
+          on-resume = "${pkgs.brightnessctl} -rd rgb:kbd_backlight";
+        }
+
+        {
+          timeout = 600; # 10 min
+          on-timeout = "loginctl lock-session";
+        }
+      ];
     };
   };
 
@@ -309,6 +360,12 @@ in
 
       window-rules = [
         {
+          matches = [ { app-id = "com.github.hluk.copyq"; } ];
+          block-out-from = "screencast";
+          open-floating = true;
+          open-focused = true;
+        }
+        {
           matches = [
             { app-id = "vivaldi"; }
             { app-id = "vivaldi-stable"; }
@@ -337,7 +394,7 @@ in
           open-maximized = true;
         }
         {
-          matches = [{ app-id = "Zoom Workplace"; }];
+          matches = [ { app-id = "Zoom Workplace"; } ];
           excludes = [
             { title = "Zoom Meeting"; }
             { title = "Meeting"; }
@@ -420,9 +477,8 @@ in
         "Super+C" = {
           action = {
             spawn = [
-              "sh"
-              "-c"
-              "clipcatctl list --no-id | awk '{gsub(/\\\\n/, \" \"); if(length($0)>100) print NR \": \" substr($0,1,97) \"...\"; else print NR \": \" $0}' | fuzzel --dmenu --lines 20 --prompt 'clipboard: ' | awk -F: '{print $1-1}' | xargs clipcatctl get | sed 's/\\\\n/\\n/g' | wl-copy"
+              "${config.services.copyq.package}/bin/copyq"
+              "show"
             ];
           };
         };
@@ -598,7 +654,7 @@ in
         };
         "Super+L" = {
           action = {
-            spawn = [ "swaylock" ];
+            spawn = [ "hyprlock" ];
           };
           allow-inhibiting = false;
         };
@@ -608,10 +664,6 @@ in
       };
     };
   };
-
-  xdg.configFile."swaylock/config".source = ./swaylock/config;
-
-  services.clipcat.enable = true;
 
   stylix.targets.waybar.enable = false;
   xdg.configFile."waybar/config.jsonc".source = ./waybar/config.jsonc;
