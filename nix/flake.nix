@@ -62,6 +62,10 @@
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
     wezterm.url = "github:wez/wezterm/bc3dde9e75b7f656f32a996378ec6048df2bfda4?dir=nix";
+    yazi-flavors = {
+      url = "github:yazi-rs/flavors";
+      flake = false;
+    };
   };
 
   outputs =

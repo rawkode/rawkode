@@ -1,7 +1,8 @@
-{ config
-, lib
-, pkgs
-, ...
+{
+  config,
+  lib,
+  pkgs,
+  ...
 }:
 let
   inherit (lib.modules) mkIf;
@@ -19,16 +20,19 @@ in
     hardware = {
       amdgpu = {
         amdvlk = {
-          enable = true;
+          # Prefer mesa
+          enable = false;
           support32Bit = {
             enable = true;
           };
           supportExperimental.enable = true;
         };
+        initrd.enable = true;
         opencl.enable = true;
       };
 
       graphics = {
+        enable = true;
         extraPackages = with pkgs; [
           mesa
           vulkan-tools

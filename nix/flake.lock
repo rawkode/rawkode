@@ -785,11 +785,11 @@
     },
     "master": {
       "locked": {
-        "lastModified": 1753086131,
-        "narHash": "sha256-CuqLHHVbCdE/UOamDmuJC6B6BdQXsvX6sLdFx+0/B2A=",
+        "lastModified": 1753092144,
+        "narHash": "sha256-4csErCUPrj5RqNDVrvcngGygEODQGBP+LxVFas5VKMw=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "3377106ef4f8e5cd0cab4f8e7223216f085c7f42",
+        "rev": "14736ae590e8835272d6ef367210543161ad2ac8",
         "type": "github"
       },
       "original": {
@@ -1125,11 +1125,11 @@
         "nixpkgs": "nixpkgs_6"
       },
       "locked": {
-        "lastModified": 1753079654,
-        "narHash": "sha256-uSErLYSnZ+0ElDstxJsKcNn2q2mIul4MKZRi2W5+umw=",
+        "lastModified": 1753093654,
+        "narHash": "sha256-jMTTTZIhl6iF52sWqCh57/oM4JCUTYiLmUfMOz7JHc8=",
         "owner": "nix-community",
         "repo": "NUR",
-        "rev": "bdce6626a10a914339c1285d730c19e579460d29",
+        "rev": "f2a9d31269d762543980472a99372100289c5c43",
         "type": "github"
       },
       "original": {
@@ -1214,7 +1214,8 @@
         "snowfall-lib": "snowfall-lib",
         "stylix": "stylix",
         "treefmt-nix": "treefmt-nix",
-        "wezterm": "wezterm"
+        "wezterm": "wezterm",
+        "yazi-flavors": "yazi-flavors"
       }
     },
     "rust-analyzer-src": {
@@ -1668,6 +1669,22 @@
       "original": {
         "owner": "Supreeeme",
         "repo": "xwayland-satellite",
+        "type": "github"
+      }
+    },
+    "yazi-flavors": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1751970029,
+        "narHash": "sha256-RtunaCs1RUfzjefFLFu5qLRASbyk5RUILWTdavThRkc=",
+        "owner": "yazi-rs",
+        "repo": "flavors",
+        "rev": "d3fd3a5d774b48b3f88845f4f0ae1b82f106d331",
+        "type": "github"
+      },
+      "original": {
+        "owner": "yazi-rs",
+        "repo": "flavors",
         "type": "github"
       }
     },
