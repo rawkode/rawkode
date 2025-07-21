@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ ... }:
 {
   stylix.targets.firefox.profileNames = [ "rawkode" ];
 
@@ -23,17 +23,17 @@
         engines = {
           kagi = {
             name = "Kagi";
-            urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
+            urls = [{ template = "https://kagi.com/search?q={searchTerms}"; }];
             icon = "https://kagi.com/favicon.ico";
           };
           ghc = {
             name = "GitHub Code Search";
-            urls = [ { template = "https://cs.github.com/search?type=code&q={searchTerms}"; } ];
+            urls = [{ template = "https://cs.github.com/search?type=code&q={searchTerms}"; }];
             icon = "https://github.githubassets.com/pinned-octocat.svg";
           };
           nixpkgs = {
             name = "Nixpkgs Search";
-            urls = [ { template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; } ];
+            urls = [{ template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; }];
             icon = "https://nixos.org/favicon.ico";
           };
           bing.metaData.hidden = true;
@@ -53,8 +53,8 @@
           "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
 
         # My Browser
-        "browser.startup.homepage" = "https://www.kagi.com/assistant";
-        "browser.startup.page" = 3; # Restore Tabs
+        "browser.startup.homepage" = "about:home";
+        "browser.startup.page" = 3; # Restore Session
         "browser.toolbars.bookmarks.visibility" = "never";
 
         # I Like Sync for NixOS <-> Android
@@ -63,37 +63,7 @@
         "services.sync.engine.addresses.available" = false;
         "services.sync.engine.creditcards" = false;
         "services.sync.engine.passwords" = false;
-
-        "browser.uiCustomization.navBarWhenVerticalTabs" = builtins.toJSON {
-          "placements" = {
-            "widget-overflow-fixed-list" = [ ];
-            "unified-extensions-area" = [
-              "_bbb880ce-43c9-47ae-b746-c3e0096c5b76_-browser-action"
-              "_74145f27-f039-47ce-a470-a662b129930a_-browser-action"
-              "firefox-translations-addon_mozilla_org-browser-action"
-              "_d634138d-c276-4fc8-924b-40a0ea21d284_-browser-action"
-            ];
-            "nav-bar" = [
-              "back-button"
-              "stop-reload-button"
-              "forward-button"
-              "vertical-spacer"
-              "customizableui-special-spring8"
-              "_testpilot-containers-browser-action"
-              "urlbar-container"
-              "inodhwnfgtr463428675drebcs_jetpack-browser-action"
-              "customizableui-special-spring7"
-              "downloads-button"
-              "ublock0_raymondhill_net-browser-action"
-              "reset-pbm-toolbar-button"
-              "unified-extensions-button"
-            ];
-            "toolbar-menubar" = [ "menubar-items" ];
-            "TabsToolbar" = [ ];
-            "vertical-tabs" = [ "tabbrowser-tabs" ];
-            "PersonalToolbar" = [ "personal-bookmarks" ];
-          };
-        };
+        "services.sync.prefs.sync.browser.uiCustomization.state" = true;
 
         # Performance
         "gfx.webrender.all" = true;
@@ -101,9 +71,31 @@
         # PWAs
         "browser.taskbarTabs.enabled" = true;
 
+        # Clear on Shutdown
+        "privacy.clearOnShutdown_v2.cookiesAndStorage" = false;
+        "privacy.clearOnShutdown.cookies" = false;
+        "privacy.clearOnShutdown.sessions" = false;
+        "privacy.clearSiteData.cookiesAndStorage" = false;
+        "privacy.sanitize.sanitizeOnShutdown" = false;
+        "services.sync.prefs.sync-seen.privacy.clearOnShutdown.sessions" = false;
+
+        "privacy.clearOnShutdown_v2.cache" = true;
+        "privacy.clearOnShutdown_v2.historyFormDataAndDownloads" = true;
+        "privacy.clearOnShutdown.cache" = true;
+        "privacy.clearOnShutdown.downloads" = true;
+        "privacy.clearOnShutdown.formdata" = true;
+        "privacy.clearOnShutdown.history" = false;
+        "privacy.clearOnShutdown.offlineApps" = true;
+        "privacy.clearSiteData.cache" = true;
+        "privacy.clearSiteData.historyFormDataAndDownloads" = true;
+
         # Privacy & Security
         "browser.contentblocking.category" = "strict";
-        "privacy.sanitize.sanitizeOnShutdown" = true;
+        "browser.discovery.enabled" = false;
+        "browser.shopping.experience2023.enabled" = false;
+        "browser.shopping.experience2023.opted" = 2;
+        "browser.shopping.experience2023.active" = false;
+        "extensions.htmlaboutaddons.recommendations.enabled" = false;
         "privacy.trackingprotection.enabled" = true;
         "privacy.userContext.enabled" = true;
         "privacy.userContext.ui.enabled" = true;
@@ -133,8 +125,13 @@
         "browser.search.suggest.enabled" = false;
         "browser.sessionstore.warnOnQuit" = true;
 
+        # Disable Crash Reports
+        "breakpad.reportURL" = "";
+        "browser.tabs.crashReporting.sendReport" = false;
+        "browser.crashReports.unsubmittedCheck.enabled" = false;
+        "browser.crashReports.unsubmittedCheck.autoSubmit2" = false;
+
         # Disable Bloat
-        "browser.discovery.enabled" = false;
         "browser.newtabpage.activity-stream.feeds.discoverystreamfeed" = false;
         "browser.newtabpage.activity-stream.feeds.section.topstories" = false;
         "browser.newtabpage.activity-stream.feeds.snippets" = false;

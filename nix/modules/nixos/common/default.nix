@@ -56,7 +56,7 @@
     variables = {
       EDITOR = "code --wait";
       SYSTEMD_EDITOR = "code --wait";
-      VISUAL = "code --wait";
+      VISUAL = "code";
     };
   };
 }

@@ -337,7 +337,7 @@ in
           open-maximized = true;
         }
         {
-          matches = [ { app-id = "Zoom Workplace"; } ];
+          matches = [{ app-id = "Zoom Workplace"; }];
           excludes = [
             { title = "Zoom Meeting"; }
             { title = "Meeting"; }

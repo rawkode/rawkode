@@ -3,6 +3,7 @@
 	"editor.formatOnPaste": true,
 	"editor.formatOnType": true,
 	"editor.formatOnSaveMode": "file",
+	"json.schemaDownload.enable": true,
 	"nix.enableLanguageServer": true,
 	"nix.serverPath": "nixd",
 	"nix.serverSettings": {

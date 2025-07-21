@@ -1,18 +1,18 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(ls:*)",
-      "Bash(rg:*)",
-      "WebFetch(domain:github.com)",
-      "Bash(nix-shell:*)",
-      "Bash(systemctl:*)",
-      "Bash(clipcatctl list:*)",
-      "Bash(fuzzel:*)",
-      "Bash(cliphist:*)",
-      "Bash(clipcatd:*)"
-    ],
-    "deny": []
-  }
+	"permissions": {
+		"allow": [
+			"Bash(find:*)",
+			"Bash(grep:*)",
+			"Bash(ls:*)",
+			"Bash(rg:*)",
+			"WebFetch(domain:github.com)",
+			"Bash(nix-shell:*)",
+			"Bash(systemctl:*)",
+			"Bash(clipcatctl list:*)",
+			"Bash(fuzzel:*)",
+			"Bash(cliphist:*)",
+			"Bash(clipcatd:*)"
+		],
+		"deny": []
+	}
 }
