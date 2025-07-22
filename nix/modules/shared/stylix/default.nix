@@ -34,17 +34,17 @@ in
 
       monospace = {
         package = pkgs.nerd-fonts.zed-mono;
-        name = "Rxen Sans";
+        name = "Monaspace Argon";
       };
 
       serif = {
         package = pkgs.nerd-fonts.zed-mono;
-        name = "Rxen Sans";
+        name = "Roboto Serif";
       };
 
       sansSerif = {
         package = pkgs.nerd-fonts.zed-mono;
-        name = "Rxen Sans";
+        name = "Roboto Sans";
       };
 
       emoji = {

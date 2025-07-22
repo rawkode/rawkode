@@ -1,6 +1,6 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
-  stylix.enable = true;
+  imports = [ (lib.snowfall.fs.get-file "modules/shared/stylix/default.nix") ];
 
   home.packages = with pkgs; [
     nixd

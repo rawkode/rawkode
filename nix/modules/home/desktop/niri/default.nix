@@ -15,10 +15,13 @@ in
     ];
   };
 
-  services.copyq = {
-    systemdTarget = "desktop.target";
+  services.cliphist = {
+    enable = true;
   };
-  systemd.user.services.copyq = {
+  systemd.user.services.cliphist = {
+    User.ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
+  };
+  systemd.user.services.cliphist-images = {
     User.ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
   };
 
@@ -108,6 +111,17 @@ in
 
       Install = {
         WantedBy = [ "graphical-session.target" ];
+      };
+    };
+  };
+
+  programs.fuzzel = {
+    enable = true;
+    settings = {
+      main = {
+        show-actions = true;
+        width = 64;
+        tabs = 4;
       };
     };
   };
@@ -360,12 +374,6 @@ in
 
       window-rules = [
         {
-          matches = [ { app-id = "com.github.hluk.copyq"; } ];
-          block-out-from = "screencast";
-          open-floating = true;
-          open-focused = true;
-        }
-        {
           matches = [
             { app-id = "vivaldi"; }
             { app-id = "vivaldi-stable"; }
@@ -477,8 +485,9 @@ in
         "Super+C" = {
           action = {
             spawn = [
-              "${config.services.copyq.package}/bin/copyq"
-              "show"
+              "bash"
+              "-c"
+              "cliphist list | fuzzel --dmenu --prompt='Copy to Clipboard:' | cliphist decode | wl-copy"
             ];
           };
         };
@@ -776,7 +785,7 @@ in
     executable = true;
     text = ''
       #!/usr/bin/env bash
-      niri msg windows | jq -r '.[] | "\(.id) \(.app_id // .title)"' | fuzzel --dmenu | cut -d' ' -f1 | xargs -r niri msg window focus --id
+      niri msg windows | ${pkgs.jq} -r '.[] | "\(.id) \(.app_id // .title)"' | fuzzel --dmenu | cut -d' ' -f1 | xargs -r niri msg window focus --id
     '';
   };
 }

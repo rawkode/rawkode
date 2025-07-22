@@ -12,5 +12,10 @@
       setCursor = true;
       expansion = "claude -p \"%\"";
     };
+    ccyolo = {
+      position = "command";
+      setCursor = true;
+      expansion = "claude --dangerously-skip-permissions";
+    };
   };
 }

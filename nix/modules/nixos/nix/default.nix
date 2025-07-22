@@ -1,12 +1,14 @@
-{
-  config,
-  pkgs,
-  ...
+{ config
+, lib
+, pkgs
+, ...
 }:
 let
   cfg = config.rawkOS.user;
 in
 {
+  imports = [ (lib.snowfall.fs.get-file "modules/shared/stylix/default.nix") ];
+
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;

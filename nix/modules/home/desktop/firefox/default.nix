@@ -23,17 +23,17 @@
         engines = {
           kagi = {
             name = "Kagi";
-            urls = [{ template = "https://kagi.com/search?q={searchTerms}"; }];
+            urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
             icon = "https://kagi.com/favicon.ico";
           };
           ghc = {
             name = "GitHub Code Search";
-            urls = [{ template = "https://cs.github.com/search?type=code&q={searchTerms}"; }];
+            urls = [ { template = "https://cs.github.com/search?type=code&q={searchTerms}"; } ];
             icon = "https://github.githubassets.com/pinned-octocat.svg";
           };
           nixpkgs = {
             name = "Nixpkgs Search";
-            urls = [{ template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; }];
+            urls = [ { template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; } ];
             icon = "https://nixos.org/favicon.ico";
           };
           bing.metaData.hidden = true;
@@ -48,9 +48,8 @@
         "sidebar.verticalTabs" = true;
         "sidebar.position_start" = false;
 
-        # Pretend to be Chrome so websites let us work
-        "general.useragent.override" =
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+        # I hate this square search button thing
+        "browser.urlbar.scotchBonnet.enableOverride" = false;
 
         # My Browser
         "browser.startup.homepage" = "about:home";
