@@ -4,7 +4,7 @@
     claude-code
   ];
 
-  xdg.configFile."claude/CLAUDE.md".source = ./CLAUDE.md;
+  home.file.".claude/CLAUDE.md".source = ./CLAUDE.md;
 
   programs.fish.shellAbbrs = {
     cc = {
