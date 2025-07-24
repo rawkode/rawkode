@@ -5,6 +5,7 @@
   ];
 
   home.file.".claude/CLAUDE.md".source = ./CLAUDE.md;
+  home.file.".claude/agents".source = ./agents;
 
   programs.fish.shellAbbrs = {
     cc = {
