@@ -58,9 +58,7 @@ in
     };
   };
 
-  systemd.sleep.extraConfig = ''
-    HibernateDelaySec=${toString (Minutes 10)}
-  '';
+  systemd.settings.Manager.HibernateDelaySec = "${toString (Minutes 10)}";
 
   system.stateVersion = "25.05";
 }

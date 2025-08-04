@@ -37,6 +37,7 @@
     flatpaks.url = "github:gmodena/nix-flatpak";
     ghostty = {
       url = "github:ghostty-org/ghostty";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
