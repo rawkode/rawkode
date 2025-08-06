@@ -1,7 +1,7 @@
-{ pkgs, ... }:
+{ inputs, pkgs, ... }:
 {
-  home.packages = with pkgs; [
-    claude-code
+  home.packages = [
+    inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
   ];
 
   home.file.".claude/CLAUDE.md".source = ./CLAUDE.md;

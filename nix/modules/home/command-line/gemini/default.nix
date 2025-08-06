@@ -1,6 +1,6 @@
-{ pkgs, ... }:
+{ inputs, pkgs, ... }:
 {
-  home.packages = with pkgs; [
-    gemini-cli
+  home.packages = [
+    inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
   ];
 }
