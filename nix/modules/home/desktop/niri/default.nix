@@ -412,6 +412,7 @@ in
         }
         {
           matches = [
+            { app-id = "Alacritty"; }
             { app-id = "Code"; }
             { app-id = "com.mitchellh.ghostty"; }
           ];
@@ -512,7 +513,7 @@ in
         };
         "Super+Return" = {
           action = {
-            spawn = [ "ghostty" ];
+            spawn = [ "alacritty" ];
           };
         };
         "Super+Backslash" = {

@@ -21,6 +21,10 @@
       ghb = "cd ~/Code/src/github.com";
     };
 
+    binds = {
+      "ctrl-\\[".command = "builtin cd ..; commandline -f repaint";
+    };
+
     interactiveShellInit = lib.rawkOS.fileAsSeparatedString ./interactiveInit.fish;
 
     functions = {
