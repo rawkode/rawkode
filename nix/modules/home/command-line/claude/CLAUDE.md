@@ -13,9 +13,20 @@ Unbreakable Rules:
 
 The following specialized sub-agents are available in the `agents/` directory:
 
-- **rusty**: Principal Rust Engineer for systems programming and Cloudflare Workers
-- **francis**: Frontend Architect specializing in Astro, Vue.js 3, and Tailwind CSS
-- **trinity**: Test Engineer expert in BDD, TDD, and quality engineering
-- **parker**: Product Owner for user stories, sprint planning, and agile processes
+### Core Development
+- **rust**: Rust & Cloudflare Workers specialist
+- **frontend**: Frontend Architect (Astro, Vue.js, Tailwind CSS)
+- **typescript-backend**: Node.js backend development (Express, Fastify, NestJS)
+- **fullstack**: Full-stack TypeScript (Next.js, Remix, SvelteKit)
+- **cloudflare-workers**: Edge computing with Workers, KV, Durable Objects
 
-To use a sub-agent, explicitly request it: "Use the rusty agent to review this Rust code" or let Claude automatically delegate based on the task.
+### Quality & Process
+- **testing**: Test Engineer & QA (BDD, TDD, quality engineering)
+- **product**: Product Owner (user stories, sprint planning, agile)
+
+### Infrastructure & DevOps
+- **docker**: Containerization & Docker Compose
+- **ci-cd**: GitHub Actions, GitLab CI, deployment pipelines
+- **nix-packages**: Nix flakes, derivations, reproducible builds
+
+To use a sub-agent, explicitly request it: "Use the rust agent to review this Rust code" or let Claude automatically delegate based on the task.
