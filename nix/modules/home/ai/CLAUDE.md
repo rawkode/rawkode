@@ -14,6 +14,7 @@ Unbreakable Rules:
 The following specialized sub-agents are available in the `agents/` directory:
 
 ### Core Development
+
 - **rust**: Rust & Cloudflare Workers specialist
 - **frontend**: Frontend Architect (Astro, Vue.js, Tailwind CSS)
 - **typescript-backend**: Node.js backend development (Express, Fastify, NestJS)
@@ -21,10 +22,12 @@ The following specialized sub-agents are available in the `agents/` directory:
 - **cloudflare-workers**: Edge computing with Workers, KV, Durable Objects
 
 ### Quality & Process
+
 - **testing**: Test Engineer & QA (BDD, TDD, quality engineering)
 - **product**: Product Owner (user stories, sprint planning, agile)
 
 ### Infrastructure & DevOps
+
 - **docker**: Containerization & Docker Compose
 - **ci-cd**: GitHub Actions, GitLab CI, deployment pipelines
 - **nix-packages**: Nix flakes, derivations, reproducible builds

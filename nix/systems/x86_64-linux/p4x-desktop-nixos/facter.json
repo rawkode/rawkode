@@ -3294,8 +3294,23 @@
 					"avx512vbmi",
 					"umip"
 				],
-				"bugs": ["sysret_ss_attrs", "spectre_v1", "spectre_v2", "spec_store_bypass", "srso"],
-				"power_management": ["ts", "ttp", "tm", "hwpstate", "cpb", "eff_freq_ro", "[13]", "[14]"],
+				"bugs": [
+					"sysret_ss_attrs",
+					"spectre_v1",
+					"spectre_v2",
+					"spec_store_bypass",
+					"srso"
+				],
+				"power_management": [
+					"ts",
+					"ttp",
+					"tm",
+					"hwpstate",
+					"cpb",
+					"eff_freq_ro",
+					"[13]",
+					"[14]"
+				],
 				"bogo": 8383.85,
 				"cache": 1024,
 				"units": 32,

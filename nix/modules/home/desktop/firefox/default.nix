@@ -23,18 +23,18 @@
         engines = {
           kagi = {
             name = "Kagi";
-            urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
+            urls = [{ template = "https://kagi.com/search?q={searchTerms}"; }];
             icon = "https://kagi.com/favicon.ico";
           };
           ghc = {
             name = "GitHub Code Search";
-            urls = [ { template = "https://cs.github.com/search?type=code&q={searchTerms}"; } ];
+            urls = [{ template = "https://cs.github.com/search?type=code&q={searchTerms}"; }];
             icon = "https://github.githubassets.com/pinned-octocat.svg";
             definedAliases = [ "@ghb" ];
           };
           nixpkgs = {
             name = "Nixpkgs Search";
-            urls = [ { template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; } ];
+            urls = [{ template = "https://search.nixos.org/packages?channel=unstable&query={searchTerms}"; }];
             icon = "https://nixos.org/favicon.ico";
             definedAliases = [ "@nxp" ];
           };

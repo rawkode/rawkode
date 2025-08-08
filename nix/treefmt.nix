@@ -3,7 +3,7 @@
   projectRootFile = "flake.nix";
 
   programs = {
-    biome.enable = true; # JSON
+    biome.enable = true;
     mdformat.enable = true;
     nixpkgs-fmt.enable = true;
     shfmt.enable = true;

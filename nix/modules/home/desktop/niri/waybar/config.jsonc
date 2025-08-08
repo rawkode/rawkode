@@ -10,7 +10,13 @@
 	"reload_style_on_change": true,
 	"modules-left": ["niri/workspaces"],
 	"modules-center": ["niri/window"],
-	"modules-right": ["tray", "wireplumber", "battery", "clock", "custom/notification"],
+	"modules-right": [
+		"tray",
+		"wireplumber",
+		"battery",
+		"clock",
+		"custom/notification"
+	],
 	"tray": {
 		"icon-size": 16,
 		"spacing": 32
