@@ -1,9 +1,17 @@
 { pkgs, ... }:
+let
+  vivaldi-wayland = (
+    pkgs.vivaldi.override {
+      commandLineArgs = [ "--ozone-platform=wayland" ];
+      proprietaryCodecs = true;
+      enableWidevine = true;
+    }
+  );
+in
 {
   environment.systemPackages = [
-    pkgs.vivaldi
+    vivaldi-wayland
   ];
-  nixpkgs.config.chromium.commandLineArgs = "--enable-features=UseOzonePlatform --ozone-platform=wayland";
 
   environment.etc = {
     "1password/custom_allowed_browsers" = {
