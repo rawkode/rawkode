@@ -189,6 +189,22 @@
         "type": "github"
       }
     },
+    "cue": {
+      "locked": {
+        "lastModified": 1754590803,
+        "narHash": "sha256-jcS5hDENmgn9Ya2M2jYzcqWhsM3t+sMD+OLS8DxoNhs=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "dcfb3202bd9cc8b83d17cbe9b1a539120c3ddd11",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "pull/431813/head",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "cuenv": {
       "inputs": {
         "fenix": "fenix_2",
@@ -1251,6 +1267,7 @@
         "browser-previews": "browser-previews",
         "codex": "codex",
         "comma": "comma",
+        "cue": "cue",
         "cuenv": "cuenv",
         "dagger": "dagger",
         "disko": "disko",
