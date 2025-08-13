@@ -1,12 +1,5 @@
 { pkgs, ... }:
 {
   home.packages = with pkgs; [ deno ];
-
-  programs = {
-    fish = {
-      shellInit = ''
-        fish_add_path ~/.deno/bin
-      '';
-    };
-  };
+  home.sessionPath = [ "$HOME/.deno/bin" ];
 }

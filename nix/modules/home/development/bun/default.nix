@@ -1,8 +1,7 @@
 { pkgs, ... }:
 {
   home.packages = with pkgs; [ bun ];
-
   home.sessionPath = [
-    "~/.bun/bin"
+    "/home/rawkode/.bun/bin"
   ];
 }
