@@ -8,16 +8,12 @@ let
         "--enable-features=VaapiVideoDecoder" # Hardware video acceleration
         "--disable-features=UseChromeOSDirectVideoDecoder" # Prevents conflicts with VAAPI
       ];
-      proprietaryCodecs = true;
-      enableWidevine = true;
     }
   );
 in
 {
   environment.systemPackages = [
     vivaldi-wayland
-    pkgs.vivaldi-ffmpeg-codecs
-    pkgs.widevine-cdm
   ];
 
   environment.etc = {
