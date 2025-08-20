@@ -37,6 +37,10 @@
     };
     firefox.url = "github:nix-community/flake-firefox-nightly";
     flatpaks.url = "github:gmodena/nix-flatpak";
+    gauntlet = {
+      url = "github:project-gauntlet/gauntlet";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     ghostty = {
       url = "github:ghostty-org/ghostty";
       inputs.nixpkgs.follows = "nixpkgs";

@@ -6,7 +6,7 @@
     addKeysToAgent = "true";
 
     extraConfig = ''
-      IdentityAgent $HOME/.1password/agent.sock
+      IdentityAgent ~/.1password/agent.sock
     '';
   };
 
