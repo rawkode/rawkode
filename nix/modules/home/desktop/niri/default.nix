@@ -402,7 +402,7 @@ in
           open-maximized = true;
         }
         {
-          matches = [{ app-id = "Zoom Workplace"; }];
+          matches = [ { app-id = "Zoom Workplace"; } ];
           excludes = [
             { title = "Zoom Meeting"; }
             { title = "Meeting"; }
@@ -478,11 +478,6 @@ in
             spawn = [ "fuzzel" ];
           };
         };
-        "Super+Shift+Space" = {
-          action = {
-            spawn = [ "~/.local/bin/fuzzel-window-picker" ];
-          };
-        };
         "Super+C" = {
           action = {
             spawn = [
@@ -513,7 +508,7 @@ in
         };
         "Super+Return" = {
           action = {
-            spawn = [ "alacritty" ];
+            spawn = [ "ghostty" ];
           };
         };
         "Super+Backslash" = {

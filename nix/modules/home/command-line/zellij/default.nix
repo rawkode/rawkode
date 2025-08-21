@@ -1,5 +1,14 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
+  home.sessionVariables = {
+    ZELLIJ_AUTO_ATTACH = "true";
+    ZELLIJ_AUTO_EXIT = "true";
+  };
+
+  programs.fish.interactiveShellInit = ''
+    eval (${lib.getExe pkgs.zellij} setup --generate-auto-start fish | string collect)
+  '';
+
   programs.zellij = {
     enable = true;
 
