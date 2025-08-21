@@ -40,7 +40,7 @@
 
       keybind = [
         "ctrl+space=toggle_tab_overview"
-        "ctrl+p=toggle_command_palette"
+        "ctrl+shift+p=toggle_command_palette"
 
         "alt+shift+backslash=new_split:right"
         "alt+backslash=new_split:down"
