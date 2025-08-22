@@ -18,6 +18,8 @@ in
     opacity.terminal = 0.9;
     opacity.popups = 0.9;
 
+    targets.qt.platform = lib.mkForce "qtct";
+
     cursor = {
       package = pkgs.rose-pine-cursor;
       name = "BreezeX-RosePine-Linux";

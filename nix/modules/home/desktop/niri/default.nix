@@ -25,13 +25,6 @@ in
     User.ConditionEnvironment = "XDG_CURRENT_DESKTOP=niri";
   };
 
-  programs.waybar = {
-    enable = true;
-    # We're using a custom service, we define below,
-    # so that we only run Waybar when Niri is running.
-    systemd.enable = false;
-  };
-
   systemd.user.services = {
     polkit-gnome = {
       Unit = {
@@ -402,7 +395,7 @@ in
           open-maximized = true;
         }
         {
-          matches = [ { app-id = "Zoom Workplace"; } ];
+          matches = [{ app-id = "Zoom Workplace"; }];
           excludes = [
             { title = "Zoom Meeting"; }
             { title = "Meeting"; }
@@ -671,8 +664,6 @@ in
   };
 
   stylix.targets.waybar.enable = false;
-  xdg.configFile."waybar/config.jsonc".source = ./waybar/config.jsonc;
-  xdg.configFile."waybar/style.css".source = ./waybar/style.css;
 
   xdg.configFile."swaync/config.json".text = ''
     {

@@ -12,11 +12,7 @@
     desktopManager.gnome.enable = lib.mkDefault true;
   };
 
-  qt = {
-    enable = true;
-    platformTheme = "gnome";
-    style = "adwaita-dark";
-  };
+  qt.enable = true;
 
   environment.systemPackages = with pkgs; [
     cheese
