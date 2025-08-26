@@ -3,7 +3,7 @@
   programs.zellij = {
     enable = true;
 
-    enableFishIntegration = true;
+    enableFishIntegration = false;
 
     attachExistingSession = false;
     exitShellOnExit = true;

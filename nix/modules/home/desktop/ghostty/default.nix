@@ -1,10 +1,10 @@
 { inputs, pkgs, ... }:
 {
-  stylix.targets.ghostty.enable = false;
-
   programs.ghostty = {
     enable = true;
     package = inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default;
+
+    enableBashIntegration = true;
     enableFishIntegration = true;
 
     settings = {
@@ -40,7 +40,7 @@
       window-padding-y = 8;
       window-padding-balance = true;
 
-      gtk-tabs-location = "hidden";
+      # gtk-tabs-location = "hidden";
 
       keybind = [
         "ctrl+space=toggle_tab_overview"
@@ -49,11 +49,11 @@
         "alt+shift+backslash=new_split:right"
         "alt+backslash=new_split:down"
 
-        # Alt+Arrow navigation disabled to avoid conflict with Zellij
-        # "alt+arrow_down=goto_split:down"
-        # "alt+arrow_up=goto_split:up"
-        # "alt+arrow_left=goto_split:left"
-        # "alt+arrow_right=goto_split:right"
+        "alt+arrow_down=goto_split:down"
+        "alt+arrow_up=goto_split:up"
+        "alt+arrow_left=goto_split:left"
+        "alt+arrow_right=goto_split:right"
+
         "shift+enter=text:\n"
       ];
     };

@@ -112,6 +112,7 @@
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.homeModules.nix-index
         niri.homeModules.niri
+        niri.homeModules.stylix
         nur.modules.homeManager.default
       ];
 

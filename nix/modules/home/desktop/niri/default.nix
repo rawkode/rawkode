@@ -165,6 +165,7 @@ in
 
   programs.niri = {
     enable = true;
+
     settings = {
       environment = {
         DISPLAY = ":0";
@@ -289,46 +290,10 @@ in
 
       layout = {
         gaps = 16;
+
+        border.enable = true;
+
         center-focused-column = "on-overflow";
-
-        focus-ring = {
-          enable = true;
-          width = 2;
-          active.gradient = {
-            from = "#ff00ff";
-            to = "#00ffff";
-            angle = 270;
-            relative-to = "window";
-          };
-          inactive.gradient = {
-            from = "#3a3a4a";
-            to = "#5a5a6a";
-            angle = 45;
-            relative-to = "workspace-view";
-          };
-          urgent.gradient = {
-            from = "#ff0000";
-            to = "#ffff00";
-            angle = 135;
-          };
-        };
-
-        border = {
-          enable = false;
-        };
-
-        shadow = {
-          enable = true;
-          softness = 50;
-          spread = 15;
-          offset = {
-            x = 0;
-            y = 12;
-          };
-          draw-behind-window = true;
-          color = "#ff00ff40";
-          inactive-color = "#00000030";
-        };
 
         struts = {
           left = 64;
@@ -338,7 +303,7 @@ in
         };
 
         default-column-width = {
-          proportion = 1.0;
+          proportion = 0.5;
         };
 
         preset-column-widths = [
@@ -395,7 +360,7 @@ in
           open-maximized = true;
         }
         {
-          matches = [{ app-id = "Zoom Workplace"; }];
+          matches = [ { app-id = "Zoom Workplace"; } ];
           excludes = [
             { title = "Zoom Meeting"; }
             { title = "Meeting"; }
@@ -405,8 +370,7 @@ in
         }
         {
           matches = [
-            { app-id = "Alacritty"; }
-            { app-id = "Code"; }
+            { app-id = "code"; }
             { app-id = "com.mitchellh.ghostty"; }
           ];
           open-on-workspace = "Code";
@@ -664,6 +628,7 @@ in
   };
 
   stylix.targets.waybar.enable = false;
+  stylix.targets.niri.enable = true;
 
   xdg.configFile."swaync/config.json".text = ''
     {
