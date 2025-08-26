@@ -4,6 +4,7 @@
     packages = [
       "com.core447.StreamController"
       "com.discordapp.Discord"
+      "com.github.tchx84.Flatseal"
       "com.jeffser.Alpaca"
       "com.slack.Slack"
       "com.spotify.Client"
@@ -13,7 +14,6 @@
       "org.gnome.Showtime"
       "org.gnome.Snapshot"
       "org.localsend.localsend_app"
-      "org.mozilla.Thunderbird"
     ];
   };
 }
