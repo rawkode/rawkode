@@ -7,10 +7,7 @@
   };
 
   environment.systemPackages = with pkgs; [
-    xwayland-satellite
-
     # Clipboard management
-    copyq
     wl-clipboard
 
     # Screen management
