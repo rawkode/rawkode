@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/pull/436682/head";
+    clickup.url = "github:NixOS/nixpkgs/pull/437226/head";
     cue.url = "github:NixOS/nixpkgs/pull/431813/head";
     v4l2.url = "github:NixOS/nixpkgs/pull/436682/head";
 
