@@ -2,15 +2,15 @@
   description = "rawkOS: Rawkode's Nix Configured Operating System";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/pull/436682/head";
     cue.url = "github:NixOS/nixpkgs/pull/431813/head";
+    v4l2.url = "github:NixOS/nixpkgs/pull/436682/head";
 
     home-manager = {
       url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     master.url = "github:nixos/nixpkgs/master";
-    moon.url = "git+https://github.com/NixOs/nixpkgs?rev=78fcdda7edf3195d3840c01c17890797228f2441";
     nur.url = "github:nix-community/NUR";
 
     auto-cpufreq = {
@@ -117,6 +117,9 @@
 
       overlays = with inputs; [
         nur.overlays.default
+        (final: prev: {
+          v4l-utils = v4l2.legacyPackages.${prev.system}.v4l-utils;
+        })
       ];
 
       systems.modules.nixos = with inputs; [
