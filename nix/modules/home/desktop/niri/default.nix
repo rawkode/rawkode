@@ -1,4 +1,9 @@
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   makeCommand = command: { command = [ command ]; };
   wallpaper = config.stylix.image;
@@ -447,12 +452,32 @@ in
         "Super+T" = {
           action.toggle-column-tabbed-display = { };
         };
+
+        "Super+Shift+Space" = {
+          action = {
+            spawn = [ "com.jeffser.Alpaca --live-chat" ];
+          };
+        };
+
         "Super+E" = {
           action = {
             spawn = [ "bemoji" ];
           };
         };
+
+        "Super+Z" = {
+          action = {
+            spawn = [ "${lib.getExe pkgs.nemo}" ];
+          };
+        };
+
         "Super+P" = {
+          action = {
+            spawn = [ "${lib.getExe pkgs.hyprpicker}" ];
+          };
+        };
+
+        "Ctrl+Down" = {
           action.toggle-overview = { };
         };
         "Super+N" = {
