@@ -49,10 +49,11 @@
         "alt+shift+backslash=new_split:right"
         "alt+backslash=new_split:down"
 
-        "alt+arrow_down=goto_split:down"
-        "alt+arrow_up=goto_split:up"
-        "alt+arrow_left=goto_split:left"
-        "alt+arrow_right=goto_split:right"
+        # Alt+Arrow navigation disabled to avoid conflict with Zellij
+        # "alt+arrow_down=goto_split:down"
+        # "alt+arrow_up=goto_split:up"
+        # "alt+arrow_left=goto_split:left"
+        # "alt+arrow_right=goto_split:right"
         "shift+enter=text:\n"
       ];
     };
