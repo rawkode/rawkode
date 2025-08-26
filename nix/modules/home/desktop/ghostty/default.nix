@@ -24,6 +24,10 @@
 
       focus-follows-mouse = true;
 
+      # This fixes clicking links with control in zellij
+      # I don't know why.
+      mouse-shift-capture = false;
+
       unfocused-split-opacity = 0.5;
 
       gtk-single-instance = true;

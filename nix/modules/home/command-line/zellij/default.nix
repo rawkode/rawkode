@@ -3,16 +3,16 @@
   programs.zellij = {
     enable = true;
 
-    enableBashIntegration = true;
-    enableZshIntegration = true;
     enableFishIntegration = true;
-    attachExistingSession = true;
+
+    attachExistingSession = false;
     exitShellOnExit = true;
 
     settings = {
       default_mode = "normal";
       default_layout = "compact";
-      mouse_mode = false;
+      show_startup_tips = false;
+      mouse_mode = true;
       pane_frames = false;
       # simplified_ui = false;
       copy_on_select = true;

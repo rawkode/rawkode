@@ -21,7 +21,7 @@
       url = "github:nix-community/browser-previews";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    codex.url = "github:openai/codex";
+    codex.url = "github:openai/codex/pull/2527/head";
     comma = {
       url = "github:nix-community/comma";
       inputs.nixpkgs.follows = "nixpkgs";
