@@ -1,4 +1,6 @@
-{ pkgs, ... }:
+{ ... }:
 {
-  home.packages = [ pkgs.zulip ];
+  services.flatpak.packages = [
+    "org.zulip.Zulip"
+  ];
 }

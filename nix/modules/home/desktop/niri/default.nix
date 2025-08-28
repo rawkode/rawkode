@@ -300,12 +300,12 @@ in
 
         center-focused-column = "on-overflow";
 
-        struts = {
-          left = 64;
-          right = 64;
-          top = 4;
-          bottom = 4;
-        };
+        # struts = {
+        #   left = 64;
+        #   right = 64;
+        #   top = 4;
+        #   bottom = 4;
+        # };
 
         default-column-width = {
           proportion = 0.5;
@@ -453,33 +453,16 @@ in
           action.toggle-column-tabbed-display = { };
         };
 
-        "Super+Shift+Space" = {
-          action = {
-            spawn = [ "com.jeffser.Alpaca --live-chat" ];
-          };
-        };
-
         "Super+E" = {
           action = {
             spawn = [ "bemoji" ];
           };
         };
 
-        "Super+Z" = {
-          action = {
-            spawn = [ "${lib.getExe pkgs.nemo}" ];
-          };
-        };
-
-        "Super+P" = {
-          action = {
-            spawn = [ "${lib.getExe pkgs.hyprpicker}" ];
-          };
-        };
-
         "Ctrl+Down" = {
           action.toggle-overview = { };
         };
+
         "Super+N" = {
           action = {
             spawn = [
@@ -488,11 +471,13 @@ in
             ];
           };
         };
+
         "Super+Return" = {
           action = {
             spawn = [ "ghostty" ];
           };
         };
+
         "Super+Backslash" = {
           action = {
             spawn = [
@@ -504,51 +489,67 @@ in
         "Super+Comma" = {
           action.consume-window-into-column = { };
         };
+
         "Super+Period" = {
           action.expel-window-from-column = { };
         };
+
         "Super+Page_Up" = {
           action.focus-workspace-up = { };
         };
+
         "Super+Page_Down" = {
           action.focus-workspace-down = { };
         };
+
         "Super+Shift+Page_Up" = {
           action.move-column-to-workspace-up = { };
         };
+
         "Super+Shift+Page_Down" = {
           action.move-column-to-workspace-down = { };
         };
+
         "Super+Control+Down" = {
           action.move-column-to-monitor-down = { };
         };
+
         "Super+Control+Up" = {
           action.move-column-to-monitor-up = { };
         };
+
         "Super+Control+Left" = {
           action.move-column-to-monitor-left = { };
         };
+
         "Super+Control+Right" = {
           action.move-column-to-monitor-right = { };
         };
+
         "Super+Up" = {
           action.focus-window-up = { };
         };
+
         "Super+Down" = {
           action.focus-window-down = { };
         };
+
         "Super+Left" = {
           action.focus-column-left = { };
         };
+
         "Super+Shift+Left" = {
           action.move-column-left = { };
         };
+
         "Super+Right" = {
           action.focus-column-right = { };
         };
+
         "Super+Shift+Right" = {
           action.move-column-right = { };
         };
+
         "Super+1" = {
           action.focus-workspace = 1;
         };
@@ -757,12 +758,4 @@ in
       }
     }
   '';
-
-  home.file.".local/bin/fuzzel-window-picker" = {
-    executable = true;
-    text = ''
-      #!/usr/bin/env bash
-      niri msg windows | ${pkgs.jq} -r '.[] | "\(.id) \(.app_id // .title)"' | fuzzel --dmenu | cut -d' ' -f1 | xargs -r niri msg window focus --id
-    '';
-  };
 }
