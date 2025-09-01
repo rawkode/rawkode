@@ -2,12 +2,16 @@
 {
   programs.ssh = {
     enable = true;
+    enableDefaultConfig = false;
 
-    addKeysToAgent = "true";
-
-    extraConfig = ''
-      IdentityAgent ~/.1password/agent.sock
-    '';
+    matchBlocks = {
+      "*" = {
+        addKeysToAgent = "true";
+        extraOptions = {
+          IdentityAgent = "~/.1password/agent.sock";
+        };
+      };
+    };
   };
 
   dconf.settings = {

@@ -112,8 +112,6 @@
       homes.modules = with inputs; [
         flatpaks.homeManagerModules.nix-flatpak
         nix-index-database.homeModules.nix-index
-        niri.homeModules.niri
-        niri.homeModules.stylix
         nur.modules.homeManager.default
       ];
 
@@ -142,6 +140,7 @@
         disko.nixosModules.disko
         flatpaks.nixosModules.nix-flatpak
         lanzaboote.nixosModules.lanzaboote
+        niri.nixosModules.niri
         nur.modules.nixos.default
         stylix.nixosModules.stylix
 

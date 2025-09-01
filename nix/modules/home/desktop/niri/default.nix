@@ -169,7 +169,6 @@ in
   };
 
   programs.niri = {
-    enable = true;
 
     settings = {
       environment = {
@@ -653,8 +652,8 @@ in
     };
   };
 
-  stylix.targets.waybar.enable = false;
-  stylix.targets.niri.enable = true;
+  stylix.targets.waybar.enable = lib.mkForce false;
+  stylix.targets.niri.enable = lib.mkDefault true;
 
   xdg.configFile."swaync/config.json".text = ''
     {

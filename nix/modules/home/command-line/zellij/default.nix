@@ -6,7 +6,7 @@
     enableFishIntegration = false;
 
     attachExistingSession = false;
-    exitShellOnExit = true;
+    exitShellOnExit = false;
 
     settings = {
       default_mode = "normal";

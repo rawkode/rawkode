@@ -1,10 +1,28 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 {
   boot = {
     consoleLogLevel = 0;
 
     kernelPackages = pkgs.linuxKernel.packages.linux_zen;
-    kernelParams = [ "video4linux" ];
+    # CachyOS-inspired kernel parameters for better desktop responsiveness and gaming
+    kernelParams = [
+      "nowatchdog"
+      "preempt=full"
+      "threadirqs"
+      "tsc=reliable"
+      "clocksource=tsc"
+      "preempt=voluntary"
+      "futex.futex2_interface=1" # Better Wine/Proton compatibility
+      "NVreg_UsePageAttributeTable=1" # Improved GPU memory management
+      "io_uring.sqpoll=2" # Modern I/O scheduler polling
+      "transparent_hugepage=madvise" # Better memory management
+      "elevator=bfq" # Better I/O scheduling for gaming
+    ];
     kernelModules = [ "v4l2loopback" ];
 
     initrd = {
