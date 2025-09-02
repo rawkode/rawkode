@@ -1,6 +1,0 @@
-{ ... }:
-{
-  programs.jujutsu = {
-    enable = true;
-  };
-}

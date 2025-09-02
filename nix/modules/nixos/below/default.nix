@@ -1,4 +1,0 @@
-{ ... }:
-{
-  services.below.enable = true;
-}
