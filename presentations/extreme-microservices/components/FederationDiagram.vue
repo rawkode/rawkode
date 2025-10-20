@@ -33,19 +33,19 @@
       <!-- Services row -->
       <g v-click class="fade-in">
         <rect x="120" y="320" rx="10" ry="10" width="210" height="78" :class="['node','service','service-core', stage===2 ? 'hl' : '']" />
-        <text x="225" y="350" class="title service-label" text-anchor="middle">User Core</text>
+        <text x="225" y="350" class="title service-label" text-anchor="middle">Projects Service</text>
         <text x="225" y="372" class="sub service-label" text-anchor="middle">owns key: id</text>
       </g>
 
       <g v-click class="fade-in">
         <rect x="355" y="320" rx="10" ry="10" width="210" height="78" :class="['node','service','service-email', stage===3 ? 'hl' : '']" />
-        <text x="460" y="350" class="title service-label" text-anchor="middle">User Email</text>
-        <text x="460" y="372" class="sub service-label" text-anchor="middle">column service</text>
+        <text x="460" y="350" class="title service-label" text-anchor="middle">Issues Service</text>
+        <text x="460" y="372" class="sub service-label" text-anchor="middle">extends Project</text>
       </g>
 
       <g v-click class="fade-in">
         <rect x="590" y="320" rx="10" ry="10" width="210" height="78" :class="['node','service','service-nickname', stage===3 ? 'hl' : '']" />
-        <text x="695" y="350" class="title service-label" text-anchor="middle">User Nickname</text>
+        <text x="695" y="350" class="title service-label" text-anchor="middle">Status Service</text>
         <text x="695" y="372" class="sub service-label" text-anchor="middle">column service</text>
       </g>
 

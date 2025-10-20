@@ -64,3 +64,7 @@ pre code { font-size: 0.9rem; }
 /* Tables */
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #4443; }
+
+/* View Transitions */
+.view-transition-title { view-transition-name: title; }
+.view-transition-projects { view-transition-name: projects; }
