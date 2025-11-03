@@ -1,0 +1,6 @@
+[install]
+# Bun workspace configuration
+peer = true
+
+[install.scopes]
+# Optional: configure scoped registries if needed

@@ -1,7 +1,0 @@
-matches:
-  - trigger: "rka."
-    replace: "RawkodeAcademy"
-  - trigger: "rka/"
-    replace: "RawkodeAcademy/RawkodeAcademy"
-  - trigger: "rkl."
-    replace: "rawkode.live"

@@ -1,0 +1,2 @@
+[gpg "ssh"]
+	program = op-ssh-sign

@@ -1,0 +1,17 @@
+# GitHub CLI configuration
+# See: https://cli.github.com/manual/
+
+# Git protocol to use
+git_protocol: ssh
+
+# Enable interactive prompts
+prompt: enabled
+
+# Preferred editor for authoring text
+# editor: code --wait
+
+# Pager to use for command output
+# pager: less
+
+# Extensions to install (requires manual installation):
+# gh extension install github/gh-copilot

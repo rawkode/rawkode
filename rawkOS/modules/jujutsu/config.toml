@@ -1,0 +1,10 @@
+# jujutsu (jj) configuration
+# See: https://martinvonz.github.io/jj/latest/config/
+
+[user]
+name = "David Flanagan"
+email = "david@rawkode.dev"
+
+[ui]
+default-command = ["log", "--reversed", "--no-pager"]
+editor = "code --wait"

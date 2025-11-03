@@ -1,0 +1,17 @@
+{
+  "name": "rawkos",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "apply": "bunx dhd",
+    "apply:module": "bunx dhd --"
+  },
+  "dependencies": {
+    "@rawkode/dhd": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,42 @@
+// zellij configuration
+// See: https://zellij.dev/documentation/
+
+default_mode "normal"
+default_layout "compact"
+
+// UI settings
+pane_frames false
+mouse_mode true
+copy_on_select true
+
+// Disable startup tips
+simplified_ui false
+default_shell "fish"
+
+ui {
+    pane_frames {
+        hide_session_name true
+    }
+}
+
+// Keybindings
+keybinds {
+    normal {
+        // Launch zellij-forgot plugin
+        bind "Ctrl y" {
+            LaunchOrFocusPlugin "file:~/.config/zellij/plugins/zellij_forgot.wasm" {
+                floating false
+            }
+        }
+
+        // Tab navigation
+        bind "Ctrl PageDown" { GoToNextTab; }
+        bind "Ctrl PageUp" { GoToPreviousTab; }
+
+        // Pane navigation with arrow keys
+        bind "Alt Left" { MoveFocus "Left"; }
+        bind "Alt Right" { MoveFocus "Right"; }
+        bind "Alt Up" { MoveFocus "Up"; }
+        bind "Alt Down" { MoveFocus "Down"; }
+    }
+}

@@ -1,0 +1,203 @@
+# Language Server Configurations
+
+[language-server.biome]
+command = "biome"
+args = ["lsp-proxy"]
+
+[language-server.gpt]
+command = "helix-gpt"
+args = ["--handler", "copilot"]
+
+[language-server.rust-analyzer.config.check]
+command = "clippy"
+
+[language-server.yaml-language-server.config.yaml.schemas]
+kubernetes = "k8s/*.yaml"
+
+[language-server.typescript-language-server.config.tsserver]
+path = "tsserver.js"
+
+# Language Configurations
+
+[[language]]
+name = "css"
+language-servers = ["vscode-css-language-server", "tailwindcss-ls", "biome", "gpt"]
+auto-format = true
+
+[[language]]
+name = "go"
+language-servers = ["gopls", "golangci-lint-lsp", "gpt"]
+auto-format = true
+
+[language.formatter]
+command = "goimports"
+
+[[language]]
+name = "html"
+language-servers = ["vscode-html-language-server", "tailwindcss-ls"]
+auto-format = true
+
+[language.formatter]
+command = "prettier"
+args = ["--stdin-filepath", "file.html"]
+
+[[language]]
+name = "javascript"
+auto-format = true
+
+[[language.language-servers]]
+name = "typescript-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "biome"
+
+[[language.language-servers]]
+name = "gpt"
+
+[[language]]
+name = "json"
+auto-format = true
+
+[[language.language-servers]]
+name = "vscode-json-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "biome"
+
+[language.formatter]
+command = "biome"
+args = ["format", "--indent-style", "space", "--stdin-file-path", "file.json"]
+
+[[language]]
+name = "jsonc"
+file-types = ["jsonc", "hujson"]
+auto-format = true
+
+[[language.language-servers]]
+name = "vscode-json-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "biome"
+
+[language.formatter]
+command = "biome"
+args = ["format", "--indent-style", "space", "--stdin-file-path", "file.jsonc"]
+
+[[language]]
+name = "jsx"
+auto-format = true
+
+[[language.language-servers]]
+name = "typescript-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "tailwindcss-ls"
+
+[[language.language-servers]]
+name = "biome"
+
+[[language.language-servers]]
+name = "gpt"
+
+[language.formatter]
+command = "biome"
+args = ["format", "--indent-style", "space", "--stdin-file-path", "file.jsx"]
+
+[[language]]
+name = "markdown"
+language-servers = ["marksman"]
+auto-format = true
+
+[language.formatter]
+command = "prettier"
+args = ["--stdin-filepath", "file.md"]
+
+[[language]]
+name = "nix"
+auto-format = true
+
+[language.formatter]
+command = "nixpkgs-fmt"
+
+[[language]]
+name = "python"
+language-servers = ["pylsp", "gpt"]
+auto-format = true
+
+[language.formatter]
+command = "sh"
+args = ["-c", "ruff check --select I --fix - | ruff format --line-length 88 -"]
+
+[[language]]
+name = "rust"
+language-servers = ["rust-analyzer", "gpt"]
+auto-format = true
+
+[[language]]
+name = "sql"
+auto-format = true
+
+[language.formatter]
+command = "sql-formatter"
+args = ["-l", "postgresql", "-c", "{\"keywordCase\": \"lower\", \"dataTypeCase\": \"lower\", \"functionCase\": \"lower\", \"expressionWidth\": 120, \"tabWidth\": 4}"]
+
+[[language]]
+name = "toml"
+language-servers = ["taplo"]
+auto-format = true
+
+[language.formatter]
+command = "taplo"
+args = ["fmt", "-o", "column_width=120", "-"]
+
+[[language]]
+name = "tsx"
+auto-format = true
+
+[[language.language-servers]]
+name = "typescript-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "tailwindcss-ls"
+
+[[language.language-servers]]
+name = "biome"
+
+[[language.language-servers]]
+name = "gpt"
+
+[language.formatter]
+command = "biome"
+args = ["format", "--indent-style", "space", "--stdin-file-path", "file.tsx"]
+
+[[language]]
+name = "typescript"
+auto-format = true
+
+[[language.language-servers]]
+name = "typescript-language-server"
+except-features = ["format"]
+
+[[language.language-servers]]
+name = "biome"
+
+[[language.language-servers]]
+name = "gpt"
+
+[language.formatter]
+command = "biome"
+args = ["format", "--indent-style", "space", "--stdin-file-path", "file.ts"]
+
+[[language]]
+name = "yaml"
+language-servers = ["yaml-language-server"]
+auto-format = true
+
+[language.formatter]
+command = "prettier"
+args = ["--stdin-filepath", "file.yaml"]
