@@ -1,0 +1,12 @@
+{
+  "name": "rawkos-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "dhd",
+    "rawkOS"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

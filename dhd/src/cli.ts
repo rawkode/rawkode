@@ -46,11 +46,11 @@ async function main() {
 
   // Check for flags
   const dryRun = args.includes("--dry-run")
-  const filteredArgs = args.filter(a => a !== "--dry-run")
+  const filteredArgs = args.filter(a => a !== "--dry-run" && a !== "--")
 
-  // Parse arguments - everything after -- is module names to run
-  const dashDashIndex = filteredArgs.indexOf("--")
-  const moduleNames = dashDashIndex >= 0 ? filteredArgs.slice(dashDashIndex + 1) : []
+  // All non-flag arguments are treated as module names
+  // (bunx strips -- before passing args, so we can't rely on it)
+  const moduleNames = filteredArgs
 
   const cwd = process.cwd()
   console.log(`Discovering modules in ${cwd}...`)
@@ -86,7 +86,7 @@ async function main() {
     return
   }
 
-  await runModules(modules, manager)
+  await runModules(modules, manager, allModules)
 
   console.log("\n✓ Done!")
 }

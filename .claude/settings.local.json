@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bunx dhd:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

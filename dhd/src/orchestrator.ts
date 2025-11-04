@@ -28,15 +28,17 @@ async function validateSudoAccess(ops: PlanOp[]) {
   }
 }
 
-export async function runModules(mods: ModuleT[], manager: "brew"|"pacman"|"apt"|"dnf"|"yay"|"nix") {
+export async function runModules(mods: ModuleT[], manager: "brew"|"pacman"|"apt"|"dnf"|"yay"|"nix", allModules?: ModuleT[]) {
   const ctx = makeCtx()
   const queue: ModuleT[] = []
   const seen = new Set<string>()
+  // Use allModules for dependency lookup if provided, otherwise use mods
+  const moduleRegistry = allModules || mods
   async function visit(m: ModuleT) {
     if (seen.has(m.name)) return
     seen.add(m.name)
     for (const d of m.dependsOn) {
-      const dep = mods.find(x => x.name === d)
+      const dep = moduleRegistry.find(x => x.name === d)
       if (dep) await visit(dep)
     }
     if (await evalWhen(m.when, ctx)) queue.push(m)

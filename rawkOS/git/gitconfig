@@ -2,6 +2,14 @@
 	name = David Flanagan
 	email = david@rawkode.dev
 
+[core]
+	editor = code --wait
+	excludesfile = ~/.config/git/ignore
+	fscache = true
+	preloadIndex = true
+	safecrlf = true
+	autocrlf = input
+
 [init]
 	defaultBranch = main
 

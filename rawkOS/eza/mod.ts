@@ -5,10 +5,8 @@ export default defineModule({
   tags: ["file-manager", "cli-tools"],
   when: [{ platformIn: ["linux", "darwin"] }],
 }).actions([
-  // Install eza (modern ls replacement)
   install("eza"),
 
-  // Link fish shell integration
   linkFile({
     source: source("init.fish"),
     target: userConfig("fish/conf.d/eza.fish"),
