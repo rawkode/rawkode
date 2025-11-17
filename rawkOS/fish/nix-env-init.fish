@@ -5,11 +5,11 @@
 if command -q nix
     # Add nix binaries to path if not already present
     if not contains /nix/var/nix/profiles/default/bin $PATH
-        set -gx PATH /nix/var/nix/profiles/default/bin $PATH
+        fish_add_path /nix/var/nix/profiles/default/bin
     end
 
     # Add user nix profile if it exists
     if test -d ~/.nix-profile/bin; and not contains ~/.nix-profile/bin $PATH
-        set -gx PATH ~/.nix-profile/bin $PATH
+        fish_add_path ~/.nix-profile/bin
     end
 end

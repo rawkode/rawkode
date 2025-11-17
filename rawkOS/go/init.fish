@@ -1,2 +1,2 @@
-set -qg PATH ~/Code/bin $PATH
+fish_add_path ~/Code/bin
 
