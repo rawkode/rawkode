@@ -1,12 +1,12 @@
-import { defineModule, linkFile, source, userConfig } from "@rawkode/dhd"
+import { defineModule, install, linkFile, source, userConfig } from "@rawkode/dhd"
 
 export default defineModule({
   name: "cuenv",
   tags: ["development", "environment"],
   when: [{ platformIn: ["linux", "darwin"] }],
 }).actions([
-  // Note: cuenv is typically installed from a Nix flake or built from source
-  // Manual installation required: https://github.com/cuenv/cuenv
+  // Install cuenv CLI via its custom tap
+  install("cuenv", { brew: "cuenv/cuenv/cuenv" }),
 
   // Link fish shell integration
   linkFile({

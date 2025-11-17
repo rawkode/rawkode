@@ -23,3 +23,6 @@ bind \r magic-enter
 if test -f (dirname (status --current-filename))/git-abbr.fish
     source (dirname (status --current-filename))/git-abbr.fish
 end
+
+# Added by Antigravity
+fish_add_path /Users/rawkode/.antigravity/antigravity/bin

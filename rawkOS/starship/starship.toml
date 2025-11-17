@@ -20,12 +20,12 @@ $python\
 $character\
 """
 
-[custom.cuenv_hooks]
-command = "cuenv env status --hooks --format=starship"
-format = "$output"
-when = "true"
-disabled = false
-description = "cuenv hooks status"
+[custom.cuenv]
+description = "cuenv hook status"
+command = "cuenv env status --output-format=starship"
+when = "test -f env.cue"
+format = "[$output]($style) "
+style = "bold yellow"
 
 [directory]
 style = "blue"
