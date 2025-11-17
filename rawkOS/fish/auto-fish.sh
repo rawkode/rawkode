@@ -6,3 +6,4 @@ if echo $- | grep -q 'i' && [[ "$(ps -o comm= $PPID)" != "fish" ]] && [[ -z $NOF
 		exec fish -i
 	fi
 fi
+. "$HOME/.cargo/env"
