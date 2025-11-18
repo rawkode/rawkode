@@ -4,8 +4,9 @@ import type { ModuleT } from "./schema"
 import { glob } from "glob"
 import path from "node:path"
 
-async function detectPackageManager(): Promise<"brew"|"pacman"|"apt"|"dnf"|"yay"|"nix"> {
+async function detectPackageManager(): Promise<"brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix"> {
   if (await Bun.which("brew")) return "brew"
+  if (await Bun.which("mas")) return "mas"
   if (await Bun.which("pacman")) return "pacman"
   if (await Bun.which("yay")) return "yay"
   if (await Bun.which("apt-get")) return "apt"

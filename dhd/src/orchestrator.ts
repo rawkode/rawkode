@@ -28,7 +28,7 @@ async function validateSudoAccess(ops: PlanOp[]) {
   }
 }
 
-export async function runModules(mods: ModuleT[], manager: "brew"|"pacman"|"apt"|"dnf"|"yay"|"nix", allModules?: ModuleT[]) {
+export async function runModules(mods: ModuleT[], manager: "brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix", allModules?: ModuleT[]) {
   const ctx = makeCtx()
   const queue: ModuleT[] = []
   const seen = new Set<string>()

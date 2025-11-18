@@ -8,12 +8,16 @@ export type { PathKind } from "./paths"
 
 export function install(
   pkg: string | string[],
-  perManager?: Partial<Record<"brew"|"pacman"|"apt"|"dnf"|"yay"|"nix", string>>
+  options?: {
+    manager?: "brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix"
+    perManager?: Partial<Record<"brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix", string>>
+  }
 ) {
   const list = Array.isArray(pkg) ? pkg : [pkg]
   return Install.parse({
     type: "install",
-    packages: list.map(name => ({ default: name, ...perManager })),
+    manager: options?.manager,
+    packages: list.map(name => ({ default: name, ...options?.perManager })),
   })
 }
 

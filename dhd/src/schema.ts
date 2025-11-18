@@ -2,10 +2,12 @@ import { z } from "zod"
 
 export const Install = z.object({
   type: z.literal("install"),
+  manager: z.enum(["brew", "mas", "pacman", "apt", "dnf", "yay", "nix"]).optional(),
   packages: z.array(
     z.object({
       default: z.string(),
       brew: z.string().optional(),
+      mas: z.string().optional(),
       pacman: z.string().optional(),
       apt: z.string().optional(),
       dnf: z.string().optional(),

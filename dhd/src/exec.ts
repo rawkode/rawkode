@@ -3,8 +3,18 @@ import path from "node:path"
 
 export async function execOp(op: import("./plan").PlanOp) {
   if (op.op === "install") {
+    // Check mas authentication before installing
+    if (op.manager === "mas") {
+      const authCheck = Bun.spawn({ cmd: ["mas", "account"], stdout: "pipe", stderr: "pipe" })
+      const code = await authCheck.exited
+      if (code !== 0) {
+        throw new Error("Not signed into Mac App Store. Please run 'mas signin' or sign in via the App Store app.")
+      }
+    }
+
     const cmd = {
       brew: ["brew", ["install", op.pkg]],
+      mas: ["mas", ["install", op.pkg]],
       pacman: ["sudo", ["pacman", "-S", "--noconfirm", op.pkg]],
       apt: ["sudo", ["apt-get", "install", "-y", op.pkg]],
       dnf: ["sudo", ["dnf", "install", "-y", op.pkg]],

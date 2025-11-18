@@ -6,4 +6,8 @@ if echo $- | grep -q 'i' && [[ "$(ps -o comm= $PPID)" != "fish" ]] && [[ -z $NOF
 		exec fish -i
 	fi
 fi
+
+export PATH="$HOME/.local/bin:$PATH"
 . "$HOME/.cargo/env"
+
+. "$HOME/.local/bin/env"

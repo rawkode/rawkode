@@ -6,7 +6,7 @@ import path from "node:path"
 import os from "node:os"
 
 export type PlanOp =
-  | { op: "install"; manager: "brew"|"pacman"|"apt"|"dnf"|"yay"|"nix"; pkg: string }
+  | { op: "install"; manager: "brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix"; pkg: string }
   | { op: "download"; url: string; dest: string; integrity?: `sha256-${string}` }
   | { op: "link"; src: string; dst: string; overwrite: boolean }
   | { op: "runCommand"; command: string; description?: string; sudo: boolean }
@@ -17,13 +17,15 @@ function resolvePkg(p: any, mgr: string) { return p[mgr] ?? p.default }
 
 export function plan(
   actions: ActionT[],
-  mgr: "brew"|"pacman"|"apt"|"dnf"|"yay"|"nix",
+  mgr: "brew"|"mas"|"pacman"|"apt"|"dnf"|"yay"|"nix",
   moduleDir?: string
 ): PlanOp[] {
   const ops: PlanOp[] = []
   for (const a of actions) {
     if (a.type === "install") {
-      for (const p of a.packages) ops.push({ op: "install", manager: mgr, pkg: resolvePkg(p, mgr) })
+      // Use explicit manager if specified, otherwise use detected manager
+      const manager = a.manager ?? mgr
+      for (const p of a.packages) ops.push({ op: "install", manager, pkg: resolvePkg(p, manager) })
     } else if (a.type === "linkFile") {
       // Resolve Source paths if we have a moduleDir
       let source = a.source
