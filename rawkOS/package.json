@@ -3,15 +3,14 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "scripts": {
-    "apply": "bunx dhd",
-    "apply:module": "bunx dhd --"
-  },
   "dependencies": {
     "@rawkode/dhd": "workspace:*"
   },
+  "scripts": {
+    "apply": "deno run -A ../dhd/src/cli.ts",
+    "apply:module": "deno run -A ../dhd/src/cli.ts"
+  },
   "devDependencies": {
-    "@types/bun": "latest",
     "typescript": "^5.3.3"
   }
 }

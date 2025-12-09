@@ -6,7 +6,10 @@
     "dhd",
     "rawkOS"
   ],
-  "devDependencies": {
-    "@types/bun": "latest"
+  "scripts": {
+    "apply": "cd rawkOS && deno task apply",
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "check": "deno check dhd/src/**/*.ts"
   }
 }

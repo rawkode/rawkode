@@ -4,19 +4,23 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "bin": {
-    "dhd": "./src/cli.ts"
-  },
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "dhd": "deno run -A src/cli.ts",
+    "check": "deno check src/index.ts src/cli.ts",
+    "fmt": "deno fmt src/",
+    "lint": "deno lint src/"
+  },
   "dependencies": {
     "zod": "^3.22.4",
-    "glob": "^10.3.10"
+    "glob": "^10.3.10",
+    "which": "^4.0.0"
   },
   "devDependencies": {
-    "@types/bun": "latest",
     "@types/node": "^20.10.0",
+    "@types/which": "^3.0.0",
     "typescript": "^5.3.3"
   }
 }

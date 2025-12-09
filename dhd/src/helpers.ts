@@ -3,14 +3,15 @@
  * These handle OS-specific logic automatically
  */
 
-import { defineModule, runCommand, linkFile, source, userConfig, type ActionT } from "./api"
+import { defineModule, linkFile, runCommand, source, userConfig } from "./api.ts";
+import type { ActionT } from "./schema.ts";
 
 // ============================================================================
 // USER CONFIGURATION
 // ============================================================================
 
 interface UserOptions {
-  shell?: string
+  shell?: string;
 }
 
 /**
@@ -29,8 +30,8 @@ interface UserOptions {
  * ```
  */
 export function user(options: UserOptions = {}) {
-  const { shell = "fish" } = options
-  const actions: ActionT[] = []
+  const { shell = "fish" } = options;
+  const actions: ActionT[] = [];
 
   // macOS-specific actions
   if (process.platform === "darwin") {
@@ -40,16 +41,16 @@ export function user(options: UserOptions = {}) {
         {
           description: `Add ${shell} to /etc/shells if not present`,
           sudo: true,
-        }
+        },
       ),
       runCommand(
         `dscl . -create /Users/$USER UserShell $(which ${shell})`,
         {
           description: `Set ${shell} as default shell via Directory Services`,
           sudo: true,
-        }
-      )
-    )
+        },
+      ),
+    );
   }
 
   // Linux-specific actions
@@ -60,22 +61,22 @@ export function user(options: UserOptions = {}) {
         {
           description: `Add ${shell} to /etc/shells if not present`,
           sudo: true,
-        }
+        },
       ),
       runCommand(
         `chsh -s $(which ${shell})`,
         {
           description: `Set ${shell} as default shell`,
-        }
-      )
-    )
+        },
+      ),
+    );
   }
 
   return defineModule({
     name: "user",
     tags: ["user", "shell"],
     dependsOn: [shell],
-  }).actions(actions)
+  }).actions(actions);
 }
 
 // ============================================================================
@@ -84,15 +85,15 @@ export function user(options: UserOptions = {}) {
 
 interface ShellIntegrationOptions {
   /** The tool name (used for description and file naming) */
-  tool: string
+  tool: string;
   /** Fish shell integration file (relative to module directory) */
-  fish?: string
+  fish?: string;
   /** Nushell integration file (relative to module directory) */
-  nushell?: string
+  nushell?: string;
   /** Bash integration file (relative to module directory) */
-  bash?: string
+  bash?: string;
   /** Zsh integration file (relative to module directory) */
-  zsh?: string
+  zsh?: string;
 }
 
 /**
@@ -122,8 +123,8 @@ interface ShellIntegrationOptions {
  * ```
  */
 export function shellIntegration(options: ShellIntegrationOptions): ActionT[] {
-  const { tool, fish, nushell, bash, zsh } = options
-  const actions: ActionT[] = []
+  const { tool, fish, nushell, bash, zsh } = options;
+  const actions: ActionT[] = [];
 
   if (fish) {
     actions.push(
@@ -132,8 +133,8 @@ export function shellIntegration(options: ShellIntegrationOptions): ActionT[] {
         target: userConfig(`fish/conf.d/${tool}.fish`),
         force: true,
         description: `Link ${tool} Fish shell integration`,
-      })
-    )
+      }),
+    );
   }
 
   if (nushell) {
@@ -143,8 +144,8 @@ export function shellIntegration(options: ShellIntegrationOptions): ActionT[] {
         target: userConfig(`nushell/conf.d/${tool}.nu`),
         force: true,
         description: `Link ${tool} Nushell integration`,
-      })
-    )
+      }),
+    );
   }
 
   if (bash) {
@@ -154,8 +155,8 @@ export function shellIntegration(options: ShellIntegrationOptions): ActionT[] {
         target: userConfig(`bashrc.d/${tool}.sh`),
         force: true,
         description: `Link ${tool} Bash integration`,
-      })
-    )
+      }),
+    );
   }
 
   if (zsh) {
@@ -165,9 +166,9 @@ export function shellIntegration(options: ShellIntegrationOptions): ActionT[] {
         target: userConfig(`zshrc.d/${tool}.zsh`),
         force: true,
         description: `Link ${tool} Zsh integration`,
-      })
-    )
+      }),
+    );
   }
 
-  return actions
+  return actions;
 }
