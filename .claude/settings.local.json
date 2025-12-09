@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bunx dhd:*)"
+      "Bash(bunx dhd:*)",
+      "Bash(grep:*)",
+      "Bash(defaults read:*)",
+      "Bash(/opt/homebrew/bin/deno check dhd/src/**/*.ts)",
+      "Bash(/opt/homebrew/bin/deno install)",
+      "Bash(/opt/homebrew/bin/deno run -A ../dhd/src/cli.ts --dry-run)"
     ],
     "deny": [],
     "ask": []
