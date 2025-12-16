@@ -6,7 +6,11 @@
       "Bash(defaults read:*)",
       "Bash(/opt/homebrew/bin/deno check dhd/src/**/*.ts)",
       "Bash(/opt/homebrew/bin/deno install)",
-      "Bash(/opt/homebrew/bin/deno run -A ../dhd/src/cli.ts --dry-run)"
+      "Bash(/opt/homebrew/bin/deno run -A ../dhd/src/cli.ts --dry-run)",
+      "Bash(cue vet:*)",
+      "Bash(cue export:*)",
+      "Bash(wc:*)",
+      "Bash(nix flake show:*)"
     ],
     "deny": [],
     "ask": []

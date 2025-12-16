@@ -1,11 +1,5 @@
 add_newline = true
 
-[aws]
-disabled = true
-
-[gcloud]
-disabled = true
-
 format = """
 $username\
 $hostname\
@@ -20,12 +14,11 @@ $python\
 $character\
 """
 
-[custom.cuenv]
-description = "cuenv hook status"
-command = "cuenv env status --output-format=starship"
-when = "test -f env.cue"
-format = "[$output]($style) "
-style = "bold yellow"
+[aws]
+disabled = true
+
+[gcloud]
+disabled = true
 
 [directory]
 style = "blue"
@@ -57,3 +50,10 @@ style = "bright-black"
 [cmd_duration]
 format = "[$duration]($style) "
 style = "yellow"
+
+[custom.cuenv_hooks]
+description = "cuenv hook status"
+command = "cuenv env status --output-format=starship"
+when = "test -f env.cue"
+format = "[$output]($style) "
+style = "bold yellow"

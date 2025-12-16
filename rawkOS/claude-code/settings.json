@@ -14,5 +14,27 @@
     "ralph-wiggum@claude-code-plugins": true,
     "security-guidance@claude-code-plugins": true
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": false,
+  "permissions": {
+    "allow": [
+      "Bash(gh pr:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo test:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(nix flake check:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(jj bookmark:*)",
+      "Bash(jj status:*)",
+      "Bash(jj diff:*)",
+      "Bash(grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "defaultMode": "plan"
+  }
 }
