@@ -1,0 +1,16 @@
+# Astro
+.astro
+dist/
+
+# Node
+node_modules/
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# jj
+.jj

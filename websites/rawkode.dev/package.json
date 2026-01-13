@@ -1,0 +1,18 @@
+{
+	"name": "rawkode-dev",
+	"type": "module",
+	"version": "0.0.1",
+	"scripts": {
+		"dev": "astro dev",
+		"build": "astro build",
+		"build:cf": "astro build",
+		"preview": "astro preview",
+		"astro": "astro"
+	},
+	"dependencies": {
+		"@alteran/astro": "file://../../../../alteran-dev/alteran",
+		"@astrojs/cloudflare": "^12.6.9",
+		"astro": "^5.14.1",
+		"wrangler": "^4.46.0"
+	}
+}
