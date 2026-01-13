@@ -1,5 +1,0 @@
-# Git protocol to use
-git_protocol: ssh
-# Enable interactive prompts
-prompt: enabled
-version: "1"
