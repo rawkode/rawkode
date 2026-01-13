@@ -1,0 +1,19 @@
+
+
+##
+# - Use Present / Imperative Tense
+##
+
+# Title (Summarise The Impact of This Commit)
+# Example: (Should fit after, "This commit will ... ")
+#   Add a New API Endpoint for Forgotten Password Requests
+
+
+# Why is this change required?
+# Example:
+#   This endpoint is being added to allow users to request their
+#   password when they forget them. Without this endpoint, users
+#   can very easily get locked out of their account.
+
+
+# Add any relevant links

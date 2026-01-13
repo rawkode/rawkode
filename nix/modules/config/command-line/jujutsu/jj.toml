@@ -1,0 +1,7 @@
+[user]
+name = "David Flanagan"
+email = "david@rawkode.dev"
+
+[ui]
+default-command = ["log", "--reversed", "--no-pager"]
+editor = "code --wait"
