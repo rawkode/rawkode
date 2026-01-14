@@ -82,54 +82,77 @@
         <text x="735" y="300" class="workload-text" text-anchor="middle">db-pod-2</text>
       </g>
 
-      <!-- Controller Indicator -->
-      <g v-click>
-        <path d="M 190 100 L 250 175" class="control-arrow" marker-end="url(#arrow)" />
-        <text x="210" y="140" class="control-text">Ensures</text>
-        <text x="200" y="155" class="control-text">one pod</text>
-        <text x="210" y="170" class="control-text">per node</text>
-      </g>
+                        <!-- Indicator Arrow -->
 
-      <!-- Node Selector Info -->
-      <g v-click class="fade-in">
-        <rect x="50" y="160" rx="8" ry="8" width="140" height="70" class="selector-info" />
-        <text x="120" y="182" class="selector-title" text-anchor="middle">Node Selector</text>
-        <text x="120" y="200" class="selector-text" text-anchor="middle">role: worker</text>
-        <text x="120" y="218" class="selector-text" text-anchor="middle">(optional)</text>
-      </g>
+                        <g v-click>
 
-      <!-- Taint/Toleration -->
-      <g v-click class="fade-in">
-        <rect x="50" y="250" rx="8" ry="8" width="140" height="70" class="toleration-info" />
-        <text x="120" y="272" class="selector-title" text-anchor="middle">Tolerations</text>
-        <text x="120" y="290" class="selector-text" text-anchor="middle">allow on</text>
-        <text x="120" y="308" class="selector-text" text-anchor="middle">master nodes</text>
-      </g>
+                          <path d="M 190 100 L 250 175" class="control-arrow" marker-end="url(#arrow)" />
 
-      <!-- Use Cases Panel -->
-      <g v-click class="fade-in">
-        <rect x="50" y="340" rx="8" ry="8" width="800" height="40" class="usecase-panel" />
-        <text x="450" y="367" class="usecase-text" text-anchor="middle">
-          Common Use Cases: Logging (fluentd), Monitoring (node-exporter), Networking (CNI), Storage (CSI)
-        </text>
-      </g>
+                        </g>
 
-      <!-- Legend -->
-      <g v-click class="fade-in">
-        <rect x="780" y="55" width="60" height="60" rx="6" class="legend" />
-        <text x="810" y="75" class="legend-title" text-anchor="middle">Legend</text>
+                  
 
-        <rect x="788" y="82" width="10" height="10" rx="2" class="legend-ds" />
-        <text x="806" y="91" class="legend-text">DS</text>
+                        <!-- Node Selector Info -->
 
-        <rect x="788" y="96" width="10" height="10" rx="2" class="legend-app" />
-        <text x="806" y="105" class="legend-text">App</text>
-      </g>
-    </svg>
+                        <g v-click class="fade-in">
 
-    <p class="caption">DaemonSet ensures one copy runs on every node (or subset via nodeSelector)</p>
-  </div>
-</template>
+                          <rect x="50" y="160" rx="8" ry="8" width="140" height="70" class="selector-info" />
+
+                          <text x="120" y="182" class="selector-title" text-anchor="middle">Node Selector</text>
+
+                          <text x="120" y="200" class="selector-text" text-anchor="middle">role: worker</text>
+
+                          <text x="120" y="218" class="selector-text" text-anchor="middle">(optional)</text>
+
+                        </g>
+
+                  
+
+                              <!-- Taint/Toleration -->
+
+                  
+
+                              <g v-click class="fade-in">
+
+                  
+
+                                <rect x="50" y="250" rx="8" ry="8" width="140" height="70" class="toleration-info" />
+
+                  
+
+                                <text x="120" y="272" class="selector-title" text-anchor="middle">Tolerations</text>
+
+                  
+
+                                <text x="120" y="290" class="selector-text" text-anchor="middle">allow on</text>
+
+                  
+
+                                <text x="120" y="308" class="selector-text" text-anchor="middle">master nodes</text>
+
+                  
+
+                              </g>
+
+                  
+
+                            </svg>
+
+                  
+
+                        
+
+                  
+
+                            <p class="caption">Common Use Cases: Logging (fluentd), Monitoring (node-exporter), Networking (CNI), Storage (CSI)</p>
+
+                  
+
+                          </div>
+
+                  
+
+                        </template>
 
 <script setup lang="ts">
 const props = defineProps<{ stage?: number }>()
@@ -171,17 +194,6 @@ const props = defineProps<{ stage?: number }>()
 .toleration-info { fill: color-mix(in oklab, var(--rk-secondary) 15%, transparent); stroke: var(--rk-secondary); stroke-width: 1; }
 .selector-title { font: 600 11px/1.2 'Poppins', sans-serif; fill: #fff; }
 .selector-text { font: 400 10px/1.2 'Quicksand', sans-serif; fill: #fff; opacity: 0.85; }
-
-/* Use cases panel */
-.usecase-panel { fill: color-mix(in oklab, var(--rk-black) 8%, transparent); stroke: #fff2; }
-.usecase-text { font: 500 12px/1.2 'Quicksand', sans-serif; fill: #fff; opacity: 0.9; }
-
-/* Legend */
-.legend { fill: color-mix(in oklab, var(--rk-black) 8%, transparent); stroke: #fff2; }
-.legend-title { font: 600 10px/1 'Poppins', sans-serif; fill: #fff; opacity: 0.9; }
-.legend-ds { fill: url(#dsGrad); stroke: var(--rk-primary); }
-.legend-app { fill: color-mix(in oklab, #10B981 40%, transparent); stroke: #10B981; }
-.legend-text { font: 400 9px/1 'Quicksand', sans-serif; fill: #fff; opacity: 0.8; }
 
 /* Animations */
 .fade-in { transition: opacity .2s ease-in; }

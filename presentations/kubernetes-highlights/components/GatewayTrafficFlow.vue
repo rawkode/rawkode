@@ -122,21 +122,6 @@
           <text x="735" y="430" class="benefit-text" text-anchor="middle">(traffic rules, backends)</text>
         </g>
       </g>
-
-      <!-- Legend -->
-      <g v-click class="fade-in">
-        <rect x="760" y="60" width="100" height="100" rx="8" class="legend" />
-        <text x="810" y="82" class="legend-title" text-anchor="middle">Legend</text>
-
-        <rect x="770" y="92" width="12" height="12" rx="2" class="legend-gateway" />
-        <text x="790" y="102" class="legend-text">Gateway API</text>
-
-        <rect x="770" y="110" width="12" height="12" rx="2" class="legend-service" />
-        <text x="790" y="120" class="legend-text">Service</text>
-
-        <rect x="770" y="128" width="12" height="12" rx="2" class="legend-pod" />
-        <text x="790" y="138" class="legend-text">Pod</text>
-      </g>
     </svg>
 
     <p class="caption">Gateway API provides separation of concerns across roles, unlike Ingress</p>
@@ -198,14 +183,6 @@ const props = defineProps<{ stage?: number }>()
 .benefit-box { fill: color-mix(in oklab, var(--rk-black) 6%, transparent); stroke: #fff3; stroke-width: 1; }
 .benefit-title { font: 600 12px/1.2 'Poppins', sans-serif; fill: var(--rk-secondary); }
 .benefit-text { font: 400 10px/1.2 'Quicksand', sans-serif; fill: #fff; opacity: 0.8; }
-
-/* Legend */
-.legend { fill: color-mix(in oklab, var(--rk-black) 8%, transparent); stroke: #fff2; }
-.legend-title { font: 600 11px/1 'Poppins', sans-serif; fill: #fff; opacity: 0.9; }
-.legend-gateway { fill: var(--rk-primary); }
-.legend-service { fill: var(--rk-secondary); }
-.legend-pod { fill: #10B981; }
-.legend-text { font: 400 10px/1 'Quicksand', sans-serif; fill: #fff; opacity: 0.8; }
 
 /* Animations */
 .fade-in { transition: opacity .2s ease-in; }

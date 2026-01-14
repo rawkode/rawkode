@@ -112,16 +112,6 @@
         <text x="600" y="386" class="failure-detail" text-anchor="middle">Pod restarts</text>
       </g>
 
-      <!-- Legend -->
-      <g v-click class="fade-in">
-        <rect x="70" y="50" width="16" height="16" rx="4" class="legend-startup" />
-        <text x="94" y="62" class="legend-text">Startup</text>
-
-        <rect x="170" y="50" width="16" height="16" rx="4" class="legend-readiness" />
-        <text x="194" y="62" class="legend-text">Readiness</text>
-
-        <rect x="280" y="50" width="16" height="16" rx="4" class="legend-liveness" />
-        <text x="304" y="62" class="legend-text">Liveness</text>
       </g>
     </svg>
 
@@ -185,11 +175,6 @@ const props = defineProps<{ stage?: number }>()
 .failure-panel { fill: color-mix(in oklab, var(--rk-black) 8%, transparent); stroke: #fff2; }
 .failure-title { font: 600 13px/1.2 'Poppins', sans-serif; fill: #fff; }
 .failure-detail { font: 400 10px/1.2 'Quicksand', sans-serif; fill: #fff; opacity: 0.8; }
-
-.legend-startup { fill: #F59E0B; }
-.legend-readiness { fill: #10B981; }
-.legend-liveness { fill: #EF4444; }
-.legend-text { font: 500 11px/1 'Quicksand', sans-serif; fill: #fff; opacity: 0.8; }
 
 .fade-in { transition: opacity .2s ease-in; }
 .caption { margin-top: .5rem; font-size: .85rem; opacity: .7; text-align: center; }

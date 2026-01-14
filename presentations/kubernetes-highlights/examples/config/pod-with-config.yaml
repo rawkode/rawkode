@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-config
+spec:
+  containers:
+  - name: app
+    image: nginx
+    env:
+      - name: APP_ENV
+        valueFrom:
+          configMapKeyRef:
+            name: app-config
+            key: APP_ENV
+      - name: DB_PASS
+        valueFrom:
+          secretKeyRef:
+            name: db-creds
+            key: password

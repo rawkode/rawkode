@@ -15,7 +15,7 @@ class: cover-center
     <h1 class="mt-2 brand-gradient-text inline-block view-transition-title">Kubernetes Highlights</h1>
     <p class="text-xl opacity-80 mt-2">The best bits for newcomers</p>
     <div class="mt-6 opacity-80">
-      <div><strong>David Flanagan</strong> / <strong>@rawkode.dev</strong></div>
+      <div><strong>David Flanagan</strong> / <strong>🦋 @rawkode.dev</strong></div>
       <div class="text-sm">//rawkode.academy</div>
     </div>
     <hr class="brand-hr mt-6" />
@@ -26,6 +26,7 @@ class: cover-center
 </div>
 
 ---
+title: About Me
 layout: center
 class: text-left
 ---
@@ -48,6 +49,7 @@ class: text-left
 
 ---
 layout: center
+title: What is Kubernetes?
 class: text-center
 ---
 
@@ -77,6 +79,7 @@ class: text-center
 </div>
 
 ---
+title: History of Kubernetes
 layout: center
 class: text-left
 ---
@@ -105,6 +108,7 @@ class: text-left
 <p class="mt-8 text-center text-lg opacity-80">Today: Most popular container orchestrator, running everywhere</p>
 
 ---
+title: Kubernetes Architecture
 layout: center
 ---
 
@@ -319,7 +323,7 @@ class: text-left
       <li v-click>Ordered rolling updates</li>
     </ul>
   </div>
-  <div v-click class="right-panel">
+  <div v-click class="right-panel tight-code">
 
 ```yaml
 apiVersion: apps/v1
@@ -487,7 +491,7 @@ class: text-left
       <li v-click>Role-based separation of concerns</li>
     </ul>
   </div>
-  <div v-click class="right-panel">
+  <div v-click class="right-panel tight-code">
 
 ```yaml
 # Gateway (cluster ops)
@@ -536,15 +540,15 @@ class: text-left
 <div class="brand-pill">Demo</div>
 <h2 class="mt-2 brand-gradient-text">Setting up Gateway API</h2>
 
-<div class="mt-6 demo-block">
+<div class="mt-6 demo-block tight-code">
   <div class="demo-label">LIVE DEMO</div>
 
 ```bash
 # Install Gateway API CRDs
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml
+kubectl apply -f <URL>
 
-# Install an implementation (e.g., NGINX)
-kubectl apply -f https://raw.githubusercontent.com/nginxinc/kubernetes-gateway/main/config/crd/bases/gateway.nginx.org_nginxgateways.yaml
+# Install an implementation (e.g., Contour/NGINX/Emissary)
+kubectl apply -f <URL>
 
 # Create a Gateway
 kubectl apply -f gateway.yaml
@@ -682,6 +686,7 @@ kubectl get secret db-creds -o yaml
 
 ---
 layout: section
+title: Resources
 ---
 
 <h1 class="brand-gradient-text">Resources</h1>
@@ -843,6 +848,7 @@ kubectl get pod oom-pod
 
 ---
 layout: section
+title: Key Highlights
 ---
 
 <h1 class="brand-gradient-text">Key Highlights</h1>
@@ -1029,6 +1035,7 @@ spec:
 
 ---
 layout: section
+title: The Ecosystem
 ---
 
 <h1 class="brand-gradient-text">The Ecosystem</h1>
@@ -1093,6 +1100,7 @@ class: text-left
 
 ---
 layout: section
+title: Why Kubernetes is the Default
 ---
 
 <h1 class="brand-gradient-text">Why Kubernetes is the Default</h1>
@@ -1639,43 +1647,34 @@ class: text-center
 ---
 layout: center
 class: text-center
----
-
-<div class="brand-pill">Resources</div>
-<h2 class="mt-4 brand-gradient-text text-4xl">Learn More</h2>
-
-<div class="mt-8 text-left max-w-2xl mx-auto space-y-4">
-  <div v-click class="p-3 rounded-lg ring-1 ring-white/15 bg-white/5">
-    <strong>Official Docs:</strong> kubernetes.io/docs
-  </div>
-  <div v-click class="p-3 rounded-lg ring-1 ring-white/15 bg-white/5">
-    <strong>Interactive Tutorial:</strong> kubernetes.io/docs/tutorials/kubernetes-basics
-  </div>
-  <div v-click class="p-3 rounded-lg ring-1 ring-white/15 bg-white/5">
-    <strong>Rawkode Academy:</strong> rawkode.academy
-  </div>
-  <div v-click class="p-3 rounded-lg ring-1 ring-white/15 bg-white/5">
-    <strong>CNCF Landscape:</strong> landscape.cncf.io
-  </div>
-</div>
-
----
-layout: center
-class: text-center
+title: Conclusion
 ---
 
 <div class="grid-two items-center">
-  <div>
-    <div class="brand-pill">Thank You!</div>
-    <h1 class="mt-2 brand-gradient-text inline-block">Questions?</h1>
-    <div class="mt-6 opacity-80">
-      <div><strong>David Flanagan</strong></div>
-      <div class="mt-2">@rawkode.dev</div>
-      <div>rawkode.academy</div>
-    </div>
-    <hr class="brand-hr mt-6" />
-  </div>
-  <div class="flex justify-center">
-    <img src="/brand/icon-gradient.svg" alt="Rawkode Academy" class="w-52 h-52" />
-  </div>
+<div class="text-left">
+<div class="brand-pill">Thank You!</div>
+<h1 class="mt-2 brand-gradient-text text-5xl inline-block">Questions?</h1>
+<p class="text-xl opacity-80 mt-2">Let's continue the conversation.</p>
+<div class="mt-8 opacity-90 text-lg space-y-2">
+<div><strong>David Flanagan</strong></div>
+<div class="opacity-70">@rawkode.dev</div>
+<div class="opacity-70">rawkode.academy</div>
+</div>
+<hr class="brand-hr mt-8" />
+</div>
+<div class="flex flex-col justify-center gap-6">
+<div class="text-2xl font-semibold brand-gradient-text mb-2">Learn More</div>
+<a href="https://kubernetes.io/docs" target="_blank" rel="noopener noreferrer" class="p-4 rounded-lg ring-1 ring-white/15 bg-white/5 hover:bg-white/10 transition-colors text-left group no-underline">
+<div class="font-bold text-lg group-hover:text-purple-400 transition-colors">Official Docs</div>
+<div class="text-sm opacity-60">kubernetes.io/docs</div>
+</a>
+<a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="p-4 rounded-lg ring-1 ring-white/15 bg-white/5 hover:bg-white/10 transition-colors text-left group no-underline">
+<div class="font-bold text-lg group-hover:text-purple-400 transition-colors">Rawkode Academy</div>
+<div class="text-sm opacity-60">rawkode.academy</div>
+</a>
+<a href="https://rawkode.academy/technology/matrix" target="_blank" rel="noopener noreferrer" class="p-4 rounded-lg ring-1 ring-white/15 bg-white/5 hover:bg-white/10 transition-colors text-left group no-underline">
+<div class="font-bold text-lg group-hover:text-purple-400 transition-colors">RKA Technology Matrix</div>
+<div class="text-sm opacity-60">rawkode.academy/technology/matrix</div>
+</a>
+</div>
 </div>
