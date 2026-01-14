@@ -1,0 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap');
+
+:root{
+  /* Rawkode Colour Palette */
+  --rk-black: #23282D;    /* RGB 35 40 45 */
+  --rk-primary: #5F5ED7;  /* Purple */
+  --rk-secondary: #00CEFF;/* Blue   */
+  /* Standard brand gradient: Purple -> Blue at 45deg */
+  --rk-gradient: linear-gradient(45deg, var(--rk-primary) 0%, var(--rk-secondary) 100%);
+}
+
+.slidev-page, .slidev-layout, html, body {
+  font-family: 'Quicksand', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+h1, h2, h3, h4, h5, h6, .brand-gradient-text {
+  font-family: 'Poppins', 'Quicksand', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+}
+
+.brand-gradient-text {
+  background-image: var(--rk-gradient);
+  -webkit-background-clip: text;
+  -moz-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -moz-text-fill-color: transparent;
+}
+
+.brand-pill {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--rk-primary) 18%, transparent);
+}
+
+.brand-accent {
+  color: var(--rk-primary);
+}
+
+.brand-hr {
+  height: 3px;
+  width: 100%;
+  background: var(--rk-gradient);
+  border: 0;
+}
+
+.brand-black { color: var(--rk-black); }
+.brand-black-bg { background: var(--rk-black); color: white; }
+
+/* Cover alignment helpers */
+.cover-center {
+  display: grid;
+  place-items: center;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 2rem;
+}
+
+/* Code blocks */
+pre code { font-size: 0.9rem; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #4443; }
+
+/* View Transitions */
+.view-transition-title { view-transition-name: title; }
+.view-transition-k8s { view-transition-name: k8s; }
+
+/* Demo code styling */
+.demo-block {
+  background: color-mix(in oklab, var(--rk-secondary) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--rk-secondary) 30%, transparent);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.demo-label {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  background: var(--rk-secondary);
+  color: var(--rk-black);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+/* Full-height split layout - code panel spans entire right side */
+.full-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  position: absolute;
+  inset: 0;
+  padding: 3rem;
+}
+
+.full-split .left-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.full-split .right-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: color-mix(in oklab, white 5%, transparent);
+  border: 1px solid color-mix(in oklab, white 15%, transparent);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+
+.full-split .right-panel.demo-panel {
+  background: color-mix(in oklab, var(--rk-secondary) 10%, transparent);
+  border-color: color-mix(in oklab, var(--rk-secondary) 30%, transparent);
+}
