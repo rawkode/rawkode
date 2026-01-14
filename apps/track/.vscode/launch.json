@@ -1,0 +1,24 @@
+{
+	"configurations": [
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:track}",
+			"name": "Debug SwiftAutoRaise",
+			"target": "SwiftAutoRaise",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug SwiftAutoRaise"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:track}",
+			"name": "Release SwiftAutoRaise",
+			"target": "SwiftAutoRaise",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release SwiftAutoRaise"
+		}
+	]
+}
