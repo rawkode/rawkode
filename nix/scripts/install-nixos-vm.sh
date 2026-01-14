@@ -26,27 +26,27 @@ echo ""
 
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
-    log_error "This script must be run as root (use sudo)"
-    exit 1
+	log_error "This script must be run as root (use sudo)"
+	exit 1
 fi
 
 # Check if disk exists
-if [[ ! -b "$DISK_DEVICE" ]]; then
-    log_error "Disk device $DISK_DEVICE not found"
-    log_info "Available disks:"
-    lsblk -d -o NAME,SIZE,TYPE
-    exit 1
+if [[ ! -b $DISK_DEVICE ]]; then
+	log_error "Disk device $DISK_DEVICE not found"
+	log_info "Available disks:"
+	lsblk -d -o NAME,SIZE,TYPE
+	exit 1
 fi
 
 # Clone or update the nix config repo
 FLAKE_PATH="${FLAKE_PATH:-/tmp/nix}"
 
 if [[ -d "$FLAKE_PATH/.git" ]]; then
-    log_info "Updating existing repo at $FLAKE_PATH..."
-    git -C "$FLAKE_PATH" pull
+	log_info "Updating existing repo at $FLAKE_PATH..."
+	git -C "$FLAKE_PATH" pull
 else
-    log_info "Cloning nix config repo..."
-    nix-shell -p git --run "git clone https://github.com/rawkode/nix $FLAKE_PATH"
+	log_info "Cloning nix config repo..."
+	nix-shell -p git --run "git clone https://github.com/rawkode/nix $FLAKE_PATH"
 fi
 
 log_info "Using flake at: $FLAKE_PATH"
@@ -57,22 +57,22 @@ echo ""
 # Confirmation
 log_warn "This will ERASE ALL DATA on $DISK_DEVICE!"
 echo ""
-read -p "Are you sure you want to continue? (type 'yes' to confirm): " confirm
-if [[ "$confirm" != "yes" ]]; then
-    log_info "Aborted."
-    exit 0
+read -r -p "Are you sure you want to continue? (type 'yes' to confirm): " confirm
+if [[ $confirm != "yes" ]]; then
+	log_info "Aborted."
+	exit 0
 fi
 
 echo ""
 log_step "Step 1/4: Running disko to partition and format disk..."
 nix --experimental-features "nix-command flakes" run github:nix-community/disko -- \
-    --mode disko \
-    --flake "$FLAKE_PATH#$FLAKE_CONFIG"
+	--mode disko \
+	--flake "$FLAKE_PATH#$FLAKE_CONFIG"
 
 log_step "Step 2/4: Verifying mount points..."
 if ! mountpoint -q /mnt; then
-    log_error "Root filesystem not mounted at /mnt"
-    exit 1
+	log_error "Root filesystem not mounted at /mnt"
+	exit 1
 fi
 log_info "Disk partitioned and mounted successfully"
 lsblk "$DISK_DEVICE"
@@ -83,8 +83,8 @@ nixos-install --flake "$FLAKE_PATH#$FLAKE_CONFIG" --no-root-passwd
 log_step "Step 4/4: Setting up user password..."
 log_info "Please set a password for the 'rawkode' user:"
 nixos-enter --root /mnt -c 'passwd rawkode' || {
-    log_warn "Failed to set password interactively."
-    log_info "You can set it after first boot with: passwd rawkode"
+	log_warn "Failed to set password interactively."
+	log_info "You can set it after first boot with: passwd rawkode"
 }
 
 echo ""

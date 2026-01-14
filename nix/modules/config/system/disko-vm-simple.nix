@@ -29,7 +29,10 @@ _: {
                       type = "filesystem";
                       format = "vfat";
                       mountpoint = "/boot";
-                      mountOptions = [ "defaults" "umask=0077" ];
+                      mountOptions = [
+                        "defaults"
+                        "umask=0077"
+                      ];
                     };
                   };
 
@@ -39,7 +42,10 @@ _: {
                       type = "filesystem";
                       format = "ext4";
                       mountpoint = "/";
-                      mountOptions = [ "defaults" "noatime" ];
+                      mountOptions = [
+                        "defaults"
+                        "noatime"
+                      ];
                     };
                   };
                 };

@@ -37,6 +37,9 @@
         };
       }
     ];
+    specialArgs = {
+      inherit inputs;
+    };
   };
 
   flake.packages.aarch64-darwin.p4x-air = inputs.self.darwinConfigurations.p4x-air.system;

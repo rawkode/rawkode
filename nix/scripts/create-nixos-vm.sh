@@ -3,18 +3,18 @@ set -euo pipefail
 
 # Detect architecture
 if [[ "$(uname -m)" == "arm64" ]]; then
-    ARCH="aarch64"
+	ARCH="aarch64"
 else
-    ARCH="x86_64"
+	ARCH="x86_64"
 fi
 
 # Configuration
 VM_NAME="${VM_NAME:-nixos}"
 ISO_URL="${ISO_URL:-https://channels.nixos.org/nixos-unstable/latest-nixos-minimal-${ARCH}-linux.iso}"
 ISO_PATH="${ISO_PATH:-$HOME/VMs/nixos-minimal-${ARCH}.iso}"
-RAM_MB="${RAM_MB:-16384}"       # 16GB
+RAM_MB="${RAM_MB:-16384}" # 16GB
 CPUS="${CPUS:-8}"
-DISK_MB="${DISK_MB:-200000}"    # 200GB
+DISK_MB="${DISK_MB:-200000}" # 200GB
 VRAM_MB="${VRAM_MB:-256}"
 
 # Colors for output
@@ -29,29 +29,29 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Check prerequisites
 if ! command -v prlctl &>/dev/null; then
-    log_error "Parallels CLI (prlctl) not found. Please install Parallels Desktop."
-    exit 1
+	log_error "Parallels CLI (prlctl) not found. Please install Parallels Desktop."
+	exit 1
 fi
 
 # Download ISO if not exists
 mkdir -p "$(dirname "$ISO_PATH")"
-if [[ ! -f "$ISO_PATH" ]]; then
-    log_info "Downloading NixOS ISO to $ISO_PATH..."
-    curl -L --progress-bar -o "$ISO_PATH" "$ISO_URL"
-    log_info "Download complete."
+if [[ ! -f $ISO_PATH ]]; then
+	log_info "Downloading NixOS ISO to $ISO_PATH..."
+	curl -L --progress-bar -o "$ISO_PATH" "$ISO_URL"
+	log_info "Download complete."
 else
-    log_info "ISO already exists at $ISO_PATH"
+	log_info "ISO already exists at $ISO_PATH"
 fi
 
 # Check if VM already exists
 if prlctl list --all 2>/dev/null | grep -q "$VM_NAME"; then
-    log_warn "VM '$VM_NAME' already exists."
-    echo ""
-    echo "Options:"
-    echo "  1. Start existing VM:    prlctl start \"$VM_NAME\""
-    echo "  2. Delete and recreate:  prlctl delete \"$VM_NAME\" && $0"
-    echo "  3. Open Parallels:       open -a 'Parallels Desktop'"
-    exit 0
+	log_warn "VM '$VM_NAME' already exists."
+	echo ""
+	echo "Options:"
+	echo "  1. Start existing VM:    prlctl start \"$VM_NAME\""
+	echo "  2. Delete and recreate:  prlctl delete \"$VM_NAME\" && $0"
+	echo "  3. Open Parallels:       open -a 'Parallels Desktop'"
+	exit 0
 fi
 
 log_info "Creating VM: $VM_NAME"

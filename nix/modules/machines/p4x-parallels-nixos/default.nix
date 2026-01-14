@@ -23,7 +23,7 @@
 
       # Machine-specific configuration (hardware + settings)
       (
-        { lib, pkgs, ... }:
+        { lib, ... }:
         {
           # System identity
           networking.hostName = "p4x-parallels-nixos";
@@ -42,6 +42,8 @@
 
             loader = {
               efi.canTouchEfiVariables = true;
+              grub.enable = lib.mkForce false;
+              systemd-boot.enable = true;
               timeout = 3;
             };
 
@@ -71,7 +73,6 @@
 
           hardware.parallels = {
             enable = true;
-            autoMountShares = true;
           };
 
           # Graphics for Wayland in VM

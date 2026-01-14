@@ -9,7 +9,7 @@
         self.nixosModules.vivaldi
         self.nixosModules.audio
         self.nixosModules.bluetooth
-        self.nixosModules.common
+        self.nixosModules.desktop-common
         self.nixosModules.firefox
         self.nixosModules.flatpak
         self.nixosModules.fonts

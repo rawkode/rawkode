@@ -283,12 +283,12 @@
       config = lib.mkIf cfg.enable {
         system.defaults = {
           dock = {
-            autohide = cfg.dock.autohide;
+            inherit (cfg.dock) autohide;
             autohide-delay = cfg.dock.autohideDelay;
             autohide-time-modifier = cfg.dock.autohideTimeModifier;
-            orientation = cfg.dock.orientation;
-            tilesize = cfg.dock.tilesize;
-            launchanim = cfg.dock.launchanim;
+            inherit (cfg.dock) orientation;
+            inherit (cfg.dock) tilesize;
+            inherit (cfg.dock) launchanim;
             minimize-to-application = cfg.dock.minimizeToApplication;
             show-process-indicators = cfg.dock.showProcessIndicators;
             show-recents = cfg.dock.showRecents;
@@ -333,7 +333,7 @@
 
           screencapture = {
             type = cfg.screencapture.format;
-            location = cfg.screencapture.location;
+            inherit (cfg.screencapture) location;
             disable-shadow = cfg.screencapture.disableShadow;
             include-date = cfg.screencapture.includeDate;
           };

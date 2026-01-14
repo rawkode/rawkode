@@ -113,7 +113,7 @@
         users.users.${cfg.username} = {
           name = cfg.username;
           home = "/Users/${cfg.username}";
-          shell = cfg.shell;
+          inherit (cfg) shell;
         };
       };
     };

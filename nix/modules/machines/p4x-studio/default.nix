@@ -31,6 +31,9 @@
         };
       }
     ];
+    specialArgs = {
+      inherit inputs;
+    };
   };
 
   flake.packages.aarch64-darwin.p4x-studio = inputs.self.darwinConfigurations.p4x-studio.system;

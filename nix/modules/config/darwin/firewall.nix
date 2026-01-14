@@ -43,9 +43,9 @@
         networking.applicationFirewall = {
           enable = true;
           enableStealthMode = cfg.stealthMode;
-          blockAllIncoming = cfg.blockAllIncoming;
-          allowSigned = cfg.allowSigned;
-          allowSignedApp = cfg.allowSignedApp;
+          inherit (cfg) blockAllIncoming;
+          inherit (cfg) allowSigned;
+          inherit (cfg) allowSignedApp;
         };
       };
     };

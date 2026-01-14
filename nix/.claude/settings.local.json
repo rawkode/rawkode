@@ -1,8 +1,5 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(cat:*)",
-      "Bash(find:*)"
-    ]
-  }
+	"permissions": {
+		"allow": ["Bash(cat:*)", "Bash(find:*)"]
+	}
 }

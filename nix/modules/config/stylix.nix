@@ -70,10 +70,16 @@ in
   };
 
   # Home Manager module that imports both stylix and our config
-  flake.homeModules.stylix = {
-    imports = [
-      inputs.stylix.homeModules.stylix
-      stylixConfig
-    ];
-  };
+  flake.homeModules.stylix =
+    {
+      lib,
+      osClass ? null,
+      ...
+    }:
+    {
+      imports = lib.optionals (osClass != "nixos") [
+        inputs.stylix.homeModules.stylix
+        stylixConfig
+      ];
+    };
 }

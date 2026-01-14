@@ -41,7 +41,6 @@
       inputs.self.darwinModules.slack
       inputs.self.darwinModules.discord
       inputs.self.darwinModules.mimestream
-      inputs.self.darwinModules.fastmail
 
       # Productivity & Utilities
       inputs.self.darwinModules.onepassword
@@ -71,6 +70,9 @@
         };
       }
     ];
+    specialArgs = {
+      inherit inputs;
+    };
   };
 
   flake.packages.aarch64-darwin.p4x-mbp = inputs.self.darwinConfigurations.p4x-mbp.system;
