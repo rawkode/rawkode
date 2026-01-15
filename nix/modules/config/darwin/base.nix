@@ -9,7 +9,6 @@
       # Common apps for all darwin machines
       imports = with inputs.self.darwinModules; [
         alt-tab
-        bartender
         betterdisplay
         deskflow
         fantastical
