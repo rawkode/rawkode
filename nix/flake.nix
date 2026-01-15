@@ -31,6 +31,7 @@
     dagger.url = "github:dagger/nix";
     disko.url = "github:nix-community/disko";
     firefox.url = "github:nix-community/flake-firefox-nightly";
+    kree.url = "path:../apps/kree";
     flatpaks.url = "github:gmodena/nix-flatpak";
 
     # Follows unstable because of a mesa mismatch

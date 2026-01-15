@@ -14,6 +14,7 @@
         deskflow
         fantastical
         ghostty
+        kree
       ];
 
       # Shell configuration

@@ -20,6 +20,7 @@
         jj
         jq
         just
+        nh
         lazyjournal
         misc
         nushell
