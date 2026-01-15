@@ -13,7 +13,7 @@
       inputs.self.darwinModules.fonts
 
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.profiles-darwin-base
+      inputs.self.darwinModules.base
 
       # No firewall - CoreWeave managed device
 

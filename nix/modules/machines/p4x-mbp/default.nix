@@ -13,7 +13,7 @@
       inputs.self.darwinModules.fonts
 
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.profiles-darwin-base
+      inputs.self.darwinModules.base
 
       # Firewall (personal device only)
       inputs.self.darwinModules.firewall

@@ -1,5 +1,5 @@
 {
-  flake.darwinModules.profiles-darwin-base =
+  flake.darwinModules.base =
     {
       inputs,
       pkgs,
