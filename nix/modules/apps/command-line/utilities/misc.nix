@@ -6,7 +6,6 @@
         ffmpeg
         nodejs
         prettier
-        pulumi
         tldr
         unzip
         vim

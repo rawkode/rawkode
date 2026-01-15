@@ -21,6 +21,7 @@
         development-podman
         development-python
         development-rust
+        pulumi
       ];
     };
 }
