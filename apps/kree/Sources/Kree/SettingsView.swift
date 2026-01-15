@@ -18,26 +18,6 @@ struct SettingsView: View {
             Section(header: Text("Behavior")) {
                 VStack(alignment: .leading) {
                     HStack {
-                        Text("Poll Interval")
-                        Spacer()
-                        Text(String(format: "%.2fs", appState.pollInterval))
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $appState.pollInterval, in: 0.02...0.5, step: 0.01) {
-                        Text("Poll Interval")
-                    } minimumValueLabel: {
-                        Image(systemName: "hare")
-                    } maximumValueLabel: {
-                        Image(systemName: "tortoise")
-                    }
-                    Text("Lower values are more responsive but use more CPU.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-                
-                VStack(alignment: .leading) {
-                    HStack {
                         Text("Focus Delay")
                         Spacer()
                         Text(String(format: "%.2fs", appState.focusDelay))
@@ -50,7 +30,7 @@ struct SettingsView: View {
                     } maximumValueLabel: {
                         Text("1s")
                     }
-                    Text("Time the mouse must be over a window before focusing.")
+                    Text("Time the mouse must be stationary before focusing.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -7,24 +7,22 @@ class FocusEngine {
     private var runLoopSource: CFRunLoopSource?
     private var permissionTimer: Timer?
     private var focusWorkItem: DispatchWorkItem?
+    private var spaceChangeObserver: NSObjectProtocol?
     
     private let systemWideElement = AXUIElementCreateSystemWide()
     private var lastFocusedWindowID: CGWindowID = 0
     private let logger = Logger(subsystem: "com.rawkode.Kree", category: "FocusEngine")
     
     // Config
-    private var pollInterval: TimeInterval = 0.05
     private var focusDelay: TimeInterval = 0.0
     private var disableModifier: NSEvent.ModifierFlags?
-    
+
     // State
     private var pendingWindowID: CGWindowID = 0
-    private var lastCheckTime: TimeInterval = 0
     
     var onTrustChange: ((Bool) -> Void)?
     
-    func setConfiguration(interval: TimeInterval, delay: TimeInterval, disableModifier: NSEvent.ModifierFlags?) {
-        self.pollInterval = interval
+    func setConfiguration(delay: TimeInterval, disableModifier: NSEvent.ModifierFlags?) {
         self.focusDelay = delay
         self.disableModifier = disableModifier
     }
@@ -71,6 +69,15 @@ class FocusEngine {
         self.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+
+        // Listen for space changes
+        spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSpaceChange()
+        }
     }
     
     func stop() {
@@ -85,7 +92,12 @@ class FocusEngine {
         
         permissionTimer?.invalidate()
         permissionTimer = nil
-        
+
+        if let observer = spaceChangeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            spaceChangeObserver = nil
+        }
+
         cancelPendingFocus()
     }
     
@@ -94,16 +106,21 @@ class FocusEngine {
         focusWorkItem = nil
         pendingWindowID = 0
     }
+
+    private func handleSpaceChange() {
+        // Brief delay for space transition, then check focus
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            let mouseLocation = NSEvent.mouseLocation
+            // Convert from bottom-left origin (NSEvent) to top-left origin (CGEvent/AX)
+            if let screenHeight = NSScreen.main?.frame.height {
+                let point = CGPoint(x: mouseLocation.x, y: screenHeight - mouseLocation.y)
+                self?.checkFocus(at: point)
+            }
+        }
+    }
     
     // Named method to be called from the C-function callback
     fileprivate func handleMouseMoved(event: CGEvent) {
-        // Throttling: Check if enough time has passed since last check
-        let now = Date().timeIntervalSinceReferenceDate
-        if (now - lastCheckTime) < pollInterval {
-            return
-        }
-        lastCheckTime = now
-        
         // Check Modifier
         if let modifier = disableModifier {
              if NSEvent.modifierFlags.contains(modifier) {
@@ -111,7 +128,7 @@ class FocusEngine {
                  return
              }
         }
-        
+
         let point = event.location
         checkFocus(at: point)
     }
@@ -141,14 +158,10 @@ class FocusEngine {
             if pendingWindowID != 0 { cancelPendingFocus() }
             return
         }
-        
-        // If we are already pending THIS window, let the timer run. Do nothing.
-        if windowID == pendingWindowID {
-            return
-        }
-        
-        // New target detected
-        cancelPendingFocus() // Cancel previous pending
+
+        // Always cancel and reschedule timer when mouse moves over a non-focused window.
+        // This ensures focus only fires when mouse has been stationary for the full delay.
+        cancelPendingFocus()
         pendingWindowID = windowID
         
         // 4. Check Ignore List (Dock, etc.)

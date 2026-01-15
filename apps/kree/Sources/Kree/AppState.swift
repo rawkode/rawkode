@@ -31,13 +31,6 @@ class AppState: ObservableObject {
         }
     }
     
-    @Published var pollInterval: Double {
-        didSet {
-            UserDefaults.standard.set(pollInterval, forKey: "pollInterval")
-            updateEngineConfig()
-        }
-    }
-    
     @Published var focusDelay: Double {
         didSet {
             UserDefaults.standard.set(focusDelay, forKey: "focusDelay")
@@ -57,7 +50,6 @@ class AppState: ObservableObject {
     init() {
         // Load Defaults
         self.isEnabled = UserDefaults.standard.object(forKey: "isEnabled") as? Bool ?? true
-        self.pollInterval = UserDefaults.standard.object(forKey: "pollInterval") as? Double ?? 0.05
         self.focusDelay = UserDefaults.standard.object(forKey: "focusDelay") as? Double ?? 0.1
         
         if let savedModifier = UserDefaults.standard.string(forKey: "disableModifier"),
@@ -79,7 +71,6 @@ class AppState: ObservableObject {
     
     private func updateEngineConfig() {
         focusEngine.setConfiguration(
-            interval: pollInterval,
             delay: focusDelay,
             disableModifier: disableModifier.flags
         )
