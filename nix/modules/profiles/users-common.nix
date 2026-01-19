@@ -9,7 +9,6 @@
         self.homeModules.ai
         self.homeModules.profiles-home
         self.homeModules.profiles-desktop
-        self.homeModules.fish
         self.homeModules.nix-home
         # Note: stylix is NOT imported here because:
         # - On NixOS: comes from nixosModules.stylix (propagates to home-manager)
