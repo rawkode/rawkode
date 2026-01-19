@@ -29,13 +29,10 @@
       # Productivity & Utilities
       inputs.self.darwinModules.onepassword
       inputs.self.darwinModules.setapp
-      inputs.self.darwinModules.skim
-      inputs.self.darwinModules.dockdoor
       inputs.self.darwinModules.parallels
       inputs.self.darwinModules.descript
 
       # Development
-      inputs.self.darwinModules.docker
       inputs.self.darwinModules.google-cloud
 
       # Machine-specific config

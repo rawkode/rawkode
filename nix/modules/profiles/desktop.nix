@@ -6,11 +6,9 @@
       imports = with inputs; [
         self.nixosModules.profiles-base
 
-        self.nixosModules.vivaldi
         self.nixosModules.audio
         self.nixosModules.bluetooth
         self.nixosModules.desktop-common
-        self.nixosModules.firefox
         self.nixosModules.flatpak
         self.nixosModules.fonts
         self.nixosModules.gnome

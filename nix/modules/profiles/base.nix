@@ -89,8 +89,6 @@
     {
       imports = with inputs.self.darwinModules; [
         alt-tab
-        betterdisplay
-        deskflow
         fantastical
         fonts
         ghostty
