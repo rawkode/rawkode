@@ -34,4 +34,17 @@
         };
       };
     };
+
+  # Cross-platform desktop apps only
+  # Linux-only desktop modules should be in linuxImports of user configs
+  flake.homeModules.profiles-desktop =
+    { inputs, ... }:
+    {
+      imports = with inputs.self.homeModules; [
+        ghostty
+        onepassword
+        wezterm
+        zed
+      ];
+    };
 }

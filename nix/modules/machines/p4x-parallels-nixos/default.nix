@@ -12,7 +12,6 @@
 
       # Import profiles - reuse existing desktop and development setup
       inputs.self.nixosModules.profiles-desktop
-      inputs.self.nixosModules.profiles-development
       inputs.self.nixosModules.kernel
 
       # Disko for declarative disk partitioning

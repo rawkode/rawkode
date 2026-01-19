@@ -3,44 +3,45 @@ let
   mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
   machineSystems = import ../../../lib/machine-systems.nix;
 
-  linuxImports = with inputs; [
+  baseImports = with inputs; [
     nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
+
+    self.homeModules.ai
+    self.homeModules.profiles-home
+    self.homeModules.profiles-desktop
+    self.homeModules.fish
+    self.homeModules.nix-home
+    self.homeModules.stylix
+  ];
+
+  linuxImports = with inputs; [
     flatpaks.homeManagerModules.nix-flatpak
     ironbar.homeManagerModules.default
     vicinae.homeManagerModules.default
 
-    self.homeModules.ai
-    self.homeModules.profiles-command-line
-    self.homeModules.profiles-desktop
-    self.homeModules.profiles-development
-    self.homeModules.fish
+    # Linux-only desktop apps
+    self.homeModules.visual-studio-code
+    self.homeModules.alacritty
+    self.homeModules.clickup
+    self.homeModules.dconf-editor
     self.homeModules.flatpak
     self.homeModules.gnome
     self.homeModules.ironbar
-    self.homeModules.nix-home
+    self.homeModules.niri
     self.homeModules.portals
-    self.homeModules.stylix
+    self.homeModules.ptyxis
+    self.homeModules.rquickshare
+    self.homeModules.slack
+    self.homeModules.spotify
+    self.homeModules.tana
     self.homeModules.vicinae
+    self.homeModules.wayland
+    self.homeModules.zoom
+    self.homeModules.zulip
   ];
 
   darwinImports = with inputs; [
-    # NOTE: fish, starship, atuin, carapace, comma, and zoxide are
-    # already imported via the command-line profile - don't duplicate them!
-
-    # Editor and CLI toolkit
-    self.homeModules.profiles-command-line
-
-    # Nix CLI config for HM (required by modules that set nix.settings)
-    self.homeModules.nix-home
-
-    # Developer tooling (Docker client, Podman, language toolchains, etc.)
-    self.homeModules.profiles-development
-
-    # Apps and theming
-    self.homeModules.ghostty
-    self.homeModules.git
-    self.homeModules.stylix
   ];
 
 in
@@ -49,26 +50,24 @@ mkUser {
   name = "David Flanagan";
   inherit machineSystems;
   homeImports = {
-    linux = linuxImports;
-    darwin = darwinImports;
+    linux = linuxImports ++ baseImports;
+    darwin = darwinImports ++ baseImports;
   };
   homeExtraConfig =
     { lib, isDarwin, ... }:
     lib.optionalAttrs (!isDarwin) {
       rawkOS.desktop.darkman.enable = false;
     };
-  nixosUserConfig =
-    _:
-    {
-      extraGroups = [
-        "audio"
-        "docker"
-        "input"
-        "libvirtd"
-        "video"
-        "wheel"
-      ];
-    };
+  nixosUserConfig = _: {
+    extraGroups = [
+      "audio"
+      "docker"
+      "input"
+      "libvirtd"
+      "video"
+      "wheel"
+    ];
+  };
   enableHomeConfigurations = true;
   machinesDir = ../../machines;
 }

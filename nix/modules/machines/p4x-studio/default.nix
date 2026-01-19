@@ -18,9 +18,11 @@
       # No firewall - CoreWeave managed device
 
       # Apps
+      inputs.self.darwinModules.ai
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
       inputs.self.darwinModules.docker
+      inputs.self.darwinModules.visual-studio-code
 
       # Machine-specific config
       {

@@ -14,7 +14,6 @@
 
       # Import profiles
       inputs.self.nixosModules.profiles-desktop
-      inputs.self.nixosModules.profiles-development
       inputs.self.nixosModules.hardware-amd
       inputs.self.nixosModules.kernel
       inputs.self.nixosModules.disko-btrfs-encrypted

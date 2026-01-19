@@ -1,33 +1,32 @@
 { inputs, ... }:
 let
   mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
+  machineSystems = import ../../../lib/machine-systems.nix;
+
+  baseImports = with inputs; [
+    nix-index-database.homeModules.nix-index
+    nur.modules.homeManager.default
+
+    self.homeModules.ai
+    self.homeModules.profiles-home
+    self.homeModules.profiles-desktop
+    self.homeModules.fish
+    self.homeModules.nix-home
+    self.homeModules.stylix
+  ];
 
   darwinImports = with inputs; [
-    # Editor and CLI toolkit
-    self.homeModules.profiles-command-line
-
-    # Nix CLI config for HM (required by modules that set nix.settings)
-    self.homeModules.nix-home
-
-    # Developer tooling (Docker client, Podman, language toolchains, etc.)
-    self.homeModules.profiles-development
-
-    # Apps and theming
-    self.homeModules.ghostty
-    self.homeModules.git
-    self.homeModules.stylix
   ];
 
 in
 mkUser {
   username = "dflanagan";
   name = "David Flanagan";
+  inherit machineSystems;
   homeImports = {
-    linux = [ ];
-    darwin = darwinImports;
+    darwin = darwinImports ++ baseImports;
   };
   homeExtraConfig = {
-    # Use work email for CoreWeave repositories
     programs.git.includes = [
       {
         condition = "gitdir:~/Code/src/github.com/coreweave/";
@@ -35,4 +34,6 @@ mkUser {
       }
     ];
   };
+  enableHomeConfigurations = true;
+  machinesDir = ../../machines;
 }

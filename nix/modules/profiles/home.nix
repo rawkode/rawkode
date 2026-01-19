@@ -1,5 +1,5 @@
 {
-  flake.homeModules.profiles-command-line =
+  flake.homeModules.profiles-home =
     { inputs, ... }:
     {
       imports = with inputs.self.homeModules; [
@@ -9,6 +9,19 @@
         carapace
         comma
         cue
+        development-bun
+        development-dagger
+        development-deno
+        development-devenv
+        development-distrobox
+        development-flox
+        development-go
+        development-kubernetes
+        development-moon
+        development-nix
+        development-podman
+        development-python
+        development-rust
         direnv
         eza
         fish
@@ -20,10 +33,11 @@
         jj
         jq
         just
-        nh
         lazyjournal
         misc
+        nh
         nushell
+        pulumi
         ripgrep
         starship
         television
