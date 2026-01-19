@@ -61,9 +61,7 @@ let
     };
 
   # Module form of the config (for imports)
-  stylixConfigModule =
-    { lib, pkgs, ... }:
-    mkStylixConfig { inherit lib pkgs; };
+  stylixConfigModule = { lib, pkgs, ... }: mkStylixConfig { inherit lib pkgs; };
 in
 {
   # NixOS module that imports both stylix and our config

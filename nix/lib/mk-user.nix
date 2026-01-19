@@ -46,7 +46,12 @@ let
             inherit pkgs;
             modules = [ homeModule ];
             extraSpecialArgs = {
-              inherit inputs system identity rawkOSLib;
+              inherit
+                inputs
+                system
+                identity
+                rawkOSLib
+                ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
             };
           };
@@ -86,7 +91,7 @@ let
         inherit username;
         name = if name != null then name else username;
         email = if email != null then email else "${username}@localhost";
-        signingKey = signingKey;
+        inherit signingKey;
       };
 
       homeModule =
@@ -216,7 +221,8 @@ let
           imports = [
             darwinHomeModule
             darwinUserModule
-          ] ++ darwinExtraImports;
+          ]
+          ++ darwinExtraImports;
         };
 
       flake.homeConfigurations = homeConfigurations;

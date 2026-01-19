@@ -28,8 +28,8 @@
           core.editor = "${pkgs.helix}/bin/hx";
 
           user = {
-            name = identity.name;
-            email = identity.email;
+            inherit (identity) name;
+            inherit (identity) email;
           };
 
           alias = {

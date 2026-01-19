@@ -3,7 +3,11 @@
 let
   # Helper to disable stylix fish theming (we use our own)
   mkStylixFishDisable =
-    { config, lib, pkgs }:
+    {
+      config,
+      lib,
+      pkgs,
+    }:
     lib.mkIf (pkgs.stdenv.isLinux && lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] config) {
       stylix.targets.fish.enable = lib.mkForce false;
     };

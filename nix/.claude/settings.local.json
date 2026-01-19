@@ -1,12 +1,12 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(cat:*)",
-      "Bash(find:*)",
-      "Bash(done)",
-      "Bash(echo:*)",
-      "Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
-      "Bash(head:*)"
-    ]
-  }
+	"permissions": {
+		"allow": [
+			"Bash(cat:*)",
+			"Bash(find:*)",
+			"Bash(done)",
+			"Bash(echo:*)",
+			"Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
+			"Bash(head:*)"
+		]
+	}
 }
