@@ -3,7 +3,7 @@
 let
   inherit (inputs.nixpkgs) lib;
   mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  mkApp = import ../../lib/mkApp.nix { inherit lib; };
 
   # Library functions (also exported via extraSpecialArgs in mkUser)
   rawkOSLib = {
@@ -21,6 +21,6 @@ in
     };
   };
 
-  # Export mkApp for use in modules via: (import ../../../lib/mkApp.nix { inherit lib; })
+  # Export mkApp for use in modules via: (import ../../lib/mkApp.nix { inherit lib; })
   # This allows modules to use mkApp without going through the functor
 }

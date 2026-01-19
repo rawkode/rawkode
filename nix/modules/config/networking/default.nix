@@ -28,9 +28,7 @@
       networking.resolvconf.enable = lib.mkForce false;
       services.resolved = {
         enable = true;
-        extraConfig = ''
-          DNSStubListenerExtra=[::1]:53
-        '';
+        # TODO: DNSStubListenerExtra setting removed - needs research on new option name
         fallbackDns = [
           # Quad9
           "9.9.9.9"

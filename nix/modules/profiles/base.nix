@@ -92,10 +92,11 @@
         betterdisplay
         deskflow
         fantastical
+        fonts
         ghostty
         kree
-        fonts
         power
+        zed
       ];
 
       options.rawkOS.darwin.firewall = {

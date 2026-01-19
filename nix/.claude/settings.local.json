@@ -5,7 +5,8 @@
       "Bash(find:*)",
       "Bash(done)",
       "Bash(echo:*)",
-      "Bash(/etc/profiles/per-user/rawkode/bin/nh:*)"
+      "Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
+      "Bash(head:*)"
     ]
   }
 }
