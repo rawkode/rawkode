@@ -1,6 +1,11 @@
 { inputs, ... }:
-{
-  flake.homeModules.firefox = _: {
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "firefox";
+
+  home = _: {
     stylix.targets.firefox.profileNames = [ "rawkode" ];
 
     programs.firefox = {
@@ -165,7 +170,7 @@
     };
   };
 
-  flake.nixosModules.firefox =
+  nixos =
     { pkgs, ... }:
     {
       programs.firefox = {
@@ -174,7 +179,7 @@
       };
     };
 
-  flake.darwinModules.firefox =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

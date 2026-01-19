@@ -7,15 +7,8 @@
       inputs.self.darwinModules.nix
       inputs.self.darwinModules.users-rawkode
 
-      # System modules (required for profile settings)
-      inputs.self.darwinModules.system-defaults
-      inputs.self.darwinModules.power
-      inputs.self.darwinModules.fonts
-
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.base
-
-      # No firewall - CoreWeave managed device
+      inputs.self.darwinModules.profiles-base
 
       # Apps
       inputs.self.darwinModules.ai

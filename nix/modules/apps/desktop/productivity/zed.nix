@@ -1,5 +1,11 @@
-{
-  flake.homeModules.zed =
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "zed";
+
+  home =
     { pkgs, ... }:
     {
       home.packages = [ pkgs.zed-editor ];
@@ -64,7 +70,7 @@
       # '';
     };
 
-  flake.darwinModules.zed =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

@@ -1,12 +1,7 @@
 { inputs, ... }:
 {
   flake.homeModules.git =
-    { pkgs, ... }:
-
-    let
-      name = "David Flanagan";
-      email = "david@rawkode.dev";
-    in
+    { pkgs, identity, ... }:
     {
       imports = with inputs.self.homeModules; [
         git-delta
@@ -18,8 +13,8 @@
         lfs.enable = true;
 
         signing = {
-          key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
-          signByDefault = true;
+          key = identity.signingKey;
+          signByDefault = identity.signingKey != null;
         };
 
         ignores = [
@@ -33,7 +28,8 @@
           core.editor = "${pkgs.helix}/bin/hx";
 
           user = {
-            inherit name email;
+            name = identity.name;
+            email = identity.email;
           };
 
           alias = {
@@ -74,7 +70,7 @@
           commit = {
             template = "~/.config/git/templates/commit.txt";
             verbose = true;
-            gpgsign = true;
+            gpgsign = identity.signingKey != null;
           };
 
           diff = {

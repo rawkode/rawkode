@@ -7,13 +7,8 @@
       inputs.self.darwinModules.nix
       inputs.self.darwinModules.users-dflanagan
 
-      # System modules (required for profile settings)
-      inputs.self.darwinModules.system-defaults
-      inputs.self.darwinModules.power
-      inputs.self.darwinModules.fonts
-
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.base
+      inputs.self.darwinModules.profiles-base
 
       # Apps
       inputs.self.darwinModules.fish
@@ -41,7 +36,7 @@
 
       # Development
       inputs.self.darwinModules.docker
-      inputs.self.darwinModules.gcloud
+      inputs.self.darwinModules.google-cloud
 
       # Machine-specific config
       (
@@ -54,6 +49,9 @@
           };
 
           rawkOS.user.username = "dflanagan";
+
+          # CoreWeave-managed device: disable firewall automation
+          rawkOS.darwin.firewall.enable = false;
 
           users.users.dflanagan = {
             name = "dflanagan";

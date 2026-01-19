@@ -1,8 +1,8 @@
 { inputs, ... }:
 let
   # Shared stylix configuration used by both NixOS and Home Manager
-  stylixConfig =
-    { lib, pkgs, ... }:
+  mkStylixConfig =
+    { lib, pkgs }:
     let
       wallpaper = pkgs.fetchurl {
         url = "https://raw.githubusercontent.com/ng-hai/hyper-rose-pine-next/refs/heads/main/wallpaper/dark/wallpaper-block-wave/themer-wallpaper-block-wave-dark-5120x2880.png";
@@ -39,7 +39,7 @@ let
 
           monospace = {
             package = pkgs.nerd-fonts.monaspace;
-            name = "MonaspaceNeon Nerd Font";
+            name = "MonaspiceNe Nerd Font";
           };
 
           serif = {
@@ -59,27 +59,32 @@ let
         };
       };
     };
+
+  # Module form of the config (for imports)
+  stylixConfigModule =
+    { lib, pkgs, ... }:
+    mkStylixConfig { inherit lib pkgs; };
 in
 {
   # NixOS module that imports both stylix and our config
   flake.nixosModules.stylix = {
     imports = [
       inputs.stylix.nixosModules.stylix
-      stylixConfig
+      stylixConfigModule
     ];
   };
 
-  # Home Manager module that imports both stylix and our config
+  # Home Manager module for Darwin/standalone use
+  # This imports stylix home module and applies our config
+  # NOTE: On NixOS, don't use this - use nixosModules.stylix instead
+  # which handles home-manager integration
   flake.homeModules.stylix =
+    { lib, pkgs, ... }:
     {
-      lib,
-      osClass ? null,
-      ...
-    }:
-    {
-      imports = lib.optionals (osClass != "nixos") [
+      imports = [
         inputs.stylix.homeModules.stylix
-        stylixConfig
       ];
+
+      config = mkStylixConfig { inherit lib pkgs; };
     };
 }

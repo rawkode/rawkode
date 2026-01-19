@@ -2,31 +2,25 @@
 { inputs, ... }:
 let
   inherit (inputs.nixpkgs) lib;
-  noopModule = _: { };
   mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
+  # Library functions (also exported via extraSpecialArgs in mkUser)
+  rawkOSLib = {
+    fileAsSeparatedString =
+      path: lib.strings.concatStringsSep "\n" (lib.strings.splitString "\n" (builtins.readFile path));
+  };
 in
 {
   flake.lib = {
     __functor = _self: _super: {
       rawkOS = {
-        fileAsSeparatedString =
-          path: lib.strings.concatStringsSep "\n" (lib.strings.splitString "\n" (builtins.readFile path));
-
-        mkApp =
-          {
-            name,
-            home ? null,
-            nixos ? null,
-            darwin ? null,
-          }:
-          {
-            flake.homeModules = lib.optionalAttrs (home != null) { ${name} = home; };
-            flake.nixosModules.${name} = if nixos == null then noopModule else nixos;
-            flake.darwinModules.${name} = if darwin == null then noopModule else darwin;
-          };
-
-        inherit mkUser;
+        inherit (rawkOSLib) fileAsSeparatedString;
+        inherit mkApp mkUser;
       };
     };
   };
+
+  # Export mkApp for use in modules via: (import ../../../lib/mkApp.nix { inherit lib; })
+  # This allows modules to use mkApp without going through the functor
 }

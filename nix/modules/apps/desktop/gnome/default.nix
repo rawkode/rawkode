@@ -1,9 +1,15 @@
-{
-  flake.nixosModules.gnome = _: {
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "gnome";
+
+  nixos = _: {
     services.desktopManager.gnome.enable = true;
   };
 
-  flake.homeModules.gnome =
+  home =
     {
       inputs,
       lib,
@@ -219,6 +225,4 @@
         tailscale-qs
       ];
     };
-
-  flake.darwinModules.gnome = _: { };
 }

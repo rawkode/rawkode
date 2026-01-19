@@ -14,13 +14,11 @@
       options.rawkOS.user = with lib.types; {
         username = mkOption {
           type = str;
-          default = "rawkode";
           description = "The username of the standard account";
         };
 
         name = mkOption {
           type = str;
-          default = "David Flanagan";
           description = "The real name of the standard account";
         };
 
@@ -31,7 +29,7 @@
           example = literalExpression "pkgs.fish";
           description = ''
             The path to the user's shell. Can use shell derivations,
-            like `pkgs.bashInteractive`. Don’t
+            like `pkgs.bashInteractive`. Don't
             forget to enable your shell in
             `programs` if necessary,
             like `programs.zsh.enable = true;`.
@@ -84,13 +82,11 @@
       options.rawkOS.user = with lib.types; {
         username = mkOption {
           type = str;
-          default = "rawkode";
           description = "The username of the standard account";
         };
 
         name = mkOption {
           type = str;
-          default = "David Flanagan";
           description = "The real name of the standard account";
         };
 
@@ -101,7 +97,7 @@
           example = literalExpression "pkgs.fish";
           description = ''
             The path to the user's shell. Can use shell derivations,
-            like `pkgs.bashInteractive`. Don’t
+            like `pkgs.bashInteractive`. Don't
             forget to enable your shell in
             `programs` if necessary,
             like `programs.zsh.enable = true;`.

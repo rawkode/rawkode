@@ -7,17 +7,15 @@
       # Hardware modules
       inputs.nixos-hardware.nixosModules.framework-13-7040-amd
 
-      # Flake inputs
-      inputs.disko.nixosModules.disko
-      inputs.lanzaboote.nixosModules.lanzaboote
-      inputs.flatpaks.nixosModules.nix-flatpak
-
-      # Import profiles
+      # Import profiles (includes disko, lanzaboote, flatpaks via profiles-base)
       inputs.self.nixosModules.profiles-desktop
       inputs.self.nixosModules.hardware-amd
       inputs.self.nixosModules.kernel
       inputs.self.nixosModules.disko-btrfs-encrypted
       inputs.self.nixosModules.lanzaboote
+
+      # User configuration
+      inputs.self.nixosModules.users-rawkode
 
       # Machine-specific configuration
       (

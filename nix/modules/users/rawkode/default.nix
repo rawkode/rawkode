@@ -4,15 +4,7 @@ let
   machineSystems = import ../../../lib/machine-systems.nix;
 
   baseImports = with inputs; [
-    nix-index-database.homeModules.nix-index
-    nur.modules.homeManager.default
-
-    self.homeModules.ai
-    self.homeModules.profiles-home
-    self.homeModules.profiles-desktop
-    self.homeModules.fish
-    self.homeModules.nix-home
-    self.homeModules.stylix
+    self.homeModules.profiles-users-common
   ];
 
   linuxImports = with inputs; [
@@ -42,12 +34,16 @@ let
   ];
 
   darwinImports = with inputs; [
+    # Darwin needs stylix explicitly (on NixOS it comes via nixosModules.stylix)
+    self.homeModules.stylix
   ];
 
 in
 mkUser {
   username = "rawkode";
   name = "David Flanagan";
+  email = "david@rawkode.dev";
+  signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
   inherit machineSystems;
   homeImports = {
     linux = linuxImports ++ baseImports;

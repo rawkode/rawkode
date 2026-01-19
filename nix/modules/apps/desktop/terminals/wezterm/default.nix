@@ -1,5 +1,11 @@
-{
-  flake.homeModules.wezterm =
+{ inputs, ... }:
+let
+  mkApp = import ../../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "wezterm";
+
+  home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [
@@ -12,7 +18,7 @@
       };
     };
 
-  flake.darwinModules.wezterm =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

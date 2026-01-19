@@ -1,3 +1,13 @@
+# Fish shell configuration
+# Uses mkStylixFishDisable helper to avoid duplicate code
+let
+  # Helper to disable stylix fish theming (we use our own)
+  mkStylixFishDisable =
+    { config, lib, pkgs }:
+    lib.mkIf (pkgs.stdenv.isLinux && lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] config) {
+      stylix.targets.fish.enable = lib.mkForce false;
+    };
+in
 {
   flake.nixosModules.fish =
     {
@@ -6,15 +16,8 @@
       pkgs,
       ...
     }:
-    let
-      stylixFishDisable =
-        lib.mkIf (pkgs.stdenv.isLinux && lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] config)
-          {
-            stylix.targets.fish.enable = lib.mkForce false;
-          };
-    in
     lib.mkMerge [
-      stylixFishDisable
+      (mkStylixFishDisable { inherit config lib pkgs; })
       {
         programs.fish.enable = true;
       }
@@ -25,19 +28,11 @@
       config,
       lib,
       pkgs,
+      rawkOSLib,
       ...
     }:
-    let
-      fileAsSeparatedString =
-        path: lib.strings.concatStringsSep "\n" (lib.strings.splitString "\n" (builtins.readFile path));
-      stylixFishDisable =
-        lib.mkIf (pkgs.stdenv.isLinux && lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] config)
-          {
-            stylix.targets.fish.enable = lib.mkForce false;
-          };
-    in
     lib.mkMerge [
-      stylixFishDisable
+      (mkStylixFishDisable { inherit config lib pkgs; })
       {
         home.file.".bashrc".source = ./auto-fish.sh;
 
@@ -64,17 +59,17 @@
             "ctrl-\\[".command = "builtin cd ..; commandline -f repaint";
           };
 
-          interactiveShellInit = fileAsSeparatedString ./interactiveInit.fish;
+          interactiveShellInit = rawkOSLib.fileAsSeparatedString ./interactiveInit.fish;
 
           functions = {
             magic-enter = {
               description = "Magic Enter";
-              body = fileAsSeparatedString ./magic-enter.fish;
+              body = rawkOSLib.fileAsSeparatedString ./magic-enter.fish;
             };
 
             magic-enter-command = {
               description = "Magic Enter AutoCommands";
-              body = fileAsSeparatedString ./magic-enter-command.fish;
+              body = rawkOSLib.fileAsSeparatedString ./magic-enter-command.fish;
             };
           };
         };

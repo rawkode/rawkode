@@ -1,5 +1,11 @@
-{
-  flake.homeModules.ai =
+{ inputs, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "ai";
+
+  home =
     { inputs, pkgs, ... }:
     {
       home.packages =
@@ -22,8 +28,7 @@
       };
     };
 
-  # Darwin-specific AI tools (Homebrew casks)
-  flake.darwinModules.ai =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

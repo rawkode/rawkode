@@ -7,16 +7,8 @@
       inputs.self.darwinModules.nix
       inputs.self.darwinModules.users-rawkode
 
-      # System modules (required for profile settings)
-      inputs.self.darwinModules.system-defaults
-      inputs.self.darwinModules.power
-      inputs.self.darwinModules.fonts
-
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.base
-
-      # Firewall (personal device only)
-      inputs.self.darwinModules.firewall
+      inputs.self.darwinModules.profiles-base
 
       # System & Shell
       inputs.self.darwinModules.fish
@@ -52,7 +44,7 @@
 
       # Development
       inputs.self.darwinModules.docker
-      inputs.self.darwinModules.gcloud
+      inputs.self.darwinModules.google-cloud
 
       # Machine-specific config
       {
@@ -62,6 +54,7 @@
           computerName = "p4x-mbp";
         };
 
+        # Firewall (personal device only)
         rawkOS.darwin.firewall = {
           enable = true;
           stealthMode = true;

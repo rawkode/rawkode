@@ -1,5 +1,11 @@
-{
-  flake.homeModules.visual-studio-code =
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "visual-studio-code";
+
+  home =
     { pkgs, ... }:
     {
       programs.vscode = {
@@ -29,7 +35,7 @@
       };
     };
 
-  flake.darwinModules.visual-studio-code =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

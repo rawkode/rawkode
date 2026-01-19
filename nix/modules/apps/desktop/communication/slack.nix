@@ -1,5 +1,11 @@
-{
-  flake.homeModules.slack = {
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "slack";
+
+  home = {
     services.flatpak.packages = [
       "com.slack.Slack"
     ];
@@ -16,7 +22,7 @@
     };
   };
 
-  flake.darwinModules.slack =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

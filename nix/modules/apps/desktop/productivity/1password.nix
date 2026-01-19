@@ -1,5 +1,11 @@
-{
-  flake.homeModules.onepassword = {
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "onepassword";
+
+  home = _: {
     programs.ssh = {
       enable = true;
       enableDefaultConfig = false;
@@ -29,7 +35,7 @@
     };
   };
 
-  flake.nixosModules.onepassword =
+  nixos =
     { config, ... }:
     let
       cfg = config.rawkOS.user;
@@ -53,7 +59,7 @@
       };
     };
 
-  flake.darwinModules.onepassword =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

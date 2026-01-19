@@ -1,5 +1,11 @@
-{
-  flake.homeModules.google-cloud =
+{ inputs, ... }:
+let
+  mkApp = import ../../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+in
+mkApp {
+  name = "google-cloud";
+
+  home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [
@@ -7,7 +13,7 @@
       ];
     };
 
-  flake.darwinModules.gcloud =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

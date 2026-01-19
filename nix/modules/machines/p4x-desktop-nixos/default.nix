@@ -9,18 +9,16 @@
       nixos-hardware.nixosModules.common-gpu-amd
       nixos-hardware.nixosModules.common-cpu-amd-pstate
 
-      # Flake inputs
-      disko.nixosModules.disko
-      lanzaboote.nixosModules.lanzaboote
-      flatpaks.nixosModules.nix-flatpak
-
-      # Import profiles
+      # Import profiles (includes disko, lanzaboote, flatpaks via profiles-base)
       self.nixosModules.kernel
       self.nixosModules.lanzaboote
       self.nixosModules.plymouth
       self.nixosModules.profiles-desktop
       self.nixosModules.profiles-amd
       self.nixosModules.disko-btrfs-encrypted
+
+      # User configuration
+      self.nixosModules.users-rawkode
 
       # Machine-specific configuration
       (

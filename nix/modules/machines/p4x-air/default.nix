@@ -6,20 +6,15 @@
       inputs.home-manager.darwinModules.home-manager
       inputs.self.darwinModules.nix
 
-      # System modules (required for profile settings)
-      inputs.self.darwinModules.system-defaults
-      inputs.self.darwinModules.power
-      inputs.self.darwinModules.fonts
-
       # Shared profile (sets common config values)
-      inputs.self.darwinModules.base
-
-      # Firewall (personal device only)
-      inputs.self.darwinModules.firewall
+      inputs.self.darwinModules.profiles-base
 
       # Apps
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
+
+      # User configuration
+      inputs.self.darwinModules.users-rawkode
 
       # Machine-specific config
       {
@@ -29,6 +24,7 @@
           computerName = "p4x-air";
         };
 
+        # Firewall (personal device only)
         rawkOS.darwin.firewall = {
           enable = true;
           stealthMode = true;
