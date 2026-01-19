@@ -1,7 +1,16 @@
 {
   flake.homeModules.starship =
-    { lib, ... }:
     {
+      inputs,
+      lib,
+      pkgs,
+      ...
+    }:
+    {
+      home.packages = [
+        inputs.jj-starship.packages.${pkgs.stdenv.hostPlatform.system}.default
+      ];
+
       programs.starship = {
         enable = true;
         enableFishIntegration = true;
@@ -15,9 +24,8 @@
             "$username"
             "$hostname"
             "$directory"
-            "$git_branch"
+            "\${custom.jj}"
             "$git_state"
-            "$git_status"
             "\${custom.cuenv_hooks}"
             "$cmd_duration"
             "$line_break"
@@ -33,23 +41,9 @@
             vimcmd_symbol = "[❮](green)";
           };
 
-          git_branch = lib.mkForce {
-            format = "[$branch]($style)";
-            style = "bright-black";
-          };
-
-          git_status = lib.mkForce {
-            format = "[[(*$conflicted$untracked$modified$staged$renamed$deleted)](218) ($ahead_behind$stashed)]($style)";
-            style = "cyan";
-            # Note the chars in the quotes are zero width spaces for marking word breaks.
-            conflicted = "​";
-            untracked = "​";
-            modified = "​";
-            staged = "​";
-            renamed = "​";
-            deleted = "​";
-            stashed = "≡";
-          };
+          # Disabled in favor of jj-starship (handles both Git and JJ repos)
+          git_branch.disabled = true;
+          git_status.disabled = true;
 
           git_state = lib.mkForce {
             format = ''\([$state( $progress_current/$progress_total)]($style)\) '';
@@ -59,6 +53,13 @@
           cmd_duration = lib.mkForce {
             format = "[$duration]($style) ";
             style = "yellow";
+          };
+
+          custom.jj = {
+            when = "jj-starship detect";
+            shell = [ "jj-starship" ];
+            format = "$output ";
+            description = "Unified Git/Jujutsu prompt via jj-starship";
           };
 
           custom.cuenv_hooks = {
