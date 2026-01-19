@@ -28,8 +28,7 @@
       networking.resolvconf.enable = lib.mkForce false;
       services.resolved = {
         enable = true;
-        # TODO: DNSStubListenerExtra setting removed - needs research on new option name
-        fallbackDns = [
+        settings.Resolve.FallbackDNS = [
           # Quad9
           "9.9.9.9"
           "149.112.112.112"

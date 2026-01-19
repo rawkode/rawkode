@@ -42,9 +42,9 @@
               criticalPowerAction = "Hibernate";
             };
             logind = {
-              lidSwitch = "suspend-then-hibernate";
-              lidSwitchExternalPower = "lock";
               settings.Login = {
+                HandleLidSwitch = "suspend-then-hibernate";
+                HandleLidSwitchExternalPower = "lock";
                 HandlePowerKey = "suspend-then-hibernate";
                 HibernateDelaySec = 3600;
               };

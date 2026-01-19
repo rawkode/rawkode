@@ -34,5 +34,4 @@
   flake.packages.aarch64-darwin.p4x-studio = inputs.self.darwinConfigurations.p4x-studio.system;
   flake.packages.aarch64-darwin."rawkode@p4x-studio" =
     inputs.self.homeConfigurations."rawkode@p4x-studio".activationPackage;
-  flake.p4x-studio = inputs.self.darwinConfigurations.p4x-studio;
 }

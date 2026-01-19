@@ -69,5 +69,4 @@
 
   flake.packages.aarch64-darwin.CW-GG9T93PVFC-L =
     inputs.self.darwinConfigurations.CW-GG9T93PVFC-L.system;
-  flake.CW-GG9T93PVFC-L = inputs.self.darwinConfigurations.CW-GG9T93PVFC-L;
 }

@@ -71,5 +71,4 @@
   flake.packages.aarch64-darwin.p4x-mbp = inputs.self.darwinConfigurations.p4x-mbp.system;
   flake.packages.aarch64-darwin."rawkode@p4x-mbp" =
     inputs.self.homeConfigurations."rawkode@p4x-mbp".activationPackage;
-  flake.p4x-mbp = inputs.self.darwinConfigurations.p4x-mbp;
 }
