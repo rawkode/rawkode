@@ -1,8 +1,7 @@
 # Custom library functions - Dendritic pattern
-{ inputs, ... }:
+{ inputs, lib, ... }:
 let
-  inherit (inputs.nixpkgs) lib;
-  mkUser = import ../../lib/mkUser.nix { inherit inputs; };
+  mkUser = import ../../lib/mkUser.nix { inherit inputs lib; };
   mkApp = import ../../lib/mkApp.nix { inherit lib; };
 
   # Library functions (also exported via extraSpecialArgs in mkUser)

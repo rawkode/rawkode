@@ -2,23 +2,23 @@
 {
   flake.nixosConfigurations.p4x-desktop-nixos = inputs.nixpkgs.lib.nixosSystem {
     system = "x86_64-linux";
-    modules = with inputs; [
+    modules = [
       # Hardware modules
-      nixos-hardware.nixosModules.common-pc-ssd
-      nixos-hardware.nixosModules.common-cpu-amd
-      nixos-hardware.nixosModules.common-gpu-amd
-      nixos-hardware.nixosModules.common-cpu-amd-pstate
+      inputs.nixos-hardware.nixosModules.common-pc-ssd
+      inputs.nixos-hardware.nixosModules.common-cpu-amd
+      inputs.nixos-hardware.nixosModules.common-gpu-amd
+      inputs.nixos-hardware.nixosModules.common-cpu-amd-pstate
 
       # Import profiles (includes disko, lanzaboote, flatpaks via profiles-base)
-      self.nixosModules.kernel
-      self.nixosModules.lanzaboote
-      self.nixosModules.plymouth
-      self.nixosModules.profiles-desktop
-      self.nixosModules.profiles-amd
-      self.nixosModules.disko-btrfs-encrypted
+      inputs.self.nixosModules.kernel
+      inputs.self.nixosModules.lanzaboote
+      inputs.self.nixosModules.plymouth
+      inputs.self.nixosModules.profiles-desktop
+      inputs.self.nixosModules.profiles-amd
+      inputs.self.nixosModules.disko-btrfs-encrypted
 
       # User configuration
-      self.nixosModules.users-rawkode
+      inputs.self.nixosModules.users-rawkode
 
       # Machine-specific configuration
       (

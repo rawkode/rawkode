@@ -7,29 +7,29 @@
       ...
     }:
     {
-      imports = with inputs; [
-        disko.nixosModules.disko
-        flatpaks.nixosModules.nix-flatpak
-        home-manager.nixosModules.home-manager
-        lanzaboote.nixosModules.lanzaboote
-        niri.nixosModules.niri
-        nix-index-database.nixosModules.nix-index
-        nur.modules.nixos.default
+      imports = [
+        inputs.disko.nixosModules.disko
+        inputs.flatpaks.nixosModules.nix-flatpak
+        inputs.home-manager.nixosModules.home-manager
+        inputs.lanzaboote.nixosModules.lanzaboote
+        inputs.niri.nixosModules.niri
+        inputs.nix-index-database.nixosModules.nix-index
+        inputs.nur.modules.nixos.default
 
-        self.nixosModules.below
-        self.nixosModules.common
-        self.nixosModules.containers
-        self.nixosModules.fish
-        self.nixosModules.greetd
-        self.nixosModules.lanzaboote
-        self.nixosModules.networking
-        self.nixosModules.nix
-        self.nixosModules.stylix
-        self.nixosModules.sudo
-        self.nixosModules.systemd
-        self.nixosModules.tailscale
-        self.nixosModules.tpm2
-        self.nixosModules.user
+        inputs.self.nixosModules.below
+        inputs.self.nixosModules.common
+        inputs.self.nixosModules.containers
+        inputs.self.nixosModules.fish
+        inputs.self.nixosModules.greetd
+        inputs.self.nixosModules.lanzaboote
+        inputs.self.nixosModules.networking
+        inputs.self.nixosModules.nix
+        inputs.self.nixosModules.stylix
+        inputs.self.nixosModules.sudo
+        inputs.self.nixosModules.systemd
+        inputs.self.nixosModules.tailscale
+        inputs.self.nixosModules.tpm2
+        inputs.self.nixosModules.user
       ];
 
       environment.systemPackages = with pkgs; [
@@ -87,14 +87,15 @@
       systemDefaultsCfg = config.rawkOS.darwin.systemDefaults;
     in
     {
-      imports = with inputs.self.darwinModules; [
-        alt-tab
-        fantastical
-        fonts
-        ghostty
-        kree
-        power
-        zed
+      imports = [
+        inputs.self.darwinModules.alt-tab
+        inputs.self.darwinModules.fantastical
+        inputs.self.darwinModules.fonts
+        inputs.self.darwinModules.ghostty
+        inputs.self.darwinModules.kree
+        inputs.self.darwinModules.mimestream
+        inputs.self.darwinModules.power
+        inputs.self.darwinModules.zed
       ];
 
       options.rawkOS.darwin.firewall = {

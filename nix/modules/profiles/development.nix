@@ -3,10 +3,10 @@
   flake.nixosModules.profiles-development =
     { pkgs, ... }:
     {
-      imports = with inputs; [
-        self.nixosModules.ai
-        self.nixosModules.android
-        self.nixosModules.documentation
+      imports = [
+        inputs.self.nixosModules.ai
+        inputs.self.nixosModules.android
+        inputs.self.nixosModules.documentation
       ];
 
       environment.systemPackages = with pkgs; [

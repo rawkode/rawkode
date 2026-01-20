@@ -3,22 +3,22 @@
   flake.nixosModules.profiles-desktop =
     { ... }:
     {
-      imports = with inputs; [
-        self.nixosModules.profiles-base
+      imports = [
+        inputs.self.nixosModules.profiles-base
 
-        self.nixosModules.audio
-        self.nixosModules.bluetooth
-        self.nixosModules.desktop-common
-        self.nixosModules.flatpak
-        self.nixosModules.fonts
-        self.nixosModules.gnome
-        self.nixosModules.google-chrome
-        self.nixosModules.location
-        self.nixosModules.niri
-        self.nixosModules.onepassword
-        self.nixosModules.plymouth
-        self.nixosModules.polkit
-        self.nixosModules.portals
+        inputs.self.nixosModules.audio
+        inputs.self.nixosModules.bluetooth
+        inputs.self.nixosModules.desktop-common
+        inputs.self.nixosModules.flatpak
+        inputs.self.nixosModules.fonts
+        inputs.self.nixosModules.gnome
+        inputs.self.nixosModules.google-chrome
+        inputs.self.nixosModules.location
+        inputs.self.nixosModules.niri
+        inputs.self.nixosModules.onepassword
+        inputs.self.nixosModules.plymouth
+        inputs.self.nixosModules.polkit
+        inputs.self.nixosModules.portals
       ];
 
       config = {
@@ -38,11 +38,11 @@
   flake.homeModules.profiles-desktop =
     { inputs, ... }:
     {
-      imports = with inputs.self.homeModules; [
-        ghostty
-        onepassword
-        wezterm
-        zed
+      imports = [
+        inputs.self.homeModules.ghostty
+        inputs.self.homeModules.onepassword
+        inputs.self.homeModules.wezterm
+        inputs.self.homeModules.zed
       ];
     };
 }

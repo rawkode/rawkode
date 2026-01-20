@@ -1,6 +1,6 @@
-{ inputs, ... }:
+{ lib, ... }:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 in
 mkApp {
   name = "google-cloud";

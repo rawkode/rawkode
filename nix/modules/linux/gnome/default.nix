@@ -1,6 +1,6 @@
-{ inputs, ... }:
+{ lib, ... }:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 in
 mkApp {
   name = "gnome";
@@ -32,19 +32,19 @@ mkApp {
       };
     in
     {
-      imports = with inputs.self.homeModules; [
-        gnome-blur-my-shell
-        gnome-burn-my-windows
-        gnome-caffeine
-        gnome-clipboard-indicator
-        gnome-compiz
-        gnome-desktop-cube
-        gnome-emoji-copy
-        gnome-fullscreen-notifications
-        gnome-just-perfection
-        gnome-rawkode-tiling
-        gnome-status-area-spacing
-        gnome-transparent-window-moving
+      imports = [
+        inputs.self.homeModules.gnome-blur-my-shell
+        inputs.self.homeModules.gnome-burn-my-windows
+        inputs.self.homeModules.gnome-caffeine
+        inputs.self.homeModules.gnome-clipboard-indicator
+        inputs.self.homeModules.gnome-compiz
+        inputs.self.homeModules.gnome-desktop-cube
+        inputs.self.homeModules.gnome-emoji-copy
+        inputs.self.homeModules.gnome-fullscreen-notifications
+        inputs.self.homeModules.gnome-just-perfection
+        inputs.self.homeModules.gnome-rawkode-tiling
+        inputs.self.homeModules.gnome-status-area-spacing
+        inputs.self.homeModules.gnome-transparent-window-moving
       ];
 
       gtk = {

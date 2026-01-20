@@ -1,6 +1,6 @@
-{ inputs, ... }:
+{ lib, ... }:
 let
-  mkApp = import ../../../lib/mkApp.nix { inherit (inputs.nixpkgs) lib; };
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 in
 mkApp {
   name = "ai";
@@ -9,14 +9,13 @@ mkApp {
     { inputs, pkgs, ... }:
     {
       home.packages =
-        with inputs;
         pkgs.lib.optionals pkgs.stdenv.isLinux [
           pkgs.code-cursor-fhs
 
-          nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex
-          nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.cursor-agent
-          nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
-          nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.qwen-code
+          inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex
+          inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.cursor-agent
+          inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
+          inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.qwen-code
         ];
 
       programs.fish.shellAbbrs = {

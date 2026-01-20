@@ -1,41 +1,41 @@
-{ inputs, ... }:
+{ inputs, lib, ... }:
 let
-  mkUser = import ../../../lib/mkUser.nix { inherit inputs; };
+  mkUser = import ../../../lib/mkUser.nix { inherit inputs lib; };
   machineSystems = import ../../../lib/machineSystems.nix;
 
-  baseImports = with inputs; [
-    self.homeModules.profiles-users-common
+  baseImports = [
+    inputs.self.homeModules.profiles-users-common
   ];
 
-  linuxImports = with inputs; [
-    flatpaks.homeManagerModules.nix-flatpak
-    ironbar.homeManagerModules.default
-    vicinae.homeManagerModules.default
+  linuxImports = [
+    inputs.flatpaks.homeManagerModules.nix-flatpak
+    inputs.ironbar.homeManagerModules.default
+    inputs.vicinae.homeManagerModules.default
 
     # Linux-only desktop apps
-    self.homeModules.visual-studio-code
-    self.homeModules.alacritty
-    self.homeModules.clickup
-    self.homeModules.dconf-editor
-    self.homeModules.flatpak
-    self.homeModules.gnome
-    self.homeModules.ironbar
-    self.homeModules.niri
-    self.homeModules.portals
-    self.homeModules.ptyxis
-    self.homeModules.rquickshare
-    self.homeModules.slack
-    self.homeModules.spotify
-    self.homeModules.tana
-    self.homeModules.vicinae
-    self.homeModules.wayland
-    self.homeModules.zoom
-    self.homeModules.zulip
+    inputs.self.homeModules.visual-studio-code
+    inputs.self.homeModules.alacritty
+    inputs.self.homeModules.clickup
+    inputs.self.homeModules.dconf-editor
+    inputs.self.homeModules.flatpak
+    inputs.self.homeModules.gnome
+    inputs.self.homeModules.ironbar
+    inputs.self.homeModules.niri
+    inputs.self.homeModules.portals
+    inputs.self.homeModules.ptyxis
+    inputs.self.homeModules.rquickshare
+    inputs.self.homeModules.slack
+    inputs.self.homeModules.spotify
+    inputs.self.homeModules.tana
+    inputs.self.homeModules.vicinae
+    inputs.self.homeModules.wayland
+    inputs.self.homeModules.zoom
+    inputs.self.homeModules.zulip
   ];
 
-  darwinImports = with inputs; [
+  darwinImports = [
     # Darwin needs stylix explicitly (on NixOS it comes via nixosModules.stylix)
-    self.homeModules.stylix
+    inputs.self.homeModules.stylix
   ];
 
 in

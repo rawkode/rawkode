@@ -24,7 +24,6 @@
 
       # Communication
       inputs.self.darwinModules.slack
-      inputs.self.darwinModules.mimestream
 
       # Productivity & Utilities
       inputs.self.darwinModules.onepassword

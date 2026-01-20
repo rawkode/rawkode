@@ -1,15 +1,15 @@
-{ inputs, ... }:
+{ inputs, lib, ... }:
 let
-  mkUser = import ../../../lib/mkUser.nix { inherit inputs; };
+  mkUser = import ../../../lib/mkUser.nix { inherit inputs lib; };
   machineSystems = import ../../../lib/machineSystems.nix;
 
-  baseImports = with inputs; [
-    self.homeModules.profiles-users-common
+  baseImports = [
+    inputs.self.homeModules.profiles-users-common
   ];
 
-  darwinImports = with inputs; [
+  darwinImports = [
     # Darwin needs stylix explicitly (on NixOS it comes via nixosModules.stylix)
-    self.homeModules.stylix
+    inputs.self.homeModules.stylix
   ];
 
 in

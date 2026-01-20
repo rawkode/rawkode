@@ -1,6 +1,5 @@
-{ inputs }:
+{ inputs, lib }:
 let
-  inherit (inputs.nixpkgs) lib;
 
   # Library functions available to all modules via extraSpecialArgs
   rawkOSLib = {
