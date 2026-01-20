@@ -11,7 +11,8 @@
       "Bash(nix flake check:*)",
       "Bash(nix fmt:*)",
       "mcp__acp__Write",
-      "mcp__acp__Bash"
+      "mcp__acp__Bash",
+      "mcp__acp__Edit"
     ]
   }
 }

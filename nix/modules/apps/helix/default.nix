@@ -96,6 +96,7 @@
               mode.select = "S";
             };
           };
+        };
 
         languages = {
           language-server.biome = {
