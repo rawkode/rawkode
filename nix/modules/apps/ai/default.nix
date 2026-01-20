@@ -37,6 +37,7 @@ mkApp {
           "codex"
           "cursor"
           "cursor-cli"
+          "gemini-cli"
         ];
       };
     };
