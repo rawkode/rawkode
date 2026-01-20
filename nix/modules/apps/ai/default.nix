@@ -31,13 +31,15 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
+        brews = [
+          "gemini-cli"
+        ];
         casks = [
           "chatgpt"
           "claude-code"
           "codex"
           "cursor"
           "cursor-cli"
-          "gemini-cli"
         ];
       };
     };
