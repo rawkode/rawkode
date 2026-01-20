@@ -1,7 +1,7 @@
 { inputs, ... }:
 let
-  mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
-  machineSystems = import ../../../lib/machine-systems.nix;
+  mkUser = import ../../../lib/mkUser.nix { inherit inputs; };
+  machineSystems = import ../../../lib/machineSystems.nix;
 
   baseImports = with inputs; [
     self.homeModules.profiles-users-common

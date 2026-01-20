@@ -2,7 +2,7 @@
 { inputs, ... }:
 let
   inherit (inputs.nixpkgs) lib;
-  mkUser = import ../../../lib/mk-user.nix { inherit inputs; };
+  mkUser = import ../../lib/mkUser.nix { inherit inputs; };
   mkApp = import ../../lib/mkApp.nix { inherit lib; };
 
   # Library functions (also exported via extraSpecialArgs in mkUser)
