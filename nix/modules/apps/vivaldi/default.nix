@@ -10,7 +10,8 @@
           "--disable-features=UseChromeOSDirectVideoDecoder"
         ];
       }).overrideAttrs
-        (_oldAttrs:
+        (
+          _oldAttrs:
           let
             version = "7.6.3797.52";
           in
@@ -21,7 +22,8 @@
               url = "https://downloads.vivaldi.com/stable/vivaldi-stable_${version}-1_amd64.deb";
               hash = "sha256-cDYn6Vj+S/pft5jF2ItSUKIILCGHF++ZhH794BLNxQQ=";
             };
-          });
+          }
+        );
   };
 
   flake.nixosModules.vivaldi =

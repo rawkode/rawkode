@@ -1,7 +1,12 @@
 { inputs, ... }:
 {
   flake.homeModules.git =
-    { pkgs, identity, ... }:
+    {
+      pkgs,
+      identity,
+      preferences,
+      ...
+    }:
     {
       imports = with inputs.self.homeModules; [
         git-delta
@@ -25,7 +30,7 @@
         ];
 
         settings = {
-          core.editor = "${pkgs.helix}/bin/hx";
+          core.editor = preferences.editor;
 
           user = {
             inherit (identity) name;

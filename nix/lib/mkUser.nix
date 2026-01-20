@@ -20,6 +20,7 @@ let
     {
       username,
       identity,
+      preferences,
       homeModule,
       machinesDir,
       machineSystems,
@@ -49,6 +50,7 @@ let
                 inputs
                 system
                 identity
+                preferences
                 rawkOSLib
                 ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
@@ -83,6 +85,9 @@ let
       enableHomeConfigurations ? false,
       machinesDir ? null,
       machineSystems ? null,
+      preferences ? {
+        editor = "hx";
+      },
     }:
     let
       # Identity object passed to all modules via extraSpecialArgs
@@ -132,7 +137,12 @@ let
         {
           home-manager.backupFileExtension = nixosBackupExtension;
           home-manager.extraSpecialArgs = {
-            inherit inputs identity rawkOSLib;
+            inherit
+              inputs
+              identity
+              preferences
+              rawkOSLib
+              ;
             inherit (pkgs.stdenv.hostPlatform) system;
             inherit (pkgs.stdenv) isDarwin;
             osClass = "nixos";
@@ -164,7 +174,12 @@ let
         home-manager.overwriteBackup = true;
         home-manager.useUserPackages = true;
         home-manager.extraSpecialArgs = {
-          inherit inputs identity rawkOSLib;
+          inherit
+            inputs
+            identity
+            preferences
+            rawkOSLib
+            ;
           system = darwinSystem;
           isDarwin = true;
           osClass = "darwin";
@@ -193,6 +208,7 @@ let
             inherit
               username
               identity
+              preferences
               homeModule
               machinesDir
               machineSystems
