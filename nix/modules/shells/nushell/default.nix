@@ -1,5 +1,11 @@
-{
-  flake.homeModules.nushell = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "nushell";
+
+  common.home = _: {
     programs.nushell = {
       enable = true;
 

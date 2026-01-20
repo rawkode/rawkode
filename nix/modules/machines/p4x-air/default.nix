@@ -9,7 +9,7 @@
       # Shared profile (sets common config values)
       inputs.self.darwinModules.profiles-base
 
-      # Apps
+      # System & Shell
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
 

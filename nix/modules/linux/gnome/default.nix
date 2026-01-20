@@ -5,11 +5,11 @@ in
 mkApp {
   name = "gnome";
 
-  nixos = _: {
+  linux.system = _: {
     services.desktopManager.gnome.enable = true;
   };
 
-  home =
+  linux.home =
     {
       inputs,
       lib,

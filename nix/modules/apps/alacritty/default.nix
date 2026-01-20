@@ -1,5 +1,11 @@
-{
-  flake.homeModules.alacritty = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "alacritty";
+
+  common.home = {
     programs.alacritty = {
       enable = true;
       settings = {

@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.atuin = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "atuin";
+
+  common.home = _: {
     programs.atuin = {
       enable = true;
 

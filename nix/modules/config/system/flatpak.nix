@@ -1,5 +1,11 @@
-{
-  flake.nixosModules.flatpak = _: {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "flatpak";
+
+  linux.system = _: {
     services.flatpak = {
       enable = true;
       packages = [
@@ -17,7 +23,7 @@
     };
   };
 
-  flake.homeModules.flatpak = _: {
+  linux.home = _: {
     services.flatpak = {
       enable = true;
 

@@ -2,16 +2,6 @@
 let
   mkUser = import ../../../lib/mkUser.nix { inherit inputs lib; };
   machineSystems = import ../../../lib/machineSystems.nix;
-
-  baseImports = [
-    inputs.self.homeModules.profiles-users-common
-  ];
-
-  darwinImports = [
-    # Darwin needs stylix explicitly (on NixOS it comes via nixosModules.stylix)
-    inputs.self.homeModules.stylix
-  ];
-
 in
 mkUser {
   username = "dflanagan";
@@ -19,9 +9,51 @@ mkUser {
   email = "david@rawkode.dev";
   signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
   inherit machineSystems;
-  homeImports = {
-    darwin = darwinImports ++ baseImports;
-  };
+
+  # Type-safe app imports with LSP auto-complete!
+  apps = with inputs.self.appBundles; [
+    # CLI Tools
+    bat
+    btop
+    eza
+    helix
+    htop
+    jq
+    misc
+    ripgrep
+    television
+    zellij
+
+    # Terminals
+    ghostty
+
+    # Editors & AI
+    ai
+    zed
+
+    # Browsers
+    google-chrome
+
+    # Communication
+    slack
+
+    # Productivity
+    onepassword
+    descript
+    parallels
+    setapp
+
+    # Development
+    google-cloud
+  ];
+
+  # Additional non-app imports
+  extraImports = [
+    # Profile modules
+    inputs.self.homeModules.profiles-users-common
+    inputs.self.homeModules.stylix
+  ];
+
   homeExtraConfig = {
     programs.git.includes = [
       {
@@ -30,6 +62,7 @@ mkUser {
       }
     ];
   };
+
   enableHomeConfigurations = true;
   machinesDir = ../../machines;
 }

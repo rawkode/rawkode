@@ -14,31 +14,6 @@
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
 
-      # AI & Dev Tools
-      inputs.self.darwinModules.ai
-      inputs.self.darwinModules.cursor
-      inputs.self.darwinModules.zed
-      inputs.self.darwinModules.visual-studio-code
-
-      # Terminals
-      inputs.self.darwinModules.wezterm
-
-      # Browsers
-      inputs.self.darwinModules.google-chrome
-
-      # Communication
-      inputs.self.darwinModules.slack
-      inputs.self.darwinModules.discord
-
-      # Productivity & Utilities
-      inputs.self.darwinModules.onepassword
-      inputs.self.darwinModules.setapp
-      inputs.self.darwinModules.parallels
-      inputs.self.darwinModules.descript
-
-      # Development
-      inputs.self.darwinModules.google-cloud
-
       # Machine-specific config
       {
         networking = {

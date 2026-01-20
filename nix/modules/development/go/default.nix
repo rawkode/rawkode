@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-go =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "go";
+
+  common.home =
     {
       config,
       lib,
@@ -9,7 +15,6 @@ _: {
     {
       home.packages = with pkgs; [
         go
-        # Common Go development tools
         gopls
         golangci-lint
         go-tools

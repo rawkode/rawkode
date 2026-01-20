@@ -1,5 +1,11 @@
-{
-  flake.homeModules.vicinae = _: {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "vicinae";
+
+  linux.home = _: {
     services.vicinae = {
       enable = true;
       settings = {

@@ -1,6 +1,17 @@
-{
-  flake.homeModules.helix =
-    { pkgs, lib, ... }:
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "helix";
+
+  common.home =
+    {
+      pkgs,
+      lib,
+      isDarwin,
+      ...
+    }:
     {
       programs.helix = with pkgs; {
         enable = true;
@@ -35,7 +46,7 @@
           yaml-language-server
         ]
         # Marksman pulls in dotnet; avoid on Darwin to prevent huge builds.
-        ++ lib.optionals pkgs.stdenv.isLinux [ marksman ];
+        ++ lib.optionals (!isDarwin) [ marksman ];
 
         settings = {
           editor = {
@@ -91,7 +102,7 @@
                 "file-line-ending"
                 "position"
               ];
-              mode.normal = "";
+              mode.normal = "";
               mode.insert = "I";
               mode.select = "S";
             };

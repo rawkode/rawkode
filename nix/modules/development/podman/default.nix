@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-podman =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "podman";
+
+  common.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [

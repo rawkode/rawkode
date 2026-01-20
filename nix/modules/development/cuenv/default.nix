@@ -1,5 +1,11 @@
-{
-  flake.homeModules.cuenv =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "cuenv";
+
+  common.home =
     {
       inputs,
       pkgs,

@@ -1,4 +1,7 @@
+{ lib, ... }:
 let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
   main_bar = {
     anchor_to_edges = true;
     position = "top";
@@ -41,8 +44,10 @@ let
     ];
   };
 in
-{
-  flake.homeModules.ironbar =
+mkApp {
+  name = "ironbar";
+
+  linux.home =
     { config, lib, ... }:
     {
       programs.ironbar = {

@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-devenv =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "devenv";
+
+  common.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [ devenv ];

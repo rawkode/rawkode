@@ -1,6 +1,8 @@
-{ inputs, ... }:
-{
-  flake.overlays.vivaldi = _final: prev: {
+{ inputs, lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
+  vivaldiOverlay = _final: prev: {
     vivaldi =
       (prev.vivaldi.override {
         commandLineArgs = [
@@ -25,15 +27,18 @@
           }
         );
   };
+in
+lib.recursiveUpdate (mkApp {
+  name = "vivaldi";
 
-  flake.nixosModules.vivaldi =
+  linux.system =
     { pkgs, ... }:
     {
       nixpkgs.overlays = [ inputs.self.overlays.vivaldi ];
       environment.systemPackages = [ pkgs.vivaldi ];
     };
 
-  flake.darwinModules.vivaldi =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {
@@ -41,4 +46,4 @@
         casks = [ "vivaldi@snapshot" ];
       };
     };
-}
+}) { flake.overlays.vivaldi = vivaldiOverlay; }

@@ -1,17 +1,17 @@
-_: {
-  flake.homeModules.development-distrobox =
-    { pkgs, lib, ... }:
-    let
-      linuxOnly = pkgs.stdenv.isLinux;
-    in
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "distrobox";
+
+  linux.home =
+    { pkgs, ... }:
     {
-      home.packages = lib.optionals linuxOnly (
-        with pkgs;
-        [
-          boxbuddy
-          distrobox
-          toolbox
-        ]
-      );
+      home.packages = with pkgs; [
+        boxbuddy
+        distrobox
+        toolbox
+      ];
     };
 }

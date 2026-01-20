@@ -5,7 +5,7 @@ in
 mkApp {
   name = "slack";
 
-  home = {
+  linux.home = {
     services.flatpak.packages = [
       "com.slack.Slack"
     ];
@@ -22,7 +22,7 @@ mkApp {
     };
   };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

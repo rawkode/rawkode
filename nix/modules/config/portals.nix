@@ -1,5 +1,11 @@
-{
-  flake.nixosModules.portals =
+{ lib, ... }:
+let
+  mkApp = import ../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "portals";
+
+  linux.system =
     { pkgs, ... }:
     {
       xdg.portal = {
@@ -18,7 +24,8 @@
         ];
       };
     };
-  flake.homeModules.portals =
+
+  linux.home =
     { pkgs, lib, ... }:
     {
       xdg.portal = {

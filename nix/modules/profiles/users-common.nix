@@ -6,7 +6,8 @@
         inputs.nix-index-database.homeModules.nix-index
         inputs.nur.modules.homeManager.default
 
-        inputs.self.homeModules.ai
+        # NOTE: App imports (like 'ai') have been removed.
+        # Apps should now be managed via the `apps` parameter in mkUser.
         inputs.self.homeModules.profiles-home
         inputs.self.homeModules.profiles-desktop
         inputs.self.homeModules.nix-home

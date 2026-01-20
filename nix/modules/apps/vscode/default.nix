@@ -5,15 +5,19 @@ in
 mkApp {
   name = "visual-studio-code";
 
-  home =
+  # Common config that works on both platforms
+  common.home = _: {
+    stylix.targets.vscode.enable = false;
+  };
+
+  # Linux: use vscode-fhs package via home-manager
+  linux.home =
     { pkgs, ... }:
     {
       programs.vscode = {
         enable = true;
         package = pkgs.vscode-fhs;
       };
-
-      stylix.targets.vscode.enable = false;
 
       programs.niri.settings.window-rules = [
         {
@@ -35,7 +39,8 @@ mkApp {
       };
     };
 
-  darwin =
+  # Darwin: install via homebrew cask (no home-manager vscode config needed)
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

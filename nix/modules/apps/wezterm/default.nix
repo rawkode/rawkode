@@ -5,7 +5,7 @@ in
 mkApp {
   name = "wezterm";
 
-  home =
+  common.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [
@@ -18,7 +18,7 @@ mkApp {
       };
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

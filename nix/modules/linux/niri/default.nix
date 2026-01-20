@@ -1,6 +1,11 @@
-{ inputs, ... }:
-{
-  flake.nixosModules.niri =
+{ inputs, lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "niri";
+
+  linux.system =
     { pkgs, ... }:
     {
       programs.niri.enable = true;
@@ -20,7 +25,7 @@
       ];
     };
 
-  flake.homeModules.niri =
+  linux.home =
     {
       lib,
       pkgs,
@@ -576,6 +581,4 @@
       };
 
     };
-
-  flake.darwinModules.niri = _: { };
 }

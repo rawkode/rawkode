@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.orion = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "orion";
 
-  flake.darwinModules.orion =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

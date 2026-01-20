@@ -1,5 +1,11 @@
-{
-  flake.homeModules.ripgrep = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "ripgrep";
+
+  common.home = {
     programs.ripgrep = {
       enable = true;
 

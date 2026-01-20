@@ -5,7 +5,7 @@ in
 mkApp {
   name = "google-cloud";
 
-  home =
+  common.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [
@@ -13,7 +13,7 @@ mkApp {
       ];
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

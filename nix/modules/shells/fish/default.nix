@@ -1,6 +1,8 @@
 # Fish shell configuration
-# Uses mkStylixFishDisable helper to avoid duplicate code
+{ lib, ... }:
 let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
   # Helper to disable stylix fish theming (we use our own)
   mkStylixFishDisable =
     {
@@ -12,8 +14,10 @@ let
       stylix.targets.fish.enable = lib.mkForce false;
     };
 in
-{
-  flake.nixosModules.fish =
+mkApp {
+  name = "fish";
+
+  linux.system =
     {
       config,
       lib,
@@ -27,7 +31,7 @@ in
       }
     ];
 
-  flake.homeModules.fish =
+  common.home =
     {
       config,
       lib,
@@ -80,7 +84,7 @@ in
       }
     ];
 
-  flake.darwinModules.fish =
+  darwin.system =
     { lib, pkgs, ... }:
     {
       programs.fish.enable = true;

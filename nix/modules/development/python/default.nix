@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-python =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "python";
+
+  common.home =
     {
       config,
       pkgs,
@@ -9,7 +15,6 @@ _: {
       home.packages = with pkgs; [
         python3
         uv
-        # Common Python development tools
         python3Packages.pip
         python3Packages.virtualenv
         python3Packages.black

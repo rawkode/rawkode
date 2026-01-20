@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.jj =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "jj";
+
+  common.home =
     { identity, preferences, ... }:
     {
       programs.jujutsu = {

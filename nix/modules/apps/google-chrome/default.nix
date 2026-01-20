@@ -1,7 +1,12 @@
-{
-  flake.nixosModules.google-chrome =
+{ inputs, lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "google-chrome";
+
+  linux.system =
     {
-      inputs,
       lib,
       pkgs,
       ...
@@ -27,7 +32,7 @@
         ++ lib.optional hasBrowserPreview inputs.browser-previews.packages.${system}.google-chrome-dev;
     };
 
-  flake.darwinModules.google-chrome =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

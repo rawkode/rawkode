@@ -1,10 +1,16 @@
-_: {
-  flake.homeModules.development-bun =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "bun";
+
+  common.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [ bun ];
       home.sessionPath = [
-        "/home/rawkode/.cache/.bun/bin"
+        "$HOME/.cache/.bun/bin"
       ];
     };
 }

@@ -2,42 +2,6 @@
 let
   mkUser = import ../../../lib/mkUser.nix { inherit inputs lib; };
   machineSystems = import ../../../lib/machineSystems.nix;
-
-  baseImports = [
-    inputs.self.homeModules.profiles-users-common
-  ];
-
-  linuxImports = [
-    inputs.flatpaks.homeManagerModules.nix-flatpak
-    inputs.ironbar.homeManagerModules.default
-    inputs.vicinae.homeManagerModules.default
-
-    # Linux-only desktop apps
-    inputs.self.homeModules.visual-studio-code
-    inputs.self.homeModules.alacritty
-    inputs.self.homeModules.clickup
-    inputs.self.homeModules.dconf-editor
-    inputs.self.homeModules.flatpak
-    inputs.self.homeModules.gnome
-    inputs.self.homeModules.ironbar
-    inputs.self.homeModules.niri
-    inputs.self.homeModules.portals
-    inputs.self.homeModules.ptyxis
-    inputs.self.homeModules.rquickshare
-    inputs.self.homeModules.slack
-    inputs.self.homeModules.spotify
-    inputs.self.homeModules.tana
-    inputs.self.homeModules.vicinae
-    inputs.self.homeModules.wayland
-    inputs.self.homeModules.zoom
-    inputs.self.homeModules.zulip
-  ];
-
-  darwinImports = [
-    # Darwin needs stylix explicitly (on NixOS it comes via nixosModules.stylix)
-    inputs.self.homeModules.stylix
-  ];
-
 in
 mkUser {
   username = "rawkode";
@@ -45,15 +9,131 @@ mkUser {
   email = "david@rawkode.dev";
   signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXwFFDFPDUbAql+V8xMmFxuZe6aUUxDD2cY0Dr0X1g9";
   inherit machineSystems;
-  homeImports = {
-    linux = linuxImports ++ baseImports;
-    darwin = darwinImports ++ baseImports;
-  };
+
+  # Type-safe app imports with LSP auto-complete!
+  # Note: Only apps in modules/apps/ that use mkApp are available here.
+  # Other modules (shells, config, programs) should be in extraImports.
+  apps = with inputs.self.appBundles; [
+    # CLI Tools
+    bat
+    btop
+    eza
+    helix
+    htop
+    jq
+    lazyjournal
+    misc
+    ripgrep
+    television
+    zellij
+
+    # Shells & Shell Utilities
+    atuin
+    carapace
+    fish
+    nushell
+    starship
+    zoxide
+
+    # Terminals
+    alacritty
+    ghostty
+    ptyxis
+    wezterm
+
+    # Editors & AI
+    ai
+    visual-studio-code
+    zed
+
+    # Browsers
+    firefox
+    google-chrome
+    vivaldi
+
+    # Communication
+    discord
+    slack
+    zulip
+
+    # Productivity
+    clickup
+    onepassword
+    spotify
+    tana
+    zoom
+
+    # Version Control
+    git
+    github
+    jj
+
+    # Development Tools
+    bun
+    comma
+    cue
+    cuenv
+    dagger
+    deno
+    devenv
+    direnv
+    distrobox
+    docker
+    flox
+    go
+    just
+    kubernetes
+    moon
+    nh
+    nix-dev
+    podman
+    pulumi
+    python
+    rust
+
+    # Cloud
+    google-cloud
+
+    # Darwin-only apps (no-ops on Linux)
+    cursor
+    descript
+    mimestream
+    orion
+    parallels
+    setapp
+    skim
+    warp
+  ];
+
+  # Cross-platform imports
+  extraImports = [
+    inputs.self.homeModules.profiles-users-common
+    inputs.self.homeModules.stylix
+  ];
+
+  # Linux-only imports (e.g., flatpak, gnome, niri, wayland)
+  linuxExtraImports = [
+    inputs.flatpaks.homeManagerModules.nix-flatpak
+    inputs.ironbar.homeManagerModules.default
+    inputs.vicinae.homeManagerModules.default
+
+    inputs.self.homeModules.dconf-editor
+    inputs.self.homeModules.flatpak
+    inputs.self.homeModules.gnome
+    inputs.self.homeModules.ironbar
+    inputs.self.homeModules.niri
+    inputs.self.homeModules.portals
+    inputs.self.homeModules.rquickshare
+    inputs.self.homeModules.vicinae
+    inputs.self.homeModules.wayland
+  ];
+
   homeExtraConfig =
     { lib, isDarwin, ... }:
     lib.optionalAttrs (!isDarwin) {
       rawkOS.desktop.darkman.enable = false;
     };
+
   nixosUserConfig = _: {
     extraGroups = [
       "audio"
@@ -64,6 +144,7 @@ mkUser {
       "wheel"
     ];
   };
+
   enableHomeConfigurations = true;
   machinesDir = ../../machines;
 }

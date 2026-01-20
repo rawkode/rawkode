@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.skim = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "skim";
 
-  flake.darwinModules.skim =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

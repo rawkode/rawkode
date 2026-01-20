@@ -1,5 +1,11 @@
-{
-  flake.homeModules.development-rust =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "rust";
+
+  common.home =
     {
       config,
       lib,
@@ -9,7 +15,6 @@
     {
       home.packages = with pkgs; [
         rustup
-        # Common Rust development tools
         cargo-watch
         cargo-edit
         cargo-outdated

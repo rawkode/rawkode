@@ -10,29 +10,9 @@
       # Shared profile (sets common config values)
       inputs.self.darwinModules.profiles-base
 
-      # Apps
+      # System & Shell
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
-
-      # AI & Dev Tools
-      inputs.self.darwinModules.ai
-      inputs.self.darwinModules.zed
-      # inputs.self.darwinModules.visual-studio-code  # Temporarily disabled - cask download failing
-
-      # Browsers
-      inputs.self.darwinModules.google-chrome
-
-      # Communication
-      inputs.self.darwinModules.slack
-
-      # Productivity & Utilities
-      inputs.self.darwinModules.onepassword
-      inputs.self.darwinModules.setapp
-      inputs.self.darwinModules.parallels
-      inputs.self.darwinModules.descript
-
-      # Development
-      inputs.self.darwinModules.google-cloud
 
       # Machine-specific config
       (

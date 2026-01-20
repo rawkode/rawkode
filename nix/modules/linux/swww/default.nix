@@ -1,5 +1,11 @@
-{
-  flake.homeModules.swww =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "swww";
+
+  linux.home =
     { pkgs, config, ... }:
     let
       wallpaper = config.stylix.image;
@@ -9,7 +15,6 @@
         swww = {
           Unit = {
             Description = "Efficient animated wallpaper daemon for wayland";
-            # Start with either desktop environment
             ConditionEnvironment = "WAYLAND_DISPLAY";
             PartOf = [ "graphical-session.target" ];
             After = [ "graphical-session-pre.target" ];
@@ -27,7 +32,6 @@
         swww-wallpaper = {
           Unit = {
             Description = "Set wallpaper via swww";
-            # Start with either desktop environment
             ConditionEnvironment = "WAYLAND_DISPLAY";
             PartOf = [ "graphical-session.target" ];
             After = [ "swww.service" ];

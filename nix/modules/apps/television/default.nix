@@ -1,5 +1,11 @@
-{
-  flake.homeModules.television = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "television";
+
+  common.home = {
     programs.television = {
       enable = true;
 

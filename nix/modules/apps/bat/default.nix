@@ -1,5 +1,11 @@
-{
-  flake.homeModules.bat =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "bat";
+
+  common.home =
     { lib, pkgs, ... }:
     {
       programs.bat = {

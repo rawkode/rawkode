@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-kubernetes =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "kubernetes";
+
+  common.home =
     {
       config,
       lib,

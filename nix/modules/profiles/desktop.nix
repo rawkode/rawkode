@@ -33,16 +33,9 @@
       };
     };
 
-  # Cross-platform desktop apps only
-  # Linux-only desktop modules should be in linuxImports of user configs
-  flake.homeModules.profiles-desktop =
-    { inputs, ... }:
-    {
-      imports = [
-        inputs.self.homeModules.ghostty
-        inputs.self.homeModules.onepassword
-        inputs.self.homeModules.wezterm
-        inputs.self.homeModules.zed
-      ];
-    };
+  # NOTE: App imports have been removed from this profile.
+  # Apps should now be managed via the `apps` parameter in mkUser.
+  flake.homeModules.profiles-desktop = _: {
+    # Infrastructure-level desktop home-manager settings can go here
+  };
 }

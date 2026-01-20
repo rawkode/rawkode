@@ -10,11 +10,9 @@
       # Shared profile (sets common config values)
       inputs.self.darwinModules.profiles-base
 
-      # Apps
-      inputs.self.darwinModules.ai
+      # System & Shell
       inputs.self.darwinModules.fish
       inputs.self.darwinModules.user
-      inputs.self.darwinModules.visual-studio-code
 
       # Machine-specific config
       {

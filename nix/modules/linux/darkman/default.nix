@@ -1,5 +1,11 @@
-{
-  flake.homeModules.darkman =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "darkman";
+
+  linux.home =
     {
       config,
       lib,

@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.kree = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "kree";
 
-  flake.darwinModules.kree =
+  darwin.system =
     { inputs, pkgs, ... }:
     {
       environment.systemPackages = [

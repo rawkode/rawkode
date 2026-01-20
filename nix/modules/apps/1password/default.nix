@@ -5,7 +5,7 @@ in
 mkApp {
   name = "onepassword";
 
-  home = _: {
+  common.home = _: {
     programs.ssh = {
       enable = true;
       enableDefaultConfig = false;
@@ -19,7 +19,9 @@ mkApp {
         };
       };
     };
+  };
 
+  linux.home = {
     dconf.settings = {
       "org/gnome/settings-daemon/plugins/media-keys" = {
         custom-keybindings = [
@@ -35,7 +37,7 @@ mkApp {
     };
   };
 
-  nixos =
+  linux.system =
     { config, ... }:
     let
       cfg = config.rawkOS.user;
@@ -59,7 +61,7 @@ mkApp {
       };
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

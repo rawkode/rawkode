@@ -1,5 +1,11 @@
-{
-  flake.homeModules.ptyxis =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "ptyxis";
+
+  linux.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [

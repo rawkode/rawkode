@@ -1,5 +1,11 @@
-_: {
-  flake.nixosModules.development-docker =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "docker";
+
+  linux.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [
@@ -15,12 +21,12 @@ _: {
       '';
     };
 
-  flake.darwinModules.docker =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = [ "docker-desktop" ];
+        casks = [ "docker" ];
       };
     };
 }

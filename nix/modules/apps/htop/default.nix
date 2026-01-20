@@ -1,10 +1,16 @@
-{
-  flake.homeModules.htop =
-    { pkgs, ... }:
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "htop";
+
+  common.home =
+    { pkgs, lib, ... }:
     {
       programs.htop = {
         enable = true;
-        package = pkgs.htop-vim;
+        package = lib.mkDefault pkgs.htop-vim;
 
         settings = {
           tree_view = true;

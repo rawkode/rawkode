@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.setapp = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "setapp";
 
-  flake.darwinModules.setapp =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

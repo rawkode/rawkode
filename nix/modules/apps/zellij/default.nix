@@ -1,5 +1,11 @@
-{
-  flake.homeModules.zellij =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "zellij";
+
+  common.home =
     { pkgs, ... }:
     {
       programs.zellij = {

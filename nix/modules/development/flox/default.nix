@@ -1,5 +1,11 @@
-_: {
-  flake.homeModules.development-flox = {
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "flox";
+
+  common.home = {
     nix = {
       settings = {
         extra-substituters = [ "https://cache.flox.dev" ];

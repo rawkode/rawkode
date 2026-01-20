@@ -73,16 +73,23 @@ in
   };
 
   # Home Manager module for Darwin/standalone use
-  # This imports stylix home module and applies our config
-  # NOTE: On NixOS, don't use this - use nixosModules.stylix instead
-  # which handles home-manager integration
+  # On NixOS, the stylix module is already provided by nixosModules.stylix
+  # which propagates to home-manager automatically
   flake.homeModules.stylix =
-    { lib, pkgs, ... }:
     {
-      imports = [
+      lib,
+      pkgs,
+      osClass ? null,
+      ...
+    }:
+    {
+      # Only import the stylix home module if NOT on NixOS
+      # (NixOS provides it via nixosModules.stylix)
+      imports = lib.optionals (osClass != "nixos") [
         inputs.stylix.homeModules.stylix
       ];
 
+      # Apply our shared config (this is additive and works on all platforms)
       config = mkStylixConfig { inherit lib pkgs; };
     };
 }

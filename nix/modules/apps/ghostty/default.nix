@@ -5,12 +5,13 @@ in
 mkApp {
   name = "ghostty";
 
-  home =
+  common.home =
     {
       config,
       inputs,
       lib,
       pkgs,
+      isDarwin,
       ...
     }:
     let
@@ -53,7 +54,7 @@ mkApp {
         split-divider-color = lib.mkDefault stylixColors.base0D;
         unfocused-split-fill = lib.mkDefault stylixColors.base0D;
       }
-      // lib.optionalAttrs pkgs.stdenv.isLinux {
+      // lib.optionalAttrs (!isDarwin) {
         gtk-single-instance = true;
         gtk-titlebar = true;
       };
@@ -67,42 +68,36 @@ mkApp {
       programs.ghostty = {
         enable = true;
         package =
-          if pkgs.stdenv.isLinux then
-            inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default
-          else
-            null;
+          if isDarwin then null else inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default;
         enableBashIntegration = false;
         enableFishIntegration = false;
 
         clearDefaultKeybinds = false;
 
-        # All options are documented at
-        # https://ghostty.org/docs/config/reference
         settings = ghosttySettings;
       };
 
       # Ghostty looks for its config under Application Support on macOS.
-      home.file = lib.mkIf pkgs.stdenv.isDarwin {
+      home.file = lib.mkIf isDarwin {
         "Library/Application Support/com.mitchellh.ghostty/config" = {
           text = ghosttyConfigText;
         };
       };
     };
 
-  nixos =
+  linux.system =
     {
       inputs,
       pkgs,
-      lib,
       ...
     }:
-    lib.mkIf (!pkgs.stdenv.isDarwin) {
+    {
       environment.systemPackages = [
         inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default
       ];
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

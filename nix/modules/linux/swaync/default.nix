@@ -1,5 +1,11 @@
-{
-  flake.homeModules.swaync =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "swaync";
+
+  linux.home =
     { pkgs, ... }:
     {
       systemd.user.services.swaync = {

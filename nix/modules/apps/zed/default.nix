@@ -5,10 +5,10 @@ in
 mkApp {
   name = "zed";
 
-  home =
-    { pkgs, ... }:
+  common.home =
+    { pkgs, isDarwin, ... }:
     let
-      modifier = if pkgs.stdenv.isDarwin then "cmd" else "ctrl";
+      modifier = if isDarwin then "cmd" else "ctrl";
       keymap = ''
         [
           {
@@ -32,7 +32,7 @@ mkApp {
       '';
     in
     {
-      home.packages = pkgs.lib.optionals (!pkgs.stdenv.isDarwin) [ pkgs.zed-editor ];
+      home.packages = lib.optionals (!isDarwin) [ pkgs.zed-editor ];
 
       xdg.configFile."zed/keymap.json".text = keymap;
 
@@ -70,7 +70,7 @@ mkApp {
       '';
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

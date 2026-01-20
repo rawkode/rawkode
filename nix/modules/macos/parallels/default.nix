@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.parallels = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "parallels";
 
-  flake.darwinModules.parallels =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

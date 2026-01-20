@@ -1,6 +1,11 @@
-{ inputs, ... }:
-{
-  flake.homeModules.git =
+{ inputs, lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "git";
+
+  common.home =
     {
       pkgs,
       identity,

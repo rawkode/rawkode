@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.descript = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "descript";
 
-  flake.darwinModules.descript =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.cursor = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "cursor";
 
-  flake.darwinModules.cursor =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

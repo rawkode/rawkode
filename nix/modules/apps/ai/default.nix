@@ -5,10 +5,10 @@ in
 mkApp {
   name = "ai";
 
-  home =
+  linux.home =
     { inputs, pkgs, ... }:
     {
-      home.packages = pkgs.lib.optionals pkgs.stdenv.isLinux [
+      home.packages = [
         pkgs.code-cursor-fhs
 
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex
@@ -16,17 +16,19 @@ mkApp {
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.qwen-code
       ];
-
-      programs.fish.shellAbbrs = {
-        codex = {
-          position = "command";
-          setCursor = true;
-          expansion = "codex --search --full-auto";
-        };
-      };
     };
 
-  darwin =
+  common.home = {
+    programs.fish.shellAbbrs = {
+      codex = {
+        position = "command";
+        setCursor = true;
+        expansion = "codex --search --full-auto";
+      };
+    };
+  };
+
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

@@ -5,7 +5,7 @@ in
 mkApp {
   name = "firefox";
 
-  home = _: {
+  common.home = _: {
     stylix.targets.firefox.profileNames = [ "rawkode" ];
 
     programs.firefox = {
@@ -170,7 +170,7 @@ mkApp {
     };
   };
 
-  nixos =
+  linux.system =
     { pkgs, ... }:
     {
       programs.firefox = {
@@ -179,7 +179,7 @@ mkApp {
       };
     };
 
-  darwin =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

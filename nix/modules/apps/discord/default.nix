@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.discord = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "discord";
 
-  flake.darwinModules.discord =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

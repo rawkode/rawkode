@@ -1,48 +1,11 @@
+# NOTE: App imports have been removed from this profile.
+# Apps should now be managed via the `apps` parameter in mkUser,
+# which provides type-safe, explicit app management via appBundles.
+#
+# This profile now only contains infrastructure-level home-manager config.
 {
-  flake.homeModules.profiles-home =
-    { inputs, ... }:
-    {
-      imports = with inputs.self.homeModules; [
-        atuin
-        bat
-        btop
-        carapace
-        comma
-        cue
-        development-bun
-        development-dagger
-        development-deno
-        development-devenv
-        development-distrobox
-        development-flox
-        development-go
-        development-kubernetes
-        development-moon
-        development-nix
-        development-podman
-        development-python
-        development-rust
-        direnv
-        eza
-        fish
-        git
-        github
-        google-cloud
-        helix
-        htop
-        jj
-        jq
-        just
-        lazyjournal
-        misc
-        nh
-        nushell
-        pulumi
-        ripgrep
-        starship
-        television
-        zellij
-        zoxide
-      ];
-    };
+  flake.homeModules.profiles-home = _: {
+    # Infrastructure-level home-manager settings can go here
+    # Apps should be added via the `apps` parameter in mkUser
+  };
 }

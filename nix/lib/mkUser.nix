@@ -54,6 +54,7 @@ let
                 rawkOSLib
                 ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
+              osClass = "standalone";
             };
           };
         }
@@ -71,14 +72,17 @@ let
         darwin = "/Users/${username}";
         linux = "/home/${username}";
       },
-      homeImports ? {
-        linux = [ ];
-        darwin = [ ];
-      },
+      # NEW: list of app bundles from inputs.self.appBundles.*
+      # Each app is { home = module; darwin = module; nixos = module; }
+      apps ? [ ],
+      # Additional imports for home-manager (e.g., profile modules)
+      # These are included on all platforms
+      extraImports ? [ ],
+      # Platform-specific imports (e.g., nix-flatpak on Linux)
+      linuxExtraImports ? [ ],
+      darwinExtraImports ? [ ],
       homeExtraConfig ? null,
       nixosUserConfig ? null,
-      nixosExtraImports ? [ ],
-      darwinExtraImports ? [ ],
       nixosBackupExtension ? "backup",
       darwinBackupExtension ? "hm-backup",
       darwinSystem ? "aarch64-darwin",
@@ -98,6 +102,11 @@ let
         inherit signingKey;
       };
 
+      # Extract modules from app bundles
+      appHomeImports = map (app: app.home) apps;
+      appDarwinImports = map (app: app.darwin) apps;
+      appNixosImports = map (app: app.nixos) apps;
+
       homeModule =
         {
           lib,
@@ -107,6 +116,9 @@ let
           ...
         }:
         let
+          # Platform-specific extra imports
+          platformExtraImports = if isDarwin then darwinExtraImports else linuxExtraImports;
+
           baseConfig = {
             home = {
               inherit username;
@@ -118,7 +130,8 @@ let
 
             nixpkgs.config.allowUnfree = true;
 
-            imports = if isDarwin then homeImports.darwin else homeImports.linux;
+            # All app home modules (platform-aware) + extra imports + platform-specific imports
+            imports = appHomeImports ++ extraImports ++ platformExtraImports;
           };
 
           extraConfig = resolveConfig homeExtraConfig {
@@ -227,7 +240,7 @@ let
             nixosHomeModule
             nixosUserModule
           ]
-          ++ nixosExtraImports;
+          ++ appNixosImports;
         };
 
       flake.darwinModules."users-${username}" =
@@ -237,7 +250,7 @@ let
             darwinHomeModule
             darwinUserModule
           ]
-          ++ darwinExtraImports;
+          ++ appDarwinImports;
         };
 
       flake.homeConfigurations = homeConfigurations;

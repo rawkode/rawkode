@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.warp = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "warp";
 
-  flake.darwinModules.warp =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {

@@ -1,7 +1,11 @@
-{
-  flake.nixosModules.mimestream = _: { };
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "mimestream";
 
-  flake.darwinModules.mimestream =
+  darwin.system =
     { lib, ... }:
     {
       homebrew = {
