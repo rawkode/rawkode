@@ -1,5 +1,11 @@
-{
-  flake.homeModules.ghostty =
+{ lib, ... }:
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+in
+mkApp {
+  name = "ghostty";
+
+  home =
     {
       config,
       inputs,
@@ -14,13 +20,16 @@
         "withHashtag"
       ] null config;
 
-      baseSettings = {
+      ghosttySettings = {
         auto-update = "off";
 
         font-family = "Monaspace Neon";
         font-size = 16;
 
         shell-integration = "detect";
+
+        background-blur-radius = 32;
+        background-opacity = 0.64;
 
         mouse-hide-while-typing = true;
 
@@ -34,87 +43,25 @@
 
         focus-follows-mouse = true;
 
-        # Split visibility improvements
-        unfocused-split-opacity = 0.96;
-
         window-decoration = true;
         window-colorspace = "display-p3";
         window-padding-x = 16;
         window-padding-y = 16;
         window-padding-balance = true;
-
-        keybind = [
-          "ctrl+space=toggle_command_palette"
-          "super+k=toggle_command_palette"
-
-          "super+v=paste_from_clipboard"
-          "shift+insert=paste_from_clipboard"
-          "ctrl+shift+v=paste_from_clipboard"
-
-          "super+t=new_tab"
-          "super+q=close_tab"
-          "ctrl+page_up=previous_tab"
-          "ctrl+page_down=next_tab"
-
-          "ctrl+plus=increase_font_size:1"
-          "ctrl+minus=decrease_font_size:1"
-          "ctrl+0=reset_font_size"
-
-          "ctrl+shift+p=toggle_command_palette"
-
-          "super+z=toggle_split_zoom"
-
-          "alt+shift+backslash=new_split:right"
-          "alt+backslash=new_split:down"
-
-          "alt+arrow_down=goto_split:down"
-          "alt+arrow_up=goto_split:up"
-          "alt+arrow_left=goto_split:left"
-          "alt+arrow_right=goto_split:right"
-        ];
       }
       // lib.optionalAttrs (stylixColors != null) {
         split-divider-color = lib.mkDefault stylixColors.base0D;
         unfocused-split-fill = lib.mkDefault stylixColors.base0D;
+      }
+      // lib.optionalAttrs pkgs.stdenv.isLinux {
+        gtk-single-instance = true;
+        gtk-titlebar = true;
       };
 
-      linuxSettings =
-        if pkgs.stdenv.isLinux then
-          {
-            gtk-single-instance = true;
-            gtk-titlebar = true;
-          }
-        else
-          { };
-
-      darwinSettings = if pkgs.stdenv.isDarwin then { } else { };
-
-      ghosttySettings = baseSettings // linuxSettings // darwinSettings;
-
-      renderValue =
-        value:
-        if builtins.isBool value then
-          if value then "true" else "false"
-        else if builtins.isInt value || builtins.isFloat value then
-          builtins.toString value
-        else if builtins.isString value then
-          value
-        else
-          throw "Unsupported ghostty setting value type";
-
-      ghosttyConfigText =
-        let
-          lines = lib.flatten (
-            lib.mapAttrsToList (
-              name: value:
-              if builtins.isList value then
-                map (item: "${name} = ${renderValue item}") value
-              else
-                [ "${name} = ${renderValue value}" ]
-            ) ghosttySettings
-          );
-        in
-        lib.concatStringsSep "\n" lines + "\n";
+      ghosttyConfigText = lib.generators.toKeyValue {
+        mkKeyValue = lib.generators.mkKeyValueDefault { } " = ";
+        listsAsDuplicateKeys = true;
+      } ghosttySettings;
     in
     {
       programs.ghostty = {
@@ -127,7 +74,7 @@
         enableBashIntegration = false;
         enableFishIntegration = false;
 
-        clearDefaultKeybinds = true;
+        clearDefaultKeybinds = false;
 
         # All options are documented at
         # https://ghostty.org/docs/config/reference
@@ -142,7 +89,7 @@
       };
     };
 
-  flake.nixosModules.ghostty =
+  nixos =
     {
       inputs,
       pkgs,
@@ -155,7 +102,7 @@
       ];
     };
 
-  flake.darwinModules.ghostty =
+  darwin =
     { lib, ... }:
     {
       homebrew = {

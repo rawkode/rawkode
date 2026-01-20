@@ -1,15 +1,17 @@
 {
-	"permissions": {
-		"allow": [
-			"Bash(cat:*)",
-			"Bash(find:*)",
-			"Bash(done)",
-			"Bash(echo:*)",
-			"Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
-			"Bash(head:*)",
-			"Bash(nix flake show:*)",
-			"Bash(nix flake check:*)",
-			"Bash(nix fmt:*)"
-		]
-	}
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(done)",
+      "Bash(echo:*)",
+      "Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
+      "Bash(head:*)",
+      "Bash(nix flake show:*)",
+      "Bash(nix flake check:*)",
+      "Bash(nix fmt:*)",
+      "mcp__acp__Write",
+      "mcp__acp__Bash"
+    ]
+  }
 }
