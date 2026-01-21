@@ -30,7 +30,7 @@ mkApp {
         shell-integration = "detect";
 
         background-blur-radius = 32;
-        background-opacity = 0.64;
+        background-opacity = 0.96;
 
         mouse-hide-while-typing = true;
 

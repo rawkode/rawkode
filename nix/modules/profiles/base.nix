@@ -316,7 +316,7 @@
 
           threeFingerDrag = lib.mkOption {
             type = lib.types.bool;
-            default = true;
+            default = false;
             description = "Enable three-finger drag";
           };
 
@@ -324,6 +324,30 @@
             type = lib.types.bool;
             default = true;
             description = "Enable two-finger right click";
+          };
+
+          swipeNavigateWithScrolls = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Enable swipe between pages with two fingers (browser back/forward)";
+          };
+
+          actuationStrength = lib.mkOption {
+            type = lib.types.int;
+            default = 1;
+            description = "Trackpad click actuation strength (0 = light, 1 = medium, 2 = firm)";
+          };
+
+          showAppExposeGesture = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Enable App Exposé gesture (swipe down with three/four fingers)";
+          };
+
+          showMissionControlGesture = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Enable Mission Control gesture (swipe up with three/four fingers)";
           };
         };
 
@@ -451,7 +475,11 @@
               trackpad = {
                 tapToClick = true;
                 naturalScrolling = true;
-                threeFingerDrag = true;
+                threeFingerDrag = false;
+                swipeNavigateWithScrolls = true;
+                actuationStrength = 1;
+                showAppExposeGesture = true;
+                showMissionControlGesture = true;
               };
               keyboard = {
                 keyRepeat = 2;
@@ -526,6 +554,8 @@
               wvous-tr-corner = systemDefaultsCfg.dock.hotCornerTopRight;
               wvous-bl-corner = systemDefaultsCfg.dock.hotCornerBottomLeft;
               wvous-br-corner = systemDefaultsCfg.dock.hotCornerBottomRight;
+              showAppExposeGestureEnabled = systemDefaultsCfg.trackpad.showAppExposeGesture;
+              showMissionControlGestureEnabled = systemDefaultsCfg.trackpad.showMissionControlGesture;
             };
 
             finder = {
@@ -546,6 +576,7 @@
 
             NSGlobalDomain = {
               "com.apple.swipescrolldirection" = systemDefaultsCfg.trackpad.naturalScrolling;
+              AppleEnableSwipeNavigateWithScrolls = systemDefaultsCfg.trackpad.swipeNavigateWithScrolls;
               KeyRepeat = systemDefaultsCfg.keyboard.keyRepeat;
               InitialKeyRepeat = systemDefaultsCfg.keyboard.initialKeyRepeat;
               ApplePressAndHoldEnabled = !systemDefaultsCfg.keyboard.disablePressAndHold;
@@ -561,6 +592,12 @@
               inherit (systemDefaultsCfg.screencapture) location;
               disable-shadow = systemDefaultsCfg.screencapture.disableShadow;
               include-date = systemDefaultsCfg.screencapture.includeDate;
+            };
+
+            CustomUserPreferences = {
+              "com.apple.AppleMultitouchTrackpad" = {
+                ActuationStrength = systemDefaultsCfg.trackpad.actuationStrength;
+              };
             };
           };
         })

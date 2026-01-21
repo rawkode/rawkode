@@ -10,7 +10,10 @@
       "Bash(cue vet:*)",
       "Bash(cue export:*)",
       "Bash(wc:*)",
-      "Bash(nix flake show:*)"
+      "Bash(nix flake show:*)",
+      "WebFetch(domain:agentclientprotocol.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(cargo check:*)"
     ],
     "deny": [],
     "ask": []
