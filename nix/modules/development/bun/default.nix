@@ -10,7 +10,7 @@ mkApp {
     {
       home.packages = with pkgs; [ bun ];
       home.sessionPath = [
-        "$HOME/.cache/.bun/bin"
+        "$HOME/.bun/bin"
       ];
     };
 }

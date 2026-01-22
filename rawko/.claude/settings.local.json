@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(cargo build:*)",
+      "mcp__MCP_DOCKER__fetch",
+      "Bash(xargs:*)",
+      "Bash(git clone:*)",
+      "Bash(git checkout:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:docs.rs)",
+      "mcp__MCP_DOCKER__resolve-library-id",
+      "mcp__MCP_DOCKER__get-library-docs",
+      "Bash(cargo test:*)",
+      "WebSearch",
+      "Bash(cargo check:*)",
+      "Bash(RUST_LOG=debug cargo run:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo run:*)"
+    ]
+  }
+}
