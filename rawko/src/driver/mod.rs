@@ -117,7 +117,7 @@ impl OrchestratorDriver {
     /// * `config` - Driver configuration
     /// * `app_config` - Application configuration with agent definitions
     pub fn new(config: DriverConfig, app_config: &RawkoConfig) -> Result<Self> {
-        let registry = AgentRegistry::from_config(app_config)?;
+        let registry = AgentRegistry::with_builtins(app_config)?;
         let (agent_output_tx, agent_output_rx) = mpsc::unbounded_channel();
 
         let pool = AgentPool::new(
