@@ -1,22 +1,15 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git -C /Users/rawkode/Code/src/github.com/rawkode/rawkode/rawko-sdk log --oneline --all)",
       "Bash(tree:*)",
-      "Bash(cargo build:*)",
-      "mcp__MCP_DOCKER__fetch",
       "Bash(xargs:*)",
-      "Bash(git clone:*)",
-      "Bash(git checkout:*)",
-      "Bash(find:*)",
-      "WebFetch(domain:docs.rs)",
+      "Bash(deno check:*)",
+      "Bash(deno eval:*)",
+      "Bash(deno run:*)",
+      "Bash(wc:*)",
       "mcp__MCP_DOCKER__resolve-library-id",
-      "mcp__MCP_DOCKER__get-library-docs",
-      "Bash(cargo test:*)",
-      "WebSearch",
-      "Bash(cargo check:*)",
-      "Bash(RUST_LOG=debug cargo run:*)",
-      "Bash(cargo clippy:*)",
-      "Bash(cargo run:*)"
+      "Bash(git clone:*)"
     ]
   }
 }

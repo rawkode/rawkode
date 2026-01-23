@@ -1,15 +1,4 @@
-# Build artifacts
-/target/
-
-# rawko state directory
-.rawko/state/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
+copilot-sdk
+.anthropic-sdk-reference
+.claude-agent-sdk-reference
+.copilot-sdk-reference

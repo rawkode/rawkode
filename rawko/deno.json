@@ -1,0 +1,23 @@
+{
+  "name": "@rawkode/rawko-sdk",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@anthropic-ai/claude-agent-sdk": "npm:@anthropic-ai/claude-agent-sdk@latest",
+    "@github/copilot-sdk": "npm:@github/copilot-sdk@latest",
+    "xstate": "npm:xstate@^5.0.0",
+    "yaml": "npm:yaml@^2.0.0",
+    "zod": "npm:zod@^3.0.0"
+  },
+  "tasks": {
+    "dev": "deno run --allow-all cli.ts",
+    "test": "deno test --allow-read --allow-env",
+    "check": "deno check mod.ts cli.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true
+  }
+}
