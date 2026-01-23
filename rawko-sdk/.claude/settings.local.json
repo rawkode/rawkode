@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/rawkode/Code/src/github.com/rawkode/rawkode/rawko-sdk log --oneline --all)"
+    ]
+  }
+}

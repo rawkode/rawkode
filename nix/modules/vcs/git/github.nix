@@ -23,7 +23,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        brews = [
+        casks = [
           "copilot-cli@prerelease"
         ];
       };
