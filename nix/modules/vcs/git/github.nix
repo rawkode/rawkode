@@ -6,19 +6,26 @@ mkApp {
   name = "github";
 
   common.home =
-    { pkgs, ... }:
+    { ... }:
     {
       programs.gh = {
         enable = true;
-
-        extensions = with pkgs; [
-          gh-copilot
-        ];
 
         settings = {
           git_protocol = "ssh";
           prompt = "enabled";
         };
+      };
+    };
+
+  darwin.system =
+    { lib, ... }:
+    {
+      homebrew = {
+        enable = lib.mkDefault true;
+        brews = [
+          "copilot-cli@prerelease"
+        ];
       };
     };
 }

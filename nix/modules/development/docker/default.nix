@@ -20,13 +20,4 @@ mkApp {
         }
       '';
     };
-
-  darwin.system =
-    { lib, ... }:
-    {
-      homebrew = {
-        enable = lib.mkDefault true;
-        casks = [ "docker" ];
-      };
-    };
 }
