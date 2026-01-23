@@ -24,7 +24,6 @@ mkUser {
     lazyjournal
     misc
     ripgrep
-    television
     zellij
 
     # Shells & Shell Utilities
@@ -39,7 +38,6 @@ mkUser {
     alacritty
     ghostty
     ptyxis
-    wezterm
 
     # Editors & AI
     ai
@@ -47,7 +45,6 @@ mkUser {
     zed
 
     # Browsers
-    firefox
     google-chrome
     vivaldi
 
@@ -98,11 +95,8 @@ mkUser {
     cursor
     descript
     mimestream
-    orion
     parallels
     setapp
-    skim
-    warp
   ];
 
   # Cross-platform imports

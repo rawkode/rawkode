@@ -21,7 +21,6 @@ mkUser {
     jq
     misc
     ripgrep
-    television
     zellij
 
     # Terminals
