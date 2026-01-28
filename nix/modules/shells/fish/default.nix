@@ -42,8 +42,6 @@ mkApp {
     lib.mkMerge [
       (mkStylixFishDisable { inherit config lib pkgs; })
       {
-        home.file.".bashrc".source = ./auto-fish.sh;
-
         programs.fish = {
           enable = true;
 
