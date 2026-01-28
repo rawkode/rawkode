@@ -5,7 +5,7 @@ in
 mkApp {
   name = "onepassword";
 
-  common.home = _: {
+  linux.home = _: {
     programs.ssh = {
       enable = true;
       enableDefaultConfig = false;
@@ -19,9 +19,7 @@ mkApp {
         };
       };
     };
-  };
 
-  linux.home = {
     dconf.settings = {
       "org/gnome/settings-daemon/plugins/media-keys" = {
         custom-keybindings = [
@@ -60,6 +58,22 @@ mkApp {
         };
       };
     };
+
+  darwin.home = _: {
+    programs.ssh = {
+      enable = true;
+      enableDefaultConfig = false;
+
+      matchBlocks = {
+        "*" = {
+          addKeysToAgent = "true";
+          extraOptions = {
+            IdentityAgent = "\"~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\"";
+          };
+        };
+      };
+    };
+  };
 
   darwin.system =
     { lib, ... }:
