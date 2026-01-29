@@ -14,7 +14,10 @@
       "mcp__acp__Bash",
       "mcp__acp__Edit",
       "Bash(xargs:*)",
-      "Bash(nix flake lock:*)"
+      "Bash(nix flake lock:*)",
+      "Bash(gh release list:*)",
+      "Bash(gh api:*)",
+      "Bash(defaults read:*)"
     ]
   }
 }

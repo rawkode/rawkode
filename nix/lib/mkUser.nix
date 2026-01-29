@@ -130,6 +130,12 @@ let
 
             nixpkgs.config.allowUnfree = true;
 
+            # Darwin-specific: use linkApps instead of copyApps to avoid App Management permission
+            targets.darwin = lib.mkIf isDarwin {
+              copyApps.enable = false;
+              linkApps.enable = true;
+            };
+
             # All app home modules (platform-aware) + extra imports + platform-specific imports
             imports = appHomeImports ++ extraImports ++ platformExtraImports;
           };
