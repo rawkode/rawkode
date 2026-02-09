@@ -10,4 +10,13 @@ mkApp {
     {
       home.packages = with pkgs; [ tana ];
     };
+
+  darwin.system =
+    { lib, ... }:
+    {
+      homebrew = {
+        enable = lib.mkDefault true;
+        casks = [ "tana" ];
+      };
+    };
 }
