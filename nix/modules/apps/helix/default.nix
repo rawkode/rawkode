@@ -26,7 +26,6 @@ mkApp {
           golangci-lint-langserver
           gopls
           gotools
-          helix-gpt
           nodePackages.typescript-language-server
           sql-formatter
           ruff

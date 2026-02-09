@@ -17,7 +17,16 @@
       "Bash(nix flake lock:*)",
       "Bash(gh release list:*)",
       "Bash(gh api:*)",
-      "Bash(defaults read:*)"
+      "Bash(defaults read:*)",
+      "Bash(for dir in ~/.cache/nix/gitv3/*/)",
+      "Bash(do if [ -d \"$dir\" ])",
+      "Bash(git -C \"$dir\" remote -v)",
+      "Bash(then echo \"$dir\")",
+      "Bash(fi)",
+      "Bash(sqlite3:*)",
+      "Bash(nix path-info:*)",
+      "Bash(nix eval:*)",
+      "Bash(nix flake prefetch:*)"
     ]
   }
 }
