@@ -94,6 +94,7 @@ mkUser {
     # Darwin-only apps (no-ops on Linux)
     cursor
     descript
+    entire
     mimestream
     parallels
     setapp
