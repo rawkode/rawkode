@@ -26,7 +26,9 @@
       "Bash(sqlite3:*)",
       "Bash(nix path-info:*)",
       "Bash(nix eval:*)",
-      "Bash(nix flake prefetch:*)"
+      "Bash(nix flake prefetch:*)",
+      "Bash(nix flake metadata:*)",
+      "Bash(python3:*)"
     ]
   }
 }
