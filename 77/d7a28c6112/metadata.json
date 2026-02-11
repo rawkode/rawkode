@@ -2,9 +2,10 @@
   "cli_version": "0.4.2",
   "checkpoint_id": "77d7a28c6112",
   "strategy": "manual-commit",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
-    "rawko/.gitignore"
+    "rawko/.gitignore",
+    "rawko/web/.gitignore"
   ],
   "sessions": [
     {
@@ -13,13 +14,20 @@
       "context": "/77/d7a28c6112/0/context.md",
       "content_hash": "/77/d7a28c6112/0/content_hash.txt",
       "prompt": "/77/d7a28c6112/0/prompt.txt"
+    },
+    {
+      "metadata": "/77/d7a28c6112/1/metadata.json",
+      "transcript": "/77/d7a28c6112/1/full.jsonl",
+      "context": "/77/d7a28c6112/1/context.md",
+      "content_hash": "/77/d7a28c6112/1/content_hash.txt",
+      "prompt": "/77/d7a28c6112/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 5,
-    "cache_creation_tokens": 19081,
-    "cache_read_tokens": 83639,
-    "output_tokens": 16,
-    "api_call_count": 3
+    "input_tokens": 17,
+    "cache_creation_tokens": 49616,
+    "cache_read_tokens": 471122,
+    "output_tokens": 706,
+    "api_call_count": 13
   }
 }
