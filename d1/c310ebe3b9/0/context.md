@@ -1,0 +1,12 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+I would like to add Entire to my @nix/  setup. Instructions for install are pretty simple, only support macOS for now:
+
+brew install entireio/tap/entire
+
+This should be enabled only for user rawkode as a test
+

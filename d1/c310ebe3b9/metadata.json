@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "d1c310ebe3b9",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "nix/modules/apps/entire/default.nix",
+    "nix/modules/users/rawkode/default.nix"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/c310ebe3b9/0/metadata.json",
+      "transcript": "/d1/c310ebe3b9/0/full.jsonl",
+      "context": "/d1/c310ebe3b9/0/context.md",
+      "content_hash": "/d1/c310ebe3b9/0/content_hash.txt",
+      "prompt": "/d1/c310ebe3b9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 20346,
+    "cache_read_tokens": 225997,
+    "output_tokens": 2182,
+    "api_call_count": 8
+  }
+}
