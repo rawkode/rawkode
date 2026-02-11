@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "77d7a28c6112",
+  "session_id": "4fb2ca98-763e-4370-a969-97c360a65ed6",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-11T18:46:43.400084Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "rawko/.gitignore"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 5,
+    "cache_creation_tokens": 19081,
+    "cache_read_tokens": 83639,
+    "output_tokens": 16,
+    "api_call_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-11T18:46:43.397729Z",
+    "agent_lines": 1,
+    "human_added": 48970,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 48971,
+    "agent_percentage": 0.0020420248718629394
+  }
+}
