@@ -1,0 +1,25 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev": "deno run -A --watch src/main.ts",
+    "run": "deno run -A src/main.ts",
+    "check": "deno check src/main.ts",
+    "test": "deno test -A",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1.0.18",
+    "rivetkit": "npm:rivetkit@2.0.42",
+    "gray-matter": "npm:gray-matter@4.0.3",
+    "@openai/codex-sdk": "npm:@openai/codex-sdk@0.98.0",
+    "anthropic": "npm:@anthropic-ai/sdk@0.74.0",
+    "@github/copilot-sdk": "npm:@github/copilot-sdk@0.1.23"
+  },
+  "compilerOptions": {
+    "strict": true
+  },
+  "fmt": {
+    "lineWidth": 100
+  }
+}

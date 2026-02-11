@@ -1,0 +1,12 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev": "deno task panda:prepare && deno run -A npm:astro@5.17.1 dev",
+    "build": "deno task panda:prepare && deno run -A npm:astro@5.17.1 build",
+    "preview": "deno run -A npm:astro@5.17.1 preview",
+    "check": "deno task panda:prepare && deno run -A npm:astro@5.17.1 check",
+    "panda:prepare": "deno task panda:codegen && deno task panda:css",
+    "panda:codegen": "deno run -A npm:@pandacss/dev@1.8.1 codegen",
+    "panda:css": "deno run -A npm:@pandacss/dev@1.8.1 cssgen"
+  }
+}
