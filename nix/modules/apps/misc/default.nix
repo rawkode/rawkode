@@ -10,7 +10,6 @@ mkApp {
     {
       home.packages = with pkgs; [
         ffmpeg
-        nodejs
         prettier
         tldr
         unzip

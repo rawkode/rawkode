@@ -5,12 +5,24 @@ in
 mkApp {
   name = "bun";
 
-  common.home =
+  linux.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [ bun ];
-      home.sessionPath = [
-        "$HOME/.bun/bin"
-      ];
+    };
+
+  common.home = {
+    home.sessionPath = [
+      "$HOME/.bun/bin"
+    ];
+  };
+
+  darwin.system =
+    { lib, ... }:
+    {
+      homebrew = {
+        enable = lib.mkDefault true;
+        brews = [ "bun" ];
+      };
     };
 }
