@@ -1,34 +1,34 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(cat:*)",
-      "Bash(find:*)",
-      "Bash(done)",
-      "Bash(echo:*)",
-      "Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
-      "Bash(head:*)",
-      "Bash(nix flake show:*)",
-      "Bash(nix flake check:*)",
-      "Bash(nix fmt:*)",
-      "mcp__acp__Write",
-      "mcp__acp__Bash",
-      "mcp__acp__Edit",
-      "Bash(xargs:*)",
-      "Bash(nix flake lock:*)",
-      "Bash(gh release list:*)",
-      "Bash(gh api:*)",
-      "Bash(defaults read:*)",
-      "Bash(for dir in ~/.cache/nix/gitv3/*/)",
-      "Bash(do if [ -d \"$dir\" ])",
-      "Bash(git -C \"$dir\" remote -v)",
-      "Bash(then echo \"$dir\")",
-      "Bash(fi)",
-      "Bash(sqlite3:*)",
-      "Bash(nix path-info:*)",
-      "Bash(nix eval:*)",
-      "Bash(nix flake prefetch:*)",
-      "Bash(nix flake metadata:*)",
-      "Bash(python3:*)"
-    ]
-  }
+	"permissions": {
+		"allow": [
+			"Bash(cat:*)",
+			"Bash(find:*)",
+			"Bash(done)",
+			"Bash(echo:*)",
+			"Bash(/etc/profiles/per-user/rawkode/bin/nh:*)",
+			"Bash(head:*)",
+			"Bash(nix flake show:*)",
+			"Bash(nix flake check:*)",
+			"Bash(nix fmt:*)",
+			"mcp__acp__Write",
+			"mcp__acp__Bash",
+			"mcp__acp__Edit",
+			"Bash(xargs:*)",
+			"Bash(nix flake lock:*)",
+			"Bash(gh release list:*)",
+			"Bash(gh api:*)",
+			"Bash(defaults read:*)",
+			"Bash(for dir in ~/.cache/nix/gitv3/*/)",
+			"Bash(do if [ -d \"$dir\" ])",
+			"Bash(git -C \"$dir\" remote -v)",
+			"Bash(then echo \"$dir\")",
+			"Bash(fi)",
+			"Bash(sqlite3:*)",
+			"Bash(nix path-info:*)",
+			"Bash(nix eval:*)",
+			"Bash(nix flake prefetch:*)",
+			"Bash(nix flake metadata:*)",
+			"Bash(python3:*)"
+		]
+	}
 }

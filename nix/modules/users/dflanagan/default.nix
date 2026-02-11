@@ -19,13 +19,10 @@ mkUser {
     btop
     coreweave
     eza
-    helix
     htop
     jq
-    lazyjournal
     misc
     ripgrep
-    zellij
 
     # Shells & Shell Utilities
     atuin
@@ -36,28 +33,22 @@ mkUser {
     zoxide
 
     # Terminals
-    alacritty
     ghostty
-    ptyxis
 
     # Editors & AI
     ai
+    pi
     visual-studio-code
     zed
 
     # Browsers
     google-chrome
-    vivaldi
 
     # Communication
-    discord
     slack
-    zulip
 
     # Productivity
-    clickup
     onepassword
-    spotify
     tana
     zoom
 
@@ -71,26 +62,17 @@ mkUser {
     comma
     cue
     cuenv
-    dagger
     deno
     devenv
     direnv
-    distrobox
-    docker
-    flox
     go
     just
     kubernetes
-    moon
     nh
     nix-dev
     podman
-    pulumi
     python
     rust
-
-    # Cloud
-    google-cloud
 
     # Darwin-only apps (no-ops on Linux)
     cursor

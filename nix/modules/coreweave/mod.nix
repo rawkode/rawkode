@@ -13,8 +13,6 @@ mkApp {
     }:
     let
       # Platform-specific naming for cwctl releases
-      platform = if pkgs.stdenv.isDarwin then "Darwin" else "Linux";
-      arch = if pkgs.stdenv.isAarch64 then "arm64" else "x86_64";
 
       cwctlget = pkgs.writeShellScriptBin "cwctlget" ''
         set -euo pipefail
@@ -65,12 +63,10 @@ mkApp {
       '';
     in
     {
-      home.packages =
-        with inputs.coreweave.packages.${pkgs.stdenv.hostPlatform.system};
-        [
-          cw-eng-cli
-          cwic
-          cwctlget
-        ];
+      home.packages = with inputs.coreweave.packages.${pkgs.stdenv.hostPlatform.system}; [
+        cw-eng-cli
+        cwic
+        cwctlget
+      ];
     };
 }

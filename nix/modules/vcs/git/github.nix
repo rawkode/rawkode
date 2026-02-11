@@ -6,7 +6,7 @@ mkApp {
   name = "github";
 
   common.home =
-    { ... }:
+    _:
     {
       programs.gh = {
         enable = true;

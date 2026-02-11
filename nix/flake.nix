@@ -27,7 +27,7 @@
 
     browser-previews.url = "github:nix-community/browser-previews";
     comma.url = "github:nix-community/comma";
-		coreweave.url = "github:coreweave/coreweave.nix";
+    coreweave.url = "github:coreweave/coreweave.nix";
     cuenv.url = "github:cuenv/cuenv";
     dagger.url = "github:dagger/nix";
     disko.url = "github:nix-community/disko";
