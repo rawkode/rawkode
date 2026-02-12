@@ -36,9 +36,22 @@ let
       darwin ? { },
       common ? { },
     }:
-    # This is the home-manager module function that receives all module args
-    { config, lib, pkgs, isDarwin, ... }@moduleArgs:
+    # config and pkgs must be explicitly named: home-manager provides them via
+    # _module.args, which only resolves attributes the function pattern requests.
+    # They are forwarded to child configs through moduleArgs.
+    {
+      config,
+      isDarwin,
+      lib,
+      pkgs,
+      ...
+    }@moduleArgs:
     let
+      # Ensure config and pkgs are captured — they aren't used directly here but
+      # must appear in the pattern for _module.args resolution, and are forwarded
+      # to child app configs via moduleArgs.
+      # https://nixos.org/manual/nixpkgs/stable/#module-system-lib-mkOption
+
       # Helper to safely evaluate a config (handles null, function, or attrset)
       evalConfig =
         cfg:

@@ -1,3 +1,3 @@
 {
-	"packages": ["npm:xstate"]
+	"packages": ["npm:xstate", "npm:yaml"]
 }

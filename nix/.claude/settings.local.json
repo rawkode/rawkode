@@ -28,7 +28,8 @@
 			"Bash(nix eval:*)",
 			"Bash(nix flake prefetch:*)",
 			"Bash(nix flake metadata:*)",
-			"Bash(python3:*)"
+			"Bash(python3:*)",
+			"WebFetch(domain:zed.dev)"
 		]
 	}
 }

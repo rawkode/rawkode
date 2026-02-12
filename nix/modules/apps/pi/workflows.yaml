@@ -1,0 +1,172 @@
+defaultWorkflow: rka-dev
+
+workflows:
+  rka-dev:
+    description: Rawkode dev workflow — plan, build, review, test with council-gated transitions.
+    initialState: plan
+    stateOrder: [plan, build, review, test]
+
+    states:
+      plan:
+        systemPrompt: |
+          You are in planning mode. Focus on analysis and planning. Do not implement.
+        instructions: |
+          Create a concise numbered plan to accomplish the objective.
+          Call out assumptions and gaps.
+          End with: `Plan ready for build.`
+        tools: [read, bash, grep, find, ls]
+        next: plan-review
+
+      plan-review:
+        systemPrompt: |
+          You are running a council review gate. Gather independent reviews from
+          subagents, synthesize their feedback, and emit a single verdict.
+        instructions: |
+          Use the subagent tool in parallel to get independent reviews of the plan:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "product-owner", "task": "Review this plan for requirements fit, scope, and delivery risk. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "developer", "task": "Review this plan for engineering feasibility, architecture fit, and sequencing. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "code-reviewer", "task": "Review this plan for quality risks, missing checks, and potential regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "tester-qa", "task": "Review this plan for testability, coverage gaps, and validation risks. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If all approve with no critical issues, emit:
+          VERDICT: build
+
+          If any agent raises critical concerns, emit:
+          VERDICT: plan
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          build: build
+          plan: plan
+
+      build:
+        systemPrompt: |
+          You are in execution mode. Implement minimal, correct changes. Verify incrementally.
+        instructions: |
+          Implement according to the approved plan and latest council feedback.
+          Summarize key changes and any remaining risks.
+        tools: [read, bash, edit, write, grep, find, ls]
+        next: build-review
+
+      build-review:
+        systemPrompt: |
+          You are running a council review gate. Gather independent reviews from
+          subagents, synthesize their feedback, and emit a single verdict.
+        instructions: |
+          Use the subagent tool in parallel to review the implementation:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "developer", "task": "Review the implementation for correctness, architecture fit, and maintainability. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "code-reviewer", "task": "Review the implementation for code quality, regressions, and style. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If approved, emit:
+          VERDICT: review
+
+          If critical issues found, emit:
+          VERDICT: build
+
+          If the approach is fundamentally wrong, emit:
+          VERDICT: plan
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          review: review
+          build: build
+          plan: plan
+
+      review:
+        systemPrompt: |
+          You are in execution mode. Fix issues found during review.
+        instructions: |
+          Perform a self-review pass and fix issues found.
+          Call out what was fixed and what remains.
+        tools: [read, bash, edit, write, grep, find, ls]
+        next: review-gate
+
+      review-gate:
+        systemPrompt: |
+          You are running a council review gate. Gather independent reviews from
+          subagents, synthesize their feedback, and emit a single verdict.
+        instructions: |
+          Use the subagent tool in parallel to review the self-review fixes:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "code-reviewer", "task": "Review the latest changes for quality, correctness, and regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "tester-qa", "task": "Review the latest changes for testability and validation readiness. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If approved, emit:
+          VERDICT: test
+
+          If issues found, emit:
+          VERDICT: review
+
+          If fundamentally wrong, emit:
+          VERDICT: plan
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          test: test
+          review: review
+          plan: plan
+
+      test:
+        systemPrompt: |
+          You are in execution mode. Run tests and fix failures.
+        instructions: |
+          Run relevant tests and validation commands.
+          If failures occur, fix and rerun.
+          Summarize verification evidence clearly.
+        tools: [read, bash, edit, write, grep, find, ls]
+        next: test-gate
+
+      test-gate:
+        systemPrompt: |
+          You are running a council review gate. Gather independent reviews from
+          subagents, synthesize their feedback, and emit a single verdict.
+        instructions: |
+          Use the subagent tool in parallel to review test evidence:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "tester-qa", "task": "Review test evidence and release confidence. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "product-owner", "task": "Review test evidence against the original objective and acceptance criteria. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If quality bar is met, emit:
+          VERDICT: done
+
+          If more testing needed, emit:
+          VERDICT: test
+
+          If implementation issues found, emit:
+          VERDICT: build
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          done: null
+          test: test
+          build: build

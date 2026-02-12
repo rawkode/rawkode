@@ -5,18 +5,16 @@ in
 mkApp {
   name = "github";
 
-  common.home =
-    _:
-    {
-      programs.gh = {
-        enable = true;
+  common.home = _: {
+    programs.gh = {
+      enable = true;
 
-        settings = {
-          git_protocol = "ssh";
-          prompt = "enabled";
-        };
+      settings = {
+        git_protocol = "ssh";
+        prompt = "enabled";
       };
     };
+  };
 
   darwin.system =
     { lib, ... }:
