@@ -46,7 +46,7 @@ mkApp {
         tab_size = 2;
         soft_wrap = "editor_width";
         cursor_blink = false;
-        show_whitespaces = "boundary";
+        show_whitespace = "boundary";
         format_on_save = "on";
         autosave = "on_focus_change";
         linked_edits = true;
