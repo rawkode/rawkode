@@ -33,9 +33,4 @@
       };
     };
 
-  # NOTE: App imports have been removed from this profile.
-  # Apps should now be managed via the `apps` parameter in mkUser.
-  flake.homeModules.profiles-desktop = _: {
-    # Infrastructure-level desktop home-manager settings can go here
-  };
 }

@@ -15,28 +15,16 @@
       inputs.self.darwinModules.user
 
       # Machine-specific config
-      (
-        { lib, ... }:
-        {
-          networking = {
-            hostName = "CW-GG9T93PVFC-L";
-            localHostName = "CW-GG9T93PVFC-L";
-            computerName = "CW-GG9T93PVFC-L";
-          };
+      {
+        networking = {
+          hostName = "CW-GG9T93PVFC-L";
+          localHostName = "CW-GG9T93PVFC-L";
+          computerName = "CW-GG9T93PVFC-L";
+        };
 
-          rawkOS.user.username = "dflanagan";
-
-          # CoreWeave-managed device: disable firewall automation
-          rawkOS.darwin.firewall.enable = false;
-
-          users.users.dflanagan = {
-            name = "dflanagan";
-            home = "/Users/dflanagan";
-          };
-
-          system.primaryUser = lib.mkForce "dflanagan";
-        }
-      )
+        # CoreWeave-managed device: disable firewall automation
+        rawkOS.darwin.firewall.enable = false;
+      }
     ];
     specialArgs = {
       inherit inputs;

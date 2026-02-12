@@ -101,17 +101,6 @@
           # Re-enable power-profiles-daemon (removed auto-cpufreq)
           services.power-profiles-daemon.enable = lib.mkDefault true;
 
-          # Nix settings
-          nix.settings = {
-            substituters = [
-              "https://niri.cachix.org"
-              "https://wezterm.cachix.org"
-            ];
-            trusted-public-keys = [
-              "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
-              "wezterm.cachix.org-1:kAbhjYUC9qvblTE+s7S+kl5XM1zVa4skO+E/1IDWdH0="
-            ];
-          };
         }
       )
     ];

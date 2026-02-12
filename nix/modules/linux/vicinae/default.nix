@@ -1,11 +1,24 @@
 { lib, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
+  vicinaeCache = {
+    substituters = [ "https://vicinae.cachix.org/" ];
+    trusted-public-keys = [
+      "vicinae.cachix.org-1:1kDrfienkGHPYbkpNj1mWTr7Fm1+zcenzgTizIcI3oc="
+    ];
+  };
 in
 mkApp {
   name = "vicinae";
 
+  linux.system = _: {
+    nix.settings = vicinaeCache;
+  };
+
   linux.home = _: {
+    nix.settings = vicinaeCache;
+
     services.vicinae = {
       enable = true;
       settings = {

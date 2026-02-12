@@ -1,6 +1,13 @@
 { inputs, lib, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
+  niriCache = {
+    substituters = [ "https://niri.cachix.org" ];
+    trusted-public-keys = [
+      "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
+    ];
+  };
 in
 mkApp {
   name = "niri";
@@ -8,6 +15,8 @@ mkApp {
   linux.system =
     { pkgs, ... }:
     {
+      nix.settings = niriCache;
+
       programs.niri.enable = true;
       systemd.user.services.niri-flake-polkit.enable = false;
 
@@ -39,6 +48,8 @@ mkApp {
         options ? programs && options.programs ? niri && options.programs.niri ? enable;
     in
     {
+      nix.settings = niriCache;
+
       imports =
         lib.optionals (osClass != "nixos") [
           inputs.niri.homeModules.niri

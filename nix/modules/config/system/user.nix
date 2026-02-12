@@ -1,3 +1,32 @@
+let
+  mkUserOptions =
+    { lib, pkgs }:
+    {
+      username = lib.mkOption {
+        type = lib.types.str;
+        description = "The username of the standard account";
+      };
+
+      name = lib.mkOption {
+        type = lib.types.str;
+        description = "The real name of the standard account";
+      };
+
+      shell = lib.mkOption {
+        type = lib.types.shellPackage;
+        default = pkgs.fish;
+        defaultText = lib.literalExpression "pkgs.fish";
+        example = lib.literalExpression "pkgs.fish";
+        description = ''
+          The path to the user's shell. Can use shell derivations,
+          like `pkgs.bashInteractive`. Don't
+          forget to enable your shell in
+          `programs` if necessary,
+          like `programs.zsh.enable = true;`.
+        '';
+      };
+    };
+in
 {
   flake.nixosModules.user =
     {
@@ -6,36 +35,11 @@
       pkgs,
       ...
     }:
-    with lib;
     let
       cfg = config.rawkOS.user;
     in
     {
-      options.rawkOS.user = with lib.types; {
-        username = mkOption {
-          type = str;
-          description = "The username of the standard account";
-        };
-
-        name = mkOption {
-          type = str;
-          description = "The real name of the standard account";
-        };
-
-        shell = mkOption {
-          type = types.shellPackage;
-          default = pkgs.fish;
-          defaultText = literalExpression "pkgs.fish";
-          example = literalExpression "pkgs.fish";
-          description = ''
-            The path to the user's shell. Can use shell derivations,
-            like `pkgs.bashInteractive`. Don't
-            forget to enable your shell in
-            `programs` if necessary,
-            like `programs.zsh.enable = true;`.
-          '';
-        };
-      };
+      options.rawkOS.user = mkUserOptions { inherit lib pkgs; };
 
       config = {
         users.groups.${cfg.username} = {
@@ -74,36 +78,11 @@
       pkgs,
       ...
     }:
-    with lib;
     let
       cfg = config.rawkOS.user;
     in
     {
-      options.rawkOS.user = with lib.types; {
-        username = mkOption {
-          type = str;
-          description = "The username of the standard account";
-        };
-
-        name = mkOption {
-          type = str;
-          description = "The real name of the standard account";
-        };
-
-        shell = mkOption {
-          type = types.shellPackage;
-          default = pkgs.fish;
-          defaultText = literalExpression "pkgs.fish";
-          example = literalExpression "pkgs.fish";
-          description = ''
-            The path to the user's shell. Can use shell derivations,
-            like `pkgs.bashInteractive`. Don't
-            forget to enable your shell in
-            `programs` if necessary,
-            like `programs.zsh.enable = true;`.
-          '';
-        };
-      };
+      options.rawkOS.user = mkUserOptions { inherit lib pkgs; };
 
       config = {
         users.users.${cfg.username} = {

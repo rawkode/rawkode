@@ -1,6 +1,13 @@
 { lib, ... }:
 let
   mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+
+  ghosttyCache = {
+    substituters = [ "https://ghostty.cachix.org/" ];
+    trusted-public-keys = [
+      "ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="
+    ];
+  };
 in
 mkApp {
   name = "ghostty";
@@ -65,6 +72,8 @@ mkApp {
       } ghosttySettings;
     in
     {
+      nix.settings = ghosttyCache;
+
       programs.ghostty = {
         enable = true;
         package =
@@ -92,6 +101,8 @@ mkApp {
       ...
     }:
     {
+      nix.settings = ghosttyCache;
+
       environment.systemPackages = [
         inputs.ghostty.packages.${pkgs.stdenv.hostPlatform.system}.default
       ];
@@ -100,6 +111,8 @@ mkApp {
   darwin.system =
     { lib, ... }:
     {
+      nix.settings = ghosttyCache;
+
       homebrew = {
         enable = lib.mkDefault true;
         casks = [ "ghostty" ];

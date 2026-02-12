@@ -6,8 +6,7 @@ let
 
   # Library functions (also exported via extraSpecialArgs in mkUser)
   rawkOSLib = {
-    fileAsSeparatedString =
-      path: lib.strings.concatStringsSep "\n" (lib.strings.splitString "\n" (builtins.readFile path));
+    fileAsSeparatedString = path: builtins.readFile path;
   };
 in
 {

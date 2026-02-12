@@ -114,14 +114,7 @@ mkUser {
     };
 
   nixosUserConfig = _: {
-    extraGroups = [
-      "audio"
-      "docker"
-      "input"
-      "libvirtd"
-      "video"
-      "wheel"
-    ];
+    extraGroups = [ "libvirtd" ];
   };
 
   enableHomeConfigurations = true;

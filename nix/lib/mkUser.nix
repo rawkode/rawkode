@@ -1,10 +1,8 @@
 { inputs, lib }:
 let
-
   # Library functions available to all modules via extraSpecialArgs
   rawkOSLib = {
-    fileAsSeparatedString =
-      path: lib.strings.concatStringsSep "\n" (lib.strings.splitString "\n" (builtins.readFile path));
+    fileAsSeparatedString = path: builtins.readFile path;
   };
 
   resolveConfig =

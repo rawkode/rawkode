@@ -9,7 +9,6 @@
       cfg = config.rawkOS.user;
     in
     {
-
       environment.systemPackages = with pkgs; [
         nix-forecast
         nixd
@@ -37,21 +36,10 @@
           keep-derivations = true;
           keep-outputs = true;
 
-          substituters = [
-            "https://cache.nixos.org/"
-            "https://nix-community.cachix.org"
-            "https://devenv.cachix.org"
-            "https://ghostty.cachix.org/"
-            "https://vicinae.cachix.org/"
-            "https://wezterm.cachix.org"
-          ];
+          # App/module-specific caches are configured in their own modules.
+          substituters = [ "https://cache.nixos.org/" ];
           trusted-public-keys = [
             "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-            "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-            "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
-            "ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="
-            "vicinae.cachix.org-1:1kDrfienkGHPYbkpNj1mWTr7Fm1+zcenzgTizIcI3oc="
-            "wezterm.cachix.org-1:kAbLYJwT0CRG4CC6AI3qgC/YPpkUWDfH5CPICZ9GQK0="
           ];
         };
       };
@@ -59,19 +47,10 @@
 
   flake.darwinModules.nix = {
     nix.settings = {
-      substituters = [
-        "https://cache.nixos.org/"
-        "https://nix-community.cachix.org"
-        "https://devenv.cachix.org"
-        "https://ghostty.cachix.org/"
-        "https://wezterm.cachix.org"
-      ];
+      # App/module-specific caches are configured in their own modules.
+      substituters = [ "https://cache.nixos.org/" ];
       trusted-public-keys = [
         "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-        "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
-        "ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="
-        "wezterm.cachix.org-1:kAbLYJwT0CRG4CC6AI3qgC/YPpkUWDfH5CPICZ9GQK0="
       ];
     };
   };
