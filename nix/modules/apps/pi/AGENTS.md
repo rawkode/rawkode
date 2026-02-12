@@ -1,5 +1,7 @@
 # General Coding Rules
 
+- Everything is a state machine.
+- Prefer popular packages, such as xstate, over building our own.
 - We ONLY tests behaviours, avoid useless tests.
 - Files should never be more than 500 lines.
   - Exceptions can be made if tests live in the same file as the code.
