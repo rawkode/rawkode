@@ -252,7 +252,7 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			const name = selectedWorkflow ?? "none";
 			ctx.ui.setStatus(
 				"rawko-workflow",
-				ctx.ui.theme.fg("muted", `WF: ${name}`),
+				ctx.ui.theme.fg("muted", `Workflow: ${name}`),
 			);
 			return;
 		}
@@ -260,7 +260,7 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			"rawko-workflow",
 			ctx.ui.theme.fg(
 				"accent",
-				`◉ WF ${run.workflowName} · ${run.currentState}`,
+				`◉ Workflow: ${run.workflowName} · ${run.currentState}`,
 			),
 		);
 	}
