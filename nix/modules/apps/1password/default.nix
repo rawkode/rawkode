@@ -50,8 +50,6 @@ mkApp {
       environment.etc = {
         "1password/custom_allowed_browsers" = {
           text = ''
-            firefox-nightly
-            firefox-nightly-bin
             vivaldi-bin
           '';
           mode = "0755";

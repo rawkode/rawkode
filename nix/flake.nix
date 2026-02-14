@@ -25,13 +25,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    browser-previews.url = "github:nix-community/browser-previews";
     comma.url = "github:nix-community/comma";
     coreweave.url = "github:coreweave/coreweave.nix";
     cuenv.url = "github:cuenv/cuenv";
-    dagger.url = "github:dagger/nix";
     disko.url = "github:nix-community/disko";
-    firefox.url = "github:nix-community/flake-firefox-nightly";
     kree.url = "path:../apps/kree";
     flatpaks.url = "github:gmodena/nix-flatpak";
 
@@ -66,6 +63,7 @@
     systems = {
       url = "github:nix-systems/default";
     };
+    browser-previews.url = "github:nix-community/browser-previews";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     vicinae.url = "github:vicinaehq/vicinae/db4c91c6638d191609e9e7e92d4ecddc8d54b1bb";
   };

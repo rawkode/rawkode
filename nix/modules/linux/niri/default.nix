@@ -1,10 +1,10 @@
 { inputs, lib, ... }:
-let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  let
+    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   niriCache = {
-    substituters = [ "https://niri.cachix.org" ];
-    trusted-public-keys = [
+    extra-substituters = [ "https://niri.cachix.org" ];
+    extra-trusted-public-keys = [
       "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
     ];
   };

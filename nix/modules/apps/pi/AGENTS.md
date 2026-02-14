@@ -1,3 +1,8 @@
+# Discovery
+
+- Always use gh for GitHub Issues/PRs, API
+- If you need access to code, just clone the repo to mktemp, do not use curl/fetch
+
 # General Coding Rules
 
 - Everything is a state machine.

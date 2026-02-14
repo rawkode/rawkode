@@ -1,10 +1,10 @@
 { lib, ... }:
-let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  let
+    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   devenvCache = {
-    substituters = [ "https://devenv.cachix.org" ];
-    trusted-public-keys = [
+    extra-substituters = [ "https://devenv.cachix.org" ];
+    extra-trusted-public-keys = [
       "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
     ];
   };

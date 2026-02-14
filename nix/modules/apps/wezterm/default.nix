@@ -1,10 +1,10 @@
 { lib, ... }:
-let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  let
+    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   weztermCache = {
-    substituters = [ "https://wezterm.cachix.org" ];
-    trusted-public-keys = [
+    extra-substituters = [ "https://wezterm.cachix.org" ];
+    extra-trusted-public-keys = [
       "wezterm.cachix.org-1:kAbLYJwT0CRG4CC6AI3qgC/YPpkUWDfH5CPICZ9GQK0="
     ];
   };

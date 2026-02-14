@@ -1,10 +1,10 @@
 { lib, ... }:
-let
-  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+  let
+    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   vicinaeCache = {
-    substituters = [ "https://vicinae.cachix.org/" ];
-    trusted-public-keys = [
+    extra-substituters = [ "https://vicinae.cachix.org/" ];
+    extra-trusted-public-keys = [
       "vicinae.cachix.org-1:1kDrfienkGHPYbkpNj1mWTr7Fm1+zcenzgTizIcI3oc="
     ];
   };

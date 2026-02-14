@@ -37,8 +37,8 @@
           keep-outputs = true;
 
           # App/module-specific caches are configured in their own modules.
-          substituters = [ "https://cache.nixos.org/" ];
-          trusted-public-keys = [
+          extra-substituters = [ "https://cache.nixos.org/" ];
+          extra-trusted-public-keys = [
             "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
           ];
         };
@@ -48,8 +48,8 @@
   flake.darwinModules.nix = {
     nix.settings = {
       # App/module-specific caches are configured in their own modules.
-      substituters = [ "https://cache.nixos.org/" ];
-      trusted-public-keys = [
+      extra-substituters = [ "https://cache.nixos.org/" ];
+      extra-trusted-public-keys = [
         "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       ];
     };
