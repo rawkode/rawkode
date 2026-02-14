@@ -1,8 +1,8 @@
-defaultWorkflow: rka-dev
+defaultWorkflow: dev-team
 
 workflows:
-  rka-dev:
-    description: Rawkode dev workflow — plan, build, review, test with council-gated transitions.
+  dev-team:
+    description: "Rawkode Dev Team Workflow: plan, build, review, test with council-gated transitions."
     initialState: plan
     stateOrder: [plan, build, review, test]
 
@@ -27,10 +27,12 @@ workflows:
           ```json
           {
             "tasks": [
-              { "agent": "product-owner", "task": "Review this plan for requirements fit, scope, and delivery risk. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "developer", "task": "Review this plan for engineering feasibility, architecture fit, and sequencing. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "code-reviewer", "task": "Review this plan for quality risks, missing checks, and potential regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "tester-qa", "task": "Review this plan for testability, coverage gaps, and validation risks. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+              { "agent": "cosette", "task": "Review this plan for requirements fit, scope, and delivery risk. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "otis", "task": "Review this plan for engineering feasibility, architecture fit, and sequencing. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cypress", "task": "Review this plan for quality risks, missing checks, and potential regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Review this plan for design, API contracts, and performance risks. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "garnet", "task": "Review this plan for resilience, observability, and operational readiness risks. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Review this plan for testability, coverage gaps, and validation risks. End with: VERDICT: APPROVE or VERDICT: REWORK" }
             ],
             "agentScope": "both",
             "confirmProjectAgents": false
@@ -43,6 +45,7 @@ workflows:
           If any agent raises critical concerns, emit:
           VERDICT: plan
         tools: [read, grep, find, ls, subagent]
+        requireApproval: true
         verdicts:
           build: build
           plan: plan
@@ -66,8 +69,10 @@ workflows:
           ```json
           {
             "tasks": [
-              { "agent": "developer", "task": "Review the implementation for correctness, architecture fit, and maintainability. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "code-reviewer", "task": "Review the implementation for code quality, regressions, and style. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+              { "agent": "otis", "task": "Review the implementation for correctness, architecture fit, and maintainability. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cypress", "task": "Review the implementation for correctness, security, and resilience. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Review the implementation for design quality, performance, and API contracts. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "garnet", "task": "Review the implementation for resilience, observability, and operational readiness. End with: VERDICT: APPROVE or VERDICT: REWORK" }
             ],
             "agentScope": "both",
             "confirmProjectAgents": false
@@ -107,8 +112,10 @@ workflows:
           ```json
           {
             "tasks": [
-              { "agent": "code-reviewer", "task": "Review the latest changes for quality, correctness, and regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "tester-qa", "task": "Review the latest changes for testability and validation readiness. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+              { "agent": "cypress", "task": "Review the latest changes for quality, correctness, and regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Review the latest changes for design quality, performance, and regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "garnet", "task": "Review the latest changes for resilience, observability, and regressions. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Review the latest changes for testability and validation readiness. End with: VERDICT: APPROVE or VERDICT: REWORK" }
             ],
             "agentScope": "both",
             "confirmProjectAgents": false
@@ -149,8 +156,10 @@ workflows:
           ```json
           {
             "tasks": [
-              { "agent": "tester-qa", "task": "Review test evidence and release confidence. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-              { "agent": "product-owner", "task": "Review test evidence against the original objective and acceptance criteria. End with: VERDICT: APPROVE or VERDICT: REWORK" }
+              { "agent": "cricket", "task": "Review test evidence for coverage depth and release confidence. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "oslo", "task": "Review test evidence for edge case coverage and defect prevention. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "gideon", "task": "Review test evidence for integration completeness and deployment readiness. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cosette", "task": "Review test evidence against the original objective and acceptance criteria. End with: VERDICT: APPROVE or VERDICT: REWORK" }
             ],
             "agentScope": "both",
             "confirmProjectAgents": false

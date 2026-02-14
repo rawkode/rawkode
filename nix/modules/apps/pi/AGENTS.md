@@ -8,6 +8,8 @@
 - Everything is a state machine.
 - Prefer popular packages, such as xstate, over building our own.
 - We ONLY tests behaviours, avoid useless tests.
+- Avoid redundant comments. Comment on WHY, never HOW. Let the code speak for itself.
+- Underscores and hypens in filenames are a sign of hierarchy, just use directories.
 - Files should never be more than 500 lines.
   - Exceptions can be made if tests live in the same file as the code.
 - Group by domain, not type.
@@ -17,6 +19,7 @@
 # JavaScript / TypeScript
 
 - Unless a bun.lock exists, always use Deno
+- Never use node or npm
 
 # Rust
 

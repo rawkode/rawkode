@@ -560,13 +560,31 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("Workflow complete.", "info");
 				return;
 			}
+
+			// Human-in-the-loop approval gate
+			if (state.requireApproval) {
+				const approved = await ctx.ui.confirm(
+					`Approve transition: ${run.currentState} → ${next}?`,
+					`The council verdict is: ${next.toUpperCase()}\n\nReview the council feedback above before approving. Select "No" to stop the workflow so you can provide additional guidance.`,
+				);
+				if (!approved) {
+					actor.send({ type: "STOP" });
+					syncState(ctx);
+					ctx.ui.notify(
+						`Workflow paused. Transition to '${next}' was not approved.\nUse /workflow-run to restart, or provide feedback and re-run.`,
+						"info",
+					);
+					return;
+				}
+			}
+
 			actor.send({ type: "ADVANCE", nextState: next });
 			syncState(ctx);
 			dispatch(ctx);
 			return;
 		}
 
-		// Auto-advance
+		// Auto-advance (with optional approval gate)
 		const next = resolveNextState(workflow, run.currentState);
 		if (!next) {
 			actor.send({ type: "COMPLETE" });
@@ -574,6 +592,23 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify("Workflow complete.", "info");
 			return;
 		}
+
+		if (state?.requireApproval) {
+			const approved = await ctx.ui.confirm(
+				`Approve transition: ${run.currentState} → ${next}?`,
+				"Review the output above before approving. Select \"No\" to stop the workflow so you can provide additional guidance.",
+			);
+			if (!approved) {
+				actor.send({ type: "STOP" });
+				syncState(ctx);
+				ctx.ui.notify(
+					`Workflow paused. Transition to '${next}' was not approved.\nUse /workflow-run to restart, or provide feedback and re-run.`,
+					"info",
+				);
+				return;
+			}
+		}
+
 		actor.send({ type: "ADVANCE", nextState: next });
 		syncState(ctx);
 		dispatch(ctx);

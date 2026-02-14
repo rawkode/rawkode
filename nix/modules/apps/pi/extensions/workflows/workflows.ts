@@ -14,6 +14,7 @@ export interface WorkflowStateDefinition {
 	tools?: string[];
 	next?: string;
 	verdicts?: Record<string, string | null>;
+	requireApproval?: boolean;
 }
 
 export interface WorkflowDefinition {
@@ -73,6 +74,7 @@ function normalizeState(v: unknown): WorkflowStateDefinition | undefined {
 	if (tools) def.tools = tools;
 	const next = str(r.next);
 	if (next) def.next = next;
+	if (r.requireApproval === true) def.requireApproval = true;
 	const verdictsRaw = asRecord(r.verdicts);
 	if (verdictsRaw) {
 		const verdicts: Record<string, string | null> = {};
@@ -130,6 +132,7 @@ function mergeStates(
 				? { ...base.verdicts, ...over.verdicts }
 				: over.verdicts
 			: base.verdicts,
+		requireApproval: over.requireApproval ?? base.requireApproval,
 	};
 }
 
