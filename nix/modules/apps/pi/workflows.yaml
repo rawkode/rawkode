@@ -179,3 +179,262 @@ workflows:
           done: null
           test: test
           build: build
+
+  product-spec:
+    description: "Product Spec Workflow: interview, council agreement, specialist writing, and review to produce ADRs, RFCs, Specs, and BDD Scenarios."
+    initialState: interview
+    stateOrder: [interview, synthesize, write, revise]
+
+    states:
+      interview:
+        systemPrompt: |
+          You are in discovery mode. Your job is to interview the user to extract
+          complete, unambiguous requirements. Do not write documents yet.
+        instructions: |
+          First, ensure the output directory exists:
+          ```bash
+          mkdir -p specs
+          ```
+
+          Then dispatch Reed for a structured requirements interview:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "reed", "task": "Interview the user about their objective. Follow your structured interview process: problem space, users & actors, functional requirements, constraints & non-functional requirements, boundaries & scope. Probe for ambiguity. When the interview is complete, produce a structured requirements summary covering: Problem Statement, Users & Actors, Functional Requirements, Non-Functional Requirements, Data Model, API Contracts, Non-Goals, Open Questions, Risks & Dependencies, and Decisions Made. Write the summary to specs/REQUIREMENTS.md" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Review Reed's output. If the requirements summary is complete and written to
+          specs/REQUIREMENTS.md, proceed. If the interview feels incomplete, ask the user
+          follow-up questions directly before proceeding.
+        tools: [read, bash, edit, write, grep, find, ls, subagent]
+        next: interview-review
+
+      interview-review:
+        systemPrompt: |
+          You are running a council review gate. Gather independent reviews of the
+          requirements summary from subagents, synthesize their feedback, and emit a verdict.
+        instructions: |
+          Use the subagent tool in parallel to review the requirements in specs/REQUIREMENTS.md:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "cosette", "task": "Review specs/REQUIREMENTS.md for requirements completeness, scope clarity, user impact, and delivery risk. Are the requirements testable and unambiguous? Are non-goals explicit? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "otis", "task": "Review specs/REQUIREMENTS.md for engineering feasibility, architecture implications, and technical completeness. Are data models and API contracts sufficient to implement from? Are constraints realistic? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Review specs/REQUIREMENTS.md for design quality, API contract clarity, and performance requirement completeness. Are the interfaces well-defined and hard to misuse? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Review specs/REQUIREMENTS.md for testability. Can every functional requirement be verified with a concrete test? Are edge cases and error states identified? End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If all approve with no critical issues, emit:
+          VERDICT: synthesize
+
+          If any agent raises critical concerns, emit:
+          VERDICT: interview
+        tools: [read, grep, find, ls, subagent]
+        requireApproval: true
+        verdicts:
+          synthesize: synthesize
+          interview: interview
+
+      synthesize:
+        systemPrompt: |
+          You are in synthesis mode. Consolidate council feedback into the final
+          requirements document. This document is the single source of truth for all
+          downstream writing.
+        instructions: |
+          Review the council feedback from the interview-review stage.
+          Update specs/REQUIREMENTS.md to address all council feedback:
+          - Resolve any ambiguities flagged by reviewers
+          - Add missing edge cases or error states
+          - Clarify any requirements that were deemed untestable
+          - Ensure data models and API contracts are implementation-ready
+
+          Summarize what was changed and confirm the document is ready for
+          specialist writers.
+        tools: [read, bash, edit, write, grep, find, ls]
+        next: synthesize-review
+
+      synthesize-review:
+        systemPrompt: |
+          You are running a council review gate. This is the final agreement gate
+          before specialist writers begin. The council must unanimously agree the
+          requirements are complete, unambiguous, and implementation-ready.
+        instructions: |
+          Use the subagent tool in parallel to review the finalized specs/REQUIREMENTS.md:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "cosette", "task": "Final review of specs/REQUIREMENTS.md. Are all requirements complete, prioritized, and aligned with the user's objective? Are non-goals explicit? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "otis", "task": "Final review of specs/REQUIREMENTS.md. Is this implementable as-is? Are there any remaining ambiguities that would block an engineer? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Final review of specs/REQUIREMENTS.md. Are API contracts, data models, and interfaces fully specified? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "garnet", "task": "Final review of specs/REQUIREMENTS.md. Are resilience, observability, and operational requirements addressed? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Final review of specs/REQUIREMENTS.md. Is every requirement testable with clear acceptance criteria? End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If all approve, emit:
+          VERDICT: write
+
+          If concerns remain but are minor, emit:
+          VERDICT: synthesize
+
+          If fundamental issues require re-interviewing the user, emit:
+          VERDICT: interview
+        tools: [read, grep, find, ls, subagent]
+        requireApproval: true
+        verdicts:
+          write: write
+          synthesize: synthesize
+          interview: interview
+
+      write:
+        systemPrompt: |
+          You are in writing mode. Dispatch specialist agents to produce all
+          specification documents in parallel from the agreed requirements.
+        instructions: |
+          First, ensure the output directory exists:
+          ```bash
+          mkdir -p specs
+          ```
+
+          Then dispatch specialist writers in parallel.
+          Each writer reads specs/REQUIREMENTS.md and produces their document:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "maren", "task": "Read specs/REQUIREMENTS.md. Write an Architecture Decision Record (ADR) covering the key technical decisions implied by the requirements — technology choices, architectural patterns, data storage, API style, etc. Document alternatives considered and rationale. Write to specs/ADR.md" },
+              { "agent": "maren", "task": "Read specs/REQUIREMENTS.md. Write a Request for Comments (RFC) with a detailed technical design: component architecture, data flow, API contracts, error handling strategy, and deployment considerations. Write to specs/RFC.md" },
+              { "agent": "finch", "task": "Read specs/REQUIREMENTS.md. Write a detailed functional specification covering: goals & non-goals, user stories with acceptance criteria, data model with field-level constraints, API contracts with request/response schemas and error codes, business rules, state transitions, error handling matrix, performance requirements, security considerations, and migration plan. Write to specs/SPEC.md" },
+              { "agent": "briar", "task": "Read specs/REQUIREMENTS.md and specs/SPEC.md (if available). Write comprehensive BDD scenarios in Gherkin format covering: happy paths, validation & input boundaries, error states, edge cases, and state transitions. Tag scenarios by category. Cross-reference requirements. Write to specs/SCENARIOS.md" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Verify all 4 documents were written to specs/:
+          - specs/ADR.md
+          - specs/RFC.md
+          - specs/SPEC.md
+          - specs/SCENARIOS.md
+
+          If any document is missing, note which writer failed and what is absent.
+          Summarize what was produced and flag any gaps.
+        tools: [read, bash, edit, write, grep, find, ls, subagent]
+        next: doc-review
+
+      doc-review:
+        systemPrompt: |
+          You are running a council review gate. The council reviews all produced
+          documents for correctness, completeness, consistency with requirements,
+          and internal coherence across the document set.
+        instructions: |
+          First, verify all expected documents exist in specs/:
+          - specs/REQUIREMENTS.md (from interview/synthesize)
+          - specs/ADR.md (from maren)
+          - specs/RFC.md (from maren)
+          - specs/SPEC.md (from finch)
+          - specs/SCENARIOS.md (from briar)
+
+          If any document is missing, emit VERDICT: write immediately.
+
+          Otherwise, dispatch the council to review:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "cosette", "task": "Review all documents in specs/ (REQUIREMENTS.md, ADR.md, RFC.md, SPEC.md, SCENARIOS.md). Verify they are internally consistent, aligned with the user's original objective, and complete. Check that non-goals are respected and scope hasn't crept. End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "otis", "task": "Review specs/RFC.md and specs/SPEC.md for engineering soundness. Is the technical design feasible? Are API contracts consistent between RFC and SPEC? Are error handling and data models aligned? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cypress", "task": "Review all documents in specs/ for correctness and internal consistency. Do the BDD scenarios in SCENARIOS.md actually trace to requirements in SPEC.md? Are there contradictions between documents? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "opal", "task": "Review specs/ADR.md and specs/RFC.md for design quality. Are alternatives genuinely considered? Are tradeoffs honestly documented? Are API contracts minimal and hard to misuse? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "garnet", "task": "Review specs/RFC.md and specs/SPEC.md for resilience, observability, and operational readiness. Are failure modes addressed? Is monitoring planned? Are deployment concerns covered? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Review specs/SCENARIOS.md against specs/SPEC.md and specs/REQUIREMENTS.md. Is scenario coverage sufficient? Are happy paths, error states, edge cases, and boundaries all covered? Are any requirements missing scenarios? End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If all approve, emit:
+          VERDICT: revise
+
+          If documents need rewriting, emit:
+          VERDICT: write
+
+          If requirements themselves need revisiting, emit:
+          VERDICT: interview
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          revise: revise
+          write: write
+          interview: interview
+
+      revise:
+        systemPrompt: |
+          You are in revision mode. Address all council feedback from doc-review.
+          Fix inconsistencies, fill gaps, and improve document quality.
+        instructions: |
+          Review the council feedback from doc-review.
+          For each issue raised:
+          1. Read the affected document(s) in specs/
+          2. Make targeted fixes addressing the specific concern
+          3. Verify cross-document consistency after each fix
+
+          Key areas to check:
+          - Requirements traceability: every requirement has scenarios, every scenario traces to a requirement
+          - API consistency: RFC and SPEC agree on contracts
+          - ADR completeness: all key decisions documented with alternatives
+          - Scenario coverage: no untested requirements remain
+
+          Summarize what was fixed and what remains.
+        tools: [read, bash, edit, write, grep, find, ls]
+        next: final-review
+
+      final-review:
+        systemPrompt: |
+          You are running the final council review gate. This is the last check
+          before the specification set is considered complete. Focus on cross-document
+          consistency, completeness, and readiness for handoff to engineering.
+        instructions: |
+          Use the subagent tool in parallel for final review of all specs/ documents:
+
+          ```json
+          {
+            "tasks": [
+              { "agent": "cosette", "task": "Final review of all specs/ documents. Does the complete document set faithfully capture the user's original objective? Is it ready to hand off to an engineering team? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "otis", "task": "Final review of all specs/ documents. Could an engineer implement from these documents without asking clarifying questions? Are there any remaining ambiguities or gaps? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cypress", "task": "Final review of all specs/ documents. Are all documents internally consistent? Do cross-references resolve correctly? Are there any contradictions? End with: VERDICT: APPROVE or VERDICT: REWORK" },
+              { "agent": "cricket", "task": "Final review of specs/SCENARIOS.md. Is scenario coverage comprehensive? Are all requirements traceable to at least one scenario? End with: VERDICT: APPROVE or VERDICT: REWORK" }
+            ],
+            "agentScope": "both",
+            "confirmProjectAgents": false
+          }
+          ```
+
+          Synthesize the council feedback. If the quality bar is met, emit:
+          VERDICT: done
+
+          If revisions are needed, emit:
+          VERDICT: revise
+
+          If documents need major rewriting, emit:
+          VERDICT: write
+        tools: [read, grep, find, ls, subagent]
+        verdicts:
+          done: null
+          revise: revise
+          write: write
