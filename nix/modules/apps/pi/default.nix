@@ -24,6 +24,10 @@ mkApp {
         source = ./skills;
         force = true;
       };
+      ".pi/agent/prompts" = {
+        source = ./prompts;
+        force = true;
+      };
     };
   };
 }
