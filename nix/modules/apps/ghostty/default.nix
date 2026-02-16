@@ -3,8 +3,8 @@ let
   mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   ghosttyCache = {
-    substituters = [ "https://ghostty.cachix.org/" ];
-    trusted-public-keys = [
+    extra-substituters = [ "https://ghostty.cachix.org/" ];
+    extra-trusted-public-keys = [
       "ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="
     ];
   };
