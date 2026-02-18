@@ -48,6 +48,7 @@ mkUser {
     slack
 
     # Productivity
+    handy
     onepassword
     tana
     zoom
