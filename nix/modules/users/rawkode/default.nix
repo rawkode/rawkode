@@ -18,6 +18,7 @@ mkUser {
     bat
     btop
     eza
+    google-youtube3-cli
     htop
     jq
     misc
