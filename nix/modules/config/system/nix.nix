@@ -65,6 +65,12 @@
             "nix-command"
             "flakes"
           ];
+          # Keep cache.nixos.org in user-level nix.conf so app modules can add caches
+          # without overriding the primary binary cache.
+          substituters = [ "https://cache.nixos.org/" ];
+          trusted-public-keys = [
+            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+          ];
         };
       };
 

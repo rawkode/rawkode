@@ -27,7 +27,6 @@
 
     comma.url = "github:nix-community/comma";
     coreweave.url = "github:coreweave/coreweave.nix";
-    cuenv.url = "github:cuenv/cuenv";
     disko.url = "github:nix-community/disko";
     kree.url = "path:../apps/kree";
     flatpaks.url = "github:gmodena/nix-flatpak";

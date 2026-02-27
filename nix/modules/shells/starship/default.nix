@@ -32,7 +32,6 @@ mkApp {
             "$directory"
             "\${custom.jj}"
             "$git_state"
-            "\${custom.cuenv_hooks}"
             "$cmd_duration"
             "$line_break"
             "$python"
@@ -66,15 +65,6 @@ mkApp {
             shell = [ "jj-starship" ];
             format = "$output ";
             description = "Unified Git/Jujutsu prompt via jj-starship";
-          };
-
-          custom.cuenv_hooks = {
-            command = "cuenv env status --hooks --format=starship";
-            format = "$output";
-            # Only run when cuenv config file exists (avoid running on every prompt)
-            when = "test -f env.cue";
-            disabled = false;
-            description = "cuenv hooks status";
           };
         };
       };

@@ -63,7 +63,6 @@ mkUser {
     bun
     comma
     cue
-    cuenv
     deno
     devenv
     direnv
