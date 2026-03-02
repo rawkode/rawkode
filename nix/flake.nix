@@ -38,7 +38,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     ironbar.url = "github:JakeStanger/ironbar";
-    jj-starship.url = "github:dmmulroy/jj-starship";
+    jj-starship = {
+      url = "github:dmmulroy/jj-starship";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";
