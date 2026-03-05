@@ -1,6 +1,6 @@
 { lib, ... }:
-  let
-    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   weztermCache = {
     extra-substituters = [ "https://wezterm.cachix.org" ];

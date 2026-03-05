@@ -1,6 +1,6 @@
 { inputs, lib, ... }:
-  let
-    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   niriCache = {
     extra-substituters = [ "https://niri.cachix.org" ];

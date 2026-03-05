@@ -1,6 +1,6 @@
 { lib, ... }:
-  let
-    mkApp = import ../../../lib/mkApp.nix { inherit lib; };
+let
+  mkApp = import ../../../lib/mkApp.nix { inherit lib; };
 
   devenvCache = {
     extra-substituters = [ "https://devenv.cachix.org" ];

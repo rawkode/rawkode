@@ -596,7 +596,7 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 		if (state?.requireApproval) {
 			const approved = await ctx.ui.confirm(
 				`Approve transition: ${run.currentState} → ${next}?`,
-				"Review the output above before approving. Select \"No\" to stop the workflow so you can provide additional guidance.",
+				'Review the output above before approving. Select "No" to stop the workflow so you can provide additional guidance.',
 			);
 			if (!approved) {
 				actor.send({ type: "STOP" });

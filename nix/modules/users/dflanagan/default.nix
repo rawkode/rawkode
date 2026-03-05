@@ -19,6 +19,7 @@ mkUser {
     btop
     coreweave
     eza
+    googleworkspace-cli
     htop
     jq
     misc

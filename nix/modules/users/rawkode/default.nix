@@ -19,6 +19,7 @@ mkUser {
     btop
     eza
     google-youtube3-cli
+    googleworkspace-cli
     htop
     jq
     misc
