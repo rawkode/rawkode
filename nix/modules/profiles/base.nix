@@ -442,6 +442,16 @@
 
           security.pam.services.sudo_local.touchIdAuth = true;
 
+          launchd.daemons.maxfiles = {
+            serviceConfig = {
+              Label = "com.rawkode.maxfiles";
+              ProgramArguments = [ "/usr/bin/true" ];
+              RunAtLoad = true;
+              SoftResourceLimits.NumberOfFiles = 1048576;
+              HardResourceLimits.NumberOfFiles = 1048576;
+            };
+          };
+
           rawkOS.darwin = {
             systemDefaults = {
               enable = true;
