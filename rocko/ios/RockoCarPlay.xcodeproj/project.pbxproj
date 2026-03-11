@@ -1,0 +1,339 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000010000000000000001 /* RockoCarPlayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* RockoCarPlayApp.swift */; };
+		A10000010000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000002 /* AppDelegate.swift */; };
+		A10000010000000000000003 /* AudioCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000003 /* AudioCaptureEngine.swift */; };
+		A10000010000000000000004 /* AudioPlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000004 /* AudioPlaybackEngine.swift */; };
+		A10000010000000000000006 /* RockoSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000006 /* RockoSocketClient.swift */; };
+		A10000010000000000000007 /* LiveSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000007 /* LiveSessionStore.swift */; };
+		A10000010000000000000008 /* SessionDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000008 /* SessionDashboardView.swift */; };
+		A10000010000000000000009 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000C /* Configuration.swift */; };
+		A1000001000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000001000000000000000D /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000010000000000000001 /* RockoCarPlayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoCarPlayApp.swift; sourceTree = "<group>"; };
+		A20000010000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A20000010000000000000003 /* AudioCaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureEngine.swift; sourceTree = "<group>"; };
+		A20000010000000000000004 /* AudioPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackEngine.swift; sourceTree = "<group>"; };
+		A20000010000000000000006 /* RockoSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoSocketClient.swift; sourceTree = "<group>"; };
+		A20000010000000000000007 /* LiveSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSessionStore.swift; sourceTree = "<group>"; };
+		A20000010000000000000008 /* SessionDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDashboardView.swift; sourceTree = "<group>"; };
+		A20000010000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000001000000000000000A /* RockoCarPlay.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RockoCarPlay.entitlements; sourceTree = "<group>"; };
+		A2000001000000000000000B /* RockoCarPlay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RockoCarPlay.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000001000000000000000C /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		A2000001000000000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A40000010000000000000002 /* RockoCarPlay */,
+				A40000010000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A40000010000000000000002 /* RockoCarPlay */ = {
+			isa = PBXGroup;
+			children = (
+				A40000010000000000000004 /* Config */,
+				A40000010000000000000005 /* Sources */,
+			);
+			path = RockoCarPlay;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000001000000000000000B /* RockoCarPlay.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000004 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000009 /* Info.plist */,
+				A2000001000000000000000A /* RockoCarPlay.entitlements */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000005 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A40000010000000000000006 /* App */,
+				A40000010000000000000007 /* Audio */,
+				A40000010000000000000009 /* Networking */,
+				A4000001000000000000000C /* Resources */,
+				A4000001000000000000000A /* State */,
+				A4000001000000000000000B /* UI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000006 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000002 /* AppDelegate.swift */,
+				A2000001000000000000000C /* Configuration.swift */,
+				A20000010000000000000001 /* RockoCarPlayApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000007 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000003 /* AudioCaptureEngine.swift */,
+				A20000010000000000000004 /* AudioPlaybackEngine.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		A40000010000000000000009 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000006 /* RockoSocketClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		A4000001000000000000000A /* State */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000007 /* LiveSessionStore.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+		A4000001000000000000000B /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000008 /* SessionDashboardView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		A4000001000000000000000C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A2000001000000000000000D /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000010000000000000001 /* RockoCarPlay */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000010000000000000002 /* Build configuration list for PBXNativeTarget "RockoCarPlay" */;
+			buildPhases = (
+				A30000010000000000000002 /* Sources */,
+				A30000010000000000000001 /* Frameworks */,
+				A30000010000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RockoCarPlay;
+			productName = RockoCarPlay;
+			productReference = A2000001000000000000000B /* RockoCarPlay.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A60000010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1700;
+				LastUpgradeCheck = 1700;
+				TargetAttributes = {
+					A50000010000000000000001 = {
+						CreatedOnToolsVersion = 17.0;
+					};
+				};
+			};
+			buildConfigurationList = A80000010000000000000001 /* Build configuration list for PBXProject "RockoCarPlay" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A40000010000000000000001;
+			productRefGroup = A40000010000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000010000000000000001 /* RockoCarPlay */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A30000010000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001000000000000000A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A30000010000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000002 /* AppDelegate.swift in Sources */,
+				A10000010000000000000001 /* RockoCarPlayApp.swift in Sources */,
+				A10000010000000000000003 /* AudioCaptureEngine.swift in Sources */,
+				A10000010000000000000004 /* AudioPlaybackEngine.swift in Sources */,
+				A10000010000000000000006 /* RockoSocketClient.swift in Sources */,
+				A10000010000000000000007 /* LiveSessionStore.swift in Sources */,
+				A10000010000000000000008 /* SessionDashboardView.swift in Sources */,
+				A10000010000000000000009 /* Configuration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A70000010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A70000010000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A70000010000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RockoCarPlay/Config/RockoCarPlay.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RockoCarPlay/Config/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = rocko.rawkode.academy;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A70000010000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RockoCarPlay/Config/RockoCarPlay.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RockoCarPlay/Config/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = rocko.rawkode.academy;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000010000000000000001 /* Build configuration list for PBXProject "RockoCarPlay" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A70000010000000000000001 /* Debug */,
+				A70000010000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000010000000000000002 /* Build configuration list for PBXNativeTarget "RockoCarPlay" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A70000010000000000000003 /* Debug */,
+				A70000010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A60000010000000000000001 /* Project object */;
+}
