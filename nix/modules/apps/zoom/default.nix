@@ -5,7 +5,7 @@ in
 mkApp {
   name = "zoom";
 
-  common.home =
+  linux.home =
     { lib, pkgs, ... }:
     {
       home.packages = lib.optionals (lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.zoom-us) [

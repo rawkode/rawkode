@@ -24,13 +24,6 @@
 	"hide-on-clear": false,
 	"hide-on-action": true,
 	"script-fail-notify": true,
-	"notification-visibility": {
-		"example-name": {
-			"state": "muted",
-			"urgency": "Low",
-			"app-name": "Spotify"
-		}
-	},
 	"widgets": [
 		"title",
 		"buttons-grid",
