@@ -5,4 +5,10 @@ set -Ux EDITOR "hx"
 set fish_autosuggestion_enabled 0
 
 # Ensure nix-darwin per-user profile is in PATH (for home-manager packages with useUserPackages)
-fish_add_path --prepend /etc/profiles/per-user/$USER/bin
+# Append so that Homebrew (if present) can take precedence
+fish_add_path --append /etc/profiles/per-user/$USER/bin
+
+# Add Homebrew to PATH on macOS if present (prefer ahead of Nix)
+if test -d /opt/homebrew/bin
+  fish_add_path --prepend /opt/homebrew/bin /opt/homebrew/sbin
+end
