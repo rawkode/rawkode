@@ -92,6 +92,7 @@
         inputs.self.darwinModules.fantastical
         inputs.self.darwinModules.fonts
         inputs.self.darwinModules.ghostty
+        inputs.self.darwinModules.ice
         inputs.self.darwinModules.kree
         inputs.self.darwinModules.mimestream
         inputs.self.darwinModules.power

@@ -1,0 +1,1 @@
+- Use jj instead of Git when .jj directory exists in Git root
