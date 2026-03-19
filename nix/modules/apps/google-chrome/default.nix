@@ -37,7 +37,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = [ "google-chrome" ];
+        casks = [ "google-chrome@dev" ];
       };
     };
 }

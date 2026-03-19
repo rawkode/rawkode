@@ -15,6 +15,7 @@
 - Build a system: `nix build .#nixosConfigurations.<machine>.config.system.build.toplevel`.
 - Switch on target machine: `sudo nixos-rebuild switch --flake .#<machine>`.
 - Discover outputs: `nix flake show`.
+- Upgrade Determinate Nix: `sudo determinate-nixd upgrade`.
 
 ## Coding Style & Naming Conventions
 - Nix formatting uses `nixfmt-rfc-style`; run `nix fmt` before committing.

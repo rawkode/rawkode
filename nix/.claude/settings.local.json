@@ -39,7 +39,8 @@
       "Bash(launchctl print:*)",
       "Bash(grep -r \"launchd\\\\|process\\\\|limits\\\\|ulimit\" /Users/rawkode/Code/src/github.com/rawkode/rawkode/nix --include=\"*.nix\" 2>/dev/null | head -20)",
       "WebSearch",
-      "WebFetch(domain:nix-darwin.github.io)"
+      "WebFetch(domain:nix-darwin.github.io)",
+      "Bash(nix:*)"
     ]
   }
 }
