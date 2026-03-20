@@ -12,19 +12,21 @@ in
 mkApp {
   name = "wezterm";
 
-  common.home =
+  common.home = _: {
+    nix.settings = weztermCache;
+
+    xdg.configFile."wezterm" = {
+      source = ./config;
+      recursive = true;
+    };
+  };
+
+  linux.home =
     { pkgs, ... }:
     {
-      nix.settings = weztermCache;
-
       home.packages = with pkgs; [
         wezterm
       ];
-
-      xdg.configFile."wezterm" = {
-        source = ./config;
-        recursive = true;
-      };
     };
 
   linux.system = _: {

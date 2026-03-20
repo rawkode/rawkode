@@ -83,7 +83,12 @@ mkApp {
     ];
 
   darwin.system =
-    { config, lib, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     {
       programs.fish.enable = true;
       environment.shells = lib.mkAfter [ pkgs.fish ];

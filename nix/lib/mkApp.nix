@@ -28,78 +28,26 @@ _:
 let
   noopModule = _: { };
 
-  # Build a platform-aware home module using isDarwin from extraSpecialArgs
-  # This returns a proper home-manager module function
+  # Build a platform-aware home module using isDarwin from extraSpecialArgs.
+  # App home configs (common.home, linux.home, darwin.home) are standard modules —
+  # we just import them conditionally and let the module system handle arg injection
+  # and config merging.
   mkHomeModule =
     {
       linux ? { },
       darwin ? { },
       common ? { },
     }:
-    # config and pkgs must be explicitly named: home-manager provides them via
-    # _module.args, which only resolves attributes the function pattern requests.
-    # They are forwarded to child configs through moduleArgs.
+    { isDarwin, lib, ... }:
     {
-      config,
-      isDarwin,
-      lib,
-      pkgs,
-      ...
-    }@moduleArgs:
-    let
-      # Ensure config and pkgs are captured — they aren't used directly here but
-      # must appear in the pattern for _module.args resolution, and are forwarded
-      # to child app configs via moduleArgs.
-      # https://nixos.org/manual/nixpkgs/stable/#module-system-lib-mkOption
-
-      # Helper to safely evaluate a config (handles null, function, or attrset)
-      evalConfig =
-        cfg:
-        if cfg == null then
-          { }
-        else if lib.isFunction cfg then
-          cfg moduleArgs
-        else if lib.isAttrs cfg then
-          cfg
-        else
-          throw "mkApp: config must be null, function, or attrset, got ${builtins.typeOf cfg}";
-
-      commonConfig = evalConfig (common.home or null);
-      platformConfig =
-        if isDarwin then evalConfig (darwin.home or null) else evalConfig (linux.home or null);
-
-      # Extract imports from configs (imports must be handled at module level, not in mkMerge)
-      commonImports = commonConfig.imports or [ ];
-      platformImports = platformConfig.imports or [ ];
-      allImports = commonImports ++ platformImports;
-
-      # Extract options from configs (options must be at module level, not in config)
-      commonOptions = commonConfig.options or { };
-      platformOptions = platformConfig.options or { };
-      allOptions = lib.recursiveUpdate commonOptions platformOptions;
-
-      # Remove imports and options from configs before merging (they'll be added at module level)
-      commonConfigClean = builtins.removeAttrs commonConfig [
-        "imports"
-        "options"
-      ];
-      platformConfigClean = builtins.removeAttrs platformConfig [
-        "imports"
-        "options"
-      ];
-
-      # If the cleaned configs have a "config" key, use that; otherwise use the whole config
-      # This handles both { config = ...; } and direct config patterns
-      commonConfigValue = commonConfigClean.config or commonConfigClean;
-      platformConfigValue = platformConfigClean.config or platformConfigClean;
-    in
-    {
-      imports = allImports;
-      options = allOptions;
-      config = lib.mkMerge [
-        commonConfigValue
-        platformConfigValue
-      ];
+      imports =
+        lib.optional (common ? home) common.home
+        ++ (
+          if isDarwin then
+            lib.optional (darwin ? home) darwin.home
+          else
+            lib.optional (linux ? home) linux.home
+        );
     };
 
 in

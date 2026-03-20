@@ -35,6 +35,7 @@ mkUser {
 
     # Terminals
     ghostty
+    wezterm
 
     # Editors & AI
     ai
@@ -44,6 +45,7 @@ mkUser {
 
     # Browsers
     google-chrome
+    vivaldi
 
     # Communication
     discord

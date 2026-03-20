@@ -1,5 +1,4 @@
 local wezterm = require 'wezterm'
-local appearance = require 'appearance'
 
 if wezterm.config_builder then
     config = wezterm.config_builder()
@@ -12,30 +11,41 @@ if wezterm.config_builder then
     config.hide_mouse_cursor_when_typing = true
     config.adjust_window_size_when_changing_font_size = false
 
-    config.leader = {
-        key = ',',
-        mods = 'CTRL',
-        timeout_milliseconds = 1000
-    }
+    config.use_fancy_tab_bar = true
+		config.window_decorations = 'RESIZE|INTEGRATED_BUTTONS'
 
     config.front_end = "OpenGL"
     config.enable_wayland = true
     config.webgpu_power_preference = "HighPerformance"
 
-    config.enable_tab_bar = false
+		config.window_padding = {
+		  left = 64,
+		  right = 64,
+		  top = 64,
+		  bottom = 64,
+		}
+
     config.window_close_confirmation = "NeverPrompt"
 
-    config.window_background_opacity = 1
+    config.pane_focus_follows_mouse = true
+
+		config.macos_window_background_blur = 20
+		config.window_background_opacity = 0.92
 
     config.window_frame = {
         font = wezterm.font({
-            family = 'MonaspiceAr Nerd Font',
+            family = 'Monaspace Neon',
             weight = 'Bold'
         }),
-        font_size = 11
+        font_size = 14
     }
+    config.keys = {{
+	    key = 'p',
+	    mods = 'CMD',
+	    action = wezterm.action.ActivateCommandPalette,
+	  }}
 
-    config.font = wezterm.font_with_fallback {'MonaspiceAr Nerd Font', 'Symbols Nerd Font Mono'}
+    config.font = wezterm.font_with_fallback {'Monaspace Neon', 'Symbols Nerd Font Mono'}
     config.font_size = 16.0
 
     -- Clickable Links
