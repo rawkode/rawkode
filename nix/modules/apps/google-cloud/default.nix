@@ -5,7 +5,7 @@ in
 mkApp {
   name = "google-cloud";
 
-  common.home =
+  linux.home =
     { pkgs, ... }:
     {
       home.packages = with pkgs; [

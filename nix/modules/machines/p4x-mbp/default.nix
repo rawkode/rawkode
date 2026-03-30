@@ -33,6 +33,7 @@
     ];
     specialArgs = {
       inherit inputs;
+      machine = "p4x-mbp";
     };
   };
 

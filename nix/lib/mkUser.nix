@@ -1,5 +1,7 @@
 { inputs, lib }:
 let
+  capabilityResolver = import ./capabilityResolver.nix { inherit inputs lib; };
+
   # Library functions available to all modules via extraSpecialArgs
   rawkOSLib = {
     fileAsSeparatedString = path: builtins.readFile path;
@@ -14,6 +16,24 @@ let
     else
       config;
 
+  resolveCapabilityImports =
+    {
+      kind,
+      machine,
+      username,
+      defaultCapabilities,
+      disabledCapabilities,
+    }:
+    capabilityResolver.resolveUserCapabilityImports {
+      inherit
+        kind
+        machine
+        username
+        defaultCapabilities
+        disabledCapabilities
+        ;
+    };
+
   mkHomeConfigurations =
     {
       username,
@@ -24,7 +44,9 @@ let
       machineSystems,
     }:
     let
-      machines = builtins.attrNames (builtins.readDir machinesDir);
+      machines = builtins.attrNames (
+        builtins.filterAttrs (_name: type: type == "directory") (builtins.readDir machinesDir)
+      );
     in
     builtins.listToAttrs (
       map (
@@ -50,6 +72,7 @@ let
                 identity
                 preferences
                 rawkOSLib
+                machine
                 ;
               isDarwin = lib.strings.hasSuffix "darwin" system;
               osClass = "standalone";
@@ -70,13 +93,10 @@ let
         darwin = "/Users/${username}";
         linux = "/home/${username}";
       },
-      # NEW: list of app bundles from inputs.self.appBundles.*
-      # Each app is { home = module; darwin = module; nixos = module; }
       apps ? [ ],
-      # Additional imports for home-manager (e.g., profile modules)
-      # These are included on all platforms
+      defaultCapabilities ? [ ],
+      disabledCapabilities ? [ ],
       extraImports ? [ ],
-      # Platform-specific imports (e.g., nix-flatpak on Linux)
       linuxExtraImports ? [ ],
       darwinExtraImports ? [ ],
       homeExtraConfig ? null,
@@ -92,7 +112,6 @@ let
       },
     }:
     let
-      # Identity object passed to all modules via extraSpecialArgs
       identity = {
         inherit username;
         name = if name != null then name else username;
@@ -100,10 +119,9 @@ let
         inherit signingKey;
       };
 
-      # Extract modules from app bundles
-      appHomeImports = map (app: app.home) apps;
-      appDarwinImports = map (app: app.darwin) apps;
-      appNixosImports = map (app: app.nixos) apps;
+      legacyAppHomeImports = map (app: app.home) apps;
+      legacyAppDarwinImports = map (app: app.darwin) apps;
+      legacyAppNixosImports = map (app: app.nixos) apps;
 
       homeModule =
         {
@@ -111,10 +129,20 @@ let
           pkgs,
           system,
           isDarwin,
+          machine ? null,
           ...
         }:
         let
-          # Platform-specific extra imports
+          capabilityHomeImports = resolveCapabilityImports {
+            kind = "home";
+            inherit
+              machine
+              username
+              defaultCapabilities
+              disabledCapabilities
+              ;
+          };
+
           platformExtraImports = if isDarwin then darwinExtraImports else linuxExtraImports;
 
           baseConfig = {
@@ -128,14 +156,12 @@ let
 
             nixpkgs.config.allowUnfree = true;
 
-            # Darwin-specific: use linkApps instead of copyApps to avoid App Management permission
             targets.darwin = lib.mkIf isDarwin {
               copyApps.enable = false;
               linkApps.enable = true;
             };
 
-            # All app home modules (platform-aware) + extra imports + platform-specific imports
-            imports = appHomeImports ++ extraImports ++ platformExtraImports;
+            imports = legacyAppHomeImports ++ capabilityHomeImports ++ extraImports ++ platformExtraImports;
           };
 
           extraConfig = resolveConfig homeExtraConfig {
@@ -144,13 +170,18 @@ let
               system
               isDarwin
               pkgs
+              machine
               ;
           };
         in
         baseConfig // extraConfig;
 
       nixosHomeModule =
-        { pkgs, ... }:
+        {
+          pkgs,
+          machine ? null,
+          ...
+        }:
         {
           home-manager.backupFileExtension = nixosBackupExtension;
           home-manager.extraSpecialArgs = {
@@ -159,6 +190,7 @@ let
               identity
               preferences
               rawkOSLib
+              machine
               ;
             inherit (pkgs.stdenv.hostPlatform) system;
             inherit (pkgs.stdenv) isDarwin;
@@ -173,7 +205,6 @@ let
           userConfig = resolveConfig nixosUserConfig { inherit pkgs; };
         in
         {
-          # Set rawkOS.user options from identity
           rawkOS.user = {
             inherit username;
             inherit (identity) name;
@@ -186,32 +217,36 @@ let
           // userConfig;
         };
 
-      darwinHomeModule = {
-        home-manager.backupFileExtension = darwinBackupExtension;
-        home-manager.overwriteBackup = true;
-        home-manager.useUserPackages = true;
-        home-manager.extraSpecialArgs = {
-          inherit
-            inputs
-            identity
-            preferences
-            rawkOSLib
-            ;
-          system = darwinSystem;
-          isDarwin = true;
-          osClass = "darwin";
+      darwinHomeModule =
+        {
+          machine ? null,
+          ...
+        }:
+        {
+          home-manager.backupFileExtension = darwinBackupExtension;
+          home-manager.overwriteBackup = true;
+          home-manager.useUserPackages = true;
+          home-manager.extraSpecialArgs = {
+            inherit
+              inputs
+              identity
+              preferences
+              rawkOSLib
+              machine
+              ;
+            system = darwinSystem;
+            isDarwin = true;
+            osClass = "darwin";
+          };
+          home-manager.users.${username} = homeModule;
         };
-        home-manager.users.${username} = homeModule;
-      };
 
       darwinUserModule = {
-        # Set rawkOS.user options from identity (needed by other modules)
         rawkOS.user = {
           inherit username;
           inherit (identity) name;
         };
 
-        # Set user for darwin
         users.users.${username} = {
           name = username;
           home = homeDirectory.darwin;
@@ -238,23 +273,47 @@ let
       flake.homeModules."users-${username}" = homeModule;
 
       flake.nixosModules."users-${username}" =
-        { ... }:
+        {
+          machine ? null,
+          ...
+        }:
         {
           imports = [
             nixosHomeModule
             nixosUserModule
           ]
-          ++ appNixosImports;
+          ++ legacyAppNixosImports
+          ++ resolveCapabilityImports {
+              kind = "nixos";
+              inherit
+                machine
+                username
+                defaultCapabilities
+                disabledCapabilities
+                ;
+          };
         };
 
       flake.darwinModules."users-${username}" =
-        { ... }:
+        {
+          machine ? null,
+          ...
+        }:
         {
           imports = [
             darwinHomeModule
             darwinUserModule
           ]
-          ++ appDarwinImports;
+          ++ legacyAppDarwinImports
+          ++ resolveCapabilityImports {
+              kind = "darwin";
+              inherit
+                machine
+                username
+                defaultCapabilities
+                disabledCapabilities
+                ;
+            };
         };
 
       flake.homeConfigurations = homeConfigurations;

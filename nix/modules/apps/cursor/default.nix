@@ -10,7 +10,10 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = [ "cursor" ];
+        casks = [
+          "cursor"
+          "cursor-cli"
+        ];
       };
     };
 }

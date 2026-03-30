@@ -21,13 +21,11 @@
           localHostName = "CW-GG9T93PVFC-L";
           computerName = "CW-GG9T93PVFC-L";
         };
-
-        # CoreWeave-managed device: disable firewall automation
-        rawkOS.darwin.firewall.enable = false;
       }
     ];
     specialArgs = {
       inherit inputs;
+      machine = "CW-GG9T93PVFC-L";
     };
   };
 

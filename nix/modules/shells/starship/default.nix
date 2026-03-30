@@ -7,14 +7,13 @@ mkApp {
 
   common.home =
     {
-      inputs,
       lib,
       pkgs,
       ...
     }:
     {
       home.packages = [
-        inputs.jj-starship.packages.${pkgs.stdenv.hostPlatform.system}.default
+        pkgs.jj-starship
       ];
 
       programs.starship = {

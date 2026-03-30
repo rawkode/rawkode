@@ -13,7 +13,6 @@
       inputs.self.nixosModules.kernel
       inputs.self.nixosModules.lanzaboote
       inputs.self.nixosModules.plymouth
-      inputs.self.nixosModules.profiles-desktop
       inputs.self.nixosModules.profiles-amd
       inputs.self.nixosModules.disko-btrfs-encrypted
 
@@ -40,6 +39,7 @@
     ];
     specialArgs = {
       inherit inputs;
+      machine = "p4x-desktop-nixos";
     };
   };
 }

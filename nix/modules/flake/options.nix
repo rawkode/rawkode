@@ -18,6 +18,18 @@
     description = "App bundles exported by this flake (home + darwin + nixos modules).";
   };
 
+  options.flake.capabilityBundles = lib.mkOption {
+    type = lib.types.lazyAttrsOf lib.types.raw;
+    default = { };
+    description = "Capability bundles exported by this flake (home + darwin + nixos modules).";
+  };
+
+  options.flake.machineManifests = lib.mkOption {
+    type = lib.types.lazyAttrsOf lib.types.raw;
+    default = { };
+    description = "Per-machine capability manifests exported by this flake.";
+  };
+
   # NOTE: Other flake.* options (homeModules, nixosModules, nixosConfigurations,
   # overlays, packages, etc.) are provided elsewhere (via import-tree/flake-parts)
   # and should not be redeclared here to avoid merge conflicts.

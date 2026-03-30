@@ -11,7 +11,6 @@
       inputs.home-manager.nixosModules.home-manager
 
       # Import profiles - reuse existing desktop and development setup
-      inputs.self.nixosModules.profiles-desktop
       inputs.self.nixosModules.kernel
 
       # Disko for declarative disk partitioning
@@ -108,6 +107,7 @@
     ];
     specialArgs = {
       inherit inputs;
+      machine = "p4x-parallels-nixos";
     };
   };
 }

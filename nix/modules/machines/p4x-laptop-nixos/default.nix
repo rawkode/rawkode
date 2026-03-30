@@ -8,7 +8,6 @@
       inputs.nixos-hardware.nixosModules.framework-13-7040-amd
 
       # Import profiles (includes disko, lanzaboote, flatpaks via profiles-base)
-      inputs.self.nixosModules.profiles-desktop
       inputs.self.nixosModules.disko-btrfs-encrypted
       inputs.self.nixosModules.lanzaboote
 
@@ -81,6 +80,7 @@
     ];
     specialArgs = {
       inherit inputs;
+      machine = "p4x-laptop-nixos";
     };
   };
 }

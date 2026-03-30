@@ -25,6 +25,7 @@
     ];
     specialArgs = {
       inherit inputs;
+      machine = "p4x-studio";
     };
   };
 

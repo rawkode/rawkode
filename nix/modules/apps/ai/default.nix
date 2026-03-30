@@ -42,8 +42,6 @@ mkApp {
           "chatgpt"
           "claude"
           "claude-code"
-          "cursor"
-          "cursor-cli"
           "codex"
           "droid"
         ];
