@@ -64,6 +64,7 @@ mkUser {
     # Development Tools
     bun
     comma
+    cuenv
     cue
     deno
     devenv
