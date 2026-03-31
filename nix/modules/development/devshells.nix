@@ -7,10 +7,10 @@
       devShells.default = pkgs.mkShell {
         packages = with pkgs; [
           cue
+          deadnix
           nh
+          nixd
           nixfmt
-          nixpkgs-fmt
-          nil
           nix-tree
           nix-diff
           starship

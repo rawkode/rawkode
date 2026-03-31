@@ -57,7 +57,7 @@ Counter-examples:
 - htop → you don't build software with it
 - zed → editor is an APP you use (even though it's for coding)
 
-**Note:** Editors (zed, vscode, helix) are apps because they're interactive tools you USE, not platforms you build ON. The code you write targets go/rust/docker, not the editor.
+**Note:** Editors (zed, vscode, cursor) are apps because they're interactive tools you USE, not platforms you build ON. The code you write targets go/rust/docker, not the editor.
 
 ### Rule 3: OS-Specific System Config → `linux/` or `macos/`
 

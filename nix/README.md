@@ -99,7 +99,7 @@ Home manager configurations are integrated via flake inputs. User-specific confi
 ## Development Environment
 
 The development profile includes:
-- Modern CLI tools (ripgrep, bat, eza, helix, delta)
+- Modern CLI tools (ripgrep, bat, eza, delta)
 - Version control with Git and GitHub CLI integration
 - Container tools and development frameworks
 - AI-assisted development tools via nix-ai-tools
