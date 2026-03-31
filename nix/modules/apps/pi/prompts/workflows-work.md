@@ -24,6 +24,7 @@ Execute a work plan efficiently while maintaining quality and finishing features
 2. **Setup Environment**
 
    Check the current branch:
+
    ```bash
    current_branch=$(git branch --show-current)
    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -57,12 +58,12 @@ Execute a work plan efficiently while maintaining quality and finishing features
 
 2. **Incremental Commits**
 
-   | Commit when... | Don't commit when... |
-   |---|---|
-   | Logical unit complete | Small part of a larger unit |
-   | Tests pass + meaningful progress | Tests failing |
-   | About to switch contexts | Purely scaffolding with no behavior |
-   | About to attempt risky changes | Would need a "WIP" message |
+   | Commit when...                   | Don't commit when...                |
+   | -------------------------------- | ----------------------------------- |
+   | Logical unit complete            | Small part of a larger unit         |
+   | Tests pass + meaningful progress | Tests failing                       |
+   | About to switch contexts         | Purely scaffolding with no behavior |
+   | About to attempt risky changes   | Would need a "WIP" message          |
 
    ```bash
    git add <files related to this logical unit>
@@ -83,6 +84,7 @@ Execute a work plan efficiently while maintaining quality and finishing features
 ### Phase 3: Quality Check
 
 1. **Run Core Quality Checks**
+
    ```bash
    # Run full test suite (use project's test command)
    # Run linting (per AGENTS.md)
@@ -92,11 +94,14 @@ Execute a work plan efficiently while maintaining quality and finishing features
 
    ```json
    {
-     "tasks": [
-       { "agent": "code-quality-reviewer", "task": "Review the implementation for correctness and quality" },
-       { "agent": "security-sentinel", "task": "Review for security vulnerabilities" },
-       { "agent": "performance-oracle", "task": "Review for performance issues" }
-     ]
+   	"tasks": [
+   		{
+   			"agent": "code-quality-reviewer",
+   			"task": "Review the implementation for correctness and quality"
+   		},
+   		{ "agent": "security-sentinel", "task": "Review for security vulnerabilities" },
+   		{ "agent": "performance-oracle", "task": "Review for performance issues" }
+   	]
    }
    ```
 
@@ -109,12 +114,14 @@ Execute a work plan efficiently while maintaining quality and finishing features
 ### Phase 4: Ship It
 
 1. **Create Commit**
+
    ```bash
    git add .
    git commit -m "feat(scope): description of what and why"
    ```
 
 2. **Create Pull Request**
+
    ```bash
    git push -u origin feature-branch-name
    gh pr create --title "Feature: [Description]" --body "$(cat <<'EOF'

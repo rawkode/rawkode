@@ -31,15 +31,36 @@ Dispatch parallel review agents:
 
 ```json
 {
-  "tasks": [
-    { "agent": "code-quality-reviewer", "task": "Review this PR for correctness, security, and resilience. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "senior-developer", "task": "Review this PR for engineering quality, architecture fit, and maintainability. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "design-reviewer", "task": "Review this PR for design quality, API contracts, and performance. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "security-sentinel", "task": "Review this PR for security vulnerabilities, input validation, and secrets exposure. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "performance-oracle", "task": "Review this PR for performance bottlenecks, algorithmic complexity, and resource usage. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "pattern-recognition-specialist", "task": "Review this PR for anti-patterns, naming consistency, and code duplication. End with: VERDICT: APPROVE or VERDICT: REWORK" },
-    { "agent": "learnings-researcher", "task": "Search docs/ and specs/ for past decisions related to this PR's modules and patterns. Report relevant institutional knowledge." }
-  ]
+	"tasks": [
+		{
+			"agent": "code-quality-reviewer",
+			"task": "Review this PR for correctness, security, and resilience. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "senior-developer",
+			"task": "Review this PR for engineering quality, architecture fit, and maintainability. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "design-reviewer",
+			"task": "Review this PR for design quality, API contracts, and performance. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "security-sentinel",
+			"task": "Review this PR for security vulnerabilities, input validation, and secrets exposure. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "performance-oracle",
+			"task": "Review this PR for performance bottlenecks, algorithmic complexity, and resource usage. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "pattern-recognition-specialist",
+			"task": "Review this PR for anti-patterns, naming consistency, and code duplication. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		},
+		{
+			"agent": "learnings-researcher",
+			"task": "Search docs/ and specs/ for past decisions related to this PR's modules and patterns. Report relevant institutional knowledge."
+		}
+	]
 }
 ```
 
@@ -49,9 +70,12 @@ Dispatch parallel review agents:
 
 ```json
 {
-  "tasks": [
-    { "agent": "ops-reviewer", "task": "Review database migration safety, rollback procedures, and deployment checklist. End with: VERDICT: APPROVE or VERDICT: REWORK" }
-  ]
+	"tasks": [
+		{
+			"agent": "ops-reviewer",
+			"task": "Review database migration safety, rollback procedures, and deployment checklist. End with: VERDICT: APPROVE or VERDICT: REWORK"
+		}
+	]
 }
 ```
 
@@ -92,12 +116,14 @@ Consolidate all agent reports:
 **Branch:** [branch-name]
 
 ### Findings Summary:
+
 - **Total Findings:** [X]
 - **🔴 CRITICAL (P1):** [count] — BLOCKS MERGE
 - **🟡 IMPORTANT (P2):** [count] — Should Fix
 - **🔵 NICE-TO-HAVE (P3):** [count] — Enhancements
 
 ### Review Agents Used:
+
 - code-quality-reviewer
 - senior-developer
 - design-reviewer
@@ -107,6 +133,7 @@ Consolidate all agent reports:
 - learnings-researcher
 
 ### Next Steps:
+
 1. Address P1 Findings (must fix before merge)
 2. Triage P2/P3 findings
 3. Run tests to verify fixes

@@ -45,6 +45,7 @@ grep -ril "keyword" docs/ specs/
 ```
 
 If a similar issue exists, ask:
+
 1. Create new doc with cross-reference (recommended)
 2. Update existing doc (only if same root cause)
 
@@ -52,13 +53,13 @@ If a similar issue exists, ask:
 
 Determine the document type based on what was solved:
 
-| Problem Type | Output Location | Format |
-|---|---|---|
-| Architecture decision | `docs/adr/NNN-title.md` | ADR (Michael Nygard template) |
-| Technical design change | `docs/rfc/title.md` | RFC |
-| Bug fix / operational issue | `docs/learnings/category/title.md` | Learning doc |
-| Requirement change | `specs/requirements/` (update existing or new file) | Requirement doc |
-| Spec change | `specs/specifications/` (update existing or new file) | Spec update |
+| Problem Type                | Output Location                                       | Format                        |
+| --------------------------- | ----------------------------------------------------- | ----------------------------- |
+| Architecture decision       | `docs/adr/NNN-title.md`                               | ADR (Michael Nygard template) |
+| Technical design change     | `docs/rfc/title.md`                                   | RFC                           |
+| Bug fix / operational issue | `docs/learnings/category/title.md`                    | Learning doc                  |
+| Requirement change          | `specs/requirements/` (update existing or new file)   | Requirement doc               |
+| Spec change                 | `specs/specifications/` (update existing or new file) | Spec update                   |
 
 ### Step 5: Write Documentation
 
@@ -68,17 +69,23 @@ Determine the document type based on what was solved:
 # ADR-NNN: [Title]
 
 ## Status
+
 Accepted
 
 ## Context
+
 [What issue motivated this decision]
 
 ## Decision
+
 [What we decided and why]
 
 ## Consequences
+
 ### Positive
+
 ### Negative
+
 ### Neutral
 
 ## Alternatives Considered
@@ -98,21 +105,27 @@ tags: [searchable keywords]
 # [Title]
 
 ## Problem
+
 [Exact error messages, observable behavior]
 
 ## Investigation
+
 [What was tried and why it didn't work]
 
 ## Root Cause
+
 [Technical explanation]
 
 ## Solution
+
 [Code/config changes with examples]
 
 ## Prevention
+
 [How to avoid in future]
 
 ## Related
+
 [Links to related docs, issues, or ADRs]
 ```
 
@@ -149,6 +162,7 @@ Organized under `docs/learnings/`:
 ## Quality Guidelines
 
 **Good documentation has:**
+
 - ✅ Exact error messages (copy-paste from output)
 - ✅ Specific file/line references
 - ✅ Observable symptoms (what you saw, not interpretations)
@@ -158,6 +172,7 @@ Organized under `docs/learnings/`:
 - ✅ Prevention guidance
 
 **Avoid:**
+
 - ❌ Vague descriptions ("something was wrong")
 - ❌ Missing technical details ("fixed the code")
 - ❌ No context (which version? which file?)

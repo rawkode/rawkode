@@ -27,6 +27,7 @@ modules/
 Test: Does it need `eval "$(x init <shell>)"` or shell-specific configuration?
 
 Examples:
+
 - fish, nushell → ARE shells
 - starship → modifies prompt, needs `starship init`
 - atuin → replaces history, needs `atuin init`
@@ -34,6 +35,7 @@ Examples:
 - carapace → provides completions, needs shell config
 
 Counter-examples:
+
 - jq → standalone binary, no shell integration
 - ripgrep → standalone binary, no shell integration
 
@@ -44,6 +46,7 @@ Counter-examples:
 Test: Do you write code in/for it, or use it to build/deploy software?
 
 Examples:
+
 - go, rust, python → you write code in these languages
 - bun, deno → runtimes you write JS/TS for
 - cue → configuration language you write
@@ -53,6 +56,7 @@ Examples:
 - devenv, direnv, flox → dev environment tooling
 
 Counter-examples:
+
 - firefox → you don't build software with it
 - htop → you don't build software with it
 - zed → editor is an APP you use (even though it's for coding)
@@ -64,6 +68,7 @@ Counter-examples:
 **If it only exists on one OS AND configures the system/DE, it goes in the OS folder.**
 
 Examples:
+
 - Linux DE (gnome, niri, bars, compositors) → `linux/`
 - macOS system utilities (alt-tab, betterdisplay) → `macos/`
 
@@ -83,16 +88,16 @@ If you can run it as a standalone command without shell integration, and it's no
 
 ## Quick Reference
 
-| Tool | Location | Why |
-|------|----------|-----|
-| fzf | `apps/` | Standalone fuzzy finder, no shell init required |
-| atuin | `shells/` | Requires `eval "$(atuin init fish)"` |
-| bun | `development/` | Runtime you write JS for |
-| htop | `apps/` | Standalone process viewer |
-| zed | `apps/` | Editor is a tool you USE, not build ON |
-| docker | `development/` | Platform you build containers with |
-| gnome-tweaks | `linux/` | Linux-only, configures DE |
-| raycast | `macos/` | macOS-only, system launcher |
+| Tool         | Location       | Why                                             |
+| ------------ | -------------- | ----------------------------------------------- |
+| fzf          | `apps/`        | Standalone fuzzy finder, no shell init required |
+| atuin        | `shells/`      | Requires `eval "$(atuin init fish)"`            |
+| bun          | `development/` | Runtime you write JS for                        |
+| htop         | `apps/`        | Standalone process viewer                       |
+| zed          | `apps/`        | Editor is a tool you USE, not build ON          |
+| docker       | `development/` | Platform you build containers with              |
+| gnome-tweaks | `linux/`       | Linux-only, configures DE                       |
+| raycast      | `macos/`       | macOS-only, system launcher                     |
 
 ## Module Format
 

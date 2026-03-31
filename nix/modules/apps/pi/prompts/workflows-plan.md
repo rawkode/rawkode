@@ -30,11 +30,13 @@ ls -la docs/brainstorms/*.md 2>/dev/null | head -10
 ```
 
 **Relevance criteria:** A brainstorm is relevant if:
+
 - The topic (from filename or YAML frontmatter) semantically matches the feature description
 - Created within the last 14 days
 - If multiple candidates match, use the most recent one
 
 **If a relevant brainstorm exists:**
+
 1. Read the brainstorm document
 2. Announce: "Found brainstorm from [date]: [topic]. Using as context for planning."
 3. Extract key decisions, chosen approach, and open questions
@@ -64,10 +66,16 @@ Run these agents **in parallel** to gather local context:
 
 ```json
 {
-  "tasks": [
-    { "agent": "repo-research-analyst", "task": "Analyze repository structure and patterns related to: <feature_description>" },
-    { "agent": "learnings-researcher", "task": "Search docs/ and specs/ for relevant past decisions, ADRs, and institutional knowledge related to: <feature_description>" }
-  ]
+	"tasks": [
+		{
+			"agent": "repo-research-analyst",
+			"task": "Analyze repository structure and patterns related to: <feature_description>"
+		},
+		{
+			"agent": "learnings-researcher",
+			"task": "Search docs/ and specs/ for relevant past decisions, ADRs, and institutional knowledge related to: <feature_description>"
+		}
+	]
 }
 ```
 
@@ -85,9 +93,12 @@ Based on signals from Step 0 and findings from Step 1, decide on external resear
 
 ```json
 {
-  "tasks": [
-    { "agent": "best-practices-researcher", "task": "Research best practices for: <feature_description>" }
-  ]
+	"tasks": [
+		{
+			"agent": "best-practices-researcher",
+			"task": "Research best practices for: <feature_description>"
+		}
+	]
 }
 ```
 
@@ -124,13 +135,16 @@ date: YYYY-MM-DD
 [Brief problem/feature description]
 
 ## Acceptance Criteria
+
 - [ ] Core requirement 1
 - [ ] Core requirement 2
 
 ## Context
+
 [Any critical information]
 
 ## References
+
 - Related issue: #[issue_number]
 ```
 

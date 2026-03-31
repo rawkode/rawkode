@@ -32,12 +32,24 @@ Launch these subagents IN PARALLEL. Each returns text data:
 
 ```json
 {
-  "tasks": [
-    { "agent": "repo-research-analyst", "task": "Analyze the conversation context. Identify the problem type, component, symptoms. Return a YAML frontmatter skeleton with: date, component, problem_type, severity, tags." },
-    { "agent": "senior-developer", "task": "Analyze the investigation steps and solution. Identify root cause and extract the working solution with code examples. Return the solution content as markdown." },
-    { "agent": "learnings-researcher", "task": "Search docs/ and specs/ for related documentation. Find cross-references and related ADRs. Return links and relationships." },
-    { "agent": "best-practices-researcher", "task": "Develop prevention strategies and best practices guidance for avoiding this issue in future. Return prevention content as markdown." }
-  ]
+	"tasks": [
+		{
+			"agent": "repo-research-analyst",
+			"task": "Analyze the conversation context. Identify the problem type, component, symptoms. Return a YAML frontmatter skeleton with: date, component, problem_type, severity, tags."
+		},
+		{
+			"agent": "senior-developer",
+			"task": "Analyze the investigation steps and solution. Identify root cause and extract the working solution with code examples. Return the solution content as markdown."
+		},
+		{
+			"agent": "learnings-researcher",
+			"task": "Search docs/ and specs/ for related documentation. Find cross-references and related ADRs. Return links and relationships."
+		},
+		{
+			"agent": "best-practices-researcher",
+			"task": "Develop prevention strategies and best practices guidance for avoiding this issue in future. Return prevention content as markdown."
+		}
+	]
 }
 ```
 
@@ -48,12 +60,12 @@ Launch these subagents IN PARALLEL. Each returns text data:
 1. Collect all text results from Phase 1
 2. Determine document type and location:
 
-   | Problem Type | Output Location | Format |
-   |---|---|---|
-   | Architecture decision | `docs/adr/NNN-title.md` | ADR |
-   | Technical design change | `docs/rfc/title.md` | RFC |
+   | Problem Type                | Output Location                    | Format       |
+   | --------------------------- | ---------------------------------- | ------------ |
+   | Architecture decision       | `docs/adr/NNN-title.md`            | ADR          |
+   | Technical design change     | `docs/rfc/title.md`                | RFC          |
    | Bug fix / operational issue | `docs/learnings/category/title.md` | Learning doc |
-   | Spec change | `specs/` (update existing) | Spec update |
+   | Spec change                 | `specs/` (update existing)         | Spec update  |
 
 3. Assemble complete markdown file
 4. Create directory if needed: `mkdir -p docs/learnings/[category]/`

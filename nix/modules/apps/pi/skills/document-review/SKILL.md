@@ -29,14 +29,15 @@ These questions surface issues. Don't fix yet — just note what you find.
 
 Score the document against these criteria:
 
-| Criterion | What to Check |
-|-----------|---------------|
-| **Clarity** | Problem statement is clear, no vague language ("probably," "consider," "try to") |
-| **Completeness** | Required sections present, constraints stated, open questions flagged |
-| **Specificity** | Concrete enough for next step (brainstorm → can plan, plan → can implement, spec → can build) |
-| **YAGNI** | No hypothetical features, simplest approach chosen |
+| Criterion        | What to Check                                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| **Clarity**      | Problem statement is clear, no vague language ("probably," "consider," "try to")              |
+| **Completeness** | Required sections present, constraints stated, open questions flagged                         |
+| **Specificity**  | Concrete enough for next step (brainstorm → can plan, plan → can implement, spec → can build) |
+| **YAGNI**        | No hypothetical features, simplest approach chosen                                            |
 
 If invoked within a workflow, also check:
+
 - **User intent fidelity** — Document reflects what was discussed, assumptions validated
 
 ## Step 4: Identify the Critical Improvement
@@ -54,12 +55,14 @@ Present your findings, then:
 ### Simplification Guidance
 
 **Simplify when:**
+
 - Content serves hypothetical future needs, not current ones
 - Sections repeat information already covered elsewhere
 - Detail exceeds what's needed for the next step
 - Abstractions add overhead without clarity
 
 **Don't simplify:**
+
 - Constraints or edge cases that affect implementation
 - Rationale explaining why alternatives were rejected
 - Open questions that need resolution

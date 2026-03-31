@@ -12,6 +12,7 @@ argument-hint: "[PR number or 'current'] [optional: base URL, default localhost:
 <role>Developer Relations Engineer creating feature demo videos</role>
 
 This command creates professional video walkthroughs of features for PR documentation:
+
 - Records browser interactions using agent-browser CLI
 - Demonstrates the complete user flow
 - Uploads the video for easy sharing
@@ -30,11 +31,13 @@ This command creates professional video walkthroughs of features for PR document
 ## Setup
 
 **Check installation:**
+
 ```bash
 command -v agent-browser >/dev/null 2>&1 && echo "Installed" || echo "NOT INSTALLED"
 ```
 
 **Install if needed:**
+
 ```bash
 npm install -g agent-browser && agent-browser install
 ```
@@ -50,6 +53,7 @@ See the `agent-browser` skill for detailed usage.
 **Arguments:** $ARGUMENTS
 
 Parse the input:
+
 - First argument: PR number or "current" (defaults to current branch's PR)
 - Second argument: Base URL (defaults to `http://localhost-3000`)
 
@@ -65,23 +69,25 @@ gh pr view --json number -q '.number'
 <gather_context>
 
 **Get PR details:**
+
 ```bash
 gh pr view [number] --json title,body,files,headRefName -q '.'
 ```
 
 **Get changed files:**
+
 ```bash
 gh pr view [number] --json files -q '.files[].path'
 ```
 
 **Map files to testable routes** (same as playwright-test):
 
-| File Pattern | Route(s) |
-|-------------|----------|
-| `app/views/users/*` | `/users`, `/users/:id`, `/users/new` |
-| `app/controllers/settings_controller.rb` | `/settings` |
+| File Pattern                                 | Route(s)                             |
+| -------------------------------------------- | ------------------------------------ |
+| `app/views/users/*`                          | `/users`, `/users/:id`, `/users/new` |
+| `app/controllers/settings_controller.rb`     | `/settings`                          |
 | `app/javascript/controllers/*_controller.js` | Pages using that Stimulus controller |
-| `app/components/*_component.rb` | Pages rendering that component |
+| `app/components/*_component.rb`              | Pages rendering that component       |
 
 </gather_context>
 
@@ -115,6 +121,7 @@ Based on PR #[number]: [title]
 Estimated duration: ~[X] seconds
 
 Does this look right?
+
 1. Yes, start recording
 2. Modify the flow (describe changes)
 3. Add specific interactions to demonstrate
@@ -127,6 +134,7 @@ Does this look right?
 <setup_recording>
 
 **Create videos directory:**
+
 ```bash
 mkdir -p tmp/videos
 ```
@@ -148,6 +156,7 @@ ffmpeg -framerate 2 -pattern_type glob -i 'tmp/screenshots/*.png' -vf "scale=128
 Execute the planned flow, capturing each step:
 
 **Step 1: Navigate to starting point**
+
 ```bash
 agent-browser open "[base-url]/[start-route]"
 agent-browser wait 2000
@@ -155,6 +164,7 @@ agent-browser screenshot tmp/screenshots/01-start.png
 ```
 
 **Step 2: Perform navigation/interactions**
+
 ```bash
 agent-browser snapshot -i  # Get refs
 agent-browser click @e1    # Click navigation element
@@ -163,6 +173,7 @@ agent-browser screenshot tmp/screenshots/02-navigate.png
 ```
 
 **Step 3: Demonstrate feature**
+
 ```bash
 agent-browser snapshot -i  # Get refs for feature elements
 agent-browser click @e2    # Click feature element
@@ -171,6 +182,7 @@ agent-browser screenshot tmp/screenshots/03-feature.png
 ```
 
 **Step 4: Capture result**
+
 ```bash
 agent-browser wait 2000
 agent-browser screenshot tmp/screenshots/04-result.png
@@ -196,6 +208,7 @@ ffmpeg -y -framerate 0.5 -pattern_type glob -i 'tmp/screenshots/*.png' \
 ```
 
 **Note:**
+
 - The `-2` in MP4 scale ensures height is divisible by 2 (required for H.264)
 - Preview GIF uses 640px width and 128 colors to keep file size small (~100-200KB)
 
@@ -221,6 +234,7 @@ rclone ls r2:kieran-claude/pr-videos/pr-[number]/
 ```
 
 Public URLs (R2 with public access):
+
 ```
 Video: https://pub-4047722ebb1b4b09853f24d3b61467f1.r2.dev/pr-videos/pr-[number]/feature-demo.mp4
 Preview: https://pub-4047722ebb1b4b09853f24d3b61467f1.r2.dev/pr-videos/pr-[number]/feature-demo-preview.gif
@@ -233,6 +247,7 @@ Preview: https://pub-4047722ebb1b4b09853f24d3b61467f1.r2.dev/pr-videos/pr-[numbe
 <update_pr>
 
 **Get current PR body:**
+
 ```bash
 gh pr view [number] --json body -q '.body'
 ```
@@ -248,20 +263,23 @@ If the PR already has a video section, replace it. Otherwise, append:
 
 [![Feature Demo]([preview-gif-url])]([video-mp4-url])
 
-*Click to view full video*
+_Click to view full video_
 ```
 
 Example:
+
 ```markdown
 [![Feature Demo](https://pub-4047722ebb1b4b09853f24d3b61467f1.r2.dev/pr-videos/pr-137/feature-demo-preview.gif)](https://pub-4047722ebb1b4b09853f24d3b61467f1.r2.dev/pr-videos/pr-137/feature-demo.mp4)
 ```
 
 **Update the PR:**
+
 ```bash
 gh pr edit [number] --body "[updated body with video section]"
 ```
 
 **Or add as a comment if preferred:**
+
 ```bash
 gh pr comment [number] --body "## Feature Demo
 
@@ -301,16 +319,19 @@ Present completion summary:
 **Format:** [GIF/MP4]
 
 ### Shots Captured
+
 1. [Starting point] - [description]
 2. [Navigation] - [description]
 3. [Feature demo] - [description]
 4. [Result] - [description]
 
 ### PR Updated
+
 - [x] Video section added to PR description
 - [ ] Ready for review
 
 **Next steps:**
+
 - Review the video to ensure it accurately demonstrates the feature
 - Share with reviewers for context
 ```

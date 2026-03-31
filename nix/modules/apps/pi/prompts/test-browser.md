@@ -9,7 +9,7 @@ argument-hint: "[PR number, branch name, or 'current' for current branch]"
 
 ## CRITICAL: Use agent-browser CLI Only
 
-**DO NOT use Chrome MCP tools (mcp__claude-in-chrome__*).**
+**DO NOT use Chrome MCP tools (mcp**claude-in-chrome**\*).**
 
 This command uses the `agent-browser` CLI exclusively. The agent-browser CLI is a Bash-based tool from Vercel that runs headless Chromium. It is NOT the same as Chrome browser automation via MCP.
 
@@ -20,6 +20,7 @@ If you find yourself calling `mcp__claude-in-chrome__*` tools, STOP. Use `agent-
 <role>QA Engineer specializing in browser-based end-to-end testing</role>
 
 This command tests affected pages in a real browser, catching issues that unit tests miss:
+
 - JavaScript integration bugs
 - CSS/layout regressions
 - User workflow breakages
@@ -36,11 +37,13 @@ This command tests affected pages in a real browser, catching issues that unit t
 ## Setup
 
 **Check installation:**
+
 ```bash
 command -v agent-browser >/dev/null 2>&1 && echo "Installed" || echo "NOT INSTALLED"
 ```
 
 **Install if needed:**
+
 ```bash
 npm install -g agent-browser
 agent-browser install  # Downloads Chromium (~160MB)
@@ -67,6 +70,7 @@ If installation fails, inform the user and stop.
 Before starting tests, ask user if they want to watch the browser:
 
 Use ask_user_question with:
+
 - Question: "Do you want to watch the browser tests run?"
 - Options:
   1. **Headed (watch)** - Opens visible browser window so you can see tests run
@@ -83,16 +87,19 @@ Store the choice and use `--headed` flag when user selects "Headed".
 <determine_scope>
 
 **If PR number provided:**
+
 ```bash
 gh pr view [number] --json files -q '.files[].path'
 ```
 
 **If 'current' or empty:**
+
 ```bash
 git diff --name-only main...HEAD
 ```
 
 **If branch name provided:**
+
 ```bash
 git diff --name-only main...[branch]
 ```
@@ -105,17 +112,17 @@ git diff --name-only main...[branch]
 
 Map changed files to testable routes:
 
-| File Pattern | Route(s) |
-|-------------|----------|
-| `app/views/users/*` | `/users`, `/users/:id`, `/users/new` |
-| `app/controllers/settings_controller.rb` | `/settings` |
+| File Pattern                                 | Route(s)                             |
+| -------------------------------------------- | ------------------------------------ |
+| `app/views/users/*`                          | `/users`, `/users/:id`, `/users/new` |
+| `app/controllers/settings_controller.rb`     | `/settings`                          |
 | `app/javascript/controllers/*_controller.js` | Pages using that Stimulus controller |
-| `app/components/*_component.rb` | Pages rendering that component |
-| `app/views/layouts/*` | All pages (test homepage at minimum) |
-| `app/assets/stylesheets/*` | Visual regression on key pages |
-| `app/helpers/*_helper.rb` | Pages using that helper |
-| `src/app/*` (Next.js) | Corresponding routes |
-| `src/components/*` | Pages using those components |
+| `app/components/*_component.rb`              | Pages rendering that component       |
+| `app/views/layouts/*`                        | All pages (test homepage at minimum) |
+| `app/assets/stylesheets/*`                   | Visual regression on key pages       |
+| `app/helpers/*_helper.rb`                    | Pages using that helper              |
+| `src/app/*` (Next.js)                        | Corresponding routes                 |
+| `src/components/*`                           | Pages using those components         |
 
 Build a list of URLs to test based on the mapping.
 
@@ -133,10 +140,12 @@ agent-browser snapshot -i
 ```
 
 If server is not running, inform user:
+
 ```markdown
 **Server not running**
 
 Please start your development server:
+
 - Rails: `bin/dev` or `rails server`
 - Node/Next.js: `npm run dev`
 
@@ -152,18 +161,21 @@ Then run `/test-browser` again.
 For each affected route, use agent-browser CLI commands (NOT Chrome MCP):
 
 **Step 1: Navigate and capture snapshot**
+
 ```bash
 agent-browser open "http://localhost:3000/[route]"
 agent-browser snapshot -i
 ```
 
 **Step 2: For headed mode (visual debugging)**
+
 ```bash
 agent-browser --headed open "http://localhost:3000/[route]"
 agent-browser --headed snapshot -i
 ```
 
 **Step 3: Verify key elements**
+
 - Use `agent-browser snapshot -i` to get interactive elements with refs
 - Page title/heading present
 - Primary content rendered
@@ -171,12 +183,14 @@ agent-browser --headed snapshot -i
 - Forms have expected fields
 
 **Step 4: Test critical interactions**
+
 ```bash
 agent-browser click @e1  # Use ref from snapshot
 agent-browser snapshot -i
 ```
 
 **Step 5: Take screenshots**
+
 ```bash
 agent-browser screenshot page-name.png
 agent-browser screenshot --full page-name-full.png  # Full page
@@ -190,23 +204,26 @@ agent-browser screenshot --full page-name-full.png  # Full page
 
 Pause for human input when testing touches:
 
-| Flow Type | What to Ask |
-|-----------|-------------|
-| OAuth | "Please sign in with [provider] and confirm it works" |
-| Email | "Check your inbox for the test email and confirm receipt" |
-| Payments | "Complete a test purchase in sandbox mode" |
-| SMS | "Verify you received the SMS code" |
-| External APIs | "Confirm the [service] integration is working" |
+| Flow Type     | What to Ask                                               |
+| ------------- | --------------------------------------------------------- |
+| OAuth         | "Please sign in with [provider] and confirm it works"     |
+| Email         | "Check your inbox for the test email and confirm receipt" |
+| Payments      | "Complete a test purchase in sandbox mode"                |
+| SMS           | "Verify you received the SMS code"                        |
+| External APIs | "Confirm the [service] integration is working"            |
 
 Use ask_user_question:
+
 ```markdown
 **Human Verification Needed**
 
 This test touches the [flow type]. Please:
+
 1. [Action to take]
 2. [What to verify]
 
 Did it work correctly?
+
 1. Yes - continue testing
 2. No - describe the issue
 ```
@@ -224,6 +241,7 @@ When a test fails:
    - Note the exact reproduction steps
 
 2. **Ask user how to proceed:**
+
    ```markdown
    **Test Failed: [route]**
 
@@ -231,6 +249,7 @@ When a test fails:
    Console errors: [if any]
 
    How to proceed?
+
    1. Fix now - I'll help debug and fix
    2. Create todo - Add to todos/ for later
    3. Skip - Continue testing other pages
@@ -266,24 +285,28 @@ After all tests complete, present summary:
 
 ### Pages Tested: [count]
 
-| Route | Status | Notes |
-|-------|--------|-------|
-| `/users` | Pass | |
-| `/settings` | Pass | |
-| `/dashboard` | Fail | Console error: [msg] |
-| `/checkout` | Skip | Requires payment credentials |
+| Route        | Status | Notes                        |
+| ------------ | ------ | ---------------------------- |
+| `/users`     | Pass   |                              |
+| `/settings`  | Pass   |                              |
+| `/dashboard` | Fail   | Console error: [msg]         |
+| `/checkout`  | Skip   | Requires payment credentials |
 
 ### Console Errors: [count]
+
 - [List any errors found]
 
 ### Human Verifications: [count]
+
 - OAuth flow: Confirmed
 - Email delivery: Confirmed
 
 ### Failures: [count]
+
 - `/dashboard` - [issue description]
 
 ### Created Todos: [count]
+
 - `005-pending-p1-browser-test-dashboard-error.md`
 
 ### Result: [PASS / FAIL / PARTIAL]
@@ -306,7 +329,7 @@ After all tests complete, present summary:
 
 ## agent-browser CLI Reference
 
-**ALWAYS use these Bash commands. NEVER use mcp__claude-in-chrome__* tools.**
+**ALWAYS use these Bash commands. NEVER use mcp**claude-in-chrome**\* tools.**
 
 ```bash
 # Navigation
@@ -336,7 +359,10 @@ agent-browser --headed click @e1       # Click in visible browser
 agent-browser wait @e1             # Wait for element
 agent-browser wait 2000            # Wait milliseconds
 ```
+
 ## Pi + MCPorter note
+
 For MCP access in Pi, use MCPorter via the generated tools:
+
 - `mcporter_list` to inspect available MCP tools
 - `mcporter_call` to invoke a tool

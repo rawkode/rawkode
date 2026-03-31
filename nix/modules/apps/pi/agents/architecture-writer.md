@@ -23,35 +23,43 @@ Follow the Michael Nygard ADR template:
 # ADR-NNN: [Title]
 
 ## Status
+
 [Proposed | Accepted | Deprecated | Superseded by ADR-NNN]
 
 ## Context
+
 What is the issue that we're seeing that is motivating this decision or change?
 Include technical context, business drivers, and constraints.
 
 ## Decision
+
 What is the change that we're proposing and/or doing?
 Be specific and concrete.
 
 ## Consequences
 
 ### Positive
+
 - What becomes easier or possible?
 
 ### Negative
+
 - What becomes harder or impossible?
 - What technical debt does this introduce?
 
 ### Neutral
+
 - What changes but is neither better nor worse?
 
 ## Alternatives Considered
 
 ### [Alternative 1]
+
 - Description
 - Why rejected: specific reason
 
 ### [Alternative 2]
+
 - Description
 - Why rejected: specific reason
 ```
@@ -62,37 +70,47 @@ Be specific and concrete.
 # RFC: [Title]
 
 ## Summary
+
 One paragraph overview of the proposal.
 
 ## Motivation
+
 Why are we doing this? What problem does it solve? What use cases does it support?
 Link to requirements or user research.
 
 ## Detailed Design
 
 ### Overview
+
 High-level architecture and component interactions.
 
 ### Component Design
+
 Detailed design for each component, including:
+
 - Responsibilities
 - Interfaces / API contracts
 - Data models
 - Error handling
 
 ### Data Flow
+
 How data moves through the system, step by step.
 
 ## Drawbacks
+
 Why should we NOT do this? What are the costs and risks?
 
 ## Alternatives
+
 What other designs were considered? Why were they rejected?
 
 ## Unresolved Questions
+
 What parts of the design are still TBD?
 
 ## Future Possibilities
+
 What future work does this enable or preclude?
 ```
 

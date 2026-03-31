@@ -5,6 +5,7 @@ A comprehensive NixOS configuration system using flake-parts and modular archite
 ## Overview
 
 This repository contains a modular NixOS configuration that supports:
+
 - **Multiple machine configurations** (Framework laptops, desktops)
 - **Profile-based system composition** (base, desktop, development, AMD hardware)
 - **Modern Nix features** (flakes, home-manager, disko, secure boot)
@@ -14,6 +15,7 @@ This repository contains a modular NixOS configuration that supports:
 ## Architecture
 
 ### Flake Structure
+
 - **flake.nix**: Main entry point using flake-parts for modular composition
 - **modules/**: Modular system components organized by category
 - **profiles/**: High-level system profiles (base, desktop, development, hardware)
@@ -21,17 +23,20 @@ This repository contains a modular NixOS configuration that supports:
 ### Key Components
 
 #### Profiles (`modules/profiles/`)
+
 - **base.nix**: Core system foundation with Nix flakes, networking, users
 - **desktop.nix**: Desktop environment with Niri/GNOME toggle options
 - **development.nix**: Development tools and environments
 - **amd.nix**: AMD hardware optimizations
 
 #### Machine Configurations (`modules/machines/`)
+
 - **p4x-framework-nixos**: Framework 13 AMD laptop with power management
-- **p4x-desktop-nixos**: Desktop workstation configuration  
+- **p4x-desktop-nixos**: Desktop workstation configuration
 - **p4x-laptop-nixos**: General laptop configuration
 
 ### Technology Stack
+
 - **Boot**: Lanzaboote (secure boot) + systemd-boot
 - **Disk**: Disko with BTRFS + encryption
 - **Desktop**: Niri (Wayland compositor) with GNOME fallback
@@ -42,6 +47,7 @@ This repository contains a modular NixOS configuration that supports:
 ## Quick Start
 
 ### Prerequisites
+
 - NixOS or Nix with flakes enabled
 - Git for cloning the repository
 
@@ -66,7 +72,7 @@ Use [cuenv](https://github.com/rawkode/cuenv) for development workflow:
 # Install cuenv if not already available
 nix profile install github:rawkode/cuenv
 
-# See available development tasks  
+# See available development tasks
 cuenv run
 
 # Execute specific development tasks
@@ -76,14 +82,16 @@ cuenv run <task-name>
 ### Home Manager Integration
 
 Home manager configurations are integrated via flake inputs. User-specific configurations are managed in the `modules/home/` directory with categories for:
+
 - Command-line tools and editors
-- Development environments  
+- Development environments
 - AI tools and integrations
 - Git and version control setup
 
 ## Machine-Specific Features
 
 ### Framework Laptop (p4x-framework-nixos)
+
 - **Hardware**: Framework 13 AMD with nixos-hardware integration
 - **Power Management**: Thermald, UPower, suspend-then-hibernate
 - **Display**: HiDPI (200 DPI) with proper scaling
@@ -92,6 +100,7 @@ Home manager configurations are integrated via flake inputs. User-specific confi
 - **Connectivity**: WiFi power saving via systemd-networkd and iwd
 
 ### Desktop Systems
+
 - **Graphics**: Hardware acceleration enabled
 - **Audio**: Full PipeWire stack with low-latency
 - **Peripherals**: QMK keyboard support, advanced input devices
@@ -99,6 +108,7 @@ Home manager configurations are integrated via flake inputs. User-specific confi
 ## Development Environment
 
 The development profile includes:
+
 - Modern CLI tools (ripgrep, bat, eza, delta)
 - Version control with Git and GitHub CLI integration
 - Container tools and development frameworks
@@ -116,16 +126,19 @@ The development profile includes:
 ## Customization
 
 ### Adding a New Machine
+
 1. Create `modules/machines/<machine-name>/default.nix`
 2. Import appropriate profiles and hardware modules
 3. Configure machine-specific settings (hostname, disk layout, etc.)
 
-### Creating Custom Profiles  
+### Creating Custom Profiles
+
 1. Add new profile in `modules/profiles/<profile-name>.nix`
 2. Import required modules and set appropriate defaults
 3. Export as `flake.nixosModules.profiles-<name>`
 
 ### Desktop Environment Toggle
+
 The desktop profile supports switching between Niri and GNOME:
 
 ```nix
@@ -138,6 +151,7 @@ rawkOS.desktop = {
 ## Contributing
 
 This is a personal configuration but contributions are welcome for:
+
 - Bug fixes and improvements
 - New hardware support modules
 - Additional development tools integration

@@ -24,15 +24,7 @@
 	"hide-on-clear": false,
 	"hide-on-action": true,
 	"script-fail-notify": true,
-	"widgets": [
-		"title",
-		"buttons-grid",
-		"mpris",
-		"volume",
-		"backlight",
-		"dnd",
-		"notifications"
-	],
+	"widgets": ["title", "buttons-grid", "mpris", "volume", "backlight", "dnd", "notifications"],
 	"widget-config": {
 		"title": {
 			"text": "Notification Center",

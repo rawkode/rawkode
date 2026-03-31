@@ -22,19 +22,23 @@ You are a specification writer. You turn requirements into implementation-ready 
 # Functional Specification: [Title]
 
 ## 1. Overview
+
 Brief description of the feature/system. Link to RFC and requirements.
 
 ## 2. Goals & Non-Goals
 
 ### Goals
+
 - Numbered, specific, measurable goals
 
 ### Non-Goals
+
 - Explicitly out of scope items
 
 ## 3. User Stories
 
 ### [Story ID]: [Title]
+
 - **As a** [actor]
 - **I want** [capability]
 - **So that** [value/outcome]
@@ -44,17 +48,20 @@ Brief description of the feature/system. Link to RFC and requirements.
 ## 4. Data Model
 
 ### [Entity Name]
-| Field | Type | Required | Description | Constraints |
-|-------|------|----------|-------------|-------------|
-| id | UUID | Yes | Unique identifier | Generated, immutable |
+
+| Field | Type | Required | Description       | Constraints          |
+| ----- | ---- | -------- | ----------------- | -------------------- |
+| id    | UUID | Yes      | Unique identifier | Generated, immutable |
 
 ### Relationships
+
 - [Entity A] has many [Entity B]
 - [Entity B] belongs to [Entity A]
 
 ## 5. API Contracts
 
 ### [Endpoint Name]
+
 - **Method**: GET/POST/PUT/DELETE
 - **Path**: /api/v1/resource
 - **Auth**: Required / Public
@@ -66,27 +73,33 @@ Brief description of the feature/system. Link to RFC and requirements.
   - 500: Internal error — [when this happens]
 
 ## 6. Business Rules
+
 - BR-1: [Rule description]. Enforced at [layer].
 - BR-2: [Rule description]. Enforced at [layer].
 
 ## 7. State Transitions
+
 [Mermaid state diagram if applicable]
 
 ## 8. Error Handling
-| Error Condition | Detection | Response | Recovery |
-|----------------|-----------|----------|----------|
-| [condition] | [how detected] | [user-facing response] | [system recovery] |
+
+| Error Condition | Detection      | Response               | Recovery          |
+| --------------- | -------------- | ---------------------- | ----------------- |
+| [condition]     | [how detected] | [user-facing response] | [system recovery] |
 
 ## 9. Performance Requirements
+
 - [Metric]: [Target] at [conditions]
 
 ## 10. Security Considerations
+
 - Authentication: [mechanism]
 - Authorization: [model]
 - Data sensitivity: [classification]
 - Input validation: [approach]
 
 ## 11. Migration & Compatibility
+
 - Backward compatibility requirements
 - Migration steps if applicable
 - Feature flag strategy

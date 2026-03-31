@@ -12,11 +12,11 @@ Provides the `subagent` tool — delegates tasks to specialized agents with isol
 
 Agents are `.md` files with frontmatter (`name`, `description`, optional `tools`, `model`).
 
-| Scope | Directory |
-|---|---|
-| `user` (default) | `~/.pi/agent/agents/` |
-| `project` | `.pi/agents/` (nearest parent) |
-| `both` | Both directories (project overrides user) |
+| Scope            | Directory                                 |
+| ---------------- | ----------------------------------------- |
+| `user` (default) | `~/.pi/agent/agents/`                     |
+| `project`        | `.pi/agents/` (nearest parent)            |
+| `both`           | Both directories (project overrides user) |
 
 Project-local agents require user confirmation before execution.
 

@@ -52,11 +52,13 @@ Feature: [Feature Name]
 For each feature, write scenarios covering:
 
 ### 1. Happy Paths
+
 - The primary success flow
 - Common variations (different valid inputs)
 - Multi-step workflows end-to-end
 
 ### 2. Validation & Input Boundaries
+
 - Required fields missing
 - Fields at minimum/maximum length
 - Invalid formats (email, URL, date)
@@ -64,6 +66,7 @@ For each feature, write scenarios covering:
 - Numeric boundaries (zero, negative, overflow)
 
 ### 3. Error States
+
 - Resource not found
 - Permission denied / unauthorized
 - Conflict / duplicate
@@ -71,6 +74,7 @@ For each feature, write scenarios covering:
 - Rate limiting / quota exceeded
 
 ### 4. Edge Cases
+
 - Empty collections
 - Single item vs. many items
 - Concurrent modifications
@@ -78,6 +82,7 @@ For each feature, write scenarios covering:
 - Maximum capacity
 
 ### 5. State Transitions
+
 - Valid transitions (expected state changes)
 - Invalid transitions (action in wrong state)
 - Idempotent operations (repeating the same action)

@@ -59,20 +59,20 @@ workflows:
         systemPrompt: |
           You are reviewing changes. Be thorough and critical.
         verdicts:
-          done: null       # workflow complete
-          redo: implement  # go back to implement
+          done: null # workflow complete
+          redo: implement # go back to implement
           rethink: analyze # go back to analyze
 ```
 
 ### State fields
 
-| Field | Description |
-|---|---|
+| Field          | Description                                           |
+| -------------- | ----------------------------------------------------- |
 | `instructions` | Injected as the user message when entering this state |
-| `systemPrompt` | Additional system prompt text for this state |
-| `tools` | Allowed tools (omit to allow all) |
-| `next` | Default next state (for auto-advance) |
-| `verdicts` | Map of verdict keywords → next state (`null` = done) |
+| `systemPrompt` | Additional system prompt text for this state          |
+| `tools`        | Allowed tools (omit to allow all)                     |
+| `next`         | Default next state (for auto-advance)                 |
+| `verdicts`     | Map of verdict keywords → next state (`null` = done)  |
 
 ## Persistence
 
@@ -84,6 +84,6 @@ Dependencies in `.pi/settings.json`:
 
 ```json
 {
-  "packages": ["npm:xstate", "npm:yaml"]
+	"packages": ["npm:xstate", "npm:yaml"]
 }
 ```
