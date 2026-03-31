@@ -43,6 +43,7 @@ mkApp {
           "claude"
           "claude-code"
           "codex"
+          "codex-app"
           "droid"
         ];
       };

@@ -48,5 +48,6 @@ mkCapability {
     darwinModules.alt-tab
     darwinModules.ice
     darwinModules.kree
+    darwinModules.raycast
   ];
 }

@@ -5,6 +5,7 @@
       "desktop"
       "productivity"
       "personal-comms"
+      "personal"
       "development"
       "platform"
     ];

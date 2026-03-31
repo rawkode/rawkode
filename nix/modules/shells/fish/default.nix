@@ -101,5 +101,19 @@ mkApp {
           /etc/profiles/per-user/${config.system.primaryUser}/bin/fish
         ''
       );
+
+      # Ensure fish is set as the login shell via chsh
+      system.activationScripts.postActivation.text = lib.mkAfter (
+        lib.optionalString (lib.attrsets.hasAttrByPath [ "system" "primaryUser" ] config) ''
+          desired_shell="/etc/profiles/per-user/${config.system.primaryUser}/bin/fish"
+          if [ -x "$desired_shell" ]; then
+            current_shell=$(dscl . -read /Users/${config.system.primaryUser} UserShell 2>/dev/null | awk '{print $2}')
+            if [ "$current_shell" != "$desired_shell" ]; then
+              echo "Setting default shell to fish for ${config.system.primaryUser}..."
+              chsh -s "$desired_shell" "${config.system.primaryUser}" 2>/dev/null || true
+            fi
+          fi
+        ''
+      );
     };
 }

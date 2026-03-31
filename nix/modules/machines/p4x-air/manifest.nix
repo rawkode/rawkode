@@ -4,6 +4,7 @@
       "foundation"
       "desktop"
       "productivity"
+      "personal"
       "development"
     ];
     disabledCapabilities = [ ];
