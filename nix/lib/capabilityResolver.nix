@@ -1,4 +1,4 @@
-{ inputs }:
+{ inputs, ... }:
 let
   dedupe =
     items:

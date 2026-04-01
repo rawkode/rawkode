@@ -42,6 +42,10 @@ mkApp {
         kns = "kubens";
       };
 
+      programs.fish.interactiveShellInit = lib.mkIf config.programs.fish.enable ''
+        set -q KREW_ROOT; and set -gx PATH $PATH $KREW_ROOT/.krew/bin; or set -gx PATH $PATH $HOME/.krew/bin
+      '';
+
       programs.fish.shellAliases = lib.mkIf config.programs.fish.enable {
         k = "kubectl";
         kctx = "kubectx";
