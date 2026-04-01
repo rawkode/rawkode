@@ -12,14 +12,28 @@ mkApp {
       pkgs,
       ...
     }:
+    let
+      kubectlKrew = pkgs.symlinkJoin {
+        name = "kubectl-krew";
+        paths = [ pkgs.krew ];
+        postBuild = ''
+          ln -s $out/bin/krew $out/bin/kubectl-krew
+        '';
+      };
+    in
     {
       home.packages = with pkgs; [
         kubectl
+        kubectlKrew
         kubernetes-helm
         kubectx
         stern
         kubecolor
         kustomize
+      ];
+
+      home.sessionPath = [
+        "${config.home.homeDirectory}/.krew/bin"
       ];
 
       programs.bash.shellAliases = lib.mkIf config.programs.bash.enable {
