@@ -66,17 +66,25 @@ nix build .#nixosConfigurations.installer.config.system.build.isoImage
 
 ### Using with cuenv (Development Workflow)
 
-Use [cuenv](https://github.com/rawkode/cuenv) for development workflow:
+Use [cuenv](https://github.com/cuenv/cuenv) for development workflow:
 
 ```bash
 # Install cuenv if not already available
-nix profile install github:rawkode/cuenv
+nix profile install github:cuenv/cuenv
+
+# One-time bootstrap for system trust + cache settings
+# This seeds the active Nix daemon before your first real switch.
+cuenv task bootstrap-cache
+
+# Then run your normal switch
+# nh darwin switch .    # macOS
+# nh os switch .        # NixOS
 
 # See available development tasks
-cuenv run
+cuenv task
 
 # Execute specific development tasks
-cuenv run <task-name>
+cuenv task <task-name>
 ```
 
 ### Home Manager Integration
