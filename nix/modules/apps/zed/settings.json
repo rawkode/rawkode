@@ -1,4 +1,18 @@
 {
+  "agent_servers": {
+    "pi-acp": {
+      "type": "registry"
+    },
+    "github-copilot-cli": {
+      "type": "registry"
+    },
+    "claude-acp": {
+      "type": "registry"
+    },
+    "codex-acp": {
+      "type": "registry"
+    }
+  },
   "theme": {
     "mode": "system",
     "dark": "Catppuccin Mocha",
@@ -37,7 +51,7 @@
     "cursors": true,
     "git_diff": true,
     "search_results": true,
-    "diagnostics": true
+    "diagnostics": "all"
   },
   "git": {
     "inline_blame": {
