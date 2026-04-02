@@ -1,6 +1,7 @@
 set -l cmd (commandline)
 if test -z "$cmd"
-    commandline -r (magic-enter-command)
-    commandline -f suppress-autosuggestion
+    magic-enter-command
+    commandline -f repaint
+    return
 end
 commandline -f execute
