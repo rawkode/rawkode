@@ -846,6 +846,22 @@
         "type": "github"
       }
     },
+    "impeccable": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775075660,
+        "narHash": "sha256-uG5CawCZxRSOkufxapNuUarIbs+f9UUepE8QX3BH5gI=",
+        "owner": "pbakaus",
+        "repo": "impeccable",
+        "rev": "3a4fc70f0e17fccb22565d37e868f8e2f3e73bdd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pbakaus",
+        "repo": "impeccable",
+        "type": "github"
+      }
+    },
     "import-tree": {
       "locked": {
         "lastModified": 1773693634,
@@ -1532,6 +1548,7 @@
         "flatpaks": "flatpaks",
         "ghostty": "ghostty",
         "home-manager": "home-manager_2",
+        "impeccable": "impeccable",
         "import-tree": "import-tree",
         "ironbar": "ironbar",
         "kree": "kree",

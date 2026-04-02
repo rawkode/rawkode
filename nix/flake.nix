@@ -14,6 +14,10 @@
 
     flake-parts.url = "github:hercules-ci/flake-parts";
     import-tree.url = "github:vic/import-tree";
+    impeccable = {
+      url = "github:pbakaus/impeccable";
+      flake = false;
+    };
 
     home-manager = {
       url = "github:nix-community/home-manager/master";

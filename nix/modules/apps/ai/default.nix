@@ -19,15 +19,33 @@ mkApp {
       ];
     };
 
-  common.home = {
-    programs.fish.shellAbbrs = {
-      codex = {
-        position = "command";
-        setCursor = true;
-        expansion = "codex --search --full-auto";
+  common.home =
+    { inputs, ... }:
+    let
+      skillsDir = inputs.impeccable + "/.agents/skills";
+      skillNames = builtins.attrNames (
+        builtins.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
+      );
+    in
+    {
+      home.file = builtins.listToAttrs (
+        map (name: {
+          name = ".agents/skills/${name}";
+          value = {
+            source = "${skillsDir}/${name}";
+            force = true;
+          };
+        }) skillNames
+      );
+
+      programs.fish.shellAbbrs = {
+        codex = {
+          position = "command";
+          setCursor = true;
+          expansion = "codex --search --full-auto";
+        };
       };
     };
-  };
 
   darwin.system =
     { lib, ... }:
