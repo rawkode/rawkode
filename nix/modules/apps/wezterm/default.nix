@@ -36,6 +36,8 @@ mkApp {
   darwin.system =
     { lib, ... }:
     {
+      nix.settings = weztermCache;
+
       homebrew = {
         enable = lib.mkDefault true;
         casks = [ "wezterm" ];
