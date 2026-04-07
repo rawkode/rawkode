@@ -28,6 +28,7 @@ let
         opacity.popups = 0.9;
 
         targets.ghostty.enable = false;
+        targets.fish.enable = false;
         targets.qt.platform = lib.mkForce "qtct";
 
         fonts = {

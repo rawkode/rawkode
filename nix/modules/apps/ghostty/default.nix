@@ -31,7 +31,7 @@ mkApp {
       ghosttySettings = {
         auto-update = "off";
 
-        theme = "light:Catppuccin Latte,dark:Catppuccin Mocha";
+        theme = "light:Rose Pine Dawn,dark:Catppuccin Mocha";
 
         font-family = "Monaspace Neon";
         font-size = 16;
