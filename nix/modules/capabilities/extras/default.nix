@@ -10,7 +10,6 @@ mkCapability {
     descript.home
     mimestream.home
     parallels.home
-    setapp.home
   ];
 
   darwin = with inputs.self.appBundles; [
@@ -18,6 +17,5 @@ mkCapability {
     descript.darwin
     mimestream.darwin
     parallels.darwin
-    setapp.darwin
   ];
 }
