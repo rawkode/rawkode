@@ -27,7 +27,6 @@ let
         opacity.terminal = 0.9;
         opacity.popups = 0.9;
 
-        targets.ghostty.enable = false;
         targets.fish.enable = false;
         targets.qt.platform = lib.mkForce "qtct";
 

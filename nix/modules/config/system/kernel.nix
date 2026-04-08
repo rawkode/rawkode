@@ -6,11 +6,18 @@
       pkgs,
       ...
     }:
+    let
+      useZenKernel = !pkgs.stdenv.hostPlatform.isAarch64;
+    in
     {
       boot = {
         consoleLogLevel = 0;
 
-        kernelPackages = pkgs.linuxKernel.packages.linux_zen;
+        kernelPackages =
+          if useZenKernel then
+            pkgs.linuxKernel.packages.linux_zen
+          else
+            pkgs.linuxPackages;
         # CachyOS-inspired kernel parameters for better desktop responsiveness and gaming
         kernelParams = [
           "nowatchdog"
