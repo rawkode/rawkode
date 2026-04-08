@@ -1,4 +1,6 @@
 # Check if we're in a jj repo first, then fall back to git
+echo
+
 if jj root >/dev/null 2>&1
     eza
     echo
