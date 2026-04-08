@@ -497,6 +497,7 @@
               };
               global = {
                 darkMode = true;
+                autoSwitchTheme = true;
               };
             };
 
@@ -584,7 +585,13 @@
               KeyRepeat = systemDefaultsCfg.keyboard.keyRepeat;
               InitialKeyRepeat = systemDefaultsCfg.keyboard.initialKeyRepeat;
               ApplePressAndHoldEnabled = !systemDefaultsCfg.keyboard.disablePressAndHold;
-              AppleInterfaceStyle = if systemDefaultsCfg.global.darkMode then "Dark" else null;
+              AppleInterfaceStyle =
+                if systemDefaultsCfg.global.autoSwitchTheme then
+                  null
+                else if systemDefaultsCfg.global.darkMode then
+                  "Dark"
+                else
+                  null;
               AppleInterfaceStyleSwitchesAutomatically = systemDefaultsCfg.global.autoSwitchTheme;
               AppleShowAllExtensions = systemDefaultsCfg.finder.showExtensions;
               AppleShowAllFiles = systemDefaultsCfg.finder.showHiddenFiles;
