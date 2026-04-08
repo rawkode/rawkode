@@ -24,7 +24,7 @@ mkApp {
     let
       skillsDir = inputs.impeccable + "/.agents/skills";
       skillNames = builtins.attrNames (
-        builtins.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
+        lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
       );
     in
     {

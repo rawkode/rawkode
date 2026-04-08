@@ -45,7 +45,7 @@ let
     }:
     let
       machines = builtins.attrNames (
-        builtins.filterAttrs (_name: type: type == "directory") (builtins.readDir machinesDir)
+        lib.filterAttrs (_name: type: type == "directory") (builtins.readDir machinesDir)
       );
     in
     builtins.listToAttrs (
