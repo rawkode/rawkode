@@ -20,7 +20,10 @@ def log-step [message: string] {
 def main [] {
 	let flake_config = ($env.FLAKE_CONFIG? | default "p4x-parallels-nixos")
 	let disk_device = ($env.DISK_DEVICE? | default "/dev/sda")
-	let flake_path = ($env.FLAKE_PATH? | default "/tmp/nix")
+	let repo_url = ($env.REPO_URL? | default "https://github.com/rawkode/rawkode")
+	let repo_path = ($env.REPO_PATH? | default "/tmp/rawkode")
+	let flake_subdir = ($env.FLAKE_SUBDIR? | default "nix")
+	let flake_path = ($env.FLAKE_PATH? | default $"($repo_path)/($flake_subdir)")
 
 	print ""
 	print "NixOS Parallels VM Automated Installer"
@@ -39,17 +42,23 @@ def main [] {
 		exit 1
 	}
 
-	let git_dir = ([$flake_path ".git"] | path join)
+	let git_dir = ([$repo_path ".git"] | path join)
 	if ($git_dir | path exists) {
-		log-info $"Updating existing repo at ($flake_path)..."
+		log-info $"Updating existing repo at ($repo_path)..."
 		if (which git | is-empty) {
-			^nix-shell -p git --run $"git -C '($flake_path)' pull"
+			^nix-shell -p git --run $"git -C '($repo_path)' pull"
 		} else {
-			^git -C $flake_path pull
+			^git -C $repo_path pull
 		}
 	} else {
-		log-info "Cloning nix config repo..."
-		^nix-shell -p git --run $"git clone https://github.com/rawkode/nix '($flake_path)'"
+		log-info $"Cloning repo: ($repo_url)"
+		^nix-shell -p git --run $"git clone '($repo_url)' '($repo_path)'"
+	}
+
+	if not ($flake_path | path exists) {
+		log-error $"Flake path does not exist: ($flake_path)"
+		log-info $"Expected flake at repo subdirectory: ($flake_subdir)"
+		exit 1
 	}
 
 	log-info $"Using flake at: ($flake_path)"
