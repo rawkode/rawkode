@@ -88,6 +88,8 @@ def main [] {
 	^lsblk $disk_device
 
 	log-step "Step 3/4: Installing NixOS..."
+	log-info "Raising open file limit to avoid 'too many open files' errors..."
+	^ulimit -n 1048576
 	^nixos-install --flake $"($flake_path)#($flake_config)" --no-root-passwd
 
 	log-step "Step 4/4: Setting up user password..."
