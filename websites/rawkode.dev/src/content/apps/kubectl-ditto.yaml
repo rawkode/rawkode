@@ -1,0 +1,17 @@
+name: kubectl-ditto
+tagline: Generate Kubernetes YAML from the cluster itself
+description: >
+  A kubectl plugin that scaffolds YAML for any built-in resource or CRD using
+  the live OpenAPI schema. Supports interactive mode, schema comments, smart
+  defaults, and both OpenAPI v2 and v3 — no hardcoded templates required.
+platform:
+  - Linux
+  - macOS
+  - Windows
+status: available
+repoUrl: https://github.com/rawkode/kubectl-ditto
+tags:
+  - Kubernetes
+  - CLI
+  - Rust
+  - Open Source

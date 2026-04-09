@@ -1,0 +1,125 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+}
+
+const {
+  title = 'David Flanagan — rawkode.dev',
+  description = 'Developer, builder, and educator. Exploring the intersection of developer tooling, cloud-native infrastructure, and the future of software.',
+  image = '/og.png',
+} = Astro.props;
+
+const siteUrl = Astro.site ?? new URL('https://rawkode.dev');
+const canonical = new URL(Astro.url.pathname, siteUrl);
+const ogImage = new URL(image, siteUrl).toString();
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Person',
+  name: 'David Flanagan',
+  alternateName: 'rawkode',
+  url: siteUrl.toString(),
+  sameAs: [
+    'https://github.com/rawkode',
+    'https://twitter.com/rawkode',
+    'https://bsky.app/profile/rawkode.dev',
+    'https://www.linkedin.com/in/rawkode',
+    'https://rawkode.academy',
+  ],
+  jobTitle: 'Developer, Open Source Maintainer & Educator',
+  description,
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- Favicons -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b0f" />
+
+    <link rel="canonical" href={canonical} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="author" content="David Flanagan" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="rawkode.dev" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_GB" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@rawkode" />
+    <meta name="twitter:creator" content="@rawkode" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <!-- Structured data -->
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+
+    <!-- Theme detection script (inline, must run before paint) -->
+    <script is:inline>
+      (function () {
+        var saved = localStorage.getItem('theme');
+        var root  = document.documentElement;
+        // 'system' (or no saved value) = follow OS; 'light'/'dark' = explicit override
+        if (saved === 'light' || saved === 'dark') {
+          root.setAttribute('data-theme', saved);
+          root.setAttribute('data-ui-theme', saved);
+        } else {
+          // No override — let the CSS media query handle colours
+          root.removeAttribute('data-theme');
+          root.setAttribute('data-ui-theme', 'system');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <slot />
+  </body>
+</html>
+
+<style>
+  .skip-link {
+    position: absolute;
+    top: var(--space-4);
+    left: var(--space-4);
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-accent);
+    color: var(--text-invert);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    text-decoration: none;
+    transform: translateY(-200%);
+    transition: transform var(--dur-fast) var(--ease-out-expo);
+    z-index: var(--z-toast);
+  }
+  .skip-link:focus-visible {
+    transform: translateY(0);
+    outline: none;
+  }
+</style>

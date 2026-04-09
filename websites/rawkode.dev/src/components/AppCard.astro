@@ -1,0 +1,243 @@
+---
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  app: CollectionEntry<'apps'>['data'];
+}
+
+const { app } = Astro.props;
+
+const statusLabel = {
+  available: 'Available',
+  beta: 'Beta',
+  'in-development': 'In Development',
+} as const;
+
+const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawkode/tree/main/${app.repoPath}` : null);
+---
+
+<article class:list={['app-card', { 'app-card--featured': app.featured }]}>
+  <div class="app-card__body">
+    <div class="app-card__header">
+      <div class="app-card__meta">
+        {app.featured && <span class="app-card__featured-badge">Featured</span>}
+        <span class="app-card__platform">{app.platform.join(' · ')}</span>
+        <span class:list={['app-card__status', `app-card__status--${app.status}`]}>
+          {statusLabel[app.status]}
+        </span>
+      </div>
+      <div class="app-card__actions">
+        {repoUrl && <a href={repoUrl} target="_blank" rel="noopener noreferrer" class="app-card__icon-link" aria-label={`View ${app.name} on GitHub`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+          </svg>
+        </a>}
+        {app.websiteUrl && <a href={app.websiteUrl} target="_blank" rel="noopener noreferrer" class="app-card__icon-link" aria-label={`Visit ${app.name} website`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </a>}
+      </div>
+    </div>
+
+    <h3 class="app-card__name">{app.name}</h3>
+    <p class="app-card__tagline">{app.tagline}</p>
+    <p class="app-card__description">{app.description}</p>
+
+    <ul class="app-card__tags" role="list" aria-label="Tags">
+      {app.tags.map((tag) => (
+        <li class="app-card__tag">{tag}</li>
+      ))}
+    </ul>
+  </div>
+</article>
+
+<style>
+  .app-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: border-color var(--dur-fast) var(--ease-out-expo), box-shadow var(--dur-fast) var(--ease-out-expo);
+  }
+
+  @media (hover: hover) {
+    .app-card:hover {
+      border-color: var(--border-default);
+      box-shadow: var(--shadow-md);
+    }
+  }
+
+  /* ─── Featured ──────────────────────────────────────────────────────────── */
+  .app-card--featured {
+    background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 20%, transparent),
+                inset 0 1px 0 color-mix(in oklch, white 6%, transparent);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .app-card--featured::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 60% 40% at 100% 0%,
+      color-mix(in oklch, var(--color-accent) 10%, transparent),
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+
+  @media (hover: hover) {
+    .app-card--featured:hover {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 40%, transparent),
+                  var(--shadow-lg);
+    }
+  }
+
+  .app-card--featured .app-card__name {
+    font-size: 2rem;
+  }
+
+  .app-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    flex: 1;
+    position: relative;
+  }
+
+  .app-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .app-card__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .app-card__featured-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+    border: 1px solid color-mix(in oklch, var(--color-accent) 30%, transparent);
+    border-radius: var(--radius-full);
+    padding: 2px 10px;
+  }
+
+  .app-card__platform {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  .app-card__status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+  }
+
+  .app-card__status--available {
+    background: oklch(93% 0.10 145);
+    color: oklch(35% 0.14 145);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .app-card__status--available {
+      background: oklch(25% 0.08 145);
+      color: oklch(75% 0.14 145);
+    }
+  }
+
+  [data-theme="dark"] .app-card__status--available {
+    background: oklch(25% 0.08 145);
+    color: oklch(75% 0.14 145);
+  }
+
+  .app-card__status--beta {
+    background: var(--accent-100);
+    color: var(--accent-700);
+  }
+
+  .app-card__status--in-development {
+    background: var(--surface-3);
+    color: var(--text-secondary);
+  }
+
+  .app-card__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .app-card__icon-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-out-expo), background var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .app-card__icon-link:hover {
+    color: var(--text-primary);
+    background: var(--surface-3);
+  }
+
+  .app-card__name {
+    font-size: 1.5rem;
+    margin-top: var(--space-2);
+  }
+
+  .app-card__tagline {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-accent);
+    line-height: 1.5;
+  }
+
+  .app-card__description {
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    flex: 1;
+  }
+
+  .app-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    list-style: none;
+    margin-top: var(--space-2);
+  }
+
+  .app-card__tag {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    padding: 2px 10px;
+  }
+</style>

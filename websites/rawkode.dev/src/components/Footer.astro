@@ -1,0 +1,68 @@
+---
+const year = new Date().getFullYear();
+const links = [
+  { href: 'https://bsky.app/profile/rawkode.dev', label: 'Bluesky' },
+  { href: 'https://github.com/rawkode', label: 'GitHub' },
+  { href: 'https://rawkode.academy', label: 'Rawkode Academy' },
+];
+---
+
+<footer class="footer">
+  <div class="container footer__inner">
+    <p class="footer__copy">&copy; {year} David Flanagan</p>
+    <nav aria-label="Footer links">
+      <ul class="footer__links" role="list">
+        {links.map((link) => (
+          <li>
+            <a
+              href={link.href}
+              class="footer__link"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {link.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    margin-top: var(--space-32);
+    border-top: 1px solid var(--border-subtle);
+    padding-block: var(--space-8);
+  }
+
+  .footer__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .footer__copy {
+    font-size: 0.875rem;
+    color: var(--text-tertiary);
+  }
+
+  .footer__links {
+    display: flex;
+    gap: var(--space-6);
+    list-style: none;
+  }
+
+  .footer__link {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .footer__link:hover {
+    color: var(--text-primary);
+  }
+</style>

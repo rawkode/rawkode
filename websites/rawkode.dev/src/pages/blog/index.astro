@@ -1,0 +1,166 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import { getCollection } from 'astro:content';
+
+const allPosts = await getCollection('blog', ({ data }) => !data.draft);
+const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+
+function formatDate(date: Date) {
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+---
+
+<Layout
+  title="Writing — rawkode.dev"
+  description="Long-form writing from David Flanagan on cloud-native infrastructure, developer tooling, and the future of software."
+>
+  <Nav />
+
+  <main id="main-content">
+    <section class="blog-hero">
+      <div class="container">
+        <p class="eyebrow">Writing</p>
+        <h1>Longer thoughts</h1>
+        <p class="lead">On cloud-native infrastructure, developer tooling, open source, and the future of software.</p>
+      </div>
+    </section>
+
+    <section class="blog-content">
+      <div class="container">
+        {posts.length === 0 ? (
+          <p class="empty">Nothing here yet. Check back soon.</p>
+        ) : (
+          <ul class="post-list" role="list">
+            {posts.map((post) => (
+              <li class="post-list__item">
+                <a href={`/blog/${post.id}`} class="post-list__link">
+                  <div class="post-list__content">
+                    <h2 class="post-list__title">{post.data.title}</h2>
+                    <p class="post-list__desc">{post.data.description}</p>
+                    {post.data.tags.length > 0 && (
+                      <ul class="post-list__tags" role="list" aria-label="Tags">
+                        {post.data.tags.map((tag: string) => (
+                          <li class="post-list__tag">{tag}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <time class="post-list__date" datetime={post.data.pubDate.toISOString()}>
+                    {formatDate(post.data.pubDate)}
+                  </time>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>
+
+<style>
+  .blog-hero {
+    padding-block: var(--space-16) var(--space-12);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: var(--space-3);
+  }
+
+  .blog-hero h1 {
+    margin-bottom: var(--space-4);
+  }
+
+  .lead {
+    font-size: 1.125rem;
+    max-width: 60ch;
+  }
+
+  .blog-content {
+    padding-block: var(--space-12) var(--space-24);
+  }
+
+  .empty {
+    color: var(--text-tertiary);
+    font-size: 1.0625rem;
+    padding-block: var(--space-12);
+  }
+
+  .post-list {
+    list-style: none;
+  }
+
+  .post-list__item {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .post-list__link {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-8);
+    padding-block: var(--space-8);
+    text-decoration: none;
+    flex-wrap: wrap;
+  }
+
+  @media (hover: hover) {
+    .post-list__link:hover .post-list__title {
+      color: var(--color-accent);
+    }
+  }
+
+  .post-list__content { flex: 1; min-width: 0; }
+
+  .post-list__title {
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+    transition: color var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .post-list__desc {
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .post-list__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    list-style: none;
+    margin-top: var(--space-3);
+  }
+
+  .post-list__tag {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    padding: 2px 10px;
+  }
+
+  .post-list__date {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

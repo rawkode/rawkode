@@ -1,0 +1,18 @@
+name: Rawkode Academy
+tagline: Cloud-native infrastructure, taught in depth
+description: >
+  Free courses, real-world projects, and a community of engineers focused on
+  cloud-native infrastructure and developer tooling. Covers Kubernetes,
+  platform engineering, and the practices that help teams move faster with
+  confidence.
+platform:
+  - Web
+status: available
+repoUrl: https://github.com/rawkode-academy/rawkode-academy
+websiteUrl: https://rawkode.academy
+featured: true
+tags:
+  - Education
+  - Cloud Native
+  - Kubernetes
+  - Community

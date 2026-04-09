@@ -1,0 +1,16 @@
+name: Kree
+tagline: Focus follows mouse for macOS
+description: >
+  Brings X11-style sloppy focus to macOS. Move your mouse over any window and
+  it activates — no clicking required. Fully configurable delay and
+  modifier-key override, launch-at-login support, and a minimal menu bar
+  footprint.
+platform:
+  - macOS
+status: available
+repoPath: apps/kree
+tags:
+  - macOS
+  - Productivity
+  - Swift
+  - Open Source

@@ -1,0 +1,241 @@
+/* ─── Fonts ─────────────────────────────────────────────────────────────── */
+@import '@fontsource-variable/newsreader/wght-italic.css';
+@import '@fontsource-variable/figtree/index.css';
+
+/* ─── Primitive tokens ───────────────────────────────────────────────────── */
+:root {
+  /* Accent — electric blue */
+  --accent-50:  oklch(97% 0.03 250);
+  --accent-100: oklch(93% 0.06 250);
+  --accent-300: oklch(78% 0.14 250);
+  --accent-500: oklch(58% 0.22 250);
+  --accent-700: oklch(42% 0.18 250);
+  --accent-900: oklch(28% 0.12 250);
+
+  /* Neutral — blue-tinted */
+  --gray-50:  oklch(98.5% 0.004 250);
+  --gray-100: oklch(96%   0.006 250);
+  --gray-200: oklch(92%   0.008 250);
+  --gray-300: oklch(86%   0.010 250);
+  --gray-400: oklch(74%   0.010 250);
+  --gray-500: oklch(60%   0.010 250);
+  --gray-600: oklch(46%   0.010 250);
+  --gray-700: oklch(34%   0.012 250);
+  --gray-800: oklch(24%   0.012 250);
+  --gray-900: oklch(16%   0.012 250);
+  --gray-950: oklch(11%   0.012 250);
+
+  /* Spacing (4pt base) */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast:   120ms;
+  --dur-normal: 240ms;
+  --dur-slow:   400ms;
+
+  /* Z-index scale */
+  --z-base:    0;
+  --z-raised:  10;
+  --z-sticky:  100;
+  --z-modal:   400;
+  --z-toast:   500;
+  --z-tooltip: 600;
+}
+
+/* ─── Semantic tokens — light ─────────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  --surface-1:   var(--gray-50);
+  --surface-2:   var(--gray-100);
+  --surface-3:   var(--gray-200);
+  --surface-invert: var(--gray-950);
+
+  --text-primary:   var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-tertiary:  var(--gray-400);
+  --text-invert:    var(--gray-50);
+
+  --color-accent:       var(--accent-500);
+  --color-accent-hover: var(--accent-700);
+  --color-accent-muted: var(--accent-100);
+
+  --border-subtle: var(--gray-200);
+  --border-default: var(--gray-300);
+
+  --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04);
+  --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.08), 0 2px 4px oklch(0% 0 0 / 0.04);
+  --shadow-lg: 0 8px 32px oklch(0% 0 0 / 0.12), 0 4px 8px oklch(0% 0 0 / 0.06);
+}
+
+/* ─── Semantic tokens — dark ──────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1:   var(--gray-950);
+    --surface-2:   var(--gray-900);
+    --surface-3:   var(--gray-800);
+    --surface-invert: var(--gray-50);
+
+    --text-primary:   var(--gray-50);
+    --text-secondary: var(--gray-400);
+    --text-tertiary:  var(--gray-600);
+    --text-invert:    var(--gray-950);
+
+    --color-accent:       oklch(68% 0.20 250);
+    --color-accent-hover: oklch(78% 0.16 250);
+    --color-accent-muted: oklch(22% 0.06 250);
+
+    --border-subtle:  var(--gray-800);
+    --border-default: var(--gray-700);
+
+    --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.24);
+    --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.5), 0 2px 4px oklch(0% 0 0 / 0.3);
+    --shadow-lg: 0 8px 32px oklch(0% 0 0 / 0.6), 0 4px 8px oklch(0% 0 0 / 0.4);
+  }
+}
+
+[data-theme="dark"] {
+  --surface-1:   var(--gray-950);
+  --surface-2:   var(--gray-900);
+  --surface-3:   var(--gray-800);
+  --surface-invert: var(--gray-50);
+
+  --text-primary:   var(--gray-50);
+  --text-secondary: var(--gray-400);
+  --text-tertiary:  var(--gray-600);
+  --text-invert:    var(--gray-950);
+
+  --color-accent:       oklch(68% 0.20 250);
+  --color-accent-hover: oklch(78% 0.16 250);
+  --color-accent-muted: oklch(22% 0.06 250);
+
+  --border-subtle:  var(--gray-800);
+  --border-default: var(--gray-700);
+
+  --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.24);
+  --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.5), 0 2px 4px oklch(0% 0 0 / 0.3);
+  --shadow-lg: 0 8px 32px oklch(0% 0 0 / 0.6), 0 4px 8px oklch(0% 0 0 / 0.4);
+}
+
+/* ─── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: 'Figtree Variable', 'Figtree', system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--surface-1);
+  transition:
+    background-color var(--dur-normal) var(--ease-in-out),
+    color var(--dur-normal) var(--ease-in-out);
+  min-height: 100dvh;
+}
+
+/* ─── Typography ──────────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+h1 { font-size: clamp(2.4rem, 5vw + 1rem, 4.5rem); }
+h2 { font-size: clamp(1.75rem, 3vw + 0.5rem, 2.75rem); }
+h3 { font-size: clamp(1.25rem, 2vw + 0.25rem, 1.75rem); }
+h4 { font-size: 1.25rem; }
+
+p { line-height: 1.7; color: var(--text-secondary); }
+p + p { margin-top: var(--space-4); }
+
+a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-fast) var(--ease-out-expo);
+}
+a:hover { text-decoration-color: currentColor; }
+
+strong { font-weight: 600; color: var(--text-primary); }
+
+code {
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+  font-size: 0.875em;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+}
+
+/* ─── Focus ───────────────────────────────────────────────────────────────── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Utilities ───────────────────────────────────────────────────────────── */
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: var(--space-6);
+}
+
+@media (min-width: 768px) {
+  .container { padding-inline: var(--space-8); }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

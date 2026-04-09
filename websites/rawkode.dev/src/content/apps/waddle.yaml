@@ -1,0 +1,17 @@
+name: Waddle
+tagline: A modern XMPP client built in Rust
+description: >
+  An open-source XMPP messaging client with a Rust core and a cross-platform
+  GUI. Designed around a clean event-driven architecture with native and web
+  targets, roster management, MAM history, and a plugin system.
+platform:
+  - Linux
+  - macOS
+  - Web
+status: in-development
+repoUrl: https://github.com/waddle-social/waddle
+tags:
+  - Messaging
+  - XMPP
+  - Rust
+  - Open Source

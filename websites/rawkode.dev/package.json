@@ -1,18 +1,20 @@
 {
-	"name": "rawkode-dev",
-	"type": "module",
-	"version": "0.0.1",
-	"scripts": {
-		"dev": "astro dev",
-		"build": "astro build",
-		"build:cf": "astro build",
-		"preview": "astro preview",
-		"astro": "astro"
-	},
-	"dependencies": {
-		"@alteran/astro": "file://../../../../alteran-dev/alteran",
-		"@astrojs/cloudflare": "^12.6.9",
-		"astro": "^5.14.1",
-		"wrangler": "^4.46.0"
-	}
+  "name": "rawkode.dev",
+  "type": "module",
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "prebuild": "node scripts/generate-og.mjs",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@fontsource-variable/figtree": "^5.2.10",
+    "@fontsource-variable/newsreader": "^5.2.10",
+    "astro": "^6.1.5"
+  }
 }
