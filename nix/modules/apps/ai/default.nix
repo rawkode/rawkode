@@ -28,15 +28,22 @@ mkApp {
       );
     in
     {
-      home.file = builtins.listToAttrs (
-        map (name: {
-          name = ".agents/skills/${name}";
-          value = {
-            source = "${skillsDir}/${name}";
+      home.file =
+        builtins.listToAttrs (
+          map (name: {
+            name = ".agents/skills/${name}";
+            value = {
+              source = "${skillsDir}/${name}";
+              force = true;
+            };
+          }) skillNames
+        )
+        // {
+          "AGENTS.md" = {
+            source = ./AGENTS.md;
             force = true;
           };
-        }) skillNames
-      );
+        };
 
       programs.fish.shellAbbrs = {
         codex = {
