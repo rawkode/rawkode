@@ -116,11 +116,11 @@
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1775159950,
-        "narHash": "sha256-andzX1QbfL0WbOPFU14abIXlbWu2mc+nl7NJ9cCtUjU=",
+        "lastModified": 1775678680,
+        "narHash": "sha256-ubFJmR0y4Gv5b//MViaP9fpCSSLgs1UnMsztTj6OqfU=",
         "owner": "nix-community",
         "repo": "browser-previews",
-        "rev": "e63a63f95197f11ca7938dc1fa086851466a3b85",
+        "rev": "32ec4ff185a1bcc926c152d0b3bec1136c005aa3",
         "type": "github"
       },
       "original": {
@@ -253,11 +253,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1775750264,
-        "narHash": "sha256-0VfVzn08mhtHq3VLcTwAXkDePWWNxgcB/soqrsfcHL8=",
+        "lastModified": 1775763617,
+        "narHash": "sha256-o/BF+/chqGZDTapEpJn1318OOdFzut/9zO9vkZ/hHfw=",
         "owner": "cuenv",
         "repo": "cuenv",
-        "rev": "0a590b75d4a4c8b40fa5aeb5da4d72121b0c4c2c",
+        "rev": "cc163c73b61678f3102549b0b9fa39f0f8b789f6",
         "type": "github"
       },
       "original": {
