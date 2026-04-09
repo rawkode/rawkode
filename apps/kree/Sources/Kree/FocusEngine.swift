@@ -108,8 +108,10 @@ class FocusEngine {
     }
 
     private func handleSpaceChange() {
-        // Brief delay for space transition, then check focus
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        // Reset tracked window so checkFocus will re-focus on the new space
+        lastFocusedWindowID = 0
+        // Brief delay for space transition to let the AX tree settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             let mouseLocation = NSEvent.mouseLocation
             // Convert from bottom-left origin (NSEvent) to top-left origin (CGEvent/AX)
             if let screenHeight = NSScreen.main?.frame.height {
