@@ -1,18 +1,18 @@
 [
-  {
-    "bindings": {
-      "cmd-shift-e": "project_panel::ToggleFocus",
-      "cmd-shift-l": "project_panel::CollapseAllEntries",
-      "cmd-l": [
-        "workspace::SendKeystrokes",
-        "cmd-k cmd-w cmd-shift-e cmd-shift-l cmd-shift-e"
-      ]
-    }
-  },
-  {
-    "context": "Workspace"
-  },
-  {
-    "context": "Editor"
-  }
+	{
+		"bindings": {
+			"cmd-shift-e": "project_panel::ToggleFocus",
+			"cmd-shift-l": "project_panel::CollapseAllEntries",
+			"cmd-l": [
+				"workspace::SendKeystrokes",
+				"cmd-k cmd-w cmd-shift-e cmd-shift-l cmd-shift-e"
+			]
+		}
+	},
+	{
+		"context": "Workspace"
+	},
+	{
+		"context": "Editor"
+	}
 ]

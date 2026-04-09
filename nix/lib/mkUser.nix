@@ -108,7 +108,7 @@ let
       machinesDir ? null,
       machineSystems ? null,
       preferences ? {
-        editor = "hx";
+        editor = "zed --wait";
       },
     }:
     let
@@ -150,6 +150,13 @@ let
               inherit username;
               homeDirectory = if isDarwin then homeDirectory.darwin else homeDirectory.linux;
               inherit stateVersion;
+
+              sessionVariables = {
+                EDITOR = preferences.editor;
+                SUDO_EDITOR = preferences.editor;
+                SYSTEMD_EDITOR = preferences.editor;
+                VISUAL = preferences.editor;
+              };
             };
 
             programs.home-manager.enable = true;
@@ -284,13 +291,13 @@ let
           ]
           ++ legacyAppNixosImports
           ++ resolveCapabilityImports {
-              kind = "nixos";
-              inherit
-                machine
-                username
-                defaultCapabilities
-                disabledCapabilities
-                ;
+            kind = "nixos";
+            inherit
+              machine
+              username
+              defaultCapabilities
+              disabledCapabilities
+              ;
           };
         };
 
@@ -306,14 +313,14 @@ let
           ]
           ++ legacyAppDarwinImports
           ++ resolveCapabilityImports {
-              kind = "darwin";
-              inherit
-                machine
-                username
-                defaultCapabilities
-                disabledCapabilities
-                ;
-            };
+            kind = "darwin";
+            inherit
+              machine
+              username
+              defaultCapabilities
+              disabledCapabilities
+              ;
+          };
         };
 
       flake.homeConfigurations = homeConfigurations;

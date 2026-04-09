@@ -47,7 +47,9 @@
       "Bash(sudo launchctl:*)",
       "Read(//Users/rawkode/.config/fish/conf.d/**)",
       "Read(//Users/rawkode/.config/fish/**)",
-      "Bash(nix-store --query --referrers /nix/store/dp95glfdbr1k00pvjyywcllf8d0qzqhl-base16-ayu-mirage.fish)"
+      "Bash(nix-store --query --referrers /nix/store/dp95glfdbr1k00pvjyywcllf8d0qzqhl-base16-ayu-mirage.fish)",
+      "Bash(grep -r \"initialPassword\\\\|hashedPassword\\\\|users\\\\.users\" /Users/rawkode/Code/src/github.com/rawkode/rawkode/nix/machines --include=*.nix)",
+      "Bash(grep:*)"
     ]
   }
 }

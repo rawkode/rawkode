@@ -1,6 +1,9 @@
 {
   flake.nixosModules.common =
     { pkgs, ... }:
+    let
+      editor = "zed --wait";
+    in
     {
       fileSystems."/".options = [
         "noatime"
@@ -60,9 +63,10 @@
         ];
 
         variables = {
-          EDITOR = "hx";
-          SYSTEMD_EDITOR = "hx";
-          VISUAL = "hx";
+          EDITOR = editor;
+          SUDO_EDITOR = editor;
+          SYSTEMD_EDITOR = editor;
+          VISUAL = editor;
         };
       };
     };

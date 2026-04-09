@@ -13,11 +13,7 @@
       boot = {
         consoleLogLevel = 0;
 
-        kernelPackages =
-          if useZenKernel then
-            pkgs.linuxKernel.packages.linux_zen
-          else
-            pkgs.linuxPackages;
+        kernelPackages = if useZenKernel then pkgs.linuxKernel.packages.linux_zen else pkgs.linuxPackages;
         # CachyOS-inspired kernel parameters for better desktop responsiveness and gaming
         kernelParams = [
           "nowatchdog"
