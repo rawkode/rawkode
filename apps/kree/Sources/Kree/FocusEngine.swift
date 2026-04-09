@@ -121,6 +121,15 @@ class FocusEngine {
     
     // Named method to be called from the C-function callback
     fileprivate func handleMouseMoved(event: CGEvent) {
+        // Ignore synthetic mouse-moved events (no physical mouse movement).
+        // macOS sends these when window content changes under the cursor,
+        // which causes unwanted re-focusing during e.g. tab creation.
+        let dx = event.getDoubleValueField(.mouseEventDeltaX)
+        let dy = event.getDoubleValueField(.mouseEventDeltaY)
+        if dx == 0.0 && dy == 0.0 {
+            return
+        }
+
         // Check Modifier
         if let modifier = disableModifier {
              if NSEvent.modifierFlags.contains(modifier) {
