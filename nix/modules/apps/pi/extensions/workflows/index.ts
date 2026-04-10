@@ -265,21 +265,28 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 		);
 	}
 
-	function applyToolRestrictions(run: RunState): void {
+	function applyToolRestrictions(run: RunState, ctx: ExtensionContext): void {
 		const workflow = getWorkflow(run.workflowName);
 		if (!workflow) return;
 		const state = getState(workflow, run.currentState);
 		if (!state?.tools || state.tools.length === 0) {
 			pi.setActiveTools(pi.getAllTools().map((t) => t.name));
-			return;
+		} else {
+			const available = new Set(pi.getAllTools().map((t) => t.name));
+			pi.setActiveTools(state.tools.filter((t) => available.has(t)));
 		}
-		const available = new Set(pi.getAllTools().map((t) => t.name));
-		pi.setActiveTools(state.tools.filter((t) => available.has(t)));
+
+		if (state?.model) {
+			const found = ctx.modelRegistry.findModel(state.model);
+			if (found) {
+				pi.setModel(found);
+			}
+		}
 	}
 
 	function syncState(ctx: ExtensionContext): void {
 		const run = getRun();
-		if (run) applyToolRestrictions(run);
+		if (run) applyToolRestrictions(run, ctx);
 		else pi.setActiveTools(pi.getAllTools().map((t) => t.name));
 		persist();
 		updateStatus(ctx);

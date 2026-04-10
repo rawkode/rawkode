@@ -12,6 +12,7 @@ export interface WorkflowStateDefinition {
 	instructions?: string;
 	systemPrompt?: string;
 	tools?: string[];
+	model?: string;
 	next?: string;
 	verdicts?: Record<string, string | null>;
 	requireApproval?: boolean;

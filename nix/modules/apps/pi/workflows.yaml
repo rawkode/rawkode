@@ -1,26 +1,39 @@
-defaultWorkflow: dev-team
+defaultWorkflow: pair-programming
 
 workflows:
-  dev-team:
-    description: "Rawkode Dev Team Workflow: plan, build, review, test with council-gated transitions."
-    initialState: plan
-    stateOrder: [plan, build, review, test]
+  pair-programming:
+    description: "Simple pair programming workflow with two agents taking turns to review each other's work."
+    initialState: implement
+    stateOrder: [implement, review]
 
     states:
-      plan:
+      implement:
         systemPrompt: |
-          You are in planning mode. Focus on analysis and planning. Do not implement.
+          You are the implementer. Your job is to implement the requested feature or fix.
+          Keep your changes focused and minimal. Do not over-engineer.
         instructions: |
-          Create a concise numbered plan to accomplish the objective.
-          Call out assumptions and gaps.
-          End with: `Plan ready for build.`
-        tools: [read, bash, grep, find, ls]
-        next: plan-review
+          Analyze the task and implement the solution.
+          When finished, describe your changes so the reviewer can evaluate them.
+        tools: [read, bash, edit, write, grep, find, ls]
+        model: "claude-3-7-sonnet-20250219"
+        next: review
 
-      plan-review:
+      review:
         systemPrompt: |
-          You are running a council review gate. Gather independent reviews from
-          subagents, synthesize their feedback, and emit a single verdict.
+          You are the reviewer. Your job is to review the implementer's changes.
+          Look for correctness, edge cases, and maintainability.
+        instructions: |
+          Review the recent changes made by the implementer.
+          If the changes are good and complete, emit:
+          VERDICT: done
+
+          If there are issues that need fixing, describe them clearly and emit:
+          VERDICT: implement
+        tools: [read, bash, grep, find, ls]
+        model: "claude-3-5-haiku-20241022"
+        verdicts:
+          done: null
+          implement: implement
         instructions: |
           Use the subagent tool in parallel to get independent reviews of the plan:
 
