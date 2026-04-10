@@ -1,0 +1,18 @@
+name: Prescience
+tagline: Idiomatic Rust client library for SpiceDB
+description: >
+  A type-safe, async-first Rust client for SpiceDB with support for
+  authorization checks, relationship writes, and streaming lookups. Models
+  allowed, denied, and conditional permissions with ergonomic domain types.
+platform:
+  - Linux
+  - macOS
+  - Windows
+status: available
+repoUrl: https://github.com/rawkode/prescience
+tags:
+  - Authorization
+  - SpiceDB
+  - Rust
+  - Library
+  - Open Source
