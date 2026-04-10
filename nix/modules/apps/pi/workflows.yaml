@@ -15,7 +15,7 @@ workflows:
           Analyze the task and implement the solution.
           When finished, describe your changes so the reviewer can evaluate them.
         tools: [read, bash, edit, write, grep, find, ls]
-        model: "claude-3-7-sonnet-20250219"
+        model: "openai.gpt-5.3-codex"
         next: review
 
       review:
@@ -30,7 +30,7 @@ workflows:
           If there are issues that need fixing, describe them clearly and emit:
           VERDICT: implement
         tools: [read, bash, grep, find, ls]
-        model: "claude-3-5-haiku-20241022"
+        model: "anthropic.claude-opus-4-6-v1"
         verdicts:
           done: null
           implement: implement

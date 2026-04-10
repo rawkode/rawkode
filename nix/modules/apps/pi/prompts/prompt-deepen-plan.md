@@ -9,7 +9,7 @@ argument-hint: "[path to plan file]"
 
 **Note: The current year is 2026.** Use this when searching for recent documentation and best practices.
 
-This command takes an existing plan (from `/workflows-plan`) and enhances each section with parallel research agents. Each major element gets its own dedicated research sub-agent to find:
+This command takes an existing plan (from `/prompt-workflows-plan`) and enhances each section with parallel research agents. Each major element gets its own dedicated research sub-agent to find:
 
 - Best practices and industry patterns
 - Performance optimizations
@@ -153,13 +153,13 @@ Task general-purpose: "Use the security-patterns skill at ~/.claude/skills/secur
 ### 3. Discover and Apply Learnings/Solutions
 
 <thinking>
-Check for documented learnings from /workflows-compound. These are solved problems stored as markdown files. Spawn a sub-agent for each learning to check if it's relevant.
+Check for documented learnings from /prompt-workflows-compound. These are solved problems stored as markdown files. Spawn a sub-agent for each learning to check if it's relevant.
 </thinking>
 
 **LEARNINGS LOCATION - Check these exact folders:**
 
 ```
-docs/solutions/           <-- PRIMARY: Project-level learnings (created by /workflows-compound)
+docs/solutions/           <-- PRIMARY: Project-level learnings (created by /prompt-workflows-compound)
 ├── performance-issues/
 │   └── *.md
 ├── debugging-patterns/
@@ -386,7 +386,7 @@ Wait for ALL parallel agents to complete - skills, research agents, review agent
 **Collect outputs from ALL sources:**
 
 1. **Skill-based sub-agents** - Each skill's full output (code examples, patterns, recommendations)
-2. **Learnings/Solutions sub-agents** - Relevant documented learnings from /workflows-compound
+2. **Learnings/Solutions sub-agents** - Relevant documented learnings from /prompt-workflows-compound
 3. **Research agents** - Best practices, documentation, real-world examples
 4. **Review agents** - All feedback from every reviewer (architecture, security, performance, simplicity, etc.)
 5. **Context7 queries** - Framework documentation and patterns
@@ -509,7 +509,7 @@ After writing the enhanced plan, use the **ask_user_question tool** to present t
 
 1. **View diff** - Show what was added/changed
 2. **Run `/technical_review`** - Get feedback from reviewers on enhanced plan
-3. **Start `/workflows-work`** - Begin implementing this enhanced plan
+3. **Start `/prompt-workflows-work`** - Begin implementing this enhanced plan
 4. **Deepen further** - Run another round of research on specific sections
 5. **Revert** - Restore original plan (if backup exists)
 
@@ -517,13 +517,13 @@ Based on selection:
 
 - **View diff** → Run `git diff [plan_path]` or show before/after
 - **`/technical_review`** → Call the /technical_review command with the plan file path
-- **`/workflows-work`** → Call the /workflows-work command with the plan file path
+- **`/prompt-workflows-work`** → Call the /prompt-workflows-work command with the plan file path
 - **Deepen further** → Ask which sections need more research, then re-run those agents
 - **Revert** → Restore from git or backup
 
 ## Example Enhancement
 
-**Before (from /workflows-plan):**
+**Before (from /prompt-workflows-plan):**
 
 ```markdown
 ## Technical Approach
@@ -531,7 +531,7 @@ Based on selection:
 Use React Query for data fetching with optimistic updates.
 ```
 
-**After (from /workflows-deepen-plan):**
+**After (from /prompt-deepen-plan):**
 
 ````markdown
 ## Technical Approach

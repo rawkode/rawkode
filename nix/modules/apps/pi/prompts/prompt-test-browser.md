@@ -149,7 +149,7 @@ Please start your development server:
 - Rails: `bin/dev` or `rails server`
 - Node/Next.js: `npm run dev`
 
-Then run `/test-browser` again.
+Then run `/prompt-test-browser` again.
 ```
 
 </check_server>
@@ -318,13 +318,13 @@ After all tests complete, present summary:
 
 ```bash
 # Test current branch changes
-/test-browser
+/prompt-test-browser
 
 # Test specific PR
-/test-browser 847
+/prompt-test-browser 847
 
 # Test specific branch
-/test-browser feature/new-dashboard
+/prompt-test-browser feature/new-dashboard
 ```
 
 ## agent-browser CLI Reference

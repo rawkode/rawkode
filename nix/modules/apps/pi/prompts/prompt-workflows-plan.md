@@ -182,9 +182,9 @@ docs/plans/YYYY-MM-DD-<type>-<descriptive-name>-plan.md
 After writing the plan file, present these options:
 
 1. **Open plan in editor** — Open the plan file for review
-2. **Run `/deepen-plan`** — Enhance each section with parallel research agents
+2. **Run `/prompt-deepen-plan`** — Enhance each section with parallel research agents
 3. **Review and refine** — Improve the document through structured self-review (load `document-review` skill)
-4. **Start `/workflows-work`** — Begin implementing this plan
+4. **Start `/prompt-workflows-work`** — Begin implementing this plan
 5. **Create Issue** — Create issue in project tracker (GitHub)
 
 NEVER CODE! Just research and write the plan.

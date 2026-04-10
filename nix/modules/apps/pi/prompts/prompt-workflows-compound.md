@@ -3,7 +3,7 @@ description: Document a recently solved problem to compound your team's knowledg
 argument-hint: "[optional: brief context about the fix]"
 ---
 
-# /workflows-compound
+# /prompt-workflows-compound
 
 Document a recently solved problem using parallel subagents to capture institutional knowledge.
 
@@ -16,8 +16,8 @@ Captures problem solutions while context is fresh, creating structured documenta
 ## Usage
 
 ```bash
-/workflows-compound                    # Document the most recent fix
-/workflows-compound [brief context]    # Provide additional context hint
+/prompt-workflows-compound                    # Document the most recent fix
+/prompt-workflows-compound [brief context]    # Provide additional context hint
 ```
 
 ## Execution Strategy: Two-Phase Orchestration
@@ -145,6 +145,6 @@ Build → Test → Find Issue → Research → Fix → Document → Deploy
 
 ## Related Commands
 
-- `/workflows-plan` — Planning workflow (references documented decisions)
-- `/workflows-review` — Code review (searches docs/ for patterns)
+- `/prompt-workflows-plan` — Planning workflow (references documented decisions)
+- `/prompt-workflows-review` — Code review (searches docs/ for patterns)
 - `/skill:compound-docs` — Detailed skill for documentation capture
