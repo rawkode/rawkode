@@ -3,7 +3,7 @@ let
   mkCapability = import ../../../lib/mkCapability.nix { inherit lib; };
 in
 mkCapability {
-  name = "coreweave";
+  name = "capabilities-coreweave";
 
   home = with inputs.self.appBundles; [
     coreweave.home

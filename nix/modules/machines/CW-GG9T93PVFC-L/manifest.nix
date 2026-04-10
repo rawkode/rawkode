@@ -5,7 +5,7 @@
       "desktop"
       "productivity"
       "development"
-      "coreweave"
+      "capabilities-coreweave"
     ];
     disabledCapabilities = [ ];
     users = { };

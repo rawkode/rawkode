@@ -2,38 +2,28 @@ defaultWorkflow: pair-programming
 
 workflows:
   pair-programming:
-    description: "Simple pair programming workflow with two agents taking turns to review each other's work."
-    initialState: implement
-    stateOrder: [implement, review]
+    description: "Council-gated pair programming workflow with planning, build, review, and test phases."
+    initialState: plan
+    stateOrder: [plan, build, review, test]
 
     states:
-      implement:
+      plan:
         systemPrompt: |
-          You are the implementer. Your job is to implement the requested feature or fix.
-          Keep your changes focused and minimal. Do not over-engineer.
+          You are in planning mode. Produce a concise, implementation-ready plan
+          before writing code.
         instructions: |
-          Analyze the task and implement the solution.
-          When finished, describe your changes so the reviewer can evaluate them.
-        tools: [read, bash, edit, write, grep, find, ls]
-        model: "openai.gpt-5.3-codex"
-        next: review
+          Analyze the task and propose a minimal plan with:
+          - scope boundaries
+          - key implementation steps
+          - risks and unknowns
+          Keep it concise and actionable.
+        tools: [read, grep, find, ls]
+        next: plan-review
 
-      review:
+      plan-review:
         systemPrompt: |
-          You are the reviewer. Your job is to review the implementer's changes.
-          Look for correctness, edge cases, and maintainability.
-        instructions: |
-          Review the recent changes made by the implementer.
-          If the changes are good and complete, emit:
-          VERDICT: done
-
-          If there are issues that need fixing, describe them clearly and emit:
-          VERDICT: implement
-        tools: [read, bash, grep, find, ls]
-        model: "anthropic.claude-opus-4-6-v1"
-        verdicts:
-          done: null
-          implement: implement
+          You are running a council review gate. Gather independent reviews from
+          subagents, synthesize their feedback, and emit a single verdict.
         instructions: |
           Use the subagent tool in parallel to get independent reviews of the plan:
 

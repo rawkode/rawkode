@@ -36,6 +36,8 @@ export interface WorkflowDiscoveryResult {
 const PROJECT_FILE_CANDIDATES = [
 	join(".pi", "workflows.yaml"),
 	join(".pi", "workflows.yml"),
+	"workflows.yaml",
+	"workflows.yml",
 ];
 
 const GLOBAL_FILE_CANDIDATES = [

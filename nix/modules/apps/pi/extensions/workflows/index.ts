@@ -385,10 +385,22 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("Already running. Use /pair-stop first.", "warning");
 				return;
 			}
-			selectedWorkflow = "pair-programming";
+
+			refresh(ctx);
+			selectedWorkflow = discovery.workflows["pair-programming"]
+				? "pair-programming"
+				: discovery.workflows.pair
+					? "pair"
+					: undefined;
 			const workflow = getWorkflow();
-			if (!workflow) {
-				ctx.ui.notify("Pair programming workflow not found.", "warning");
+			if (!workflow || !selectedWorkflow) {
+				const available = Object.keys(discovery.workflows);
+				ctx.ui.notify(
+					available.length > 0
+						? `Pair programming workflow not found. Available workflows: ${available.join(", ")}`
+						: `Pair programming workflow not found. No workflow files discovered. Checked: ${discovery.files.join(", ") || "(none)"}`,
+					"warning",
+				);
 				return;
 			}
 			const initial = getInitialState(workflow);
@@ -404,7 +416,7 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			});
 			syncState(ctx);
 			ctx.ui.notify(
-				`Starting 'pair-programming' at state '${initial}'.`,
+				`Starting '${selectedWorkflow}' at state '${initial}'.`,
 				"info",
 			);
 			dispatch(ctx);
