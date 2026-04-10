@@ -373,90 +373,24 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 	}
 
 	// Commands
-	pi.registerCommand("workflow", {
-		description: "Select active workflow",
-		getArgumentCompletions: (prefix) => {
-			const names = Object.keys(discovery.workflows);
-			const items = names
-				.filter((n) => n.toLowerCase().startsWith(prefix.toLowerCase()))
-				.map((n) => ({ value: n, label: n }));
-			return items.length > 0 ? items : null;
-		},
-		handler: async (args, ctx) => {
-			refresh(ctx);
-			const name = args.trim();
-			if (name) {
-				if (!discovery.workflows[name]) {
-					ctx.ui.notify(`Unknown workflow: ${name}`, "warning");
-					return;
-				}
-				selectedWorkflow = name;
-				syncState(ctx);
-				ctx.ui.notify(`Workflow: ${name}`, "info");
-				return;
-			}
-			const names = Object.keys(discovery.workflows);
-			if (names.length === 0) {
-				ctx.ui.notify(
-					"No workflows defined. Add workflows to .pi/workflows.yaml",
-					"info",
-				);
-				return;
-			}
-			const choice = await ctx.ui.select("Select Workflow", names);
-			if (!choice) return;
-			selectedWorkflow = choice;
-			syncState(ctx);
-			ctx.ui.notify(`Workflow: ${choice}`, "info");
-		},
-	});
-
-	pi.registerCommand("workflow-status", {
-		description: "Show workflow status",
-		handler: async (_args, ctx) => {
-			const names = Object.keys(discovery.workflows);
-			const run = getRun();
-			const lines = [
-				`Selected: ${selectedWorkflow ?? "none"}`,
-				`Available: ${names.join(", ") || "none"}`,
-				`Files: ${discovery.files.join(", ") || "none"}`,
-				run
-					? `Run: ${run.workflowName} · state: ${run.currentState} · awaiting: ${run.awaitingResult}`
-					: "Run: inactive",
-			];
-			ctx.ui.notify(lines.join("\n"), "info");
-		},
-	});
-
-	pi.registerCommand("workflow-reload", {
-		description: "Reload workflows from YAML",
-		handler: async (_args, ctx) => {
-			refresh(ctx);
-			syncState(ctx);
-			ctx.ui.notify(
-				`Reloaded. ${Object.keys(discovery.workflows).length} workflow(s) found.`,
-				"info",
-			);
-		},
-	});
-
-	pi.registerCommand("workflow-run", {
-		description: "Run objective through workflow states",
+	pi.registerCommand("pair", {
+		description: "Run pair programming workflow",
 		handler: async (args, ctx) => {
 			const objective = args.trim();
 			if (!objective) {
-				ctx.ui.notify("Usage: /workflow-run <objective>", "info");
+				ctx.ui.notify("Usage: /pair <objective>", "info");
 				return;
 			}
 			if (isRunning()) {
-				ctx.ui.notify("Already running. Use /workflow-stop first.", "warning");
+				ctx.ui.notify("Already running. Use /pair-stop first.", "warning");
 				return;
 			}
-			if (!selectedWorkflow || !getWorkflow()) {
-				ctx.ui.notify("No workflow selected. Use /workflow first.", "warning");
+			selectedWorkflow = "pair-programming";
+			const workflow = getWorkflow();
+			if (!workflow) {
+				ctx.ui.notify("Pair programming workflow not found.", "warning");
 				return;
 			}
-			const workflow = getWorkflow()!;
 			const initial = getInitialState(workflow);
 			if (!initial) {
 				ctx.ui.notify("Workflow has no states.", "error");
@@ -470,15 +404,28 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			});
 			syncState(ctx);
 			ctx.ui.notify(
-				`Starting '${selectedWorkflow}' at state '${initial}'.`,
+				`Starting 'pair-programming' at state '${initial}'.`,
 				"info",
 			);
 			dispatch(ctx);
 		},
 	});
 
-	pi.registerCommand("workflow-stop", {
-		description: "Stop active workflow run",
+	pi.registerCommand("pair-status", {
+		description: "Show pair programming status",
+		handler: async (_args, ctx) => {
+			const run = getRun();
+			const lines = [
+				run
+					? `Run: ${run.workflowName} · state: ${run.currentState} · awaiting: ${run.awaitingResult}`
+					: "Run: inactive",
+			];
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("pair-stop", {
+		description: "Stop pair programming",
 		handler: async (_args, ctx) => {
 			if (!isRunning()) {
 				ctx.ui.notify("No active run.", "info");
@@ -486,7 +433,7 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 			}
 			actor.send({ type: "STOP" });
 			syncState(ctx);
-			ctx.ui.notify("Workflow stopped.", "info");
+			ctx.ui.notify("Pair programming stopped.", "info");
 		},
 	});
 
