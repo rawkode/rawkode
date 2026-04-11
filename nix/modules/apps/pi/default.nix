@@ -28,6 +28,10 @@ mkApp {
         source = ./prompts;
         force = true;
       };
+      ".pi/agent/themes" = {
+        source = ./themes;
+        force = true;
+      };
     };
   };
 }
