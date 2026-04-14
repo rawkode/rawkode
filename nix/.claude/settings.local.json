@@ -51,7 +51,16 @@
       "Bash(grep -r \"initialPassword\\\\|hashedPassword\\\\|users\\\\.users\" /Users/rawkode/Code/src/github.com/rawkode/rawkode/nix/machines --include=*.nix)",
       "Bash(grep:*)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.values\\(\\)\\)[0].get\\(''''signatures'''', ''''no signatures''''\\)\\)\")",
-      "Bash(command -v pi)"
+      "Bash(command -v pi)",
+      "Read(//private/etc/nix/**)",
+      "Read(//nix/store/**)",
+      "Bash(sudo nix:*)",
+      "Bash(nix-forecast --help)",
+      "Bash(nh darwin:*)",
+      "Bash(curl:*)",
+      "Bash(launchctl list:*)",
+      "Bash(NIX_CONF_DIR=/dev/null nix config show substituters)",
+      "Bash(XDG_CONFIG_HOME=/nonexistent nix config show substituters)"
     ]
   }
 }
