@@ -13,6 +13,7 @@ mkCapability {
         [
           appBundles.ghostty.home
           appBundles.wezterm.home
+          appBundles.firefox-developer-edition.home
           appBundles.google-chrome.home
           appBundles.vivaldi.home
           appBundles.onepassword.home
@@ -41,6 +42,7 @@ mkCapability {
   darwin = with inputs.self; [
     appBundles.ghostty.darwin
     appBundles.wezterm.darwin
+    appBundles.firefox-developer-edition.darwin
     appBundles.google-chrome.darwin
     appBundles.vivaldi.darwin
     appBundles.onepassword.darwin

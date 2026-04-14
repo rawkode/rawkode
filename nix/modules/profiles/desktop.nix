@@ -10,6 +10,7 @@
         inputs.self.nixosModules.bluetooth
         inputs.self.nixosModules.desktop-common
         inputs.self.nixosModules.flatpak
+        inputs.self.nixosModules.firefox-developer-edition
         inputs.self.nixosModules.fonts
         inputs.self.nixosModules.gnome
         inputs.self.nixosModules.google-chrome
