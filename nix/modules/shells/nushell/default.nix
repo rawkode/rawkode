@@ -5,9 +5,12 @@ in
 mkApp {
   name = "nushell";
 
-  common.home = _: {
+  common.home = { inputs, system, ... }: {
     programs.nushell = {
       enable = true;
+      # Use stable nixpkgs — unstable nushell has no binary cache on aarch64-darwin
+      # (Hydra build was dropped from evaluation, likely a build failure)
+      package = inputs.nixpkgs-stable.legacyPackages.${system}.nushell;
 
       configFile.source = ./config.nu;
 
