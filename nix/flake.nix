@@ -44,10 +44,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     ironbar.url = "github:JakeStanger/ironbar";
-    lan-mouse = {
-      url = "github:feschber/lan-mouse";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
       inputs.nixpkgs.follows = "nixpkgs";

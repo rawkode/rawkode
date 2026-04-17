@@ -17,7 +17,7 @@ mkCapability {
           appBundles.google-chrome.home
           appBundles.vivaldi.home
           appBundles.onepassword.home
-          appBundles.lan-mouse.home
+          appBundles.deskflow.home
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
@@ -47,6 +47,7 @@ mkCapability {
     appBundles.google-chrome.darwin
     appBundles.vivaldi.darwin
     appBundles.onepassword.darwin
+    appBundles.deskflow.darwin
 
     darwinModules.alt-tab
     darwinModules.ice
