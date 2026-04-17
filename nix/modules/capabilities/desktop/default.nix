@@ -17,6 +17,7 @@ mkCapability {
           appBundles.google-chrome.home
           appBundles.vivaldi.home
           appBundles.onepassword.home
+          appBundles.lan-mouse.home
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
