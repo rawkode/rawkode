@@ -12,6 +12,11 @@ schema.#Project & {
 		schema.#ExecSecret & {command: "gh", args: ["auth", "token"]},
 	]
 
+	env: environment: coreweave: NIX_CONFIG: [
+		"access-tokens = github.com=",
+		schema.#OnePasswordRef & {ref: "op://Private/GitHub/api-tokens/cw-nix"},
+	]
+
 	tasks: {
 		update: schema.#Task & {
 			description: "Update all flake inputs except excluded ones"
