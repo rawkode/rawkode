@@ -14,7 +14,6 @@ mkApp {
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.cursor-agent
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.droid
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
       ];
     };
@@ -69,7 +68,6 @@ mkApp {
           "claude-code"
           "codex"
           "codex-app"
-          "droid"
         ];
       };
     };
