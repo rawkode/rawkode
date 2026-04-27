@@ -1,4 +1,21 @@
 {
+  "tabs": {
+    "file_icons": true,
+    "git_status": true
+  },
+  "sticky_scroll": {
+    "enabled": true
+  },
+  "which_key": {
+    "enabled": true
+  },
+  "restore_on_startup": "launchpad",
+  "session": {
+    "restore_unsaved_buffers": false
+  },
+  "redact_private_values": true,
+  "on_last_window_closed": "quit_app",
+  "when_closing_with_no_tabs": "keep_window_open",
   "outline_panel": {
     "dock": "right",
   },
@@ -23,8 +40,8 @@
   },
   "icon_theme": {
     "mode": "system",
-    "dark": "Catppuccin Mocha",
-    "light": "Catppuccin Latte",
+    "dark": "Zed (Default)",
+    "light": "Zed (Default)",
   },
   "buffer_font_family": "Monaspace Neon",
   "buffer_font_size": 16,
