@@ -90,6 +90,7 @@
       imports = [
         inputs.self.darwinModules.fonts
         inputs.self.darwinModules.power
+        inputs.self.darwinModules.tailscale
       ];
 
       options.rawkOS.darwin.firewall = {

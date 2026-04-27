@@ -22,4 +22,13 @@
         tailscale
       ];
     };
+
+  flake.darwinModules.tailscale =
+    { lib, ... }:
+    {
+      homebrew = {
+        enable = lib.mkDefault true;
+        casks = [ "tailscale" ];
+      };
+    };
 }
