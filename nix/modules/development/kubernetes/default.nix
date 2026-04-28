@@ -43,7 +43,8 @@ mkApp {
       };
 
       programs.fish.interactiveShellInit = lib.mkIf config.programs.fish.enable ''
-        set -q KREW_ROOT; and set -gx PATH $PATH $KREW_ROOT/.krew/bin; or set -gx PATH $PATH $HOME/.krew/bin
+        set -q KREW_ROOT; or set -gx KREW_ROOT $HOME/.krew
+        fish_add_path $KREW_ROOT/bin
       '';
 
       programs.fish.shellAliases = lib.mkIf config.programs.fish.enable {

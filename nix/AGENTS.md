@@ -14,8 +14,9 @@
 - Enter dev shell (linters/formatters available): `nix develop`.
 - Format all files (treefmt-nix): `nix fmt`.
 - Run checks (format, deadnix, statix, etc.): `nix flake check`.
-- Build a system: `nix build .#nixosConfigurations.<machine>.config.system.build.toplevel`.
-- Switch on target machine: `sudo nixos-rebuild switch --flake .#<machine>`.
+- Build a NixOS system: `nix build .#nixosConfigurations.<machine>.config.system.build.toplevel`.
+- Switch this repo on macOS/nix-darwin hosts: `nh darwin switch .`.
+- Switch a NixOS target machine: `sudo nixos-rebuild switch --flake .#<machine>`.
 - Discover outputs: `nix flake show`.
 - Upgrade Determinate Nix: `sudo determinate-nixd upgrade`.
 

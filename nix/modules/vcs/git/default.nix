@@ -7,7 +7,6 @@ mkApp {
 
   common.home =
     {
-      pkgs,
       identity,
       preferences,
       ...
@@ -16,16 +15,12 @@ mkApp {
       imports = with inputs.self.homeModules; [
         git-delta
         git-fish
+        git-gitsign
       ];
 
       programs.git = {
         enable = true;
         lfs.enable = true;
-
-        signing = {
-          key = identity.signingKey;
-          signByDefault = identity.signingKey != null;
-        };
 
         ignores = [
           "*logs*"
@@ -80,7 +75,6 @@ mkApp {
           commit = {
             template = "~/.config/git/templates/commit.txt";
             verbose = true;
-            gpgsign = identity.signingKey != null;
           };
 
           diff = {
@@ -143,14 +137,6 @@ mkApp {
             sort = "version:refname";
           };
 
-          gpg = {
-            format = "ssh";
-            ssh.program =
-              if pkgs.stdenv.isDarwin then
-                "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
-              else
-                "${pkgs._1password-gui}/bin/op-ssh-sign";
-          };
         };
       };
 
