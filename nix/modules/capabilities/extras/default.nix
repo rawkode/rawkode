@@ -11,4 +11,3 @@ mkCapability {
     parallels.home
   ];
 }
-

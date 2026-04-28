@@ -14,6 +14,7 @@ mkCapability {
           appBundles.ghostty.home
           appBundles.wezterm.home
           appBundles.firefox-developer-edition.home
+          appBundles.forklift.home
           appBundles.google-chrome.home
           appBundles.vivaldi.home
           appBundles.onepassword.home
@@ -44,6 +45,7 @@ mkCapability {
     appBundles.ghostty.darwin
     appBundles.wezterm.darwin
     appBundles.firefox-developer-edition.darwin
+    appBundles.forklift.darwin
     appBundles.google-chrome.darwin
     appBundles.vivaldi.darwin
     appBundles.onepassword.darwin

@@ -6,7 +6,13 @@ mkApp {
   name = "bat";
 
   common.home =
-    { lib, pkgs, inputs, system, ... }:
+    {
+      lib,
+      pkgs,
+      inputs,
+      system,
+      ...
+    }:
     let
       stable = inputs.nixpkgs-stable.legacyPackages.${system};
     in
