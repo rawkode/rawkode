@@ -47,25 +47,22 @@ mkApp {
         fish_add_path $KREW_ROOT/bin
       '';
 
-      programs.fish.shellAliases = lib.mkIf config.programs.fish.enable {
-        k = "kubectl";
-        kctx = "kubectx";
-      };
-
       programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
+        k = {
+          expansion = "kubectl ";
+          position = "command";
+        };
+
+        kcx = {
+          expansion = "kubectx ";
+          position = "command";
+        };
+
         kns = {
           expansion = "kubectl config set-context --current --namespace=%";
           position = "command";
           setCursor = true;
         };
       };
-
-      programs.zsh.shellAliases = lib.mkIf config.programs.zsh.enable {
-        k = "kubectl";
-        kctx = "kubectx";
-        kns = "kubens";
-      };
-
-      home.file.".kube/.keep".text = "";
     };
 }

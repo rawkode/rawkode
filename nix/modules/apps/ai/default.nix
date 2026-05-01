@@ -48,7 +48,7 @@ mkApp {
         codex = {
           position = "command";
           setCursor = true;
-          expansion = "codex --search --full-auto";
+          expansion = "codex --search";
         };
       };
     };
