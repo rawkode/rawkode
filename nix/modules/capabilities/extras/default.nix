@@ -8,6 +8,5 @@ mkCapability {
   home = with inputs.self.appBundles; [
     descript.home
     mimestream.home
-    parallels.home
   ];
 }

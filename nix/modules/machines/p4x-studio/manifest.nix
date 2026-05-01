@@ -1,5 +1,8 @@
 {
   flake.machineManifests.p4x-studio = {
+    platform = "darwin";
+    system = "aarch64-darwin";
+    primaryUser = "rawkode";
     capabilities = [
       "foundation"
       "desktop"
@@ -9,8 +12,11 @@
       "development"
       "platform"
       "extras"
+      "tailnet"
     ];
     disabledCapabilities = [ ];
-    users = { };
+    traits = [ ];
+    users.rawkode = { };
+    modules = [ ];
   };
 }

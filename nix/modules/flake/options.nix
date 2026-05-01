@@ -30,6 +30,12 @@
     description = "Per-machine capability manifests exported by this flake.";
   };
 
+  options.flake.machineTraits = lib.mkOption {
+    type = lib.types.lazyAttrsOf lib.types.raw;
+    default = { };
+    description = "Reusable machine hardware and platform trait modules.";
+  };
+
   # NOTE: Other flake.* options (homeModules, nixosModules, nixosConfigurations,
   # overlays, packages, etc.) are provided elsewhere (via import-tree/flake-parts)
   # and should not be redeclared here to avoid merge conflicts.

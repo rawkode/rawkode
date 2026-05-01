@@ -13,8 +13,9 @@ modules/
 ├── shells/         # Shell ecosystem (Rule 1)
 ├── vcs/            # Version control (Rule 4)
 ├── config/         # System configuration modules
-├── machines/       # Machine-specific configurations
-├── profiles/       # Composable profiles
+├── machines/       # Machine manifests and generated configurations
+├── capabilities/   # Shared behavior bundles selected by machines
+├── profiles/       # Legacy compatibility modules; prefer capabilities
 └── users/          # User-specific configurations
 ```
 
@@ -118,3 +119,15 @@ apps/
     ├── config.nix
     └── themes/
 ```
+
+## Composition Model
+
+Machine manifests are the primary composition surface. A manifest declares:
+
+- `platform` and `system`
+- `primaryUser` and `users`
+- shared behavior via `capabilities`
+- hardware/platform shape via `traits`
+- host-local overrides via `modules`
+
+Capabilities compose reusable behavior. Traits compose machine shape. Keep one-off hardware, disks, hostnames, swap sizing, and local overrides in the machine manifest.

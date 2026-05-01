@@ -26,13 +26,12 @@
   flake.darwinModules.tailscale =
     {
       lib,
-      machine ? null,
       ...
     }:
     {
       homebrew = {
         enable = lib.mkDefault true;
-        casks = lib.optionals (machine != "CW-GG9T93PVFC-L") [ "tailscale" ];
+        casks = [ "tailscale-app" ];
       };
     };
 }

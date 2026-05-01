@@ -1,13 +1,13 @@
 # rawkOS: Rawkode's Operating System
 
-A comprehensive NixOS configuration system using flake-parts and modular architecture for managing multiple machines with different profiles.
+A comprehensive NixOS and nix-darwin configuration system using flake-parts and manifest-driven machine composition.
 
 ## Overview
 
 This repository contains a modular NixOS configuration that supports:
 
-- **Multiple machine configurations** (Framework laptops, desktops)
-- **Profile-based system composition** (base, desktop, development, AMD hardware)
+- **Multiple machine configurations** (Framework laptops, desktops, macOS hosts)
+- **Manifest-first machine composition** with capabilities and hardware traits
 - **Modern Nix features** (flakes, home-manager, disko, secure boot)
 - **Wayland-first desktop environment** with Niri compositor and GNOME fallback
 - **Development-oriented tooling** with comprehensive CLI utilities
@@ -18,22 +18,23 @@ This repository contains a modular NixOS configuration that supports:
 
 - **flake.nix**: Main entry point using flake-parts for modular composition
 - **modules/**: Modular system components organized by category
-- **profiles/**: High-level system profiles (base, desktop, development, hardware)
+- **machines/**: Per-machine manifests that declare platform, users, capabilities, traits, and local overrides
+- **capabilities/**: Shared behavior bundles such as foundation, desktop, development, platform, and tailnet
 
 ### Key Components
 
-#### Profiles (`modules/profiles/`)
+#### Capabilities (`modules/capabilities/`)
 
-- **base.nix**: Core system foundation with Nix flakes, networking, users
-- **desktop.nix**: Desktop environment with Niri/GNOME toggle options
-- **development.nix**: Development tools and environments
-- **amd.nix**: AMD hardware optimizations
+- **foundation**: Core system foundation with Nix, users, shells, networking, and Home Manager support
+- **desktop**: Desktop environment with Niri/GNOME, portals, audio, fonts, and desktop apps
+- **development**: Development tools and environments
+- **tailnet**: Tailscale networking, opt-in per machine
 
 #### Machine Configurations (`modules/machines/`)
 
-- **p4x-framework-nixos**: Framework 13 AMD laptop with power management
-- **p4x-desktop-nixos**: Desktop workstation configuration
-- **p4x-laptop-nixos**: General laptop configuration
+- Each machine directory has a `manifest.nix`.
+- Manifests declare the target platform, system, primary user, capabilities, hardware traits, and local machine modules.
+- `modules/machines/default.nix` generates `nixosConfigurations`, `darwinConfigurations`, and Darwin package aliases from those manifests.
 
 ### Technology Stack
 
@@ -89,7 +90,7 @@ cuenv task <task-name>
 
 ### Home Manager Integration
 
-Home manager configurations are integrated via flake inputs. User-specific configurations are managed in the `modules/home/` directory with categories for:
+Home Manager configurations are integrated through machine manifests, user modules, and capability-selected Home Manager imports. User-facing modules are organized by category under `modules/`:
 
 - Command-line tools and editors
 - Development environments
@@ -115,7 +116,7 @@ Home manager configurations are integrated via flake inputs. User-specific confi
 
 ## Development Environment
 
-The development profile includes:
+The development capability includes:
 
 - Modern CLI tools (ripgrep, bat, eza, delta)
 - Version control with Git and GitHub CLI integration
@@ -135,19 +136,19 @@ The development profile includes:
 
 ### Adding a New Machine
 
-1. Create `modules/machines/<machine-name>/default.nix`
-2. Import appropriate profiles and hardware modules
-3. Configure machine-specific settings (hostname, disk layout, etc.)
+1. Create `modules/machines/<machine-name>/manifest.nix`
+2. Set `platform`, `system`, `primaryUser`, `users`, `capabilities`, and `traits`
+3. Put host-local settings such as disk paths, swap, firmware, and one-off hardware overrides in `modules`
 
-### Creating Custom Profiles
+### Creating Custom Capabilities
 
-1. Add new profile in `modules/profiles/<profile-name>.nix`
-2. Import required modules and set appropriate defaults
-3. Export as `flake.nixosModules.profiles-<name>`
+1. Add a new capability in `modules/capabilities/<capability-name>/default.nix`
+2. Compose existing app, system, Home Manager, NixOS, or Darwin modules with `mkCapability`
+3. Add the capability name to the relevant machine manifest
 
 ### Desktop Environment Toggle
 
-The desktop profile supports switching between Niri and GNOME:
+The desktop capability supports switching between Niri and GNOME:
 
 ```nix
 rawkOS.desktop = {

@@ -4,6 +4,7 @@ let
   mkUser = import ../../lib/mkUser.nix { inherit inputs lib; };
   mkApp = import ../../lib/mkApp.nix { inherit lib; };
   mkCapability = import ../../lib/mkCapability.nix { inherit lib; };
+  mkMachine = import ../../lib/mkMachine.nix { inherit inputs lib; };
 
   # Library functions (also exported via extraSpecialArgs in mkUser)
   rawkOSLib = {
@@ -15,7 +16,12 @@ in
     __functor = _self: _super: {
       rawkOS = {
         inherit (rawkOSLib) fileAsSeparatedString;
-        inherit mkApp mkCapability mkUser;
+        inherit
+          mkApp
+          mkCapability
+          mkMachine
+          mkUser
+          ;
       };
     };
   };

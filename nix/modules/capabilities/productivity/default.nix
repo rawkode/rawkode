@@ -17,7 +17,5 @@ mkCapability {
     appBundles.slack.darwin
     appBundles.tana.darwin
     appBundles.zoom.darwin
-
-    darwinModules.fantastical
   ];
 }

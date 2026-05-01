@@ -94,4 +94,14 @@ rec {
         disabledCapabilities
         ;
     });
+
+  resolveMachineCapabilityImports =
+    {
+      kind,
+      machine,
+    }:
+    map (capability: inputs.self.capabilityBundles.${capability}.${kind})
+      (resolveMachineCapabilityNames {
+        inherit machine;
+      });
 }

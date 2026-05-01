@@ -1,5 +1,8 @@
 {
   flake.machineManifests.p4x-mbp = {
+    platform = "darwin";
+    system = "aarch64-darwin";
+    primaryUser = "rawkode";
     capabilities = [
       "foundation"
       "desktop"
@@ -8,8 +11,20 @@
       "personal"
       "development"
       "platform"
+      "tailnet"
     ];
     disabledCapabilities = [ ];
-    users = { };
+    traits = [ ];
+    users.rawkode = { };
+    modules = [
+      {
+        rawkOS.darwin.firewall = {
+          enable = true;
+          stealthMode = true;
+          allowSigned = true;
+          allowSignedApp = true;
+        };
+      }
+    ];
   };
 }

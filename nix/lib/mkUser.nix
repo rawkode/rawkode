@@ -280,47 +280,23 @@ let
       flake.homeModules."users-${username}" = homeModule;
 
       flake.nixosModules."users-${username}" =
-        {
-          machine ? null,
-          ...
-        }:
+        { ... }:
         {
           imports = [
             nixosHomeModule
             nixosUserModule
           ]
-          ++ legacyAppNixosImports
-          ++ resolveCapabilityImports {
-            kind = "nixos";
-            inherit
-              machine
-              username
-              defaultCapabilities
-              disabledCapabilities
-              ;
-          };
+          ++ legacyAppNixosImports;
         };
 
       flake.darwinModules."users-${username}" =
-        {
-          machine ? null,
-          ...
-        }:
+        { ... }:
         {
           imports = [
             darwinHomeModule
             darwinUserModule
           ]
-          ++ legacyAppDarwinImports
-          ++ resolveCapabilityImports {
-            kind = "darwin";
-            inherit
-              machine
-              username
-              defaultCapabilities
-              disabledCapabilities
-              ;
-          };
+          ++ legacyAppDarwinImports;
         };
 
       flake.homeConfigurations = homeConfigurations;

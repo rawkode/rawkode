@@ -27,7 +27,6 @@
         inputs.self.nixosModules.stylix
         inputs.self.nixosModules.sudo
         inputs.self.nixosModules.systemd
-        inputs.self.nixosModules.tailscale
         inputs.self.nixosModules.tpm2
         inputs.self.nixosModules.user
       ];
@@ -90,7 +89,6 @@
       imports = [
         inputs.self.darwinModules.fonts
         inputs.self.darwinModules.power
-        inputs.self.darwinModules.tailscale
       ];
 
       options.rawkOS.darwin.firewall = {
