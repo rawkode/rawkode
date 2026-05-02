@@ -25,13 +25,12 @@
 
   flake.darwinModules.tailscale =
     {
-      lib,
+      pkgs,
       ...
     }:
     {
-      homebrew = {
-        enable = lib.mkDefault true;
-        casks = [ "tailscale-app" ];
-      };
+      services.tailscale.enable = true;
+
+      environment.systemPackages = [ pkgs.tailscale ];
     };
 }

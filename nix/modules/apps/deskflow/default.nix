@@ -16,6 +16,7 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
+        taps = [ "deskflow/tap" ];
         casks = [ "deskflow" ];
       };
     };

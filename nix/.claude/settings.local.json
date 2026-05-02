@@ -61,7 +61,8 @@
       "Bash(launchctl list:*)",
       "Bash(NIX_CONF_DIR=/dev/null nix config show substituters)",
       "Bash(XDG_CONFIG_HOME=/nonexistent nix config show substituters)",
-      "WebFetch(domain:mynixos.com)"
+      "WebFetch(domain:mynixos.com)",
+      "Bash(brew search *)"
     ]
   }
 }
