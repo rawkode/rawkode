@@ -10,6 +10,10 @@
         enable = true;
         useRoutingFeatures = "client";
         extraUpFlags = [ "--accept-dns=false" ];
+        extraSetFlags = [
+          "--accept-dns=false"
+          "--ssh=true"
+        ];
       };
 
       networking.firewall = {
@@ -32,5 +36,19 @@
       services.tailscale.enable = true;
 
       environment.systemPackages = [ pkgs.tailscale ];
+
+      launchd.daemons.tailscale-ssh = {
+        serviceConfig = {
+          Label = "com.rawkode.tailscale-ssh";
+          ProgramArguments = [
+            "${pkgs.tailscale}/bin/tailscale"
+            "set"
+            "--ssh=true"
+            "--accept-dns=false"
+          ];
+          RunAtLoad = true;
+          KeepAlive.SuccessfulExit = false;
+        };
+      };
     };
 }
