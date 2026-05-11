@@ -35,6 +35,21 @@ mkApp {
 
         font-family = "Monaspace Neon";
         font-size = 16;
+        font-thicken = 1;
+        font-feature = [
+          "calt"
+          "liga"
+          "ss01"
+          "ss02"
+          "ss03"
+          "ss04"
+          "ss05"
+          "ss06"
+          "ss07"
+          "ss08"
+        ];
+
+        adjust-cell-height = "15%";
 
         shell-integration = "detect";
 
@@ -53,11 +68,22 @@ mkApp {
 
         focus-follows-mouse = true;
 
+        cursor-style = "block";
+        cursor-style-blink = true;
+
         window-decoration = true;
         window-colorspace = "display-p3";
         window-padding-x = 16;
         window-padding-y = 16;
         window-padding-balance = true;
+        window-save-state = "all";
+        window-step-resize = true;
+
+        macos-titlebar-style = "transparent";
+        macos-option-as-alt = "left";
+
+        quick-terminal-position = "top";
+        quick-terminal-animation-duration = 0.2;
       }
       // lib.optionalAttrs (stylixColors != null) {
         split-divider-color = lib.mkDefault stylixColors.base0D;
