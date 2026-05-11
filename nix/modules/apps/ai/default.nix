@@ -68,6 +68,7 @@ mkApp {
           "claude-code@latest"
           "codex"
           "codex-app"
+          "openusage"
         ];
       };
     };
