@@ -13,6 +13,8 @@
     "astro": "astro"
   },
   "dependencies": {
+    "@alteran/astro": "file:../../../../alteran-social/alteran",
+    "@astrojs/cloudflare": "^12.6.9",
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/newsreader": "^5.2.10",
     "astro": "^6.1.5"
