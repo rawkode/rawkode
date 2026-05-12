@@ -59,6 +59,7 @@ mkApp {
 
           shellAliases = {
             ghb = "cd ~/Code/src/github.com";
+            tmp = "cd (mktemp -d)";
           };
 
           binds = {
