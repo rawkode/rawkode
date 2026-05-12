@@ -1,4 +1,5 @@
 /* ─── Fonts ─────────────────────────────────────────────────────────────── */
+@import '@fontsource-variable/newsreader/wght.css';
 @import '@fontsource-variable/newsreader/wght-italic.css';
 @import '@fontsource-variable/figtree/index.css';
 
@@ -24,11 +25,19 @@
     line-height: 1.6;
     color: var(--colors-text-primary);
     background-color: var(--colors-surface-1);
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
     transition:
       background-color var(--durations-normal) var(--easings-in-out),
       color var(--durations-normal) var(--easings-in-out);
     min-height: 100dvh;
   }
+
+  ::selection {
+    background-color: var(--colors-accent);
+    color: var(--colors-text-invert);
+  }
+
+  time { font-variant-numeric: tabular-nums; }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--fonts-serif);

@@ -15,6 +15,13 @@ export default defineConfig({
       // Let the OS preference drive the theme when there's no override — same
       // strategy as the rest of the design system.
       useDarkModeMediaQuery: true,
+      // Wrap long lines instead of horizontal scrolling. macOS overlay
+      // scrollbars draw on top of short code blocks and slice through the
+      // text. Opt out per-block with `wrap=false` on the code fence.
+      defaultProps: {
+        wrap: true,
+        preserveIndent: true,
+      },
       styleOverrides: {
         borderRadius: 'var(--radii-md)',
         codeFontFamily: 'var(--fonts-mono)',

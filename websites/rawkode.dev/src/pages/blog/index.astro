@@ -10,6 +10,10 @@ const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
+
+function formatYear(date: Date) {
+  return date.getFullYear().toString();
+}
 ---
 
 <Layout
@@ -21,9 +25,12 @@ function formatDate(date: Date) {
   <main id="main-content">
     <section class="blog-hero">
       <div class="container">
-        <p class="eyebrow">Writing</p>
-        <h1>Longer thoughts</h1>
-        <p class="lead">On cloud-native infrastructure, developer tooling, open source, and the future of software.</p>
+        <p class="blog-hero__folio">Writing · A Folio</p>
+        <h1 class="blog-hero__title">Longer thoughts.</h1>
+        <p class="blog-hero__deck">
+          Essays on cloud-native infrastructure, developer tooling, open source, and the
+          future of software — set in long form, when 280 characters won't carry the idea.
+        </p>
       </div>
     </section>
 
@@ -32,28 +39,35 @@ function formatDate(date: Date) {
         {posts.length === 0 ? (
           <p class="empty">Nothing here yet. Check back soon.</p>
         ) : (
-          <ul class="post-list" role="list">
-            {posts.map((post) => (
+          <ol class="post-list" role="list">
+            {posts.map((post, i) => (
               <li class="post-list__item">
                 <a href={`/blog/${post.id}`} class="post-list__link">
+                  <span class="post-list__no">{String(i + 1).padStart(2, '0')}</span>
                   <div class="post-list__content">
                     <h2 class="post-list__title">{post.data.title}</h2>
                     <p class="post-list__desc">{post.data.description}</p>
                     {post.data.tags.length > 0 && (
-                      <ul class="post-list__tags" role="list" aria-label="Tags">
-                        {post.data.tags.map((tag: string) => (
-                          <li class="post-list__tag">{tag}</li>
+                      <p class="post-list__tags">
+                        {post.data.tags.map((tag: string, ti: number) => (
+                          <>
+                            {ti > 0 && <span class="post-list__tag-sep">·</span>}
+                            <span class="post-list__tag">{tag}</span>
+                          </>
                         ))}
-                      </ul>
+                      </p>
                     )}
                   </div>
-                  <time class="post-list__date" datetime={post.data.pubDate.toISOString()}>
-                    {formatDate(post.data.pubDate)}
-                  </time>
+                  <div class="post-list__meta">
+                    <time class="post-list__date" datetime={post.data.pubDate.toISOString()}>
+                      {formatDate(post.data.pubDate)}
+                    </time>
+                    <span class="post-list__year">{formatYear(post.data.pubDate)}</span>
+                  </div>
                 </a>
               </li>
             ))}
-          </ul>
+          </ol>
         )}
       </div>
     </section>
@@ -63,104 +77,191 @@ function formatDate(date: Date) {
 </Layout>
 
 <style>
+  /* ─── Hero — editorial, centered ────────────────────────────────────── */
   .blog-hero {
     padding-block: var(--space-16) var(--space-12);
+    text-align: center;
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
+  .blog-hero__folio {
+    font-family: var(--fonts-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: var(--space-3);
+    color: var(--text-tertiary);
+    margin-bottom: var(--space-6);
+  }
+  .blog-hero__folio::before,
+  .blog-hero__folio::after {
+    content: "";
+    display: inline-block;
+    width: 2rem;
+    height: 1px;
+    background: var(--border-subtle);
+    vertical-align: middle;
+    margin: 0 var(--space-4);
   }
 
-  .blog-hero h1 {
+  .blog-hero__title {
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(2.4rem, 6vw, 4.8rem);
+    line-height: 1;
+    letter-spacing: -0.025em;
     margin-bottom: var(--space-4);
+    text-wrap: balance;
   }
 
-  .lead {
-    font-size: 1.125rem;
-    max-width: 60ch;
+  .blog-hero__deck {
+    font-family: var(--fonts-serif);
+    font-weight: 400;
+    font-size: clamp(1.0625rem, 1.4vw, 1.25rem);
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-width: 56ch;
+    margin: 0 auto;
+    text-wrap: balance;
   }
 
+  /* ─── Post list — TOC-like ──────────────────────────────────────────── */
   .blog-content {
     padding-block: var(--space-12) var(--space-24);
   }
 
   .empty {
     color: var(--text-tertiary);
-    font-size: 1.0625rem;
-    padding-block: var(--space-12);
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-size: 1.125rem;
+    text-align: center;
+    padding-block: var(--space-16);
   }
 
   .post-list {
     list-style: none;
+    counter-reset: post;
+    max-width: 920px;
+    margin: 0 auto;
   }
 
   .post-list__item {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .post-list__item:last-child {
     border-bottom: 1px solid var(--border-subtle);
   }
 
   .post-list__link {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-8);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: var(--space-6);
     padding-block: var(--space-8);
     text-decoration: none;
-    flex-wrap: wrap;
+    transition: background var(--dur-fast) var(--ease-out-expo);
   }
 
-  @media (hover: hover) {
-    .post-list__link:hover .post-list__title {
-      color: var(--color-accent);
+  @media (max-width: 720px) {
+    .post-list__link {
+      grid-template-columns: auto 1fr;
+      gap: var(--space-3) var(--space-4);
     }
   }
 
-  .post-list__content { flex: 1; min-width: 0; }
+  .post-list__link:hover {
+    background: var(--surface-2);
+  }
+  .post-list__link:hover .post-list__title {
+    color: var(--color-accent);
+  }
+
+  .post-list__no {
+    font-family: var(--fonts-sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+    padding-top: 0.6em;
+    align-self: start;
+    min-width: 2ch;
+  }
+
+  .post-list__content { min-width: 0; }
 
   .post-list__title {
-    font-size: 1.375rem;
-    font-weight: 600;
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(1.5rem, 2.4vw, 2rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
     color: var(--text-primary);
-    margin-bottom: var(--space-2);
+    margin: 0 0 var(--space-2);
     transition: color var(--dur-fast) var(--ease-out-expo);
+    text-wrap: balance;
   }
 
   .post-list__desc {
-    font-size: 0.9375rem;
+    font-family: var(--fonts-serif);
+    font-size: 1.05rem;
+    line-height: 1.55;
     color: var(--text-secondary);
-    line-height: 1.6;
     margin: 0;
+    max-width: 60ch;
   }
 
   .post-list__tags {
+    font-family: var(--fonts-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin: var(--space-3) 0 0;
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    list-style: none;
-    margin-top: var(--space-3);
+  }
+  .post-list__tag { color: var(--text-tertiary); }
+  .post-list__tag-sep { color: var(--color-accent); }
+
+  .post-list__meta {
+    text-align: right;
+    align-self: start;
+    padding-top: 0.4em;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
 
-  .post-list__tag {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-full);
-    padding: 2px 10px;
+  @media (max-width: 720px) {
+    .post-list__meta {
+      grid-column: 1 / -1;
+      text-align: left;
+      flex-direction: row;
+      gap: var(--space-3);
+      padding-top: var(--space-2);
+    }
+    .post-list__year { display: none; }
   }
 
   .post-list__date {
-    font-size: 0.8125rem;
-    color: var(--text-tertiary);
+    font-family: var(--fonts-sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
     white-space: nowrap;
-    flex-shrink: 0;
-    margin-top: 6px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .post-list__year {
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--color-accent);
+    font-variant-numeric: lining-nums;
   }
 </style>

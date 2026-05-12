@@ -569,43 +569,54 @@ function formatDate(date: Date) {
     line-height: 1.75;
   }
 
-  /* ─── Blog list ─────────────────────────────────────────────────────────── */
+  /* ─── Blog list — editorial / folio treatment ─────────────────────────── */
   .blog-list { list-style: none; display: flex; flex-direction: column; }
 
   .blog-list li:first-child .blog-list__link { border-top: 1px solid var(--border-subtle); }
   .blog-list__link {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto;
     align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-6);
+    column-gap: var(--space-8);
     padding-block: var(--space-6);
     text-decoration: none;
     border-bottom: 1px solid var(--border-subtle);
-    flex-wrap: wrap;
+    transition: background var(--dur-fast) var(--ease-out-expo);
   }
+  .blog-list__link:hover { background: var(--surface-2); }
   .blog-list__link:hover .blog-list__title { color: var(--color-accent); }
 
-  .blog-list__content { flex: 1; min-width: 0; }
+  .blog-list__content { min-width: 0; }
   .blog-list__title {
-    font-size: 1.125rem;
-    font-weight: 600;
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(1.25rem, 1.8vw, 1.6rem);
+    line-height: 1.15;
+    letter-spacing: -0.015em;
     color: var(--text-primary);
     transition: color var(--dur-fast) var(--ease-out-expo);
-    margin-bottom: var(--space-1);
+    margin-bottom: var(--space-2);
+    text-wrap: balance;
   }
   .blog-list__desc {
-    font-size: 0.9rem;
+    font-family: var(--fonts-serif);
+    font-size: 1rem;
+    line-height: 1.5;
     color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    margin: 0;
+    max-width: 60ch;
   }
   .blog-list__date {
-    font-size: 0.8125rem;
-    color: var(--text-tertiary);
+    font-family: var(--fonts-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
     white-space: nowrap;
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
+    padding-top: 0.4em;
   }
 
   /* ─── Reduced motion ────────────────────────────────────────────────────── */
