@@ -141,7 +141,7 @@ function formatDate(date: Date) {
               <h2>Longer thoughts</h2>
               <p class="lead">Notes that need more room than a post or thread.</p>
             </div>
-            <a href="/blog" class="link-more" data-enter="right">All posts →</a>
+            <a href="/read" class="link-more" data-enter="right">All posts →</a>
           </div>
           <ul class="blog-list" role="list">
             {recentPosts.map((post, i) => (
@@ -149,7 +149,7 @@ function formatDate(date: Date) {
                 style={`--i: ${i}`}
                 data-enter={i % 2 === 0 ? 'left' : 'right'}
               >
-                <a href={`/blog/${post.id}`} class="blog-list__link">
+                <a href={`/read/${post.id}`} class="blog-list__link">
                   <div class="blog-list__content">
                     <h3 class="blog-list__title">{post.data.title}</h3>
                     <p class="blog-list__desc">{post.data.description}</p>

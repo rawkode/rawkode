@@ -6,6 +6,32 @@ import { getCollection } from 'astro:content';
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const blogDescription =
+  'Essays from David Flanagan on cloud-native infrastructure, developer tooling, open source, and the practical edge of software work.';
+const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
+const blogUrl = new URL('/read', siteUrl).toString();
+const personId = new URL('/#person', siteUrl).toString();
+const blogJsonLd = {
+  '@type': 'Blog',
+  '@id': `${blogUrl}#blog`,
+  name: 'Writing — rawkode.dev',
+  description: blogDescription,
+  url: blogUrl,
+  author: { '@id': personId },
+  publisher: { '@id': personId },
+  blogPost: posts.map((post) => {
+    const url = new URL(`/read/${post.id}`, siteUrl).toString();
+    return {
+      '@type': 'BlogPosting',
+      '@id': `${url}#article`,
+      headline: post.data.title,
+      description: post.data.description,
+      url,
+      datePublished: post.data.pubDate.toISOString(),
+    };
+  }),
+  inLanguage: 'en-GB',
+};
 
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -18,7 +44,9 @@ function formatYear(date: Date) {
 
 <Layout
   title="Writing — rawkode.dev"
-  description="Essays from David Flanagan on cloud-native infrastructure, developer tooling, open source, and the practical edge of software work."
+  description={blogDescription}
+  imageAlt="Writing from David Flanagan on rawkode.dev"
+  jsonLd={blogJsonLd}
 >
   <Nav />
 
@@ -42,7 +70,7 @@ function formatYear(date: Date) {
           <ol class="post-list" role="list">
             {posts.map((post, i) => (
               <li class="post-list__item">
-                <a href={`/blog/${post.id}`} class="post-list__link">
+                <a href={`/read/${post.id}`} class="post-list__link">
                   <span class="post-list__no">{String(i + 1).padStart(2, '0')}</span>
                   <div class="post-list__content">
                     <h2 class="post-list__title">{post.data.title}</h2>

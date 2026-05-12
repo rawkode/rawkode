@@ -31,9 +31,44 @@ const pad = (n: number) => String(n).padStart(2, '0');
 // Best-effort reading time from raw body length (markdown loader exposes body)
 const wordCount = (post.body ?? '').trim().split(/\s+/).filter(Boolean).length;
 const readMinutes = Math.max(1, Math.round(wordCount / 220));
+const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
+const personId = new URL('/#person', siteUrl).toString();
+const postUrl = new URL(`/read/${post.id}`, siteUrl).toString();
+const postImage = post.data.image ?? '/og.png';
+const postImageUrl = new URL(postImage, siteUrl).toString();
+const postImageAlt = post.data.imageAlt ?? `${post.data.title} — rawkode.dev`;
+const publishedTime = post.data.pubDate.toISOString();
+const modifiedTime = post.data.updatedDate?.toISOString() ?? publishedTime;
+const articleJsonLd = {
+  '@type': 'BlogPosting',
+  '@id': `${postUrl}#article`,
+  headline: post.data.title,
+  description: post.data.description,
+  url: postUrl,
+  mainEntityOfPage: { '@id': `${postUrl}#webpage` },
+  image: [{ '@type': 'ImageObject', url: postImageUrl, caption: postImageAlt }],
+  datePublished: publishedTime,
+  dateModified: modifiedTime,
+  author: { '@id': personId },
+  publisher: { '@id': personId },
+  keywords: post.data.tags.join(', '),
+  wordCount,
+  timeRequired: `PT${readMinutes}M`,
+  inLanguage: 'en-GB',
+};
 ---
 
-<Layout title={`${post.data.title} — rawkode.dev`} description={post.data.description}>
+<Layout
+  title={`${post.data.title} — rawkode.dev`}
+  description={post.data.description}
+  image={postImage}
+  imageAlt={postImageAlt}
+  type="article"
+  publishedTime={publishedTime}
+  modifiedTime={modifiedTime}
+  tags={post.data.tags}
+  jsonLd={articleJsonLd}
+>
   <Nav />
 
   <main id="main-content">
@@ -42,7 +77,7 @@ const readMinutes = Math.max(1, Math.round(wordCount / 220));
         <p class="post__folio">№ {pad(index)} <span class="post__folio-of">of</span> {pad(total)}</p>
 
         <header class="post__header">
-          <a href="/blog" class="post__back">← All writing</a>
+          <a href="/read" class="post__back">← All writing</a>
           <h1 class="post__title">{post.data.title}</h1>
           <p class="post__deck">{post.data.description}</p>
           <p class="post__byline">
@@ -83,7 +118,7 @@ const readMinutes = Math.max(1, Math.round(wordCount / 220));
             )}
           </p>
           <p class="post__signoff" aria-hidden="true">❦</p>
-          <a href="/blog" class="post__more">More writing →</a>
+          <a href="/read" class="post__more">More writing →</a>
         </footer>
       </div>
     </article>
