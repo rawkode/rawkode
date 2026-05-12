@@ -177,11 +177,13 @@ const currentPath = Astro.url.pathname;
     border-color: var(--border-default);
   }
 
-  /* Show correct icon based on active theme state (set by inline script) */
+  /* Show correct icon based on active theme state (set by inline script).
+     `[data-ui-theme]` lives on <html> (outside this component), so the
+     ancestor selector must be :global or Astro's scoping prevents a match. */
   .theme-icon { display: none; }
-  [data-ui-theme="light"]  .theme-icon--light  { display: block; }
-  [data-ui-theme="dark"]   .theme-icon--dark   { display: block; }
-  [data-ui-theme="system"] .theme-icon--system { display: block; }
+  :global([data-ui-theme="light"])  .theme-icon--light  { display: block; }
+  :global([data-ui-theme="dark"])   .theme-icon--dark   { display: block; }
+  :global([data-ui-theme="system"]) .theme-icon--system { display: block; }
 
   @media (max-width: 640px) {
     .nav__links {

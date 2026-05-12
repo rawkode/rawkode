@@ -47,9 +47,26 @@ function formatDate(date: Date) {
             and teach engineers the practical systems work behind it through Rawkode Academy.
           </p>
           <div class="hero__actions">
-            <a href="#apps" class="btn btn--primary">See my work</a>
-            <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--ghost">
-              Rawkode Academy →
+            <a href="#apps" class="btn btn--solid">
+              <span class="btn__label">See my <em>work</em></span>
+              <svg class="btn__arrow btn__arrow--down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <polyline points="19 12 12 19 5 12"/>
+              </svg>
+            </a>
+            <a href="/read" class="btn btn--outline">
+              <span class="btn__label">Read <em>writing</em></span>
+              <svg class="btn__arrow btn__arrow--right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+                <polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+            <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--text">
+              <span class="btn__label">Rawkode <em>Academy</em></span>
+              <svg class="btn__arrow btn__arrow--ne" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="7" y1="17" x2="17" y2="7"/>
+                <polyline points="8 7 17 7 17 16"/>
+              </svg>
             </a>
           </div>
         </div>
@@ -460,34 +477,124 @@ function formatDate(date: Date) {
 
   /* ─── Buttons ───────────────────────────────────────────────────────────── */
   .btn {
+    --btn-arrow-shift: 4px;
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-6);
-    border-radius: var(--radius-md);
+    gap: 0.625rem;
+    padding: 0.78rem 1.4rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: var(--fonts-sans);
     font-size: 0.9375rem;
     font-weight: 600;
+    letter-spacing: -0.005em;
     text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    isolation: isolate;
     transition:
-      background var(--dur-fast) var(--ease-out-expo),
-      color var(--dur-fast) var(--ease-out-expo),
-      box-shadow var(--dur-fast) var(--ease-out-expo);
-    border: 2px solid transparent;
+      background-color 0.35s var(--ease-out-expo),
+      color 0.35s var(--ease-out-expo),
+      border-color 0.35s var(--ease-out-expo),
+      transform 0.35s var(--ease-out-expo),
+      box-shadow 0.35s var(--ease-out-expo);
   }
-  .btn--primary { background: var(--color-accent); color: #fff; }
-  .btn--primary:hover {
-    background: var(--color-accent-hover);
-    box-shadow: 0 4px 16px oklch(from var(--color-accent) l c h / 0.35);
-  }
-  .btn--ghost { background: transparent; color: var(--text-secondary); border-color: var(--border-default); }
-  .btn--ghost:hover { background: var(--surface-2); color: var(--text-primary); }
 
+  .btn__label { display: inline-flex; align-items: baseline; gap: 0.25em; }
+  .btn__label em {
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-weight: 500;
+    letter-spacing: -0.012em;
+  }
+
+  .btn__arrow {
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    transition: transform 0.45s var(--ease-out-expo);
+    will-change: transform;
+  }
+
+  /* Solid — filled primary (desaturated against the accent) */
+  .btn--solid {
+    background: color-mix(in oklch, var(--color-accent) 75%, oklch(22% 0.03 250));
+    color: oklch(98% 0.01 250);
+    box-shadow:
+      inset 0 1px 0 oklch(100% 0 0 / 0.10),
+      inset 0 -1px 0 oklch(0% 0 0 / 0.18),
+      0 1px 2px oklch(0% 0 0 / 0.10);
+  }
+  .btn--solid:hover {
+    background: color-mix(in oklch, var(--color-accent) 88%, oklch(28% 0.03 250));
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 oklch(100% 0 0 / 0.15),
+      0 10px 28px color-mix(in oklch, var(--color-accent) 22%, transparent);
+  }
+  .btn--solid:active { transform: translateY(0); }
+  .btn--solid:hover .btn__arrow--down { transform: translateY(var(--btn-arrow-shift)); }
+
+  /* Outline — bordered, inverts on hover */
+  .btn--outline {
+    background: transparent;
+    color: var(--text-primary);
+    border-color: var(--border-default);
+  }
+  .btn--outline:hover {
+    background: var(--text-primary);
+    color: var(--surface-1);
+    border-color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+  .btn--outline:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
+  .btn--outline:hover .btn__arrow--ne {
+    transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
+  }
+
+  /* Text — minimal, persistent half-line that fills on hover */
+  .btn--text {
+    padding-inline: 0.25rem;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-primary);
+  }
+  .btn--text::after {
+    content: '';
+    position: absolute;
+    left: 0.25rem;
+    right: 0.25rem;
+    bottom: 0.42rem;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0.5);
+    transform-origin: left center;
+    opacity: 0.35;
+    transition:
+      transform 0.5s var(--ease-out-expo),
+      opacity 0.5s var(--ease-out-expo);
+  }
+  .btn--text:hover::after {
+    transform: scaleX(1);
+    opacity: 0.9;
+  }
+  .btn--text:hover .btn__arrow--ne {
+    transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
+  }
+  .btn--text:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
+
+  /* Light — kept for Academy CTA section */
   .btn--light {
     background: oklch(98% 0.01 250);
     color: oklch(16% 0.02 250);
     border-color: transparent;
   }
-  .btn--light:hover { background: #fff; box-shadow: 0 4px 20px oklch(0% 0 0 / 0.2); }
+  .btn--light:hover {
+    background: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 28px oklch(0% 0 0 / 0.22);
+  }
 
   /* ─── Apps grid ─────────────────────────────────────────────────────────── */
   .apps-grid {

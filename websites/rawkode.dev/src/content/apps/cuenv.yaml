@@ -1,0 +1,20 @@
+name: cuenv
+tagline: Type-safe environments and task orchestration powered by CUE
+description: >
+  A modern application build toolchain that combines typed environment
+  variables, runtime secret resolution, and parallel task execution behind
+  two commands. Validates configuration with CUE constraints, resolves
+  secrets from 1Password, AWS, GCP, and Vault without writing them to disk,
+  and orchestrates tasks with content-aware caching and dependency graphs.
+platform:
+  - Linux
+  - macOS
+status: available
+repoUrl: https://github.com/cuenv/cuenv
+websiteUrl: https://cuenv.dev
+tags:
+  - Developer Tooling
+  - CUE
+  - Rust
+  - Build Tool
+  - Open Source
