@@ -15,7 +15,7 @@
     "panda": "panda"
   },
   "dependencies": {
-    "@alteran/astro": "^0.6.1",
+    "@alteran/astro": "^0.6.3",
     "@astrojs/cloudflare": "^12.6.9",
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/newsreader": "^5.2.10",

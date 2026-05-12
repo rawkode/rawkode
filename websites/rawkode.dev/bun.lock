@@ -5,7 +5,7 @@
     "": {
       "name": "rawkode.dev",
       "dependencies": {
-        "@alteran/astro": "^0.6.1",
+        "@alteran/astro": "^0.6.3",
         "@astrojs/cloudflare": "^12.6.9",
         "@fontsource-variable/figtree": "^5.2.10",
         "@fontsource-variable/newsreader": "^5.2.10",
@@ -19,7 +19,7 @@
     },
   },
   "packages": {
-    "@alteran/astro": ["@alteran/astro@0.6.1", "", { "dependencies": { "@atproto/crypto": "^0.4.4", "@cloudflare/workers-types": "^4.20251001.0", "@did-plc/lib": "^0.0.4", "@iconify-json/simple-icons": "^1.2.53", "@ipld/car": "^5.4.2", "@ipld/dag-cbor": "^9.2.5", "@noble/hashes": "^2.0.1", "astro": "^6.1.5", "astro-icon": "^1.1.5", "dotenv": "^17.2.3", "drizzle-orm": "^0.44.6", "get-port": "^7.1.0", "hono": "^4.9.9", "jose": "^5.9.6", "multiformats": "^13.4.1", "uint8arrays": "^5.1.0" }, "peerDependencies": { "typescript": "^5" } }, "sha512-n+zsKbyrUlAT3FVUlL07N8qeozN2jA1Z85bb9u3QVI+EmlmsgvlJCkPvafKP22e+gWoijTFlYkBF8+G/dlTjzA=="],
+    "@alteran/astro": ["@alteran/astro@0.6.3", "", { "dependencies": { "@atproto/crypto": "^0.4.4", "@cloudflare/workers-types": "^4.20251001.0", "@did-plc/lib": "^0.0.4", "@iconify-json/simple-icons": "^1.2.53", "@ipld/car": "^5.4.2", "@ipld/dag-cbor": "^9.2.5", "@noble/hashes": "^2.0.1", "astro": "^6.1.5", "astro-icon": "^1.1.5", "dotenv": "^17.2.3", "drizzle-orm": "^0.44.6", "get-port": "^7.1.0", "hono": "^4.9.9", "jose": "^5.9.6", "multiformats": "^13.4.1", "uint8arrays": "^5.1.0" }, "peerDependencies": { "typescript": "^5" } }, "sha512-EmTvvsTFTVVFkz65xIAdQlZPjvn2NKU/yTJFRyBdnOxvvJez6BTKR3B3zI88BtDwoGnK5VaDhb8/Kx0E8M6pjw=="],
 
     "@antfu/install-pkg": ["@antfu/install-pkg@1.1.0", "", { "dependencies": { "package-manager-detector": "^1.3.0", "tinyexec": "^1.0.1" } }, "sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ=="],
 
