@@ -1,9 +1,11 @@
 ---
 title: "Introducing Alteran: an atproto PDS inside Astro"
-description: "Alteran turns an Astro site on Cloudflare Workers into a single-user atproto PDS. This is the setup I use on rawkode.dev."
+description: "Alteran turns an Astro site on Cloudflare Workers into a single-user atproto PDS backed by D1, R2, and Durable Objects."
 pubDate: 2026-05-12
 tags: ["atproto", "astro", "cloudflare"]
 ---
+
+Alteran is an Astro integration that turns a Cloudflare Workers-deployed Astro site into a single-user atproto PDS. It adds identity documents, XRPC routes, D1-backed repository and account state, R2 blob storage, and a Durable Object sequencer to the same Worker that serves the site.
 
 I built Alteran because I wanted my website to host my atproto PDS, with the PDS signing material in my own Cloudflare deployment instead of on Bluesky's hosted PDS.
 
