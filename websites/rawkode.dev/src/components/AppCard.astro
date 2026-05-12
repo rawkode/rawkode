@@ -8,9 +8,10 @@ interface Props {
 const { app } = Astro.props;
 
 const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawkode/tree/main/${app.repoPath}` : null);
+const isRichFeatured = app.featured && Boolean(app.highlight);
 ---
 
-<article class:list={['app-card', { 'app-card--featured': app.featured }]}>
+<article class:list={['app-card', { 'app-card--featured': app.featured, 'app-card--rich': isRichFeatured }]}>
   <header class="app-card__head">
     <p class="app-card__eyebrow">
       {app.featured && (
@@ -28,6 +29,12 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
     <p class="app-card__tagline">{app.tagline}</p>
     <p class="app-card__description">{app.description}</p>
   </div>
+
+  {isRichFeatured && (
+    <aside class="app-card__highlight" aria-label="Highlight">
+      <p class="app-card__highlight-text">{app.highlight}</p>
+    </aside>
+  )}
 
   <footer class="app-card__foot">
     <ul class="app-card__tags" role="list" aria-label="Tags">
@@ -129,7 +136,6 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
   .app-card__tagline {
     font-family: var(--fonts-serif);
     font-size: 1.0625rem;
-    font-style: italic;
     font-weight: 400;
     line-height: 1.4;
     letter-spacing: -0.005em;
@@ -146,6 +152,22 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
     line-height: 1.7;
     margin: 0;
     flex: 1;
+  }
+
+  /* ─── Highlight callout (rich featured only) ───────────────────────────── */
+  .app-card__highlight {
+    display: none;
+  }
+
+  .app-card__highlight-text {
+    font-family: var(--fonts-serif);
+    font-style: italic;
+    font-size: clamp(1.25rem, 1.4vw + 0.5rem, 1.65rem);
+    line-height: 1.35;
+    letter-spacing: -0.012em;
+    color: var(--text-primary);
+    text-wrap: balance;
+    margin: 0;
   }
 
   /* ─── Footer ────────────────────────────────────────────────────────────── */
@@ -176,8 +198,6 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
     line-height: 1.8;
   }
 
-  /* Separator lives in ::after so it stays attached to the preceding tag
-     when wrapping. white-space: nowrap keeps multi-word tags intact. */
   .app-card__tag { white-space: nowrap; }
   .app-card__tag:not(:last-child)::after {
     content: '·';
@@ -217,7 +237,7 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
     transform: translateY(-1px);
   }
 
-  /* ─── Featured variant ──────────────────────────────────────────────────── */
+  /* ─── Featured (base, no highlight) — bigger type only ─────────────────── */
   .app-card--featured {
     background: var(--surface-3);
     border-color: color-mix(in oklch, var(--color-accent) 22%, var(--border-default));
@@ -245,6 +265,31 @@ const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawko
         inset 4px 0 0 0 var(--color-accent),
         var(--shadow-md);
     }
+  }
+
+  /* ─── Rich featured — 2-column with highlight callout on the right ─────── */
+  .app-card--rich { padding: var(--space-10); }
+  .app-card--rich .app-card__highlight { display: block; }
+
+  @media (min-width: 760px) {
+    .app-card--rich {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+      grid-template-rows: auto auto auto;
+      column-gap: var(--space-12);
+      row-gap: var(--space-6);
+    }
+    .app-card--rich .app-card__head     { grid-column: 1; grid-row: 1; }
+    .app-card--rich .app-card__body     { grid-column: 1; grid-row: 2; }
+    .app-card--rich .app-card__highlight {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      display: flex;
+      align-items: center;
+      padding-left: var(--space-8);
+      border-left: 1px solid color-mix(in oklch, var(--color-accent) 40%, var(--border-default));
+    }
+    .app-card--rich .app-card__foot     { grid-column: 1 / -1; grid-row: 3; }
   }
 
   /* ─── Reduced motion ────────────────────────────────────────────────────── */
