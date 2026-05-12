@@ -219,6 +219,22 @@ That separation matters when you back up, restore, inspect, or apply migrations.
 
 The middleware currently returns `Access-Control-Allow-Origin: *` for atproto routes. Do not rely on `PDS_CORS_ORIGIN` to change route CORS behavior in `0.6.1`.
 
+## Cloudflare Security Rules
+
+`com.atproto.server.refreshSession` is a valid bodyless POST. The request authenticates with `Authorization: Bearer <refreshJwt>` and does not send a JSON body.
+
+Some Cloudflare security products treat that request shape as suspicious. This is not configured in `wrangler.jsonc`; it belongs in the production Cloudflare WAF or API Shield configuration, managed through the dashboard, Terraform/OpenTofu, or the Rulesets API.
+
+Use a narrow exception for only the refresh route:
+
+```txt
+(http.request.method eq "POST" and http.request.uri.path eq "/xrpc/com.atproto.server.refreshSession")
+```
+
+The required action is `Skip` for `http_request_firewall_managed`. Include `http_request_sbfm` only if Cloudflare Security Events show Super Bot Fight Mode is the blocker.
+
+If API Shield is the blocker, configure the `com.atproto.server.refreshSession` operation to accept no request body, or set mitigation to none for that operation. Do not rely on the WAF skip rule to fix an API Shield schema or mitigation problem.
+
 ## Set Secrets
 
 Alteran's source tree has `scripts/setup-secrets.ts`, but the `0.6.1` npm package does not publish `scripts/`. For `0.6.1`, generate the runtime secrets directly from the installed dependencies:
@@ -329,6 +345,17 @@ curl -fsS -X POST https://rawkode.dev/xrpc/com.atproto.server.createSession \
 ```
 
 A successful response includes `did`, `handle`, `accessJwt`, and `refreshJwt`.
+
+Refresh the session with the refresh token as a bodyless POST:
+
+```sh
+REFRESH_JWT="<refreshJwt from createSession>"
+
+curl -fsS -X POST https://rawkode.dev/xrpc/com.atproto.server.refreshSession \
+  -H "authorization: Bearer ${REFRESH_JWT}"
+```
+
+Do not send `content-type: application/json` or an empty JSON object for `refreshSession`. If this request fails before reaching the Worker, check Cloudflare Security Events and add the narrow WAF or API Shield exception described above.
 
 Then do a minimal repository write/read smoke test:
 
