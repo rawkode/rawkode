@@ -5,12 +5,6 @@ import expressiveCode from 'astro-expressive-code';
 
 export default defineConfig({
   site: 'https://rawkode.dev',
-  redirects: {
-    '/blog': '/read',
-    '/blog/using-alteran-astro-atproto-pds-cloudflare':
-      '/read/introducing-alteran-atproto-pds-inside-astro',
-    '/blog/[...slug]': '/read/[...slug]',
-  },
   adapter: cloudflare({ mode: 'advanced', imageService: 'cloudflare' }),
   integrations: [
     expressiveCode({
