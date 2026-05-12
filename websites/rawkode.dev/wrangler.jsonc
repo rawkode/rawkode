@@ -26,26 +26,28 @@
     "PDS_HOSTNAME": "rawkode.dev",
     "PDS_CORS_ORIGIN": "https://rawkode.dev,https://bsky.app",
     "PDS_EMAIL": "david@rawkode.dev",
+    "PDS_CONTACT_EMAIL": "david@rawkode.dev",
   },
 
   "d1_databases": [
     {
-      "binding": "DB",
+      "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds",
       "database_id": "83e8786b-4710-45cb-9e5f-52c8976bef9d",
+      "migrations_dir": "./node_modules/@alteran/astro/migrations",
     },
   ],
 
   "r2_buckets": [
     {
-      "binding": "BLOBS",
+      "binding": "ALTERAN_BLOBS",
       "bucket_name": "rawkode-dev-pds",
     },
   ],
 
   "durable_objects": {
     "bindings": [
-      { "name": "SEQUENCER", "class_name": "Sequencer" },
+      { "name": "ALTERAN_SEQUENCER", "class_name": "Sequencer" },
     ],
   },
 

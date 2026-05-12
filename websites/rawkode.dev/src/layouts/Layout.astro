@@ -80,18 +80,18 @@ const jsonLd = {
     <!-- Structured data -->
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
 
-    <!-- Theme detection script (inline, must run before paint) -->
+    <!-- Theme override (inline, must run before paint).
+         No JS is needed to follow the OS — `color-scheme` + `light-dark()`
+         do that natively. We only write data-theme when the user has opted
+         out of system. -->
     <script is:inline>
       (function () {
         var saved = localStorage.getItem('theme');
         var root  = document.documentElement;
-        // 'system' (or no saved value) = follow OS; 'light'/'dark' = explicit override
         if (saved === 'light' || saved === 'dark') {
           root.setAttribute('data-theme', saved);
           root.setAttribute('data-ui-theme', saved);
         } else {
-          // No override — let the CSS media query handle colours
-          root.removeAttribute('data-theme');
           root.setAttribute('data-ui-theme', 'system');
         }
       })();

@@ -6,17 +6,24 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "astro dev",
-    "prebuild": "node scripts/generate-og.mjs",
+    "dev": "panda codegen --silent && astro dev",
+    "prepare": "panda codegen --silent",
+    "prebuild": "panda codegen --silent && node scripts/generate-og.mjs",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "panda": "panda"
   },
   "dependencies": {
-    "@alteran/astro": "file:../../../../alteran-social/alteran",
+    "@alteran/astro": "^0.6.1",
     "@astrojs/cloudflare": "^12.6.9",
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/newsreader": "^5.2.10",
-    "astro": "^6.1.5"
+    "astro": "^6.1.5",
+    "astro-expressive-code": "^0.42.0"
+  },
+  "devDependencies": {
+    "@pandacss/dev": "^1.11.1",
+    "postcss": "^8.5.14"
   }
 }
