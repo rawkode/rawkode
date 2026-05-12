@@ -13,7 +13,13 @@ mkApp {
   name = "cuenv";
 
   common.home =
-    { inputs, pkgs, ... }:
+    {
+      config,
+      inputs,
+      lib,
+      pkgs,
+      ...
+    }:
     let
       packages = inputs.cuenv.packages.${pkgs.stdenv.hostPlatform.system};
       package = packages.default or packages.cuenv;
@@ -22,6 +28,17 @@ mkApp {
       nix.settings = cuenvCache;
 
       home.packages = [ package ];
+
+      programs.fish.shellAbbrs = lib.mkIf config.programs.fish.enable {
+        c = {
+          expansion = "cuenv ";
+          position = "command";
+        };
+      };
+
+      programs.nushell.shellAliases = lib.mkIf config.programs.nushell.enable {
+        c = "cuenv";
+      };
     };
 
   linux.system = _: {
