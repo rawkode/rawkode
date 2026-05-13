@@ -11,6 +11,10 @@ status: available
 repoUrl: https://github.com/rawkode-academy/rawkode-academy
 websiteUrl: https://rawkode.academy
 featured: true
+highlight: >
+  Cloud-native education that respects your time:
+  practical Kubernetes, platform engineering, and operating
+  CNCF projects in production — taught in the open.
 tags:
   - Education
   - Cloud Native

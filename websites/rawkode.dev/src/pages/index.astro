@@ -1,28 +1,22 @@
 ---
 export const prerender = true;
 
-// Direction C — Kinetic Type + Orchestrated Entrances
-// Magnetic hero name (pointer-only), @property animated Academy CTA,
-// word-level entrance choreography, dramatic asymmetric Academy section.
-import { Image } from 'astro:assets';
-import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import AppCard from '../components/AppCard.astro';
-import BlueskyPostCard from '../components/BlueskyPostCard.astro';
-import { getBlueskyPosts } from '../lib/bluesky';
 import { getCollection } from 'astro:content';
 
-const bskyPosts = await getBlueskyPosts(4);
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const recentPosts = allPosts
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
-  .slice(0, 3);
+  .slice(0, 4);
+
 const apps = (await getCollection('apps')).sort((a, b) => {
   if (a.data.featured !== b.data.featured) return a.data.featured ? -1 : 1;
   return a.data.name.localeCompare(b.data.name);
 });
+
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
@@ -32,69 +26,39 @@ function formatDate(date: Date) {
   <Nav />
   <main id="main-content">
 
-    <!-- ─── Hero ──────────────────────────────────────────────────────────── -->
+    <!-- ─── Hero — type-led, single primary action ────────────────────────── -->
     <section class="hero">
-      <div class="hero__text-col">
-        <div class="hero__content">
-          <div class="hero__id">
-            <!-- data-magnetic: JS will split into letter spans -->
-            <h1 class="hero__name" data-magnetic>David<br />Flanagan</h1>
-            <p class="hero__handle">aka <em>rawkode</em></p>
-          </div>
-          <p class="hero__roles" data-split-words>Developer Tooling · Open Source · Education</p>
-          <p class="hero__lead" data-split-words>
-            I build developer tooling for cloud-native infrastructure, maintain open-source projects,
-            and teach engineers the practical systems work behind it through Rawkode Academy.
-          </p>
-          <div class="hero__actions">
-            <a href="#apps" class="btn btn--solid">
-              <span class="btn__label">See my <em>work</em></span>
-              <svg class="btn__arrow btn__arrow--down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <polyline points="19 12 12 19 5 12"/>
-              </svg>
-            </a>
-            <a href="/read" class="btn btn--outline">
-              <span class="btn__label">Read <em>writing</em></span>
-              <svg class="btn__arrow btn__arrow--right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="5" y1="12" x2="19" y2="12"/>
-                <polyline points="12 5 19 12 12 19"/>
-              </svg>
-            </a>
-            <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--text">
-              <span class="btn__label">Rawkode <em>Academy</em></span>
-              <svg class="btn__arrow btn__arrow--ne" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="8 7 17 7 17 16"/>
-              </svg>
-            </a>
+      <div class="container hero__inner">
+        <h1 class="hero__name">David Flanagan</h1>
+        <p class="hero__handle">aka rawkode</p>
+        <p class="hero__roles">CNCF Ambassador · Klustered · Rawkode Academy</p>
+        <p class="hero__lead">
+          I teach cloud-native infrastructure in the open, host Klustered,
+          and build the open-source tools that make Kubernetes saner to operate.
+        </p>
+        <div class="hero__actions">
+          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--solid">
+            Visit Rawkode Academy
+            <svg class="btn__arrow btn__arrow--ne" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="7" y1="17" x2="17" y2="7"/>
+              <polyline points="8 7 17 7 17 16"/>
+            </svg>
+          </a>
+          <div class="hero__links">
+            <a href="#apps" class="hero__link">Tools I've shipped <span aria-hidden="true">↓</span></a>
+            <a href="/read" class="hero__link">Read writing <span aria-hidden="true">→</span></a>
           </div>
         </div>
-      </div>
-
-      <div class="hero__photo-col">
-        <Image
-          src={rawkodePhoto}
-          alt="David Flanagan"
-          class="hero__photo"
-          loading="eager"
-          widths={[480, 720, 1080]}
-          sizes="(max-width: 899px) 100vw, 50vw"
-        />
-        <div class="hero__photo-fade" aria-hidden="true"></div>
       </div>
     </section>
 
     <!-- ─── Apps ──────────────────────────────────────────────────────────── -->
-    <section class="section" id="apps" data-orchestrate>
+    <section class="section section--apps" id="apps" data-orchestrate>
       <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Apps</p>
-            <h2>Things I've built</h2>
-            <p class="lead">Open-source tools and experiments for infrastructure work I keep meeting in the real world.</p>
-          </div>
-        </div>
+        <header class="section-header" data-enter="left">
+          <p class="eyebrow">What I ship</p>
+          <h2>Tools, in production</h2>
+        </header>
         <ul class="apps-grid" role="list">
           {apps.map((entry, i) => (
             <li style={`--i: ${i}`} data-enter="up" class:list={[{ 'apps-grid__featured': entry.data.featured }]}>
@@ -105,61 +69,14 @@ function formatDate(date: Date) {
       </div>
     </section>
 
-    <!-- ─── Bluesky ────────────────────────────────────────────────────────── -->
-    {bskyPosts.length > 0 && (
-      <section class="section section--alt" data-orchestrate>
-        <div class="container">
-          <div class="section-header">
-            <div class="section-header__text" data-enter="left">
-              <p class="eyebrow">From Bluesky</p>
-              <h2>What I'm thinking about</h2>
-            </div>
-            <a href="https://bsky.app/profile/rawkode.dev" target="_blank" rel="noopener noreferrer" class="link-more" data-enter="right">
-              Follow on Bluesky →
-            </a>
-          </div>
-          <ul class="bsky-grid" role="list">
-            {bskyPosts.map((post, i) => (
-              <li style={`--i: ${i}`} data-enter="up"><BlueskyPostCard post={post} /></li>
-            ))}
-          </ul>
-        </div>
-      </section>
-    )}
-
-    <!-- ─── Academy CTA — dramatic full-bleed ────────────────────────────── -->
-    <section class="academy-cta" data-orchestrate>
-      <div class="academy-cta__bg" aria-hidden="true"></div>
-      <div class="container">
-        <div class="academy-cta__inner">
-          <p class="eyebrow eyebrow--light" data-enter="left">Rawkode Academy</p>
-          <h2 class="academy-cta__heading" data-enter="left">
-            Go deeper.<br /><em>Learn in the open.</em>
-          </h2>
-          <p class="academy-cta__body" data-enter="left">
-            Free courses, real-world projects, and community material on Kubernetes,
-            platform engineering, and developer tooling, built around the tradeoffs
-            teams hit in production.
-          </p>
-          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--light" data-enter="left">
-            Visit Rawkode Academy →
-          </a>
-        </div>
-      </div>
-    </section>
-
-    <!-- ─── Blog ──────────────────────────────────────────────────────────── -->
+    <!-- ─── Writing ───────────────────────────────────────────────────────── -->
     {recentPosts.length > 0 && (
-      <section class="section" data-orchestrate>
+      <section class="section section--writing" data-orchestrate>
         <div class="container">
-          <div class="section-header">
-            <div class="section-header__text" data-enter="left">
-              <p class="eyebrow">Writing</p>
-              <h2>Longer thoughts</h2>
-              <p class="lead">Notes that need more room than a post or thread.</p>
-            </div>
-            <a href="/read" class="link-more" data-enter="right">All posts →</a>
-          </div>
+          <header class="section-header" data-enter="left">
+            <p class="eyebrow">Writing</p>
+            <h2>Essays</h2>
+          </header>
           <ul class="blog-list" role="list">
             {recentPosts.map((post, i) => (
               <li
@@ -178,6 +95,7 @@ function formatDate(date: Date) {
               </li>
             ))}
           </ul>
+          <a href="/read" class="all-writing-link" data-enter="left">All essays →</a>
         </div>
       </section>
     )}
@@ -188,77 +106,11 @@ function formatDate(date: Date) {
 <script>
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // ── Magnetic letters on hero name ─────────────────────────────────────────
-  const nameEl = document.querySelector<HTMLElement>('[data-magnetic]');
-  if (nameEl && !reducedMotion) {
-    // Split text into spans per letter, preserving line breaks
-    const lines = nameEl.innerText.split('\n');
-    nameEl.innerHTML = '';
-    const letterSpans: HTMLElement[] = [];
-
-    lines.forEach((line, li) => {
-      if (li > 0) nameEl.appendChild(document.createElement('br'));
-      for (const ch of line) {
-        if (ch === ' ') { nameEl.appendChild(document.createTextNode('\u00a0')); continue; }
-        const span = document.createElement('span');
-        span.textContent = ch;
-        span.className = 'mag-letter';
-        span.style.display = 'inline-block';
-        span.style.transition = 'transform 0.35s cubic-bezier(0.16,1,0.3,1)';
-        nameEl.appendChild(span);
-        letterSpans.push(span);
-      }
-    });
-
-    // Magnetic force on mousemove
-    let ticking = false;
-    document.addEventListener('mousemove', (e) => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        letterSpans.forEach(span => {
-          const rect = span.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
-          const dx = e.clientX - cx;
-          const dy = e.clientY - cy;
-          const dist = Math.hypot(dx, dy);
-          const radius = 160;
-
-          if (dist < radius) {
-            const force = (1 - dist / radius) ** 1.5 * 20;
-            const angle = Math.atan2(dy, dx);
-            span.style.transform = `translate(${Math.cos(angle) * force}px, ${Math.sin(angle) * force}px)`;
-          } else {
-            span.style.transform = '';
-          }
-        });
-        ticking = false;
-      });
-    }, { passive: true });
-
-    // Reset on pointer leave
-    document.addEventListener('mouseleave', () => {
-      letterSpans.forEach(span => { span.style.transform = ''; });
-    });
-  }
-
-  // ── Word splitting for role/lead ──────────────────────────────────────────
-  document.querySelectorAll<HTMLElement>('[data-split-words]').forEach(el => {
-    const text = el.innerText;
-    el.innerHTML = text.split(' ').map((word, i) =>
-      `<span class="word" style="--wi:${i}" data-word>${word}</span>`
-    ).join(' ');
-  });
-
-  // ── IntersectionObserver — orchestrated entrances ─────────────────────────
   if (!reducedMotion) {
     const io = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
         const section = entry.target;
-
-        // Stagger [data-enter] elements within this section
         const els = section.querySelectorAll<HTMLElement>('[data-enter]');
         els.forEach((el, i) => {
           const baseDelay = el.hasAttribute('style')
@@ -266,21 +118,13 @@ function formatDate(date: Date) {
             : i * 80;
           setTimeout(() => el.classList.add('is-visible'), baseDelay);
         });
-
-        // Also trigger word spans
-        section.querySelectorAll<HTMLElement>('[data-word]').forEach(word => {
-          const wi = parseInt(word.style.getPropertyValue('--wi') || '0');
-          setTimeout(() => word.classList.add('is-visible'), wi * 25);
-        });
-
         io.unobserve(section);
       });
     }, { rootMargin: '0px 0px -60px 0px', threshold: 0.1 });
 
     document.querySelectorAll('[data-orchestrate]').forEach(el => io.observe(el));
   } else {
-    // No-motion: make everything visible immediately
-    document.querySelectorAll<HTMLElement>('[data-enter], [data-word]').forEach(el => {
+    document.querySelectorAll<HTMLElement>('[data-enter]').forEach(el => {
       el.classList.add('is-visible');
     });
   }
@@ -289,140 +133,79 @@ function formatDate(date: Date) {
 <style>
   /* ─── Hero ─────────────────────────────────────────────────────────────── */
   .hero {
-    display: grid;
-    grid-template-columns: 1fr;
-    min-height: 580px;
+    padding-block: clamp(var(--space-16), 14vh, var(--space-32));
     border-bottom: 1px solid var(--border-subtle);
-    overflow: hidden;
   }
 
-  @media (min-width: 900px) {
-    .hero { grid-template-columns: 1fr 1fr; }
-  }
-
-  .hero__text-col {
+  .hero__inner {
     display: flex;
-    align-items: center;
-    padding-block: var(--space-16);
-    padding-right: var(--space-8);
-    padding-left: max(var(--space-8), calc((100vw - 1200px) / 2 + var(--space-8)));
+    flex-direction: column;
+    align-items: flex-start;
   }
-
-  @media (max-width: 899px) {
-    .hero__text-col {
-      padding-inline: var(--space-6);
-      padding-block: var(--space-12);
-      order: 2;
-    }
-  }
-
-  .hero__content { max-width: 520px; width: 100%; }
-  .hero__id { margin-bottom: var(--space-5); }
 
   .hero__name {
-    font-size: clamp(3rem, 5vw + 1rem, 6rem);
+    font-size: clamp(3rem, 8vw + 1rem, 8rem);
     font-style: italic;
-    line-height: 0.92;
-    letter-spacing: -0.04em;
+    line-height: 0.9;
+    letter-spacing: -0.045em;
     color: var(--text-primary);
-    cursor: default;
-    user-select: none;
+    text-wrap: balance;
   }
 
   .hero__handle {
     margin-top: var(--space-3);
-    font-size: 1rem;
+    font-size: 0.95rem;
     color: var(--text-tertiary);
     line-height: 1;
   }
 
-  .hero__handle em {
-    font-style: italic;
-    color: var(--color-accent);
-    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
-    font-size: 1.1em;
-  }
-
   .hero__roles {
+    margin-top: var(--space-10);
     font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-bottom: var(--space-5);
-    overflow: hidden;
+    color: var(--color-accent);
   }
 
   .hero__lead {
-    font-size: clamp(1rem, 1.1vw + 0.6rem, 1.125rem);
-    line-height: 1.75;
+    font-family: var(--fonts-serif);
+    font-size: clamp(1.15rem, 1.4vw + 0.6rem, 1.5rem);
+    line-height: 1.5;
     color: var(--text-secondary);
-    max-width: 48ch;
-    margin-bottom: var(--space-8);
-    overflow: hidden;
+    max-width: 42ch;
+    margin-top: var(--space-5);
   }
 
   .hero__actions {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-6);
+    margin-top: var(--space-10);
+  }
+
+  .hero__links {
+    display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: var(--space-4) var(--space-8);
   }
 
-  .hero__photo-col {
-    position: relative;
-    overflow: hidden;
-    background: var(--surface-2);
+  .hero__link {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-out-expo);
   }
-
-  @media (max-width: 899px) {
-    .hero__photo-col { min-height: 280px; order: 1; }
-  }
-
-  .hero__photo {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top center;
-    display: block;
-    filter: saturate(0.88) contrast(1.04);
-  }
-
-  .hero__photo-fade {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to right,
-      var(--surface-1) 0%,
-      color-mix(in oklch, var(--surface-1) 40%, transparent) 18%,
-      transparent 40%
-    );
-    pointer-events: none;
-  }
-
-  /* ─── Magnetic letters ──────────────────────────────────────────────────── */
-  /* .mag-letter transition is set via JS to avoid layout cost at parse time */
-
-  /* ─── Word splitting + entrance ─────────────────────────────────────────── */
-  [data-word] {
-    display: inline-block;
-    opacity: 0;
-    transform: translateY(10px);
-    transition:
-      opacity 0.4s var(--ease-out-expo) calc(var(--wi, 0) * 20ms),
-      transform 0.4s var(--ease-out-expo) calc(var(--wi, 0) * 20ms);
-  }
-  [data-word].is-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  .hero__link:hover { color: var(--text-primary); }
 
   /* ─── Orchestrated enter animations ─────────────────────────────────────── */
   [data-enter] {
     opacity: 0;
-    transition: opacity 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms),
-                transform 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms);
+    transition:
+      opacity 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms),
+      transform 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms);
   }
   [data-enter="left"]  { transform: translateX(-24px); }
   [data-enter="right"] { transform: translateX(24px); }
@@ -435,58 +218,31 @@ function formatDate(date: Date) {
 
   /* ─── Shared section styles ─────────────────────────────────────────────── */
   .section { padding-block: var(--space-24); }
-  .section--alt {
-    background: var(--surface-2);
-    border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle);
-  }
+  .section--writing { padding-block: var(--space-32); }
 
-  .section-header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--space-6);
-    margin-bottom: var(--space-12);
-    flex-wrap: wrap;
-  }
+  .section-header { margin-bottom: var(--space-12); }
 
   .eyebrow {
     font-size: 0.75rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-accent);
     margin-bottom: var(--space-2);
   }
 
-  .eyebrow--light { color: oklch(75% 0.16 250); }
-
-  .lead { margin-top: var(--space-3); font-size: 1.0625rem; max-width: 55ch; }
-
-  .link-more {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color var(--dur-fast) var(--ease-out-expo);
-    flex-shrink: 0;
-    margin-bottom: var(--space-1);
-  }
-  .link-more:hover { color: var(--color-accent); }
-
-  /* ─── Buttons ───────────────────────────────────────────────────────────── */
+  /* ─── Buttons — one canonical primary ───────────────────────────────────── */
   .btn {
     --btn-arrow-shift: 4px;
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.78rem 1.4rem;
+    gap: 0.55rem;
+    padding: 0.85rem 1.6rem;
     border: 1px solid transparent;
     border-radius: 999px;
     font-family: var(--fonts-sans);
-    font-size: 0.9375rem;
+    font-size: 0.95rem;
     font-weight: 600;
     letter-spacing: -0.005em;
     text-decoration: none;
@@ -496,17 +252,8 @@ function formatDate(date: Date) {
     transition:
       background-color 0.35s var(--ease-out-expo),
       color 0.35s var(--ease-out-expo),
-      border-color 0.35s var(--ease-out-expo),
       transform 0.35s var(--ease-out-expo),
       box-shadow 0.35s var(--ease-out-expo);
-  }
-
-  .btn__label { display: inline-flex; align-items: baseline; gap: 0.25em; }
-  .btn__label em {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    letter-spacing: -0.012em;
   }
 
   .btn__arrow {
@@ -517,83 +264,23 @@ function formatDate(date: Date) {
     will-change: transform;
   }
 
-  /* Solid — filled primary (desaturated against the accent) */
   .btn--solid {
-    background: color-mix(in oklch, var(--color-accent) 75%, oklch(22% 0.03 250));
-    color: oklch(98% 0.01 250);
+    background: var(--color-accent);
+    color: var(--text-invert);
     box-shadow:
-      inset 0 1px 0 oklch(100% 0 0 / 0.10),
-      inset 0 -1px 0 oklch(0% 0 0 / 0.18),
+      inset 0 1px 0 oklch(100% 0 0 / 0.12),
       0 1px 2px oklch(0% 0 0 / 0.10);
   }
   .btn--solid:hover {
-    background: color-mix(in oklch, var(--color-accent) 88%, oklch(28% 0.03 250));
+    background: var(--color-accent-hover);
     transform: translateY(-1px);
     box-shadow:
-      inset 0 1px 0 oklch(100% 0 0 / 0.15),
-      0 10px 28px color-mix(in oklch, var(--color-accent) 22%, transparent);
+      inset 0 1px 0 oklch(100% 0 0 / 0.18),
+      0 10px 28px color-mix(in oklch, var(--color-accent) 28%, transparent);
   }
   .btn--solid:active { transform: translateY(0); }
-  .btn--solid:hover .btn__arrow--down { transform: translateY(var(--btn-arrow-shift)); }
-
-  /* Outline — bordered, inverts on hover */
-  .btn--outline {
-    background: transparent;
-    color: var(--text-primary);
-    border-color: var(--border-default);
-  }
-  .btn--outline:hover {
-    background: var(--text-primary);
-    color: var(--surface-1);
-    border-color: var(--text-primary);
-    transform: translateY(-1px);
-  }
-  .btn--outline:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
-  .btn--outline:hover .btn__arrow--ne {
+  .btn--solid:hover .btn__arrow--ne {
     transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
-  }
-
-  /* Text — minimal, persistent half-line that fills on hover */
-  .btn--text {
-    padding-inline: 0.25rem;
-    border-radius: 0;
-    background: transparent;
-    color: var(--text-primary);
-  }
-  .btn--text::after {
-    content: '';
-    position: absolute;
-    left: 0.25rem;
-    right: 0.25rem;
-    bottom: 0.42rem;
-    height: 1px;
-    background: currentColor;
-    transform: scaleX(0.5);
-    transform-origin: left center;
-    opacity: 0.35;
-    transition:
-      transform 0.5s var(--ease-out-expo),
-      opacity 0.5s var(--ease-out-expo);
-  }
-  .btn--text:hover::after {
-    transform: scaleX(1);
-    opacity: 0.9;
-  }
-  .btn--text:hover .btn__arrow--ne {
-    transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
-  }
-  .btn--text:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
-
-  /* Light — kept for Academy CTA section */
-  .btn--light {
-    background: oklch(98% 0.01 250);
-    color: oklch(16% 0.02 250);
-    border-color: transparent;
-  }
-  .btn--light:hover {
-    background: #fff;
-    transform: translateY(-1px);
-    box-shadow: 0 8px 28px oklch(0% 0 0 / 0.22);
   }
 
   /* ─── Apps grid ─────────────────────────────────────────────────────────── */
@@ -605,78 +292,7 @@ function formatDate(date: Date) {
   }
   .apps-grid__featured { grid-column: 1 / -1; }
 
-  /* ─── Bluesky grid ──────────────────────────────────────────────────────── */
-  .bsky-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--space-4);
-    list-style: none;
-  }
-
-  /* ─── Academy CTA — dramatic full-bleed ─────────────────────────────────── */
-  @property --cta-hue {
-    syntax: '<angle>';
-    initial-value: 0deg;
-    inherits: false;
-  }
-
-  .academy-cta {
-    position: relative;
-    padding-block: clamp(var(--space-24), 12vw, 10rem);
-    overflow: hidden;
-    isolation: isolate;
-  }
-
-  .academy-cta__bg {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    --cta-hue: 0deg;
-    background:
-      radial-gradient(ellipse 70% 80% at 20% 50%,
-        oklch(20% 0.12 250 / 0.9),
-        transparent 65%),
-      conic-gradient(
-        from var(--cta-hue) at 80% 50%,
-        oklch(11% 0.012 250),
-        oklch(17% 0.09 250),
-        oklch(13% 0.05 250),
-        oklch(11% 0.012 250)
-      );
-    animation: cta-spin 18s linear infinite;
-  }
-
-  @keyframes cta-spin {
-    to { --cta-hue: 360deg; }
-  }
-
-  .academy-cta__inner {
-    max-width: 680px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-  }
-
-  .academy-cta__heading {
-    font-size: clamp(2.5rem, 6vw, 5rem);
-    font-style: italic;
-    color: oklch(97% 0.01 250);
-    line-height: 1.05;
-  }
-
-  .academy-cta__heading em {
-    color: oklch(75% 0.20 250);
-    font-style: italic;
-  }
-
-  .academy-cta__body {
-    max-width: 52ch;
-    font-size: 1.0625rem;
-    color: oklch(80% 0.04 250);
-    line-height: 1.75;
-  }
-
-  /* ─── Blog list — editorial / folio treatment ─────────────────────────── */
+  /* ─── Blog list — editorial folio ─────────────────────────────────────── */
   .blog-list { list-style: none; display: flex; flex-direction: column; }
 
   .blog-list li:first-child .blog-list__link { border-top: 1px solid var(--border-subtle); }
@@ -685,7 +301,7 @@ function formatDate(date: Date) {
     grid-template-columns: 1fr auto;
     align-items: baseline;
     column-gap: var(--space-8);
-    padding-block: var(--space-6);
+    padding-block: var(--space-7);
     text-decoration: none;
     border-bottom: 1px solid var(--border-subtle);
     transition: background var(--dur-fast) var(--ease-out-expo);
@@ -698,7 +314,7 @@ function formatDate(date: Date) {
     font-family: var(--fonts-serif);
     font-style: italic;
     font-weight: 500;
-    font-size: clamp(1.25rem, 1.8vw, 1.6rem);
+    font-size: clamp(1.3rem, 1.8vw, 1.65rem);
     line-height: 1.15;
     letter-spacing: -0.015em;
     color: var(--text-primary);
@@ -726,10 +342,20 @@ function formatDate(date: Date) {
     padding-top: 0.4em;
   }
 
+  .all-writing-link {
+    display: inline-block;
+    margin-top: var(--space-8);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-out-expo);
+  }
+  .all-writing-link:hover { color: var(--color-accent); }
+
   /* ─── Reduced motion ────────────────────────────────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
-    .academy-cta__bg { animation: none; }
-    [data-enter], [data-word] {
+    [data-enter] {
       opacity: 1 !important;
       transform: none !important;
       transition: none !important;

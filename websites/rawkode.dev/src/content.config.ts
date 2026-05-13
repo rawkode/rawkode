@@ -28,6 +28,8 @@ const apps = defineCollection({
     websiteUrl: z.string().url().optional(),
     tags: z.array(z.string()),
     featured: z.boolean().default(false),
+    /* Rendered as a pull-quote-style callout on featured cards. */
+    highlight: z.string().optional(),
   }),
 });
 
