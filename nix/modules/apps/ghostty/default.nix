@@ -76,7 +76,7 @@ mkApp {
         window-padding-x = 16;
         window-padding-y = 16;
         window-padding-balance = true;
-        window-save-state = "all";
+        window-save-state = "always";
         window-step-resize = true;
 
         macos-titlebar-style = "transparent";
