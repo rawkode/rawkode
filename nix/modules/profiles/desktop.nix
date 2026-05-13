@@ -13,7 +13,6 @@
         inputs.self.nixosModules.firefox-developer-edition
         inputs.self.nixosModules.fonts
         inputs.self.nixosModules.gnome
-        inputs.self.nixosModules.google-chrome
         inputs.self.nixosModules.location
         inputs.self.nixosModules.niri
         inputs.self.nixosModules.onepassword

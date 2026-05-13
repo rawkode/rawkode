@@ -12,11 +12,8 @@ mkCapability {
         with inputs.self;
         [
           appBundles.ghostty.home
-          appBundles.wezterm.home
           appBundles.firefox-developer-edition.home
           appBundles.forklift.home
-          appBundles.google-chrome.home
-          appBundles.vivaldi.home
           appBundles.onepassword.home
           appBundles.deskflow.home
         ]
@@ -45,7 +42,6 @@ mkCapability {
     inputs.self.nixosModules.firefox-developer-edition
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.gnome
-    inputs.self.nixosModules.google-chrome
     inputs.self.nixosModules.location
     inputs.self.nixosModules.niri
     inputs.self.nixosModules.onepassword
@@ -66,11 +62,8 @@ mkCapability {
 
   darwin = with inputs.self; [
     appBundles.ghostty.darwin
-    appBundles.wezterm.darwin
     appBundles.firefox-developer-edition.darwin
     appBundles.forklift.darwin
-    appBundles.google-chrome.darwin
-    appBundles.vivaldi.darwin
     appBundles.onepassword.darwin
     appBundles.deskflow.darwin
 

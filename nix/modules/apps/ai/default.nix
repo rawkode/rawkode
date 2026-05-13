@@ -9,7 +9,6 @@ mkApp {
     { inputs, pkgs, ... }:
     {
       home.packages = [
-        pkgs.code-cursor-fhs
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.amp
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
         inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex

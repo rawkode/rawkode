@@ -6,7 +6,6 @@
         enable = lib.mkDefault true;
         casks = [
           "alt-tab"
-          "dockdoor"
           "finetune"
           "jordanbaird-ice"
           "parallels"

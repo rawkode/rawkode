@@ -8,7 +8,6 @@ mkCapability {
   home = with inputs.self.appBundles; [
     ai.home
     pi.home
-    visual-studio-code.home
     zed.home
 
     bun.home
@@ -63,7 +62,6 @@ mkCapability {
   darwin = with inputs.self.appBundles; [
     ai.darwin
     pi.darwin
-    visual-studio-code.darwin
     zed.darwin
 
     bun.darwin
