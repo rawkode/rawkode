@@ -1,5 +1,5 @@
 ---
-title: "Introducing Alteran: an atproto PDS inside Astro"
+title: "Introducing Alteran: an atproto PDS on Cloudflare via Astro"
 description: "Alteran turns an Astro site on Cloudflare Workers into a single-user atproto PDS backed by D1, R2, and Durable Objects."
 pubDate: 2026-05-12
 tags: ["atproto", "astro", "cloudflare"]
