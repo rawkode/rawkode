@@ -13,7 +13,6 @@ mkApp {
     }:
     {
       imports = with inputs.self.homeModules; [
-        git-delta
         git-fish
         git-gitsign
       ];

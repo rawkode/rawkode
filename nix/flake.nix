@@ -38,10 +38,12 @@
     kree.url = "path:../apps/kree";
     flatpaks.url = "github:gmodena/nix-flatpak";
 
-    # Follows unstable because of a mesa mismatch
-    # Revert follows after 25.11
     ghostty = {
-      url = "github:ghostty-org/ghostty/v1.2.0";
+      url = "github:ghostty-org/ghostty";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    hunk = {
+      url = "github:modem-dev/hunk";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     ironbar.url = "github:JakeStanger/ironbar";
