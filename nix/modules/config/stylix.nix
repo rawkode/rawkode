@@ -33,7 +33,7 @@ let
         fonts = {
           sizes = {
             applications = 11;
-            terminal = 14;
+            terminal = 15;
             desktop = 12;
             popups = 11;
           };
