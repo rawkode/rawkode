@@ -1,29 +1,6 @@
 {
-  "name": "rawkode.dev",
   "type": "module",
-  "version": "0.0.1",
-  "engines": {
-    "node": ">=22.12.0"
-  },
-  "scripts": {
-    "dev": "panda codegen --silent && astro dev",
-    "prepare": "panda codegen --silent",
-    "prebuild": "panda codegen --silent && node scripts/generate-og.mjs",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro",
-    "panda": "panda"
-  },
   "dependencies": {
-    "@alteran/astro": "^0.6.3",
-    "@astrojs/cloudflare": "^12.6.9",
-    "@fontsource-variable/figtree": "^5.2.10",
-    "@fontsource-variable/newsreader": "^5.2.10",
-    "astro": "^6.1.5",
-    "astro-expressive-code": "^0.42.0"
-  },
-  "devDependencies": {
-    "@pandacss/dev": "^1.11.1",
-    "postcss": "^8.5.14"
+    "@alteran-social/astro": "npm:@alteran-social/astro@^0.9.2"
   }
 }

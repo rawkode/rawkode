@@ -3,5 +3,5 @@
 ## Deploy
 
 ```sh
-cuenv -e production exec bunx wrangler deploy
+cuenv -e production exec deno task deploy
 ```

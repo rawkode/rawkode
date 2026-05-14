@@ -1,16 +1,11 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "rawkode-dev",
-  "main": "./dist/_worker.js/index.js",
   "compatibility_date": "2025-09-27",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-  },
-  "build": {
-    "command": "bun run build",
-    "cwd": ".",
   },
   "routes": [
     {
@@ -34,7 +29,7 @@
       "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds",
       "database_id": "83e8786b-4710-45cb-9e5f-52c8976bef9d",
-      "migrations_dir": "./node_modules/@alteran/astro/migrations",
+      "migrations_dir": "./node_modules/@alteran-social/astro/migrations",
     },
   ],
 
@@ -42,6 +37,13 @@
     {
       "binding": "ALTERAN_BLOBS",
       "bucket_name": "rawkode-dev-pds",
+    },
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "SESSION",
+      "id": "3b803cb67d6a495985facb2fb4339790",
     },
   ],
 

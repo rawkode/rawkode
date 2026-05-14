@@ -18,29 +18,27 @@ env: {
 tasks: {
 	codegen: schema.#Task & {
 		description: "Generate Panda CSS styled-system"
-		command:     "bun"
-		args: ["run", "panda", "codegen", "--silent"]
+		command:     "deno"
+		args: ["task", "codegen"]
 		inputs: ["panda.config.ts", "postcss.config.cjs", "src/**/*"]
 		outputs: ["styled-system/**/*"]
 	}
 
 	dev: schema.#Task & {
 		description: "Start the Astro dev server"
-		command:     "bun"
-		args: ["run", "dev"]
-		dependsOn: [codegen]
+		command:     "deno"
+		args: ["task", "dev"]
 		hermetic: false
 	}
 
 	build: schema.#Task & {
 		description: "Build the production site"
-		command:     "bun"
-		args: ["run", "build"]
-		dependsOn: [codegen]
+		command:     "deno"
+		args: ["task", "build"]
 		inputs: [
 			"astro.config.mjs",
-			"package.json",
-			"bun.lock",
+			"deno.json",
+			"deno.lock",
 			"public/**/*",
 			"scripts/**/*",
 			"src/**/*",
@@ -51,17 +49,16 @@ tasks: {
 
 	preview: schema.#Task & {
 		description: "Preview the production build locally"
-		command:     "bun"
-		args: ["run", "preview"]
+		command:     "deno"
+		args: ["task", "preview"]
 		dependsOn: [build]
 		hermetic: false
 	}
 
 	deploy: schema.#Task & {
 		description: "Deploy to Cloudflare Workers"
-		command:     "bunx"
-		args: ["wrangler", "deploy"]
-		dependsOn: [build]
+		command:     "deno"
+		args: ["task", "deploy"]
 		hermetic: false
 	}
 }

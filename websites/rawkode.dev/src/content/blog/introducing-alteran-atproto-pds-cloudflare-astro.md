@@ -20,9 +20,9 @@ I also wanted it on Cloudflare. I spend enough time dealing with servers and con
 
 `rawkode.dev` is already an Astro site deployed to Cloudflare Workers. With Alteran, the same Worker serves the website, atproto identity documents, and the XRPC routes used by a single-user PDS.
 
-The first public package shipped as `0.5.2`; the setup below uses `0.6.1`. Alteran is early and single-user. This article introduces the project and documents the setup I am using for `rawkode.dev`.
+The first public package shipped as `0.5.2`; the setup below uses `0.8.5` from JSR. Alteran is early and single-user. This article introduces the project and documents the setup I am using for `rawkode.dev`.
 
-These examples target `@alteran/astro@0.6.1`, which expects Cloudflare bindings named `ALTERAN_DB`, `ALTERAN_BLOBS`, and `ALTERAN_SEQUENCER`, and Wrangler applies the SQL migrations published inside the npm package.
+These examples target `@alteran-social/alteran@0.8.5` from JSR, which expects Cloudflare bindings named `ALTERAN_DB`, `ALTERAN_BLOBS`, and `ALTERAN_SEQUENCER`, and Wrangler applies the SQL migrations published inside the JSR package.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ This article assumes:
 - an Astro site that can run on Cloudflare Workers, not a static-only deployment
 - a domain you control and want to use as the atproto handle
 - Wrangler authenticated against the target Cloudflare account
-- Bun for the commands shown here
+- Deno for the commands shown here
 - Cloudflare D1, R2, and Durable Objects available on the account
 - separate D1, R2, and Durable Object resources for Alteran state
 - a new single-user `did:web` PDS target for the commands below, or a separate migration plan for an existing DID
@@ -58,13 +58,24 @@ Alteran state should be isolated from the rest of the site. I do not want my web
 
 ## Install Alteran
 
-Install Alteran and the Cloudflare adapter:
+Install Alteran through `package.json` as a JSR dependency:
 
-```sh
-bun add @alteran/astro@^0.6.1 @astrojs/cloudflare
+```json
+{
+  "type": "module",
+  "dependencies": {
+    "@alteran-social/alteran": "jsr:@alteran-social/alteran@0.8.5"
+  }
+}
 ```
 
-If you want an exact `package.json` pin, use `bun add --exact @alteran/astro@0.6.1 @astrojs/cloudflare`. Alteran's package API, route list, migrations, bindings, and protocol coverage are still changing.
+Keep the Deno task and tool dependencies in `deno.json`, then run:
+
+```sh
+deno install
+```
+
+Deno can import JSR modules directly, but this Astro integration currently injects file-backed route entrypoints and Wrangler needs a real migrations directory. Declaring Alteran in `package.json` as a `jsr:` dependency makes Deno install it into `node_modules` while still keeping JSR as the source. Alteran's package API, route list, migrations, bindings, and protocol coverage are still changing.
 
 ## Set the Identity
 
@@ -88,13 +99,13 @@ That gives atproto clients the handle-to-DID link and the DID-to-PDS link. If th
 Create the D1 database and R2 bucket before writing the Wrangler config:
 
 ```sh
-bunx wrangler d1 create rawkode-dev-pds
-bunx wrangler r2 bucket create rawkode-dev-pds
+deno task wrangler d1 create rawkode-dev-pds
+deno task wrangler r2 bucket create rawkode-dev-pds
 ```
 
 Put the generated D1 database ID into `wrangler.jsonc`.
 
-Wrangler needs a migrations directory for each D1 binding. Alteran `0.6.1` publishes its migrations in the package, so point Wrangler at that directory:
+Wrangler needs a migrations directory for each D1 binding. Alteran `0.8.5` publishes its migrations in the package, so point Wrangler at that directory:
 
 ```jsonc
 {
@@ -103,18 +114,18 @@ Wrangler needs a migrations directory for each D1 binding. Alteran `0.6.1` publi
       "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds",
       "database_id": "<cloudflare-d1-database-id>",
-      "migrations_dir": "./node_modules/@alteran/astro/migrations"
+      "migrations_dir": "./node_modules/@alteran-social/alteran/migrations"
     }
   ]
 }
 ```
 
-These commands use Bun, so `./node_modules/@alteran/astro/migrations` is the path Wrangler applies.
+These commands use Deno with `nodeModulesDir: "auto"`, so `./node_modules/@alteran-social/alteran/migrations` is the path Wrangler applies.
 
 Then apply the schema to the remote D1 database:
 
 ```sh
-bunx wrangler d1 migrations apply rawkode-dev-pds --remote
+deno task wrangler d1 migrations apply rawkode-dev-pds --remote
 ```
 
 ## Configure Astro
@@ -124,11 +135,11 @@ The site must run as a Cloudflare Worker. My Astro config is:
 ```js
 import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
-import alteran from '@alteran/astro';
+import alteran from '@alteran-social/alteran';
 
 export default defineConfig({
   site: 'https://rawkode.dev',
-  adapter: cloudflare({ mode: 'advanced', imageService: 'cloudflare' }),
+  adapter: cloudflare({ mode: 'advanced', imageService: 'compile' }),
   integrations: [
     alteran({
       debugRoutes: false,
@@ -140,9 +151,9 @@ export default defineConfig({
 
 `includeRootEndpoint: false` keeps `/` mapped to the Astro homepage instead of Alteran's root endpoint.
 
-`debugRoutes: false` disables the injected Astro debug routes. In `0.6.1`, the Worker runtime still exposes its own sequencer debug route.
+`debugRoutes: false` disables the injected Astro debug routes. In `0.8.5`, the Worker runtime still exposes its own sequencer debug route.
 
-In `0.6.1`, Alteran reads Cloudflare bindings named `ALTERAN_DB`, `ALTERAN_BLOBS`, and `ALTERAN_SEQUENCER`. The resources behind those bindings should be dedicated to Alteran.
+In `0.8.5`, Alteran reads Cloudflare bindings named `ALTERAN_DB`, `ALTERAN_BLOBS`, and `ALTERAN_SEQUENCER`. The resources behind those bindings should be dedicated to Alteran.
 
 ## Configure Wrangler
 
@@ -160,7 +171,7 @@ My Wrangler config has the same Worker serving the site and the PDS. The Alteran
     "binding": "ASSETS"
   },
   "build": {
-    "command": "bun run build",
+    "command": "deno task build",
     "cwd": "."
   },
   "routes": [
@@ -181,7 +192,7 @@ My Wrangler config has the same Worker serving the site and the PDS. The Alteran
       "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds",
       "database_id": "<cloudflare-d1-database-id>",
-      "migrations_dir": "./node_modules/@alteran/astro/migrations"
+      "migrations_dir": "./node_modules/@alteran-social/alteran/migrations"
     }
   ],
   "r2_buckets": [
@@ -218,7 +229,7 @@ If the host site also uses D1, do not put the site tables and PDS tables in the 
       "binding": "ALTERAN_DB",
       "database_name": "rawkode-dev-pds",
       "database_id": "<pds-database-id>",
-      "migrations_dir": "./node_modules/@alteran/astro/migrations"
+      "migrations_dir": "./node_modules/@alteran-social/alteran/migrations"
     }
   ]
 }
@@ -226,7 +237,7 @@ If the host site also uses D1, do not put the site tables and PDS tables in the 
 
 That separation matters when you back up, restore, inspect, or apply migrations.
 
-The middleware currently returns `Access-Control-Allow-Origin: *` for atproto routes. Do not rely on `PDS_CORS_ORIGIN` to change route CORS behavior in `0.6.1`.
+The middleware currently returns `Access-Control-Allow-Origin: *` for atproto routes. Do not rely on `PDS_CORS_ORIGIN` to change route CORS behavior in `0.8.5`.
 
 ## Cloudflare Security Rules
 
@@ -246,15 +257,17 @@ If API Shield is the blocker, configure the `com.atproto.server.refreshSession` 
 
 ## Set Secrets
 
-Alteran's source tree has `scripts/setup-secrets.ts`, but the `0.6.1` npm package does not publish `scripts/`. For `0.6.1`, generate the runtime secrets directly from the installed dependencies:
+Alteran's source tree has `scripts/setup-secrets.ts`, but the `0.8.5` JSR package does not publish `scripts/`. For `0.8.5`, generate the runtime secrets directly from the installed dependencies:
 
 ```sh
-bun -e '
-import { Secp256k1Keypair } from "@atproto/crypto";
+deno eval '
+import { Secp256k1Keypair } from "npm:@atproto/crypto@^0.4.5";
 
 const randomBase64 = (size) => {
   const bytes = crypto.getRandomValues(new Uint8Array(size));
-  return Buffer.from(bytes).toString("base64");
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 };
 
 const keypair = await Secp256k1Keypair.create({ exportable: true });
@@ -279,9 +292,9 @@ That prints three secret values and one public identifier:
 Set the secret values with Wrangler:
 
 ```sh
-bunx wrangler secret put USER_PASSWORD
-bunx wrangler secret put SESSION_JWT_SECRET
-bunx wrangler secret put REPO_SIGNING_KEY
+deno task wrangler secret put USER_PASSWORD
+deno task wrangler secret put SESSION_JWT_SECRET
+deno task wrangler secret put REPO_SIGNING_KEY
 ```
 
 Paste each generated value into the matching prompt. `REPO_SIGNING_KEY` must be a 32-byte secp256k1 private key, provided as 64 hex characters or base64. Keep these values out of `wrangler.jsonc`.
@@ -291,14 +304,14 @@ Paste each generated value into the matching prompt. `REPO_SIGNING_KEY` must be 
 Wrangler can run the build command from `wrangler.jsonc`, but I still run the build locally first:
 
 ```sh
-bun run build
-bunx wrangler deploy
+deno task build
+deno task wrangler deploy
 ```
 
 For `rawkode.dev`, I wrap the deploy with `cuenv` because the Cloudflare token is loaded from the production environment:
 
 ```sh
-cuenv -e production exec bunx wrangler deploy
+cuenv -e production exec deno task deploy
 ```
 
 [`cuenv`](https://cuenv.dev/) is another tool I wrote. It uses CUE for hierarchical environment configuration, task running, and secrets. In this site, `env.cue` defines the production Cloudflare account and resolves the API token from 1Password at command runtime, so the token is not written into the repository or a local `.env` file.
@@ -401,7 +414,7 @@ curl -i https://rawkode.dev/xrpc/com.atproto.sync.subscribeRepos
 Without a WebSocket upgrade, the route should return `426`. For the WSS path, connect with a WebSocket client and make another record write from a second shell:
 
 ```sh
-bunx wscat -c wss://rawkode.dev/xrpc/com.atproto.sync.subscribeRepos
+deno run -A npm:wscat -c wss://rawkode.dev/xrpc/com.atproto.sync.subscribeRepos
 ```
 
 ## Request Relay Discovery

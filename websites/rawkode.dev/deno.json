@@ -1,0 +1,46 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@astrojs/cloudflare": "npm:@astrojs/cloudflare@13.5.1",
+    "@astrojs/internal-helpers": "npm:@astrojs/internal-helpers@0.9.1",
+    "@fontsource-variable/figtree": "npm:@fontsource-variable/figtree@5.2.10",
+    "@fontsource-variable/newsreader": "npm:@fontsource-variable/newsreader@5.2.10",
+    "@oslojs/encoding": "npm:@oslojs/encoding@1.1.0",
+    "@pandacss/dev": "npm:@pandacss/dev@1.11.1",
+    "astro": "npm:astro@6.3.3",
+    "astro-expressive-code": "npm:astro-expressive-code@0.42.0",
+    "clsx": "npm:clsx@2.1.1",
+    "cookie": "npm:cookie@1.1.1",
+    "devalue": "npm:devalue@5.8.0",
+    "es-module-lexer": "npm:es-module-lexer@2.1.0",
+    "html-escaper": "npm:html-escaper@3.0.3",
+    "mrmime": "npm:mrmime@2.0.1",
+    "neotraverse": "npm:neotraverse@0.6.18",
+    "piccolore": "npm:piccolore@0.1.3",
+    "postcss": "npm:postcss@8.5.14",
+    "sharp": "npm:sharp@0.34.5",
+    "unstorage": "npm:unstorage@1.17.5",
+    "wrangler": "npm:wrangler@4.91.0",
+    "zod": "npm:zod@4.4.3"
+  },
+  "tasks": {
+    "install": "deno install --allow-scripts=npm:sharp@0.34.5,npm:workerd@1.20260511.1",
+    "codegen": "NO_UPDATE_NOTIFIER=1 deno run -A npm:@pandacss/dev@1.11.1 codegen --silent",
+    "generate-og": "deno run -A scripts/generate-og.mjs",
+    "prebuild": "deno task codegen && deno task generate-og",
+    "build": "deno task prebuild && deno run -A npm:astro@6.3.3 build",
+    "dev": "deno task codegen && deno run -A npm:astro@6.3.3 dev",
+    "preview": "deno run -A npm:astro@6.3.3 preview",
+    "astro": "deno run -A npm:astro@6.3.3",
+    "panda": "deno run -A npm:@pandacss/dev@1.11.1",
+    "wrangler": "deno run -A npm:wrangler@4.91.0",
+    "deploy": "deno task wrangler deploy"
+  },
+  "exclude": [
+    ".astro",
+    ".wrangler",
+    "dist",
+    "node_modules",
+    "styled-system"
+  ]
+}

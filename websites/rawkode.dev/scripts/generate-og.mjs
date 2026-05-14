@@ -1,13 +1,11 @@
 /**
  * Generates /public/og.png at build time using sharp (SVG → PNG + photo composite).
- * Run with: node scripts/generate-og.mjs
+ * Run with: deno task generate-og
  */
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import path from 'path';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
-const require = createRequire(import.meta.url);
-const sharp = require('sharp');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outFile = path.resolve(__dirname, '../public/og.png');
 const photoFile = path.resolve(__dirname, '../src/assets/rawkode.jpg');
@@ -103,5 +101,5 @@ async function generate() {
 
 generate().catch((err) => {
   console.error('✗ Failed to generate og.png:', err.message);
-  process.exit(1);
+  Deno.exit(1);
 });
