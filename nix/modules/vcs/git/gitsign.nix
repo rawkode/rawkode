@@ -18,12 +18,17 @@ mkApp {
           "${config.home.homeDirectory}/Library/Caches/sigstore/gitsign/cache.sock"
         else
           "${config.xdg.cacheHome}/sigstore/gitsign/cache.sock";
+      connectorID = "https://accounts.google.com";
     in
     lib.mkMerge [
       {
         home.packages = [ pkgs.gitsign ];
 
-        home.sessionVariables.GITSIGN_CREDENTIAL_CACHE = cacheSocket;
+        home.sessionVariables = {
+          GITSIGN_AUTOCLOSE = "true";
+          GITSIGN_CONNECTOR_ID = connectorID;
+          GITSIGN_CREDENTIAL_CACHE = cacheSocket;
+        };
 
         programs.git = {
           signing = {
@@ -34,6 +39,10 @@ mkApp {
 
           settings = {
             commit.gpgsign = true;
+            gitsign = {
+              autoclose = true;
+              inherit connectorID;
+            };
             tag.gpgSign = true;
           };
         };
