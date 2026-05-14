@@ -43,12 +43,16 @@ mkApp {
           };
         };
 
-      programs.fish.shellAbbrs = {
-        codex = {
-          position = "command";
-          setCursor = true;
-          expansion = "codex --search";
+      xdg.configFile."claude/settings.json".text = builtins.toJSON {
+        attribution = {
+          commit = "This commit was created with the assistance of a LLM.";
+          pr = "This PR was created with the assistance of a LLM.";
         };
+      };
+
+      programs.fish.shellAliases = {
+        claude = "claude --settings ~/.config/claude/settings.json --chrome";
+        codex = ''codex --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
       };
     };
 
