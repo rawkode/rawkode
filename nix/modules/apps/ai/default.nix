@@ -8,12 +8,12 @@ mkApp {
   linux.home =
     { inputs, pkgs, ... }:
     {
-      home.packages = [
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.amp
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.codex
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.cursor-agent
-        inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}.gemini-cli
+      home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
+        amp
+        claude-code
+        codex
+        cursor-agent
+        gemini-cli
       ];
     };
 
