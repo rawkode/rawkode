@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@alteran-social/astro@~0.9.2": "0.9.2_typescript@5.9.3",
+    "npm:@alteran-social/astro@~0.9.5": "0.9.5_typescript@5.9.3",
     "npm:@astrojs/cloudflare@13.5.1": "13.5.1_astro@6.3.3_wrangler@4.91.0",
     "npm:@astrojs/internal-helpers@0.9.1": "0.9.1",
     "npm:@fontsource-variable/figtree@5.2.10": "5.2.10",
@@ -25,8 +25,8 @@
     "npm:zod@4.4.3": "4.4.3"
   },
   "npm": {
-    "@alteran-social/astro@0.9.2_typescript@5.9.3": {
-      "integrity": "sha512-I2FjDu0dRdtO84upQjc9QZ8EZSrSGYZkvp2JsnvWygO8bSesIjNg6ddGOm0Sr8kcz2OwLxH0gAjJscDIu7/Z2Q==",
+    "@alteran-social/astro@0.9.5_typescript@5.9.3": {
+      "integrity": "sha512-fpts3+Ngn5h4zSwhbDKG2KhwTJNWSIKlr9GJshNo+f3gulsrOirzLtlkaCrlFxnjRlLR+4uIJXBBgZzzTtb7VQ==",
       "dependencies": [
         "@atproto/api",
         "@atproto/crypto@0.4.5",
@@ -4806,7 +4806,7 @@
     ],
     "packageJson": {
       "dependencies": [
-        "npm:@alteran-social/astro@~0.9.2"
+        "npm:@alteran-social/astro@~0.9.5"
       ]
     }
   }
