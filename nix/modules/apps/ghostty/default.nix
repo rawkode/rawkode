@@ -84,6 +84,10 @@ mkApp {
 
         quick-terminal-position = "top";
         quick-terminal-animation-duration = 0.2;
+
+        keybind = [
+          "global:cmd+semicolon=toggle_quick_terminal"
+        ];
       }
       // lib.optionalAttrs (stylixColors != null) {
         split-divider-color = lib.mkDefault stylixColors.base0D;
