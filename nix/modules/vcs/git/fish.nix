@@ -12,6 +12,11 @@ mkApp {
           expansion = "cd (git root)";
           position = "command";
         };
+
+        jg = {
+          expansion = "jj git ";
+          position = "command";
+        };
       };
     };
   };
