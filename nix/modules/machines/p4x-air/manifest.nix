@@ -9,7 +9,7 @@
       "productivity"
       "personal"
       "development"
-      "tailnet"
+      "vpn"
     ];
     disabledCapabilities = [ ];
     traits = [ ];

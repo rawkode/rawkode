@@ -10,7 +10,7 @@
       "personal-comms"
       "development"
       "platform"
-      "tailnet"
+      "vpn"
     ];
     disabledCapabilities = [ ];
     traits = [

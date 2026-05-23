@@ -11,7 +11,7 @@
       "personal"
       "development"
       "platform"
-      "tailnet"
+      "vpn"
     ];
     disabledCapabilities = [ ];
     traits = [ ];

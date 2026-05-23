@@ -8,7 +8,7 @@
       "desktop"
       "development"
       "platform"
-      "tailnet"
+      "vpn"
     ];
     disabledCapabilities = [ ];
     traits = [
