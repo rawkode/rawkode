@@ -18,30 +18,36 @@ mkApp {
     };
 
   common.home =
-    { inputs, ... }:
+    _:
     let
-      skillsDir = inputs.impeccable + "/.agents/skills";
+      skillsDir = ./skills;
       skillNames = builtins.attrNames (
         lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
       );
-    in
-    {
-      home.file =
-        builtins.listToAttrs (
-          map (name: {
-            name = ".agents/skills/${name}";
-            value = {
-              source = "${skillsDir}/${name}";
-              force = true;
-            };
-          }) skillNames
-        )
-        // {
-          "AGENTS.md" = {
-            source = ./AGENTS.md;
+      # Each agent discovers personal skills from its own directory.
+      agentSkillDirs = [
+        ".claude/skills"
+        ".codex/skills"
+        ".copilot/skills"
+      ];
+      skillFiles = lib.concatMap (
+        name:
+        map (dir: {
+          name = "${dir}/${name}";
+          value = {
+            source = "${skillsDir}/${name}";
             force = true;
           };
+        }) agentSkillDirs
+      ) skillNames;
+    in
+    {
+      home.file = builtins.listToAttrs skillFiles // {
+        "AGENTS.md" = {
+          source = ./AGENTS.md;
+          force = true;
         };
+      };
 
       xdg.configFile."claude/settings.json".text = builtins.toJSON {
         attribution = {
