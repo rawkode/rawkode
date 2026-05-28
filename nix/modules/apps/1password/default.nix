@@ -5,35 +5,35 @@ in
 mkApp {
   name = "onepassword";
 
-  linux.home = _: {
-    programs.ssh = {
-      enable = true;
-      enableDefaultConfig = false;
+  linux.home =
+    { config, ... }:
+    {
+      home.sessionVariables.SSH_AUTH_SOCK = "${config.home.homeDirectory}/.1password/agent.sock";
 
-      matchBlocks = {
-        "*" = {
-          addKeysToAgent = "true";
-          extraOptions = {
-            IdentityAgent = "~/.1password/agent.sock";
-          };
+      programs.ssh = {
+        enable = true;
+        enableDefaultConfig = false;
+
+        settings."*" = {
+          AddKeysToAgent = "yes";
+          IdentityAgent = "~/.1password/agent.sock";
+        };
+      };
+
+      dconf.settings = {
+        "org/gnome/settings-daemon/plugins/media-keys" = {
+          custom-keybindings = [
+            "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p/"
+          ];
+        };
+
+        "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p" = {
+          binding = "<Super>period";
+          command = "1password --quick-access";
+          name = "Search 1Password";
         };
       };
     };
-
-    dconf.settings = {
-      "org/gnome/settings-daemon/plugins/media-keys" = {
-        custom-keybindings = [
-          "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p/"
-        ];
-      };
-
-      "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-1p" = {
-        binding = "<Super>period";
-        command = "1password --quick-access";
-        name = "Search 1Password";
-      };
-    };
-  };
 
   linux.system =
     { config, ... }:
@@ -57,21 +57,21 @@ mkApp {
       };
     };
 
-  darwin.home = _: {
-    programs.ssh = {
-      enable = true;
-      enableDefaultConfig = false;
+  darwin.home =
+    { config, ... }:
+    {
+      home.sessionVariables.SSH_AUTH_SOCK = "${config.home.homeDirectory}/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock";
 
-      matchBlocks = {
-        "*" = {
-          addKeysToAgent = "true";
-          extraOptions = {
-            IdentityAgent = "\"~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\"";
-          };
+      programs.ssh = {
+        enable = true;
+        enableDefaultConfig = false;
+
+        settings."*" = {
+          AddKeysToAgent = "yes";
+          IdentityAgent = "\"~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\"";
         };
       };
     };
-  };
 
   darwin.system =
     { lib, ... }:
