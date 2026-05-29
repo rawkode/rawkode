@@ -1,7 +1,7 @@
 {
   "nodeModulesDir": "auto",
   "imports": {
-    "@astrojs/cloudflare": "npm:@astrojs/cloudflare@13.5.1",
+    "@astrojs/cloudflare": "npm:@astrojs/cloudflare@13.6.0",
     "@astrojs/internal-helpers": "npm:@astrojs/internal-helpers@0.9.1",
     "@fontsource-variable/figtree": "npm:@fontsource-variable/figtree@5.2.10",
     "@fontsource-variable/newsreader": "npm:@fontsource-variable/newsreader@5.2.10",
@@ -20,7 +20,7 @@
     "postcss": "npm:postcss@8.5.14",
     "sharp": "npm:sharp@0.34.5",
     "unstorage": "npm:unstorage@1.17.5",
-    "wrangler": "npm:wrangler@4.91.0",
+    "wrangler": "npm:wrangler@4.95.0",
     "zod": "npm:zod@4.4.3"
   },
   "tasks": {
@@ -33,7 +33,7 @@
     "preview": "deno run -A npm:astro@6.3.3 preview",
     "astro": "deno run -A npm:astro@6.3.3",
     "panda": "deno run -A npm:@pandacss/dev@1.11.1",
-    "wrangler": "deno run -A npm:wrangler@4.91.0",
+    "wrangler": "deno run -A npm:wrangler@4.95.0",
     "deploy": "deno task wrangler deploy"
   },
   "exclude": [
