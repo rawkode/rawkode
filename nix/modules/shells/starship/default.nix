@@ -34,6 +34,7 @@ mkApp {
             "$cmd_duration"
             "$line_break"
             "$python"
+            "$shlvl"
             "$character"
           ];
 
@@ -43,6 +44,19 @@ mkApp {
             success_symbol = "[❯](purple)";
             error_symbol = "[❯](red)";
             vimcmd_symbol = "[❮](green)";
+          };
+
+          # Repeat the prompt character once per nested shell level (❯ → ❯❯ → ❯❯❯).
+          # repeat_offset = 1 leaves the final, status-colored ❯ to the character module,
+          # so total ❯ count == $SHLVL.
+          shlvl = {
+            disabled = false;
+            symbol = "❯";
+            repeat = true;
+            repeat_offset = 1;
+            threshold = 0;
+            format = "[$symbol]($style)";
+            style = "purple";
           };
 
           # Disabled in favor of jj-starship (handles both Git and JJ repos)

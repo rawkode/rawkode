@@ -35,12 +35,24 @@ mkApp {
         };
 
         environmentVariables = {
-          NIX_LINK = ''"/nix/var/nix/profiles/default"'';
-          NIX_PROFILES = ''"/nix/var/nix/profiles/default ($env.NIX_LINK)"'';
           OP_PLUGIN_ALIASES_SOURCED = "1";
-          PATH = "($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')";
-          SSH_AUTH_SOCK = onePasswordSock;
         };
+
+        # These are set in extraEnv (raw, evaluated nushell) rather than
+        # environmentVariables, because home-manager emits the latter as quoted
+        # string literals via load-env — so any value that needs evaluation
+        # (interpolation, $env.PATH manipulation, path join) would be stored
+        # verbatim instead of run. NIX_LINK must precede its users below.
+        extraEnv = ''
+          $env.NIX_LINK = "/nix/var/nix/profiles/default"
+          $env.NIX_PROFILES = $"/nix/var/nix/profiles/default ($env.NIX_LINK)"
+          $env.SSH_AUTH_SOCK = ${onePasswordSock}
+          $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')
+
+          # Nushell doesn't increment SHLVL for nested shells (nushell/nushell#14384),
+          # so do it manually here to keep the starship shlvl prompt accurate.
+          $env.SHLVL = (($env | get -o SHLVL | default 0 | into int) + 1)
+        '';
 
         extraConfig = ''
           $env.config = ($env.config? | default {})
