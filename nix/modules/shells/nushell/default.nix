@@ -9,16 +9,8 @@ mkApp {
     {
       inputs,
       system,
-      isDarwin,
       ...
     }:
-    let
-      onePasswordSock =
-        if isDarwin then
-          "($env.HOME | path join 'Library' 'Group Containers' '2BUA8C4S2C.com.1password' 't' 'agent.sock')"
-        else
-          "($env.HOME | path join '.1password' 'agent.sock')";
-    in
     {
       programs.nushell = {
         enable = true;
@@ -41,12 +33,11 @@ mkApp {
         # These are set in extraEnv (raw, evaluated nushell) rather than
         # environmentVariables, because home-manager emits the latter as quoted
         # string literals via load-env — so any value that needs evaluation
-        # (interpolation, $env.PATH manipulation, path join) would be stored
+        # (interpolation, $env.PATH manipulation) would be stored
         # verbatim instead of run. NIX_LINK must precede its users below.
         extraEnv = ''
           $env.NIX_LINK = "/nix/var/nix/profiles/default"
           $env.NIX_PROFILES = $"/nix/var/nix/profiles/default ($env.NIX_LINK)"
-          $env.SSH_AUTH_SOCK = ${onePasswordSock}
           $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.nix-profile/bin' | append $'($env.NIX_LINK)/bin')
 
           # Nushell doesn't increment SHLVL for nested shells (nushell/nushell#14384),
