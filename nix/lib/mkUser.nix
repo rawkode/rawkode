@@ -163,7 +163,6 @@ let
 
             nixpkgs.config.allowUnfree = true;
 
-            gtk.gtk4.theme = null;
             manual.manpages.enable = false;
 
             targets.darwin = lib.mkIf isDarwin {
