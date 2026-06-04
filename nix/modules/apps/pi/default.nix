@@ -10,7 +10,6 @@ mkApp {
       ".pi/AGENTS.md".source = ./AGENTS.md;
 
       ".pi/agent/settings.json".source = ./settings.json;
-      ".pi/agent/workflows.yaml".source = ./workflows.yaml;
 
       ".pi/agent/extensions" = {
         source = ./extensions;

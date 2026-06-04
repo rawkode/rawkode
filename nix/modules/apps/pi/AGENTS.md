@@ -6,7 +6,7 @@
 # General Coding Rules
 
 - Everything is a state machine.
-- Prefer popular packages, such as xstate, over building our own.
+- Prefer popular packages over building our own.
 - We ONLY tests behaviours, avoid useless tests.
 - Avoid redundant comments. Comment on WHY, never HOW. Let the code speak for itself.
 - Underscores and hypens in filenames are a sign of hierarchy, just use directories.
