@@ -180,7 +180,8 @@ const socialProfiles = [
           root.setAttribute('data-theme', saved);
           root.setAttribute('data-ui-theme', saved);
         } else {
-          root.setAttribute('data-ui-theme', 'dark');
+          root.removeAttribute('data-theme');
+          root.setAttribute('data-ui-theme', 'system');
         }
       })();
     </script>

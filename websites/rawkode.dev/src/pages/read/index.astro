@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
+import { calculateReadingMinutes } from '../../utils/readingTime';
 import { getCollection } from 'astro:content';
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
@@ -37,10 +38,6 @@ function formatDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function readMinutes(body = '') {
-  const words = body.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.round(words / 220));
-}
 ---
 
 <Layout
@@ -61,9 +58,8 @@ function readMinutes(body = '') {
             Technical essays on infrastructure, developer tooling, and building in public.
           </p>
         </div>
-        <div class="writing-hero__tabs" role="list" aria-label="Writing filters">
+        <div class="writing-hero__tabs" aria-label="Writing filters">
           <span class="writing-hero__tab writing-hero__tab--active">Essays</span>
-          <span class="writing-hero__tab">Notes</span>
         </div>
       </div>
     </section>
@@ -74,10 +70,10 @@ function readMinutes(body = '') {
           <p class="empty">Nothing here yet. Check back soon.</p>
         ) : (
           <ol class="post-list" role="list">
-            {posts.map((post, i) => (
+            {posts.map((post) => (
               <li>
                 <a href={`/read/${post.id}`} class="post-row">
-                  <span class="post-row__marker" style={`--marker-index: ${i}`} aria-hidden="true"></span>
+                  <span class="post-row__marker" aria-hidden="true"></span>
                   <div class="post-row__content">
                     <h2>{post.data.title}</h2>
                     <p>{post.data.description}</p>
@@ -89,7 +85,7 @@ function readMinutes(body = '') {
                   </div>
                   <div class="post-row__meta">
                     <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
-                    <span>{readMinutes(post.body)} min read</span>
+                    <span>{calculateReadingMinutes(post.body)} min read</span>
                   </div>
                   <svg class="post-row__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M5 12h14M13 5l7 7-7 7"/>
@@ -139,7 +135,7 @@ function readMinutes(body = '') {
 
   .writing-hero__tabs {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2);
     padding: var(--space-1);
     border: 1px solid var(--border-subtle);

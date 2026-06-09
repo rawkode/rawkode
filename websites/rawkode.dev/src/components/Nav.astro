@@ -85,9 +85,14 @@ function isActive(href: string, external?: boolean) {
     dark: 'Colour theme: dark — click for system',
     system: 'Colour theme: system — click for light',
   };
+  const themes = new Set<Theme>(['light', 'dark', 'system']);
 
   function current(): Theme {
-    return (localStorage.getItem('theme') as Theme | null) ?? 'dark';
+    const uiTheme = root.getAttribute('data-ui-theme') as Theme | null;
+    if (uiTheme && themes.has(uiTheme)) return uiTheme;
+
+    const saved = localStorage.getItem('theme') as Theme | null;
+    return saved && themes.has(saved) ? saved : 'system';
   }
 
   function apply(theme: Theme) {
@@ -102,6 +107,7 @@ function isActive(href: string, external?: boolean) {
     if (toggle) toggle.setAttribute('aria-label', labels[theme]);
   }
 
+  if (toggle) toggle.setAttribute('aria-label', labels[current()]);
   toggle?.addEventListener('click', () => apply(cycle[current()]));
 </script>
 

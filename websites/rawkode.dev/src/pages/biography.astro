@@ -114,7 +114,7 @@ const personJsonLd = {
             class="portrait-card__photo"
             loading="eager"
             widths={[360, 540, 720]}
-            sizes="(max-width: 899px) 48vw, 360px"
+            sizes="(max-width: 759px) 100vw, (max-width: 899px) 40vw, 360px"
           />
           <figcaption>
             <span><i aria-hidden="true"></i> Available for speaking</span>
@@ -127,7 +127,7 @@ const personJsonLd = {
       <div class="container bio-grid">
         <div class="bio-panel">
           <header class="panel-head">
-            <p>Quick facts</p>
+            <h2>Quick facts</h2>
           </header>
           <dl class="facts">
             {facts.map((fact) => (
@@ -149,7 +149,7 @@ const personJsonLd = {
 
         <div class="bio-panel bio-panel--bios">
           <header class="panel-head">
-            <p>Biography</p>
+            <h2>Biography</h2>
           </header>
           <div class="bio-cards">
             {bios.map((bio) => (
@@ -178,7 +178,7 @@ const personJsonLd = {
       <div class="container bio-bottom">
         <div class="bio-panel">
           <header class="panel-head">
-            <p>Topics</p>
+            <h2>Topics</h2>
           </header>
           <ul class="topics" role="list">
             {topics.map((topic) => <li>{topic}</li>)}
@@ -187,7 +187,7 @@ const personJsonLd = {
 
         <div class="bio-panel">
           <header class="panel-head">
-            <p>Connect</p>
+            <h2>Connect</h2>
           </header>
           <ul class="socials" role="list">
             {socials.map((social) => (
@@ -375,7 +375,7 @@ const personJsonLd = {
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .panel-head p {
+  .panel-head h2 {
     margin: 0;
     color: var(--text-tertiary);
     font-family: var(--fonts-mono);

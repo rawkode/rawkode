@@ -157,7 +157,7 @@ export default defineConfig({
 
   globalCss: {
     ':root': {
-      colorScheme: 'dark',
+      colorScheme: 'dark light',
       '--shadows-sm': '0 1px 2px oklch(0% 0 0 / 0.24), 0 0 0 1px oklch(100% 0 0 / 0.02)',
       '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
       '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',

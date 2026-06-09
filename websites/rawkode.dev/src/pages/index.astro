@@ -7,6 +7,7 @@ import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import AppCard from '../components/AppCard.astro';
+import { calculateReadingMinutes } from '../utils/readingTime';
 import { getCollection } from 'astro:content';
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
@@ -26,10 +27,6 @@ function formatShortDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function readMinutes(body = '') {
-  const words = body.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.round(words / 220));
-}
 ---
 
 <Layout>
@@ -114,7 +111,7 @@ function readMinutes(body = '') {
                   <span class="writing-row__dot" aria-hidden="true"></span>
                   <span class="writing-row__content">
                     <strong>{post.data.title}</strong>
-                    <span>{readMinutes(post.body)} min read</span>
+                    <span>{calculateReadingMinutes(post.body)} min read</span>
                   </span>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M5 12h14M13 5l7 7-7 7"/>

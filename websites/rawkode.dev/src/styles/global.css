@@ -11,6 +11,7 @@
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    --nav-height-offset: 92px;
   }
 }
 
@@ -29,7 +30,7 @@
       linear-gradient(180deg, var(--colors-surface-1) 0%, color-mix(in oklch, var(--colors-surface-1) 84%, black) 100%);
     background-attachment: fixed;
     font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
-    text-rendering: optimizeLegibility;
+    text-rendering: optimizelegibility;
     transition:
       background-color var(--durations-normal) var(--easings-in-out),
       color var(--durations-normal) var(--easings-in-out);
@@ -89,7 +90,7 @@
 
   a:hover {
     color: var(--colors-accent);
-    text-decoration-color: currentColor;
+    text-decoration-color: currentcolor;
   }
 
   strong {

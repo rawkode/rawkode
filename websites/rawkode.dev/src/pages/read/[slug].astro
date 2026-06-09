@@ -4,6 +4,7 @@ export const prerender = true;
 import Layout from '../../layouts/Layout.astro';
 import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
+import { calculateReadingMinutes, calculateWordCount } from '../../utils/readingTime';
 import { getCollection, render } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -28,8 +29,8 @@ function formatDate(date: Date) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const wordCount = (post.body ?? '').trim().split(/\s+/).filter(Boolean).length;
-const readMinutes = Math.max(1, Math.round(wordCount / 220));
+const wordCount = calculateWordCount(post.body ?? '');
+const readMinutes = calculateReadingMinutes(post.body ?? '');
 const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
 const personId = new URL('/#person', siteUrl).toString();
 const postUrl = new URL(`/read/${post.id}`, siteUrl).toString();
@@ -323,7 +324,7 @@ const articleJsonLd = {
 
   .prose :global(a) {
     color: var(--color-accent-hover);
-    text-decoration-color: color-mix(in oklch, currentColor 38%, transparent);
+    text-decoration-color: color-mix(in oklch, currentcolor 38%, transparent);
   }
 
   .prose :global(blockquote) {
@@ -484,7 +485,7 @@ const articleJsonLd = {
 
     .article__aside {
       position: sticky;
-      top: 92px;
+      top: var(--nav-height-offset);
       display: grid;
       gap: var(--space-4);
     }
