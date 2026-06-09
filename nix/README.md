@@ -19,7 +19,7 @@ This repository contains a modular NixOS configuration that supports:
 - **flake.nix**: Main entry point using flake-parts for modular composition
 - **modules/**: Modular system components organized by category
 - **machines/**: Per-machine manifests that declare platform, users, capabilities, traits, and local overrides
-- **capabilities/**: Shared behavior bundles such as foundation, desktop, development, platform, and tailnet
+- **capabilities/**: Shared behavior bundles such as foundation, desktop, development, platform, and vpn
 
 ### Key Components
 
@@ -28,7 +28,7 @@ This repository contains a modular NixOS configuration that supports:
 - **foundation**: Core system foundation with Nix, users, shells, networking, and Home Manager support
 - **desktop**: Desktop environment with Niri/GNOME, portals, audio, fonts, and desktop apps
 - **development**: Development tools and environments
-- **tailnet**: Tailscale networking, opt-in per machine
+- **vpn**: NetBird networking, opt-in per machine
 
 #### Machine Configurations (`modules/machines/`)
 
@@ -129,7 +129,7 @@ The development capability includes:
 - **Secure Boot**: Lanzaboote integration with TPM attestation
 - **Disk Encryption**: LUKS2 with BTRFS subvolumes
 - **Authentication**: Fingerprint readers
-- **Network Security**: Tailscale mesh networking, DNS-over-HTTPS
+- **Network Security**: NetBird mesh networking, DNS-over-HTTPS
 - **Application Security**: Flatpak sandboxing for desktop applications
 
 ## Customization

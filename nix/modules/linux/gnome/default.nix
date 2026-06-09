@@ -151,7 +151,6 @@ mkApp {
             "gsconnect@andyholmes.github.io"
             "nightthemeswitcher@romainvigier.fr"
             "space-bar@luchrioh"
-            "tailscale@joaophi.github.com"
           ];
 
           favorite-apps = [ ];
@@ -222,7 +221,6 @@ mkApp {
         night-theme-switcher
         space-bar
         systemd-manager
-        tailscale-qs
       ];
     };
 }

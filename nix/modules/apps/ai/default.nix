@@ -10,7 +10,6 @@ mkApp {
     {
       home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
         amp
-        claude-code
         codex
         cursor-agent
         gemini-cli
@@ -26,7 +25,6 @@ mkApp {
       );
       # Each agent discovers personal skills from its own directory.
       agentSkillDirs = [
-        ".claude/skills"
         ".codex/skills"
         ".copilot/skills"
       ];
@@ -49,15 +47,7 @@ mkApp {
         };
       };
 
-      xdg.configFile."claude/settings.json".text = builtins.toJSON {
-        attribution = {
-          commit = "This commit was created with the assistance of a LLM.";
-          pr = "This PR was created with the assistance of a LLM.";
-        };
-      };
-
       programs.fish.shellAliases = {
-        claude = "claude --settings ~/.config/claude/settings.json --chrome";
         codex = ''codex --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
       };
     };
@@ -73,8 +63,6 @@ mkApp {
         ];
         casks = [
           "chatgpt"
-          "claude"
-          "claude-code@latest"
           "codex"
           "codex-app"
           "openusage"

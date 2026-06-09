@@ -5,9 +5,7 @@
       homebrew = {
         enable = lib.mkDefault true;
         casks = [
-          "alt-tab"
           "finetune"
-          "jordanbaird-ice"
           "parallels"
           "raycast"
         ];

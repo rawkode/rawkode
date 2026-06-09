@@ -1,6 +1,6 @@
 {
   flake.nixosModules.android =
-    { config, pkgs, ... }:
+    { pkgs, ... }:
     {
       environment.systemPackages = with pkgs; [
         android-tools
@@ -13,7 +13,6 @@
 
         trustedInterfaces = [
           "lo"
-          config.services.tailscale.interfaceName
         ];
 
         allowedTCPPortRanges = [

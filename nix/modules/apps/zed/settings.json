@@ -27,9 +27,6 @@
 		"github-copilot-cli": {
 			"type": "registry"
 		},
-		"claude-acp": {
-			"type": "registry"
-		},
 		"codex-acp": {
 			"type": "registry"
 		}
