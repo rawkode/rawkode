@@ -8,6 +8,7 @@ mkApp {
   common.home =
     {
       identity,
+      pkgs,
       preferences,
       ...
     }:
@@ -29,7 +30,10 @@ mkApp {
         ];
 
         settings = {
-          core.editor = preferences.editor;
+          core = {
+            inherit (preferences) editor;
+            pager = "moor";
+          };
 
           user = {
             inherit (identity) name;
@@ -98,6 +102,10 @@ mkApp {
             date = "relative";
           };
 
+          pager = {
+            diff = "hunk pager";
+          };
+
           merge = {
             conflictStyle = "zdiff3";
           };
@@ -138,6 +146,8 @@ mkApp {
 
         };
       };
+
+      home.packages = [ pkgs.moor ];
 
       home.file.".config/git/templates/commit.txt".source = ./git-commit-template.txt;
     };

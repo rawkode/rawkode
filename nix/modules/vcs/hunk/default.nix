@@ -17,7 +17,7 @@ mkApp {
       programs.hunk = {
         enable = true;
         package = inputs.hunk.packages.${pkgs.stdenv.hostPlatform.system}.hunk;
-        enableGitIntegration = true;
+        enableGitIntegration = false;
         settings = {
           theme = "graphite";
           mode = "auto";
