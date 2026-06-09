@@ -92,13 +92,13 @@ function isActive(href: string, external?: boolean) {
     if (uiTheme && themes.has(uiTheme)) return uiTheme;
 
     const saved = localStorage.getItem('theme') as Theme | null;
-    return saved && themes.has(saved) ? saved : 'system';
+    return saved && themes.has(saved) ? saved : 'dark';
   }
 
   function apply(theme: Theme) {
     if (theme === 'system') {
       root.removeAttribute('data-theme');
-      localStorage.removeItem('theme');
+      localStorage.setItem('theme', 'system');
     } else {
       root.setAttribute('data-theme', theme);
       localStorage.setItem('theme', theme);

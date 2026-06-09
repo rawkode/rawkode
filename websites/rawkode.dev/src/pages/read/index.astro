@@ -1,4 +1,6 @@
 ---
+export const prerender = true;
+
 import Layout from '../../layouts/Layout.astro';
 import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
@@ -8,7 +10,7 @@ import { getCollection } from 'astro:content';
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
 const blogDescription =
-  'Technical essays from David Flanagan on cloud-native infrastructure, developer tooling, open source, and building in public.';
+  'Thoughts from David Flanagan on cloud-native infrastructure, developer tooling, open source, and building in public.';
 const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
 const blogUrl = new URL('/read', siteUrl).toString();
 const personId = new URL('/#person', siteUrl).toString();
@@ -55,11 +57,8 @@ function formatDate(date: Date) {
           <p class="page-label">Writing</p>
           <h1>Writing</h1>
           <p>
-            Technical essays on infrastructure, developer tooling, and building in public.
+            Thoughts on infrastructure, developer tooling, and building in public.
           </p>
-        </div>
-        <div class="writing-hero__tabs" aria-label="Writing filters">
-          <span class="writing-hero__tab writing-hero__tab--active">Essays</span>
         </div>
       </div>
     </section>
@@ -131,30 +130,6 @@ function formatDate(date: Date) {
     margin: var(--space-3) 0 0;
     color: var(--text-secondary);
     font-size: 1rem;
-  }
-
-  .writing-hero__tabs {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2);
-    padding: var(--space-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
-  }
-
-  .writing-hero__tab {
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    color: var(--text-tertiary);
-    font-size: 0.88rem;
-    text-align: center;
-  }
-
-  .writing-hero__tab--active {
-    color: var(--text-primary);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-sm);
   }
 
   .writing-content {

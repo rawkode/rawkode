@@ -98,8 +98,8 @@ function formatShortDate(date: Date) {
         <div class="container writing-layout">
           <header class="section__header">
             <div>
-              <p class="section__kicker">Current thinking</p>
-              <h2>Writing that survives the thread.</h2>
+              <p class="section__kicker">Thoughts</p>
+              <h2>Recent writing</h2>
             </div>
             <a href="/read" class="section__link">Read all</a>
           </header>
@@ -134,10 +134,10 @@ function formatShortDate(date: Date) {
           </div>
           <div>
             <p class="section__kicker">Rawkode Academy</p>
-            <h2>Go deeper.</h2>
+            <h2>Rawkode Academy</h2>
             <p>
-              Practical courses, real-world projects, and a community for engineers building
-              infrastructure and developer platforms.
+              Practical courses and projects for engineers working with cloud-native
+              infrastructure.
             </p>
           </div>
           <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="button button--secondary">
@@ -155,14 +155,13 @@ function formatShortDate(date: Date) {
 
 <style>
   .hero {
-    padding-block: var(--space-10) var(--space-8);
+    padding-block: var(--space-8) var(--space-7);
   }
 
   .hero__inner {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(128px, 38vw);
-    align-items: start;
-    gap: var(--space-4);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
   }
 
   .hero__copy {
@@ -173,7 +172,7 @@ function formatShortDate(date: Date) {
 
   .hero h1 {
     margin: 0;
-    font-size: clamp(2.45rem, 12vw, 4.8rem);
+    font-size: clamp(3.35rem, 15vw, 4.8rem);
     font-weight: 680;
     letter-spacing: 0;
   }
@@ -187,7 +186,7 @@ function formatShortDate(date: Date) {
   }
 
   .hero__lead {
-    max-width: 34rem;
+    max-width: 28rem;
     margin: 0;
     color: var(--text-primary);
     font-size: clamp(1rem, 2.5vw, 1.18rem);
@@ -246,7 +245,7 @@ function formatShortDate(date: Date) {
   }
 
   .hero-card {
-    display: grid;
+    display: none;
     overflow: hidden;
     width: 100%;
     margin: 0;
@@ -468,6 +467,7 @@ function formatShortDate(date: Date) {
     }
 
     .hero-card {
+      display: grid;
       justify-self: end;
     }
 

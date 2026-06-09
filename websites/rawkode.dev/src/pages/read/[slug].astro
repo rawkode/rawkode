@@ -75,11 +75,11 @@ const articleJsonLd = {
     <article class="article">
       <div class="container article__layout">
         <div class="article__main">
-          <a href="/read" class="back-link" aria-label="Back to all essays">
+          <a href="/read" class="back-link" aria-label="Back to all thoughts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M19 12H5M11 5l-7 7 7 7"/>
             </svg>
-            All essays
+            All thoughts
           </a>
 
           <header class="article__header">
@@ -94,7 +94,7 @@ const articleJsonLd = {
           </header>
 
           <div class="article__meta-strip">
-            <span>Essay</span>
+            <span>Thought</span>
             <span><strong>{wordCount.toLocaleString('en-GB')}</strong> words</span>
             <span>Updated <time datetime={modifiedTime}>{formatDate(new Date(modifiedTime))}</time></span>
           </div>

@@ -62,13 +62,41 @@ const topics = [
 ];
 
 const socials = [
-  { label: 'Email', handle: 'david@rawkode.dev', href: 'mailto:david@rawkode.dev' },
-  { label: 'Website', handle: 'rawkode.dev', href: 'https://rawkode.dev' },
-  { label: 'Academy', handle: 'rawkode.academy', href: 'https://rawkode.academy' },
-  { label: 'GitHub', handle: 'github.com/rawkode', href: 'https://github.com/rawkode' },
-  { label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
-  { label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
-];
+  { icon: 'email', label: 'Email', handle: 'david@rawkode.dev', href: 'mailto:david@rawkode.dev' },
+  { icon: 'website', label: 'Website', handle: 'rawkode.dev', href: 'https://rawkode.dev' },
+  { icon: 'academy', label: 'Academy', handle: 'rawkode.academy', href: 'https://rawkode.academy' },
+  { icon: 'github', label: 'GitHub', handle: 'github.com/rawkode', href: 'https://github.com/rawkode' },
+  { icon: 'bluesky', label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
+  { icon: 'linkedin', label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
+] as const;
+
+const socialIconPaths = {
+  email: [
+    'M4 6h16v12H4Z',
+    'm4 7 8 6 8-6',
+  ],
+  website: [
+    'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
+    'M2 12h20',
+    'M12 2a15 15 0 0 1 0 20',
+    'M12 2a15 15 0 0 0 0 20',
+  ],
+  github: [
+    'M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-6.5.1-1.3-.3-2.5-1-3.5.3-1.1.3-2.3 0-3.5 0 0-1 0-3 1.5a13.4 13.4 0 0 0-8 0C6 1 5 1 5 1c-.3 1.2-.3 2.4 0 3.5A5.6 5.6 0 0 0 4 8c0 4.5 3 6.5 6 6.5-.7.8-1 1.7-1 3.5v4',
+    'M9 18c-4.5 2-5-2-7-2',
+  ],
+  bluesky: [
+    'M7.5 5.5c2 1.5 3.2 4.2 4.5 6.2 1.3-2 2.5-4.7 4.5-6.2 1.5-1.1 3.2-.4 3.4 1.5.2 2.2-1.3 5.2-4.5 6.1 2.5.4 3.7 2 3.1 3.6-.6 1.8-3 2.2-5 .6-.8-.6-1.4-1.4-1.5-2.3-.1.9-.7 1.7-1.5 2.3-2 1.6-4.4 1.2-5-.6-.6-1.6.6-3.2 3.1-3.6-3.2-.9-4.7-3.9-4.5-6.1.2-1.9 1.9-2.6 3.4-1.5Z',
+  ],
+  linkedin: [
+    'M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
+    'M2 9h4v12H2Z',
+    'M10 9h4v2a4 4 0 0 1 8 2v8h-4v-7a2 2 0 0 0-4 0v7h-4Z',
+  ],
+} as const;
+
+const academyIconPath =
+  'M128,32C74.980712890625,32,32,74.98095703125,32,128C32,181.01904296875,74.980712890625,224,128,224C181.01904296875,224,224,181.01904296875,224,128C224,74.98095703125,181.01904296875,32,128,32ZM102.7740478515625,169.697998046875L82.7235107421875,193.3570556640625L82.7235107421875,85.686767578125C82.7275390625,79.032958984375,88.123046875,73.640869140625,94.7767333984375,73.640380859375L145.5450439453125,73.630859375C143.135986328125,76.696044921875,140.696044921875,79.745849609375,138.31494140625,82.721923828125C135.425048828125,86.334228515625,132.4439697265625,90.0601806640625,129.5379638671875,93.787841796875L102.7740478515625,93.787841796875L102.7740478515625,169.697998046875ZM159.52197265625,175.945068359375C156.343994140625,172.280029296875,152.68798828125,168.1090087890625,148.98095703125,163.8790283203125C141.7490234375,155.625,134.26904296875,147.091064453125,129.85400390625,141.77001953125L128.260009765625,139.8499755859375L126.64501953125,141.751953125C121.677978515625,147.60498046875,116.6300048828125,153.47705078125,111.7769775390625,159.10205078125L111.7769775390625,129.85693359375C123.949951171875,114.824951171875,142.7239990234375,91.4534912109375,156.947021484375,73.625732421875L184.22705078125,73.625732421875C170.0880126953125,89.8582763671875,155.56201171875,106.60693359375,141.47705078125,123.9119873046875L140.373046875,125.26708984375L141.510986328125,126.595947265625C143.18505859375,128.552001953125,174.3389892578125,164.4990234375,184.259033203125,175.945068359375L159.52197265625,175.945068359375Z';
 
 const personJsonLd = {
   '@context': 'https://schema.org',
@@ -116,8 +144,14 @@ const personJsonLd = {
             widths={[360, 540, 720]}
             sizes="(max-width: 759px) 100vw, (max-width: 899px) 40vw, 360px"
           />
+          <a href={rawkodePhoto.src} download="david-flanagan-headshot.jpg" class="portrait-card__download" aria-label="Download high-resolution headshot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>
+            </svg>
+            <span>Download HD</span>
+          </a>
           <figcaption>
-            <span><i aria-hidden="true"></i> Available for speaking</span>
+            <span>Speaker, Educator, Continuous Learner.</span>
           </figcaption>
         </figure>
       </div>
@@ -193,9 +227,21 @@ const personJsonLd = {
             {socials.map((social) => (
               <li>
                 <a href={social.href} target={social.href.startsWith('mailto:') ? undefined : '_blank'} rel={social.href.startsWith('mailto:') ? undefined : 'noopener noreferrer'}>
-                  <span>{social.label}</span>
+                  <span class="socials__label">
+                    {social.icon === 'academy' ? (
+                      <svg class="socials__icon socials__icon--academy" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                        <rect x="71" y="62" width="114" height="134" class="socials__academy-backplate"></rect>
+                        <path d={academyIconPath}></path>
+                      </svg>
+                    ) : (
+                      <svg class="socials__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        {socialIconPaths[social.icon].map((path) => <path d={path} />)}
+                      </svg>
+                    )}
+                    <span>{social.label}</span>
+                  </span>
                   <strong>{social.handle}</strong>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <svg class="socials__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M7 17 17 7M9 7h8v8"/>
                   </svg>
                 </a>
@@ -308,6 +354,7 @@ const personJsonLd = {
   }
 
   .portrait-card {
+    position: relative;
     overflow: hidden;
     width: min(100%, 360px);
     margin: 0;
@@ -324,6 +371,48 @@ const personJsonLd = {
     object-fit: cover;
     object-position: top center;
     filter: saturate(0.84) contrast(1.05) brightness(0.86);
+  }
+
+  .portrait-card__download {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 34px;
+    padding: 0.42rem 0.62rem;
+    border: 1px solid color-mix(in oklch, var(--border-default) 76%, white);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-raised) 82%, transparent);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1;
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    opacity: 1;
+    z-index: 1;
+    backdrop-filter: blur(14px) saturate(1.2);
+    transition:
+      opacity var(--dur-fast) var(--ease-out-expo),
+      transform var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .portrait-card__download:hover,
+  .portrait-card__download:focus-visible {
+    border-color: var(--border-strong);
+    background: var(--surface-raised);
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+
+  .portrait-card__download svg {
+    width: 15px;
+    height: 15px;
+    color: var(--color-accent);
   }
 
   .portrait-card figcaption {
@@ -348,6 +437,21 @@ const personJsonLd = {
     background: var(--color-accent-success);
   }
 
+  @media (hover: hover) and (pointer: fine) {
+    .portrait-card__download {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+    }
+
+    .portrait-card:hover .portrait-card__download,
+    .portrait-card:focus-within .portrait-card__download {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+  }
+
   .bio-section {
     padding-block: var(--space-5);
   }
@@ -355,6 +459,7 @@ const personJsonLd = {
   .bio-grid,
   .bio-bottom {
     display: grid;
+    align-items: start;
     gap: var(--space-4);
   }
 
@@ -530,7 +635,7 @@ const personJsonLd = {
 
   .socials a {
     display: grid;
-    grid-template-columns: 5rem minmax(0, 1fr) auto;
+    grid-template-columns: minmax(7rem, 8rem) minmax(0, 1fr) auto;
     gap: var(--space-3);
     align-items: center;
     padding: var(--space-4);
@@ -548,10 +653,41 @@ const personJsonLd = {
     text-decoration: none;
   }
 
-  .socials span {
+  .socials__label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
     color: var(--text-tertiary);
     font-family: var(--fonts-mono);
     font-size: 0.72rem;
+  }
+
+  .socials__label span {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .socials__icon {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    color: var(--color-accent-cyan);
+    opacity: 0.9;
+    transition:
+      color var(--dur-fast) var(--ease-out-expo),
+      opacity var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .socials__icon--academy {
+    stroke: none;
+    transform: scale(1.08);
+  }
+
+  .socials__academy-backplate {
+    fill: var(--surface-raised);
   }
 
   .socials strong {
@@ -562,10 +698,15 @@ const personJsonLd = {
     white-space: nowrap;
   }
 
-  .socials svg {
+  .socials__arrow {
     width: 16px;
     height: 16px;
     color: var(--text-secondary);
+  }
+
+  .socials a:hover .socials__icon {
+    color: var(--color-accent);
+    opacity: 1;
   }
 
   .download-card {
@@ -604,6 +745,63 @@ const personJsonLd = {
     color: var(--color-accent);
   }
 
+  @media (min-width: 640px) and (max-width: 759px) {
+    .bio-hero {
+      padding-block: var(--space-8) var(--space-5);
+    }
+
+    .bio-hero__inner {
+      grid-template-columns: minmax(0, 1fr) clamp(176px, 26vw, 208px);
+      grid-template-areas:
+        "name portrait"
+        "handle portrait"
+        "location portrait"
+        "tagline tagline";
+      align-items: start;
+      gap: var(--space-2) var(--space-5);
+    }
+
+    .bio-hero__copy {
+      display: contents;
+    }
+
+    .bio-hero h1 {
+      grid-area: name;
+      font-size: clamp(3.35rem, 8vw, 3.85rem);
+    }
+
+    .bio-hero__handle {
+      grid-area: handle;
+    }
+
+    .bio-hero__location {
+      grid-area: location;
+      margin-top: var(--space-3);
+    }
+
+    .bio-hero__tagline {
+      grid-area: tagline;
+      max-width: 38rem;
+      margin-top: var(--space-5);
+    }
+
+    .portrait-card {
+      grid-area: portrait;
+      justify-self: end;
+      width: 100%;
+      border-radius: var(--radius-lg);
+    }
+
+    .portrait-card__photo {
+      aspect-ratio: 1 / 1;
+    }
+
+    .portrait-card figcaption {
+      padding: var(--space-3);
+      font-size: 0.78rem;
+    }
+  }
+
   @media (min-width: 760px) {
     .bio-hero {
       padding-block: var(--space-12) var(--space-8);
@@ -619,10 +817,6 @@ const personJsonLd = {
       justify-self: end;
     }
 
-    .bio-grid {
-      grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
-    }
-
     .facts__row {
       grid-template-columns: 9rem minmax(0, 1fr);
       align-items: center;
@@ -634,6 +828,46 @@ const personJsonLd = {
 
     .download-card {
       grid-column: 1 / -1;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    .bio-hero {
+      padding-block: var(--space-8) var(--space-5);
+    }
+
+    .portrait-card {
+      width: min(100%, 320px);
+    }
+
+    .bio-section {
+      padding-block: var(--space-4);
+    }
+
+    .bio-grid {
+      grid-template-columns: minmax(460px, 0.92fr) minmax(0, 1.08fr);
+    }
+
+    .bio-grid .panel-head {
+      padding: var(--space-3) var(--space-4);
+    }
+
+    .bio-grid .facts__row {
+      grid-template-columns: 8rem minmax(0, 1fr);
+      padding: var(--space-3) var(--space-4);
+    }
+
+    .bio-grid .facts dd {
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .bio-grid .bio-card {
+      padding: var(--space-3) var(--space-4);
+    }
+
+    .bio-grid .bio-card__text p {
+      line-height: 1.58;
     }
   }
 </style>

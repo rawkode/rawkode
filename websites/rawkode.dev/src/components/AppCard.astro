@@ -220,17 +220,24 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     .app-card {
       grid-template-columns: auto minmax(0, 1fr) minmax(8rem, auto);
       align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-4);
+    }
+
+    .app-card__meta {
+      grid-column: auto;
+      justify-content: end;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    .app-card {
       padding: var(--space-5);
     }
 
     .app-card__description,
     .app-card__tags {
       display: flex;
-    }
-
-    .app-card__meta {
-      grid-column: auto;
-      justify-content: end;
     }
   }
 </style>

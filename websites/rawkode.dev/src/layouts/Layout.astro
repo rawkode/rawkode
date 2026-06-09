@@ -179,9 +179,12 @@ const socialProfiles = [
         if (saved === 'light' || saved === 'dark') {
           root.setAttribute('data-theme', saved);
           root.setAttribute('data-ui-theme', saved);
-        } else {
+        } else if (saved === 'system') {
           root.removeAttribute('data-theme');
           root.setAttribute('data-ui-theme', 'system');
+        } else {
+          root.setAttribute('data-theme', 'dark');
+          root.setAttribute('data-ui-theme', 'dark');
         }
       })();
     </script>
