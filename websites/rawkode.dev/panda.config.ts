@@ -83,7 +83,7 @@ export default defineConfig({
             rose: { value: '#ebbcba' },
             pine: { value: '#31748f' },
             foam: { value: '#9ccfd8' },
-            iris: { value: '#c4a7e7' },
+            iris: { value: '#9ccfd8' },
             highlightLow: { value: '#21202e' },
             highlightMed: { value: '#403d52' },
             highlightHigh: { value: '#524f67' },
@@ -101,7 +101,7 @@ export default defineConfig({
             rose: { value: '#d7827e' },
             pine: { value: '#286983' },
             foam: { value: '#56949f' },
-            iris: { value: '#907aa9' },
+            iris: { value: '#286983' },
             highlightLow: { value: '#f1eff7' },
             highlightMed: { value: '#ddd9ea' },
             highlightHigh: { value: '#cecacd' },
@@ -128,10 +128,10 @@ export default defineConfig({
           },
 
           accent: {
-            DEFAULT: { value: 'light-dark(#907aa9, #c4a7e7)' },
-            hover:   { value: 'light-dark(#286983, #9ccfd8)' },
-            muted:   { value: 'light-dark(#f1eff7, #21202e)' },
-            soft:    { value: 'light-dark(rgb(144 122 169 / 0.16), rgb(196 167 231 / 0.18))' },
+            DEFAULT: { value: 'light-dark(#286983, #9ccfd8)' },
+            hover:   { value: 'light-dark(#1f586d, #e0def4)' },
+            muted:   { value: 'light-dark(#edf4f6, #1d2f3a)' },
+            soft:    { value: 'light-dark(rgb(40 105 131 / 0.14), rgb(156 207 216 / 0.16))' },
             cyan:    { value: 'light-dark(#56949f, #9ccfd8)' },
             gold:    { value: 'light-dark(#ea9d34, #f6c177)' },
             rose:    { value: 'light-dark(#d7827e, #ebbcba)' },
@@ -162,7 +162,7 @@ export default defineConfig({
       '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
       '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
       '--page-glow':
-        'radial-gradient(circle at 78% 10%, oklch(68% 0.12 292 / 0.16), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(74% 0.10 205 / 0.10), transparent 30rem)',
+        'none',
     },
 
     '[data-theme=light]': {
@@ -171,7 +171,7 @@ export default defineConfig({
       '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.10), 0 1px 0 oklch(100% 0 0 / 0.70) inset',
       '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.14), 0 1px 0 oklch(100% 0 0 / 0.80) inset',
       '--page-glow':
-        'radial-gradient(circle at 78% 10%, oklch(72% 0.12 292 / 0.14), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(70% 0.10 205 / 0.12), transparent 30rem)',
+        'none',
     },
 
     '[data-theme=dark]': {
@@ -180,7 +180,7 @@ export default defineConfig({
       '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
       '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
       '--page-glow':
-        'radial-gradient(circle at 78% 10%, oklch(68% 0.12 292 / 0.16), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(74% 0.10 205 / 0.10), transparent 30rem)',
+        'none',
     },
 
     'html': {

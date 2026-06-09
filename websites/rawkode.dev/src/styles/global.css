@@ -28,6 +28,7 @@
     background:
       var(--page-glow),
       linear-gradient(180deg, var(--colors-surface-1) 0%, color-mix(in oklch, var(--colors-surface-1) 84%, black) 100%);
+    background-color: var(--colors-surface-1);
     background-attachment: fixed;
     font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
     text-rendering: optimizelegibility;

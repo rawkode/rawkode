@@ -17,7 +17,7 @@ const personId = new URL('/#person', siteUrl).toString();
 const blogJsonLd = {
   '@type': 'Blog',
   '@id': `${blogUrl}#blog`,
-  name: 'Writing — rawkode.dev',
+  name: 'Writing | rawkode.dev',
   description: blogDescription,
   url: blogUrl,
   author: { '@id': personId },
@@ -43,7 +43,7 @@ function formatDate(date: Date) {
 ---
 
 <Layout
-  title="Writing — rawkode.dev"
+  title="Writing | rawkode.dev"
   description={blogDescription}
   imageAlt="Writing from David Flanagan on rawkode.dev"
   jsonLd={blogJsonLd}

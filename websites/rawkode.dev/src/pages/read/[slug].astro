@@ -36,7 +36,7 @@ const personId = new URL('/#person', siteUrl).toString();
 const postUrl = new URL(`/read/${post.id}`, siteUrl).toString();
 const postImage = post.data.image ?? '/og.png';
 const postImageUrl = new URL(postImage, siteUrl).toString();
-const postImageAlt = post.data.imageAlt ?? `${post.data.title} — rawkode.dev`;
+const postImageAlt = post.data.imageAlt ?? `${post.data.title} | rawkode.dev`;
 const publishedTime = post.data.pubDate.toISOString();
 const modifiedTime = post.data.updatedDate?.toISOString() ?? publishedTime;
 const articleJsonLd = {
@@ -59,7 +59,7 @@ const articleJsonLd = {
 ---
 
 <Layout
-  title={`${post.data.title} — rawkode.dev`}
+  title={`${post.data.title} | rawkode.dev`}
   description={post.data.description}
   image={postImage}
   imageAlt={postImageAlt}
@@ -167,6 +167,7 @@ const articleJsonLd = {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
+    min-height: 44px;
     width: fit-content;
     color: var(--text-tertiary);
     font-size: 0.88rem;
@@ -330,10 +331,9 @@ const articleJsonLd = {
   .prose :global(blockquote) {
     margin: var(--space-8) 0;
     padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--color-accent);
+    border: 1px solid color-mix(in oklch, var(--color-accent) 34%, var(--border-subtle));
     border-radius: var(--radius-lg);
-    background: var(--surface-glass);
+    background: color-mix(in oklch, var(--color-accent-soft) 38%, var(--surface-glass));
     color: var(--text-primary);
   }
 
@@ -385,10 +385,9 @@ const articleJsonLd = {
   .prose :global(aside.marginalia) {
     margin: var(--space-6) 0;
     padding: var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--color-accent);
+    border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--border-subtle));
     border-radius: var(--radius-lg);
-    background: var(--surface-glass);
+    background: color-mix(in oklch, var(--color-accent-soft) 30%, var(--surface-glass));
     color: var(--text-secondary);
     font-size: 0.92rem;
     line-height: 1.58;
@@ -458,8 +457,8 @@ const articleJsonLd = {
     font-size: 0.75rem;
   }
 
-  .aside-card__label {
-    color: var(--text-primary) !important;
+  .aside-card .aside-card__label {
+    color: var(--text-primary);
     text-transform: uppercase;
   }
 
