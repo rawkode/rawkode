@@ -2,12 +2,13 @@
 import Layout from '../../layouts/Layout.astro';
 import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
+import { calculateReadingMinutes } from '../../utils/readingTime';
 import { getCollection } from 'astro:content';
 
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
 const blogDescription =
-  'Essays from David Flanagan on cloud-native infrastructure, developer tooling, open source, and the practical edge of software work.';
+  'Technical essays from David Flanagan on cloud-native infrastructure, developer tooling, open source, and building in public.';
 const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
 const blogUrl = new URL('/read', siteUrl).toString();
 const personId = new URL('/#person', siteUrl).toString();
@@ -34,12 +35,9 @@ const blogJsonLd = {
 };
 
 function formatDate(date: Date) {
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function formatYear(date: Date) {
-  return date.getFullYear().toString();
-}
 ---
 
 <Layout
@@ -51,47 +49,47 @@ function formatYear(date: Date) {
   <Nav />
 
   <main id="main-content">
-    <section class="blog-hero">
-      <div class="container">
-        <p class="blog-hero__folio">Writing · A Folio</p>
-        <h1 class="blog-hero__title">Longer thoughts.</h1>
-        <p class="blog-hero__deck">
-          Essays on cloud-native infrastructure, developer tooling, open source, and the
-          practical edge of software work — written when a post or thread will not carry the idea.
-        </p>
+    <section class="writing-hero">
+      <div class="container writing-hero__inner">
+        <div>
+          <p class="page-label">Writing</p>
+          <h1>Writing</h1>
+          <p>
+            Technical essays on infrastructure, developer tooling, and building in public.
+          </p>
+        </div>
+        <div class="writing-hero__tabs" aria-label="Writing filters">
+          <span class="writing-hero__tab writing-hero__tab--active">Essays</span>
+        </div>
       </div>
     </section>
 
-    <section class="blog-content">
+    <section class="writing-content">
       <div class="container">
         {posts.length === 0 ? (
           <p class="empty">Nothing here yet. Check back soon.</p>
         ) : (
           <ol class="post-list" role="list">
-            {posts.map((post, i) => (
-              <li class="post-list__item">
-                <a href={`/read/${post.id}`} class="post-list__link">
-                  <span class="post-list__no">{String(i + 1).padStart(2, '0')}</span>
-                  <div class="post-list__content">
-                    <h2 class="post-list__title">{post.data.title}</h2>
-                    <p class="post-list__desc">{post.data.description}</p>
+            {posts.map((post) => (
+              <li>
+                <a href={`/read/${post.id}`} class="post-row">
+                  <span class="post-row__marker" aria-hidden="true"></span>
+                  <div class="post-row__content">
+                    <h2>{post.data.title}</h2>
+                    <p>{post.data.description}</p>
                     {post.data.tags.length > 0 && (
-                      <p class="post-list__tags">
-                        {post.data.tags.map((tag: string, ti: number) => (
-                          <>
-                            {ti > 0 && <span class="post-list__tag-sep">·</span>}
-                            <span class="post-list__tag">{tag}</span>
-                          </>
-                        ))}
-                      </p>
+                      <ul class="post-row__tags" role="list" aria-label="Tags">
+                        {post.data.tags.map((tag: string) => <li>{tag}</li>)}
+                      </ul>
                     )}
                   </div>
-                  <div class="post-list__meta">
-                    <time class="post-list__date" datetime={post.data.pubDate.toISOString()}>
-                      {formatDate(post.data.pubDate)}
-                    </time>
-                    <span class="post-list__year">{formatYear(post.data.pubDate)}</span>
+                  <div class="post-row__meta">
+                    <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+                    <span>{calculateReadingMinutes(post.body)} min read</span>
                   </div>
+                  <svg class="post-row__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h14M13 5l7 7-7 7"/>
+                  </svg>
                 </a>
               </li>
             ))}
@@ -105,191 +103,197 @@ function formatYear(date: Date) {
 </Layout>
 
 <style>
-  /* ─── Hero — editorial, centered ────────────────────────────────────── */
-  .blog-hero {
-    padding-block: var(--space-16) var(--space-12);
-    text-align: center;
-    border-bottom: 1px solid var(--border-subtle);
+  .writing-hero {
+    padding-block: var(--space-10) var(--space-6);
   }
 
-  .blog-hero__folio {
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
-    letter-spacing: 0.28em;
+  .writing-hero__inner {
+    display: grid;
+    gap: var(--space-6);
+  }
+
+  .page-label {
+    margin: 0 0 var(--space-3);
+    color: var(--color-accent);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-bottom: var(--space-6);
-  }
-  .blog-hero__folio::before,
-  .blog-hero__folio::after {
-    content: "";
-    display: inline-block;
-    width: 2rem;
-    height: 1px;
-    background: var(--border-subtle);
-    vertical-align: middle;
-    margin: 0 var(--space-4);
   }
 
-  .blog-hero__title {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: clamp(2.4rem, 6vw, 4.8rem);
-    line-height: 1;
-    letter-spacing: -0.025em;
-    margin-bottom: var(--space-4);
-    text-wrap: balance;
+  .writing-hero h1 {
+    margin: 0;
+    font-size: clamp(2.4rem, 10vw, 4.2rem);
   }
 
-  .blog-hero__deck {
-    font-family: var(--fonts-serif);
-    font-weight: 400;
-    font-size: clamp(1.0625rem, 1.4vw, 1.25rem);
-    line-height: 1.5;
+  .writing-hero p:not(.page-label) {
+    max-width: 34rem;
+    margin: var(--space-3) 0 0;
     color: var(--text-secondary);
-    max-width: 56ch;
-    margin: 0 auto;
-    text-wrap: balance;
+    font-size: 1rem;
   }
 
-  /* ─── Post list — TOC-like ──────────────────────────────────────────── */
-  .blog-content {
-    padding-block: var(--space-12) var(--space-24);
+  .writing-hero__tabs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    padding: var(--space-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+  }
+
+  .writing-hero__tab {
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    font-size: 0.88rem;
+    text-align: center;
+  }
+
+  .writing-hero__tab--active {
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .writing-content {
+    padding-block: var(--space-4) var(--space-16);
   }
 
   .empty {
     color: var(--text-tertiary);
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-size: 1.125rem;
-    text-align: center;
-    padding-block: var(--space-16);
+    padding-block: var(--space-12);
   }
 
   .post-list {
-    list-style: none;
-    counter-reset: post;
-    max-width: 920px;
-    margin: 0 auto;
-  }
-
-  .post-list__item {
-    border-top: 1px solid var(--border-subtle);
-  }
-  .post-list__item:last-child {
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .post-list__link {
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: baseline;
-    gap: var(--space-6);
-    padding-block: var(--space-8);
-    text-decoration: none;
-    transition: background var(--dur-fast) var(--ease-out-expo);
-  }
-
-  @media (max-width: 720px) {
-    .post-list__link {
-      grid-template-columns: auto 1fr;
-      gap: var(--space-3) var(--space-4);
-    }
-  }
-
-  .post-list__link:hover {
-    background: var(--surface-2);
-  }
-  .post-list__link:hover .post-list__title {
-    color: var(--color-accent);
-  }
-
-  .post-list__no {
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.18em;
-    color: var(--text-tertiary);
-    font-variant-numeric: tabular-nums;
-    padding-top: 0.6em;
-    align-self: start;
-    min-width: 2ch;
-  }
-
-  .post-list__content { min-width: 0; }
-
-  .post-list__title {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: clamp(1.5rem, 2.4vw, 2rem);
-    line-height: 1.1;
-    letter-spacing: -0.015em;
-    color: var(--text-primary);
-    margin: 0 0 var(--space-2);
-    transition: color var(--dur-fast) var(--ease-out-expo);
-    text-wrap: balance;
-  }
-
-  .post-list__desc {
-    font-family: var(--fonts-serif);
-    font-size: 1.05rem;
-    line-height: 1.55;
-    color: var(--text-secondary);
+    gap: var(--space-3);
+    max-width: 920px;
     margin: 0;
-    max-width: 60ch;
+    padding: 0;
+    list-style: none;
   }
 
-  .post-list__tags {
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin: var(--space-3) 0 0;
-    display: flex;
-    flex-wrap: wrap;
+  .post-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    color: var(--text-primary);
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    transition:
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo),
+      transform var(--dur-fast) var(--ease-out-expo);
+  }
+
+  .post-row:hover {
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+    transform: translateY(-1px);
+    text-decoration: none;
+  }
+
+  .post-row__marker {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 4px var(--color-accent-soft);
+  }
+
+  .post-row:nth-child(3n + 2) .post-row__marker {
+    background: var(--color-accent-cyan);
+  }
+
+  .post-row:nth-child(3n) .post-row__marker {
+    background: var(--color-accent-rose);
+  }
+
+  .post-row__content {
+    min-width: 0;
+    display: grid;
     gap: var(--space-2);
   }
-  .post-list__tag { color: var(--text-tertiary); }
-  .post-list__tag-sep { color: var(--color-accent); }
 
-  .post-list__meta {
-    text-align: right;
-    align-self: start;
-    padding-top: 0.4em;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
+  .post-row h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: clamp(1rem, 4vw, 1.35rem);
+    line-height: 1.24;
   }
 
-  @media (max-width: 720px) {
-    .post-list__meta {
-      grid-column: 1 / -1;
-      text-align: left;
-      flex-direction: row;
-      gap: var(--space-3);
-      padding-top: var(--space-2);
-    }
-    .post-list__year { display: none; }
-  }
-
-  .post-list__date {
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+  .post-row p {
+    display: none;
+    margin: 0;
     color: var(--text-secondary);
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
+    font-size: 0.92rem;
+    line-height: 1.55;
   }
 
-  .post-list__year {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-size: 1.5rem;
-    line-height: 1;
-    color: var(--color-accent);
-    font-variant-numeric: lining-nums;
+  .post-row__tags {
+    display: none;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .post-row__tags li {
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.68rem;
+  }
+
+  .post-row__meta {
+    display: grid;
+    gap: var(--space-1);
+    justify-items: end;
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .post-row__arrow {
+    display: none;
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+  }
+
+  @media (min-width: 720px) {
+    .writing-hero {
+      padding-block: var(--space-16) var(--space-8);
+    }
+
+    .writing-hero__inner {
+      grid-template-columns: minmax(0, 1fr) 320px;
+      align-items: end;
+    }
+
+    .post-row {
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      padding: var(--space-5);
+    }
+
+    .post-row p,
+    .post-row__tags {
+      display: flex;
+    }
+
+    .post-row__arrow {
+      display: block;
+    }
   }
 </style>

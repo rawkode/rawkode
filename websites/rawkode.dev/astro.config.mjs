@@ -8,8 +8,8 @@ export default defineConfig({
   adapter: cloudflare({ mode: "advanced", imageService: "cloudflare" }),
   integrations: [
     expressiveCode({
-      // Match the site palette: Rosé Pine Dawn (light) + Catppuccin Frappé (dark).
-      themes: ["rose-pine-dawn", "catppuccin-frappe"],
+      // Match the dark-first Rosé Pine system used by the site.
+      themes: ["rose-pine-dawn", "rose-pine"],
       // Selector that matches our explicit theme override.
       themeCssSelector: (theme) =>
         `[data-theme='${theme.name === "rose-pine-dawn" ? "light" : "dark"}']`,
