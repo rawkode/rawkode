@@ -8,248 +8,229 @@ interface Props {
 const { app } = Astro.props;
 
 const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawkode/tree/main/${app.repoPath}` : null);
+const href = app.websiteUrl ?? repoUrl;
+const statusLabel = app.status === 'in-development' ? 'Dev' : app.status === 'beta' ? 'Beta' : 'Live';
+const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperCase();
 ---
 
 <article class:list={['app-card', { 'app-card--featured': app.featured }]}>
-  <header class="app-card__head">
-    <p class="app-card__eyebrow">
-      {app.featured && (
-        <>
-          <span class="app-card__featured">Featured</span>
-          <span class="app-card__sep" aria-hidden="true">·</span>
-        </>
-      )}
-      <span>{app.platform.join(' / ')}</span>
-    </p>
-  </header>
+  <div class="app-card__mark" aria-hidden="true">{mark}</div>
 
-  <div class="app-card__body">
-    <h3 class="app-card__name">{app.name}</h3>
+  <div class="app-card__main">
+    <header class="app-card__head">
+      <h3 class="app-card__name">{app.name}</h3>
+      <span class:list={['app-card__status', `app-card__status--${app.status}`]}>
+        <span aria-hidden="true"></span>{statusLabel}
+      </span>
+    </header>
     <p class="app-card__tagline">{app.tagline}</p>
     <p class="app-card__description">{app.description}</p>
-  </div>
-
-  <footer class="app-card__foot">
     <ul class="app-card__tags" role="list" aria-label="Tags">
-      {app.tags.map((tag) => (
-        <li class="app-card__tag">{tag}</li>
+      {app.tags.slice(0, 4).map((tag) => (
+        <li>{tag}</li>
       ))}
     </ul>
+  </div>
 
-    <div class="app-card__actions">
-      {repoUrl && (
-        <a href={repoUrl} target="_blank" rel="noopener noreferrer" class="app-card__icon-link" aria-label={`View ${app.name} on GitHub`}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
-          </svg>
-        </a>
-      )}
-      {app.websiteUrl && (
-        <a href={app.websiteUrl} target="_blank" rel="noopener noreferrer" class="app-card__icon-link" aria-label={`Visit ${app.name} website`}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9"/>
-            <path d="M3 12h18"/>
-            <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/>
-          </svg>
-        </a>
-      )}
-    </div>
-  </footer>
+  <aside class="app-card__meta" aria-label={`${app.name} metadata`}>
+    <span>{app.platform.join(' / ')}</span>
+    {href && (
+      <a href={href} target="_blank" rel="noopener noreferrer" class="app-card__action" aria-label={`Open ${app.name}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 17 17 7M9 7h8v8"/>
+        </svg>
+      </a>
+    )}
+  </aside>
 </article>
 
 <style>
   .app-card {
-    position: relative;
-    background: var(--surface-2);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+    padding: var(--space-4);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-xl);
-    padding: var(--space-8);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-    height: 100%;
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-raised) 86%, transparent);
+    box-shadow: var(--shadow-sm);
     transition:
-      border-color 0.3s var(--ease-out-expo),
-      transform 0.4s var(--ease-out-expo),
-      box-shadow 0.4s var(--ease-out-expo);
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo),
+      transform var(--dur-fast) var(--ease-out-expo);
   }
 
-  @media (hover: hover) {
-    .app-card:hover {
-      border-color: var(--border-default);
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
-    }
+  .app-card:hover {
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+    transform: translateY(-1px);
   }
 
-  /* ─── Header eyebrow ────────────────────────────────────────────────────── */
-  .app-card__head { min-height: 1.25rem; }
+  .app-card--featured {
+    border-color: color-mix(in oklch, var(--color-accent) 42%, var(--border-default));
+    background:
+      linear-gradient(135deg, color-mix(in oklch, var(--color-accent-soft) 72%, transparent), transparent 46%),
+      color-mix(in oklch, var(--surface-raised) 90%, transparent);
+  }
 
-  .app-card__eyebrow {
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
-    margin: 0;
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
+  .app-card__mark {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    aspect-ratio: 1;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background:
+      linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 50%, transparent), transparent),
+      var(--surface-3);
+    color: var(--text-primary);
+    font-family: var(--fonts-mono);
+    font-size: 1rem;
     font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    line-height: 1;
   }
 
-  .app-card__featured { color: var(--color-accent); }
-  .app-card__sep {
-    margin-inline: 0.55em;
-    opacity: 0.5;
-    font-weight: 400;
+  .app-card__main {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-2);
   }
 
-  /* ─── Body ──────────────────────────────────────────────────────────────── */
-  .app-card__body {
+  .app-card__head {
     display: flex;
-    flex-direction: column;
+    align-items: baseline;
+    justify-content: space-between;
     gap: var(--space-3);
-    flex: 1;
   }
 
   .app-card__name {
-    font-family: var(--fonts-serif);
-    font-size: clamp(1.5rem, 1.1vw + 1rem, 1.85rem);
-    font-style: normal;
-    font-weight: 600;
-    letter-spacing: -0.022em;
-    line-height: 1.05;
-    color: var(--text-primary);
     margin: 0;
-    text-wrap: balance;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .app-card__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .app-card__status span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent-success);
+  }
+
+  .app-card__status--in-development span {
+    background: var(--color-accent-gold);
+  }
+
+  .app-card__status--beta span {
+    background: var(--color-accent-cyan);
+  }
+
+  .app-card__tagline,
+  .app-card__description {
+    margin: 0;
   }
 
   .app-card__tagline {
-    font-family: var(--fonts-serif);
-    font-size: 1.0625rem;
-    font-style: italic;
-    font-weight: 400;
-    line-height: 1.4;
-    letter-spacing: -0.005em;
     color: var(--text-primary);
-    margin: 0;
-    max-width: 38ch;
-    text-wrap: balance;
+    font-size: 0.9rem;
+    font-weight: 580;
+    line-height: 1.45;
   }
 
   .app-card__description {
-    font-family: var(--fonts-sans);
-    font-size: 0.92rem;
+    display: none;
     color: var(--text-secondary);
-    line-height: 1.7;
-    margin: 0;
-    flex: 1;
-  }
-
-  /* ─── Footer ────────────────────────────────────────────────────────────── */
-  .app-card__foot {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-subtle);
-    margin-top: auto;
+    font-size: 0.9rem;
+    line-height: 1.6;
   }
 
   .app-card__tags {
-    list-style: none;
-    display: flex;
+    display: none;
     flex-wrap: wrap;
-    flex: 1;
-    min-width: 0;
-    margin: 0;
+    gap: var(--space-2);
+    margin: var(--space-1) 0 0;
     padding: 0;
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    line-height: 1.8;
+    list-style: none;
   }
 
-  /* Separator lives in ::after so it stays attached to the preceding tag
-     when wrapping. white-space: nowrap keeps multi-word tags intact. */
-  .app-card__tag { white-space: nowrap; }
-  .app-card__tag:not(:last-child)::after {
-    content: '·';
-    display: inline-block;
-    padding: 0 0.55em;
+  .app-card__tags li {
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
     color: var(--text-tertiary);
-    opacity: 0.55;
-    font-weight: 400;
+    font-family: var(--fonts-mono);
+    font-size: 0.68rem;
   }
 
-  .app-card__actions {
+  .app-card__meta {
+    grid-column: 2;
     display: flex;
     align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-    margin-bottom: -4px;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-width: 0;
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
   }
 
-  .app-card__icon-link {
+  .app-card__meta span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-card__action {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 999px;
-    color: var(--text-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
     text-decoration: none;
-    transition:
-      color 0.25s var(--ease-out-expo),
-      background 0.25s var(--ease-out-expo),
-      transform 0.25s var(--ease-out-expo);
+    flex-shrink: 0;
   }
 
-  .app-card__icon-link:hover {
+  .app-card__action:hover {
     color: var(--text-primary);
-    background: var(--surface-3);
-    transform: translateY(-1px);
+    border-color: var(--border-default);
+    background: var(--surface-glass);
   }
 
-  /* ─── Featured variant ──────────────────────────────────────────────────── */
-  .app-card--featured {
-    background: var(--surface-3);
-    border-color: color-mix(in oklch, var(--color-accent) 22%, var(--border-default));
-    box-shadow: inset 4px 0 0 0 var(--color-accent);
+  .app-card__action svg {
+    width: 15px;
+    height: 15px;
   }
 
-  .app-card--featured .app-card__name {
-    font-size: clamp(2rem, 2vw + 1.2rem, 2.85rem);
-  }
-
-  .app-card--featured .app-card__tagline {
-    font-size: 1.2rem;
-    max-width: 54ch;
-  }
-
-  .app-card--featured .app-card__description {
-    font-size: 0.975rem;
-    max-width: 64ch;
-  }
-
-  @media (hover: hover) {
-    .app-card--featured:hover {
-      border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-default));
-      box-shadow:
-        inset 4px 0 0 0 var(--color-accent),
-        var(--shadow-md);
+  @media (min-width: 720px) {
+    .app-card {
+      grid-template-columns: auto minmax(0, 1fr) minmax(8rem, auto);
+      align-items: center;
+      padding: var(--space-5);
     }
-  }
 
-  /* ─── Reduced motion ────────────────────────────────────────────────────── */
-  @media (prefers-reduced-motion: reduce) {
-    .app-card,
-    .app-card__icon-link { transition: none; }
+    .app-card__description,
+    .app-card__tags {
+      display: flex;
+    }
+
+    .app-card__meta {
+      grid-column: auto;
+      justify-content: end;
+    }
   }
 </style>

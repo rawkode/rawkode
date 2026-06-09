@@ -20,15 +20,14 @@ const { Content } = await render(post);
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const chronological = allPosts.sort((a, b) => a.data.pubDate.valueOf() - b.data.pubDate.valueOf());
 const total = chronological.length;
-const index = chronological.findIndex((p) => p.id === post.id) + 1;
+const index = chronological.findIndex((p) => p.id === post.id);
+const previous = index > 0 ? chronological[index - 1] : null;
+const next = index < total - 1 ? chronological[index + 1] : null;
 
 function formatDate(date: Date) {
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-// Best-effort reading time from raw body length (markdown loader exposes body)
 const wordCount = (post.body ?? '').trim().split(/\s+/).filter(Boolean).length;
 const readMinutes = Math.max(1, Math.round(wordCount / 220));
 const siteUrl = new URL('/', Astro.site ?? 'https://rawkode.dev');
@@ -72,54 +71,74 @@ const articleJsonLd = {
   <Nav />
 
   <main id="main-content">
-    <article class="post">
-      <div class="post__container">
-        <p class="post__folio">№ {pad(index)} <span class="post__folio-of">of</span> {pad(total)}</p>
+    <article class="article">
+      <div class="container article__layout">
+        <div class="article__main">
+          <a href="/read" class="back-link" aria-label="Back to all essays">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 12H5M11 5l-7 7 7 7"/>
+            </svg>
+            All essays
+          </a>
 
-        <header class="post__header">
-          <a href="/read" class="post__back">← All writing</a>
-          <h1 class="post__title">{post.data.title}</h1>
-          <p class="post__deck">{post.data.description}</p>
-          <p class="post__byline">
-            <strong>David Flanagan</strong>
-            <span class="post__byline-sep">·</span>
-            <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
-            {post.data.tags.length > 0 && (
-              <>
-                <span class="post__byline-sep">·</span>
-                <span class="post__byline-filed">Filed under {post.data.tags.join(' · ')}</span>
-              </>
+          <header class="article__header">
+            <h1>{post.data.title}</h1>
+            <p class="article__deck">{post.data.description}</p>
+            <div class="article__byline">
+              <span class="article__avatar" aria-hidden="true">DF</span>
+              <span>David Flanagan</span>
+              <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+              <span>{readMinutes} min read</span>
+            </div>
+          </header>
+
+          <div class="article__meta-strip">
+            <span>Essay</span>
+            <span><strong>{wordCount.toLocaleString('en-GB')}</strong> words</span>
+            <span>Updated <time datetime={modifiedTime}>{formatDate(new Date(modifiedTime))}</time></span>
+          </div>
+
+          {post.data.tags.length > 0 && (
+            <ul class="article__tags" role="list" aria-label="Tags">
+              {post.data.tags.map((tag: string) => <li>{tag}</li>)}
+            </ul>
+          )}
+
+          <div class="prose">
+            <Content />
+          </div>
+
+          <footer class="article__footer">
+            {previous && (
+              <a href={`/read/${previous.id}`} class="article__pager">
+                <span>Previous</span>
+                <strong>{previous.data.title}</strong>
+              </a>
             )}
-          </p>
-        </header>
-
-        <div class="post__meta-strip">
-          <span>Essay · <strong>{readMinutes} min read</strong></span>
-          <span><strong>{wordCount.toLocaleString('en-GB')}</strong> words</span>
-          <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
+            {next && (
+              <a href={`/read/${next.id}`} class="article__pager article__pager--next">
+                <span>Next</span>
+                <strong>{next.data.title}</strong>
+              </a>
+            )}
+          </footer>
         </div>
 
-        <div class="post__body prose">
-          <Content />
-        </div>
-
-        <footer class="post__footer">
-          <p class="post__tags-line">
-            {post.data.tags.length > 0 && (
-              <>
-                <span class="post__tags-label">Filed under</span>
-                {post.data.tags.map((tag: string, i: number) => (
-                  <>
-                    {i > 0 && <span class="post__tags-sep">·</span>}
-                    <span class="post__tag">{tag}</span>
-                  </>
-                ))}
-              </>
-            )}
-          </p>
-          <p class="post__signoff" aria-hidden="true">❦</p>
-          <a href="/read" class="post__more">More writing →</a>
-        </footer>
+        <aside class="article__aside" aria-label="Article context">
+          <div class="aside-card">
+            <p class="aside-card__label">Article</p>
+            <p>{readMinutes} min read</p>
+            <p>{wordCount.toLocaleString('en-GB')} words</p>
+          </div>
+          {post.data.tags.length > 0 && (
+            <div class="aside-card">
+              <p class="aside-card__label">Tags</p>
+              <ul role="list">
+                {post.data.tags.map((tag: string) => <li>{tag}</li>)}
+              </ul>
+            </div>
+          )}
+        </aside>
       </div>
     </article>
   </main>
@@ -128,489 +147,354 @@ const articleJsonLd = {
 </Layout>
 
 <style>
-  /* ─── Article container ────────────────────────────────────────────── */
-  .post {
-    padding-block: var(--space-12) var(--space-24);
+  .article {
+    padding-block: var(--space-8) var(--space-16);
   }
 
-  .post__container {
-    width: 100%;
-    max-width: 1180px;
-    margin-inline: auto;
-    padding-inline: var(--space-6);
+  .article__layout {
+    display: grid;
+    gap: var(--space-8);
   }
 
-  @media (min-width: 768px) {
-    .post__container { padding-inline: var(--space-8); }
-  }
-
-  /* ─── Folio eyebrow (issue/date band above title) ──────────────────── */
-  .post__folio {
-    text-align: center;
-    margin-bottom: var(--space-12);
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    font-variant-numeric: tabular-nums lining-nums;
-  }
-  .post__folio-of {
-    color: var(--text-tertiary);
-    margin: 0 0.25em;
-  }
-  .post__folio::before,
-  .post__folio::after {
-    content: "";
-    display: inline-block;
-    width: 2rem;
-    height: 1px;
-    background: var(--border-subtle);
-    vertical-align: middle;
-    margin: 0 var(--space-4);
-  }
-
-  /* ─── Article header — centered, editorial ─────────────────────────── */
-  .post__header {
-    text-align: center;
-    max-width: 56rem;
-    margin: 0 auto var(--space-12);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+  .article__main {
+    min-width: 0;
+    display: grid;
     gap: var(--space-6);
   }
 
-  .post__back {
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: fit-content;
     color: var(--text-tertiary);
+    font-size: 0.88rem;
+    font-weight: 650;
     text-decoration: none;
-    transition: color var(--dur-fast) var(--ease-out-expo);
   }
-  .post__back:hover { color: var(--color-accent); }
 
-  .post__title {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: clamp(2.4rem, 6vw, 4.8rem);
-    line-height: 1;
-    letter-spacing: -0.025em;
+  .back-link:hover {
     color: var(--text-primary);
-    margin: 0;
-    text-wrap: balance;
+    text-decoration: none;
   }
 
-  .post__deck {
-    font-family: var(--fonts-serif);
-    font-style: normal;
-    font-weight: 400;
-    font-size: clamp(1.125rem, 1.6vw, 1.375rem);
-    line-height: 1.45;
-    color: var(--text-secondary);
-    max-width: 52ch;
-    text-wrap: balance;
-    margin: 0;
+  .back-link svg {
+    width: 16px;
+    height: 16px;
   }
 
-  .post__byline {
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin: 0;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: var(--space-3);
-  }
-  .post__byline strong {
-    color: var(--text-primary);
-    font-weight: 600;
-  }
-  .post__byline-sep { color: var(--color-accent); }
-  .post__byline time { font-variant-numeric: tabular-nums; }
-
-  /* ─── Meta strip (reading time band) ────────────────────────────────── */
-  .post__meta-strip {
-    max-width: 64ch;
-    margin: 0 auto var(--space-12);
-    padding: var(--space-3) 0;
-    border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
+  .article__header {
+    display: grid;
     gap: var(--space-4);
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+    max-width: 780px;
+  }
+
+  .article__header h1 {
+    margin: 0;
+    font-size: clamp(2rem, 8vw, 4rem);
+  }
+
+  .article__deck {
+    max-width: 58ch;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: clamp(1rem, 3vw, 1.18rem);
+  }
+
+  .article__byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
     color: var(--text-tertiary);
-  }
-  .post__meta-strip strong {
-    color: var(--text-primary);
-    font-weight: 600;
+    font-size: 0.86rem;
   }
 
-  /* ─── Prose body — Newsreader serif, with marginalia column ─────────── */
-  .prose {
-    max-width: 64ch;
-    margin: 0 auto;
-    font-family: var(--fonts-serif);
-    font-size: 1.15rem;
-    line-height: 1.78;
-    color: var(--text-primary);
-    font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 1;
-
-    /* Rough hand-drawn underline (baked accent per scheme) */
-    --rough-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 6' preserveAspectRatio='none'><path d='M0 3 Q 12 0 25 3 T 50 3 T 75 3 T 100 3' stroke='%23b4637a' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  .article__byline > :not(:first-child)::before {
+    content: "·";
+    margin-right: var(--space-3);
+    color: var(--border-strong);
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme=light]) .prose {
-      --rough-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 6' preserveAspectRatio='none'><path d='M0 3 Q 12 0 25 3 T 50 3 T 75 3 T 100 3' stroke='%23e78284' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
-    }
-  }
-  [data-theme=dark] .prose {
-    --rough-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 6' preserveAspectRatio='none'><path d='M0 3 Q 12 0 25 3 T 50 3 T 75 3 T 100 3' stroke='%23e78284' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
-  }
-
-  /* Paragraphs */
-  .prose :global(p) {
-    margin-top: var(--space-6);
-    color: var(--text-primary);
-    line-height: 1.78;
-  }
-  .prose :global(p:first-of-type) { margin-top: 0; }
-
-  /* Drop cap — first paragraph only */
-  .prose :global(> p:first-of-type::first-letter) {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
+  .article__avatar {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 50%;
+    background: var(--surface-raised);
     color: var(--color-accent);
-    float: left;
-    font-size: 5.2em;
-    line-height: 0.82;
-    padding: 0.08em 0.08em 0 0;
-    margin-right: 0.05em;
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
   }
 
-  /* Headings */
-  .prose :global(h2) {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: clamp(1.5rem, 2.2vw, 1.95rem);
-    line-height: 1.15;
-    letter-spacing: -0.015em;
-    color: var(--text-primary);
-    margin-top: var(--space-16);
-    margin-bottom: var(--space-3);
+  .article__meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    width: fit-content;
+    max-width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
   }
-  .prose :global(h2::before) {
-    content: "";
-    display: block;
-    width: 2.5rem;
-    height: 1px;
-    background: var(--color-accent);
-    margin-bottom: var(--space-3);
-    opacity: 0.7;
+
+  .article__meta-strip span {
+    padding: 0.35rem 0.55rem;
+    border-radius: var(--radius-md);
+  }
+
+  .article__meta-strip span:first-child {
+    background: var(--color-accent-soft);
+    color: var(--text-primary);
+  }
+
+  .article__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .article__tags li,
+  .aside-card li {
+    padding: 0.24rem 0.5rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.7rem;
+  }
+
+  .prose {
+    max-width: 70ch;
+    color: var(--text-primary);
+    font-size: clamp(1rem, 2.5vw, 1.08rem);
+    line-height: 1.76;
+  }
+
+  .prose :global(*) {
+    max-width: 100%;
+  }
+
+  .prose :global(p) {
+    margin: var(--space-5) 0 0;
+    color: var(--text-primary);
+    line-height: 1.76;
+  }
+
+  .prose :global(p:first-child) {
+    margin-top: 0;
+  }
+
+  .prose :global(h2) {
+    margin: var(--space-12) 0 var(--space-3);
+    font-size: clamp(1.45rem, 4vw, 2rem);
   }
 
   .prose :global(h3) {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: 1.35rem;
-    line-height: 1.2;
-    color: var(--text-primary);
-    margin-top: var(--space-12);
-    margin-bottom: var(--space-2);
+    margin: var(--space-8) 0 var(--space-2);
+    font-size: 1.2rem;
   }
 
-  /* Lists — em-dash markers in accent for ul, italic decimals for ol */
-  .prose :global(ul) {
-    list-style: none;
-    padding-left: 0;
-    margin-top: var(--space-4);
-  }
-  .prose :global(ul > li) {
-    position: relative;
-    padding-left: var(--space-6);
-    margin-top: var(--space-2);
-    line-height: 1.55;
-    color: var(--text-primary);
-  }
-  .prose :global(ul > li::before) {
-    content: "—";
-    position: absolute;
-    left: 0;
-    top: 0;
-    color: var(--color-accent);
-    font-weight: 500;
-  }
-
+  .prose :global(ul),
   .prose :global(ol) {
-    list-style: decimal;
+    margin: var(--space-4) 0 0;
     padding-left: var(--space-6);
-    margin-top: var(--space-4);
     color: var(--text-primary);
   }
-  .prose :global(ol > li) {
+
+  .prose :global(li) {
     margin-top: var(--space-2);
-    line-height: 1.55;
-    padding-left: var(--space-2);
+    line-height: 1.62;
   }
-  .prose :global(ol > li::marker) {
+
+  .prose :global(li::marker) {
     color: var(--color-accent);
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
   }
 
-  /* Nested lists tighten further */
-  .prose :global(li > ul),
-  .prose :global(li > ol) {
-    margin-top: var(--space-2);
-  }
-
-  /* Links — rough hand-drawn underline */
   .prose :global(a) {
-    color: var(--text-primary);
-    text-decoration: none;
-    background-image: var(--rough-underline);
-    background-repeat: repeat-x;
-    background-position: 0 100%;
-    background-size: 80px 4px;
-    padding-bottom: 3px;
-    transition: color var(--dur-fast) var(--ease-out-expo), background-size var(--dur-fast) var(--ease-out-expo);
-  }
-  .prose :global(a:hover) {
-    color: var(--color-accent);
-    background-size: 60px 5px;
+    color: var(--color-accent-hover);
+    text-decoration-color: color-mix(in oklch, currentColor 38%, transparent);
   }
 
-  /* Emphasis */
-  .prose :global(strong) { font-weight: 600; color: var(--text-primary); }
-  .prose :global(em) { font-style: italic; }
-
-  /* Inline code — small, restrained, mono */
-  .prose :global(code) {
-    font-family: var(--fonts-mono);
-    font-size: 0.84em;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    padding: 0.08em 0.4em;
-    color: var(--color-accent);
-    font-feature-settings: normal;
-  }
-
-  /* Blockquote → pull quote (column-breaking, italic, accent guillemets) */
   .prose :global(blockquote) {
-    margin: var(--space-12) auto;
-    max-width: 32ch;
-    padding: var(--space-4) 0;
-    text-align: center;
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 400;
-    font-size: clamp(1.5rem, 2.6vw, 2.1rem);
-    line-height: 1.25;
+    margin: var(--space-8) 0;
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
     color: var(--text-primary);
-    position: relative;
-    border: 0;
   }
-  .prose :global(blockquote::before),
-  .prose :global(blockquote::after) {
-    color: var(--color-accent);
-    font-style: normal;
-    font-size: 2.4rem;
-    line-height: 1;
-    position: absolute;
-  }
-  .prose :global(blockquote::before) {
-    content: "«";
-    left: -1.4rem;
-    top: -0.2rem;
-  }
-  .prose :global(blockquote::after) {
-    content: "»";
-    right: -1.4rem;
-    bottom: -0.6rem;
-  }
+
   .prose :global(blockquote p) {
     margin: 0;
-    line-height: inherit;
     color: inherit;
   }
 
-  /* Horizontal rule → fleuron */
   .prose :global(hr) {
+    height: 1px;
+    margin: var(--space-10) 0;
     border: 0;
-    text-align: center;
-    height: var(--space-12);
-    position: relative;
-    margin: var(--space-12) 0;
-  }
-  .prose :global(hr::after) {
-    content: "❦";
-    color: var(--color-accent);
-    font-size: 1.4rem;
-    letter-spacing: 1rem;
-    padding-left: 1rem;
-    line-height: var(--space-12);
+    background: var(--border-subtle);
   }
 
-  /* Code blocks — keep expressive-code intact, just spacing/border */
   .prose :global(.expressive-code) {
     margin-block: var(--space-8);
   }
 
-  /* Plain <pre> fallback (rare; expressive-code handles most) */
+  .prose :global(.expressive-code .frame) {
+    border-color: var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+
   .prose :global(> pre) {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-6);
     overflow-x: auto;
     margin-block: var(--space-8);
-    font-family: var(--fonts-mono);
-    font-size: 0.875rem;
-    line-height: 1.65;
-  }
-  .prose :global(> pre code) {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: inherit;
+    padding: var(--space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 86%, black);
     color: var(--text-primary);
+    font-family: var(--fonts-mono);
+    font-size: 0.88rem;
+    line-height: 1.7;
+    box-shadow: var(--shadow-md);
   }
 
-  /* ─── Sidenote — short annotation, inline, accent rule ─────────────── */
-  .prose :global(aside.sidenote) {
-    font-family: var(--fonts-sans);
-    font-size: 0.9rem;
-    line-height: 1.55;
-    color: var(--text-secondary);
-    margin: var(--space-6) 0;
-    padding-left: var(--space-4);
-    border-left: 2px solid var(--color-accent);
+  .prose :global(> pre code) {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: inherit;
   }
 
-  /* ─── Marginalia — inline term definition or aside ─────────────────── */
+  .prose :global(aside.sidenote),
   .prose :global(aside.marginalia) {
-    font-family: var(--fonts-sans);
-    font-size: 0.9rem;
-    line-height: 1.55;
-    color: var(--text-secondary);
     margin: var(--space-6) 0;
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface-2);
-    border-left: 2px solid var(--color-accent);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  }
-  .prose :global(aside.marginalia::before) {
-    content: "✎ ";
-    color: var(--color-accent);
-    font-family: var(--fonts-serif);
-    font-style: italic;
-  }
-  .prose :global(aside.marginalia strong) { color: var(--text-primary); }
-
-  /* Inline reference mark (e.g. <sup>*</sup>) */
-  .prose :global(sup) {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    color: var(--color-accent);
-    font-size: 0.65em;
-    vertical-align: super;
-    margin-left: 1px;
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    line-height: 1.58;
   }
 
-  /* ─── Markdown footnotes (remark-gfm) ──────────────────────────────── */
   .prose :global(.footnotes) {
-    margin-top: var(--space-16);
+    margin-top: var(--space-12);
     padding-top: var(--space-6);
     border-top: 1px solid var(--border-subtle);
-    font-size: 0.95rem;
-  }
-  .prose :global(.footnotes h2),
-  .prose :global(.footnotes .sr-only) {
-    font-family: var(--fonts-sans);
-    font-style: normal;
-    font-size: 0.7rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin: 0 0 var(--space-3);
-  }
-  .prose :global(.footnotes h2::before) { display: none; }
-  .prose :global(.footnotes ol) {
-    padding-left: var(--space-5);
     color: var(--text-secondary);
-    font-family: var(--fonts-serif);
-    font-size: 0.95rem;
-    line-height: 1.65;
-  }
-  .prose :global(.footnotes ol li::marker) { color: var(--color-accent); }
-  .prose :global(.data-footnote-backref) {
-    background: none;
-    padding: 0;
-    margin-left: 0.3em;
-    color: var(--color-accent);
+    font-size: 0.92rem;
   }
 
-  /* ─── Article footer ───────────────────────────────────────────────── */
-  .post__footer {
-    max-width: 64ch;
-    margin: var(--space-16) auto 0;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-6);
+  .article__footer {
+    display: grid;
+    gap: var(--space-3);
+    max-width: 70ch;
+    margin-top: var(--space-4);
   }
 
-  .post__tags-line {
-    font-family: var(--fonts-sans);
-    font-size: 0.72rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
+  .article__pager {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .article__pager:hover {
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+    text-decoration: none;
+  }
+
+  .article__pager span {
     color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+  }
+
+  .article__pager strong {
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .article__aside {
+    display: none;
+  }
+
+  .aside-card {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+  }
+
+  .aside-card p {
     margin: 0;
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.75rem;
+  }
+
+  .aside-card__label {
+    color: var(--text-primary) !important;
+    text-transform: uppercase;
+  }
+
+  .aside-card ul {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
     gap: var(--space-2);
-  }
-  .post__tags-label { color: var(--text-tertiary); }
-  .post__tag { color: var(--text-primary); }
-  .post__tags-sep { color: var(--color-accent); }
-
-  .post__signoff {
     margin: 0;
-    color: var(--color-accent);
-    font-size: 1.5rem;
-    letter-spacing: 1rem;
-    padding-left: 1rem;
-    line-height: 1;
+    padding: 0;
+    list-style: none;
   }
 
-  .post__more {
-    font-family: var(--fonts-sans);
-    font-size: 0.78rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    text-decoration: none;
-    transition: color var(--dur-fast) var(--ease-out-expo);
+  @media (min-width: 900px) {
+    .article {
+      padding-block: var(--space-12) var(--space-20);
+    }
+
+    .article__layout {
+      grid-template-columns: minmax(0, 1fr) 240px;
+      align-items: start;
+      gap: var(--space-10);
+    }
+
+    .article__aside {
+      position: sticky;
+      top: 92px;
+      display: grid;
+      gap: var(--space-4);
+    }
+
+    .article__footer {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .article__pager--next {
+      text-align: right;
+    }
   }
-  .post__more:hover { color: var(--color-accent); }
 </style>

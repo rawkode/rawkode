@@ -1,68 +1,133 @@
 ---
 const year = new Date().getFullYear();
 const links = [
-  { href: 'https://bsky.app/profile/rawkode.dev', label: 'Bluesky' },
   { href: 'https://github.com/rawkode', label: 'GitHub' },
-  { href: 'https://rawkode.academy', label: 'Rawkode Academy' },
+  { href: 'https://bsky.app/profile/rawkode.dev', label: 'Bluesky' },
+  { href: 'https://www.youtube.com/@RawkodeAcademy', label: 'YouTube' },
+  { href: 'https://www.linkedin.com/in/rawkode', label: 'LinkedIn' },
+];
+const navLinks = [
+  { href: '/#apps', label: 'Apps' },
+  { href: '/read', label: 'Writing' },
+  { href: '/biography', label: 'Biography' },
+  { href: 'https://rawkode.academy', label: 'Academy' },
 ];
 ---
 
 <footer class="footer">
   <div class="container footer__inner">
-    <p class="footer__copy">&copy; {year} David Flanagan</p>
-    <nav aria-label="Footer links">
-      <ul class="footer__links" role="list">
+    <div class="footer__brand">
+      <a href="/" class="footer__logo">rawkode<span>.dev</span></a>
+      <p>&copy; {year} David Flanagan</p>
+      <p class="footer__signal"><span aria-hidden="true">$</span> build · ship · teach</p>
+    </div>
+
+    <nav class="footer__nav" aria-label="Footer navigation">
+      <p class="footer__label">Navigation</p>
+      <ul role="list">
+        {navLinks.map((link) => (
+          <li><a href={link.href}>{link.label}</a></li>
+        ))}
+      </ul>
+    </nav>
+
+    <nav class="footer__nav" aria-label="Social links">
+      <p class="footer__label">Connect</p>
+      <ul role="list">
         {links.map((link) => (
           <li>
-            <a
-              href={link.href}
-              class="footer__link"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {link.label}
-            </a>
+            <a href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a>
           </li>
         ))}
       </ul>
     </nav>
+
+    <div class="footer__system">
+      <p class="footer__label">System</p>
+      <p>Based in Glasgow, Scotland</p>
+      <p>Working globally</p>
+      <p>Always building</p>
+    </div>
   </div>
 </footer>
 
 <style>
   .footer {
-    margin-top: var(--space-32);
+    margin-top: var(--space-16);
     border-top: 1px solid var(--border-subtle);
-    padding-block: var(--space-8);
+    background: color-mix(in oklch, var(--surface-1) 70%, transparent);
   }
 
   .footer__inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-4);
+    display: grid;
+    gap: var(--space-8);
+    padding-block: var(--space-8);
   }
 
-  .footer__copy {
-    font-size: 0.875rem;
+  .footer__brand,
+  .footer__nav,
+  .footer__system {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .footer__logo {
+    width: fit-content;
+    color: var(--text-primary);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .footer__logo span {
+    color: var(--color-accent);
+  }
+
+  .footer p,
+  .footer a {
+    margin: 0;
     color: var(--text-tertiary);
+    font-size: 0.875rem;
+    text-decoration: none;
   }
 
-  .footer__links {
-    display: flex;
-    gap: var(--space-6);
+  .footer a:hover {
+    color: var(--text-primary);
+  }
+
+  .footer__signal {
+    font-family: var(--fonts-mono);
+  }
+
+  .footer__signal span {
+    color: var(--color-accent-success);
+  }
+
+  .footer__label {
+    color: var(--text-secondary) !important;
+    font-family: var(--fonts-mono);
+    font-size: 0.7rem !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .footer ul {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
     list-style: none;
   }
 
-  .footer__link {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    text-decoration: none;
-    transition: color var(--dur-fast) var(--ease-out-expo);
+  .footer__system p:not(.footer__label)::before {
+    content: "›";
+    margin-right: var(--space-2);
+    color: var(--color-accent-success);
   }
 
-  .footer__link:hover {
-    color: var(--text-primary);
+  @media (min-width: 760px) {
+    .footer__inner {
+      grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(9rem, 1fr));
+      align-items: start;
+    }
   }
 </style>

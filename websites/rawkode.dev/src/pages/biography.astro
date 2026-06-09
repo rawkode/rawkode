@@ -7,31 +7,30 @@ import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 
-// ─── Speaker-kit content ──────────────────────────────────────────────────────
 const tagline =
   'Helping developers, platform engineers, and infrastructure operators level up with Kubernetes.';
 
 const bios = [
   {
     id: 'short',
-    label: 'Short',
-    note: '1 sentence',
+    label: 'Short bio',
+    note: '50 words',
     paragraphs: [
       'David Flanagan (aka rawkode) is a Senior Solutions Engineer at CoreWeave and the founder of Rawkode Academy, where he teaches engineers the practical work behind Kubernetes, platform engineering, and cloud-native infrastructure.',
     ],
   },
   {
     id: 'medium',
-    label: 'Medium',
-    note: '1 paragraph',
+    label: 'Medium bio',
+    note: '150 words',
     paragraphs: [
       "Based in Glasgow, Scotland, David Flanagan (better known as rawkode) has spent twenty years close to the metal, from embedded C to the GPU clusters powering today's AI. As a Senior Solutions Engineer at CoreWeave he helps teams tame that infrastructure, and as the founder of Rawkode Academy he gives the knowledge away, teaching Kubernetes, platform engineering, and cloud-native systems through free courses and building in the open.",
     ],
   },
   {
     id: 'long',
-    label: 'Long',
-    note: 'Full bio',
+    label: 'Long bio',
+    note: '300 words',
     paragraphs: [
       'Based in Glasgow, Scotland, David Flanagan, better known online as rawkode, has spent twenty years close to the metal. He began with embedded C in 2004 and worked his way up the stack as the industry moved from bare servers to containers to the GPU clusters now powering modern AI.',
       'Today he sits at that frontier as a Senior Solutions Engineer at CoreWeave, helping teams run demanding AI workloads where Kubernetes meets large-scale GPU compute. The same instinct to make hard infrastructure approachable runs through Rawkode Academy, the company he founded, where he gives that knowledge away, building in the open and publishing free courses on Kubernetes, platform engineering, and cloud-native systems so developers, platform engineers, and infrastructure operators can level up alongside him.',
@@ -41,61 +40,34 @@ const bios = [
 ];
 
 const facts = [
-  { label: 'Full name', value: 'David Flanagan' },
-  { label: 'Goes by', value: 'rawkode' },
-  { label: 'Pronunciation', value: 'FLAN-ah-gan' },
-  { label: 'Pronouns', value: 'He/Him' },
-  { label: 'Title', value: 'Senior Solutions Engineer at CoreWeave / Founder of Rawkode Academy' },
+  { label: 'Focus', value: 'Developer tooling, platform engineering, authz, and systems' },
+  { label: 'Current', value: 'Building in public, shipping tools, teaching at Rawkode Academy' },
   { label: 'Location', value: 'Glasgow, Scotland' },
-  { label: 'Website', value: 'rawkode.dev' },
+  { label: 'Availability', value: 'Available for speaking', status: true },
+  { label: 'Format', value: 'Keynotes, talks, panels, workshops' },
+  { label: 'Travel', value: 'Worldwide' },
 ];
 
 const topics = [
-  'AI Infrastructure',
-  'Cloud Native',
-  'Developer Experience',
-  'GPU & Accelerated Computing',
-  'Kubernetes',
-  'Nix',
-  'Open Source',
+  'Developer Tooling',
   'Platform Engineering',
+  'Kubernetes',
+  'Authorization & SpiceDB',
+  'CUE',
   'Rust',
-  'WebAssembly',
+  'Open Source',
+  'Build in Public',
+  'Infrastructure',
+  'Security',
 ];
 
-// Brand glyphs are CC0 paths from Simple Icons (24×24, filled with currentColor);
-// the Academy uses a graduation-cap mark.
 const socials = [
-  {
-    label: 'Bluesky',
-    handle: 'rawkode.dev',
-    href: 'https://bsky.app/profile/rawkode.dev',
-    icon: 'M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.688-.139-1.86-.902-2.203-.659-.299-1.664-.621-4.3 1.24C16.046 4.747 13.087 8.686 12 10.8Z',
-  },
-  {
-    label: 'Twitter / X',
-    handle: '@rawkode',
-    href: 'https://twitter.com/rawkode',
-    icon: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
-  },
-  {
-    label: 'LinkedIn',
-    handle: '/in/rawkode',
-    href: 'https://linkedin.com/in/rawkode',
-    icon: 'M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z',
-  },
-  {
-    label: 'YouTube',
-    handle: 'rawkode.live',
-    href: 'https://www.youtube.com/@RawkodeAcademy',
-    icon: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
-  },
-  {
-    label: 'Rawkode Academy',
-    handle: 'rawkode.academy',
-    href: 'https://rawkode.academy',
-    icon: 'M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3 1 9l11 6 9-4.91V17h2V9z',
-  },
+  { label: 'Email', handle: 'david@rawkode.dev', href: 'mailto:david@rawkode.dev' },
+  { label: 'Website', handle: 'rawkode.dev', href: 'https://rawkode.dev' },
+  { label: 'Academy', handle: 'rawkode.academy', href: 'https://rawkode.academy' },
+  { label: 'GitHub', handle: 'github.com/rawkode', href: 'https://github.com/rawkode' },
+  { label: 'Bluesky', handle: '@rawkode.dev', href: 'https://bsky.app/profile/rawkode.dev' },
+  { label: 'LinkedIn', handle: '/in/rawkode', href: 'https://linkedin.com/in/rawkode' },
 ];
 
 const personJsonLd = {
@@ -107,7 +79,7 @@ const personJsonLd = {
   worksFor: { '@type': 'Organization', name: 'CoreWeave' },
   founder: { '@type': 'Organization', name: 'Rawkode Academy', url: 'https://rawkode.academy' },
   address: { '@type': 'PostalAddress', addressLocality: 'Glasgow', addressCountry: 'GB' },
-  description: bios[0].text,
+  description: bios[0].paragraphs.join(' '),
   url: 'https://rawkode.dev/biography',
   sameAs: socials.map((s) => s.href),
 };
@@ -121,144 +93,124 @@ const personJsonLd = {
 >
   <Nav />
   <main id="main-content">
-
-    <!-- ─── Hero ──────────────────────────────────────────────────────────── -->
     <section class="bio-hero">
-      <div class="bio-hero__text">
-        <p class="eyebrow">Speaker kit</p>
-        <h1 class="bio-hero__name">David Flanagan</h1>
-        <p class="bio-hero__handle">aka <em>rawkode</em></p>
-        <p class="bio-hero__tagline">{tagline}</p>
-        <p class="bio-hero__location">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
-          </svg>
-          Glasgow, Scotland
-        </p>
+      <div class="container bio-hero__inner">
+        <div class="bio-hero__copy">
+          <h1>David Flanagan</h1>
+          <p class="bio-hero__handle">rawkode</p>
+          <p class="bio-hero__location">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+            Glasgow, Scotland
+          </p>
+          <p class="bio-hero__tagline">{tagline}</p>
+        </div>
+
+        <figure class="portrait-card">
+          <Image
+            src={rawkodePhoto}
+            alt="David Flanagan"
+            class="portrait-card__photo"
+            loading="eager"
+            widths={[360, 540, 720]}
+            sizes="(max-width: 899px) 48vw, 360px"
+          />
+          <figcaption>
+            <span><i aria-hidden="true"></i> Available for speaking</span>
+          </figcaption>
+        </figure>
       </div>
-      <figure class="bio-hero__photo-fig">
-        <Image
-          src={rawkodePhoto}
-          alt="David Flanagan"
-          class="bio-hero__photo"
-          loading="eager"
-          widths={[360, 540, 720]}
-          sizes="(max-width: 899px) 60vw, 360px"
-        />
-        <a href={rawkodePhoto.src} download="david-flanagan.jpg" class="bio-hero__download">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    </section>
+
+    <section class="bio-section">
+      <div class="container bio-grid">
+        <div class="bio-panel">
+          <header class="panel-head">
+            <p>Quick facts</p>
+          </header>
+          <dl class="facts">
+            {facts.map((fact) => (
+              <div class="facts__row">
+                <dt>{fact.label}</dt>
+                <dd>
+                  {fact.status && <span class="status-dot" aria-hidden="true"></span>}
+                  <span id={`fact-${fact.label.toLowerCase().replaceAll(' ', '-')}`}>{fact.value}</span>
+                  <button class="copy-btn copy-btn--icon" type="button" data-copy-target={`fact-${fact.label.toLowerCase().replaceAll(' ', '-')}`} aria-label={`Copy ${fact.label}`}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+                    </svg>
+                  </button>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div class="bio-panel bio-panel--bios">
+          <header class="panel-head">
+            <p>Biography</p>
+          </header>
+          <div class="bio-cards">
+            {bios.map((bio) => (
+              <article class="bio-card">
+                <header>
+                  <h2>{bio.label}</h2>
+                  <span>{bio.note}</span>
+                  <button class="copy-btn" type="button" data-copy-target={`bio-${bio.id}`}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+                    </svg>
+                    <span class="copy-btn__label">Copy</span>
+                  </button>
+                </header>
+                <div class="bio-card__text" id={`bio-${bio.id}`}>
+                  {bio.paragraphs.map((para) => <p>{para}</p>)}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bio-section">
+      <div class="container bio-bottom">
+        <div class="bio-panel">
+          <header class="panel-head">
+            <p>Topics</p>
+          </header>
+          <ul class="topics" role="list">
+            {topics.map((topic) => <li>{topic}</li>)}
+          </ul>
+        </div>
+
+        <div class="bio-panel">
+          <header class="panel-head">
+            <p>Connect</p>
+          </header>
+          <ul class="socials" role="list">
+            {socials.map((social) => (
+              <li>
+                <a href={social.href} target={social.href.startsWith('mailto:') ? undefined : '_blank'} rel={social.href.startsWith('mailto:') ? undefined : 'noopener noreferrer'}>
+                  <span>{social.label}</span>
+                  <strong>{social.handle}</strong>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7M9 7h8v8"/>
+                  </svg>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <a href={rawkodePhoto.src} download="david-flanagan.jpg" class="download-card">
+          <span>Download headshot</span>
+          <strong>High-resolution speaker photo</strong>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>
           </svg>
-          Download photo
         </a>
-      </figure>
-    </section>
-
-    <!-- ─── Bios ──────────────────────────────────────────────────────────── -->
-    <section class="section" data-orchestrate>
-      <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Bios</p>
-            <h2>Pick the Length That Fits</h2>
-            <p class="lead">Three ready-to-use bios. Hit copy and paste straight into your programme.</p>
-          </div>
-        </div>
-        <div class="bio-cards">
-          {bios.map((bio, i) => (
-            <article class="bio-card" style={`--i: ${i}`} data-enter="up">
-              <header class="bio-card__head">
-                <h3 class="bio-card__label">{bio.label}</h3>
-                <span class="bio-card__note">{bio.note}</span>
-                <button class="copy-btn" type="button" data-copy-target={`bio-${bio.id}`}>
-                  <span class="copy-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
-                    </svg>
-                  </span>
-                  <span class="copy-btn__label">Copy</span>
-                </button>
-              </header>
-              <div class="bio-card__text" id={`bio-${bio.id}`}>
-                {bio.paragraphs.map((para) => <p>{para}</p>)}
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-
-    <!-- ─── Quick facts ───────────────────────────────────────────────────── -->
-    <section class="section section--alt" data-orchestrate>
-      <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Quick facts</p>
-            <h2>The Details for Your Schedule</h2>
-          </div>
-        </div>
-        <dl class="facts">
-          {facts.map((fact, i) => (
-            <div class="facts__row" style={`--i: ${i}`} data-enter="up">
-              <dt class="facts__label">{fact.label}</dt>
-              <dd class="facts__value">
-                <span id={`fact-${i}`}>{fact.value}</span>
-                <button class="copy-btn copy-btn--icon" type="button" data-copy-target={`fact-${i}`} aria-label={`Copy ${fact.label}`}>
-                  <span class="copy-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
-                    </svg>
-                  </span>
-                </button>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-    </section>
-
-    <!-- ─── Topics ────────────────────────────────────────────────────────── -->
-    <section class="section" data-orchestrate>
-      <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Topics</p>
-            <h2>What I Speak About</h2>
-          </div>
-        </div>
-        <ul class="topics" role="list" data-enter="up">
-          {topics.map((topic) => (
-            <li class="topics__tag">{topic}</li>
-          ))}
-        </ul>
-      </div>
-    </section>
-
-    <!-- ─── Socials ───────────────────────────────────────────────────────── -->
-    <section class="section section--alt" data-orchestrate>
-      <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Find me online</p>
-            <h2>Tag Me in Your Promo</h2>
-          </div>
-        </div>
-        <ul class="socials" role="list">
-          {socials.map((social, i) => (
-            <li style={`--i: ${i}`} data-enter="up">
-              <a href={social.href} target="_blank" rel="noopener noreferrer" class="socials__link">
-                <svg class="socials__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d={social.icon} />
-                </svg>
-                <span class="socials__label">{social.label}</span>
-                <span class="socials__handle">{social.handle}</span>
-                <svg class="socials__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="7" y1="17" x2="17" y2="7"/><polyline points="8 7 17 7 17 16"/>
-                </svg>
-              </a>
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   </main>
@@ -266,7 +218,6 @@ const personJsonLd = {
 </Layout>
 
 <script>
-  // ── Copy-to-clipboard (progressive enhancement) ──────────────────────────
   const supportsCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
 
   document.querySelectorAll<HTMLButtonElement>('.copy-btn').forEach((btn) => {
@@ -283,7 +234,6 @@ const personJsonLd = {
     btn.addEventListener('click', async () => {
       const target = targetId ? document.getElementById(targetId) : null;
       if (!target) return;
-      // Preserve paragraph breaks when copying multi-paragraph bios.
       const paragraphs = target.querySelectorAll('p');
       const text = paragraphs.length
         ? [...paragraphs].map((p) => p.textContent?.trim() ?? '').filter(Boolean).join('\n\n')
@@ -293,323 +243,397 @@ const personJsonLd = {
       try {
         await navigator.clipboard.writeText(text);
         btn.classList.add('is-copied');
-        if (labelEl) labelEl.textContent = 'Copied!';
+        if (labelEl) labelEl.textContent = 'Copied';
         window.clearTimeout(resetTimer);
         resetTimer = window.setTimeout(() => {
           btn.classList.remove('is-copied');
           if (labelEl) labelEl.textContent = defaultLabel;
         }, 1800);
       } catch {
-        /* clipboard write blocked — text remains selectable */
+        /* clipboard write blocked; visible text remains selectable */
       }
     });
   });
-
-  // ── IntersectionObserver — orchestrated entrances (mirrors index.astro) ───
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reducedMotion) {
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        const section = entry.target;
-        section.querySelectorAll<HTMLElement>('[data-enter]').forEach((el, i) => {
-          const baseDelay = el.style.getPropertyValue('--i')
-            ? parseInt(el.style.getPropertyValue('--i')) * 60
-            : i * 80;
-          setTimeout(() => el.classList.add('is-visible'), baseDelay);
-        });
-        io.unobserve(section);
-      });
-    }, { rootMargin: '0px 0px -60px 0px', threshold: 0.1 });
-
-    document.querySelectorAll('[data-orchestrate]').forEach((el) => io.observe(el));
-  } else {
-    document.querySelectorAll<HTMLElement>('[data-enter]').forEach((el) => el.classList.add('is-visible'));
-  }
 </script>
 
 <style>
-  /* ─── Hero ─────────────────────────────────────────────────────────────── */
   .bio-hero {
+    padding-block: var(--space-10) var(--space-6);
+  }
+
+  .bio-hero__inner {
     display: grid;
-    grid-template-columns: 1fr;
     gap: var(--space-8);
-    align-items: center;
-    max-width: 1200px;
-    margin-inline: auto;
-    padding-inline: var(--space-6);
-    padding-block: var(--space-16);
-    border-bottom: 1px solid var(--border-subtle);
   }
 
-  @media (min-width: 760px) {
-    .bio-hero {
-      grid-template-columns: minmax(0, 620px) minmax(300px, 360px);
-      justify-content: space-between;
-      column-gap: var(--space-16);
-      padding-inline: var(--space-8);
-    }
+  .bio-hero__copy {
+    display: grid;
+    gap: var(--space-3);
+    align-content: center;
   }
 
-  .bio-hero__name {
-    font-size: clamp(2.5rem, 5vw + 1rem, 4.5rem);
-    font-style: italic;
-    line-height: 0.95;
-    letter-spacing: -0.04em;
-    color: var(--text-primary);
-    margin-top: var(--space-2);
+  .bio-hero h1 {
+    margin: 0;
+    font-size: clamp(2.35rem, 10vw, 4.5rem);
   }
 
   .bio-hero__handle {
-    margin-top: var(--space-3);
-    font-size: 1rem;
-    color: var(--text-tertiary);
-  }
-  .bio-hero__handle em {
-    font-style: italic;
+    margin: calc(-1 * var(--space-2)) 0 0;
     color: var(--color-accent);
-    font-family: var(--fonts-serif);
-    font-size: 1.15em;
-  }
-
-  .bio-hero__tagline {
-    margin-top: var(--space-6);
-    max-width: 44ch;
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-size: clamp(1.125rem, 1.4vw + 0.6rem, 1.5rem);
-    line-height: 1.4;
-    color: var(--text-secondary);
-    text-wrap: balance;
+    font-size: clamp(1.35rem, 6vw, 2rem);
+    font-weight: 650;
+    line-height: 1.1;
   }
 
   .bio-hero__location {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    margin-top: var(--space-6);
-    font-size: 0.9rem;
-    color: var(--text-tertiary);
+    margin: var(--space-2) 0 0;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
   }
-  .bio-hero__location svg { width: 1.05em; height: 1.05em; color: var(--color-accent); }
 
-  .bio-hero__photo-fig {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
+  .bio-hero__location svg {
+    width: 16px;
+    height: 16px;
+    color: var(--color-accent-cyan);
+  }
+
+  .bio-hero__tagline {
+    max-width: 42rem;
+    margin: var(--space-2) 0 0;
+    color: var(--text-secondary);
+    font-size: 1rem;
+  }
+
+  .portrait-card {
+    overflow: hidden;
+    width: min(100%, 360px);
     margin: 0;
-    max-width: 360px;
-    justify-self: end;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-lg);
   }
 
-  .bio-hero__photo {
+  .portrait-card__photo {
+    display: block;
     width: 100%;
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 4 / 3.35;
     object-fit: cover;
     object-position: top center;
-    border-radius: var(--radius-lg, 16px);
-    border: 1px solid var(--border-subtle);
-    filter: saturate(0.92) contrast(1.03);
+    filter: saturate(0.84) contrast(1.05) brightness(0.86);
   }
 
-  .bio-hero__download {
+  .portrait-card figcaption {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+  }
+
+  .portrait-card span {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .portrait-card i,
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent-success);
+  }
+
+  .bio-section {
+    padding-block: var(--space-5);
+  }
+
+  .bio-grid,
+  .bio-bottom {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .bio-panel,
+  .download-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    background: var(--surface-glass);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .bio-panel {
+    overflow: hidden;
+  }
+
+  .panel-head {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .panel-head p {
+    margin: 0;
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .facts {
+    display: grid;
+    margin: 0;
+  }
+
+  .facts__row {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .facts__row:last-child {
+    border-bottom: 0;
+  }
+
+  .facts dt {
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+  }
+
+  .facts dd {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.92rem;
+  }
+
+  .facts dd span:not(.status-dot) {
+    min-width: 0;
+  }
+
+  .copy-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--border-default);
-    border-radius: 999px;
-    font-size: 0.85rem;
-    font-weight: 600;
+    min-height: 34px;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass);
     color: var(--text-secondary);
-    text-decoration: none;
-    transition: color var(--dur-fast) var(--ease-out-expo),
-                border-color var(--dur-fast) var(--ease-out-expo),
-                background var(--dur-fast) var(--ease-out-expo);
-  }
-  .bio-hero__download svg { width: 1.05em; height: 1.05em; }
-  .bio-hero__download:hover {
-    color: var(--text-primary);
-    border-color: var(--text-primary);
-    background: var(--surface-2);
-  }
-
-  /* ─── Shared section scaffolding (matches index.astro) ──────────────────── */
-  .section { padding-block: var(--space-16); }
-  .section--alt {
-    background: var(--surface-2);
-    border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .section-header { margin-bottom: var(--space-12); }
-
-  .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: var(--space-2);
-  }
-  .lead { margin-top: var(--space-3); font-size: 1.0625rem; max-width: 55ch; color: var(--text-secondary); }
-
-  /* ─── Copy button ───────────────────────────────────────────────────────── */
-  .copy-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-1) var(--space-3);
-    border: 1px solid var(--border-default);
-    border-radius: 999px;
-    background: transparent;
     font-family: var(--fonts-sans);
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 650;
     cursor: pointer;
-    transition: color var(--dur-fast) var(--ease-out-expo),
-                border-color var(--dur-fast) var(--ease-out-expo),
-                background var(--dur-fast) var(--ease-out-expo);
+    transition:
+      color var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo);
   }
-  .copy-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--text-primary);
-  }
-  .copy-btn.is-copied {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
-  }
-  .copy-btn__icon svg { width: 0.95rem; height: 0.95rem; display: block; }
-  .copy-btn--icon { padding: var(--space-1); border-color: var(--border-subtle); }
 
-  /* ─── Bio cards ─────────────────────────────────────────────────────────── */
-  .bio-cards { display: grid; gap: var(--space-6); }
+  .copy-btn:hover,
+  .copy-btn.is-copied {
+    color: var(--text-primary);
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+  }
+
+  .copy-btn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .copy-btn--icon {
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+    margin-left: auto;
+  }
+
+  .bio-cards {
+    display: grid;
+  }
 
   .bio-card {
-    padding: var(--space-6);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg, 16px);
-    background: var(--surface-2);
-  }
-
-  .bio-card__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .bio-card__label {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-size: 1.25rem;
-    color: var(--text-primary);
-  }
-  .bio-card__note {
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-right: auto;
-  }
-  .bio-card__text {
-    font-family: var(--fonts-serif);
-    font-size: 1.0625rem;
-    line-height: 1.7;
-    color: var(--text-secondary);
-    max-width: 70ch;
-  }
-  .bio-card__text p + p { margin-top: var(--space-4); }
-
-  /* ─── Quick facts ───────────────────────────────────────────────────────── */
-  .facts { display: grid; gap: 0; max-width: 760px; }
-  .facts__row {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
-    padding-block: var(--space-4);
+    gap: var(--space-3);
+    padding: var(--space-4);
     border-bottom: 1px solid var(--border-subtle);
   }
-  .facts__row:first-child { border-top: 1px solid var(--border-subtle); }
 
-  @media (min-width: 600px) {
-    .facts__row { grid-template-columns: 200px 1fr; gap: var(--space-6); align-items: baseline; }
+  .bio-card:last-child {
+    border-bottom: 0;
   }
 
-  .facts__label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-  }
-  .facts__value {
-    display: flex;
+  .bio-card header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: var(--space-3);
+  }
+
+  .bio-card h2 {
     margin: 0;
     font-size: 1rem;
-    color: var(--text-primary);
   }
-  .facts__value span { min-width: 0; }
 
-  /* ─── Topics ────────────────────────────────────────────────────────────── */
-  .topics { display: flex; flex-wrap: wrap; gap: var(--space-3); list-style: none; }
-  .topics__tag {
-    padding: var(--space-2) var(--space-4);
-    border: 1px solid var(--border-default);
-    border-radius: 999px;
-    font-size: 0.9rem;
-    font-weight: 500;
+  .bio-card header > span {
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+  }
+
+  .bio-card__text {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .bio-card__text p {
+    margin: 0;
     color: var(--text-secondary);
-    background: var(--surface-1);
+    font-size: 0.92rem;
+    line-height: 1.65;
   }
 
-  /* ─── Socials ───────────────────────────────────────────────────────────── */
-  .socials {
+  .topics {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-4);
     list-style: none;
   }
-  .socials__link {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-4) var(--space-6);
+
+  .topics li {
+    padding: 0.38rem 0.58rem;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg, 16px);
-    background: var(--surface-1);
-    text-decoration: none;
-    transition: border-color var(--dur-fast) var(--ease-out-expo),
-                transform var(--dur-fast) var(--ease-out-expo);
-  }
-  .socials__link:hover { border-color: var(--color-accent); transform: translateY(-2px); }
-  .socials__icon {
-    width: 1.15rem;
-    height: 1.15rem;
-    flex-shrink: 0;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
-    transition: color var(--dur-fast) var(--ease-out-expo);
+    font-size: 0.82rem;
   }
-  .socials__link:hover .socials__icon { color: var(--color-accent); }
-  .socials__label { font-weight: 600; color: var(--text-primary); }
-  .socials__handle { color: var(--text-tertiary); font-size: 0.9rem; margin-right: auto; }
-  .socials__arrow { width: 1rem; height: 1rem; color: var(--text-tertiary); flex-shrink: 0; }
-  .socials__link:hover .socials__arrow { color: var(--color-accent); }
 
-  /* ─── Entrance animations (shared pattern) ──────────────────────────────── */
-  [data-enter] {
-    opacity: 0;
-    transition: opacity 0.6s var(--ease-out-expo) calc(var(--i, 0) * 60ms),
-                transform 0.6s var(--ease-out-expo) calc(var(--i, 0) * 60ms);
+  .socials {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  [data-enter="left"] { transform: translateX(-24px); }
-  [data-enter="up"]   { transform: translateY(22px); }
-  [data-enter].is-visible { opacity: 1; transform: none; }
 
-  @media (prefers-reduced-motion: reduce) {
-    [data-enter] { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .socials a {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .socials li:last-child a {
+    border-bottom: 0;
+  }
+
+  .socials a:hover {
+    background: var(--surface-raised);
+    text-decoration: none;
+  }
+
+  .socials span {
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+  }
+
+  .socials strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .socials svg {
+    width: 16px;
+    height: 16px;
+    color: var(--text-secondary);
+  }
+
+  .download-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-4);
+    align-items: center;
+    padding: var(--space-4);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .download-card:hover {
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+    text-decoration: none;
+  }
+
+  .download-card span {
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+  }
+
+  .download-card strong {
+    grid-column: 1;
+    font-size: 0.95rem;
+  }
+
+  .download-card svg {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    width: 20px;
+    height: 20px;
+    color: var(--color-accent);
+  }
+
+  @media (min-width: 760px) {
+    .bio-hero {
+      padding-block: var(--space-12) var(--space-8);
+    }
+
+    .bio-hero__inner {
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      align-items: center;
+      gap: var(--space-12);
+    }
+
+    .portrait-card {
+      justify-self: end;
+    }
+
+    .bio-grid {
+      grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+    }
+
+    .facts__row {
+      grid-template-columns: 9rem minmax(0, 1fr);
+      align-items: center;
+    }
+
+    .bio-bottom {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    }
+
+    .download-card {
+      grid-column: 1 / -1;
+    }
   }
 </style>

@@ -114,7 +114,7 @@ const socialProfiles = [
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content={robots} />
     <meta name="googlebot" content={robots} />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark light" />
 
     <!-- Favicons -->
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
@@ -123,8 +123,8 @@ const socialProfiles = [
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b0f" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f8f7fb" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191724" />
     <meta name="application-name" content={siteName} />
     <meta name="apple-mobile-web-app-title" content={siteName} />
 
@@ -180,7 +180,7 @@ const socialProfiles = [
           root.setAttribute('data-theme', saved);
           root.setAttribute('data-ui-theme', saved);
         } else {
-          root.setAttribute('data-ui-theme', 'system');
+          root.setAttribute('data-ui-theme', 'dark');
         }
       })();
     </script>
@@ -197,8 +197,9 @@ const socialProfiles = [
     top: var(--space-4);
     left: var(--space-4);
     padding: var(--space-2) var(--space-4);
-    background: var(--color-accent);
-    color: var(--text-invert);
+    border: 1px solid var(--border-default);
+    background: var(--surface-raised);
+    color: var(--text-primary);
     border-radius: var(--radius-md);
     font-weight: 600;
     text-decoration: none;

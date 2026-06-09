@@ -1,6 +1,4 @@
 /* ─── Fonts ─────────────────────────────────────────────────────────────── */
-@import '@fontsource-variable/newsreader/wght.css';
-@import '@fontsource-variable/newsreader/wght-italic.css';
 @import '@fontsource-variable/figtree/index.css';
 
 /* ─── Panda CSS layers ──────────────────────────────────────────────────── */
@@ -19,17 +17,36 @@
 /* ─── Base typography & elements ────────────────────────────────────────── */
 @layer base {
   body {
+    min-height: 100dvh;
+    margin: 0;
     font-family: var(--fonts-sans);
     font-size: 1rem;
     font-weight: 400;
     line-height: 1.6;
     color: var(--colors-text-primary);
-    background-color: var(--colors-surface-1);
+    background:
+      var(--page-glow),
+      linear-gradient(180deg, var(--colors-surface-1) 0%, color-mix(in oklch, var(--colors-surface-1) 84%, black) 100%);
+    background-attachment: fixed;
     font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+    text-rendering: optimizeLegibility;
     transition:
       background-color var(--durations-normal) var(--easings-in-out),
       color var(--durations-normal) var(--easings-in-out);
-    min-height: 100dvh;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, color-mix(in oklch, var(--colors-border-subtle) 52%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklch, var(--colors-border-subtle) 42%, transparent) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: linear-gradient(to bottom, oklch(0% 0 0 / 0.22), transparent 64%);
+    opacity: 0.32;
   }
 
   ::selection {
@@ -40,42 +57,58 @@
   time { font-variant-numeric: tabular-nums; }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--fonts-serif);
-    font-weight: 600;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
+    font-family: var(--fonts-sans);
+    font-weight: 650;
+    line-height: 1.05;
+    letter-spacing: 0;
     color: var(--colors-text-primary);
+    text-wrap: balance;
   }
 
-  h1 { font-size: clamp(2.4rem, 5vw + 1rem, 4.5rem); }
-  h2 { font-size: clamp(1.75rem, 3vw + 0.5rem, 2.75rem); }
-  h3 { font-size: clamp(1.25rem, 2vw + 0.25rem, 1.75rem); }
-  h4 { font-size: 1.25rem; }
+  h1 { font-size: clamp(2.35rem, 8vw, 4.6rem); }
+  h2 { font-size: clamp(1.65rem, 5vw, 2.75rem); }
+  h3 { font-size: clamp(1.12rem, 3vw, 1.5rem); }
+  h4 { font-size: 1rem; }
 
-  p { line-height: 1.7; color: var(--colors-text-secondary); }
+  p {
+    line-height: 1.72;
+    color: var(--colors-text-secondary);
+  }
+
   p + p { margin-top: var(--spacing-4); }
 
   a {
-    color: var(--colors-accent);
+    color: var(--colors-accent-hover);
     text-decoration: underline;
     text-decoration-color: transparent;
     text-underline-offset: 3px;
-    transition: text-decoration-color var(--durations-fast) var(--easings-out-expo);
+    transition:
+      color var(--durations-fast) var(--easings-out-expo),
+      text-decoration-color var(--durations-fast) var(--easings-out-expo);
   }
-  a:hover { text-decoration-color: currentColor; }
 
-  strong { font-weight: 600; color: var(--colors-text-primary); }
+  a:hover {
+    color: var(--colors-accent);
+    text-decoration-color: currentColor;
+  }
+
+  strong {
+    font-weight: 650;
+    color: var(--colors-text-primary);
+  }
 
   code {
     font-family: var(--fonts-mono);
     font-size: 0.875em;
-    background: var(--colors-surface-2);
+    background: var(--colors-surface-raised);
     border: 1px solid var(--colors-border-subtle);
     border-radius: var(--radii-sm);
-    padding: 0.1em 0.35em;
+    padding: 0.12em 0.42em;
+    color: var(--colors-accent-hover);
   }
 
   :focus { outline: none; }
+
   :focus-visible {
     outline: 2px solid var(--colors-accent);
     outline-offset: 3px;
@@ -89,7 +122,7 @@
     width: 100%;
     max-width: 1200px;
     margin-inline: auto;
-    padding-inline: var(--spacing-6);
+    padding-inline: var(--spacing-4);
   }
 
   @media (min-width: 768px) {

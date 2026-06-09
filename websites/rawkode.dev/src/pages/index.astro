@@ -1,738 +1,487 @@
 ---
 export const prerender = true;
 
-// Direction C — Kinetic Type + Orchestrated Entrances
-// Magnetic hero name (pointer-only), @property animated Academy CTA,
-// word-level entrance choreography, dramatic asymmetric Academy section.
 import { Image } from 'astro:assets';
 import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import AppCard from '../components/AppCard.astro';
-import BlueskyPostCard from '../components/BlueskyPostCard.astro';
-import { getBlueskyPosts } from '../lib/bluesky';
 import { getCollection } from 'astro:content';
 
-const bskyPosts = await getBlueskyPosts(4);
 const allPosts = await getCollection('blog', ({ data }) => !data.draft);
 const recentPosts = allPosts
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
   .slice(0, 3);
+const appOrder = ['rawkode-academy', 'cuenv', 'kubectl-ditto', 'kree', 'prescience', 'waddle'];
 const apps = (await getCollection('apps')).sort((a, b) => {
   if (a.data.featured !== b.data.featured) return a.data.featured ? -1 : 1;
+  const ai = appOrder.indexOf(a.id);
+  const bi = appOrder.indexOf(b.id);
+  if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   return a.data.name.localeCompare(b.data.name);
 });
-function formatDate(date: Date) {
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+function formatShortDate(date: Date) {
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function readMinutes(body = '') {
+  const words = body.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 220));
 }
 ---
 
 <Layout>
   <Nav />
   <main id="main-content">
-
-    <!-- ─── Hero ──────────────────────────────────────────────────────────── -->
     <section class="hero">
-      <div class="hero__text-col">
-        <div class="hero__content">
-          <div class="hero__id">
-            <!-- data-magnetic: JS will split into letter spans -->
-            <h1 class="hero__name" data-magnetic>David<br />Flanagan</h1>
-            <p class="hero__handle">aka <em>rawkode</em></p>
-          </div>
-          <p class="hero__roles" data-split-words>Developer Tooling · Open Source · Education</p>
-          <p class="hero__lead" data-split-words>
-            I build developer tooling for cloud-native infrastructure, maintain open-source projects,
-            and teach engineers the practical systems work behind it through Rawkode Academy.
+      <div class="container hero__inner">
+        <div class="hero__copy">
+          <h1>David Flanagan</h1>
+          <p class="hero__handle">rawkode</p>
+          <p class="hero__lead">
+            Developer tooling for cloud-native infrastructure, open source, and Rawkode Academy.
           </p>
           <div class="hero__actions">
-            <a href="#apps" class="btn btn--solid">
-              <span class="btn__label">See my <em>work</em></span>
-              <svg class="btn__arrow btn__arrow--down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <polyline points="19 12 12 19 5 12"/>
+            <a href="#apps" class="button button--primary">
+              See the work
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14M13 5l7 7-7 7"/>
               </svg>
             </a>
-            <a href="/read" class="btn btn--outline">
-              <span class="btn__label">Read <em>writing</em></span>
-              <svg class="btn__arrow btn__arrow--right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="5" y1="12" x2="19" y2="12"/>
-                <polyline points="12 5 19 12 12 19"/>
-              </svg>
-            </a>
-            <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--text">
-              <span class="btn__label">Rawkode <em>Academy</em></span>
-              <svg class="btn__arrow btn__arrow--ne" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="8 7 17 7 17 16"/>
+            <a href="/read" class="button button--secondary">
+              Read writing
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14M13 5l7 7-7 7"/>
               </svg>
             </a>
           </div>
         </div>
-      </div>
 
-      <div class="hero__photo-col">
-        <Image
-          src={rawkodePhoto}
-          alt="David Flanagan"
-          class="hero__photo"
-          loading="eager"
-          widths={[480, 720, 1080]}
-          sizes="(max-width: 899px) 100vw, 50vw"
-        />
-        <div class="hero__photo-fade" aria-hidden="true"></div>
-      </div>
-    </section>
-
-    <!-- ─── Apps ──────────────────────────────────────────────────────────── -->
-    <section class="section" id="apps" data-orchestrate>
-      <div class="container">
-        <div class="section-header">
-          <div class="section-header__text" data-enter="left">
-            <p class="eyebrow">Apps</p>
-            <h2>Things I've built</h2>
-            <p class="lead">Open-source tools and experiments for infrastructure work I keep meeting in the real world.</p>
-          </div>
-        </div>
-        <ul class="apps-grid" role="list">
-          {apps.map((entry, i) => (
-            <li style={`--i: ${i}`} data-enter="up" class:list={[{ 'apps-grid__featured': entry.data.featured }]}>
-              <AppCard app={entry.data} />
-            </li>
-          ))}
-        </ul>
+        <figure class="hero-card">
+          <Image
+            src={rawkodePhoto}
+            alt="David Flanagan"
+            class="hero-card__photo"
+            loading="eager"
+            widths={[360, 540, 720]}
+            sizes="(max-width: 760px) 44vw, 320px"
+          />
+          <figcaption class="hero-card__meta">
+            <span><i aria-hidden="true"></i> Glasgow, Scotland</span>
+            <span>Principal Developer</span>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
-    <!-- ─── Bluesky ────────────────────────────────────────────────────────── -->
-    {bskyPosts.length > 0 && (
-      <section class="section section--alt" data-orchestrate>
-        <div class="container">
-          <div class="section-header">
-            <div class="section-header__text" data-enter="left">
-              <p class="eyebrow">From Bluesky</p>
-              <h2>What I'm thinking about</h2>
-            </div>
-            <a href="https://bsky.app/profile/rawkode.dev" target="_blank" rel="noopener noreferrer" class="link-more" data-enter="right">
-              Follow on Bluesky →
-            </a>
+    <section class="section" id="apps">
+      <div class="container section__grid">
+        <header class="section__header">
+          <div>
+            <p class="section__kicker">Work</p>
+            <h2>Work</h2>
+            <p class="section__desc">Tools, systems, and teaching.</p>
           </div>
-          <ul class="bsky-grid" role="list">
-            {bskyPosts.map((post, i) => (
-              <li style={`--i: ${i}`} data-enter="up"><BlueskyPostCard post={post} /></li>
+          <a href="https://github.com/rawkode" target="_blank" rel="noopener noreferrer" class="section__link">View all apps</a>
+        </header>
+        <div class="panel">
+          <ul class="app-list" role="list">
+            {apps.map((entry) => (
+              <li><AppCard app={entry.data} /></li>
             ))}
           </ul>
+        </div>
+      </div>
+    </section>
+
+    {recentPosts.length > 0 && (
+      <section class="section">
+        <div class="container writing-layout">
+          <header class="section__header">
+            <div>
+              <p class="section__kicker">Current thinking</p>
+              <h2>Writing that survives the thread.</h2>
+            </div>
+            <a href="/read" class="section__link">Read all</a>
+          </header>
+          <ol class="writing-list" role="list">
+            {recentPosts.map((post) => (
+              <li>
+                <a href={`/read/${post.id}`} class="writing-row">
+                  <time datetime={post.data.pubDate.toISOString()}>{formatShortDate(post.data.pubDate)}</time>
+                  <span class="writing-row__dot" aria-hidden="true"></span>
+                  <span class="writing-row__content">
+                    <strong>{post.data.title}</strong>
+                    <span>{readMinutes(post.body)} min read</span>
+                  </span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h14M13 5l7 7-7 7"/>
+                  </svg>
+                </a>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
     )}
 
-    <!-- ─── Academy CTA — dramatic full-bleed ────────────────────────────── -->
-    <section class="academy-cta" data-orchestrate>
-      <div class="academy-cta__bg" aria-hidden="true"></div>
+    <section class="section">
       <div class="container">
-        <div class="academy-cta__inner">
-          <p class="eyebrow eyebrow--light" data-enter="left">Rawkode Academy</p>
-          <h2 class="academy-cta__heading" data-enter="left">
-            Go deeper.<br /><em>Learn in the open.</em>
-          </h2>
-          <p class="academy-cta__body" data-enter="left">
-            Free courses, real-world projects, and community material on Kubernetes,
-            platform engineering, and developer tooling, built around the tradeoffs
-            teams hit in production.
-          </p>
-          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="btn btn--light" data-enter="left">
-            Visit Rawkode Academy →
+        <div class="academy-panel">
+          <div class="academy-panel__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m5 10 7 4 7-4v5l-7 4-7-4v-5Z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="section__kicker">Rawkode Academy</p>
+            <h2>Go deeper.</h2>
+            <p>
+              Practical courses, real-world projects, and a community for engineers building
+              infrastructure and developer platforms.
+            </p>
+          </div>
+          <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="button button--secondary">
+            Explore Academy
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 5l7 7-7 7"/>
+            </svg>
           </a>
         </div>
       </div>
     </section>
-
-    <!-- ─── Blog ──────────────────────────────────────────────────────────── -->
-    {recentPosts.length > 0 && (
-      <section class="section" data-orchestrate>
-        <div class="container">
-          <div class="section-header">
-            <div class="section-header__text" data-enter="left">
-              <p class="eyebrow">Writing</p>
-              <h2>Longer thoughts</h2>
-              <p class="lead">Notes that need more room than a post or thread.</p>
-            </div>
-            <a href="/read" class="link-more" data-enter="right">All posts →</a>
-          </div>
-          <ul class="blog-list" role="list">
-            {recentPosts.map((post, i) => (
-              <li
-                style={`--i: ${i}`}
-                data-enter={i % 2 === 0 ? 'left' : 'right'}
-              >
-                <a href={`/read/${post.id}`} class="blog-list__link">
-                  <div class="blog-list__content">
-                    <h3 class="blog-list__title">{post.data.title}</h3>
-                    <p class="blog-list__desc">{post.data.description}</p>
-                  </div>
-                  <time datetime={post.data.pubDate.toISOString()} class="blog-list__date">
-                    {formatDate(post.data.pubDate)}
-                  </time>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-    )}
   </main>
   <Footer />
 </Layout>
 
-<script>
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  // ── Magnetic letters on hero name ─────────────────────────────────────────
-  const nameEl = document.querySelector<HTMLElement>('[data-magnetic]');
-  if (nameEl && !reducedMotion) {
-    // Split text into spans per letter, preserving line breaks
-    const lines = nameEl.innerText.split('\n');
-    nameEl.innerHTML = '';
-    const letterSpans: HTMLElement[] = [];
-
-    lines.forEach((line, li) => {
-      if (li > 0) nameEl.appendChild(document.createElement('br'));
-      for (const ch of line) {
-        if (ch === ' ') { nameEl.appendChild(document.createTextNode('\u00a0')); continue; }
-        const span = document.createElement('span');
-        span.textContent = ch;
-        span.className = 'mag-letter';
-        span.style.display = 'inline-block';
-        span.style.transition = 'transform 0.35s cubic-bezier(0.16,1,0.3,1)';
-        nameEl.appendChild(span);
-        letterSpans.push(span);
-      }
-    });
-
-    // Magnetic force on mousemove
-    let ticking = false;
-    document.addEventListener('mousemove', (e) => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        letterSpans.forEach(span => {
-          const rect = span.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
-          const dx = e.clientX - cx;
-          const dy = e.clientY - cy;
-          const dist = Math.hypot(dx, dy);
-          const radius = 160;
-
-          if (dist < radius) {
-            const force = (1 - dist / radius) ** 1.5 * 20;
-            const angle = Math.atan2(dy, dx);
-            span.style.transform = `translate(${Math.cos(angle) * force}px, ${Math.sin(angle) * force}px)`;
-          } else {
-            span.style.transform = '';
-          }
-        });
-        ticking = false;
-      });
-    }, { passive: true });
-
-    // Reset on pointer leave
-    document.addEventListener('mouseleave', () => {
-      letterSpans.forEach(span => { span.style.transform = ''; });
-    });
-  }
-
-  // ── Word splitting for role/lead ──────────────────────────────────────────
-  document.querySelectorAll<HTMLElement>('[data-split-words]').forEach(el => {
-    const text = el.innerText;
-    el.innerHTML = text.split(' ').map((word, i) =>
-      `<span class="word" style="--wi:${i}" data-word>${word}</span>`
-    ).join(' ');
-  });
-
-  // ── IntersectionObserver — orchestrated entrances ─────────────────────────
-  if (!reducedMotion) {
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (!entry.isIntersecting) return;
-        const section = entry.target;
-
-        // Stagger [data-enter] elements within this section
-        const els = section.querySelectorAll<HTMLElement>('[data-enter]');
-        els.forEach((el, i) => {
-          const baseDelay = el.hasAttribute('style')
-            ? parseInt(el.style.getPropertyValue('--i') || '0') * 60
-            : i * 80;
-          setTimeout(() => el.classList.add('is-visible'), baseDelay);
-        });
-
-        // Also trigger word spans
-        section.querySelectorAll<HTMLElement>('[data-word]').forEach(word => {
-          const wi = parseInt(word.style.getPropertyValue('--wi') || '0');
-          setTimeout(() => word.classList.add('is-visible'), wi * 25);
-        });
-
-        io.unobserve(section);
-      });
-    }, { rootMargin: '0px 0px -60px 0px', threshold: 0.1 });
-
-    document.querySelectorAll('[data-orchestrate]').forEach(el => io.observe(el));
-  } else {
-    // No-motion: make everything visible immediately
-    document.querySelectorAll<HTMLElement>('[data-enter], [data-word]').forEach(el => {
-      el.classList.add('is-visible');
-    });
-  }
-</script>
-
 <style>
-  /* ─── Hero ─────────────────────────────────────────────────────────────── */
   .hero {
+    padding-block: var(--space-10) var(--space-8);
+  }
+
+  .hero__inner {
     display: grid;
-    grid-template-columns: 1fr;
-    min-height: 580px;
-    border-bottom: 1px solid var(--border-subtle);
-    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr) minmax(128px, 38vw);
+    align-items: start;
+    gap: var(--space-4);
   }
 
-  @media (min-width: 900px) {
-    .hero { grid-template-columns: 1fr 1fr; }
+  .hero__copy {
+    display: grid;
+    gap: var(--space-4);
+    align-content: center;
   }
 
-  .hero__text-col {
-    display: flex;
-    align-items: center;
-    padding-block: var(--space-16);
-    padding-right: var(--space-8);
-    padding-left: max(var(--space-8), calc((100vw - 1200px) / 2 + var(--space-8)));
-  }
-
-  @media (max-width: 899px) {
-    .hero__text-col {
-      padding-inline: var(--space-6);
-      padding-block: var(--space-12);
-      order: 2;
-    }
-  }
-
-  .hero__content { max-width: 520px; width: 100%; }
-  .hero__id { margin-bottom: var(--space-5); }
-
-  .hero__name {
-    font-size: clamp(3rem, 5vw + 1rem, 6rem);
-    font-style: italic;
-    line-height: 0.92;
-    letter-spacing: -0.04em;
-    color: var(--text-primary);
-    cursor: default;
-    user-select: none;
+  .hero h1 {
+    margin: 0;
+    font-size: clamp(2.45rem, 12vw, 4.8rem);
+    font-weight: 680;
+    letter-spacing: 0;
   }
 
   .hero__handle {
-    margin-top: var(--space-3);
-    font-size: 1rem;
-    color: var(--text-tertiary);
-    line-height: 1;
-  }
-
-  .hero__handle em {
-    font-style: italic;
+    margin: calc(-1 * var(--space-3)) 0 0;
     color: var(--color-accent);
-    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
-    font-size: 1.1em;
-  }
-
-  .hero__roles {
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-bottom: var(--space-5);
-    overflow: hidden;
+    font-size: clamp(1.4rem, 6vw, 2rem);
+    font-weight: 650;
+    line-height: 1.1;
   }
 
   .hero__lead {
-    font-size: clamp(1rem, 1.1vw + 0.6rem, 1.125rem);
-    line-height: 1.75;
-    color: var(--text-secondary);
-    max-width: 48ch;
-    margin-bottom: var(--space-8);
-    overflow: hidden;
+    max-width: 34rem;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: clamp(1rem, 2.5vw, 1.18rem);
+    line-height: 1.65;
   }
 
   .hero__actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-column: 1 / -1;
     gap: var(--space-3);
+    margin-top: var(--space-2);
   }
 
-  .hero__photo-col {
-    position: relative;
-    overflow: hidden;
-    background: var(--surface-2);
-  }
-
-  @media (max-width: 899px) {
-    .hero__photo-col { min-height: 280px; order: 1; }
-  }
-
-  .hero__photo {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top center;
-    display: block;
-    filter: saturate(0.88) contrast(1.04);
-  }
-
-  .hero__photo-fade {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to right,
-      var(--surface-1) 0%,
-      color-mix(in oklch, var(--surface-1) 40%, transparent) 18%,
-      transparent 40%
-    );
-    pointer-events: none;
-  }
-
-  /* ─── Magnetic letters ──────────────────────────────────────────────────── */
-  /* .mag-letter transition is set via JS to avoid layout cost at parse time */
-
-  /* ─── Word splitting + entrance ─────────────────────────────────────────── */
-  [data-word] {
-    display: inline-block;
-    opacity: 0;
-    transform: translateY(10px);
-    transition:
-      opacity 0.4s var(--ease-out-expo) calc(var(--wi, 0) * 20ms),
-      transform 0.4s var(--ease-out-expo) calc(var(--wi, 0) * 20ms);
-  }
-  [data-word].is-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  /* ─── Orchestrated enter animations ─────────────────────────────────────── */
-  [data-enter] {
-    opacity: 0;
-    transition: opacity 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms),
-                transform 0.65s var(--ease-out-expo) calc(var(--i, 0) * 60ms);
-  }
-  [data-enter="left"]  { transform: translateX(-24px); }
-  [data-enter="right"] { transform: translateX(24px); }
-  [data-enter="up"]    { transform: translateY(22px); }
-
-  [data-enter].is-visible {
-    opacity: 1;
-    transform: none;
-  }
-
-  /* ─── Shared section styles ─────────────────────────────────────────────── */
-  .section { padding-block: var(--space-24); }
-  .section--alt {
-    background: var(--surface-2);
-    border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .section-header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--space-6);
-    margin-bottom: var(--space-12);
-    flex-wrap: wrap;
-  }
-
-  .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: var(--space-2);
-  }
-
-  .eyebrow--light { color: oklch(75% 0.16 250); }
-
-  .lead { margin-top: var(--space-3); font-size: 1.0625rem; max-width: 55ch; }
-
-  .link-more {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color var(--dur-fast) var(--ease-out-expo);
-    flex-shrink: 0;
-    margin-bottom: var(--space-1);
-  }
-  .link-more:hover { color: var(--color-accent); }
-
-  /* ─── Buttons ───────────────────────────────────────────────────────────── */
-  .btn {
-    --btn-arrow-shift: 4px;
-    position: relative;
+  .button {
     display: inline-flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.78rem 1.4rem;
-    border: 1px solid transparent;
-    border-radius: 999px;
-    font-family: var(--fonts-sans);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    letter-spacing: -0.005em;
+    justify-content: center;
+    gap: var(--space-3);
+    min-height: 48px;
+    padding: 0.78rem 1rem;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-weight: 650;
     text-decoration: none;
-    white-space: nowrap;
-    cursor: pointer;
-    isolation: isolate;
     transition:
-      background-color 0.35s var(--ease-out-expo),
-      color 0.35s var(--ease-out-expo),
-      border-color 0.35s var(--ease-out-expo),
-      transform 0.35s var(--ease-out-expo),
-      box-shadow 0.35s var(--ease-out-expo);
+      transform var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo);
   }
 
-  .btn__label { display: inline-flex; align-items: baseline; gap: 0.25em; }
-  .btn__label em {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    letter-spacing: -0.012em;
+  .button svg {
+    width: 17px;
+    height: 17px;
   }
 
-  .btn__arrow {
-    width: 1em;
-    height: 1em;
-    flex-shrink: 0;
-    transition: transform 0.45s var(--ease-out-expo);
-    will-change: transform;
-  }
-
-  /* Solid — filled primary (desaturated against the accent) */
-  .btn--solid {
-    background: color-mix(in oklch, var(--color-accent) 75%, oklch(22% 0.03 250));
-    color: oklch(98% 0.01 250);
-    box-shadow:
-      inset 0 1px 0 oklch(100% 0 0 / 0.10),
-      inset 0 -1px 0 oklch(0% 0 0 / 0.18),
-      0 1px 2px oklch(0% 0 0 / 0.10);
-  }
-  .btn--solid:hover {
-    background: color-mix(in oklch, var(--color-accent) 88%, oklch(28% 0.03 250));
+  .button:hover {
     transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 oklch(100% 0 0 / 0.15),
-      0 10px 28px color-mix(in oklch, var(--color-accent) 22%, transparent);
-  }
-  .btn--solid:active { transform: translateY(0); }
-  .btn--solid:hover .btn__arrow--down { transform: translateY(var(--btn-arrow-shift)); }
-
-  /* Outline — bordered, inverts on hover */
-  .btn--outline {
-    background: transparent;
-    color: var(--text-primary);
-    border-color: var(--border-default);
-  }
-  .btn--outline:hover {
-    background: var(--text-primary);
-    color: var(--surface-1);
-    border-color: var(--text-primary);
-    transform: translateY(-1px);
-  }
-  .btn--outline:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
-  .btn--outline:hover .btn__arrow--ne {
-    transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
+    text-decoration: none;
   }
 
-  /* Text — minimal, persistent half-line that fills on hover */
-  .btn--text {
-    padding-inline: 0.25rem;
-    border-radius: 0;
-    background: transparent;
-    color: var(--text-primary);
-  }
-  .btn--text::after {
-    content: '';
-    position: absolute;
-    left: 0.25rem;
-    right: 0.25rem;
-    bottom: 0.42rem;
-    height: 1px;
-    background: currentColor;
-    transform: scaleX(0.5);
-    transform-origin: left center;
-    opacity: 0.35;
-    transition:
-      transform 0.5s var(--ease-out-expo),
-      opacity 0.5s var(--ease-out-expo);
-  }
-  .btn--text:hover::after {
-    transform: scaleX(1);
-    opacity: 0.9;
-  }
-  .btn--text:hover .btn__arrow--ne {
-    transform: translate(var(--btn-arrow-shift), calc(-1 * var(--btn-arrow-shift)));
-  }
-  .btn--text:hover .btn__arrow--right { transform: translateX(var(--btn-arrow-shift)); }
-
-  /* Light — kept for Academy CTA section */
-  .btn--light {
-    background: oklch(98% 0.01 250);
-    color: oklch(16% 0.02 250);
+  .button--primary {
     border-color: transparent;
-  }
-  .btn--light:hover {
-    background: #fff;
-    transform: translateY(-1px);
-    box-shadow: 0 8px 28px oklch(0% 0 0 / 0.22);
+    background: linear-gradient(135deg, var(--color-accent), color-mix(in oklch, var(--color-accent-cyan) 74%, var(--color-accent)));
+    color: oklch(16% 0.03 292);
+    box-shadow: 0 14px 36px color-mix(in oklch, var(--color-accent) 24%, transparent);
   }
 
-  /* ─── Apps grid ─────────────────────────────────────────────────────────── */
-  .apps-grid {
+  .button--secondary {
+    background: var(--surface-glass);
+  }
+
+  .button--secondary:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-raised);
+  }
+
+  .hero-card {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: var(--space-6);
-    list-style: none;
-  }
-  .apps-grid__featured { grid-column: 1 / -1; }
-
-  /* ─── Bluesky grid ──────────────────────────────────────────────────────── */
-  .bsky-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--space-4);
-    list-style: none;
-  }
-
-  /* ─── Academy CTA — dramatic full-bleed ─────────────────────────────────── */
-  @property --cta-hue {
-    syntax: '<angle>';
-    initial-value: 0deg;
-    inherits: false;
-  }
-
-  .academy-cta {
-    position: relative;
-    padding-block: clamp(var(--space-24), 12vw, 10rem);
     overflow: hidden;
-    isolation: isolate;
-  }
-
-  .academy-cta__bg {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    --cta-hue: 0deg;
-    background:
-      radial-gradient(ellipse 70% 80% at 20% 50%,
-        oklch(20% 0.12 250 / 0.9),
-        transparent 65%),
-      conic-gradient(
-        from var(--cta-hue) at 80% 50%,
-        oklch(11% 0.012 250),
-        oklch(17% 0.09 250),
-        oklch(13% 0.05 250),
-        oklch(11% 0.012 250)
-      );
-    animation: cta-spin 18s linear infinite;
-  }
-
-  @keyframes cta-spin {
-    to { --cta-hue: 360deg; }
-  }
-
-  .academy-cta__inner {
-    max-width: 680px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-  }
-
-  .academy-cta__heading {
-    font-size: clamp(2.5rem, 6vw, 5rem);
-    font-style: italic;
-    color: oklch(97% 0.01 250);
-    line-height: 1.05;
-  }
-
-  .academy-cta__heading em {
-    color: oklch(75% 0.20 250);
-    font-style: italic;
-  }
-
-  .academy-cta__body {
-    max-width: 52ch;
-    font-size: 1.0625rem;
-    color: oklch(80% 0.04 250);
-    line-height: 1.75;
-  }
-
-  /* ─── Blog list — editorial / folio treatment ─────────────────────────── */
-  .blog-list { list-style: none; display: flex; flex-direction: column; }
-
-  .blog-list li:first-child .blog-list__link { border-top: 1px solid var(--border-subtle); }
-  .blog-list__link {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: baseline;
-    column-gap: var(--space-8);
-    padding-block: var(--space-6);
-    text-decoration: none;
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background var(--dur-fast) var(--ease-out-expo);
-  }
-  .blog-list__link:hover { background: var(--surface-2); }
-  .blog-list__link:hover .blog-list__title { color: var(--color-accent); }
-
-  .blog-list__content { min-width: 0; }
-  .blog-list__title {
-    font-family: var(--fonts-serif);
-    font-style: italic;
-    font-weight: 500;
-    font-size: clamp(1.25rem, 1.8vw, 1.6rem);
-    line-height: 1.15;
-    letter-spacing: -0.015em;
-    color: var(--text-primary);
-    transition: color var(--dur-fast) var(--ease-out-expo);
-    margin-bottom: var(--space-2);
-    text-wrap: balance;
-  }
-  .blog-list__desc {
-    font-family: var(--fonts-serif);
-    font-size: 1rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
+    width: 100%;
     margin: 0;
-    max-width: 60ch;
-  }
-  .blog-list__date {
-    font-family: var(--fonts-sans);
-    font-size: 0.7rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-    padding-top: 0.4em;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-lg);
   }
 
-  /* ─── Reduced motion ────────────────────────────────────────────────────── */
-  @media (prefers-reduced-motion: reduce) {
-    .academy-cta__bg { animation: none; }
-    [data-enter], [data-word] {
-      opacity: 1 !important;
-      transform: none !important;
-      transition: none !important;
+  .hero-card__photo {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3.35;
+    object-fit: cover;
+    object-position: top center;
+    filter: saturate(0.72) contrast(1.08) brightness(0.7);
+  }
+
+  .hero-card__meta {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: 0.86rem;
+  }
+
+  .hero-card__meta span {
+    min-width: 0;
+  }
+
+  .hero-card__meta span {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .hero-card__meta i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent-success);
+  }
+
+  .section {
+    padding-block: var(--space-8);
+  }
+
+  .section__grid,
+  .writing-layout {
+    display: grid;
+    gap: var(--space-5);
+  }
+
+  .section__header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .section__header h2,
+  .academy-panel h2 {
+    margin: var(--space-1) 0 0;
+    font-size: clamp(1.5rem, 6vw, 2.25rem);
+  }
+
+  .section__desc {
+    margin: var(--space-2) 0 0;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+  }
+
+  .section__kicker {
+    margin: 0;
+    color: var(--color-accent-gold);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .section__link {
+    color: var(--text-secondary);
+    font-size: 0.86rem;
+    font-weight: 650;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .section__link::after {
+    content: " →";
+    color: var(--color-accent);
+  }
+
+  .panel {
+    padding: var(--space-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    background: color-mix(in oklch, var(--surface-glass) 88%, transparent);
+    box-shadow: var(--shadow-md);
+  }
+
+  .app-list,
+  .writing-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .writing-row {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    min-height: 74px;
+    padding: var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .writing-row:hover {
+    border-color: var(--border-default);
+    background: var(--surface-raised);
+    text-decoration: none;
+  }
+
+  .writing-row time,
+  .writing-row__content span {
+    color: var(--text-tertiary);
+    font-family: var(--fonts-mono);
+    font-size: 0.72rem;
+  }
+
+  .writing-row__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-accent);
+  }
+
+  .writing-row__content {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .writing-row__content strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .writing-row svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+  }
+
+  .academy-panel {
+    display: grid;
+    gap: var(--space-5);
+    padding: var(--space-5);
+    border: 1px solid color-mix(in oklch, var(--color-accent) 32%, var(--border-default));
+    border-radius: var(--radius-xl);
+    background:
+      radial-gradient(circle at 12% 20%, color-mix(in oklch, var(--color-accent) 18%, transparent), transparent 18rem),
+      linear-gradient(135deg, color-mix(in oklch, var(--surface-3) 88%, transparent), var(--surface-glass));
+    box-shadow: var(--shadow-md);
+  }
+
+  .academy-panel__mark {
+    display: grid;
+    place-items: center;
+    width: 60px;
+    aspect-ratio: 1;
+    border-radius: var(--radius-full);
+    background: color-mix(in oklch, var(--color-accent) 18%, var(--surface-3));
+    color: var(--color-accent);
+  }
+
+  .academy-panel__mark svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .academy-panel p:not(.section__kicker) {
+    max-width: 46rem;
+    margin: var(--space-3) 0 0;
+  }
+
+  @media (min-width: 560px) {
+    .hero__actions {
+      grid-column: auto;
+      grid-template-columns: repeat(2, minmax(0, 180px));
+    }
+  }
+
+  @media (min-width: 860px) {
+    .hero {
+      padding-block: var(--space-16) var(--space-10);
+    }
+
+    .hero__inner {
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      align-items: center;
+      gap: var(--space-12);
+    }
+
+    .hero__actions {
+      grid-column: auto;
+    }
+
+    .hero-card {
+      justify-self: end;
+    }
+
+    .writing-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .academy-panel {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      padding: var(--space-8);
     }
   }
 </style>

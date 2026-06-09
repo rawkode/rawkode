@@ -3,13 +3,9 @@ import { defineConfig } from '@pandacss/dev';
 /**
  * Design system for rawkode.dev.
  *
- * Two palettes drive every surface, text and accent token:
- *   • Light: Rosé Pine Dawn  (https://rosepinetheme.com/palette/ingredients/)
- *   • Dark : Catppuccin Frappé (https://catppuccin.com/palette/)
- *
- * Theme reactivity is handled by the platform — `color-scheme` + `light-dark()`
- * — so OS preference changes apply with zero JavaScript. The Nav toggle only
- * writes an explicit `[data-theme]` override when the user opts out of system.
+ * The site is dark-first and mobile-first. Rosé Pine drives the primary
+ * palette, with a restrained light variant kept for explicit user overrides.
+ * Theme reactivity still uses the existing `[data-theme]` contract.
  */
 export default defineConfig({
   preflight: true,
@@ -26,8 +22,7 @@ export default defineConfig({
       tokens: {
         fonts: {
           sans: { value: "'Figtree Variable', 'Figtree', system-ui, sans-serif" },
-          serif: { value: "'Newsreader Variable', 'Newsreader', Georgia, serif" },
-          mono: { value: "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace" },
+          mono: { value: "'SFMono-Regular', 'Cascadia Code', 'Source Code Pro', ui-monospace, Menlo, monospace" },
         },
 
         spacing: {
@@ -35,26 +30,30 @@ export default defineConfig({
           '2': { value: '0.5rem' },
           '3': { value: '0.75rem' },
           '4': { value: '1rem' },
+          '5': { value: '1.25rem' },
           '6': { value: '1.5rem' },
           '8': { value: '2rem' },
+          '10': { value: '2.5rem' },
           '12': { value: '3rem' },
           '16': { value: '4rem' },
+          '20': { value: '5rem' },
           '24': { value: '6rem' },
           '32': { value: '8rem' },
         },
 
         radii: {
-          sm: { value: '4px' },
+          xs: { value: '4px' },
+          sm: { value: '6px' },
           md: { value: '8px' },
-          lg: { value: '16px' },
-          xl: { value: '24px' },
+          lg: { value: '10px' },
+          xl: { value: '14px' },
           full: { value: '9999px' },
         },
 
         durations: {
           fast: { value: '120ms' },
           normal: { value: '240ms' },
-          slow: { value: '400ms' },
+          slow: { value: '420ms' },
         },
 
         easings: {
@@ -72,94 +71,84 @@ export default defineConfig({
         },
 
         colors: {
-          /* Rosé Pine Dawn — light palette */
+          rosePine: {
+            base: { value: '#191724' },
+            surface: { value: '#1f1d2e' },
+            overlay: { value: '#26233a' },
+            muted: { value: '#6e6a86' },
+            subtle: { value: '#908caa' },
+            text: { value: '#e0def4' },
+            love: { value: '#eb6f92' },
+            gold: { value: '#f6c177' },
+            rose: { value: '#ebbcba' },
+            pine: { value: '#31748f' },
+            foam: { value: '#9ccfd8' },
+            iris: { value: '#c4a7e7' },
+            highlightLow: { value: '#21202e' },
+            highlightMed: { value: '#403d52' },
+            highlightHigh: { value: '#524f67' },
+          },
+
           rosePineDawn: {
-            base: { value: '#faf4ed' },
-            surface: { value: '#fffaf3' },
-            overlay: { value: '#f2e9e1' },
-            muted: { value: '#9893a5' },
-            subtle: { value: '#797593' },
-            text: { value: '#575279' },
+            base: { value: '#f8f7fb' },
+            surface: { value: '#ffffff' },
+            overlay: { value: '#f0eef6' },
+            muted: { value: '#797593' },
+            subtle: { value: '#6e6a86' },
+            text: { value: '#232136' },
             love: { value: '#b4637a' },
             gold: { value: '#ea9d34' },
             rose: { value: '#d7827e' },
             pine: { value: '#286983' },
             foam: { value: '#56949f' },
             iris: { value: '#907aa9' },
-            highlightLow: { value: '#f4ede8' },
-            highlightMed: { value: '#dfdad9' },
+            highlightLow: { value: '#f1eff7' },
+            highlightMed: { value: '#ddd9ea' },
             highlightHigh: { value: '#cecacd' },
-          },
-
-          /* Catppuccin Frappé — dark palette */
-          catppuccinFrappe: {
-            rosewater: { value: '#f2d5cf' },
-            flamingo: { value: '#eebebe' },
-            pink: { value: '#f4b8e4' },
-            mauve: { value: '#ca9ee6' },
-            red: { value: '#e78284' },
-            maroon: { value: '#ea999c' },
-            peach: { value: '#ef9f76' },
-            yellow: { value: '#e5c890' },
-            green: { value: '#a6d189' },
-            teal: { value: '#81c8be' },
-            sky: { value: '#99d1db' },
-            sapphire: { value: '#85c1dc' },
-            blue: { value: '#8caaee' },
-            lavender: { value: '#babbf1' },
-            text: { value: '#c6d0f5' },
-            subtext1: { value: '#b5bfe2' },
-            subtext0: { value: '#a5adce' },
-            overlay2: { value: '#949cbb' },
-            overlay1: { value: '#838ba7' },
-            overlay0: { value: '#737994' },
-            surface2: { value: '#626880' },
-            surface1: { value: '#51576d' },
-            surface0: { value: '#414559' },
-            base: { value: '#303446' },
-            mantle: { value: '#292c3c' },
-            crust: { value: '#232634' },
           },
         },
       },
 
-      /**
-       * Semantic colours use CSS `light-dark()`. The browser picks the right
-       * value based on the active `color-scheme`, so a user toggling their OS
-       * preference flips the theme without any JS reacting to media changes.
-       */
       semanticTokens: {
         colors: {
           surface: {
-            '1':     { value: 'light-dark({colors.rosePineDawn.base},          {colors.catppuccinFrappe.base})' },
-            '2':     { value: 'light-dark({colors.rosePineDawn.surface},       {colors.catppuccinFrappe.surface0})' },
-            '3':     { value: 'light-dark({colors.rosePineDawn.overlay},       {colors.catppuccinFrappe.surface1})' },
-            invert:  { value: 'light-dark({colors.catppuccinFrappe.base},      {colors.rosePineDawn.base})' },
+            '1':       { value: 'light-dark(#f8f7fb, #191724)' },
+            '2':       { value: 'light-dark(#ffffff, #1f1d2e)' },
+            '3':       { value: 'light-dark(#f0eef6, #26233a)' },
+            glass:     { value: 'light-dark(rgb(255 255 255 / 0.72), rgb(38 35 58 / 0.64))' },
+            raised:    { value: 'light-dark(rgb(255 255 255 / 0.86), rgb(44 40 66 / 0.72))' },
+            invert:    { value: 'light-dark(#191724, #ffffff)' },
           },
 
           text: {
-            primary:   { value: 'light-dark({colors.rosePineDawn.text},   {colors.catppuccinFrappe.text})' },
-            secondary: { value: 'light-dark({colors.rosePineDawn.subtle}, {colors.catppuccinFrappe.subtext0})' },
-            tertiary:  { value: 'light-dark({colors.rosePineDawn.muted},  {colors.catppuccinFrappe.overlay1})' },
-            invert:    { value: 'light-dark({colors.rosePineDawn.base},   {colors.catppuccinFrappe.base})' },
+            primary:   { value: 'light-dark(#232136, #e0def4)' },
+            secondary: { value: 'light-dark(#6e6a86, #908caa)' },
+            tertiary:  { value: 'light-dark(#797593, #6e6a86)' },
+            invert:    { value: 'light-dark(#ffffff, #191724)' },
           },
 
           accent: {
-            DEFAULT: { value: 'light-dark({colors.rosePineDawn.pine},          {colors.catppuccinFrappe.blue})' },
-            hover:   { value: 'light-dark({colors.rosePineDawn.foam},          {colors.catppuccinFrappe.lavender})' },
-            muted:   { value: 'light-dark({colors.rosePineDawn.highlightMed},  {colors.catppuccinFrappe.surface1})' },
+            DEFAULT: { value: 'light-dark(#907aa9, #c4a7e7)' },
+            hover:   { value: 'light-dark(#286983, #9ccfd8)' },
+            muted:   { value: 'light-dark(#f1eff7, #21202e)' },
+            soft:    { value: 'light-dark(rgb(144 122 169 / 0.16), rgb(196 167 231 / 0.18))' },
+            cyan:    { value: 'light-dark(#56949f, #9ccfd8)' },
+            gold:    { value: 'light-dark(#ea9d34, #f6c177)' },
+            rose:    { value: 'light-dark(#d7827e, #ebbcba)' },
+            success: { value: 'light-dark(#56949f, #6bd98f)' },
           },
 
           border: {
-            subtle:  { value: 'light-dark({colors.rosePineDawn.highlightMed},  {colors.catppuccinFrappe.surface0})' },
-            DEFAULT: { value: 'light-dark({colors.rosePineDawn.highlightHigh}, {colors.catppuccinFrappe.surface1})' },
+            subtle:  { value: 'light-dark(#ddd9ea, rgb(224 222 244 / 0.16))' },
+            DEFAULT: { value: 'light-dark(#cecacd, rgb(224 222 244 / 0.24))' },
+            strong:  { value: 'light-dark(#6e6a86, rgb(224 222 244 / 0.38))' },
           },
 
           status: {
-            danger:  { value: 'light-dark({colors.rosePineDawn.love}, {colors.catppuccinFrappe.red})' },
-            warning: { value: 'light-dark({colors.rosePineDawn.gold}, {colors.catppuccinFrappe.yellow})' },
-            success: { value: 'light-dark({colors.rosePineDawn.foam}, {colors.catppuccinFrappe.green})' },
-            info:    { value: 'light-dark({colors.rosePineDawn.iris}, {colors.catppuccinFrappe.mauve})' },
+            danger:  { value: 'light-dark(#b4637a, #eb6f92)' },
+            warning: { value: 'light-dark(#ea9d34, #f6c177)' },
+            success: { value: 'light-dark(#56949f, #6bd98f)' },
+            info:    { value: 'light-dark(#286983, #9ccfd8)' },
           },
         },
       },
@@ -167,54 +156,49 @@ export default defineConfig({
   },
 
   globalCss: {
-    /* Wire the platform up: declare which schemes :root supports, and let
-       explicit overrides constrain it. light-dark() resolves accordingly. */
     ':root': {
-      colorScheme: 'light dark',
-
-      /* Shadows can't use light-dark() (it's colour-only), so they remain
-         CSS-only with a media-query default + data-theme overrides. */
-      '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04)',
-      '--shadows-md': '0 4px 12px oklch(0% 0 0 / 0.08), 0 2px 4px oklch(0% 0 0 / 0.04)',
-      '--shadows-lg': '0 8px 32px oklch(0% 0 0 / 0.12), 0 4px 8px oklch(0% 0 0 / 0.06)',
-    },
-
-    '@media (prefers-color-scheme: dark)': {
-      ':root:not([data-theme=light])': {
-        '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.24)',
-        '--shadows-md': '0 4px 12px oklch(0% 0 0 / 0.5), 0 2px 4px oklch(0% 0 0 / 0.3)',
-        '--shadows-lg': '0 8px 32px oklch(0% 0 0 / 0.6), 0 4px 8px oklch(0% 0 0 / 0.4)',
-      },
+      colorScheme: 'dark',
+      '--shadows-sm': '0 1px 2px oklch(0% 0 0 / 0.24), 0 0 0 1px oklch(100% 0 0 / 0.02)',
+      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
+      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
+      '--page-glow':
+        'radial-gradient(circle at 78% 10%, oklch(68% 0.12 292 / 0.16), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(74% 0.10 205 / 0.10), transparent 30rem)',
     },
 
     '[data-theme=light]': {
       colorScheme: 'light',
-      '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04)',
-      '--shadows-md': '0 4px 12px oklch(0% 0 0 / 0.08), 0 2px 4px oklch(0% 0 0 / 0.04)',
-      '--shadows-lg': '0 8px 32px oklch(0% 0 0 / 0.12), 0 4px 8px oklch(0% 0 0 / 0.06)',
+      '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.04)',
+      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.10), 0 1px 0 oklch(100% 0 0 / 0.70) inset',
+      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.14), 0 1px 0 oklch(100% 0 0 / 0.80) inset',
+      '--page-glow':
+        'radial-gradient(circle at 78% 10%, oklch(72% 0.12 292 / 0.14), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(70% 0.10 205 / 0.12), transparent 30rem)',
     },
 
     '[data-theme=dark]': {
       colorScheme: 'dark',
-      '--shadows-sm': '0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.24)',
-      '--shadows-md': '0 4px 12px oklch(0% 0 0 / 0.5), 0 2px 4px oklch(0% 0 0 / 0.3)',
-      '--shadows-lg': '0 8px 32px oklch(0% 0 0 / 0.6), 0 4px 8px oklch(0% 0 0 / 0.4)',
+      '--shadows-sm': '0 1px 2px oklch(0% 0 0 / 0.24), 0 0 0 1px oklch(100% 0 0 / 0.02)',
+      '--shadows-md': '0 12px 34px oklch(0% 0 0 / 0.32), 0 1px 0 oklch(100% 0 0 / 0.04) inset',
+      '--shadows-lg': '0 24px 70px oklch(0% 0 0 / 0.42), 0 1px 0 oklch(100% 0 0 / 0.06) inset',
+      '--page-glow':
+        'radial-gradient(circle at 78% 10%, oklch(68% 0.12 292 / 0.16), transparent 34rem), radial-gradient(circle at 12% 18%, oklch(74% 0.10 205 / 0.10), transparent 30rem)',
     },
 
-    /* Legacy aliases — keeps existing components working unchanged while
-       components migrate to css() / token() over time. */
     'html': {
       '--space-1': 'var(--spacing-1)',
       '--space-2': 'var(--spacing-2)',
       '--space-3': 'var(--spacing-3)',
       '--space-4': 'var(--spacing-4)',
+      '--space-5': 'var(--spacing-5)',
       '--space-6': 'var(--spacing-6)',
       '--space-8': 'var(--spacing-8)',
+      '--space-10': 'var(--spacing-10)',
       '--space-12': 'var(--spacing-12)',
       '--space-16': 'var(--spacing-16)',
+      '--space-20': 'var(--spacing-20)',
       '--space-24': 'var(--spacing-24)',
       '--space-32': 'var(--spacing-32)',
 
+      '--radius-xs': 'var(--radii-xs)',
       '--radius-sm': 'var(--radii-sm)',
       '--radius-md': 'var(--radii-md)',
       '--radius-lg': 'var(--radii-lg)',
@@ -238,6 +222,8 @@ export default defineConfig({
       '--surface-1': 'var(--colors-surface-1)',
       '--surface-2': 'var(--colors-surface-2)',
       '--surface-3': 'var(--colors-surface-3)',
+      '--surface-glass': 'var(--colors-surface-glass)',
+      '--surface-raised': 'var(--colors-surface-raised)',
       '--surface-invert': 'var(--colors-surface-invert)',
 
       '--text-primary': 'var(--colors-text-primary)',
@@ -248,9 +234,15 @@ export default defineConfig({
       '--color-accent': 'var(--colors-accent)',
       '--color-accent-hover': 'var(--colors-accent-hover)',
       '--color-accent-muted': 'var(--colors-accent-muted)',
+      '--color-accent-soft': 'var(--colors-accent-soft)',
+      '--color-accent-cyan': 'var(--colors-accent-cyan)',
+      '--color-accent-gold': 'var(--colors-accent-gold)',
+      '--color-accent-rose': 'var(--colors-accent-rose)',
+      '--color-accent-success': 'var(--colors-accent-success)',
 
       '--border-subtle': 'var(--colors-border-subtle)',
       '--border-default': 'var(--colors-border)',
+      '--border-strong': 'var(--colors-border-strong)',
 
       '--shadow-sm': 'var(--shadows-sm)',
       '--shadow-md': 'var(--shadows-md)',
