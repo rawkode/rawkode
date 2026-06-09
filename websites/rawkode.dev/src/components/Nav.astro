@@ -81,9 +81,9 @@ function isActive(href: string, external?: boolean) {
   type Theme = 'light' | 'dark' | 'system';
   const cycle: Record<Theme, Theme> = { light: 'dark', dark: 'system', system: 'light' };
   const labels: Record<Theme, string> = {
-    light: 'Colour theme: light — click for dark',
-    dark: 'Colour theme: dark — click for system',
-    system: 'Colour theme: system — click for light',
+    light: 'Colour theme: light, click for dark',
+    dark: 'Colour theme: dark, click for system',
+    system: 'Colour theme: system, click for light',
   };
   const themes = new Set<Theme>(['light', 'dark', 'system']);
 
@@ -203,8 +203,8 @@ function isActive(href: string, external?: boolean) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
@@ -223,6 +223,11 @@ function isActive(href: string, external?: boolean) {
     color: var(--text-primary);
     border-color: var(--border-default);
     background: var(--surface-raised);
+  }
+
+  .theme-toggle:active,
+  .mobile-menu__summary:active {
+    transform: translateY(1px);
   }
 
   .theme-icon { display: none; }
@@ -255,10 +260,8 @@ function isActive(href: string, external?: boolean) {
     padding: var(--space-2);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
-    box-shadow: var(--shadow-lg);
-    backdrop-filter: blur(20px) saturate(1.2);
-    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    background: var(--surface-2);
+    box-shadow: none;
   }
 
   .mobile-menu__link {

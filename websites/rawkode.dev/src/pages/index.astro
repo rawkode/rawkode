@@ -1,7 +1,6 @@
 ---
 export const prerender = true;
 
-import { Image } from 'astro:assets';
 import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
@@ -38,7 +37,7 @@ function formatShortDate(date: Date) {
           <h1>David Flanagan</h1>
           <p class="hero__handle">rawkode</p>
           <p class="hero__lead">
-            Developer tooling for cloud-native infrastructure, open source, and Rawkode Academy.
+            Cloud-native tooling, open-source systems, and deep infrastructure education from Rawkode.
           </p>
           <div class="hero__actions">
             <a href="#apps" class="button button--primary">
@@ -57,13 +56,14 @@ function formatShortDate(date: Date) {
         </div>
 
         <figure class="hero-card">
-          <Image
-            src={rawkodePhoto}
+          <img
+            src={rawkodePhoto.src}
+            width={rawkodePhoto.width}
+            height={rawkodePhoto.height}
             alt="David Flanagan"
             class="hero-card__photo"
             loading="eager"
-            widths={[360, 540, 720]}
-            sizes="(max-width: 760px) 44vw, 320px"
+            decoding="async"
           />
           <figcaption class="hero-card__meta">
             <span><i aria-hidden="true"></i> Glasgow, Scotland</span>
@@ -77,11 +77,12 @@ function formatShortDate(date: Date) {
       <div class="container section__grid">
         <header class="section__header">
           <div>
-            <p class="section__kicker">Work</p>
-            <h2>Work</h2>
-            <p class="section__desc">Tools, systems, and teaching.</p>
+            <h2>Apps, systems, and teaching</h2>
+            <p class="section__desc">
+              Open-source systems, teaching projects, and developer tools from the Rawkode ecosystem.
+            </p>
           </div>
-          <a href="https://github.com/rawkode" target="_blank" rel="noopener noreferrer" class="section__link">View all apps</a>
+          <a href="https://github.com/rawkode" target="_blank" rel="noopener noreferrer" class="section__link">View GitHub profile</a>
         </header>
         <div class="panel">
           <ul class="app-list" role="list">
@@ -98,10 +99,10 @@ function formatShortDate(date: Date) {
         <div class="container writing-layout">
           <header class="section__header">
             <div>
-              <p class="section__kicker">Thoughts</p>
               <h2>Recent writing</h2>
+              <p class="section__desc">Notes from the workbench on infrastructure, tooling, and building in public.</p>
             </div>
-            <a href="/read" class="section__link">Read all</a>
+            <a href="/read" class="section__link">Read all writing</a>
           </header>
           <ol class="writing-list" role="list">
             {recentPosts.map((post) => (
@@ -133,15 +134,14 @@ function formatShortDate(date: Date) {
             </svg>
           </div>
           <div>
-            <p class="section__kicker">Rawkode Academy</p>
-            <h2>Rawkode Academy</h2>
+            <h2>Learn the infrastructure behind the work</h2>
             <p>
-              Practical courses and projects for engineers working with cloud-native
-              infrastructure.
+              Rawkode Academy turns the same systems thinking into practical courses
+              and projects for cloud-native engineers.
             </p>
           </div>
           <a href="https://rawkode.academy" target="_blank" rel="noopener noreferrer" class="button button--secondary">
-            Explore Academy
+            Explore Rawkode Academy
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M5 12h14M13 5l7 7-7 7"/>
             </svg>
@@ -179,7 +179,7 @@ function formatShortDate(date: Date) {
 
   .hero__handle {
     margin: calc(-1 * var(--space-3)) 0 0;
-    color: var(--color-accent);
+    color: var(--text-secondary);
     font-size: clamp(1.4rem, 6vw, 2rem);
     font-weight: 650;
     line-height: 1.1;
@@ -228,11 +228,15 @@ function formatShortDate(date: Date) {
     text-decoration: none;
   }
 
+  .button:active {
+    transform: translateY(1px);
+  }
+
   .button--primary {
-    border-color: transparent;
-    background: linear-gradient(135deg, var(--color-accent), color-mix(in oklch, var(--color-accent-cyan) 74%, var(--color-accent)));
-    color: oklch(16% 0.03 292);
-    box-shadow: 0 14px 36px color-mix(in oklch, var(--color-accent) 24%, transparent);
+    border-color: var(--surface-invert);
+    background: var(--surface-invert);
+    color: var(--text-invert);
+    box-shadow: none;
   }
 
   .button--secondary {
@@ -250,18 +254,19 @@ function formatShortDate(date: Date) {
     width: 100%;
     margin: 0;
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-md);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: none;
   }
 
   .hero-card__photo {
     display: block;
     width: 100%;
+    height: auto;
     aspect-ratio: 4 / 3.35;
     object-fit: cover;
     object-position: top center;
-    filter: saturate(0.72) contrast(1.08) brightness(0.7);
+    filter: saturate(0.84) contrast(1.06) brightness(0.82);
   }
 
   .hero-card__meta {
@@ -302,6 +307,7 @@ function formatShortDate(date: Date) {
 
   .section__header {
     display: flex;
+    flex-wrap: wrap;
     align-items: end;
     justify-content: space-between;
     gap: var(--space-4);
@@ -319,15 +325,6 @@ function formatShortDate(date: Date) {
     font-size: 0.92rem;
   }
 
-  .section__kicker {
-    margin: 0;
-    color: var(--color-accent-gold);
-    font-family: var(--fonts-mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
   .section__link {
     color: var(--text-secondary);
     font-size: 0.86rem;
@@ -338,15 +335,14 @@ function formatShortDate(date: Date) {
 
   .section__link::after {
     content: " →";
-    color: var(--color-accent);
+    color: var(--text-primary);
   }
 
   .panel {
-    padding: var(--space-2);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-xl);
-    background: color-mix(in oklch, var(--surface-glass) 88%, transparent);
-    box-shadow: var(--shadow-md);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .app-list,
@@ -366,8 +362,8 @@ function formatShortDate(date: Date) {
     min-height: 74px;
     padding: var(--space-4);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--surface-glass);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
     color: var(--text-primary);
     text-decoration: none;
   }
@@ -380,9 +376,9 @@ function formatShortDate(date: Date) {
 
   .writing-row time,
   .writing-row__content span {
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-family: var(--fonts-mono);
-    font-size: 0.72rem;
+    font-size: 0.8125rem;
   }
 
   .writing-row__dot {
@@ -416,12 +412,10 @@ function formatShortDate(date: Date) {
     display: grid;
     gap: var(--space-5);
     padding: var(--space-5);
-    border: 1px solid color-mix(in oklch, var(--color-accent) 32%, var(--border-default));
-    border-radius: var(--radius-xl);
-    background:
-      radial-gradient(circle at 12% 20%, color-mix(in oklch, var(--color-accent) 18%, transparent), transparent 18rem),
-      linear-gradient(135deg, color-mix(in oklch, var(--surface-3) 88%, transparent), var(--surface-glass));
-    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    box-shadow: none;
   }
 
   .academy-panel__mark {
@@ -439,8 +433,8 @@ function formatShortDate(date: Date) {
     height: 28px;
   }
 
-  .academy-panel p:not(.section__kicker) {
-    max-width: 46rem;
+  .academy-panel p {
+    max-width: 58ch;
     margin: var(--space-3) 0 0;
   }
 

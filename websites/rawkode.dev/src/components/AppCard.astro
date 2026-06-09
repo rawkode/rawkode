@@ -9,7 +9,6 @@ const { app } = Astro.props;
 
 const repoUrl = app.repoUrl ?? (app.repoPath ? `https://github.com/rawkode/rawkode/tree/main/${app.repoPath}` : null);
 const href = app.websiteUrl ?? repoUrl;
-const statusLabel = app.status === 'in-development' ? 'Dev' : app.status === 'beta' ? 'Beta' : 'Live';
 const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperCase();
 ---
 
@@ -19,9 +18,6 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
   <div class="app-card__main">
     <header class="app-card__head">
       <h3 class="app-card__name">{app.name}</h3>
-      <span class:list={['app-card__status', `app-card__status--${app.status}`]}>
-        <span aria-hidden="true"></span>{statusLabel}
-      </span>
     </header>
     <p class="app-card__tagline">{app.tagline}</p>
     <p class="app-card__description">{app.description}</p>
@@ -52,9 +48,9 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     align-items: start;
     padding: var(--space-4);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--surface-raised) 86%, transparent);
-    box-shadow: var(--shadow-sm);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    box-shadow: none;
     transition:
       border-color var(--dur-fast) var(--ease-out-expo),
       background var(--dur-fast) var(--ease-out-expo),
@@ -63,15 +59,19 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
 
   .app-card:hover {
     border-color: var(--border-default);
-    background: var(--surface-raised);
+    background: var(--surface-3);
     transform: translateY(-1px);
   }
 
   .app-card--featured {
     border-color: color-mix(in oklch, var(--color-accent) 42%, var(--border-default));
-    background:
-      linear-gradient(135deg, color-mix(in oklch, var(--color-accent-soft) 72%, transparent), transparent 46%),
-      color-mix(in oklch, var(--surface-raised) 90%, transparent);
+    background: color-mix(in oklch, var(--color-accent-soft) 42%, var(--surface-2));
+  }
+
+  .app-card--featured .app-card__mark {
+    border-color: color-mix(in oklch, var(--color-accent) 34%, var(--border-subtle));
+    background: var(--color-accent-soft);
+    color: var(--color-accent-hover);
   }
 
   .app-card__mark {
@@ -81,9 +81,7 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     aspect-ratio: 1;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    background:
-      linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 50%, transparent), transparent),
-      var(--surface-3);
+    background: var(--surface-3);
     color: var(--text-primary);
     font-family: var(--fonts-mono);
     font-size: 1rem;
@@ -110,32 +108,6 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     color: var(--text-primary);
   }
 
-  .app-card__status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--text-tertiary);
-    font-family: var(--fonts-mono);
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  .app-card__status span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-accent-success);
-  }
-
-  .app-card__status--in-development span {
-    background: var(--color-accent-gold);
-  }
-
-  .app-card__status--beta span {
-    background: var(--color-accent-cyan);
-  }
-
   .app-card__tagline,
   .app-card__description {
     margin: 0;
@@ -150,6 +122,7 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
 
   .app-card__description {
     display: none;
+    max-width: 62ch;
     color: var(--text-secondary);
     font-size: 0.9rem;
     line-height: 1.6;
@@ -168,9 +141,9 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     padding: 0.2rem 0.45rem;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-family: var(--fonts-mono);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   .app-card__meta {
@@ -180,9 +153,9 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     justify-content: space-between;
     gap: var(--space-3);
     min-width: 0;
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-family: var(--fonts-mono);
-    font-size: 0.72rem;
+    font-size: 0.8125rem;
   }
 
   .app-card__meta span {
@@ -196,19 +169,28 @@ const mark = app.name === 'kubectl-ditto' ? '>_' : app.name.slice(0, 1).toUpperC
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     color: var(--text-secondary);
     text-decoration: none;
     flex-shrink: 0;
+    transition:
+      transform var(--dur-fast) var(--ease-out-expo),
+      border-color var(--dur-fast) var(--ease-out-expo),
+      background var(--dur-fast) var(--ease-out-expo),
+      color var(--dur-fast) var(--ease-out-expo);
   }
 
   .app-card__action:hover {
     color: var(--text-primary);
     border-color: var(--border-default);
     background: var(--surface-glass);
+  }
+
+  .app-card__action:active {
+    transform: translateY(1px);
   }
 
   .app-card__action svg {

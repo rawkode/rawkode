@@ -1,7 +1,6 @@
 ---
 export const prerender = true;
 
-import { Image } from 'astro:assets';
 import rawkodePhoto from '../assets/rawkode.jpg';
 import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
@@ -114,7 +113,7 @@ const personJsonLd = {
 ---
 
 <Layout
-  title="Biography & Speaker Kit — David Flanagan"
+  title="Biography & Speaker Kit | David Flanagan"
   description="Speaker kit for David Flanagan (rawkode): bios, headshot, and the details conference organisers need for their schedule."
   type="profile"
   jsonLd={personJsonLd}
@@ -136,13 +135,14 @@ const personJsonLd = {
         </div>
 
         <figure class="portrait-card">
-          <Image
-            src={rawkodePhoto}
+          <img
+            src={rawkodePhoto.src}
+            width={rawkodePhoto.width}
+            height={rawkodePhoto.height}
             alt="David Flanagan"
             class="portrait-card__photo"
             loading="eager"
-            widths={[360, 540, 720]}
-            sizes="(max-width: 759px) 100vw, (max-width: 899px) 40vw, 360px"
+            decoding="async"
           />
           <a href={rawkodePhoto.src} download="david-flanagan-headshot.jpg" class="portrait-card__download" aria-label="Download high-resolution headshot">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -361,12 +361,13 @@ const personJsonLd = {
     border: 1px solid var(--border-default);
     border-radius: var(--radius-xl);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: none;
   }
 
   .portrait-card__photo {
     display: block;
     width: 100%;
+    height: auto;
     aspect-ratio: 4 / 3.35;
     object-fit: cover;
     object-position: top center;
