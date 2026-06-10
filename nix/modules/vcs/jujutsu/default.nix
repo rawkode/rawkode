@@ -36,6 +36,8 @@ mkApp {
               "--reversed"
               "--no-pager"
             ];
+            pager = [ (lib.getExe pkgs.delta) ];
+            diff-formatter = ":git";
             inherit (preferences) editor;
           };
         };

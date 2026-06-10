@@ -32,7 +32,11 @@ mkApp {
         settings = {
           core = {
             inherit (preferences) editor;
-            pager = "moor";
+            pager = lib.getExe pkgs.delta;
+          };
+
+          interactive = {
+            diffFilter = "${lib.getExe pkgs.delta} --color-only";
           };
 
           user = {
@@ -102,10 +106,6 @@ mkApp {
             date = "relative";
           };
 
-          pager = {
-            diff = "hunk pager";
-          };
-
           merge = {
             conflictStyle = "zdiff3";
           };
@@ -144,10 +144,14 @@ mkApp {
             sort = "version:refname";
           };
 
+          delta = {
+            line-numbers = true;
+            navigate = true;
+          };
         };
       };
 
-      home.packages = [ pkgs.moor ];
+      home.packages = [ pkgs.delta ];
 
       home.file.".config/git/templates/commit.txt".source = ./git-commit-template.txt;
     };

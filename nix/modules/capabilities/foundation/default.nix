@@ -100,7 +100,6 @@ mkCapability {
       appBundles.git.home
       appBundles.github.home
       appBundles.htop.home
-      appBundles.hunk.home
       appBundles.jj.home
       appBundles.jq.home
       appBundles.misc.home

@@ -42,10 +42,6 @@
       url = "github:ghostty-org/ghostty";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    hunk = {
-      url = "github:modem-dev/hunk";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     ironbar.url = "github:JakeStanger/ironbar";
     lanzaboote = {
       url = "github:nix-community/lanzaboote";
