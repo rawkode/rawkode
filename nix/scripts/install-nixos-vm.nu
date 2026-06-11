@@ -89,8 +89,9 @@ def main [] {
 
 	log-step "Step 3/4: Installing NixOS..."
 	log-info "Raising open file limit to avoid 'too many open files' errors..."
-	^ulimit -n 1048576
-	^nixos-install --flake $"($flake_path)#($flake_config)" --no-root-passwd
+	# `ulimit` is a shell builtin, not an external binary, so set it and run
+	# nixos-install in the same bash process where the raised limit applies.
+	^bash -c $"ulimit -n 1048576; exec nixos-install --flake '($flake_path)#($flake_config)' --no-root-passwd"
 
 	log-step "Step 4/4: Setting up user password..."
 	log-info "Please set a password for the 'rawkode' user:"

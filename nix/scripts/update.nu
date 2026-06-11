@@ -20,4 +20,4 @@ $metadata
 | default {}
 | columns
 | where {|input| $input != $excluded }
-| each {|input| ^nix flake update --update-input $input }
+| each {|input| ^nix flake update $input }
