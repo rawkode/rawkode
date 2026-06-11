@@ -88,10 +88,34 @@ def main [] {
 	^lsblk $disk_device
 
 	log-step "Step 3/4: Installing NixOS..."
-	log-info "Raising open file limit to avoid 'too many open files' errors..."
+
+	# Building packages from source (e.g. Rust crates) can exceed the VM's RAM
+	# and trip the OOM killer. The live ISO root is tmpfs (RAM-backed) with only
+	# zram, so add a real swapfile on the target disk at /mnt to absorb the peak.
+	let swapfile = "/mnt/installer-swapfile"
+	let swap_size = ($env.INSTALL_SWAP_SIZE? | default "32G")
+	if not ($swapfile | path exists) {
+		log-info $"Creating ($swap_size) install swapfile at ($swapfile)..."
+		^fallocate -l $swap_size $swapfile
+		^chmod 600 $swapfile
+		^mkswap $swapfile
+		^swapon $swapfile
+	} else {
+		log-info $"Reusing existing swapfile at ($swapfile)"
+		do -i { ^swapon $swapfile }
+	}
+	^free -h
+
+	log-info "Raising open file limit and capping build parallelism to avoid OOM / 'too many open files'..."
 	# `ulimit` is a shell builtin, not an external binary, so set it and run
 	# nixos-install in the same bash process where the raised limit applies.
-	^bash -c $"ulimit -n 1048576; exec nixos-install --flake '($flake_path)#($flake_config)' --no-root-passwd"
+	# --cores/-j cap a single build's peak memory; the swapfile above is the
+	# real safety net if a from-source build still spikes.
+	^bash -c $"ulimit -n 1048576; exec nixos-install --flake '($flake_path)#($flake_config)' --no-root-passwd --cores 4 -j 2"
+
+	log-info "Removing install swapfile..."
+	do -i { ^swapoff $swapfile }
+	do -i { ^rm -f $swapfile }
 
 	log-step "Step 4/4: Setting up user password..."
 	log-info "Please set a password for the 'rawkode' user:"
