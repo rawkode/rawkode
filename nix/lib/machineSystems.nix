@@ -5,6 +5,7 @@
   "p4x-framework-nixos" = "x86_64-linux";
   "p4x-laptop-nixos" = "x86_64-linux";
   "p4x-mbp" = "aarch64-darwin";
+  "p4x-orb-nixos" = "aarch64-linux";
   "p4x-parallels-nixos" = "aarch64-linux";
   "p4x-studio" = "aarch64-darwin";
 }

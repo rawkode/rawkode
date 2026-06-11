@@ -148,6 +148,114 @@ in
         }
       )
     ];
+
+    orbstack-vm.nixos = [
+      (
+        {
+          lib,
+          modulesPath,
+          ...
+        }:
+        {
+          imports = [
+            # OrbStack runs NixOS as an LXC/Incus container; this sets
+            # `boot.isContainer`, which neutralises the bootloader, kernel,
+            # firmware, lanzaboote and TPM modules pulled in by `foundation`.
+            "${modulesPath}/virtualisation/lxc-container.nix"
+          ];
+
+          nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
+
+          # OrbStack (boot.isContainer) mounts the btrfs root subvolume itself,
+          # so NixOS must not manage any filesystems. `foundation`'s common
+          # module otherwise sets fileSystems."/".options, leaving a partial
+          # entry with no fsType that breaks evaluation.
+          fileSystems = lib.mkForce { };
+
+          # OrbStack guest integration (paths provided by the OrbStack agent,
+          # stable across rebuilds, mounted at /opt/orbstack-guest).
+          environment.shellInit = ''
+            . /opt/orbstack-guest/etc/profile-early
+            . /opt/orbstack-guest/etc/profile-late
+          '';
+          programs.ssh.extraConfig = ''
+            Include /opt/orbstack-guest/etc/ssh_config
+          '';
+          users.groups.orbstack.gid = 67278;
+
+          # Rosetta-backed emulation for x86 builds inside the VM.
+          nix.settings.extra-platforms = [
+            "x86_64-linux"
+            "i686-linux"
+          ];
+
+          # Networking: OrbStack uses systemd-networkd on eth0 with its own
+          # resolv.conf. `foundation` already forces NetworkManager/dhcpcd off
+          # and enables networkd, but enables resolved — which conflicts with
+          # OrbStack managing /etc/resolv.conf, so force it off here.
+          networking = {
+            dhcpcd.enable = lib.mkForce false;
+            useDHCP = false;
+            useHostResolvConf = false;
+            resolvconf.enable = lib.mkForce false;
+            wireless.iwd.enable = lib.mkForce false;
+          };
+          services.resolved.enable = lib.mkForce false;
+          environment.etc."resolv.conf".source = "/opt/orbstack-guest/etc/resolv.conf";
+
+          systemd.network = {
+            enable = true;
+            networks."50-eth0" = {
+              matchConfig.Name = "eth0";
+              networkConfig = {
+                DHCP = "ipv4";
+                IPv6AcceptRA = true;
+              };
+              linkConfig.RequiredForOnline = "routable";
+            };
+          };
+
+          # Headless container: no display-manager/greeter (foundation's greetd
+          # would otherwise try to launch a niri-session) and OrbStack provides
+          # its own SSH access, so disable the NixOS sshd.
+          services.greetd.enable = lib.mkForce false;
+          services.openssh.enable = lib.mkForce false;
+
+          # Join the OrbStack integration group. (We keep the repo's standard
+          # uid 1000 rather than OrbStack's 502 — `isNormalUser` forbids uid
+          # < 1000, and host file-ownership mapping isn't needed for in-VM dev.)
+          users.users.rawkode.extraGroups = [ "orbstack" ];
+
+          # OrbStack's lightweight VM has unreliable watchdog timing; disable
+          # the systemd watchdog on core services so they aren't killed.
+          systemd.services =
+            lib.genAttrs
+              [
+                "systemd-journald"
+                "systemd-journald@"
+                "systemd-journal-remote"
+                "systemd-journal-upload"
+                "systemd-oomd"
+                "systemd-userdbd"
+                "systemd-udevd"
+                "systemd-timesyncd"
+                "systemd-timedated"
+                "systemd-portabled"
+                "systemd-nspawn@"
+                "systemd-machined"
+                "systemd-localed"
+                "systemd-logind"
+                "systemd-importd"
+                "systemd-hostnamed"
+                "systemd-homed"
+                "systemd-networkd"
+              ]
+              (_: {
+                serviceConfig.WatchdogSec = 0;
+              });
+        }
+      )
+    ];
   };
 
   flake.nixosConfigurations = generated.nixosConfigurations;
