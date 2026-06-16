@@ -1358,10 +1358,18 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
                 switch predicate.operation {
                 case .equals:
                     return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
+                case .notEquals:
+                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
                 case .contains:
                     return value.localizedCaseInsensitiveContains(comparisonValues[0])
+                case .notContains:
+                    return !value.localizedCaseInsensitiveContains(comparisonValues[0])
                 case .oneOf:
                     return comparisonValues.contains {
+                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                    }
+                case .notOneOf:
+                    return !comparisonValues.contains {
                         value.localizedCaseInsensitiveCompare($0) == .orderedSame
                     }
                 case .greaterThan:
@@ -1657,8 +1665,11 @@ private struct LocalQuery {
 private struct LocalQueryPredicate {
     enum Operation {
         case equals
+        case notEquals
         case contains
+        case notContains
         case oneOf
+        case notOneOf
         case greaterThan
         case greaterThanOrEqual
         case lessThan
@@ -1670,21 +1681,23 @@ private struct LocalQueryPredicate {
     var values: [String]
 
     init(_ whereClause: String) throws {
-        let inPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\((.*)\)\s*$"#
-        if let match = whereClause.firstMatch(pattern: inPattern), let fieldName = match[1] {
+        let inPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(NOT\s+IN|IN)\s*\((.*)\)\s*$"#
+        if let match = whereClause.firstMatch(pattern: inPattern),
+           let fieldName = match[1],
+           let operationName = match[2] {
             field = fieldName.lowercased()
-            operation = .oneOf
-            values = try Self.parseValueList(match[2] ?? "")
+            operation = try Self.parseOperation(operationName)
+            values = try Self.parseValueList(match[3] ?? "")
             return
         }
 
-        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|=|>|<|CONTAINS)\s*(.+)\s*$"#
+        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|!=|=|>|<|NOT\s+CONTAINS|CONTAINS)\s*(.+)\s*$"#
         guard let match = whereClause.firstMatch(pattern: pattern),
               let fieldName = match[1],
               let operationName = match[2],
               let rawValue = match[3] else {
             throw SQLiteNotesError.validationFailed(
-                "Only WHERE <field> = value, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), and ordered comparisons are supported."
+                "Only WHERE <field> = value, negated filters, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), and ordered comparisons are supported."
             )
         }
 
@@ -1694,11 +1707,24 @@ private struct LocalQueryPredicate {
     }
 
     private static func parseOperation(_ rawOperation: String) throws -> Operation {
-        switch rawOperation.uppercased() {
+        let normalizedOperation = rawOperation
+            .uppercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+
+        switch normalizedOperation {
         case "=":
             return .equals
+        case "!=":
+            return .notEquals
         case "CONTAINS":
             return .contains
+        case "NOT CONTAINS":
+            return .notContains
+        case "IN":
+            return .oneOf
+        case "NOT IN":
+            return .notOneOf
         case ">":
             return .greaterThan
         case ">=":

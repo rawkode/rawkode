@@ -485,6 +485,64 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(quotedParenthesisResult.rows.map { $0["name"] }, ["Paren Resource"])
     }
 
+    func testRunQuerySupportsNegatedPredicates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "active",
+                "Topic": "public",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Archive",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "archived",
+                "Topic": "public",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Draft",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "draft",
+                "Topic": "internal",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "active",
+                "Topic": "public",
+            ]
+        )
+
+        let notEqualResult = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE status != archived AND owner = Rawkode ORDER BY name ASC"
+        )
+        XCTAssertEqual(notEqualResult.rows.map { $0["name"] }, ["Alpha Resource", "Gamma Draft"])
+
+        let notContainsResult = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE topic NOT CONTAINS internal AND owner = Rawkode ORDER BY name ASC"
+        )
+        XCTAssertEqual(notContainsResult.rows.map { $0["name"] }, ["Alpha Resource", "Beta Archive"])
+
+        let notInResult = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE status NOT IN (archived, draft) AND owner IN (Rawkode, Team) ORDER BY name ASC"
+        )
+        XCTAssertEqual(notInResult.rows.map { $0["name"] }, ["Alpha Resource", "Team Resource"])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -498,7 +556,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode AND"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
-        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name != rawkode"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name <> rawkode"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
