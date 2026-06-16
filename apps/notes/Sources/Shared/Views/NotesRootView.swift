@@ -70,6 +70,8 @@ struct NotesRootView: View {
                         contentJSON: contentJSON,
                         plainText: plainText
                     )
+                } onEntityUpsert: { name, supertagNames in
+                    try store.upsertEntity(named: name, supertagNames: supertagNames)
                 }
             } else {
                 ContentUnavailableView(

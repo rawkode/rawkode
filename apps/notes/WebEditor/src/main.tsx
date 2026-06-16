@@ -14,9 +14,41 @@ type EditorBridgePayload = {
   contentJSON: string;
 };
 
+type EntityReferencePayload = {
+  entityId: string;
+  label: string;
+  tags: string[];
+};
+
+type EntityBridgeResponse = {
+  requestId: string;
+  entityId?: string | null;
+  label?: string | null;
+  tags?: string[];
+  error?: string | null;
+};
+
+type ActiveDocumentSnapshot = {
+  documentId: string;
+  loadGeneration: number;
+};
+
+type PendingEntityRequest = {
+  documentId: string;
+  loadGeneration: number;
+  resolve(entity: EntityReferencePayload): void;
+  reject(error: Error): void;
+};
+
 type NativeBridgeMessage =
   | { type: 'ready' }
   | { type: 'loaded'; documentId: string }
+  | {
+      type: 'upsertEntity';
+      requestId: string;
+      name: string;
+      supertags: string[];
+    }
   | {
       type: 'change';
       documentId: string;
@@ -29,6 +61,7 @@ declare global {
   interface Window {
     NotesEditor?: {
       loadDocument(payload: EditorBridgePayload): boolean;
+      completeEntityRequest(response: EntityBridgeResponse): void;
     };
     webkit?: {
       messageHandlers?: {
@@ -50,6 +83,45 @@ const emptyScene: ExcalidrawInitialDataState = {
   appState: {},
   files: {},
 };
+
+const pendingEntityRequests = new Map<string, PendingEntityRequest>();
+
+const EntityReferenceNode = Node.create({
+  name: 'entityReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      entityId: { default: null },
+      label: { default: 'Untitled entity' },
+      tags: { default: [] },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-entity-reference]' }];
+  },
+
+  renderHTML({ node }) {
+    return [
+      'span',
+      mergeAttributes({
+        'data-entity-reference': 'true',
+        'data-entity-id': node.attrs.entityId,
+        'data-label': node.attrs.label,
+        class: 'entity-reference',
+      }),
+      node.attrs.label,
+    ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(EntityReferenceView);
+  },
+});
 
 const ExcalidrawNode = Node.create({
   name: 'excalidraw',
@@ -86,6 +158,17 @@ const ExcalidrawNode = Node.create({
     return ReactNodeViewRenderer(ExcalidrawNodeView);
   },
 });
+
+function EntityReferenceView({ node }: NodeViewProps) {
+  const tags = Array.isArray(node.attrs.tags) ? node.attrs.tags : [];
+
+  return (
+    <NodeViewWrapper as="span" className="entity-chip" data-entity-id={node.attrs.entityId}>
+      <span className="entity-chip__label">{node.attrs.label || 'Untitled entity'}</span>
+      {tags.length > 0 ? <span className="entity-chip__tag">{tags[0]}</span> : null}
+    </NodeViewWrapper>
+  );
+}
 
 function ExcalidrawNodeView({ node, updateAttributes, selected }: NodeViewProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -135,6 +218,7 @@ function App() {
   const suppressUpdateRef = React.useRef(false);
   const changeTimerRef = React.useRef<number | null>(null);
   const pendingChangeRef = React.useRef<PendingEditorChange | null>(null);
+  const loadGenerationRef = React.useRef(0);
 
   const flushPendingChange = React.useCallback(() => {
     if (changeTimerRef.current !== null) {
@@ -149,7 +233,7 @@ function App() {
   }, []);
 
   const editor = useEditor({
-    extensions: [StarterKit, ExcalidrawNode],
+    extensions: [StarterKit, EntityReferenceNode, ExcalidrawNode],
     content: emptyDocument,
     editorProps: {
       attributes: {
@@ -186,6 +270,8 @@ function App() {
     window.NotesEditor = {
       loadDocument(payload) {
         flushPendingChange();
+        rejectPendingEntityRequests('Entity request cancelled because the active note changed.');
+        loadGenerationRef.current += 1;
         documentIdRef.current = payload.documentId;
         titleRef.current = payload.title;
         suppressUpdateRef.current = true;
@@ -203,29 +289,76 @@ function App() {
 
         return didSetContent;
       },
+      completeEntityRequest(response) {
+        const pending = pendingEntityRequests.get(response.requestId);
+        if (!pending) {
+          return;
+        }
+
+        pendingEntityRequests.delete(response.requestId);
+
+        if (
+          pending.documentId !== documentIdRef.current ||
+          pending.loadGeneration !== loadGenerationRef.current
+        ) {
+          pending.reject(new Error('Entity request cancelled because the active note changed.'));
+          return;
+        }
+
+        if (response.error || !response.entityId || !response.label) {
+          pending.reject(new Error(response.error || 'Entity request failed.'));
+          return;
+        }
+
+        pending.resolve({
+          entityId: response.entityId,
+          label: response.label,
+          tags: Array.isArray(response.tags) ? response.tags : [],
+        });
+      },
     };
 
     postNativeMessage({ type: 'ready' });
 
     return () => {
       delete window.NotesEditor;
+      rejectPendingEntityRequests('Editor unloaded before entity request completed.');
       flushPendingChange();
     };
   }, [editor, flushPendingChange]);
 
+  const getActiveDocumentSnapshot = React.useCallback(
+    () => ({
+      documentId: documentIdRef.current,
+      loadGeneration: loadGenerationRef.current,
+    }),
+    []
+  );
+
   return (
     <main className="editor-shell">
-      <Toolbar editor={editor} />
+      <Toolbar editor={editor} getActiveDocumentSnapshot={getActiveDocumentSnapshot} />
       <EditorContent editor={editor} />
     </main>
   );
 }
 
-function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+function Toolbar({
+  editor,
+  getActiveDocumentSnapshot,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  getActiveDocumentSnapshot(): ActiveDocumentSnapshot;
+}) {
   const disabled = !editor;
 
   return (
     <div className="toolbar">
+      <EntityInsertControl
+        editor={editor}
+        disabled={disabled}
+        getActiveDocumentSnapshot={getActiveDocumentSnapshot}
+      />
       <button
         type="button"
         disabled={disabled}
@@ -248,6 +381,156 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
       </button>
     </div>
   );
+}
+
+function EntityInsertControl({
+  editor,
+  disabled,
+  getActiveDocumentSnapshot,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  disabled: boolean;
+  getActiveDocumentSnapshot(): ActiveDocumentSnapshot;
+}) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [name, setName] = React.useState('');
+  const [tags, setTags] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const trimmedName = name.trim();
+
+  async function insertEntity(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editor || !trimmedName || isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const requestSnapshot = getActiveDocumentSnapshot();
+      if (!requestSnapshot.documentId) {
+        throw new Error('No active note is loaded.');
+      }
+
+      const entity = await requestEntity(trimmedName, parseSupertags(tags), requestSnapshot);
+      const activeSnapshot = getActiveDocumentSnapshot();
+      if (
+        activeSnapshot.documentId !== requestSnapshot.documentId ||
+        activeSnapshot.loadGeneration !== requestSnapshot.loadGeneration
+      ) {
+        throw new Error('Entity request cancelled because the active note changed.');
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'entityReference',
+          attrs: {
+            entityId: entity.entityId,
+            label: entity.label,
+            tags: entity.tags,
+          },
+        })
+        .run();
+      setName('');
+      setTags('');
+      setIsOpen(false);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not create entity.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="entity-insert">
+      <button type="button" disabled={disabled} onClick={() => setIsOpen((value) => !value)}>
+        Entity
+      </button>
+
+      {isOpen ? (
+        <form className="entity-insert__form" onSubmit={insertEntity}>
+          <label>
+            <span>Name</span>
+            <input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Person, project, company"
+            />
+          </label>
+          <label>
+            <span>Supertags</span>
+            <input
+              value={tags}
+              onChange={(event) => setTags(event.target.value)}
+              placeholder="person, customer"
+            />
+          </label>
+          {error ? <p className="entity-insert__error">{error}</p> : null}
+          <div className="entity-insert__actions">
+            <button type="button" onClick={() => setIsOpen(false)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!trimmedName || isSaving}>
+              {isSaving ? 'Creating' : 'Insert'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function requestEntity(
+  name: string,
+  supertags: string[],
+  snapshot: ActiveDocumentSnapshot
+): Promise<EntityReferencePayload> {
+  const requestId = makeId('entity_request');
+
+  return new Promise((resolve, reject) => {
+    if (!window.webkit?.messageHandlers?.notesBridge) {
+      reject(new Error('Entity database is unavailable.'));
+      return;
+    }
+
+    pendingEntityRequests.set(requestId, { ...snapshot, resolve, reject });
+    postNativeMessage({
+      type: 'upsertEntity',
+      requestId,
+      name,
+      supertags,
+    });
+  });
+}
+
+function rejectPendingEntityRequests(message: string) {
+  for (const [requestId, pending] of Array.from(pendingEntityRequests)) {
+    pendingEntityRequests.delete(requestId);
+    pending.reject(new Error(message));
+  }
+}
+
+function parseSupertags(value: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const tag of value.split(',')) {
+    const normalized = tag.trim().replace(/^#+/, '');
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
 }
 
 type PendingEditorChange = Extract<NativeBridgeMessage, { type: 'change' }>;

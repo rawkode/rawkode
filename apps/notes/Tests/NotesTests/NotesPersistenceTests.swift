@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 @testable import Notes
 
 final class NotesPersistenceTests: XCTestCase {
@@ -33,6 +34,52 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(fetched.plainText, "Saved body")
     }
 
+    func testEntityUpsertReusesEntityAndLinksSupertags() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let first = try repository.upsertEntity(
+            named: "  Rawkode Academy  ",
+            supertagNames: ["person", "#customer", "person"]
+        )
+        let second = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["company"]
+        )
+
+        XCTAssertEqual(first.id, second.id)
+        XCTAssertEqual(first.label, "Rawkode Academy")
+        XCTAssertEqual(first.supertags, ["customer", "person"])
+        XCTAssertEqual(second.supertags, ["company", "customer", "person"])
+    }
+
+    func testEntityUpsertRollsBackPartialWritesAfterSupertagFailure() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        try executeRawSQL(
+            """
+            CREATE TRIGGER fail_blocked_supertag
+            BEFORE INSERT ON supertags
+            WHEN NEW.name = 'blocked'
+            BEGIN
+                SELECT RAISE(ABORT, 'blocked supertag');
+            END;
+            """,
+            databaseURL: databaseURL
+        )
+
+        XCTAssertThrowsError(
+            try repository.upsertEntity(named: "Atomic Entity", supertagNames: ["blocked"])
+        )
+
+        XCTAssertEqual(try countRows("entities", matching: "canonical_name = 'Atomic Entity'", databaseURL: databaseURL), 0)
+        XCTAssertEqual(try countRows("supertags", matching: "name = 'blocked'", databaseURL: databaseURL), 0)
+        XCTAssertEqual(try countRows("entity_supertags", databaseURL: databaseURL), 0)
+    }
+
     @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
@@ -61,4 +108,56 @@ final class NotesPersistenceTests: XCTestCase {
     private func removeTemporaryDatabase(at databaseURL: URL) {
         try? FileManager.default.removeItem(at: databaseURL.deletingLastPathComponent())
     }
+
+    private func executeRawSQL(_ sql: String, databaseURL: URL) throws {
+        let db = try openRawDatabase(at: databaseURL)
+        defer {
+            sqlite3_close(db)
+        }
+
+        var error: UnsafeMutablePointer<CChar>?
+        guard sqlite3_exec(db, sql, nil, nil, &error) == SQLITE_OK else {
+            let message = error.map { String(cString: $0) } ?? "unknown SQLite error"
+            sqlite3_free(error)
+            throw SQLiteTestError.executionFailed(message)
+        }
+    }
+
+    private func countRows(_ table: String, matching predicate: String? = nil, databaseURL: URL) throws -> Int {
+        let db = try openRawDatabase(at: databaseURL)
+        defer {
+            sqlite3_close(db)
+        }
+
+        let sql = "SELECT COUNT(*) FROM \(table)\(predicate.map { " WHERE \($0)" } ?? "");"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw SQLiteTestError.executionFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        defer {
+            sqlite3_finalize(statement)
+        }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw SQLiteTestError.executionFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        return Int(sqlite3_column_int(statement, 0))
+    }
+
+    private func openRawDatabase(at databaseURL: URL) throws -> OpaquePointer? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite error"
+            sqlite3_close(db)
+            throw SQLiteTestError.executionFailed(message)
+        }
+
+        return db
+    }
+}
+
+private enum SQLiteTestError: Error {
+    case executionFailed(String)
 }

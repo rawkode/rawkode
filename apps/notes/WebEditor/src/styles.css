@@ -19,7 +19,8 @@ body,
   margin: 0;
 }
 
-button {
+button,
+input {
   font: inherit;
 }
 
@@ -35,6 +36,7 @@ button {
   top: 0;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding: 10px 18px;
@@ -61,6 +63,82 @@ button {
 
 .toolbar button:disabled {
   opacity: 0.45;
+}
+
+.entity-insert {
+  position: relative;
+}
+
+.entity-insert__form {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 4;
+  display: grid;
+  width: min(360px, calc(100vw - 24px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 8px;
+  background: Canvas;
+  box-shadow: 0 8px 18px color-mix(in srgb, CanvasText 14%, transparent);
+}
+
+.entity-insert__form label {
+  display: grid;
+  gap: 4px;
+  color: color-mix(in srgb, CanvasText 70%, transparent);
+  font-size: 0.82rem;
+}
+
+.entity-insert__form input {
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 7px;
+  color: CanvasText;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 2%);
+}
+
+.entity-insert__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.entity-insert__error {
+  margin: 0;
+  color: color-mix(in srgb, red 70%, CanvasText);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.entity-chip {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 6px;
+  align-items: center;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, LinkText 28%, transparent);
+  border-radius: 999px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 9%, Canvas);
+  vertical-align: baseline;
+}
+
+.entity-chip__label,
+.entity-chip__tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-chip__tag {
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, LinkText 25%, transparent);
+  font-size: 0.77em;
+  opacity: 0.75;
 }
 
 .editor-prose {
@@ -153,8 +231,18 @@ button {
 
 @media (max-width: 640px) {
   .toolbar {
-    overflow-x: auto;
+    overflow: visible;
     padding-inline: 12px;
+  }
+
+  .entity-insert__form {
+    position: fixed;
+    top: 56px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 68px);
+    overflow-y: auto;
   }
 
   .editor-prose {

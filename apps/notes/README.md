@@ -7,12 +7,12 @@ Daily notes are the primary document type. The app creates today on launch, stor
 ## Architecture
 
 - SwiftUI owns the native shell, daily-note navigation, and persistence.
-- SQLite stores `documents` with one row per daily note or standalone note.
+- SQLite stores `documents`, `entities`, `supertags`, and entity-to-supertag links.
 - WKWebView hosts the bundled React/Tiptap editor.
-- Tiptap persists rich document JSON and inline Excalidraw sketches.
+- Tiptap persists rich document JSON, SQLite-backed entity references, and inline Excalidraw sketches.
 - The generated web editor bundle is ignored by version control. Xcode builds it from `WebEditor/` before copying app resources.
 
-Entity references, supertags, and query-backed dynamic views are roadmap features. They are intentionally not exposed until they are wired to local SQLite behavior.
+Query-backed dynamic views are a roadmap feature. They are intentionally not exposed until they are wired to local SQLite behavior.
 
 ## Project
 

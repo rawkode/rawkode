@@ -12,11 +12,17 @@ import AppKit
 struct WebEditorView {
     let document: NoteDocument
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
+    let onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
     let onReady: () -> Void
     let onError: (_ message: String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: onChange, onReady: onReady, onError: onError)
+        Coordinator(
+            onChange: onChange,
+            onEntityUpsert: onEntityUpsert,
+            onReady: onReady,
+            onError: onError
+        )
     }
 
     private func makeWebView(coordinator: Coordinator) -> WKWebView {
@@ -41,6 +47,7 @@ struct WebEditorView {
 
     private func updateWebView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.onChange = onChange
+        coordinator.onEntityUpsert = onEntityUpsert
         coordinator.onReady = onReady
         coordinator.onError = onError
         coordinator.scheduleLoad(document)
@@ -107,6 +114,7 @@ extension WebEditorView: NSViewRepresentable {
 extension WebEditorView {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
+        var onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
         var onReady: () -> Void
         var onError: (_ message: String) -> Void
         weak var webView: WKWebView?
@@ -120,10 +128,12 @@ extension WebEditorView {
 
         init(
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
+            onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String]) throws -> EntityReference,
             onReady: @escaping () -> Void,
             onError: @escaping (_ message: String) -> Void
         ) {
             self.onChange = onChange
+            self.onEntityUpsert = onEntityUpsert
             self.onReady = onReady
             self.onError = onError
         }
@@ -235,6 +245,39 @@ extension WebEditorView {
                 loadedContentJSON = contentJSON
                 onChange(documentID, title, contentJSON, plainText)
 
+            case "upsertEntity":
+                guard
+                    let requestID = body["requestId"] as? String,
+                    let name = body["name"] as? String
+                else {
+                    return
+                }
+
+                let supertagNames = body["supertags"] as? [String] ?? []
+
+                do {
+                    let entity = try onEntityUpsert(name, supertagNames)
+                    sendEntityResponse(
+                        EntityBridgeResponse(
+                            requestId: requestID,
+                            entityId: entity.id.uuidString,
+                            label: entity.label,
+                            tags: entity.supertags,
+                            error: nil
+                        )
+                    )
+                } catch {
+                    sendEntityResponse(
+                        EntityBridgeResponse(
+                            requestId: requestID,
+                            entityId: nil,
+                            label: nil,
+                            tags: [],
+                            error: error.localizedDescription
+                        )
+                    )
+                }
+
             case "clientError":
                 let message = body["message"] as? String ?? "Unknown editor error"
                 let source = body["source"] as? String ?? ""
@@ -243,6 +286,30 @@ extension WebEditorView {
 
             default:
                 return
+            }
+        }
+
+        private func sendEntityResponse(_ response: EntityBridgeResponse) {
+            guard let webView else {
+                return
+            }
+
+            do {
+                let data = try JSONEncoder().encode(response)
+                guard let json = String(data: data, encoding: .utf8) else {
+                    onError("Could not encode entity bridge response.")
+                    return
+                }
+
+                webView.evaluateJavaScript(
+                    "window.NotesEditor?.completeEntityRequest(\(json));"
+                ) { [weak self] _, error in
+                    if let error {
+                        self?.onError("Could not complete entity request: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                onError("Could not encode entity bridge response: \(error.localizedDescription)")
             }
         }
 
@@ -320,6 +387,14 @@ private struct EditorLoadPayload: Encodable {
     let documentId: String
     let title: String
     let contentJSON: String
+}
+
+private struct EntityBridgeResponse: Encodable {
+    let requestId: String
+    let entityId: String?
+    let label: String?
+    let tags: [String]
+    let error: String?
 }
 
 private final class EditorResourceSchemeHandler: NSObject, WKURLSchemeHandler {

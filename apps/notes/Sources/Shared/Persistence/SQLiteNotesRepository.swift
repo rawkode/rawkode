@@ -6,6 +6,7 @@ enum SQLiteNotesError: LocalizedError {
     case prepareFailed(String)
     case stepFailed(String)
     case rowDecodeFailed(String)
+    case validationFailed(String)
     case missingDatabase
 
     var errorDescription: String? {
@@ -18,6 +19,8 @@ enum SQLiteNotesError: LocalizedError {
             "Could not execute notes database statement: \(message)"
         case .rowDecodeFailed(let message):
             "Could not read notes database row: \(message)"
+        case .validationFailed(let message):
+            message
         case .missingDatabase:
             "Notes database has not been opened."
         }
@@ -176,6 +179,36 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func upsertEntity(named rawName: String, supertagNames rawSupertagNames: [String]) throws -> EntityReference {
+        let canonicalName = normalizedName(rawName)
+        guard !canonicalName.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Entity name cannot be empty.")
+        }
+
+        return try withTransaction {
+            let now = Date()
+            let entityID: UUID
+            if let existingID = try fetchEntityID(named: canonicalName) {
+                entityID = existingID
+                try updateEntity(id: existingID, canonicalName: canonicalName, updatedAt: now)
+            } else {
+                entityID = UUID()
+                try insertEntity(id: entityID, canonicalName: canonicalName, createdAt: now, updatedAt: now)
+            }
+
+            for supertagName in normalizedUniqueNames(rawSupertagNames) {
+                let supertagID = try upsertSupertag(named: supertagName, updatedAt: now)
+                try link(entityID: entityID, toSupertagID: supertagID)
+            }
+
+            return EntityReference(
+                id: entityID,
+                label: canonicalName,
+                supertags: try fetchSupertagNames(forEntityID: entityID)
+            )
+        }
+    }
+
     static func defaultDailyNoteJSON(title: String) -> String {
         """
         {"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"\(escapeJSON(title))"}]},{"type":"paragraph","content":[{"type":"text","text":"Capture the day. Add sketches inline."}]}]}
@@ -206,6 +239,33 @@ final class SQLiteNotesRepository {
 
             CREATE INDEX IF NOT EXISTS idx_documents_kind_updated_at
             ON documents(kind, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS entities (
+                id TEXT PRIMARY KEY,
+                canonical_name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS supertags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS entity_supertags (
+                entity_id TEXT NOT NULL,
+                supertag_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(entity_id, supertag_id),
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+                FOREIGN KEY(supertag_id) REFERENCES supertags(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_entity_supertags_supertag
+            ON entity_supertags(supertag_id);
             """
         )
     }
@@ -233,6 +293,19 @@ final class SQLiteNotesRepository {
             let message = error.map { String(cString: $0) } ?? lastErrorMessage
             sqlite3_free(error)
             throw SQLiteNotesError.stepFailed(message)
+        }
+    }
+
+    private func withTransaction<T>(_ body: () throws -> T) throws -> T {
+        try execute("BEGIN IMMEDIATE TRANSACTION;")
+
+        do {
+            let result = try body()
+            try execute("COMMIT;")
+            return result
+        } catch {
+            try? execute("ROLLBACK;")
+            throw error
         }
     }
 
@@ -295,6 +368,184 @@ final class SQLiteNotesRepository {
         sqlite3_bind_text(statement, 8, document.updatedAt.ISO8601Format(), -1, sqliteTransient)
     }
 
+    private func fetchEntityID(named canonicalName: String) throws -> UUID? {
+        try prepare(
+            """
+            SELECT id
+            FROM entities
+            WHERE canonical_name = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, canonicalName, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                throw SQLiteNotesError.rowDecodeFailed("invalid entity id")
+            }
+
+            return id
+        }
+    }
+
+    private func insertEntity(id: UUID, canonicalName: String, createdAt: Date, updatedAt: Date) throws {
+        try prepare(
+            """
+            INSERT INTO entities (id, canonical_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, canonicalName, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func updateEntity(id: UUID, canonicalName: String, updatedAt: Date) throws {
+        try prepare(
+            """
+            UPDATE entities
+            SET canonical_name = ?, updated_at = ?
+            WHERE id = ?;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, canonicalName, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, updatedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, id.uuidString, -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func upsertSupertag(named name: String, updatedAt: Date) throws -> UUID {
+        let slug = slugified(name)
+        if let existingID = try fetchSupertagID(slug: slug) {
+            try prepare(
+                """
+                UPDATE supertags
+                SET name = ?, updated_at = ?
+                WHERE id = ?;
+                """
+            ) { statement in
+                sqlite3_bind_text(statement, 1, name, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 2, updatedAt.ISO8601Format(), -1, sqliteTransient)
+                sqlite3_bind_text(statement, 3, existingID.uuidString, -1, sqliteTransient)
+
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+            return existingID
+        }
+
+        let id = UUID()
+        try prepare(
+            """
+            INSERT INTO supertags (id, name, slug, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, slug, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, updatedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+
+        return id
+    }
+
+    private func fetchSupertagID(slug: String) throws -> UUID? {
+        try prepare(
+            """
+            SELECT id
+            FROM supertags
+            WHERE slug = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, slug, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                throw SQLiteNotesError.rowDecodeFailed("invalid supertag id")
+            }
+
+            return id
+        }
+    }
+
+    private func link(entityID: UUID, toSupertagID supertagID: UUID) throws {
+        try prepare(
+            """
+            INSERT OR IGNORE INTO entity_supertags (entity_id, supertag_id, created_at)
+            VALUES (?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, Date().ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func fetchSupertagNames(forEntityID entityID: UUID) throws -> [String] {
+        try prepare(
+            """
+            SELECT supertags.name
+            FROM supertags
+            INNER JOIN entity_supertags ON entity_supertags.supertag_id = supertags.id
+            WHERE entity_supertags.entity_id = ?
+            ORDER BY supertags.name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            var names: [String] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                names.append(textColumn(statement, 0))
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return names
+        }
+    }
+
     private func document(from statement: OpaquePointer?) throws -> NoteDocument {
         guard let id = UUID(uuidString: textColumn(statement, 0)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid document id")
@@ -349,6 +600,59 @@ private func nullableTextColumn(_ statement: OpaquePointer?, _ index: Int32) -> 
     }
 
     return textColumn(statement, index)
+}
+
+private func normalizedName(_ value: String) -> String {
+    value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .split(whereSeparator: { $0.isWhitespace })
+        .joined(separator: " ")
+}
+
+private func normalizedUniqueNames(_ values: [String]) -> [String] {
+    var seen: Set<String> = []
+    var result: [String] = []
+
+    for value in values {
+        var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        while candidate.first == "#" {
+            candidate.removeFirst()
+        }
+
+        let normalized = normalizedName(candidate)
+        let key = normalized.lowercased()
+        guard !normalized.isEmpty, !seen.contains(key) else {
+            continue
+        }
+
+        seen.insert(key)
+        result.append(normalized)
+    }
+
+    return result
+}
+
+private func slugified(_ value: String) -> String {
+    let lowercased = normalizedName(value).lowercased()
+    var slug = ""
+    var previousWasSeparator = false
+
+    for scalar in lowercased.unicodeScalars {
+        if CharacterSet.alphanumerics.contains(scalar) {
+            slug.unicodeScalars.append(scalar)
+            previousWasSeparator = false
+        } else if !previousWasSeparator {
+            slug.append("-")
+            previousWasSeparator = true
+        }
+    }
+
+    let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    if !trimmed.isEmpty {
+        return trimmed
+    }
+
+    return lowercased.isEmpty ? "tag" : lowercased
 }
 
 private func escapeJSON(_ value: String) -> String {

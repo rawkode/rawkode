@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0E30FD6DB1F73759B0662ED9 /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
 		3016130EBDAB859894D02297 /* NotesPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */; };
 		36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
 		385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */; };
@@ -25,6 +26,7 @@
 		C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
 		D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
 		D142DDDD55304706E9AAF420 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 3698E95C2388BC623332FAB8 /* Editor */; };
+		E50975CE9B85B0C63976001C /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
 		E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3734EB80024C3E9441C3629C /* NotesStore.swift */; };
 		EA000EF367FC08143CA74749 /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
 		EAD99FB152FA81339E5D7C79 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
@@ -57,6 +59,7 @@
 		7D24E4A67B1571D565D65A3D /* Notes-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Notes-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorView.swift; sourceTree = "<group>"; };
 		A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteNotesRepository.swift; sourceTree = "<group>"; };
+		CEAB59412833D691F787F819 /* EntityReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityReference.swift; sourceTree = "<group>"; };
 		D2BF955E0697743C652D5DAF /* WebEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorView.swift; sourceTree = "<group>"; };
 		EBF05D697B7AEB76A22BD35B /* Notes-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Notes-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -196,6 +199,7 @@
 		F9575E5272FC57DFFD401510 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				CEAB59412833D691F787F819 /* EntityReference.swift */,
 				59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */,
 			);
 			path = Models;
@@ -376,6 +380,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E50975CE9B85B0C63976001C /* EntityReference.swift in Sources */,
 				385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */,
 				EA000EF367FC08143CA74749 /* NoteEditorView.swift in Sources */,
 				388DDE8AFA6E951D90D98112 /* NotesAppScene.swift in Sources */,
@@ -391,6 +396,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0E30FD6DB1F73759B0662ED9 /* EntityReference.swift in Sources */,
 				7DB28B99A57D0DDAF8594FAC /* NoteDocument.swift in Sources */,
 				C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */,
 				FF5AD071A827C694A65DA743 /* NotesAppScene.swift in Sources */,
