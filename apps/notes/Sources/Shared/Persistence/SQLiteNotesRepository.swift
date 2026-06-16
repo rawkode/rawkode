@@ -195,14 +195,7 @@ final class SQLiteNotesRepository {
 
         return try withTransaction {
             let now = Date()
-            let entityID: UUID
-            if let existingID = try fetchEntityID(named: canonicalName) {
-                entityID = existingID
-                try updateEntity(id: existingID, canonicalName: canonicalName, updatedAt: now)
-            } else {
-                entityID = UUID()
-                try insertEntity(id: entityID, canonicalName: canonicalName, createdAt: now, updatedAt: now)
-            }
+            let entityID = try upsertEntityRecord(named: canonicalName, updatedAt: now)
 
             for supertagName in normalizedUniqueNames(rawSupertagNames) {
                 let supertagID = try upsertSupertag(named: supertagName, updatedAt: now)
@@ -329,9 +322,11 @@ final class SQLiteNotesRepository {
                 entity_id TEXT NOT NULL,
                 property_key TEXT NOT NULL,
                 property_value TEXT NOT NULL,
+                value_entity_id TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY(entity_id, property_key),
-                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+                FOREIGN KEY(value_entity_id) REFERENCES entities(id) ON DELETE SET NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_entity_properties_key
@@ -350,6 +345,10 @@ final class SQLiteNotesRepository {
             ON document_entity_references(entity_id);
             """
         )
+
+        if try !table("entity_properties", hasColumn: "value_entity_id") {
+            try execute("ALTER TABLE entity_properties ADD COLUMN value_entity_id TEXT REFERENCES entities(id) ON DELETE SET NULL;")
+        }
 
         if shouldBackfillEntityReferences {
             try rebuildEntityReferenceIndex()
@@ -563,6 +562,17 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func upsertEntityRecord(named canonicalName: String, updatedAt: Date) throws -> UUID {
+        if let existingID = try fetchEntityID(named: canonicalName) {
+            try updateEntity(id: existingID, canonicalName: canonicalName, updatedAt: updatedAt)
+            return existingID
+        }
+
+        let entityID = UUID()
+        try insertEntity(id: entityID, canonicalName: canonicalName, createdAt: updatedAt, updatedAt: updatedAt)
+        return entityID
+    }
+
     private func upsertSupertag(named name: String, updatedAt: Date) throws -> UUID {
         let slug = slugified(name)
         if let existingID = try fetchSupertagID(slug: slug) {
@@ -663,16 +673,30 @@ final class SQLiteNotesRepository {
         }
 
         for property in normalizedProperties(rawProperties) {
+            let valueEntityID: UUID?
+            if let referencedEntityName = property.referencedEntityName {
+                valueEntityID = try upsertEntityRecord(named: referencedEntityName, updatedAt: updatedAt)
+            } else {
+                valueEntityID = nil
+            }
+
             try prepare(
                 """
-                INSERT INTO entity_properties (entity_id, property_key, property_value, updated_at)
-                VALUES (?, ?, ?, ?);
+                INSERT INTO entity_properties (
+                    entity_id, property_key, property_value, value_entity_id, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?);
                 """
             ) { statement in
                 sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
                 sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
                 sqlite3_bind_text(statement, 3, property.value, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 4, updatedAt.ISO8601Format(), -1, sqliteTransient)
+                if let valueEntityID {
+                    sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
+                } else {
+                    sqlite3_bind_null(statement, 4)
+                }
+                sqlite3_bind_text(statement, 5, updatedAt.ISO8601Format(), -1, sqliteTransient)
 
                 guard sqlite3_step(statement) == SQLITE_DONE else {
                     throw SQLiteNotesError.stepFailed(lastErrorMessage)
@@ -764,11 +788,11 @@ final class SQLiteNotesRepository {
     }
 
     private func fetchEntityProperties(forEntityID entityID: UUID) throws -> [String: String] {
-        let grouped = try fetchEntityProperties(entityIDs: [entityID.uuidString])
-        return grouped[entityID.uuidString] ?? [:]
+        let grouped = try fetchStoredEntityProperties(entityIDs: [entityID.uuidString])
+        return grouped[entityID.uuidString]?.mapValues(\.value) ?? [:]
     }
 
-    private func fetchEntityProperties(entityIDs: [String]) throws -> [String: [String: String]] {
+    private func fetchStoredEntityProperties(entityIDs: [String]) throws -> [String: [String: StoredEntityProperty]] {
         let requestedIDs = Set(entityIDs)
         guard !requestedIDs.isEmpty else {
             return [:]
@@ -776,18 +800,24 @@ final class SQLiteNotesRepository {
 
         return try prepare(
             """
-            SELECT entity_id, property_key, property_value
+            SELECT entity_id, property_key, property_value, value_entity_id
             FROM entity_properties
             ORDER BY property_key COLLATE NOCASE ASC;
             """
         ) { statement in
-            var grouped: [String: [String: String]] = [:]
+            var grouped: [String: [String: StoredEntityProperty]] = [:]
             var result = sqlite3_step(statement)
 
             while result == SQLITE_ROW {
                 let entityID = textColumn(statement, 0)
                 if requestedIDs.contains(entityID) {
-                    grouped[entityID, default: [:]][textColumn(statement, 1)] = textColumn(statement, 2)
+                    let valueEntityID = sqlite3_column_type(statement, 3) == SQLITE_NULL
+                        ? nil
+                        : textColumn(statement, 3)
+                    grouped[entityID, default: [:]][textColumn(statement, 1)] = StoredEntityProperty(
+                        value: textColumn(statement, 2),
+                        valueEntityID: valueEntityID
+                    )
                 }
                 result = sqlite3_step(statement)
             }
@@ -861,23 +891,34 @@ final class SQLiteNotesRepository {
             return rows
         }
 
-        let propertiesByEntityID = try fetchEntityProperties(entityIDs: rows.compactMap { $0["id"] })
+        let propertiesByEntityID = try fetchStoredEntityProperties(entityIDs: rows.compactMap { $0["id"] })
         var seenPropertyColumns: Set<String> = []
         let propertyColumns = propertiesByEntityID.values
             .flatMap { $0.keys }
             .filter { !baseColumns.contains($0) }
             .filter { seenPropertyColumns.insert($0).inserted }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let relationshipColumns = relationshipQueryColumns(
+            baseColumns: baseColumns,
+            propertyColumns: propertyColumns,
+            propertiesByEntityID: propertiesByEntityID
+        )
         let rowsWithProperties = rows.map { row in
             var result = row
             let properties = row["id"].flatMap { propertiesByEntityID[$0] } ?? [:]
             for column in propertyColumns {
-                result[column] = properties[column] ?? ""
+                result[column] = properties[column]?.value ?? ""
+            }
+            for (propertyKey, column) in relationshipColumns {
+                result[column] = properties[propertyKey]?.valueEntityID ?? ""
             }
             return result
         }
 
-        return QueryResult(columns: baseColumns + propertyColumns, rows: rowsWithProperties)
+        return QueryResult(
+            columns: baseColumns + propertyColumns + relationshipColumns.map { $0.column },
+            rows: rowsWithProperties
+        )
     }
 
     private func fetchSupertagQueryResult() throws -> QueryResult {
@@ -1048,9 +1089,20 @@ private func normalizedUniqueNames(_ values: [String]) -> [String] {
     return result
 }
 
-private func normalizedProperties(_ properties: [String: String]) -> [(key: String, value: String)] {
+private struct NormalizedEntityProperty {
+    var key: String
+    var value: String
+    var referencedEntityName: String?
+}
+
+private struct StoredEntityProperty {
+    var value: String
+    var valueEntityID: String?
+}
+
+private func normalizedProperties(_ properties: [String: String]) -> [NormalizedEntityProperty] {
     let reservedColumns: Set<String> = ["id", "name", "supertags", "updated_at"]
-    var normalized: [String: String] = [:]
+    var normalized: [String: NormalizedEntityProperty] = [:]
 
     for (rawKey, rawValue) in properties {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1067,12 +1119,28 @@ private func normalizedProperties(_ properties: [String: String]) -> [(key: Stri
             key = "property_\(key)"
         }
 
-        normalized[key] = value
+        let referencedEntityName = entityReferencePropertyValue(value)
+        normalized[key] = NormalizedEntityProperty(
+            key: key,
+            value: referencedEntityName ?? value,
+            referencedEntityName: referencedEntityName
+        )
     }
 
     return normalized
-        .map { (key: $0.key, value: $0.value) }
+        .map { $0.value }
         .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+}
+
+private func entityReferencePropertyValue(_ value: String) -> String? {
+    let pattern = #"^\[\[([^\[\]\r\n]+)\]\]$"#
+    guard let match = value.firstMatch(pattern: pattern),
+          let rawName = match[1] else {
+        return nil
+    }
+
+    let normalized = normalizedName(rawName)
+    return normalized.isEmpty ? nil : normalized
 }
 
 private func normalizedPropertyKey(_ value: String) -> String {
@@ -1134,6 +1202,34 @@ private func sourceSlugCandidates(_ source: String) -> [String] {
 
     var seen: Set<String> = []
     return candidates.filter { seen.insert($0).inserted }
+}
+
+private func relationshipQueryColumns(
+    baseColumns: [String],
+    propertyColumns: [String],
+    propertiesByEntityID: [String: [String: StoredEntityProperty]]
+) -> [(propertyKey: String, column: String)] {
+    var relationshipKeys: Set<String> = []
+    for properties in propertiesByEntityID.values {
+        for (key, property) in properties where property.valueEntityID != nil {
+            relationshipKeys.insert(key)
+        }
+    }
+
+    var usedColumns = Set(baseColumns + propertyColumns)
+    return relationshipKeys
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        .map { key in
+            let baseColumn = "\(key)_entity_id"
+            var column = usedColumns.contains(baseColumn) ? "property_\(baseColumn)" : baseColumn
+            var suffix = 2
+            while usedColumns.contains(column) {
+                column = "property_\(baseColumn)_\(suffix)"
+                suffix += 1
+            }
+            usedColumns.insert(column)
+            return (propertyKey: key, column: column)
+        }
 }
 
 private func documentQueryRow(_ document: NoteDocument) -> [String: String] {

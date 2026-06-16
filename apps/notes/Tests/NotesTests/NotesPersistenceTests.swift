@@ -88,6 +88,68 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company, project")
     }
 
+    func testEntityPropertiesCanReferenceOtherEntities() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let project = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Owner": "[[Rawkode Academy]]",
+                "Status": "active",
+            ]
+        )
+
+        XCTAssertEqual(project.properties["owner"], "Rawkode Academy")
+
+        let owner = try repository.runQuery("SELECT id, name FROM entities WHERE name = 'Rawkode Academy'")
+        let ownerID = try XCTUnwrap(owner.rows.first?["id"])
+        XCTAssertEqual(owner.rows.first?["name"], "Rawkode Academy")
+
+        let projects = try repository.runQuery(
+            "SELECT name, owner, owner_entity_id FROM projects WHERE owner = 'Rawkode Academy'"
+        )
+        XCTAssertEqual(projects.columns, ["name", "owner", "owner_entity_id"])
+        XCTAssertEqual(projects.rows, [
+            [
+                "name": "Notes Roadmap",
+                "owner": "Rawkode Academy",
+                "owner_entity_id": ownerID,
+            ],
+        ])
+    }
+
+    func testEntityPropertyReferenceColumnIsAddedDuringMigration() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        try executeRawSQL(
+            """
+            CREATE TABLE entity_properties (
+                entity_id TEXT NOT NULL,
+                property_key TEXT NOT NULL,
+                property_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(entity_id, property_key)
+            );
+            """,
+            databaseURL: databaseURL,
+            createIfNeeded: true
+        )
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+
+        let projects = try repository.runQuery("SELECT owner_entity_id FROM projects")
+        XCTAssertFalse(projects.rows.first?["owner_entity_id"]?.isEmpty ?? true)
+    }
+
     func testEntityUpsertRollsBackPartialWritesAfterSupertagFailure() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
