@@ -111,24 +111,28 @@ final class SQLiteNotesRepository {
     }
 
     func upsertDocument(_ document: NoteDocument) throws {
-        try prepare(
-            """
-            INSERT INTO documents (
-                id, kind, date, title, tiptap_json, plain_text, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                kind = excluded.kind,
-                date = excluded.date,
-                title = excluded.title,
-                tiptap_json = excluded.tiptap_json,
-                plain_text = excluded.plain_text,
-                updated_at = excluded.updated_at;
-            """
-        ) { statement in
-            bind(document, to: statement)
-            guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+        try withTransaction {
+            try prepare(
+                """
+                INSERT INTO documents (
+                    id, kind, date, title, tiptap_json, plain_text, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    kind = excluded.kind,
+                    date = excluded.date,
+                    title = excluded.title,
+                    tiptap_json = excluded.tiptap_json,
+                    plain_text = excluded.plain_text,
+                    updated_at = excluded.updated_at;
+                """
+            ) { statement in
+                bind(document, to: statement)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
             }
+
+            try syncEntityReferences(for: document)
         }
     }
 
@@ -237,6 +241,9 @@ final class SQLiteNotesRepository {
         case "supertags", "tags":
             return try filtered(try fetchSupertagQueryResult(), by: query.predicate)
 
+        case "entity_references", "references", "backlinks":
+            return try filtered(try fetchEntityReferenceQueryResult(), by: query.predicate)
+
         default:
             return try filtered(
                 try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source)),
@@ -256,6 +263,18 @@ final class SQLiteNotesRepository {
     """
 
     private func migrate() throws {
+        let hadEntityReferenceTable = try tableExists("document_entity_references")
+        let hasIndexedAtColumn = hadEntityReferenceTable
+            ? try table("document_entity_references", hasColumn: "indexed_at")
+            : false
+        let shouldRecreateEntityReferenceTable = hadEntityReferenceTable && !hasIndexedAtColumn
+
+        if shouldRecreateEntityReferenceTable {
+            try execute("DROP TABLE document_entity_references;")
+        }
+
+        let shouldBackfillEntityReferences = !hadEntityReferenceTable || shouldRecreateEntityReferenceTable
+
         try execute(
             """
             CREATE TABLE IF NOT EXISTS documents (
@@ -302,8 +321,24 @@ final class SQLiteNotesRepository {
 
             CREATE INDEX IF NOT EXISTS idx_entity_supertags_supertag
             ON entity_supertags(supertag_id);
+
+            CREATE TABLE IF NOT EXISTS document_entity_references (
+                document_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                indexed_at TEXT NOT NULL,
+                PRIMARY KEY(document_id, entity_id),
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_document_entity_references_entity
+            ON document_entity_references(entity_id);
             """
         )
+
+        if shouldBackfillEntityReferences {
+            try rebuildEntityReferenceIndex()
+        }
     }
 
     private static func defaultDatabaseURL() throws -> URL {
@@ -329,6 +364,51 @@ final class SQLiteNotesRepository {
             let message = error.map { String(cString: $0) } ?? lastErrorMessage
             sqlite3_free(error)
             throw SQLiteNotesError.stepFailed(message)
+        }
+    }
+
+    private func tableExists(_ name: String) throws -> Bool {
+        try prepare(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, name, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_ROW {
+                return true
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return false
+        }
+    }
+
+    private func table(_ tableName: String, hasColumn columnName: String) throws -> Bool {
+        let escapedTableName = tableName.replacingOccurrences(of: "\"", with: "\"\"")
+
+        return try prepare("PRAGMA table_info(\"\(escapedTableName)\");") { statement in
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                if textColumn(statement, 1) == columnName {
+                    return true
+                }
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return false
         }
     }
 
@@ -555,6 +635,61 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func syncEntityReferences(for document: NoteDocument) throws {
+        try prepare("DELETE FROM document_entity_references WHERE document_id = ?;") { statement in
+            sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+
+        try insertEntityReferences(for: document)
+    }
+
+    private func rebuildEntityReferenceIndex() throws {
+        let documents = try fetchDocuments()
+        guard !documents.isEmpty else {
+            return
+        }
+
+        try withTransaction {
+            try prepare("DELETE FROM document_entity_references;") { statement in
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+
+            for document in documents {
+                try insertEntityReferences(for: document)
+            }
+        }
+    }
+
+    private func insertEntityReferences(for document: NoteDocument) throws {
+        for entityID in entityReferenceIDs(in: document.tiptapJSON) {
+            try prepare(
+                """
+                INSERT OR IGNORE INTO document_entity_references (document_id, entity_id, indexed_at)
+                SELECT ?, ?, ?
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM entities
+                    WHERE id = ?
+                );
+                """
+            ) { statement in
+                sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 2, entityID.uuidString, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 3, Date().ISO8601Format(), -1, sqliteTransient)
+                sqlite3_bind_text(statement, 4, entityID.uuidString, -1, sqliteTransient)
+
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+        }
+    }
+
     private func fetchSupertagNames(forEntityID entityID: UUID) throws -> [String] {
         try prepare(
             """
@@ -679,6 +814,53 @@ final class SQLiteNotesRepository {
         }
 
         return QueryResult(columns: ["name", "slug", "entities"], rows: rows)
+    }
+
+    private func fetchEntityReferenceQueryResult() throws -> QueryResult {
+        let rows = try prepare(
+            """
+            SELECT
+                entities.id,
+                entities.canonical_name,
+                documents.id,
+                documents.title,
+                documents.kind,
+                COALESCE(documents.date, '')
+            FROM document_entity_references
+            INNER JOIN entities ON entities.id = document_entity_references.entity_id
+            INNER JOIN documents ON documents.id = document_entity_references.document_id
+            ORDER BY entities.canonical_name COLLATE NOCASE ASC, documents.updated_at DESC;
+            """
+        ) { statement in
+            var rows: [[String: String]] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                let entityName = textColumn(statement, 1)
+                let documentTitle = textColumn(statement, 3)
+                rows.append([
+                    "entity_id": textColumn(statement, 0),
+                    "entity": entityName,
+                    "document_id": textColumn(statement, 2),
+                    "document": documentTitle,
+                    "document_kind": textColumn(statement, 4),
+                    "date": textColumn(statement, 5),
+                    "name": "\(entityName) -> \(documentTitle)",
+                ])
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return rows
+        }
+
+        return QueryResult(
+            columns: ["name", "entity", "document", "document_kind", "date", "entity_id", "document_id"],
+            rows: rows
+        )
     }
 
     private func document(from statement: OpaquePointer?) throws -> NoteDocument {
@@ -819,6 +1001,43 @@ private func dailyNoteQueryRow(_ document: NoteDocument) -> [String: String] {
         "title": document.title,
         "updated_at": document.updatedAt.ISO8601Format(),
     ]
+}
+
+private func entityReferenceIDs(in tiptapJSON: String) -> [UUID] {
+    guard let data = tiptapJSON.data(using: .utf8),
+          let value = try? JSONSerialization.jsonObject(with: data) else {
+        return []
+    }
+
+    var ids: [UUID] = []
+    var seen: Set<UUID> = []
+    collectEntityReferenceIDs(from: value, into: &ids, seen: &seen)
+    return ids
+}
+
+private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], seen: inout Set<UUID>) {
+    if let array = value as? [Any] {
+        for item in array {
+            collectEntityReferenceIDs(from: item, into: &ids, seen: &seen)
+        }
+        return
+    }
+
+    guard let object = value as? [String: Any] else {
+        return
+    }
+
+    if object["type"] as? String == "entityReference",
+       let attrs = object["attrs"] as? [String: Any],
+       let entityIDString = attrs["entityId"] as? String,
+       let entityID = UUID(uuidString: entityIDString),
+       seen.insert(entityID).inserted {
+        ids.append(entityID)
+    }
+
+    for child in object.values {
+        collectEntityReferenceIDs(from: child, into: &ids, seen: &seen)
+    }
 }
 
 private func filtered(_ result: QueryResult, by predicate: LocalQueryPredicate?) throws -> QueryResult {

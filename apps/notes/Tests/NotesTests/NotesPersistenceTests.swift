@@ -112,6 +112,88 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertTrue(entities.rows.isEmpty)
     }
 
+    func testEntityReferenceIndexTracksSavedDocumentContent() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let entity = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
+        var document = try repository.createStandaloneNote()
+        document.title = "Meeting note"
+        document.tiptapJSON = """
+        {"type":"doc","content":[{"type":"paragraph","content":[{"type":"entityReference","attrs":{"entityId":"\(entity.id.uuidString)","label":"Rawkode Academy","tags":["company"]}}]}]}
+        """
+        try repository.upsertDocument(document)
+
+        let references = try repository.runQuery("SELECT * FROM entity_references WHERE entity CONTAINS academy")
+        XCTAssertEqual(references.columns, ["name", "entity", "document", "document_kind", "date", "entity_id", "document_id"])
+        XCTAssertEqual(references.rows.count, 1)
+        XCTAssertEqual(references.rows.first?["name"], "Rawkode Academy -> Meeting note")
+        XCTAssertEqual(references.rows.first?["entity_id"], entity.id.uuidString)
+        XCTAssertEqual(references.rows.first?["document"], "Meeting note")
+
+        document.tiptapJSON = #"{"type":"doc","content":[{"type":"paragraph"}]}"#
+        try repository.upsertDocument(document)
+
+        XCTAssertTrue(try repository.runQuery("SELECT * FROM backlinks").rows.isEmpty)
+    }
+
+    func testEntityReferenceIndexBackfillsExistingDocumentsDuringMigration() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let entityID = UUID()
+        let documentID = UUID()
+        let now = Date().ISO8601Format()
+        try executeRawSQL(
+            """
+            CREATE TABLE documents (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('daily', 'note')),
+                date TEXT,
+                title TEXT NOT NULL,
+                tiptap_json TEXT NOT NULL,
+                plain_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE entities (
+                id TEXT PRIMARY KEY,
+                canonical_name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            INSERT INTO entities (id, canonical_name, created_at, updated_at)
+            VALUES ('\(entityID.uuidString)', 'Rawkode Academy', '\(now)', '\(now)');
+
+            INSERT INTO documents (id, kind, date, title, tiptap_json, plain_text, created_at, updated_at)
+            VALUES (
+                '\(documentID.uuidString)',
+                'daily',
+                '2026-06-16',
+                'Legacy daily note',
+                '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"entityReference","attrs":{"entityId":"\(entityID.uuidString)","label":"Rawkode Academy","tags":[]}}]}]}',
+                '',
+                '\(now)',
+                '\(now)'
+            );
+            """,
+            databaseURL: databaseURL,
+            createIfNeeded: true
+        )
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let references = try repository.runQuery("SELECT * FROM backlinks WHERE document CONTAINS legacy")
+
+        XCTAssertEqual(references.rows.count, 1)
+        XCTAssertEqual(references.rows.first?["name"], "Rawkode Academy -> Legacy daily note")
+        XCTAssertEqual(references.rows.first?["entity"], "Rawkode Academy")
+        XCTAssertEqual(references.rows.first?["document_id"], documentID.uuidString)
+        XCTAssertEqual(references.rows.first?["date"], "2026-06-16")
+    }
+
     @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
@@ -141,8 +223,8 @@ final class NotesPersistenceTests: XCTestCase {
         try? FileManager.default.removeItem(at: databaseURL.deletingLastPathComponent())
     }
 
-    private func executeRawSQL(_ sql: String, databaseURL: URL) throws {
-        let db = try openRawDatabase(at: databaseURL)
+    private func executeRawSQL(_ sql: String, databaseURL: URL, createIfNeeded: Bool = false) throws {
+        let db = try openRawDatabase(at: databaseURL, createIfNeeded: createIfNeeded)
         defer {
             sqlite3_close(db)
         }
@@ -178,9 +260,10 @@ final class NotesPersistenceTests: XCTestCase {
         return Int(sqlite3_column_int(statement, 0))
     }
 
-    private func openRawDatabase(at databaseURL: URL) throws -> OpaquePointer? {
+    private func openRawDatabase(at databaseURL: URL, createIfNeeded: Bool = false) throws -> OpaquePointer? {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        let flags = SQLITE_OPEN_READWRITE | (createIfNeeded ? SQLITE_OPEN_CREATE : 0)
+        guard sqlite3_open_v2(databaseURL.path, &db, flags, nil) == SQLITE_OK else {
             let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite error"
             sqlite3_close(db)
             throw SQLiteTestError.executionFailed(message)
