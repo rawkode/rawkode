@@ -215,7 +215,7 @@ final class SQLiteNotesRepository {
         }
     }
 
-    func runQuery(_ rawQuery: String) throws -> QueryResult {
+    func runQuery(_ rawQuery: String, relativeDate: Date = .now) throws -> QueryResult {
         let query = try LocalQuery(rawQuery)
         let result: QueryResult
 
@@ -248,7 +248,7 @@ final class SQLiteNotesRepository {
             result = try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source))
         }
 
-        return try materialized(result, using: query)
+        return try materialized(result, using: query, relativeDate: relativeDate)
     }
 
     static func defaultDailyNoteJSON(title: String) -> String {
@@ -1343,18 +1343,19 @@ private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], 
     }
 }
 
-private func materialized(_ result: QueryResult, using query: LocalQuery) throws -> QueryResult {
+private func materialized(_ result: QueryResult, using query: LocalQuery, relativeDate: Date) throws -> QueryResult {
     var rows = result.rows
 
     if let predicate = query.predicate {
         try requireQueryField(predicate.field, in: result)
+        let comparisonValue = queryComparisonValue(for: predicate, relativeDate: relativeDate)
         rows = rows.filter { row in
             let value = row[predicate.field] ?? ""
             switch predicate.operation {
             case .equals:
-                return value.localizedCaseInsensitiveCompare(predicate.value) == .orderedSame
+                return value.localizedCaseInsensitiveCompare(comparisonValue) == .orderedSame
             case .contains:
-                return value.localizedCaseInsensitiveContains(predicate.value)
+                return value.localizedCaseInsensitiveContains(comparisonValue)
             }
         }
     }
@@ -1400,6 +1401,18 @@ private func materialized(_ result: QueryResult, using query: LocalQuery) throws
     }
 
     return QueryResult(columns: projection, rows: projectedRows)
+}
+
+private func queryComparisonValue(for predicate: LocalQueryPredicate, relativeDate: Date) -> String {
+    guard predicate.field == "date",
+          let relativeDateValue = DailyNoteDateFormatter.relativeStorageString(
+              for: predicate.value,
+              relativeTo: relativeDate
+          ) else {
+        return predicate.value
+    }
+
+    return relativeDateValue
 }
 
 private func requireQueryField(_ field: String, in result: QueryResult) throws {

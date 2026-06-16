@@ -234,6 +234,38 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company")
     }
 
+    func testRunQuerySupportsRelativeDailyNoteDates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let baseDate = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 6, day: 16, hour: 12))
+        )
+        let today = DailyNoteDateFormatter.storageString(from: baseDate)
+        let yesterday = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: baseDate)
+        )
+        let yesterdayStorageDate = DailyNoteDateFormatter.storageString(from: yesterday)
+
+        _ = try repository.createDailyNote(date: today)
+        _ = try repository.createDailyNote(date: yesterdayStorageDate)
+
+        let todayResult = try repository.runQuery(
+            "SELECT date, title FROM daily_notes WHERE date = today",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(todayResult.columns, ["date", "title"])
+        XCTAssertEqual(todayResult.rows.count, 1)
+        XCTAssertEqual(todayResult.rows.first?["date"], today)
+
+        let yesterdayResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date = 'yesterday'",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(yesterdayResult.rows.first?["date"], yesterdayStorageDate)
+    }
+
     func testRunQueryOrdersAndLimitsDynamicViews() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
