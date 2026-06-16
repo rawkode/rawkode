@@ -3,7 +3,7 @@ import SwiftUI
 struct NoteEditorView: View {
     let document: NoteDocument
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
-    let onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
+    let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
     @State private var editorStatus: EditorStatus = .loading
 
@@ -119,8 +119,8 @@ private struct EditorStatusBanner: View {
                 createdAt: .now,
                 updatedAt: .now
             )
-        ) { _, _, _, _ in } onEntityUpsert: { name, supertagNames in
-            EntityReference(id: UUID(), label: name, supertags: supertagNames)
+        ) { _, _, _, _ in } onEntityUpsert: { name, supertagNames, properties in
+            EntityReference(id: UUID(), label: name, supertags: supertagNames, properties: properties ?? [:])
         } onQueryRun: { _ in
             QueryResult(columns: ["name"], rows: [["name": "Preview"]])
         }

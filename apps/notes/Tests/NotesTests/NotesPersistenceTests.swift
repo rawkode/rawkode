@@ -54,6 +54,40 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(second.supertags, ["company", "customer", "person"])
     }
 
+    func testEntityPropertiesAreQueryableAsDynamicColumns() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let entity = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["bookmark", "company"],
+            properties: [
+                "URL": "https://rawkode.academy",
+                "Status": "active",
+                "Updated At": "weekly",
+            ]
+        )
+
+        XCTAssertEqual(entity.properties["url"], "https://rawkode.academy")
+        XCTAssertEqual(entity.properties["status"], "active")
+        XCTAssertEqual(entity.properties["updated_at"], nil)
+        XCTAssertEqual(entity.properties["property_updated_at"], "weekly")
+
+        let preserved = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["project"])
+        XCTAssertEqual(preserved.properties["url"], "https://rawkode.academy")
+
+        let bookmarks = try repository.runQuery("SELECT * FROM bookmarks WHERE url CONTAINS rawkode")
+        XCTAssertTrue(bookmarks.columns.contains("url"))
+        XCTAssertTrue(bookmarks.columns.contains("status"))
+        XCTAssertTrue(bookmarks.columns.contains("property_updated_at"))
+        XCTAssertEqual(bookmarks.rows.count, 1)
+        XCTAssertEqual(bookmarks.rows.first?["name"], "Rawkode Academy")
+        XCTAssertEqual(bookmarks.rows.first?["url"], "https://rawkode.academy")
+        XCTAssertEqual(bookmarks.rows.first?["status"], "active")
+        XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company, project")
+    }
+
     func testEntityUpsertRollsBackPartialWritesAfterSupertagFailure() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

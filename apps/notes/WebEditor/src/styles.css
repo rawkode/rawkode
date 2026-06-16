@@ -91,13 +91,20 @@ input {
   font-size: 0.82rem;
 }
 
-.entity-insert__form input {
+.entity-insert__form input,
+.entity-insert__form textarea {
   min-height: 32px;
   padding: 5px 8px;
   border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
   border-radius: 7px;
   color: CanvasText;
   background: color-mix(in srgb, Canvas 92%, CanvasText 2%);
+  font: inherit;
+}
+
+.entity-insert__form textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .entity-insert__actions {

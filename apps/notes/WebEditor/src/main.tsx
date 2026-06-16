@@ -18,6 +18,7 @@ type EntityReferencePayload = {
   entityId: string;
   label: string;
   tags: string[];
+  properties?: Record<string, string>;
 };
 
 type EntityBridgeResponse = {
@@ -25,6 +26,7 @@ type EntityBridgeResponse = {
   entityId?: string | null;
   label?: string | null;
   tags?: string[];
+  properties?: Record<string, string>;
   error?: string | null;
 };
 
@@ -67,6 +69,7 @@ type NativeBridgeMessage =
       requestId: string;
       name: string;
       supertags: string[];
+      properties?: Record<string, string>;
     }
   | {
       type: 'runQuery';
@@ -493,6 +496,7 @@ function App() {
           entityId: response.entityId,
           label: response.label,
           tags: Array.isArray(response.tags) ? response.tags : [],
+          properties: response.properties || {},
         });
       },
       completeQueryRequest(response) {
@@ -620,6 +624,7 @@ function EntityInsertControl({
   const [isOpen, setIsOpen] = React.useState(false);
   const [name, setName] = React.useState('');
   const [tags, setTags] = React.useState('');
+  const [properties, setProperties] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const trimmedName = name.trim();
@@ -639,7 +644,12 @@ function EntityInsertControl({
         throw new Error('No active note is loaded.');
       }
 
-      const entity = await requestEntity(trimmedName, parseSupertags(tags), requestSnapshot);
+      const entity = await requestEntity(
+        trimmedName,
+        parseSupertags(tags),
+        parseProperties(properties),
+        requestSnapshot
+      );
       const activeSnapshot = getActiveDocumentSnapshot();
       if (
         activeSnapshot.documentId !== requestSnapshot.documentId ||
@@ -662,6 +672,7 @@ function EntityInsertControl({
         .run();
       setName('');
       setTags('');
+      setProperties('');
       setIsOpen(false);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not create entity.');
@@ -695,6 +706,15 @@ function EntityInsertControl({
               placeholder="person, customer"
             />
           </label>
+          <label>
+            <span>Properties</span>
+            <textarea
+              value={properties}
+              onChange={(event) => setProperties(event.target.value)}
+              placeholder={'url: https://example.com\nstatus: active'}
+              rows={3}
+            />
+          </label>
           {error ? <p className="entity-insert__error">{error}</p> : null}
           <div className="entity-insert__actions">
             <button type="button" onClick={() => setIsOpen(false)}>
@@ -713,6 +733,7 @@ function EntityInsertControl({
 function requestEntity(
   name: string,
   supertags: string[],
+  properties: Record<string, string>,
   snapshot: ActiveDocumentSnapshot
 ): Promise<EntityReferencePayload> {
   const requestId = makeId('entity_request');
@@ -724,12 +745,18 @@ function requestEntity(
     }
 
     pendingEntityRequests.set(requestId, { ...snapshot, resolve, reject });
-    postNativeMessage({
+    const message: NativeBridgeMessage = {
       type: 'upsertEntity',
       requestId,
       name,
       supertags,
-    });
+    };
+
+    if (Object.keys(properties).length > 0) {
+      message.properties = properties;
+    }
+
+    postNativeMessage(message);
   });
 }
 
@@ -785,6 +812,25 @@ function parseSupertags(value: string): string[] {
 
     seen.add(key);
     result.push(normalized);
+  }
+
+  return result;
+}
+
+function parseProperties(value: string): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const line of value.split(/\r?\n/)) {
+    const separatorIndex = line.search(/[:=]/);
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const propertyValue = line.slice(separatorIndex + 1).trim();
+    if (key && propertyValue) {
+      result[key] = propertyValue;
+    }
   }
 
   return result;

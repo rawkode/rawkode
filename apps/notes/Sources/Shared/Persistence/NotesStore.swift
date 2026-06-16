@@ -136,13 +136,17 @@ final class NotesStore {
         }
     }
 
-    func upsertEntity(named name: String, supertagNames: [String]) throws -> EntityReference {
+    func upsertEntity(
+        named name: String,
+        supertagNames: [String],
+        properties: [String: String]? = nil
+    ) throws -> EntityReference {
         guard let repository = requireRepository() else {
             throw SQLiteNotesError.missingDatabase
         }
 
         do {
-            return try repository.upsertEntity(named: name, supertagNames: supertagNames)
+            return try repository.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
         } catch {
             lastErrorMessage = error.localizedDescription
             throw error

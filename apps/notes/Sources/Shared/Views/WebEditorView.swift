@@ -12,7 +12,7 @@ import AppKit
 struct WebEditorView {
     let document: NoteDocument
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
-    let onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
+    let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
     let onReady: () -> Void
     let onError: (_ message: String) -> Void
@@ -117,7 +117,7 @@ extension WebEditorView: NSViewRepresentable {
 extension WebEditorView {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
-        var onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
+        var onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
         var onQueryRun: (_ query: String) throws -> QueryResult
         var onReady: () -> Void
         var onError: (_ message: String) -> Void
@@ -132,7 +132,7 @@ extension WebEditorView {
 
         init(
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
-            onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String]) throws -> EntityReference,
+            onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference,
             onQueryRun: @escaping (_ query: String) throws -> QueryResult,
             onReady: @escaping () -> Void,
             onError: @escaping (_ message: String) -> Void
@@ -260,15 +260,17 @@ extension WebEditorView {
                 }
 
                 let supertagNames = body["supertags"] as? [String] ?? []
+                let properties = body["properties"] as? [String: String]
 
                 do {
-                    let entity = try onEntityUpsert(name, supertagNames)
+                    let entity = try onEntityUpsert(name, supertagNames, properties)
                     sendEntityResponse(
                         EntityBridgeResponse(
                             requestId: requestID,
                             entityId: entity.id.uuidString,
                             label: entity.label,
                             tags: entity.supertags,
+                            properties: entity.properties,
                             error: nil
                         )
                     )
@@ -279,6 +281,7 @@ extension WebEditorView {
                             entityId: nil,
                             label: nil,
                             tags: [],
+                            properties: [:],
                             error: error.localizedDescription
                         )
                     )
@@ -453,6 +456,7 @@ private struct EntityBridgeResponse: Encodable {
     let entityId: String?
     let label: String?
     let tags: [String]
+    let properties: [String: String]
     let error: String?
 }
 

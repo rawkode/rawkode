@@ -76,8 +76,8 @@ struct NotesRootView: View {
                         contentJSON: contentJSON,
                         plainText: plainText
                     )
-                } onEntityUpsert: { name, supertagNames in
-                    try store.upsertEntity(named: name, supertagNames: supertagNames)
+                } onEntityUpsert: { name, supertagNames, properties in
+                    try store.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
                 } onQueryRun: { query in
                     try store.runQuery(query)
                 }

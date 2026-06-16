@@ -183,7 +183,11 @@ final class SQLiteNotesRepository {
         }
     }
 
-    func upsertEntity(named rawName: String, supertagNames rawSupertagNames: [String]) throws -> EntityReference {
+    func upsertEntity(
+        named rawName: String,
+        supertagNames rawSupertagNames: [String],
+        properties rawProperties: [String: String]? = nil
+    ) throws -> EntityReference {
         let canonicalName = normalizedName(rawName)
         guard !canonicalName.isEmpty else {
             throw SQLiteNotesError.validationFailed("Entity name cannot be empty.")
@@ -205,10 +209,15 @@ final class SQLiteNotesRepository {
                 try link(entityID: entityID, toSupertagID: supertagID)
             }
 
+            if let rawProperties {
+                try syncEntityProperties(entityID: entityID, properties: rawProperties, updatedAt: now)
+            }
+
             return EntityReference(
                 id: entityID,
                 label: canonicalName,
-                supertags: try fetchSupertagNames(forEntityID: entityID)
+                supertags: try fetchSupertagNames(forEntityID: entityID),
+                properties: try fetchEntityProperties(forEntityID: entityID)
             )
         }
     }
@@ -315,6 +324,18 @@ final class SQLiteNotesRepository {
 
             CREATE INDEX IF NOT EXISTS idx_entity_supertags_supertag
             ON entity_supertags(supertag_id);
+
+            CREATE TABLE IF NOT EXISTS entity_properties (
+                entity_id TEXT NOT NULL,
+                property_key TEXT NOT NULL,
+                property_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(entity_id, property_key),
+                FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_entity_properties_key
+            ON entity_properties(property_key);
 
             CREATE TABLE IF NOT EXISTS document_entity_references (
                 document_id TEXT NOT NULL,
@@ -629,6 +650,37 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func syncEntityProperties(
+        entityID: UUID,
+        properties rawProperties: [String: String],
+        updatedAt: Date
+    ) throws {
+        try prepare("DELETE FROM entity_properties WHERE entity_id = ?;") { statement in
+            sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+
+        for property in normalizedProperties(rawProperties) {
+            try prepare(
+                """
+                INSERT INTO entity_properties (entity_id, property_key, property_value, updated_at)
+                VALUES (?, ?, ?, ?);
+                """
+            ) { statement in
+                sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 3, property.value, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 4, updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+        }
+    }
+
     private func syncEntityReferences(for document: NoteDocument) throws {
         try prepare("DELETE FROM document_entity_references WHERE document_id = ?;") { statement in
             sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
@@ -711,8 +763,45 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func fetchEntityProperties(forEntityID entityID: UUID) throws -> [String: String] {
+        let grouped = try fetchEntityProperties(entityIDs: [entityID.uuidString])
+        return grouped[entityID.uuidString] ?? [:]
+    }
+
+    private func fetchEntityProperties(entityIDs: [String]) throws -> [String: [String: String]] {
+        let requestedIDs = Set(entityIDs)
+        guard !requestedIDs.isEmpty else {
+            return [:]
+        }
+
+        return try prepare(
+            """
+            SELECT entity_id, property_key, property_value
+            FROM entity_properties
+            ORDER BY property_key COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var grouped: [String: [String: String]] = [:]
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                let entityID = textColumn(statement, 0)
+                if requestedIDs.contains(entityID) {
+                    grouped[entityID, default: [:]][textColumn(statement, 1)] = textColumn(statement, 2)
+                }
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return grouped
+        }
+    }
+
     private func fetchEntityQueryResult(supertagSlugCandidates: [String]) throws -> QueryResult {
-        let columns = ["id", "name", "supertags", "updated_at"]
+        let baseColumns = ["id", "name", "supertags", "updated_at"]
         let hasSupertagFilter = !supertagSlugCandidates.isEmpty
         let placeholders = supertagSlugCandidates.map { _ in "?" }.joined(separator: ", ")
         let whereClause = hasSupertagFilter
@@ -772,7 +861,23 @@ final class SQLiteNotesRepository {
             return rows
         }
 
-        return QueryResult(columns: columns, rows: rows)
+        let propertiesByEntityID = try fetchEntityProperties(entityIDs: rows.compactMap { $0["id"] })
+        var seenPropertyColumns: Set<String> = []
+        let propertyColumns = propertiesByEntityID.values
+            .flatMap { $0.keys }
+            .filter { !baseColumns.contains($0) }
+            .filter { seenPropertyColumns.insert($0).inserted }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let rowsWithProperties = rows.map { row in
+            var result = row
+            let properties = row["id"].flatMap { propertiesByEntityID[$0] } ?? [:]
+            for column in propertyColumns {
+                result[column] = properties[column] ?? ""
+            }
+            return result
+        }
+
+        return QueryResult(columns: baseColumns + propertyColumns, rows: rowsWithProperties)
     }
 
     private func fetchSupertagQueryResult() throws -> QueryResult {
@@ -938,6 +1043,59 @@ private func normalizedUniqueNames(_ values: [String]) -> [String] {
 
         seen.insert(key)
         result.append(normalized)
+    }
+
+    return result
+}
+
+private func normalizedProperties(_ properties: [String: String]) -> [(key: String, value: String)] {
+    let reservedColumns: Set<String> = ["id", "name", "supertags", "updated_at"]
+    var normalized: [String: String] = [:]
+
+    for (rawKey, rawValue) in properties {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            continue
+        }
+
+        var key = normalizedPropertyKey(rawKey)
+        guard !key.isEmpty else {
+            continue
+        }
+
+        if reservedColumns.contains(key) {
+            key = "property_\(key)"
+        }
+
+        normalized[key] = value
+    }
+
+    return normalized
+        .map { (key: $0.key, value: $0.value) }
+        .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+}
+
+private func normalizedPropertyKey(_ value: String) -> String {
+    let lowercased = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    var result = ""
+    var previousWasSeparator = false
+
+    for scalar in lowercased.unicodeScalars {
+        switch scalar.value {
+        case 48...57, 65...90, 97...122:
+            result.unicodeScalars.append(scalar)
+            previousWasSeparator = false
+        default:
+            if !previousWasSeparator {
+                result.append("_")
+                previousWasSeparator = true
+            }
+        }
+    }
+
+    result = result.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    if let first = result.unicodeScalars.first, (48...57).contains(first.value) {
+        result = "_\(result)"
     }
 
     return result
