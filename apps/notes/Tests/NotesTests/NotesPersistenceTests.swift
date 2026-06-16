@@ -418,6 +418,64 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testRunQuerySupportsOrPredicates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "active",
+                "Topic": "Research or notes",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Personal Archive",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "archived",
+                "Topic": "Reference",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Draft",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "draft",
+                "Topic": "Reference",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Active",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "active",
+                "Topic": "Reference",
+            ]
+        )
+
+        let disjunction = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE status = archived OR owner = Team ORDER BY name ASC"
+        )
+        XCTAssertEqual(disjunction.rows.map { $0["name"] }, ["Personal Archive", "Team Active", "Team Draft"])
+
+        let precedence = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE status = active AND owner = Rawkode OR status = draft AND owner = Team ORDER BY name ASC"
+        )
+        XCTAssertEqual(precedence.rows.map { $0["name"] }, ["Rawkode Academy", "Team Draft"])
+
+        let quotedOr = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE topic = 'Research or notes' OR owner = Missing"
+        )
+        XCTAssertEqual(quotedOr.rows.map { $0["name"] }, ["Rawkode Academy"])
+    }
+
     func testRunQuerySupportsInPredicates() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -721,6 +779,21 @@ final class NotesPersistenceTests: XCTestCase {
             ],
         ])
 
+        let disjunctiveHaving = try repository.runQuery(
+            "SELECT status AS lane, COUNT(*) AS total FROM bookmarks GROUP BY status HAVING total > 2 OR lane = archived ORDER BY lane ASC"
+        )
+        XCTAssertEqual(disjunctiveHaving.columns, ["lane", "total"])
+        XCTAssertEqual(disjunctiveHaving.rows, [
+            [
+                "lane": "active",
+                "total": "3",
+            ],
+            [
+                "lane": "archived",
+                "total": "1",
+            ],
+        ])
+
         let multiFieldGroup = try repository.runQuery(
             "SELECT owner, status, COUNT(*) AS total FROM bookmarks GROUP BY owner, status ORDER BY total DESC"
         )
@@ -768,6 +841,8 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT name, name FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name AS label, id AS label FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode AND"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode OR"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode OR OR updated_at CONTAINS 2026"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name <> rawkode"))

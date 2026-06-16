@@ -1611,7 +1611,7 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     }
 
     if !query.predicates.isEmpty {
-        rows = filterQueryRows(rows, using: query.predicates, relativeDate: relativeDate)
+        rows = filterQueryRows(rows, using: query.predicateGroups, relativeDate: relativeDate)
     }
 
     if let group = query.group {
@@ -1739,7 +1739,7 @@ private func materializedGroupedAggregate(
         for predicate in query.havingPredicates {
             try requireQueryField(predicate.field, in: groupedResult)
         }
-        groupedRows = filterQueryRows(groupedRows, using: query.havingPredicates, relativeDate: relativeDate)
+        groupedRows = filterQueryRows(groupedRows, using: query.havingPredicateGroups, relativeDate: relativeDate)
     }
 
     if let order = query.order {
@@ -1774,40 +1774,42 @@ private func materializedGroupedAggregate(
 
 private func filterQueryRows(
     _ rows: [[String: String]],
-    using predicates: [LocalQueryPredicate],
+    using predicateGroups: [[LocalQueryPredicate]],
     relativeDate: Date
 ) -> [[String: String]] {
     rows.filter { row in
-        predicates.allSatisfy { predicate in
-            let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
-            let value = row[predicate.field] ?? ""
-            switch predicate.operation {
-            case .equals:
-                return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
-            case .notEquals:
-                return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
-            case .contains:
-                return value.localizedCaseInsensitiveContains(comparisonValues[0])
-            case .notContains:
-                return !value.localizedCaseInsensitiveContains(comparisonValues[0])
-            case .oneOf:
-                return comparisonValues.contains {
-                    value.localizedCaseInsensitiveCompare($0) == .orderedSame
+        predicateGroups.contains { predicates in
+            predicates.allSatisfy { predicate in
+                let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
+                let value = row[predicate.field] ?? ""
+                switch predicate.operation {
+                case .equals:
+                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
+                case .notEquals:
+                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
+                case .contains:
+                    return value.localizedCaseInsensitiveContains(comparisonValues[0])
+                case .notContains:
+                    return !value.localizedCaseInsensitiveContains(comparisonValues[0])
+                case .oneOf:
+                    return comparisonValues.contains {
+                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                    }
+                case .notOneOf:
+                    return !comparisonValues.contains {
+                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                    }
+                case .greaterThan:
+                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
+                case .greaterThanOrEqual:
+                    let comparison = value.localizedStandardCompare(comparisonValues[0])
+                    return comparison == .orderedDescending || comparison == .orderedSame
+                case .lessThan:
+                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
+                case .lessThanOrEqual:
+                    let comparison = value.localizedStandardCompare(comparisonValues[0])
+                    return comparison == .orderedAscending || comparison == .orderedSame
                 }
-            case .notOneOf:
-                return !comparisonValues.contains {
-                    value.localizedCaseInsensitiveCompare($0) == .orderedSame
-                }
-            case .greaterThan:
-                return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
-            case .greaterThanOrEqual:
-                let comparison = value.localizedStandardCompare(comparisonValues[0])
-                return comparison == .orderedDescending || comparison == .orderedSame
-            case .lessThan:
-                return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
-            case .lessThanOrEqual:
-                let comparison = value.localizedStandardCompare(comparisonValues[0])
-                return comparison == .orderedAscending || comparison == .orderedSame
             }
         }
     }
@@ -1865,9 +1867,15 @@ private struct LocalQuery {
     var projection: [LocalQueryProjection]?
     var aggregate: LocalQueryAggregate?
     var source: String
-    var predicates: [LocalQueryPredicate] = []
+    var predicateGroups: [[LocalQueryPredicate]] = []
+    var predicates: [LocalQueryPredicate] {
+        predicateGroups.flatMap { $0 }
+    }
     var group: LocalQueryGroup?
-    var havingPredicates: [LocalQueryPredicate] = []
+    var havingPredicateGroups: [[LocalQueryPredicate]] = []
+    var havingPredicates: [LocalQueryPredicate] {
+        havingPredicateGroups.flatMap { $0 }
+    }
     var order: LocalQueryOrder?
     var limit: Int?
 
@@ -1891,7 +1899,7 @@ private struct LocalQuery {
         aggregate = selection.aggregate
         source = sourceName.lowercased()
         if match.indices.contains(3), let whereClause = match[3], !whereClause.isEmpty {
-            predicates = try Self.parsePredicates(whereClause)
+            predicateGroups = try Self.parsePredicateGroups(whereClause)
         }
 
         if match.indices.contains(4), let groupClause = match[4], !groupClause.isEmpty {
@@ -1899,7 +1907,7 @@ private struct LocalQuery {
         }
 
         if match.indices.contains(5), let havingClause = match[5], !havingClause.isEmpty {
-            havingPredicates = try Self.parsePredicates(havingClause)
+            havingPredicateGroups = try Self.parsePredicateGroups(havingClause)
         }
 
         if match.indices.contains(6), let orderField = match[6], !orderField.isEmpty {
@@ -2054,24 +2062,31 @@ private struct LocalQuery {
         return fields
     }
 
-    private static func parsePredicates(_ rawWhereClause: String) throws -> [LocalQueryPredicate] {
-        let clauses = try splitConjunctions(in: rawWhereClause)
-        guard !clauses.isEmpty else {
+    private static func parsePredicateGroups(_ rawWhereClause: String) throws -> [[LocalQueryPredicate]] {
+        let disjunctions = try splitLogicalClauses(in: rawWhereClause, keyword: "OR")
+        guard !disjunctions.isEmpty else {
             throw SQLiteNotesError.validationFailed("Query filter is missing.")
         }
 
-        return try clauses.map { try LocalQueryPredicate($0) }
+        return try disjunctions.map { disjunction in
+            let conjunctions = try splitLogicalClauses(in: disjunction, keyword: "AND")
+            guard !conjunctions.isEmpty else {
+                throw SQLiteNotesError.validationFailed("Query filter is missing.")
+            }
+
+            return try conjunctions.map { try LocalQueryPredicate($0) }
+        }
     }
 
-    private static func splitConjunctions(in whereClause: String) throws -> [String] {
+    private static func splitLogicalClauses(in text: String, keyword: String) throws -> [String] {
         var clauses: [String] = []
         var current = ""
         var quotedBy: Character?
         var parenthesisDepth = 0
-        var index = whereClause.startIndex
+        var index = text.startIndex
 
-        while index < whereClause.endIndex {
-            let character = whereClause[index]
+        while index < text.endIndex {
+            let character = text[index]
 
             if character == "'" || character == "\"" {
                 if quotedBy == nil {
@@ -2080,7 +2095,7 @@ private struct LocalQuery {
                     quotedBy = nil
                 }
                 current.append(character)
-                index = whereClause.index(after: index)
+                index = text.index(after: index)
                 continue
             }
 
@@ -2088,7 +2103,7 @@ private struct LocalQuery {
                 if character == "(" {
                     parenthesisDepth += 1
                     current.append(character)
-                    index = whereClause.index(after: index)
+                    index = text.index(after: index)
                     continue
                 }
 
@@ -2098,24 +2113,24 @@ private struct LocalQuery {
                         throw SQLiteNotesError.validationFailed("Query filter contains unbalanced parentheses.")
                     }
                     current.append(character)
-                    index = whereClause.index(after: index)
+                    index = text.index(after: index)
                     continue
                 }
             }
 
-            if quotedBy == nil, parenthesisDepth == 0, isStandaloneKeyword("AND", in: whereClause, at: index) {
+            if quotedBy == nil, parenthesisDepth == 0, isStandaloneKeyword(keyword, in: text, at: index) {
                 let clause = current.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !clause.isEmpty else {
                     throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
                 }
                 clauses.append(clause)
                 current = ""
-                index = whereClause.index(index, offsetBy: 3)
+                index = text.index(index, offsetBy: keyword.count)
                 continue
             }
 
             current.append(character)
-            index = whereClause.index(after: index)
+            index = text.index(after: index)
         }
 
         guard quotedBy == nil else {
