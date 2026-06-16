@@ -628,6 +628,33 @@ final class SQLiteNotesRepository {
         return id
     }
 
+    private func ensureSupertagRecord(named name: String, createdAt: Date) throws -> UUID {
+        let slug = slugified(name)
+        if let existingID = try fetchSupertagID(slug: slug) {
+            return existingID
+        }
+
+        let id = UUID()
+        try prepare(
+            """
+            INSERT INTO supertags (id, name, slug, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, slug, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, createdAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+
+        return id
+    }
+
     private func fetchSupertagID(slug: String) throws -> UUID? {
         try prepare(
             """
@@ -755,8 +782,12 @@ final class SQLiteNotesRepository {
             try insertExistingDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
         }
 
-        for entityName in entityReferenceNames(in: document.plainText) {
-            let entityID = try ensureEntityRecord(named: entityName, createdAt: now)
+        for mention in entityMentions(in: document.plainText) {
+            let entityID = try ensureEntityRecord(named: mention.name, createdAt: now)
+            for supertagName in mention.supertagNames {
+                let supertagID = try ensureSupertagRecord(named: supertagName, createdAt: now)
+                try link(entityID: entityID, toSupertagID: supertagID)
+            }
             try insertDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
         }
     }
@@ -1201,6 +1232,11 @@ private struct StoredEntityProperty {
     var valueEntityID: String?
 }
 
+private struct PlainTextEntityMention {
+    var name: String
+    var supertagNames: [String]
+}
+
 private func normalizedProperties(_ properties: [String: String]) -> [NormalizedEntityProperty] {
     let reservedColumns: Set<String> = ["id", "name", "supertags", "updated_at"]
     var normalized: [String: NormalizedEntityProperty] = [:]
@@ -1364,36 +1400,68 @@ private func entityReferenceIDs(in tiptapJSON: String) -> [UUID] {
     return ids
 }
 
-private func entityReferenceNames(in plainText: String) -> [String] {
-    var names: [String] = []
-    var seen: Set<String> = []
-    var searchStart = plainText.startIndex
+private func entityMentions(in plainText: String) -> [PlainTextEntityMention] {
+    var mentionsByKey: [String: PlainTextEntityMention] = [:]
+    var orderedKeys: [String] = []
 
-    while let openRange = plainText[searchStart...].range(of: "[[") {
-        let nameStart = openRange.upperBound
-        guard let closeRange = plainText[nameStart...].range(of: "]]") else {
-            break
+    for line in plainText.components(separatedBy: .newlines) {
+        var searchStart = line.startIndex
+
+        while let openRange = line[searchStart...].range(of: "[[") {
+            let nameStart = openRange.upperBound
+            guard let closeRange = line[nameStart...].range(of: "]]") else {
+                break
+            }
+
+            let rawName = String(line[nameStart..<closeRange.lowerBound])
+            searchStart = closeRange.upperBound
+
+            guard !rawName.contains("["),
+                  !rawName.contains("]") else {
+                continue
+            }
+
+            let normalized = normalizedName(rawName)
+            let key = normalized.lowercased()
+            guard !normalized.isEmpty else {
+                continue
+            }
+
+            let tagSegmentEnd = line[closeRange.upperBound...].range(of: "[[")?.lowerBound ?? line.endIndex
+            let sameLineTags = supertagNames(in: String(line[closeRange.upperBound..<tagSegmentEnd]))
+            if var mention = mentionsByKey[key] {
+                mention.supertagNames = normalizedUniqueNames(mention.supertagNames + sameLineTags)
+                mentionsByKey[key] = mention
+            } else {
+                mentionsByKey[key] = PlainTextEntityMention(
+                    name: normalized,
+                    supertagNames: normalizedUniqueNames(sameLineTags)
+                )
+                orderedKeys.append(key)
+            }
         }
-
-        let rawName = String(plainText[nameStart..<closeRange.lowerBound])
-        searchStart = closeRange.upperBound
-
-        guard rawName.rangeOfCharacter(from: .newlines) == nil,
-              !rawName.contains("["),
-              !rawName.contains("]") else {
-            continue
-        }
-
-        let normalized = normalizedName(rawName)
-        let key = normalized.lowercased()
-        guard !normalized.isEmpty, seen.insert(key).inserted else {
-            continue
-        }
-
-        names.append(normalized)
     }
 
-    return names
+    return orderedKeys.compactMap { mentionsByKey[$0] }
+}
+
+private func supertagNames(in text: String) -> [String] {
+    guard let expression = try? NSRegularExpression(pattern: #"(^|\s)#([A-Za-z0-9][A-Za-z0-9_-]*)"#) else {
+        return []
+    }
+
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    let matches = expression.matches(in: text, range: range)
+    let names = matches.compactMap { match -> String? in
+        guard let tagRange = Range(match.range(at: 2), in: text) else {
+            return nil
+        }
+
+        let normalized = normalizedName(String(text[tagRange]))
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    return normalizedUniqueNames(names)
 }
 
 private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], seen: inout Set<UUID>) {

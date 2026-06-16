@@ -862,6 +862,47 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testPlainTextMentionsApplySameLineSupertags() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let existingEntity = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
+        var document = try repository.createStandaloneNote()
+        document.title = "Typed database"
+        document.tiptapJSON = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Typed database"}]}]}"#
+        document.plainText = """
+        [[rawkode academy]] #customer
+        [[Notes Roadmap]] #project #active
+        [[Notes Roadmap]] #bookmark and [[Launch Plan]] #project
+        """
+        try repository.upsertDocument(document)
+
+        let customers = try repository.runQuery(
+            "SELECT id, name, supertags FROM customers WHERE name = 'Rawkode Academy'"
+        )
+        XCTAssertEqual(customers.rows, [
+            [
+                "id": existingEntity.id.uuidString,
+                "name": "Rawkode Academy",
+                "supertags": "company, customer",
+            ],
+        ])
+
+        let projects = try repository.runQuery(
+            "SELECT name, supertags FROM projects ORDER BY name ASC"
+        )
+        XCTAssertEqual(projects.rows, [
+            ["name": "Launch Plan", "supertags": "project"],
+            ["name": "Notes Roadmap", "supertags": "active, bookmark, project"],
+        ])
+
+        let bookmarks = try repository.runQuery("SELECT name FROM bookmarks")
+        XCTAssertEqual(bookmarks.rows, [
+            ["name": "Notes Roadmap"],
+        ])
+    }
+
     func testEntityReferenceIndexBackfillsExistingDocumentsDuringMigration() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
