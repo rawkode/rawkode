@@ -264,6 +264,12 @@ final class NotesPersistenceTests: XCTestCase {
             relativeDate: baseDate
         )
         XCTAssertEqual(yesterdayResult.rows.first?["date"], yesterdayStorageDate)
+
+        let rangeResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date IN (today, yesterday) ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(rangeResult.rows.map { $0["date"] }, [yesterdayStorageDate, today])
     }
 
     func testRunQueryOrdersAndLimitsDynamicViews() throws {
@@ -401,6 +407,73 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testRunQuerySupportsInPredicates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "active",
+                "Topic": "Research, notes",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "draft",
+                "Topic": "Reference",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "archived",
+                "Topic": "Reference",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "active",
+                "Topic": "Research, notes",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Paren Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "reference",
+                "Topic": "Research (notes)",
+            ]
+        )
+
+        let result = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE status IN (active, draft) AND owner = Rawkode ORDER BY name ASC"
+        )
+        XCTAssertEqual(result.rows.map { $0["name"] }, ["Alpha Resource", "Beta Resource"])
+
+        let quotedCommaResult = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE topic IN ('Research, notes') AND owner = Rawkode"
+        )
+        XCTAssertEqual(quotedCommaResult.rows.map { $0["name"] }, ["Alpha Resource"])
+
+        let quotedParenthesisResult = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE topic IN ('Research (notes)') AND owner = Rawkode"
+        )
+        XCTAssertEqual(quotedParenthesisResult.rows.map { $0["name"] }, ["Paren Resource"])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -412,6 +485,8 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT name, name FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name AS label, id AS label FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode AND"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])

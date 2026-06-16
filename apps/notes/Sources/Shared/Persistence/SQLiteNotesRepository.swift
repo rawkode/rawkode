@@ -1353,13 +1353,17 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     if !query.predicates.isEmpty {
         rows = rows.filter { row in
             query.predicates.allSatisfy { predicate in
-                let comparisonValue = queryComparisonValue(for: predicate, relativeDate: relativeDate)
+                let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
                 let value = row[predicate.field] ?? ""
                 switch predicate.operation {
                 case .equals:
-                    return value.localizedCaseInsensitiveCompare(comparisonValue) == .orderedSame
+                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
                 case .contains:
-                    return value.localizedCaseInsensitiveContains(comparisonValue)
+                    return value.localizedCaseInsensitiveContains(comparisonValues[0])
+                case .oneOf:
+                    return comparisonValues.contains {
+                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                    }
                 }
             }
         }
@@ -1408,16 +1412,18 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     return QueryResult(columns: projection.map { $0.outputName }, rows: projectedRows)
 }
 
-private func queryComparisonValue(for predicate: LocalQueryPredicate, relativeDate: Date) -> String {
-    guard predicate.field == "date",
-          let relativeDateValue = DailyNoteDateFormatter.relativeStorageString(
-              for: predicate.value,
-              relativeTo: relativeDate
-          ) else {
-        return predicate.value
-    }
+private func queryComparisonValues(for predicate: LocalQueryPredicate, relativeDate: Date) -> [String] {
+    predicate.values.map { value in
+        guard predicate.field == "date",
+              let relativeDateValue = DailyNoteDateFormatter.relativeStorageString(
+                  for: value,
+                  relativeTo: relativeDate
+              ) else {
+            return value
+        }
 
-    return relativeDateValue
+        return relativeDateValue
+    }
 }
 
 private func requireQueryField(_ field: String, in result: QueryResult) throws {
@@ -1540,6 +1546,7 @@ private struct LocalQuery {
         var clauses: [String] = []
         var current = ""
         var quotedBy: Character?
+        var parenthesisDepth = 0
         var index = whereClause.startIndex
 
         while index < whereClause.endIndex {
@@ -1556,7 +1563,26 @@ private struct LocalQuery {
                 continue
             }
 
-            if quotedBy == nil, isStandaloneKeyword("AND", in: whereClause, at: index) {
+            if quotedBy == nil {
+                if character == "(" {
+                    parenthesisDepth += 1
+                    current.append(character)
+                    index = whereClause.index(after: index)
+                    continue
+                }
+
+                if character == ")" {
+                    parenthesisDepth -= 1
+                    guard parenthesisDepth >= 0 else {
+                        throw SQLiteNotesError.validationFailed("Query filter contains unbalanced parentheses.")
+                    }
+                    current.append(character)
+                    index = whereClause.index(after: index)
+                    continue
+                }
+            }
+
+            if quotedBy == nil, parenthesisDepth == 0, isStandaloneKeyword("AND", in: whereClause, at: index) {
                 let clause = current.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !clause.isEmpty else {
                     throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
@@ -1573,6 +1599,10 @@ private struct LocalQuery {
 
         guard quotedBy == nil else {
             throw SQLiteNotesError.validationFailed("Query filter contains an unterminated quoted value.")
+        }
+
+        guard parenthesisDepth == 0 else {
+            throw SQLiteNotesError.validationFailed("Query filter contains unbalanced parentheses.")
         }
 
         let finalClause = current.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1618,29 +1648,100 @@ private struct LocalQueryPredicate {
     enum Operation {
         case equals
         case contains
+        case oneOf
     }
 
     var field: String
     var operation: Operation
-    var value: String
+    var values: [String]
 
     init(_ whereClause: String) throws {
-        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|CONTAINS)\s*('([^']*)'|"([^"]*)"|([A-Za-z0-9_.:-]+))\s*$"#
-        guard let match = whereClause.firstMatch(pattern: pattern) else {
-            throw SQLiteNotesError.validationFailed("Only WHERE <field> = value and WHERE <field> CONTAINS value are supported.")
+        let inPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\((.*)\)\s*$"#
+        if let match = whereClause.firstMatch(pattern: inPattern), let fieldName = match[1] {
+            field = fieldName.lowercased()
+            operation = .oneOf
+            values = try Self.parseValueList(match[2] ?? "")
+            return
         }
 
-        guard let fieldName = match[1], let operationName = match[2] else {
-            throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
+        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|CONTAINS)\s*(.+)\s*$"#
+        guard let match = whereClause.firstMatch(pattern: pattern),
+              let fieldName = match[1],
+              let operationName = match[2],
+              let rawValue = match[3] else {
+            throw SQLiteNotesError.validationFailed(
+                "Only WHERE <field> = value, WHERE <field> CONTAINS value, and WHERE <field> IN (value, ...) are supported."
+            )
         }
 
         field = fieldName.lowercased()
         operation = operationName.caseInsensitiveCompare("CONTAINS") == .orderedSame ? .contains : .equals
-        value = (match[4] ?? match[5] ?? match[6] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        values = [try Self.parseValue(rawValue)]
+    }
 
+    private static func parseValue(_ rawValue: String) throws -> String {
+        let pattern = #"(?is)^\s*('([^']*)'|"([^"]*)"|([A-Za-z0-9_.:-]+))\s*$"#
+        guard let match = rawValue.firstMatch(pattern: pattern) else {
+            throw SQLiteNotesError.validationFailed("Query filter value is invalid.")
+        }
+
+        let value = (match[2] ?? match[3] ?? match[4] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             throw SQLiteNotesError.validationFailed("Query filter value cannot be empty.")
         }
+
+        return value
+    }
+
+    private static func parseValueList(_ rawList: String) throws -> [String] {
+        let rawValues = try splitValues(in: rawList)
+        guard !rawValues.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query filter IN list cannot be empty.")
+        }
+
+        return try rawValues.map { try parseValue($0) }
+    }
+
+    private static func splitValues(in rawList: String) throws -> [String] {
+        var values: [String] = []
+        var current = ""
+        var quotedBy: Character?
+
+        for character in rawList {
+            if character == "'" || character == "\"" {
+                if quotedBy == nil {
+                    quotedBy = character
+                } else if quotedBy == character {
+                    quotedBy = nil
+                }
+                current.append(character)
+                continue
+            }
+
+            if quotedBy == nil, character == "," {
+                let value = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw SQLiteNotesError.validationFailed("Query filter IN list contains an empty value.")
+                }
+                values.append(value)
+                current = ""
+                continue
+            }
+
+            current.append(character)
+        }
+
+        guard quotedBy == nil else {
+            throw SQLiteNotesError.validationFailed("Query filter contains an unterminated quoted value.")
+        }
+
+        let finalValue = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !finalValue.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query filter IN list contains an empty value.")
+        }
+
+        values.append(finalValue)
+        return values
     }
 }
 
