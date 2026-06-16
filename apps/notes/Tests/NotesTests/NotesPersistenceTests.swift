@@ -251,10 +251,15 @@ final class NotesPersistenceTests: XCTestCase {
             Calendar(identifier: .gregorian).date(byAdding: .day, value: -2, to: baseDate)
         )
         let twoDaysAgoStorageDate = DailyNoteDateFormatter.storageString(from: twoDaysAgo)
+        let tomorrow = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(byAdding: .day, value: 1, to: baseDate)
+        )
+        let tomorrowStorageDate = DailyNoteDateFormatter.storageString(from: tomorrow)
 
         _ = try repository.createDailyNote(date: today)
         _ = try repository.createDailyNote(date: yesterdayStorageDate)
         _ = try repository.createDailyNote(date: twoDaysAgoStorageDate)
+        _ = try repository.createDailyNote(date: tomorrowStorageDate)
 
         let todayResult = try repository.runQuery(
             "SELECT date, title FROM daily_notes WHERE date = today",
@@ -281,6 +286,47 @@ final class NotesPersistenceTests: XCTestCase {
             relativeDate: baseDate
         )
         XCTAssertEqual(orderedRangeResult.rows.map { $0["date"] }, [yesterdayStorageDate, today])
+
+        let rollingWindowResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date >= 'today - 2d' AND date <= today ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(rollingWindowResult.rows.map { $0["date"] }, [twoDaysAgoStorageDate, yesterdayStorageDate, today])
+
+        let compactArithmeticResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date IN (today-2d, yesterday, today+1d) ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(compactArithmeticResult.rows.map { $0["date"] }, [
+            twoDaysAgoStorageDate,
+            yesterdayStorageDate,
+            tomorrowStorageDate,
+        ])
+
+        XCTAssertThrowsError(
+            try repository.runQuery(
+                "SELECT date FROM daily_notes WHERE date = today+999999999999999999999999d",
+                relativeDate: baseDate
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery(
+                "SELECT date FROM daily_notes WHERE date <= today+999999999999999999999999d",
+                relativeDate: baseDate
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery(
+                "SELECT date FROM daily_notes WHERE date = today OR date <= today+999999999999999999999999d",
+                relativeDate: baseDate
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery(
+                "SELECT date FROM daily_notes WHERE date = missing AND date <= today+999999999999999999999999d",
+                relativeDate: baseDate
+            )
+        )
     }
 
     func testRunQueryOrdersAndLimitsDynamicViews() throws {
@@ -429,6 +475,8 @@ final class NotesPersistenceTests: XCTestCase {
             properties: [
                 "Owner": "Rawkode",
                 "Status": "active",
+                "Stage": "draft+and+review",
+                "Token": "alpha+or+beta",
                 "Topic": "Research or notes",
             ]
         )
@@ -474,6 +522,16 @@ final class NotesPersistenceTests: XCTestCase {
             "SELECT name FROM bookmarks WHERE topic = 'Research or notes' OR owner = Missing"
         )
         XCTAssertEqual(quotedOr.rows.map { $0["name"] }, ["Rawkode Academy"])
+
+        let barePlusOr = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE token = alpha+or+beta OR owner = Missing"
+        )
+        XCTAssertEqual(barePlusOr.rows.map { $0["name"] }, ["Rawkode Academy"])
+
+        let barePlusAnd = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE stage = draft+and+review AND owner = Rawkode"
+        )
+        XCTAssertEqual(barePlusAnd.rows.map { $0["name"] }, ["Rawkode Academy"])
     }
 
     func testRunQuerySupportsInPredicates() throws {

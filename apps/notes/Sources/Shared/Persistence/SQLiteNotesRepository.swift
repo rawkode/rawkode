@@ -1611,7 +1611,8 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     }
 
     if !query.predicates.isEmpty {
-        rows = filterQueryRows(rows, using: query.predicateGroups, relativeDate: relativeDate)
+        let predicateGroups = try resolvedPredicateGroups(query.predicateGroups, relativeDate: relativeDate)
+        rows = filterQueryRows(rows, using: predicateGroups)
     }
 
     if let group = query.group {
@@ -1739,7 +1740,11 @@ private func materializedGroupedAggregate(
         for predicate in query.havingPredicates {
             try requireQueryField(predicate.field, in: groupedResult)
         }
-        groupedRows = filterQueryRows(groupedRows, using: query.havingPredicateGroups, relativeDate: relativeDate)
+        let havingPredicateGroups = try resolvedPredicateGroups(
+            query.havingPredicateGroups,
+            relativeDate: relativeDate
+        )
+        groupedRows = filterQueryRows(groupedRows, using: havingPredicateGroups)
     }
 
     if let order = query.order {
@@ -1774,59 +1779,105 @@ private func materializedGroupedAggregate(
 
 private func filterQueryRows(
     _ rows: [[String: String]],
-    using predicateGroups: [[LocalQueryPredicate]],
-    relativeDate: Date
+    using predicateGroups: [[ResolvedLocalQueryPredicate]]
 ) -> [[String: String]] {
-    rows.filter { row in
-        predicateGroups.contains { predicates in
-            predicates.allSatisfy { predicate in
-                let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
+    var filteredRows: [[String: String]] = []
+    for row in rows {
+        var matchesAnyPredicateGroup = false
+        for predicates in predicateGroups {
+            var matchesAllPredicates = true
+            for predicate in predicates {
                 let value = row[predicate.field] ?? ""
+                let matchesPredicate: Bool
                 switch predicate.operation {
                 case .equals:
-                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
+                    matchesPredicate = value.localizedCaseInsensitiveCompare(predicate.values[0]) == .orderedSame
                 case .notEquals:
-                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
+                    matchesPredicate = value.localizedCaseInsensitiveCompare(predicate.values[0]) != .orderedSame
                 case .contains:
-                    return value.localizedCaseInsensitiveContains(comparisonValues[0])
+                    matchesPredicate = value.localizedCaseInsensitiveContains(predicate.values[0])
                 case .notContains:
-                    return !value.localizedCaseInsensitiveContains(comparisonValues[0])
+                    matchesPredicate = !value.localizedCaseInsensitiveContains(predicate.values[0])
                 case .oneOf:
-                    return comparisonValues.contains {
+                    matchesPredicate = predicate.values.contains {
                         value.localizedCaseInsensitiveCompare($0) == .orderedSame
                     }
                 case .notOneOf:
-                    return !comparisonValues.contains {
+                    matchesPredicate = !predicate.values.contains {
                         value.localizedCaseInsensitiveCompare($0) == .orderedSame
                     }
                 case .greaterThan:
-                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
+                    matchesPredicate = value.localizedStandardCompare(predicate.values[0]) == .orderedDescending
                 case .greaterThanOrEqual:
-                    let comparison = value.localizedStandardCompare(comparisonValues[0])
-                    return comparison == .orderedDescending || comparison == .orderedSame
+                    let comparison = value.localizedStandardCompare(predicate.values[0])
+                    matchesPredicate = comparison == .orderedDescending || comparison == .orderedSame
                 case .lessThan:
-                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
+                    matchesPredicate = value.localizedStandardCompare(predicate.values[0]) == .orderedAscending
                 case .lessThanOrEqual:
-                    let comparison = value.localizedStandardCompare(comparisonValues[0])
-                    return comparison == .orderedAscending || comparison == .orderedSame
+                    let comparison = value.localizedStandardCompare(predicate.values[0])
+                    matchesPredicate = comparison == .orderedAscending || comparison == .orderedSame
+                }
+
+                if !matchesPredicate {
+                    matchesAllPredicates = false
+                    break
                 }
             }
+
+            if matchesAllPredicates {
+                matchesAnyPredicateGroup = true
+                break
+            }
+        }
+
+        if matchesAnyPredicateGroup {
+            filteredRows.append(row)
+        }
+    }
+
+    return filteredRows
+}
+
+private func resolvedPredicateGroups(
+    _ predicateGroups: [[LocalQueryPredicate]],
+    relativeDate: Date
+) throws -> [[ResolvedLocalQueryPredicate]] {
+    try predicateGroups.map { predicates in
+        try predicates.map { predicate in
+            ResolvedLocalQueryPredicate(
+                field: predicate.field,
+                operation: predicate.operation,
+                values: try queryComparisonValues(for: predicate, relativeDate: relativeDate)
+            )
         }
     }
 }
 
-private func queryComparisonValues(for predicate: LocalQueryPredicate, relativeDate: Date) -> [String] {
-    predicate.values.map { value in
-        guard predicate.field == "date",
-              let relativeDateValue = DailyNoteDateFormatter.relativeStorageString(
-                  for: value,
-                  relativeTo: relativeDate
-              ) else {
+private func queryComparisonValues(for predicate: LocalQueryPredicate, relativeDate: Date) throws -> [String] {
+    try predicate.values.map { value in
+        guard predicate.field == "date" else {
             return value
         }
 
-        return relativeDateValue
+        if let relativeDateValue = DailyNoteDateFormatter.relativeStorageString(
+            for: value,
+            relativeTo: relativeDate
+        ) {
+            return relativeDateValue
+        }
+
+        if DailyNoteDateFormatter.isRelativeDateLiteral(value) {
+            throw SQLiteNotesError.validationFailed("Invalid relative date literal '\(value)'.")
+        }
+
+        return value
     }
+}
+
+private struct ResolvedLocalQueryPredicate {
+    var field: String
+    var operation: LocalQueryPredicate.Operation
+    var values: [String]
 }
 
 private func requireQueryField(_ field: String, in result: QueryResult) throws {
@@ -2174,7 +2225,7 @@ private struct LocalQuery {
     }
 
     private static func isQueryWordCharacter(_ character: Character) -> Bool {
-        "_-.:".contains(character) || character.unicodeScalars.allSatisfy {
+        "_-.:+".contains(character) || character.unicodeScalars.allSatisfy {
             CharacterSet.alphanumerics.contains($0)
         }
     }
@@ -2257,7 +2308,7 @@ private struct LocalQueryPredicate {
     }
 
     private static func parseValue(_ rawValue: String) throws -> String {
-        let pattern = #"(?is)^\s*('([^']*)'|"([^"]*)"|([A-Za-z0-9_.:-]+))\s*$"#
+        let pattern = #"(?is)^\s*('([^']*)'|"([^"]*)"|([A-Za-z0-9_.:+-]+))\s*$"#
         guard let match = rawValue.firstMatch(pattern: pattern) else {
             throw SQLiteNotesError.validationFailed("Query filter value is invalid.")
         }

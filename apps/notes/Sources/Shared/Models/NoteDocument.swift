@@ -77,20 +77,52 @@ enum DailyNoteDateFormatter {
     }
 
     static func relativeStorageString(for literal: String, relativeTo date: Date = .now) -> String? {
-        let dayOffset: Int
-        switch literal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        let normalizedLiteral = literal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pattern = #"^(today|yesterday|tomorrow)(?:\s*([+-])\s*([0-9]+)\s*(d|day|days))?$"#
+        guard let match = normalizedLiteral.firstMatch(pattern: pattern),
+              let baseLiteral = match[1] else {
+            return nil
+        }
+
+        let baseDayOffset: Int
+        switch baseLiteral {
         case "today":
-            dayOffset = 0
+            baseDayOffset = 0
         case "yesterday":
-            dayOffset = -1
+            baseDayOffset = -1
         case "tomorrow":
-            dayOffset = 1
+            baseDayOffset = 1
         default:
             return nil
         }
 
-        let resolvedDate = calendar.date(byAdding: .day, value: dayOffset, to: date) ?? date
+        let relativeDayOffset: Int
+        if let sign = match[2] {
+            guard let rawOffset = match[3], let offset = Int(rawOffset) else {
+                return nil
+            }
+
+            relativeDayOffset = sign == "-" ? -offset : offset
+        } else {
+            relativeDayOffset = 0
+        }
+
+        let (dayOffset, didOverflow) = baseDayOffset.addingReportingOverflow(relativeDayOffset)
+        guard !didOverflow else {
+            return nil
+        }
+
+        guard let resolvedDate = calendar.date(byAdding: .day, value: dayOffset, to: date) else {
+            return nil
+        }
+
         return storageString(from: resolvedDate)
+    }
+
+    static func isRelativeDateLiteral(_ literal: String) -> Bool {
+        let normalizedLiteral = literal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pattern = #"^(today|yesterday|tomorrow)(?:\s*[+-].*)?$"#
+        return normalizedLiteral.firstMatch(pattern: pattern) != nil
     }
 
     static func displayTitle(for storageDate: String) -> String {
@@ -115,5 +147,27 @@ enum DailyNoteDateFormatter {
         }
 
         return makeDisplayFormatter().string(from: date)
+    }
+}
+
+private extension String {
+    func firstMatch(pattern: String) -> [String?]? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(startIndex..<endIndex, in: self)
+        guard let match = expression.firstMatch(in: self, range: range) else {
+            return nil
+        }
+
+        return (0..<match.numberOfRanges).map { index in
+            let range = match.range(at: index)
+            guard range.location != NSNotFound, let swiftRange = Range(range, in: self) else {
+                return nil
+            }
+
+            return String(self[swiftRange])
+        }
     }
 }
