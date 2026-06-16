@@ -305,6 +305,24 @@ final class NotesPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(rollingWindowResult.rows.map { $0["date"] }, [twoDaysAgoStorageDate, yesterdayStorageDate, today])
 
+        let betweenResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date BETWEEN 'today - 2d' AND today ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(betweenResult.rows.map { $0["date"] }, [twoDaysAgoStorageDate, yesterdayStorageDate, today])
+
+        let betweenOrResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date BETWEEN yesterday AND today OR date = tomorrow ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(betweenOrResult.rows.map { $0["date"] }, [yesterdayStorageDate, today, tomorrowStorageDate])
+
+        let notBetweenResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date NOT BETWEEN yesterday AND today ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(notBetweenResult.rows.map { $0["date"] }, [twoDaysAgoStorageDate, tomorrowStorageDate])
+
         let compactArithmeticResult = try repository.runQuery(
             "SELECT date FROM daily_notes WHERE date IN (today-2d, yesterday, today+1d) ORDER BY date ASC",
             relativeDate: baseDate
@@ -330,6 +348,12 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(
             try repository.runQuery(
                 "SELECT date FROM daily_notes WHERE date = today OR date <= today+999999999999999999999999d",
+                relativeDate: baseDate
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery(
+                "SELECT date FROM daily_notes WHERE date BETWEEN today AND today+999999999999999999999999d",
                 relativeDate: baseDate
             )
         )
@@ -376,6 +400,7 @@ final class NotesPersistenceTests: XCTestCase {
             properties: [
                 "URL": "https://beta.example",
                 "Status": "active",
+                "Phase": "Research and notes",
             ]
         )
         _ = try repository.upsertEntity(
@@ -398,6 +423,11 @@ final class NotesPersistenceTests: XCTestCase {
                 "url": "https://beta.example",
             ],
         ])
+
+        let quotedAndBetween = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE phase BETWEEN 'Research and notes' AND z"
+        )
+        XCTAssertEqual(quotedAndBetween.rows.map { $0["name"] }, ["Beta Resource"])
     }
 
     func testRunQuerySupportsProjectionAliases() throws {

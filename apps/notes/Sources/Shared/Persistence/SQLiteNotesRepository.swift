@@ -1813,6 +1813,15 @@ private func filterQueryRows(
                     matchesPredicate = !predicate.values.contains {
                         value.localizedCaseInsensitiveCompare($0) == .orderedSame
                     }
+                case .between:
+                    let lowerComparison = value.localizedStandardCompare(predicate.values[0])
+                    let upperComparison = value.localizedStandardCompare(predicate.values[1])
+                    matchesPredicate = (lowerComparison == .orderedDescending || lowerComparison == .orderedSame) &&
+                        (upperComparison == .orderedAscending || upperComparison == .orderedSame)
+                case .notBetween:
+                    let lowerComparison = value.localizedStandardCompare(predicate.values[0])
+                    let upperComparison = value.localizedStandardCompare(predicate.values[1])
+                    matchesPredicate = lowerComparison == .orderedAscending || upperComparison == .orderedDescending
                 case .greaterThan:
                     matchesPredicate = value.localizedStandardCompare(predicate.values[0]) == .orderedDescending
                 case .greaterThanOrEqual:
@@ -2177,6 +2186,13 @@ private struct LocalQuery {
             }
 
             if quotedBy == nil, parenthesisDepth == 0, isStandaloneKeyword(keyword, in: text, at: index) {
+                if keyword.caseInsensitiveCompare("AND") == .orderedSame,
+                   isBetweenLowerBoundPrefix(current) {
+                    current.append(contentsOf: text[index..<text.index(index, offsetBy: keyword.count)])
+                    index = text.index(index, offsetBy: keyword.count)
+                    continue
+                }
+
                 let clause = current.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !clause.isEmpty else {
                     throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
@@ -2231,6 +2247,12 @@ private struct LocalQuery {
         return true
     }
 
+    private static func isBetweenLowerBoundPrefix(_ text: String) -> Bool {
+        let valuePattern = #"('([^']*)'|"([^"]*)"|[A-Za-z0-9_.:+-]+)"#
+        let pattern = #"(?is)^\s*[A-Za-z_][A-Za-z0-9_]*\s+(?:NOT\s+)?BETWEEN\s+\#(valuePattern)\s*$"#
+        return text.firstMatch(pattern: pattern) != nil
+    }
+
     private static func isQueryWordCharacter(_ character: Character) -> Bool {
         "_-.:+".contains(character) || character.unicodeScalars.allSatisfy {
             CharacterSet.alphanumerics.contains($0)
@@ -2246,6 +2268,8 @@ private struct LocalQueryPredicate {
         case notContains
         case oneOf
         case notOneOf
+        case between
+        case notBetween
         case greaterThan
         case greaterThanOrEqual
         case lessThan
@@ -2257,6 +2281,18 @@ private struct LocalQueryPredicate {
     var values: [String]
 
     init(_ whereClause: String) throws {
+        let betweenPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(NOT\s+BETWEEN|BETWEEN)\s+(.+)\s*$"#
+        if let match = whereClause.firstMatch(pattern: betweenPattern),
+           let fieldName = match[1],
+           let operationName = match[2],
+           let rawBounds = match[3] {
+            let (lowerBound, upperBound) = try Self.splitBetweenBounds(in: rawBounds)
+            field = fieldName.lowercased()
+            operation = try Self.parseOperation(operationName)
+            values = [try Self.parseValue(lowerBound), try Self.parseValue(upperBound)]
+            return
+        }
+
         let inPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(NOT\s+IN|IN)\s*\((.*)\)\s*$"#
         if let match = whereClause.firstMatch(pattern: inPattern),
            let fieldName = match[1],
@@ -2273,7 +2309,7 @@ private struct LocalQueryPredicate {
               let operationName = match[2],
               let rawValue = match[3] else {
             throw SQLiteNotesError.validationFailed(
-                "Only WHERE <field> = value, negated filters, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), and ordered comparisons are supported."
+                "Only WHERE <field> = value, negated filters, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), BETWEEN ranges, and ordered comparisons are supported."
             )
         }
 
@@ -2301,6 +2337,10 @@ private struct LocalQueryPredicate {
             return .oneOf
         case "NOT IN":
             return .notOneOf
+        case "BETWEEN":
+            return .between
+        case "NOT BETWEEN":
+            return .notBetween
         case ">":
             return .greaterThan
         case ">=":
@@ -2326,6 +2366,43 @@ private struct LocalQueryPredicate {
         }
 
         return value
+    }
+
+    private static func splitBetweenBounds(in rawBounds: String) throws -> (String, String) {
+        var quotedBy: Character?
+        var index = rawBounds.startIndex
+
+        while index < rawBounds.endIndex {
+            let character = rawBounds[index]
+
+            if character == "'" || character == "\"" {
+                if quotedBy == nil {
+                    quotedBy = character
+                } else if quotedBy == character {
+                    quotedBy = nil
+                }
+                index = rawBounds.index(after: index)
+                continue
+            }
+
+            if quotedBy == nil, isStandaloneKeyword("AND", in: rawBounds, at: index) {
+                let lowerBound = rawBounds[..<index].trimmingCharacters(in: .whitespacesAndNewlines)
+                let upperStart = rawBounds.index(index, offsetBy: "AND".count)
+                let upperBound = rawBounds[upperStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !lowerBound.isEmpty, !upperBound.isEmpty else {
+                    throw SQLiteNotesError.validationFailed("Query BETWEEN bounds cannot be empty.")
+                }
+                return (lowerBound, upperBound)
+            }
+
+            index = rawBounds.index(after: index)
+        }
+
+        guard quotedBy == nil else {
+            throw SQLiteNotesError.validationFailed("Query filter contains an unterminated quoted value.")
+        }
+
+        throw SQLiteNotesError.validationFailed("Query BETWEEN filter must include lower and upper bounds.")
     }
 
     private static func parseValueList(_ rawList: String) throws -> [String] {
@@ -2377,6 +2454,35 @@ private struct LocalQueryPredicate {
 
         values.append(finalValue)
         return values
+    }
+
+    private static func isStandaloneKeyword(_ keyword: String, in text: String, at index: String.Index) -> Bool {
+        guard let endIndex = text.index(index, offsetBy: keyword.count, limitedBy: text.endIndex),
+              String(text[index..<endIndex]).caseInsensitiveCompare(keyword) == .orderedSame else {
+            return false
+        }
+
+        if index > text.startIndex {
+            let previous = text[text.index(before: index)]
+            guard !isQueryWordCharacter(previous) else {
+                return false
+            }
+        }
+
+        if endIndex < text.endIndex {
+            let next = text[endIndex]
+            guard !isQueryWordCharacter(next) else {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private static func isQueryWordCharacter(_ character: Character) -> Bool {
+        "_-.:+".contains(character) || character.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0)
+        }
     }
 }
 
