@@ -9,9 +9,11 @@
 /* Begin PBXBuildFile section */
 		0E30FD6DB1F73759B0662ED9 /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
 		0F62BE3915BEF63CA3271685 /* QueryResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0B81DBB386303650091E13 /* QueryResult.swift */; };
+		1982E979861349B89131E2E5 /* SavedQueryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59C6E854092A4441A962B8CC /* SavedQueryView.swift */; };
 		3016130EBDAB859894D02297 /* NotesPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */; };
 		36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
 		385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */; };
+		3DE33E2FE88E4C10A1E72FD0 /* SavedQueryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59C6E854092A4441A962B8CC /* SavedQueryView.swift */; };
 		388DDE8AFA6E951D90D98112 /* NotesAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */; };
 		427FCAE35715974092E91E9B /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
 		44B3E2FC215ABEB2548C52D7 /* SQLiteNotesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */; };
@@ -53,6 +55,7 @@
 		3734EB80024C3E9441C3629C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesAppScene.swift; sourceTree = "<group>"; };
 		4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesPersistenceTests.swift; sourceTree = "<group>"; };
+		59C6E854092A4441A962B8CC /* SavedQueryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueryView.swift; sourceTree = "<group>"; };
 		59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteDocument.swift; sourceTree = "<group>"; };
 		5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		6689B5EEF83EC8AD26366F8E /* NotesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesIOSApp.swift; sourceTree = "<group>"; };
@@ -205,6 +208,7 @@
 				CEAB59412833D691F787F819 /* EntityReference.swift */,
 				59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */,
 				1A0B81DBB386303650091E13 /* QueryResult.swift */,
+				59C6E854092A4441A962B8CC /* SavedQueryView.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -392,6 +396,7 @@
 				36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */,
 				E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */,
 				0F62BE3915BEF63CA3271685 /* QueryResult.swift in Sources */,
+				3DE33E2FE88E4C10A1E72FD0 /* SavedQueryView.swift in Sources */,
 				5B6C05BA5B34FECEEA4C17F2 /* SQLiteNotesRepository.swift in Sources */,
 				427FCAE35715974092E91E9B /* WebEditorView.swift in Sources */,
 			);
@@ -409,6 +414,7 @@
 				EAD99FB152FA81339E5D7C79 /* NotesRootView.swift in Sources */,
 				85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */,
 				673D0970D0208FB5D9D200C5 /* QueryResult.swift in Sources */,
+				1982E979861349B89131E2E5 /* SavedQueryView.swift in Sources */,
 				44B3E2FC215ABEB2548C52D7 /* SQLiteNotesRepository.swift in Sources */,
 				D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */,
 			);

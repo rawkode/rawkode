@@ -185,6 +185,96 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func fetchSavedQueryViews() throws -> [SavedQueryView] {
+        try prepare(
+            """
+            SELECT id, name, query, view, group_by, created_at, updated_at
+            FROM saved_query_views
+            ORDER BY name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var views: [SavedQueryView] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                views.append(try savedQueryView(from: statement))
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return views
+        }
+    }
+
+    func fetchSavedQueryView(id: UUID) throws -> SavedQueryView? {
+        try prepare(
+            """
+            SELECT id, name, query, view, group_by, created_at, updated_at
+            FROM saved_query_views
+            WHERE id = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return try savedQueryView(from: statement)
+        }
+    }
+
+    @discardableResult
+    func saveSavedQueryView(
+        named rawName: String,
+        query rawQuery: String,
+        view rawView: String = "table",
+        groupBy rawGroupBy: String? = nil
+    ) throws -> SavedQueryView {
+        let name = normalizedName(rawName)
+        guard !name.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Saved view name cannot be empty.")
+        }
+
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try LocalQuery(query)
+
+        let view = try normalizedSavedQueryViewMode(rawView)
+        let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let now = Date()
+        let existing = try fetchSavedQueryView(name: name)
+        let savedView = SavedQueryView(
+            id: existing?.id ?? UUID(),
+            name: name,
+            query: query,
+            view: view,
+            groupBy: groupBy,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now
+        )
+
+        try upsert(savedView)
+        return savedView
+    }
+
+    func deleteSavedQueryView(id: UUID) throws {
+        try prepare("DELETE FROM saved_query_views WHERE id = ?;") { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
     func upsertEntity(
         named rawName: String,
         supertagNames rawSupertagNames: [String],
@@ -245,6 +335,9 @@ final class SQLiteNotesRepository {
 
         case "entity_relationships", "entity_relations", "relationships", "relations":
             result = try fetchEntityRelationshipQueryResult()
+
+        case "saved_views", "saved_query_views":
+            result = try fetchSavedQueryViewQueryResult()
 
         default:
             result = try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source))
@@ -348,6 +441,16 @@ final class SQLiteNotesRepository {
 
             CREATE INDEX IF NOT EXISTS idx_document_entity_references_entity
             ON document_entity_references(entity_id);
+
+            CREATE TABLE IF NOT EXISTS saved_query_views (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                query TEXT NOT NULL,
+                view TEXT NOT NULL CHECK (view IN ('table', 'list', 'board')),
+                group_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
 
@@ -1213,6 +1316,13 @@ final class SQLiteNotesRepository {
         )
     }
 
+    private func fetchSavedQueryViewQueryResult() throws -> QueryResult {
+        QueryResult(
+            columns: ["id", "name", "query", "view", "group_by", "updated_at"],
+            rows: try fetchSavedQueryViews().map(savedQueryViewQueryRow)
+        )
+    }
+
     private func document(from statement: OpaquePointer?) throws -> NoteDocument {
         guard let id = UUID(uuidString: textColumn(statement, 0)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid document id")
@@ -1240,6 +1350,87 @@ final class SQLiteNotesRepository {
             createdAt: createdAt,
             updatedAt: updatedAt
         )
+    }
+
+    private func savedQueryView(from statement: OpaquePointer?) throws -> SavedQueryView {
+        guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+            throw SQLiteNotesError.rowDecodeFailed("invalid saved query view id")
+        }
+
+        guard let createdAt = Date(iso8601String: textColumn(statement, 5)) else {
+            throw SQLiteNotesError.rowDecodeFailed("invalid saved query view created_at timestamp")
+        }
+
+        guard let updatedAt = Date(iso8601String: textColumn(statement, 6)) else {
+            throw SQLiteNotesError.rowDecodeFailed("invalid saved query view updated_at timestamp")
+        }
+
+        return SavedQueryView(
+            id: id,
+            name: textColumn(statement, 1),
+            query: textColumn(statement, 2),
+            view: textColumn(statement, 3),
+            groupBy: nullableTextColumn(statement, 4),
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func fetchSavedQueryView(name: String) throws -> SavedQueryView? {
+        try prepare(
+            """
+            SELECT id, name, query, view, group_by, created_at, updated_at
+            FROM saved_query_views
+            WHERE name = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, name, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return try savedQueryView(from: statement)
+        }
+    }
+
+    private func upsert(_ savedView: SavedQueryView) throws {
+        try prepare(
+            """
+            INSERT INTO saved_query_views (
+                id, name, query, view, group_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                query = excluded.query,
+                view = excluded.view,
+                group_by = excluded.group_by,
+                updated_at = excluded.updated_at;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, savedView.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, savedView.name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, savedView.query, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, savedView.view, -1, sqliteTransient)
+            if let groupBy = savedView.groupBy {
+                sqlite3_bind_text(statement, 5, groupBy, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 5)
+            }
+            sqlite3_bind_text(statement, 6, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 7, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
     }
 
     private var lastErrorMessage: String {
@@ -1297,6 +1488,21 @@ private func normalizedUniqueNames(_ values: [String]) -> [String] {
     }
 
     return result
+}
+
+private func normalizedSavedQueryViewMode(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    switch normalized {
+    case "table", "list", "board":
+        return normalized
+    default:
+        throw SQLiteNotesError.validationFailed("Saved view mode must be table, list, or board.")
+    }
+}
+
+private func normalizedOptionalField(_ value: String?) -> String? {
+    let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return normalized.isEmpty ? nil : normalized
 }
 
 private struct NormalizedEntityProperty {
@@ -1466,6 +1672,17 @@ private func dailyNoteQueryRow(_ document: NoteDocument) -> [String: String] {
         "title": document.title,
         "updated_at": document.updatedAt.ISO8601Format(),
         queryDocumentIDMetadataKey: document.id.uuidString,
+    ]
+}
+
+private func savedQueryViewQueryRow(_ view: SavedQueryView) -> [String: String] {
+    [
+        "id": view.id.uuidString,
+        "name": view.name,
+        "query": view.query,
+        "view": view.view,
+        "group_by": view.groupBy ?? "",
+        "updated_at": view.updatedAt.ISO8601Format(),
     ]
 }
 

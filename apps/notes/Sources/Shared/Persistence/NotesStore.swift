@@ -9,6 +9,7 @@ final class NotesStore {
 
     private(set) var dailyNotes: [NoteDocument] = []
     private(set) var standaloneNotes: [NoteDocument] = []
+    private(set) var savedQueryViews: [SavedQueryView] = []
     private(set) var selectedDocument: NoteDocument?
     private(set) var lastErrorMessage: String?
 
@@ -211,6 +212,45 @@ final class NotesStore {
         }
     }
 
+    @discardableResult
+    func saveSavedQueryView(
+        named name: String,
+        query: String,
+        view: String = "table",
+        groupBy: String? = nil
+    ) throws -> SavedQueryView {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let savedView = try repository.saveSavedQueryView(
+                named: name,
+                query: query,
+                view: view,
+                groupBy: groupBy
+            )
+            savedQueryViews = try repository.fetchSavedQueryViews()
+            return savedView
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func deleteSavedQueryView(id: UUID) {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        do {
+            try repository.deleteSavedQueryView(id: id)
+            savedQueryViews = try repository.fetchSavedQueryViews()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
     func clearError() {
         lastErrorMessage = nil
     }
@@ -230,6 +270,7 @@ final class NotesStore {
 
         dailyNotes = try repository.fetchDocuments(kind: .daily)
         standaloneNotes = try repository.fetchDocuments(kind: .note)
+        savedQueryViews = try repository.fetchSavedQueryViews()
 
         let allDocuments = dailyNotes + standaloneNotes
         if let selectedID, let selected = allDocuments.first(where: { $0.id == selectedID }) {

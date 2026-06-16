@@ -43,6 +43,99 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(fetched.plainText, "Saved body")
     }
 
+    func testSavedQueryViewsPersistAcrossRepositoryInstances() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let savedView = try repository.saveSavedQueryView(
+            named: "  Active Bookmarks  ",
+            query: " SELECT name, status FROM bookmarks WHERE status = active ",
+            view: "board",
+            groupBy: " Status "
+        )
+
+        XCTAssertEqual(savedView.name, "Active Bookmarks")
+        XCTAssertEqual(savedView.query, "SELECT name, status FROM bookmarks WHERE status = active")
+        XCTAssertEqual(savedView.view, "board")
+        XCTAssertEqual(savedView.groupBy, "status")
+
+        let updatedView = try repository.saveSavedQueryView(
+            named: "active bookmarks",
+            query: "SELECT name FROM bookmarks WHERE status = archived",
+            view: "list"
+        )
+
+        XCTAssertEqual(updatedView.id, savedView.id)
+        XCTAssertEqual(try repository.fetchSavedQueryViews().count, 1)
+
+        let reopenedRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let reopenedView = try XCTUnwrap(reopenedRepository.fetchSavedQueryView(id: savedView.id))
+
+        XCTAssertEqual(reopenedView.name, "active bookmarks")
+        XCTAssertEqual(reopenedView.query, "SELECT name FROM bookmarks WHERE status = archived")
+        XCTAssertEqual(reopenedView.view, "list")
+        XCTAssertNil(reopenedView.groupBy)
+        XCTAssertLessThan(abs(reopenedView.createdAt.timeIntervalSince(savedView.createdAt)), 1)
+    }
+
+    func testSavedQueryViewsAreQueryable() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(named: "Visual Index", supertagNames: ["views"])
+        _ = try repository.saveSavedQueryView(
+            named: "Active Bookmarks",
+            query: "SELECT name, status FROM bookmarks WHERE status = active",
+            view: "board",
+            groupBy: "status"
+        )
+        _ = try repository.saveSavedQueryView(
+            named: "Recent Daily Notes",
+            query: "SELECT date, title FROM daily_notes ORDER BY date DESC LIMIT 7",
+            view: "table"
+        )
+
+        let result = try repository.runQuery(
+            "SELECT name, view, group_by FROM saved_views WHERE view = board"
+        )
+
+        XCTAssertEqual(result.columns, ["name", "view", "group_by"])
+        XCTAssertEqual(result.rows, [
+            [
+                "name": "Active Bookmarks",
+                "view": "board",
+                "group_by": "status",
+            ],
+        ])
+
+        let supertagCollection = try repository.runQuery("SELECT name FROM views")
+        XCTAssertEqual(supertagCollection.rows, [["name": "Visual Index"]])
+    }
+
+    func testSavedQueryViewsRejectInvalidDefinitions() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+
+        XCTAssertThrowsError(
+            try repository.saveSavedQueryView(named: " ", query: "SELECT * FROM bookmarks")
+        )
+        XCTAssertThrowsError(
+            try repository.saveSavedQueryView(named: "Broken", query: "DELETE FROM bookmarks")
+        )
+        XCTAssertThrowsError(
+            try repository.saveSavedQueryView(
+                named: "Broken Mode",
+                query: "SELECT * FROM bookmarks",
+                view: "calendar"
+            )
+        )
+        XCTAssertTrue(try repository.fetchSavedQueryViews().isEmpty)
+    }
+
     func testEntityUpsertReusesEntityAndLinksSupertags() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -1416,6 +1509,46 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.dailyNotes.count, 1)
         XCTAssertEqual(store.dailyNotes.first?.id, dailyNote.id)
         XCTAssertEqual(store.lastErrorMessage, "Daily notes are calendar-backed and cannot be deleted.")
+    }
+
+    @MainActor
+    func testStoreCanSaveAndDeleteSavedQueryViews() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        XCTAssertTrue(store.savedQueryViews.isEmpty)
+
+        let savedView = try store.saveSavedQueryView(
+            named: "Open Projects",
+            query: "SELECT name FROM projects WHERE status != archived",
+            view: "list"
+        )
+
+        XCTAssertEqual(store.savedQueryViews.count, 1)
+        XCTAssertEqual(store.savedQueryViews.first?.id, savedView.id)
+        XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects")
+        XCTAssertEqual(store.savedQueryViews.first?.query, "SELECT name FROM projects WHERE status != archived")
+        XCTAssertEqual(store.savedQueryViews.first?.view, "list")
+
+        let updatedView = try store.saveSavedQueryView(
+            named: "Open Projects",
+            query: "SELECT name, status FROM projects WHERE status != archived",
+            view: "board",
+            groupBy: "status"
+        )
+
+        XCTAssertEqual(updatedView.id, savedView.id)
+        XCTAssertEqual(store.savedQueryViews.count, 1)
+        XCTAssertEqual(store.savedQueryViews.first?.view, "board")
+        XCTAssertEqual(store.savedQueryViews.first?.groupBy, "status")
+
+        store.deleteSavedQueryView(id: savedView.id)
+
+        XCTAssertTrue(store.savedQueryViews.isEmpty)
     }
 
     private func temporaryDatabaseURL() throws -> URL {
