@@ -1822,6 +1822,10 @@ private func filterQueryRows(
                     let lowerComparison = value.localizedStandardCompare(predicate.values[0])
                     let upperComparison = value.localizedStandardCompare(predicate.values[1])
                     matchesPredicate = lowerComparison == .orderedAscending || upperComparison == .orderedDescending
+                case .isEmpty:
+                    matchesPredicate = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                case .isNotEmpty:
+                    matchesPredicate = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 case .greaterThan:
                     matchesPredicate = value.localizedStandardCompare(predicate.values[0]) == .orderedDescending
                 case .greaterThanOrEqual:
@@ -2270,6 +2274,8 @@ private struct LocalQueryPredicate {
         case notOneOf
         case between
         case notBetween
+        case isEmpty
+        case isNotEmpty
         case greaterThan
         case greaterThanOrEqual
         case lessThan
@@ -2293,6 +2299,15 @@ private struct LocalQueryPredicate {
             return
         }
 
+        let emptyPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+IS\s+(NOT\s+)?EMPTY\s*$"#
+        if let match = whereClause.firstMatch(pattern: emptyPattern),
+           let fieldName = match[1] {
+            field = fieldName.lowercased()
+            operation = try Self.parseOperation(match[2] == nil ? "IS EMPTY" : "IS NOT EMPTY")
+            values = []
+            return
+        }
+
         let inPattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(NOT\s+IN|IN)\s*\((.*)\)\s*$"#
         if let match = whereClause.firstMatch(pattern: inPattern),
            let fieldName = match[1],
@@ -2309,7 +2324,7 @@ private struct LocalQueryPredicate {
               let operationName = match[2],
               let rawValue = match[3] else {
             throw SQLiteNotesError.validationFailed(
-                "Only WHERE <field> = value, negated filters, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), BETWEEN ranges, and ordered comparisons are supported."
+                "Only WHERE <field> = value, negated filters, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), BETWEEN ranges, empty checks, and ordered comparisons are supported."
             )
         }
 
@@ -2341,6 +2356,10 @@ private struct LocalQueryPredicate {
             return .between
         case "NOT BETWEEN":
             return .notBetween
+        case "IS EMPTY":
+            return .isEmpty
+        case "IS NOT EMPTY":
+            return .isNotEmpty
         case ">":
             return .greaterThan
         case ">=":

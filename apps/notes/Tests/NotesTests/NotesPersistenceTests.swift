@@ -701,6 +701,59 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(notInResult.rows.map { $0["name"] }, ["Alpha Resource", "Team Resource"])
     }
 
+    func testRunQuerySupportsEmptyPredicates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Note": "Needs review",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Archive",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Status": "archived",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Draft",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Note": "   ",
+                "Status": "draft",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Note": "Done",
+                "Status": "active",
+            ]
+        )
+
+        let emptyNotes = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE note IS EMPTY ORDER BY name ASC"
+        )
+        XCTAssertEqual(emptyNotes.rows.map { $0["name"] }, ["Beta Archive", "Gamma Draft"])
+
+        let filledNotes = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE note IS NOT EMPTY ORDER BY name ASC"
+        )
+        XCTAssertEqual(filledNotes.rows.map { $0["name"] }, ["Alpha Resource", "Team Resource"])
+
+        let emptyDrafts = try repository.runQuery(
+            "SELECT name FROM bookmarks WHERE note IS EMPTY AND status = draft"
+        )
+        XCTAssertEqual(emptyDrafts.rows.map { $0["name"] }, ["Gamma Draft"])
+    }
+
     func testRunQuerySupportsCountAggregate() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -945,6 +998,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode OR OR updated_at CONTAINS 2026"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IS BLANK"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name <> rawkode"))
         XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(name) FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities"))
