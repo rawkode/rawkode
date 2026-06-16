@@ -2,7 +2,7 @@
 
 Universal local-first notes app for iOS, iPadOS, and macOS.
 
-Daily notes are the primary document type. The app creates today on launch, stores one daily note per local date, and keeps note content as Tiptap JSON in SQLite rather than Markdown files.
+Daily notes are the primary document type. The app creates today on launch, lets you open any date from the Daily Notes section, stores one daily note per local date, and keeps note content as Tiptap JSON in SQLite rather than Markdown files.
 
 ## Architecture
 

@@ -195,6 +195,30 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreCanOpenDailyNoteForSelectedDate() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+        let selectedDate = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 1, day: 5, hour: 12))
+        )
+        let storageDate = DailyNoteDateFormatter.storageString(from: selectedDate)
+
+        store.load()
+        store.createDailyNote(for: selectedDate)
+
+        XCTAssertEqual(store.selectedDocument?.kind, .daily)
+        XCTAssertEqual(store.selectedDocument?.date, storageDate)
+        XCTAssertTrue(store.dailyNotes.contains { $0.date == storageDate })
+
+        store.createDailyNote(for: selectedDate)
+
+        XCTAssertEqual(store.dailyNotes.filter { $0.date == storageDate }.count, 1)
+    }
+
+    @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

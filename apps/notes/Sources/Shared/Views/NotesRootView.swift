@@ -3,6 +3,8 @@ import SwiftUI
 struct NotesRootView: View {
     let store: NotesStore
 
+    @State private var dailyNoteDate = Date.now
+
     private var selectedDocumentID: Binding<UUID?> {
         Binding {
             store.selectedDocument?.id
@@ -19,6 +21,10 @@ struct NotesRootView: View {
                         store.selectToday()
                     } label: {
                         Label("Today", systemImage: "calendar")
+                    }
+
+                    DailyNoteDatePicker(date: $dailyNoteDate) {
+                        store.createDailyNote(for: dailyNoteDate)
                     }
 
                     ForEach(store.dailyNotes) { document in
@@ -113,6 +119,24 @@ struct NotesRootView: View {
         for offset in offsets {
             store.deleteDocument(id: documents[offset].id)
         }
+    }
+}
+
+private struct DailyNoteDatePicker: View {
+    @Binding var date: Date
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DatePicker("Open Daily Note", selection: $date, displayedComponents: .date)
+                .datePickerStyle(.compact)
+
+            Button(action: onOpen) {
+                Label("Open Date", systemImage: "calendar.badge.plus")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 4)
     }
 }
 
