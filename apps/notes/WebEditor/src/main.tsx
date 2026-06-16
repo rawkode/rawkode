@@ -15,7 +15,7 @@ import {
   type QueryFenceTextBlock,
   type QueryViewMode,
 } from './queryFence';
-import { buildBoardGroups, parseQueryGroupBy, queryRowDocumentId } from './queryView';
+import { buildBoardGroups, notifyQueryRefresh, parseQueryGroupBy, queryRowDocumentId, subscribeQueryRefresh } from './queryView';
 import './styles.css';
 
 type EditorBridgePayload = {
@@ -48,6 +48,10 @@ type QueryResultPayload = {
 type QueryBridgeResponse = QueryResultPayload & {
   requestId: string;
   error?: string | null;
+};
+
+type QueryRefreshPayload = {
+  reason?: string;
 };
 
 type ActiveDocumentSnapshot = {
@@ -102,6 +106,7 @@ declare global {
       loadDocument(payload: EditorBridgePayload): boolean;
       completeEntityRequest(response: EntityBridgeResponse): void;
       completeQueryRequest(response: QueryBridgeResponse): void;
+      refreshQueryViews(payload?: QueryRefreshPayload): void;
     };
     webkit?: {
       messageHandlers?: {
@@ -339,6 +344,16 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     void run();
   }, [run]);
 
+  React.useEffect(() => {
+    return subscribeQueryRefresh(() => {
+      if (!didAutoRunRef.current) {
+        return;
+      }
+
+      void run();
+    });
+  }, [run]);
+
   return (
     <NodeViewWrapper className={`query-block ${selected ? 'is-selected' : ''}`}>
       <div className="query-block__toolbar">
@@ -557,6 +572,10 @@ function App() {
           columns: Array.isArray(response.columns) ? response.columns : [],
           rows: Array.isArray(response.rows) ? response.rows : [],
         });
+      },
+      refreshQueryViews(payload) {
+        const reason = typeof payload?.reason === 'string' ? payload.reason : 'dataChanged';
+        notifyQueryRefresh(reason);
       },
     };
 

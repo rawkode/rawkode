@@ -256,6 +256,7 @@ extension WebEditorView {
                 loadedTitle = title
                 loadedContentJSON = contentJSON
                 onChange(documentID, title, contentJSON, plainText)
+                sendQueryRefresh(reason: "documentChanged")
 
             case "upsertEntity":
                 guard
@@ -280,6 +281,7 @@ extension WebEditorView {
                             error: nil
                         )
                     )
+                    sendQueryRefresh(reason: "entityChanged")
                 } catch {
                     sendEntityResponse(
                         EntityBridgeResponse(
@@ -340,6 +342,30 @@ extension WebEditorView {
 
             default:
                 return
+            }
+        }
+
+        private func sendQueryRefresh(reason: String) {
+            guard let webView else {
+                return
+            }
+
+            do {
+                let data = try JSONEncoder().encode(QueryRefreshPayload(reason: reason))
+                guard let json = String(data: data, encoding: .utf8) else {
+                    onError("Could not encode query refresh payload.")
+                    return
+                }
+
+                webView.evaluateJavaScript(
+                    "window.NotesEditor?.refreshQueryViews?.(\(json));"
+                ) { [weak self] _, error in
+                    if let error {
+                        self?.onError("Could not refresh query views: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                onError("Could not encode query refresh payload: \(error.localizedDescription)")
             }
         }
 
@@ -481,6 +507,10 @@ private struct QueryBridgeResponse: Encodable {
     let columns: [String]
     let rows: [[String: String]]
     let error: String?
+}
+
+private struct QueryRefreshPayload: Encodable {
+    let reason: String
 }
 
 private final class EditorResourceSchemeHandler: NSObject, WKURLSchemeHandler {

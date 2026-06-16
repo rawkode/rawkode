@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { buildBoardGroups, parseQueryGroupBy, queryDocumentIdMetadataKey, queryRowDocumentId } from '../src/queryView';
+import {
+  buildBoardGroups,
+  notifyQueryRefresh,
+  parseQueryGroupBy,
+  queryDocumentIdMetadataKey,
+  queryRowDocumentId,
+  subscribeQueryRefresh,
+} from '../src/queryView';
 
 describe('query board view helpers', () => {
   test('groups board rows by an explicit column', () => {
@@ -130,5 +137,18 @@ describe('query board view helpers', () => {
         ['id', 'title', 'date']
       )
     ).toBeNull();
+  });
+
+  test('notifies query refresh subscribers until they unsubscribe', () => {
+    const reasons: string[] = [];
+    const unsubscribe = subscribeQueryRefresh((reason) => {
+      reasons.push(reason);
+    });
+
+    notifyQueryRefresh('entityChanged');
+    unsubscribe();
+    notifyQueryRefresh('documentChanged');
+
+    expect(reasons).toEqual(['entityChanged']);
   });
 });

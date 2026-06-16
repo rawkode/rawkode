@@ -6,9 +6,25 @@ export type QueryBoardGroup = {
   column: string | null;
 };
 
+export type QueryRefreshListener = (reason: string) => void;
+
 export const queryDocumentIdMetadataKey = '__notes.document_id';
 
 const boardAutoGroupColumns = ['status', 'lane', 'stage', 'state', 'date', 'supertags'];
+const queryRefreshListeners = new Set<QueryRefreshListener>();
+
+export function subscribeQueryRefresh(listener: QueryRefreshListener) {
+  queryRefreshListeners.add(listener);
+  return () => {
+    queryRefreshListeners.delete(listener);
+  };
+}
+
+export function notifyQueryRefresh(reason = 'dataChanged') {
+  for (const listener of Array.from(queryRefreshListeners)) {
+    listener(reason);
+  }
+}
 
 export function parseQueryGroupBy(value: unknown) {
   if (typeof value !== 'string') {
