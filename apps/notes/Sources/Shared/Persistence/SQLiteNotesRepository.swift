@@ -1387,6 +1387,16 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
         }
     }
 
+    if let aggregate = query.aggregate {
+        switch aggregate.kind {
+        case .countAll:
+            return QueryResult(
+                columns: [aggregate.outputName],
+                rows: [[aggregate.outputName: String(rows.count)]]
+            )
+        }
+    }
+
     if let order = query.order {
         try requireQueryField(order.field, in: result)
         rows = rows
@@ -1465,8 +1475,18 @@ private struct LocalQueryProjection {
     var outputName: String
 }
 
+private struct LocalQueryAggregate {
+    enum Kind {
+        case countAll
+    }
+
+    var kind: Kind
+    var outputName: String
+}
+
 private struct LocalQuery {
     var projection: [LocalQueryProjection]?
+    var aggregate: LocalQueryAggregate?
     var source: String
     var predicates: [LocalQueryPredicate] = []
     var order: LocalQueryOrder?
@@ -1487,7 +1507,9 @@ private struct LocalQuery {
             throw SQLiteNotesError.validationFailed("Query source is missing.")
         }
 
-        projection = try Self.parseProjection(rawProjection)
+        let selection = try Self.parseSelection(rawProjection)
+        projection = selection.projection
+        aggregate = selection.aggregate
         source = sourceName.lowercased()
         if match.indices.contains(3), let whereClause = match[3], !whereClause.isEmpty {
             predicates = try Self.parsePredicates(whereClause)
@@ -1505,16 +1527,26 @@ private struct LocalQuery {
             }
             limit = parsedLimit
         }
+
+        if aggregate != nil, order != nil || limit != nil {
+            throw SQLiteNotesError.validationFailed("ORDER BY and LIMIT are not supported with COUNT(*) queries.")
+        }
     }
 
-    private static func parseProjection(_ rawProjection: String) throws -> [LocalQueryProjection]? {
-        let trimmed = rawProjection.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func parseSelection(
+        _ rawSelection: String
+    ) throws -> (projection: [LocalQueryProjection]?, aggregate: LocalQueryAggregate?) {
+        let trimmed = rawSelection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw SQLiteNotesError.validationFailed("Query projection is missing.")
         }
 
         if trimmed == "*" {
-            return nil
+            return (nil, nil)
+        }
+
+        if let aggregate = try parseAggregate(trimmed) {
+            return (nil, aggregate)
         }
 
         let rawFields = trimmed
@@ -1533,7 +1565,23 @@ private struct LocalQuery {
             projection.append(item)
         }
 
-        return projection
+        return (projection, nil)
+    }
+
+    private static func parseAggregate(_ rawSelection: String) throws -> LocalQueryAggregate? {
+        guard rawSelection.firstMatch(pattern: #"(?is)^\s*COUNT\s*\("#) != nil else {
+            return nil
+        }
+
+        let pattern = #"(?is)^\s*COUNT\s*\(\s*\*\s*\)(?:\s+AS\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$"#
+        guard let match = rawSelection.firstMatch(pattern: pattern) else {
+            throw SQLiteNotesError.validationFailed("Only COUNT(*) with an optional AS alias is supported.")
+        }
+
+        return LocalQueryAggregate(
+            kind: .countAll,
+            outputName: (match[1] ?? "count").lowercased()
+        )
     }
 
     private static func parseProjectionItem(_ rawField: String) throws -> LocalQueryProjection {

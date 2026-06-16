@@ -543,6 +543,71 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(notInResult.rows.map { $0["name"] }, ["Alpha Resource", "Team Resource"])
     }
 
+    func testRunQuerySupportsCountAggregate() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Account": "personal",
+                "Count": "7",
+                "Owner": "Rawkode",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Draft",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "draft",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Archive",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "archived",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "active",
+            ]
+        )
+
+        let active = try repository.runQuery(
+            "SELECT COUNT(*) AS total FROM bookmarks WHERE status IN (active, draft) AND owner = Rawkode"
+        )
+        XCTAssertEqual(active.columns, ["total"])
+        XCTAssertEqual(active.rows, [["total": "2"]])
+
+        let missing = try repository.runQuery(
+            "SELECT COUNT(*) FROM bookmarks WHERE status = missing"
+        )
+        XCTAssertEqual(missing.columns, ["count"])
+        XCTAssertEqual(missing.rows, [["count": "0"]])
+
+        let projectedProperty = try repository.runQuery(
+            "SELECT account FROM bookmarks WHERE name = 'Alpha Resource'"
+        )
+        XCTAssertEqual(projectedProperty.columns, ["account"])
+        XCTAssertEqual(projectedProperty.rows, [["account": "personal"]])
+
+        let projectedCountProperty = try repository.runQuery(
+            "SELECT count FROM bookmarks WHERE name = 'Alpha Resource'"
+        )
+        XCTAssertEqual(projectedCountProperty.columns, ["count"])
+        XCTAssertEqual(projectedCountProperty.rows, [["count": "7"]])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -557,6 +622,10 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name <> rawkode"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(name) FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities ORDER BY name"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities LIMIT 1"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
