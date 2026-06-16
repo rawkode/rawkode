@@ -352,6 +352,55 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testRunQuerySupportsMultipleWherePredicates() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Slug": "research-and-notes",
+                "Status": "active",
+                "Topic": "Research and notes",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Personal Archive",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Slug": "research-and-notes",
+                "Status": "archived",
+                "Topic": "Research and notes",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Notes",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Slug": "research-and-notes",
+                "Status": "active",
+                "Topic": "Research and notes",
+            ]
+        )
+
+        let result = try repository.runQuery(
+            "SELECT name AS title, owner FROM bookmarks WHERE slug = research-and-notes AND status = active AND owner = Rawkode AND topic = 'Research and notes'"
+        )
+
+        XCTAssertEqual(result.columns, ["title", "owner"])
+        XCTAssertEqual(result.rows, [
+            [
+                "title": "Rawkode Academy",
+                "owner": "Rawkode",
+            ],
+        ])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -362,6 +411,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT missing FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name, name FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name AS label, id AS label FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode AND"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])

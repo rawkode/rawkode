@@ -1346,16 +1346,21 @@ private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], 
 private func materialized(_ result: QueryResult, using query: LocalQuery, relativeDate: Date) throws -> QueryResult {
     var rows = result.rows
 
-    if let predicate = query.predicate {
+    for predicate in query.predicates {
         try requireQueryField(predicate.field, in: result)
-        let comparisonValue = queryComparisonValue(for: predicate, relativeDate: relativeDate)
+    }
+
+    if !query.predicates.isEmpty {
         rows = rows.filter { row in
-            let value = row[predicate.field] ?? ""
-            switch predicate.operation {
-            case .equals:
-                return value.localizedCaseInsensitiveCompare(comparisonValue) == .orderedSame
-            case .contains:
-                return value.localizedCaseInsensitiveContains(comparisonValue)
+            query.predicates.allSatisfy { predicate in
+                let comparisonValue = queryComparisonValue(for: predicate, relativeDate: relativeDate)
+                let value = row[predicate.field] ?? ""
+                switch predicate.operation {
+                case .equals:
+                    return value.localizedCaseInsensitiveCompare(comparisonValue) == .orderedSame
+                case .contains:
+                    return value.localizedCaseInsensitiveContains(comparisonValue)
+                }
             }
         }
     }
@@ -1439,7 +1444,7 @@ private struct LocalQueryProjection {
 private struct LocalQuery {
     var projection: [LocalQueryProjection]?
     var source: String
-    var predicate: LocalQueryPredicate?
+    var predicates: [LocalQueryPredicate] = []
     var order: LocalQueryOrder?
     var limit: Int?
 
@@ -1461,7 +1466,7 @@ private struct LocalQuery {
         projection = try Self.parseProjection(rawProjection)
         source = sourceName.lowercased()
         if match.indices.contains(3), let whereClause = match[3], !whereClause.isEmpty {
-            predicate = try LocalQueryPredicate(whereClause)
+            predicates = try Self.parsePredicates(whereClause)
         }
 
         if match.indices.contains(4), let orderField = match[4], !orderField.isEmpty {
@@ -1520,6 +1525,92 @@ private struct LocalQuery {
             field: field.lowercased(),
             outputName: (match[2] ?? field).lowercased()
         )
+    }
+
+    private static func parsePredicates(_ rawWhereClause: String) throws -> [LocalQueryPredicate] {
+        let clauses = try splitConjunctions(in: rawWhereClause)
+        guard !clauses.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query filter is missing.")
+        }
+
+        return try clauses.map { try LocalQueryPredicate($0) }
+    }
+
+    private static func splitConjunctions(in whereClause: String) throws -> [String] {
+        var clauses: [String] = []
+        var current = ""
+        var quotedBy: Character?
+        var index = whereClause.startIndex
+
+        while index < whereClause.endIndex {
+            let character = whereClause[index]
+
+            if character == "'" || character == "\"" {
+                if quotedBy == nil {
+                    quotedBy = character
+                } else if quotedBy == character {
+                    quotedBy = nil
+                }
+                current.append(character)
+                index = whereClause.index(after: index)
+                continue
+            }
+
+            if quotedBy == nil, isStandaloneKeyword("AND", in: whereClause, at: index) {
+                let clause = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !clause.isEmpty else {
+                    throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
+                }
+                clauses.append(clause)
+                current = ""
+                index = whereClause.index(index, offsetBy: 3)
+                continue
+            }
+
+            current.append(character)
+            index = whereClause.index(after: index)
+        }
+
+        guard quotedBy == nil else {
+            throw SQLiteNotesError.validationFailed("Query filter contains an unterminated quoted value.")
+        }
+
+        let finalClause = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !finalClause.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
+        }
+
+        clauses.append(finalClause)
+        return clauses
+    }
+
+    private static func isStandaloneKeyword(_ keyword: String, in text: String, at index: String.Index) -> Bool {
+        guard let endIndex = text.index(index, offsetBy: keyword.count, limitedBy: text.endIndex),
+              String(text[index..<endIndex]).caseInsensitiveCompare(keyword) == .orderedSame else {
+            return false
+        }
+
+        if index > text.startIndex {
+            let previous = text[text.index(before: index)]
+            guard !isQueryWordCharacter(previous) else {
+                return false
+            }
+        }
+
+        if endIndex < text.endIndex {
+            let next = text[endIndex]
+            guard !isQueryWordCharacter(next) else {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private static func isQueryWordCharacter(_ character: Character) -> Bool {
+        "_-.:".contains(character) || character.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0)
+        }
     }
 }
 
