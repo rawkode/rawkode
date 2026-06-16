@@ -684,6 +684,43 @@ final class NotesPersistenceTests: XCTestCase {
             ],
         ])
 
+        let repeatedGroups = try repository.runQuery(
+            "SELECT status AS lane, COUNT(*) AS total FROM bookmarks GROUP BY status HAVING total >= 2 ORDER BY total DESC"
+        )
+        XCTAssertEqual(repeatedGroups.columns, ["lane", "total"])
+        XCTAssertEqual(repeatedGroups.rows, [
+            [
+                "lane": "active",
+                "total": "3",
+            ],
+        ])
+
+        let defaultCountHaving = try repository.runQuery(
+            "SELECT status, COUNT(*) FROM bookmarks GROUP BY status HAVING count > 1 AND status = active"
+        )
+        XCTAssertEqual(defaultCountHaving.columns, ["status", "count"])
+        XCTAssertEqual(defaultCountHaving.rows, [
+            [
+                "status": "active",
+                "count": "3",
+            ],
+        ])
+
+        let nonDraftGroups = try repository.runQuery(
+            "SELECT status AS lane, COUNT(*) FROM bookmarks GROUP BY status HAVING lane != draft ORDER BY lane ASC"
+        )
+        XCTAssertEqual(nonDraftGroups.columns, ["lane", "count"])
+        XCTAssertEqual(nonDraftGroups.rows, [
+            [
+                "lane": "active",
+                "count": "3",
+            ],
+            [
+                "lane": "archived",
+                "count": "1",
+            ],
+        ])
+
         let multiFieldGroup = try repository.runQuery(
             "SELECT owner, status, COUNT(*) AS total FROM bookmarks GROUP BY owner, status ORDER BY total DESC"
         )
@@ -715,6 +752,9 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(
             try repository.runQuery("SELECT COUNT(*) AS total, status FROM bookmarks GROUP BY status")
         )
+        XCTAssertThrowsError(
+            try repository.runQuery("SELECT status, COUNT(*) AS total FROM bookmarks GROUP BY status HAVING missing > 1")
+        )
     }
 
     func testRunQueryRejectsUnsupportedStatements() throws {
@@ -740,6 +780,9 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities GROUP BY updated_at"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities GROUP BY name, name"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) AS name FROM entities GROUP BY name"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities HAVING name = Rawkode"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities HAVING count > 0"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities HAVING count > 0 GROUP BY name"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])

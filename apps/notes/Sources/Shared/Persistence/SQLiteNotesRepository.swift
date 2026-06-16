@@ -1351,40 +1351,7 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     }
 
     if !query.predicates.isEmpty {
-        rows = rows.filter { row in
-            query.predicates.allSatisfy { predicate in
-                let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
-                let value = row[predicate.field] ?? ""
-                switch predicate.operation {
-                case .equals:
-                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
-                case .notEquals:
-                    return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
-                case .contains:
-                    return value.localizedCaseInsensitiveContains(comparisonValues[0])
-                case .notContains:
-                    return !value.localizedCaseInsensitiveContains(comparisonValues[0])
-                case .oneOf:
-                    return comparisonValues.contains {
-                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
-                    }
-                case .notOneOf:
-                    return !comparisonValues.contains {
-                        value.localizedCaseInsensitiveCompare($0) == .orderedSame
-                    }
-                case .greaterThan:
-                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
-                case .greaterThanOrEqual:
-                    let comparison = value.localizedStandardCompare(comparisonValues[0])
-                    return comparison == .orderedDescending || comparison == .orderedSame
-                case .lessThan:
-                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
-                case .lessThanOrEqual:
-                    let comparison = value.localizedStandardCompare(comparisonValues[0])
-                    return comparison == .orderedAscending || comparison == .orderedSame
-                }
-            }
-        }
+        rows = filterQueryRows(rows, using: query.predicates, relativeDate: relativeDate)
     }
 
     if let group = query.group {
@@ -1392,7 +1359,8 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
             rows: rows,
             sourceResult: result,
             group: group,
-            query: query
+            query: query,
+            relativeDate: relativeDate
         )
     }
 
@@ -1453,7 +1421,8 @@ private func materializedGroupedAggregate(
     rows: [[String: String]],
     sourceResult: QueryResult,
     group: LocalQueryGroup,
-    query: LocalQuery
+    query: LocalQuery,
+    relativeDate: Date
 ) throws -> QueryResult {
     guard let aggregate = query.aggregate else {
         throw SQLiteNotesError.validationFailed("GROUP BY currently supports COUNT(*) queries only.")
@@ -1505,6 +1474,14 @@ private func materializedGroupedAggregate(
             return row
         }
 
+    if !query.havingPredicates.isEmpty {
+        let groupedResult = QueryResult(columns: columns, rows: groupedRows)
+        for predicate in query.havingPredicates {
+            try requireQueryField(predicate.field, in: groupedResult)
+        }
+        groupedRows = filterQueryRows(groupedRows, using: query.havingPredicates, relativeDate: relativeDate)
+    }
+
     if let order = query.order {
         let groupedResult = QueryResult(columns: columns, rows: groupedRows)
         try requireQueryField(order.field, in: groupedResult)
@@ -1533,6 +1510,47 @@ private func materializedGroupedAggregate(
     }
 
     return QueryResult(columns: columns, rows: groupedRows)
+}
+
+private func filterQueryRows(
+    _ rows: [[String: String]],
+    using predicates: [LocalQueryPredicate],
+    relativeDate: Date
+) -> [[String: String]] {
+    rows.filter { row in
+        predicates.allSatisfy { predicate in
+            let comparisonValues = queryComparisonValues(for: predicate, relativeDate: relativeDate)
+            let value = row[predicate.field] ?? ""
+            switch predicate.operation {
+            case .equals:
+                return value.localizedCaseInsensitiveCompare(comparisonValues[0]) == .orderedSame
+            case .notEquals:
+                return value.localizedCaseInsensitiveCompare(comparisonValues[0]) != .orderedSame
+            case .contains:
+                return value.localizedCaseInsensitiveContains(comparisonValues[0])
+            case .notContains:
+                return !value.localizedCaseInsensitiveContains(comparisonValues[0])
+            case .oneOf:
+                return comparisonValues.contains {
+                    value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                }
+            case .notOneOf:
+                return !comparisonValues.contains {
+                    value.localizedCaseInsensitiveCompare($0) == .orderedSame
+                }
+            case .greaterThan:
+                return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
+            case .greaterThanOrEqual:
+                let comparison = value.localizedStandardCompare(comparisonValues[0])
+                return comparison == .orderedDescending || comparison == .orderedSame
+            case .lessThan:
+                return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
+            case .lessThanOrEqual:
+                let comparison = value.localizedStandardCompare(comparisonValues[0])
+                return comparison == .orderedAscending || comparison == .orderedSame
+            }
+        }
+    }
 }
 
 private func queryComparisonValues(for predicate: LocalQueryPredicate, relativeDate: Date) -> [String] {
@@ -1589,6 +1607,7 @@ private struct LocalQuery {
     var source: String
     var predicates: [LocalQueryPredicate] = []
     var group: LocalQueryGroup?
+    var havingPredicates: [LocalQueryPredicate] = []
     var order: LocalQueryOrder?
     var limit: Int?
 
@@ -1598,7 +1617,7 @@ private struct LocalQuery {
             throw SQLiteNotesError.validationFailed("Query cannot be empty.")
         }
 
-        let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
+        let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+HAVING\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
         guard let match = trimmed.firstMatch(pattern: pattern) else {
             throw SQLiteNotesError.validationFailed("Only SELECT * or SELECT <field[, ...]> FROM <source> queries are supported.")
         }
@@ -1619,13 +1638,17 @@ private struct LocalQuery {
             group = LocalQueryGroup(fields: try Self.parseGroupFields(groupClause))
         }
 
-        if match.indices.contains(5), let orderField = match[5], !orderField.isEmpty {
-            let direction: LocalQueryOrder.Direction = (match[6] ?? "")
+        if match.indices.contains(5), let havingClause = match[5], !havingClause.isEmpty {
+            havingPredicates = try Self.parsePredicates(havingClause)
+        }
+
+        if match.indices.contains(6), let orderField = match[6], !orderField.isEmpty {
+            let direction: LocalQueryOrder.Direction = (match[7] ?? "")
                 .caseInsensitiveCompare("DESC") == .orderedSame ? .descending : .ascending
             order = LocalQueryOrder(field: orderField.lowercased(), direction: direction)
         }
 
-        if match.indices.contains(7), let rawLimit = match[7], !rawLimit.isEmpty {
+        if match.indices.contains(8), let rawLimit = match[8], !rawLimit.isEmpty {
             guard let parsedLimit = Int(rawLimit), parsedLimit >= 0 else {
                 throw SQLiteNotesError.validationFailed("Query limit must be a non-negative integer.")
             }
@@ -1647,6 +1670,8 @@ private struct LocalQuery {
                     "Grouped COUNT(*) query projections must match GROUP BY fields."
                 )
             }
+        } else if !havingPredicates.isEmpty {
+            throw SQLiteNotesError.validationFailed("HAVING is only supported with grouped COUNT(*) queries.")
         }
 
         if aggregate != nil, group == nil, projection != nil {
