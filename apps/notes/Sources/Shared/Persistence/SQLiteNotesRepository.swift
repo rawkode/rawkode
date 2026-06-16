@@ -1364,6 +1364,16 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
                     return comparisonValues.contains {
                         value.localizedCaseInsensitiveCompare($0) == .orderedSame
                     }
+                case .greaterThan:
+                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedDescending
+                case .greaterThanOrEqual:
+                    let comparison = value.localizedStandardCompare(comparisonValues[0])
+                    return comparison == .orderedDescending || comparison == .orderedSame
+                case .lessThan:
+                    return value.localizedStandardCompare(comparisonValues[0]) == .orderedAscending
+                case .lessThanOrEqual:
+                    let comparison = value.localizedStandardCompare(comparisonValues[0])
+                    return comparison == .orderedAscending || comparison == .orderedSame
                 }
             }
         }
@@ -1649,6 +1659,10 @@ private struct LocalQueryPredicate {
         case equals
         case contains
         case oneOf
+        case greaterThan
+        case greaterThanOrEqual
+        case lessThan
+        case lessThanOrEqual
     }
 
     var field: String
@@ -1664,19 +1678,38 @@ private struct LocalQueryPredicate {
             return
         }
 
-        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|CONTAINS)\s*(.+)\s*$"#
+        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|=|>|<|CONTAINS)\s*(.+)\s*$"#
         guard let match = whereClause.firstMatch(pattern: pattern),
               let fieldName = match[1],
               let operationName = match[2],
               let rawValue = match[3] else {
             throw SQLiteNotesError.validationFailed(
-                "Only WHERE <field> = value, WHERE <field> CONTAINS value, and WHERE <field> IN (value, ...) are supported."
+                "Only WHERE <field> = value, WHERE <field> CONTAINS value, WHERE <field> IN (value, ...), and ordered comparisons are supported."
             )
         }
 
         field = fieldName.lowercased()
-        operation = operationName.caseInsensitiveCompare("CONTAINS") == .orderedSame ? .contains : .equals
+        operation = try Self.parseOperation(operationName)
         values = [try Self.parseValue(rawValue)]
+    }
+
+    private static func parseOperation(_ rawOperation: String) throws -> Operation {
+        switch rawOperation.uppercased() {
+        case "=":
+            return .equals
+        case "CONTAINS":
+            return .contains
+        case ">":
+            return .greaterThan
+        case ">=":
+            return .greaterThanOrEqual
+        case "<":
+            return .lessThan
+        case "<=":
+            return .lessThanOrEqual
+        default:
+            throw SQLiteNotesError.validationFailed("Query filter operation is unsupported.")
+        }
     }
 
     private static func parseValue(_ rawValue: String) throws -> String {

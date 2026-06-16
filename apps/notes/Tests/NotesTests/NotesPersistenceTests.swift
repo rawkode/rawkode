@@ -247,9 +247,14 @@ final class NotesPersistenceTests: XCTestCase {
             Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: baseDate)
         )
         let yesterdayStorageDate = DailyNoteDateFormatter.storageString(from: yesterday)
+        let twoDaysAgo = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(byAdding: .day, value: -2, to: baseDate)
+        )
+        let twoDaysAgoStorageDate = DailyNoteDateFormatter.storageString(from: twoDaysAgo)
 
         _ = try repository.createDailyNote(date: today)
         _ = try repository.createDailyNote(date: yesterdayStorageDate)
+        _ = try repository.createDailyNote(date: twoDaysAgoStorageDate)
 
         let todayResult = try repository.runQuery(
             "SELECT date, title FROM daily_notes WHERE date = today",
@@ -270,6 +275,12 @@ final class NotesPersistenceTests: XCTestCase {
             relativeDate: baseDate
         )
         XCTAssertEqual(rangeResult.rows.map { $0["date"] }, [yesterdayStorageDate, today])
+
+        let orderedRangeResult = try repository.runQuery(
+            "SELECT date FROM daily_notes WHERE date >= yesterday AND date <= today ORDER BY date ASC",
+            relativeDate: baseDate
+        )
+        XCTAssertEqual(orderedRangeResult.rows.map { $0["date"] }, [yesterdayStorageDate, today])
     }
 
     func testRunQueryOrdersAndLimitsDynamicViews() throws {
@@ -487,6 +498,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name CONTAINS rawkode AND"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN ()"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name IN (rawkode,)"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities WHERE name != rawkode"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
