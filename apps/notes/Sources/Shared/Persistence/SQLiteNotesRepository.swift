@@ -1390,17 +1390,17 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
         return QueryResult(columns: result.columns, rows: rows)
     }
 
-    for field in projection {
-        try requireQueryField(field, in: result)
+    for item in projection {
+        try requireQueryField(item.field, in: result)
     }
 
     let projectedRows = rows.map { row in
-        Dictionary(uniqueKeysWithValues: projection.map { field in
-            (field, row[field] ?? "")
+        Dictionary(uniqueKeysWithValues: projection.map { item in
+            (item.outputName, row[item.field] ?? "")
         })
     }
 
-    return QueryResult(columns: projection, rows: projectedRows)
+    return QueryResult(columns: projection.map { $0.outputName }, rows: projectedRows)
 }
 
 private func queryComparisonValue(for predicate: LocalQueryPredicate, relativeDate: Date) -> String {
@@ -1431,8 +1431,13 @@ private struct LocalQueryOrder {
     var direction: Direction
 }
 
+private struct LocalQueryProjection {
+    var field: String
+    var outputName: String
+}
+
 private struct LocalQuery {
-    var projection: [String]?
+    var projection: [LocalQueryProjection]?
     var source: String
     var predicate: LocalQueryPredicate?
     var order: LocalQueryOrder?
@@ -1446,7 +1451,7 @@ private struct LocalQuery {
 
         let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
         guard let match = trimmed.firstMatch(pattern: pattern) else {
-            throw SQLiteNotesError.validationFailed("Only SELECT * or SELECT <field, ...> FROM <source> queries are supported.")
+            throw SQLiteNotesError.validationFailed("Only SELECT * or SELECT <field[, ...]> FROM <source> queries are supported.")
         }
 
         guard let rawProjection = match[1], let sourceName = match[2] else {
@@ -1473,7 +1478,7 @@ private struct LocalQuery {
         }
     }
 
-    private static func parseProjection(_ rawProjection: String) throws -> [String]? {
+    private static func parseProjection(_ rawProjection: String) throws -> [LocalQueryProjection]? {
         let trimmed = rawProjection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw SQLiteNotesError.validationFailed("Query projection is missing.")
@@ -1483,23 +1488,38 @@ private struct LocalQuery {
             return nil
         }
 
-        let fields = trimmed
+        let rawFields = trimmed
             .split(separator: ",", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-        let fieldPattern = #"^[A-Za-z_][A-Za-z0-9_]*$"#
-        var seen: Set<String> = []
-        for field in fields {
-            guard !field.isEmpty, field.firstMatch(pattern: fieldPattern) != nil else {
-                throw SQLiteNotesError.validationFailed("Only comma-separated query field names are supported.")
+        var projection: [LocalQueryProjection] = []
+        var seenOutputNames: Set<String> = []
+        for rawField in rawFields {
+            let item = try parseProjectionItem(rawField)
+            guard seenOutputNames.insert(item.outputName).inserted else {
+                throw SQLiteNotesError.validationFailed(
+                    "Query projection contains duplicate output field '\(item.outputName)'."
+                )
             }
-
-            guard seen.insert(field).inserted else {
-                throw SQLiteNotesError.validationFailed("Query projection contains duplicate field '\(field)'.")
-            }
+            projection.append(item)
         }
 
-        return fields
+        return projection
+    }
+
+    private static func parseProjectionItem(_ rawField: String) throws -> LocalQueryProjection {
+        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s+AS\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$"#
+        guard let match = rawField.firstMatch(pattern: pattern),
+              let field = match[1] else {
+            throw SQLiteNotesError.validationFailed(
+                "Only comma-separated query field names with optional AS aliases are supported."
+            )
+        }
+
+        return LocalQueryProjection(
+            field: field.lowercased(),
+            outputName: (match[2] ?? field).lowercased()
+        )
     }
 }
 

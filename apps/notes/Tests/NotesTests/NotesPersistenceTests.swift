@@ -325,6 +325,33 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testRunQuerySupportsProjectionAliases() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["bookmark"],
+            properties: [
+                "URL": "https://rawkode.academy",
+                "Status": "active",
+            ]
+        )
+
+        let result = try repository.runQuery(
+            "SELECT name AS title, url AS link FROM bookmarks WHERE status = active"
+        )
+
+        XCTAssertEqual(result.columns, ["title", "link"])
+        XCTAssertEqual(result.rows, [
+            [
+                "title": "Rawkode Academy",
+                "link": "https://rawkode.academy",
+            ],
+        ])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -334,6 +361,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities ORDER BY missing"))
         XCTAssertThrowsError(try repository.runQuery("SELECT missing FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT name, name FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name AS label, id AS label FROM entities"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
