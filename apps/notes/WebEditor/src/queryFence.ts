@@ -4,6 +4,7 @@ export type ParsedQueryFence = {
   query: string;
   view: QueryViewMode;
   groupBy?: string;
+  title?: string;
 };
 
 export type QueryFenceReplacement = ParsedQueryFence & {
@@ -15,6 +16,7 @@ export type QueryViewNodeAttributes = {
   query: string;
   view: QueryViewMode;
   groupBy: string | null;
+  title: string | null;
 };
 
 export type QueryFenceTextBlock = {
@@ -27,6 +29,7 @@ export type QueryFenceTextBlock = {
 type QueryFenceOpening = {
   view: QueryViewMode;
   groupBy?: string;
+  title?: string;
 };
 
 export function parseQueryViewMode(value: unknown): QueryViewMode {
@@ -145,6 +148,7 @@ export function queryFenceReplacementToNodeAttributes(
     query: replacement.query,
     view: replacement.view,
     groupBy: replacement.groupBy ?? null,
+    title: replacement.title ?? null,
   };
 }
 
@@ -173,16 +177,24 @@ function parseQueryFenceAttributes(attributes: string): QueryFenceOpening {
   const groupMatch = attributes.match(
     /(?:^|\s|\{)(?:group|groupBy)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
   );
+  const titleMatch = attributes.match(
+    /(?:^|\s|\{)(?:title|name)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
+  );
   const groupBy = groupMatch?.[1] ?? groupMatch?.[2] ?? groupMatch?.[3];
+  const title = titleMatch?.[1] ?? titleMatch?.[2] ?? titleMatch?.[3];
 
   return {
     view: parseQueryViewMode(viewMatch?.[1] ?? viewMatch?.[2] ?? viewMatch?.[3]),
     ...(groupBy ? { groupBy: groupBy.trim() } : {}),
+    ...(title ? { title: title.trim() } : {}),
   };
 }
 
 function queryFenceOptionalAttributes(opening: QueryFenceOpening) {
-  return opening.groupBy ? { groupBy: opening.groupBy } : {};
+  return {
+    ...(opening.groupBy ? { groupBy: opening.groupBy } : {}),
+    ...(opening.title ? { title: opening.title } : {}),
+  };
 }
 
 function normalizeLines(value: string) {

@@ -51,6 +51,21 @@ SELECT * FROM projects
     expect(parseQueryFenceOpening('```ql view=board groupBy="lane"')?.groupBy).toBe('lane');
   });
 
+  test('parses query titles from title or name attributes', () => {
+    expect(
+      parseQueryFenceText(`\`\`\`ql view=board group=status title="Active Bookmarks"
+SELECT * FROM bookmarks
+\`\`\``)
+    ).toEqual({
+      query: 'SELECT * FROM bookmarks',
+      view: 'board',
+      groupBy: 'status',
+      title: 'Active Bookmarks',
+    });
+
+    expect(parseQueryFenceOpening("```ql name='Weekly Planning'")?.title).toBe('Weekly Planning');
+  });
+
   test('ignores incomplete or non-query fences', () => {
     expect(parseQueryFenceText('```ts\nconst value = 1;\n```')).toBeNull();
     expect(parseQueryFenceText('```ql\nSELECT * FROM bookmarks')).toBeNull();
@@ -110,11 +125,27 @@ SELECT * FROM projects
         query: 'SELECT * FROM projects',
         view: 'board',
         groupBy: 'status',
+        title: 'Project Board',
       })
     ).toEqual({
       query: 'SELECT * FROM projects',
       view: 'board',
       groupBy: 'status',
+      title: 'Project Board',
+    });
+
+    expect(
+      queryFenceReplacementToNodeAttributes({
+        from: 0,
+        to: 42,
+        query: 'SELECT * FROM projects',
+        view: 'table',
+      })
+    ).toEqual({
+      query: 'SELECT * FROM projects',
+      view: 'table',
+      groupBy: null,
+      title: null,
     });
   });
 });

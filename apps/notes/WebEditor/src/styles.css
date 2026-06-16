@@ -174,6 +174,21 @@ input {
   font-size: 0.92rem;
 }
 
+.query-block__title {
+  display: inline-flex;
+  flex: 1 1 220px;
+  gap: 6px;
+  align-items: center;
+  max-width: 360px;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__title input {
+  min-width: 120px;
+  width: 100%;
+}
+
 .query-block select,
 .query-block input,
 .query-block textarea {

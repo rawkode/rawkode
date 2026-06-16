@@ -182,6 +182,7 @@ const QueryViewNode = Node.create({
       query: { default: 'SELECT * FROM entities' },
       view: { default: 'table' },
       groupBy: { default: null },
+      title: { default: null },
     };
   },
 
@@ -196,6 +197,7 @@ const QueryViewNode = Node.create({
         'data-query-view': 'true',
         'data-view': node.attrs.view,
         'data-group-by': node.attrs.groupBy,
+        'data-title': node.attrs.title,
         class: 'query-view-node',
       }),
       node.attrs.query,
@@ -258,6 +260,8 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const query = typeof node.attrs.query === 'string' ? node.attrs.query : '';
   const view = parseQueryViewMode(node.attrs.view);
   const groupBy = parseQueryGroupBy(node.attrs.groupBy);
+  const title = typeof node.attrs.title === 'string' ? node.attrs.title : '';
+  const displayTitle = title.trim();
   const [result, setResult] = React.useState<QueryResultPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
@@ -335,6 +339,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     updateAttributes({ groupBy: parseQueryGroupBy(nextGroupBy) || null });
   }
 
+  function updateTitle(nextTitle: string) {
+    updateAttributes({ title: nextTitle.trim().length > 0 ? nextTitle : null });
+  }
+
   React.useEffect(() => {
     if (didAutoRunRef.current) {
       return;
@@ -357,7 +365,15 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   return (
     <NodeViewWrapper className={`query-block ${selected ? 'is-selected' : ''}`}>
       <div className="query-block__toolbar">
-        <strong>Query</strong>
+        <strong>{displayTitle || 'Query'}</strong>
+        <label className="query-block__title">
+          <span>Title</span>
+          <input
+            value={title}
+            onChange={(event) => updateTitle(event.target.value)}
+            placeholder="View title"
+          />
+        </label>
         <select
           value={view}
           onChange={(event) => updateAttributes({ view: parseQueryViewMode(event.target.value) })}
@@ -634,6 +650,7 @@ function Toolbar({
                 query: 'SELECT * FROM entities',
                 view: 'table',
                 groupBy: null,
+                title: null,
               },
             })
             .run();
