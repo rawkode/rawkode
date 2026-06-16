@@ -1234,7 +1234,21 @@ private func materialized(_ result: QueryResult, using query: LocalQuery) throws
         rows = Array(rows.prefix(limit))
     }
 
-    return QueryResult(columns: result.columns, rows: rows)
+    guard let projection = query.projection else {
+        return QueryResult(columns: result.columns, rows: rows)
+    }
+
+    for field in projection {
+        try requireQueryField(field, in: result)
+    }
+
+    let projectedRows = rows.map { row in
+        Dictionary(uniqueKeysWithValues: projection.map { field in
+            (field, row[field] ?? "")
+        })
+    }
+
+    return QueryResult(columns: projection, rows: projectedRows)
 }
 
 private func requireQueryField(_ field: String, in result: QueryResult) throws {
@@ -1254,6 +1268,7 @@ private struct LocalQueryOrder {
 }
 
 private struct LocalQuery {
+    var projection: [String]?
     var source: String
     var predicate: LocalQueryPredicate?
     var order: LocalQueryOrder?
@@ -1265,32 +1280,62 @@ private struct LocalQuery {
             throw SQLiteNotesError.validationFailed("Query cannot be empty.")
         }
 
-        let pattern = #"(?is)^\s*SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
+        let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
         guard let match = trimmed.firstMatch(pattern: pattern) else {
-            throw SQLiteNotesError.validationFailed("Only SELECT * FROM <source> queries are supported.")
+            throw SQLiteNotesError.validationFailed("Only SELECT * or SELECT <field, ...> FROM <source> queries are supported.")
         }
 
-        guard let sourceName = match[1] else {
+        guard let rawProjection = match[1], let sourceName = match[2] else {
             throw SQLiteNotesError.validationFailed("Query source is missing.")
         }
 
+        projection = try Self.parseProjection(rawProjection)
         source = sourceName.lowercased()
-        if match.indices.contains(2), let whereClause = match[2], !whereClause.isEmpty {
+        if match.indices.contains(3), let whereClause = match[3], !whereClause.isEmpty {
             predicate = try LocalQueryPredicate(whereClause)
         }
 
-        if match.indices.contains(3), let orderField = match[3], !orderField.isEmpty {
-            let direction: LocalQueryOrder.Direction = (match[4] ?? "")
+        if match.indices.contains(4), let orderField = match[4], !orderField.isEmpty {
+            let direction: LocalQueryOrder.Direction = (match[5] ?? "")
                 .caseInsensitiveCompare("DESC") == .orderedSame ? .descending : .ascending
             order = LocalQueryOrder(field: orderField.lowercased(), direction: direction)
         }
 
-        if match.indices.contains(5), let rawLimit = match[5], !rawLimit.isEmpty {
+        if match.indices.contains(6), let rawLimit = match[6], !rawLimit.isEmpty {
             guard let parsedLimit = Int(rawLimit), parsedLimit >= 0 else {
                 throw SQLiteNotesError.validationFailed("Query limit must be a non-negative integer.")
             }
             limit = parsedLimit
         }
+    }
+
+    private static func parseProjection(_ rawProjection: String) throws -> [String]? {
+        let trimmed = rawProjection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query projection is missing.")
+        }
+
+        if trimmed == "*" {
+            return nil
+        }
+
+        let fields = trimmed
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+        let fieldPattern = #"^[A-Za-z_][A-Za-z0-9_]*$"#
+        var seen: Set<String> = []
+        for field in fields {
+            guard !field.isEmpty, field.firstMatch(pattern: fieldPattern) != nil else {
+                throw SQLiteNotesError.validationFailed("Only comma-separated query field names are supported.")
+            }
+
+            guard seen.insert(field).inserted else {
+                throw SQLiteNotesError.validationFailed("Query projection contains duplicate field '\(field)'.")
+            }
+        }
+
+        return fields
     }
 }
 

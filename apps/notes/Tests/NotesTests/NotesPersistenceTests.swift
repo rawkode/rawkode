@@ -150,6 +150,49 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(result.rows.map { $0["name"] }, ["Gamma Resource", "Beta Resource"])
     }
 
+    func testRunQueryProjectsSelectedColumns() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "URL": "https://alpha.example",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "URL": "https://beta.example",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "URL": "https://gamma.example",
+                "Status": "archived",
+            ]
+        )
+
+        let result = try repository.runQuery(
+            "SELECT name, url FROM bookmarks WHERE status = active ORDER BY url DESC LIMIT 1"
+        )
+
+        XCTAssertEqual(result.columns, ["name", "url"])
+        XCTAssertEqual(result.rows, [
+            [
+                "name": "Beta Resource",
+                "url": "https://beta.example",
+            ],
+        ])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -157,6 +200,8 @@ final class NotesPersistenceTests: XCTestCase {
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
         XCTAssertThrowsError(try repository.runQuery("DELETE FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities ORDER BY missing"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT missing FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, name FROM entities"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
