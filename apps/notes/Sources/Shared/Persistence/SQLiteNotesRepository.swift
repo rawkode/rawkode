@@ -215,41 +215,35 @@ final class SQLiteNotesRepository {
 
     func runQuery(_ rawQuery: String) throws -> QueryResult {
         let query = try LocalQuery(rawQuery)
+        let result: QueryResult
 
         switch query.source {
         case "documents", "notes":
-            return try filtered(
-                QueryResult(
-                    columns: ["id", "kind", "date", "title", "updated_at"],
-                    rows: try fetchDocuments().map(documentQueryRow)
-                ),
-                by: query.predicate
+            result = QueryResult(
+                columns: ["id", "kind", "date", "title", "updated_at"],
+                rows: try fetchDocuments().map(documentQueryRow)
             )
 
         case "daily_notes", "daily":
-            return try filtered(
-                QueryResult(
-                    columns: ["id", "date", "title", "updated_at"],
-                    rows: try fetchDocuments(kind: .daily).map(dailyNoteQueryRow)
-                ),
-                by: query.predicate
+            result = QueryResult(
+                columns: ["id", "date", "title", "updated_at"],
+                rows: try fetchDocuments(kind: .daily).map(dailyNoteQueryRow)
             )
 
         case "entities":
-            return try filtered(try fetchEntityQueryResult(supertagSlugCandidates: []), by: query.predicate)
+            result = try fetchEntityQueryResult(supertagSlugCandidates: [])
 
         case "supertags", "tags":
-            return try filtered(try fetchSupertagQueryResult(), by: query.predicate)
+            result = try fetchSupertagQueryResult()
 
         case "entity_references", "references", "backlinks":
-            return try filtered(try fetchEntityReferenceQueryResult(), by: query.predicate)
+            result = try fetchEntityReferenceQueryResult()
 
         default:
-            return try filtered(
-                try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source)),
-                by: query.predicate
-            )
+            result = try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source))
         }
+
+        return try materialized(result, using: query)
     }
 
     static func defaultDailyNoteJSON(title: String) -> String {
@@ -1040,18 +1034,12 @@ private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], 
     }
 }
 
-private func filtered(_ result: QueryResult, by predicate: LocalQueryPredicate?) throws -> QueryResult {
-    guard let predicate else {
-        return result
-    }
+private func materialized(_ result: QueryResult, using query: LocalQuery) throws -> QueryResult {
+    var rows = result.rows
 
-    guard result.columns.contains(predicate.field) else {
-        throw SQLiteNotesError.validationFailed("Unknown query field '\(predicate.field)'.")
-    }
-
-    return QueryResult(
-        columns: result.columns,
-        rows: result.rows.filter { row in
+    if let predicate = query.predicate {
+        try requireQueryField(predicate.field, in: result)
+        rows = rows.filter { row in
             let value = row[predicate.field] ?? ""
             switch predicate.operation {
             case .equals:
@@ -1060,12 +1048,58 @@ private func filtered(_ result: QueryResult, by predicate: LocalQueryPredicate?)
                 return value.localizedCaseInsensitiveContains(predicate.value)
             }
         }
-    )
+    }
+
+    if let order = query.order {
+        try requireQueryField(order.field, in: result)
+        rows = rows
+            .enumerated()
+            .sorted { left, right in
+                let comparison = (left.element[order.field] ?? "")
+                    .localizedStandardCompare(right.element[order.field] ?? "")
+
+                if comparison == .orderedSame {
+                    return left.offset < right.offset
+                }
+
+                switch order.direction {
+                case .ascending:
+                    return comparison == .orderedAscending
+                case .descending:
+                    return comparison == .orderedDescending
+                }
+            }
+            .map { $0.element }
+    }
+
+    if let limit = query.limit {
+        rows = Array(rows.prefix(limit))
+    }
+
+    return QueryResult(columns: result.columns, rows: rows)
+}
+
+private func requireQueryField(_ field: String, in result: QueryResult) throws {
+    guard result.columns.contains(field) else {
+        throw SQLiteNotesError.validationFailed("Unknown query field '\(field)'.")
+    }
+}
+
+private struct LocalQueryOrder {
+    enum Direction {
+        case ascending
+        case descending
+    }
+
+    var field: String
+    var direction: Direction
 }
 
 private struct LocalQuery {
     var source: String
     var predicate: LocalQueryPredicate?
+    var order: LocalQueryOrder?
+    var limit: Int?
 
     init(_ rawQuery: String) throws {
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1073,7 +1107,7 @@ private struct LocalQuery {
             throw SQLiteNotesError.validationFailed("Query cannot be empty.")
         }
 
-        let pattern = #"(?is)^\s*SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?\s*;?\s*$"#
+        let pattern = #"(?is)^\s*SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
         guard let match = trimmed.firstMatch(pattern: pattern) else {
             throw SQLiteNotesError.validationFailed("Only SELECT * FROM <source> queries are supported.")
         }
@@ -1085,6 +1119,19 @@ private struct LocalQuery {
         source = sourceName.lowercased()
         if match.indices.contains(2), let whereClause = match[2], !whereClause.isEmpty {
             predicate = try LocalQueryPredicate(whereClause)
+        }
+
+        if match.indices.contains(3), let orderField = match[3], !orderField.isEmpty {
+            let direction: LocalQueryOrder.Direction = (match[4] ?? "")
+                .caseInsensitiveCompare("DESC") == .orderedSame ? .descending : .ascending
+            order = LocalQueryOrder(field: orderField.lowercased(), direction: direction)
+        }
+
+        if match.indices.contains(5), let rawLimit = match[5], !rawLimit.isEmpty {
+            guard let parsedLimit = Int(rawLimit), parsedLimit >= 0 else {
+                throw SQLiteNotesError.validationFailed("Query limit must be a non-negative integer.")
+            }
+            limit = parsedLimit
         }
     }
 }

@@ -100,12 +100,29 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company")
     }
 
+    func testRunQueryOrdersAndLimitsDynamicViews() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(named: "Alpha Resource", supertagNames: ["bookmark"])
+        _ = try repository.upsertEntity(named: "Beta Resource", supertagNames: ["bookmark"])
+        _ = try repository.upsertEntity(named: "Gamma Resource", supertagNames: ["bookmark"])
+
+        let result = try repository.runQuery(
+            "SELECT * FROM bookmarks WHERE name CONTAINS resource ORDER BY name DESC LIMIT 2"
+        )
+
+        XCTAssertEqual(result.rows.map { $0["name"] }, ["Gamma Resource", "Beta Resource"])
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
 
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
         XCTAssertThrowsError(try repository.runQuery("DELETE FROM entities"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT * FROM entities ORDER BY missing"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
