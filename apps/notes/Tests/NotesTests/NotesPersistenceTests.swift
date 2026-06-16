@@ -903,6 +903,67 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testPlainTextMentionPropertyLinesCreateEntityRelationships() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let owner = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
+        var document = try repository.createStandaloneNote()
+        document.title = "Project properties"
+        document.tiptapJSON = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Project properties"}]}]}"#
+        document.plainText = """
+        [[Notes Roadmap]] #project
+        owner:: [[rawkode academy]]
+        status:: active
+
+        This line does not belong to the entity block.
+        ignored:: value
+        """
+        try repository.upsertDocument(document)
+
+        let projects = try repository.runQuery(
+            "SELECT name, supertags, owner, owner_entity_id, status FROM projects"
+        )
+        XCTAssertEqual(projects.rows, [
+            [
+                "name": "Notes Roadmap",
+                "supertags": "project",
+                "owner": "Rawkode Academy",
+                "owner_entity_id": owner.id.uuidString,
+                "status": "active",
+            ],
+        ])
+
+        let relationships = try repository.runQuery(
+            "SELECT source, property, target, target_id FROM relations WHERE source = 'Notes Roadmap'"
+        )
+        XCTAssertEqual(relationships.rows, [
+            [
+                "source": "Notes Roadmap",
+                "property": "owner",
+                "target": "Rawkode Academy",
+                "target_id": owner.id.uuidString,
+            ],
+        ])
+
+        XCTAssertThrowsError(try repository.runQuery("SELECT ignored FROM projects"))
+
+        document.plainText = """
+        [[Notes Roadmap]] #project
+        owner:: [[Launch Plan]]
+        status:: paused
+        """
+        try repository.upsertDocument(document)
+
+        let updatedProject = try repository.runQuery(
+            "SELECT owner, status FROM projects WHERE name = 'Notes Roadmap'"
+        )
+        XCTAssertEqual(updatedProject.rows, [
+            ["owner": "Launch Plan", "status": "paused"],
+        ])
+    }
+
     func testEntityReferenceIndexBackfillsExistingDocumentsDuringMigration() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

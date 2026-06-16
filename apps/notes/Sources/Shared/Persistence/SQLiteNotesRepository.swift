@@ -529,6 +529,30 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func fetchEntityName(id entityID: UUID) throws -> String? {
+        try prepare(
+            """
+            SELECT canonical_name
+            FROM entities
+            WHERE id = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return textColumn(statement, 0)
+        }
+    }
+
     private func insertEntity(id: UUID, canonicalName: String, createdAt: Date, updatedAt: Date) throws {
         try prepare(
             """
@@ -714,10 +738,13 @@ final class SQLiteNotesRepository {
 
         for property in normalizedProperties(rawProperties) {
             let valueEntityID: UUID?
+            let propertyValue: String
             if let referencedEntityName = property.referencedEntityName {
-                valueEntityID = try upsertEntityRecord(named: referencedEntityName, updatedAt: updatedAt)
+                valueEntityID = try ensureEntityRecord(named: referencedEntityName, createdAt: updatedAt)
+                propertyValue = try valueEntityID.flatMap { try fetchEntityName(id: $0) } ?? referencedEntityName
             } else {
                 valueEntityID = nil
+                propertyValue = property.value
             }
 
             try prepare(
@@ -730,7 +757,52 @@ final class SQLiteNotesRepository {
             ) { statement in
                 sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
                 sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 3, property.value, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 3, propertyValue, -1, sqliteTransient)
+                if let valueEntityID {
+                    sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
+                } else {
+                    sqlite3_bind_null(statement, 4)
+                }
+                sqlite3_bind_text(statement, 5, updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+        }
+    }
+
+    private func upsertEntityProperties(
+        entityID: UUID,
+        properties rawProperties: [String: String],
+        updatedAt: Date
+    ) throws {
+        for property in normalizedProperties(rawProperties) {
+            let valueEntityID: UUID?
+            let propertyValue: String
+            if let referencedEntityName = property.referencedEntityName {
+                valueEntityID = try ensureEntityRecord(named: referencedEntityName, createdAt: updatedAt)
+                propertyValue = try valueEntityID.flatMap { try fetchEntityName(id: $0) } ?? referencedEntityName
+            } else {
+                valueEntityID = nil
+                propertyValue = property.value
+            }
+
+            try prepare(
+                """
+                INSERT INTO entity_properties (
+                    entity_id, property_key, property_value, value_entity_id, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(entity_id, property_key) DO UPDATE SET
+                    property_value = excluded.property_value,
+                    value_entity_id = excluded.value_entity_id,
+                    updated_at = excluded.updated_at;
+                """
+            ) { statement in
+                sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
+                sqlite3_bind_text(statement, 3, propertyValue, -1, sqliteTransient)
                 if let valueEntityID {
                     sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
                 } else {
@@ -787,6 +859,9 @@ final class SQLiteNotesRepository {
             for supertagName in mention.supertagNames {
                 let supertagID = try ensureSupertagRecord(named: supertagName, createdAt: now)
                 try link(entityID: entityID, toSupertagID: supertagID)
+            }
+            if !mention.properties.isEmpty {
+                try upsertEntityProperties(entityID: entityID, properties: mention.properties, updatedAt: now)
             }
             try insertDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
         }
@@ -1235,6 +1310,7 @@ private struct StoredEntityProperty {
 private struct PlainTextEntityMention {
     var name: String
     var supertagNames: [String]
+    var properties: [String: String] = [:]
 }
 
 private func normalizedProperties(_ properties: [String: String]) -> [NormalizedEntityProperty] {
@@ -1403,9 +1479,24 @@ private func entityReferenceIDs(in tiptapJSON: String) -> [UUID] {
 private func entityMentions(in plainText: String) -> [PlainTextEntityMention] {
     var mentionsByKey: [String: PlainTextEntityMention] = [:]
     var orderedKeys: [String] = []
+    var currentEntityKey: String?
 
     for line in plainText.components(separatedBy: .newlines) {
+        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            currentEntityKey = nil
+            continue
+        }
+
+        if let currentEntityKey,
+           let property = entityPropertyAnnotation(in: line),
+           var mention = mentionsByKey[currentEntityKey] {
+            mention.properties[property.key] = property.value
+            mentionsByKey[currentEntityKey] = mention
+            continue
+        }
+
         var searchStart = line.startIndex
+        var foundMention = false
 
         while let openRange = line[searchStart...].range(of: "[[") {
             let nameStart = openRange.upperBound
@@ -1439,10 +1530,33 @@ private func entityMentions(in plainText: String) -> [PlainTextEntityMention] {
                 )
                 orderedKeys.append(key)
             }
+            currentEntityKey = key
+            foundMention = true
+        }
+
+        if !foundMention {
+            currentEntityKey = nil
         }
     }
 
     return orderedKeys.compactMap { mentionsByKey[$0] }
+}
+
+private func entityPropertyAnnotation(in line: String) -> (key: String, value: String)? {
+    let pattern = #"^\s*([A-Za-z_][A-Za-z0-9 _-]*)::\s*(.+?)\s*$"#
+    guard let match = line.firstMatch(pattern: pattern),
+          let rawKey = match[1],
+          let rawValue = match[2] else {
+        return nil
+    }
+
+    let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty, !value.isEmpty else {
+        return nil
+    }
+
+    return (key, value)
 }
 
 private func supertagNames(in text: String) -> [String] {
