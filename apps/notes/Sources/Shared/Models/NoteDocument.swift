@@ -63,6 +63,19 @@ enum DailyNoteDateFormatter {
         makeStorageFormatter().string(from: date)
     }
 
+    static func date(from storageDate: String) -> Date? {
+        makeStorageFormatter().date(from: storageDate)
+    }
+
+    static func storageString(byAddingDays dayOffset: Int, to storageDate: String) -> String? {
+        guard let date = date(from: storageDate),
+              let shiftedDate = calendar.date(byAdding: .day, value: dayOffset, to: date) else {
+            return nil
+        }
+
+        return storageString(from: shiftedDate)
+    }
+
     static func relativeStorageString(for literal: String, relativeTo date: Date = .now) -> String? {
         let dayOffset: Int
         switch literal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

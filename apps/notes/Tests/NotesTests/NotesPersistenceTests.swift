@@ -1120,6 +1120,69 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreCanNavigateAdjacentDailyNotes() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+        let selectedDate = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 1, day: 5, hour: 12))
+        )
+
+        store.load()
+        store.createDailyNote(for: selectedDate)
+        store.openDailyNote(movingByDays: -1)
+
+        XCTAssertEqual(store.selectedDocument?.kind, .daily)
+        XCTAssertEqual(store.selectedDocument?.date, "2026-01-04")
+
+        store.openDailyNote(movingByDays: 1)
+
+        XCTAssertEqual(store.selectedDocument?.date, "2026-01-05")
+        XCTAssertEqual(store.dailyNotes.filter { $0.date == "2026-01-05" }.count, 1)
+
+        store.openDailyNote(movingByDays: 1)
+
+        XCTAssertEqual(store.selectedDocument?.date, "2026-01-06")
+        XCTAssertTrue(store.dailyNotes.contains { $0.date == "2026-01-04" })
+        XCTAssertTrue(store.dailyNotes.contains { $0.date == "2026-01-06" })
+    }
+
+    @MainActor
+    func testStaleDailyNoteSaveDoesNotReselectPriorDateAfterNavigation() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+        let selectedDate = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 1, day: 5, hour: 12))
+        )
+
+        store.load()
+        store.createDailyNote(for: selectedDate)
+        let originalDailyNote = try XCTUnwrap(store.selectedDocument)
+
+        store.openDailyNote(movingByDays: -1)
+        let navigatedDailyNote = try XCTUnwrap(store.selectedDocument)
+
+        store.saveEditorChange(
+            documentID: originalDailyNote.id,
+            title: originalDailyNote.title,
+            contentJSON: SQLiteNotesRepository.defaultDailyNoteJSON(title: originalDailyNote.displayTitle),
+            plainText: "Stale save from previous day"
+        )
+
+        XCTAssertEqual(store.selectedDocument?.id, navigatedDailyNote.id)
+        XCTAssertEqual(store.selectedDocument?.date, "2026-01-04")
+        XCTAssertEqual(
+            store.dailyNotes.first { $0.id == originalDailyNote.id }?.plainText,
+            "Stale save from previous day"
+        )
+    }
+
+    @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

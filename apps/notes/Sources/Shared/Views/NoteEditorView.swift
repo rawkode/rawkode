@@ -2,6 +2,9 @@ import SwiftUI
 
 struct NoteEditorView: View {
     let document: NoteDocument
+    let onOpenPreviousDailyNote: () -> Void
+    let onOpenToday: () -> Void
+    let onOpenNextDailyNote: () -> Void
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
@@ -61,9 +64,32 @@ struct NoteEditorView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if document.kind == .daily {
+                dailyNavigationControls
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+    }
+
+    private var dailyNavigationControls: some View {
+        HStack(spacing: 8) {
+            Button(action: onOpenPreviousDailyNote) {
+                Label("Previous Day", systemImage: "chevron.left")
+            }
+
+            Button(action: onOpenToday) {
+                Label("Today", systemImage: "calendar")
+            }
+
+            Button(action: onOpenNextDailyNote) {
+                Label("Next Day", systemImage: "chevron.right")
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .font(.caption)
     }
 }
 
@@ -118,11 +144,17 @@ private struct EditorStatusBanner: View {
                 plainText: "Preview text",
                 createdAt: .now,
                 updatedAt: .now
-            )
-        ) { _, _, _, _ in } onEntityUpsert: { name, supertagNames, properties in
-            EntityReference(id: UUID(), label: name, supertags: supertagNames, properties: properties ?? [:])
-        } onQueryRun: { _ in
-            QueryResult(columns: ["name"], rows: [["name": "Preview"]])
-        }
+            ),
+            onOpenPreviousDailyNote: {},
+            onOpenToday: {},
+            onOpenNextDailyNote: {},
+            onChange: { _, _, _, _ in },
+            onEntityUpsert: { name, supertagNames, properties in
+                EntityReference(id: UUID(), label: name, supertags: supertagNames, properties: properties ?? [:])
+            },
+            onQueryRun: { _ in
+                QueryResult(columns: ["name"], rows: [["name": "Preview"]])
+            }
+        )
     }
 }

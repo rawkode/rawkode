@@ -60,6 +60,24 @@ final class NotesStore {
         }
     }
 
+    func openDailyNote(movingByDays dayOffset: Int) {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        let currentDailyDate = selectedDocument?.kind == .daily ? selectedDocument?.date : nil
+        let targetDate = currentDailyDate
+            .flatMap { DailyNoteDateFormatter.storageString(byAddingDays: dayOffset, to: $0) }
+            ?? DailyNoteDateFormatter.storageString(from: fallbackDate(movingByDays: dayOffset))
+
+        do {
+            let document = try repository.createDailyNote(date: targetDate)
+            try reloadDocuments(selecting: document.id)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
     func createStandaloneNote() {
         guard let repository = requireRepository() else {
             return
@@ -91,6 +109,7 @@ final class NotesStore {
             return
         }
 
+        let isSelectedDocumentSave = selectedDocument?.id == documentID
         document.title = normalizedTitle(title, fallback: document.title)
         document.tiptapJSON = contentJSON
         document.plainText = plainText
@@ -99,7 +118,9 @@ final class NotesStore {
         do {
             try repository.upsertDocument(document)
             replaceCached(document)
-            selectedDocument = document
+            if isSelectedDocumentSave {
+                selectedDocument = document
+            }
         } catch {
             lastErrorMessage = error.localizedDescription
         }
@@ -210,6 +231,11 @@ final class NotesStore {
     private func nextSelection(afterDeleting deletedID: UUID) -> UUID? {
         let remaining = (dailyNotes + standaloneNotes).filter { $0.id != deletedID }
         return remaining.first?.id
+    }
+
+    private func fallbackDate(movingByDays dayOffset: Int) -> Date {
+        let calendar = Calendar(identifier: .gregorian)
+        return calendar.date(byAdding: .day, value: dayOffset, to: .now) ?? .now
     }
 
     private func normalizedTitle(_ title: String, fallback: String) -> String {

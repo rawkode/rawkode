@@ -69,18 +69,32 @@ struct NotesRootView: View {
             }
         } detail: {
             if let selectedDocument = store.selectedDocument {
-                NoteEditorView(document: selectedDocument) { documentID, title, contentJSON, plainText in
-                    store.saveEditorChange(
-                        documentID: documentID,
-                        title: title,
-                        contentJSON: contentJSON,
-                        plainText: plainText
-                    )
-                } onEntityUpsert: { name, supertagNames, properties in
-                    try store.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
-                } onQueryRun: { query in
-                    try store.runQuery(query)
-                }
+                NoteEditorView(
+                    document: selectedDocument,
+                    onOpenPreviousDailyNote: {
+                        store.openDailyNote(movingByDays: -1)
+                    },
+                    onOpenToday: {
+                        store.selectToday()
+                    },
+                    onOpenNextDailyNote: {
+                        store.openDailyNote(movingByDays: 1)
+                    },
+                    onChange: { documentID, title, contentJSON, plainText in
+                        store.saveEditorChange(
+                            documentID: documentID,
+                            title: title,
+                            contentJSON: contentJSON,
+                            plainText: plainText
+                        )
+                    },
+                    onEntityUpsert: { name, supertagNames, properties in
+                        try store.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
+                    },
+                    onQueryRun: { query in
+                        try store.runQuery(query)
+                    }
+                )
             } else {
                 ContentUnavailableView(
                     "No Daily Note Selected",
