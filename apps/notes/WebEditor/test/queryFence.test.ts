@@ -6,6 +6,7 @@ import {
   parseQueryFenceOpening,
   parseQueryFenceText,
   parseQueryViewMode,
+  queryFenceReplacementToNodeAttributes,
 } from '../src/queryFence';
 
 describe('query fence parsing', () => {
@@ -36,6 +37,20 @@ SELECT name FROM projects
     expect(parseQueryFenceOpening('```ql {view=board}')?.view).toBe('board');
   });
 
+  test('parses query board grouping attributes', () => {
+    expect(
+      parseQueryFenceText(`\`\`\`ql view=board group=status
+SELECT * FROM projects
+\`\`\``)
+    ).toEqual({
+      query: 'SELECT * FROM projects',
+      view: 'board',
+      groupBy: 'status',
+    });
+
+    expect(parseQueryFenceOpening('```ql view=board groupBy="lane"')?.groupBy).toBe('lane');
+  });
+
   test('ignores incomplete or non-query fences', () => {
     expect(parseQueryFenceText('```ts\nconst value = 1;\n```')).toBeNull();
     expect(parseQueryFenceText('```ql\nSELECT * FROM bookmarks')).toBeNull();
@@ -62,7 +77,7 @@ SELECT name FROM projects
       },
     });
     const document = schema.node('doc', null, [
-      schema.node('paragraph', null, schema.text('```ql view=board')),
+      schema.node('paragraph', null, schema.text('```ql view=board group=status')),
       schema.node('paragraph', null, schema.text('SELECT * FROM bookmarks')),
       schema.node('paragraph', null, schema.text('```')),
     ]);
@@ -83,6 +98,23 @@ SELECT name FROM projects
       to: document.content.size,
       query: 'SELECT * FROM bookmarks',
       view: 'board',
+      groupBy: 'status',
+    });
+  });
+
+  test('preserves parsed group attrs when building query view node attrs', () => {
+    expect(
+      queryFenceReplacementToNodeAttributes({
+        from: 0,
+        to: 42,
+        query: 'SELECT * FROM projects',
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).toEqual({
+      query: 'SELECT * FROM projects',
+      view: 'board',
+      groupBy: 'status',
     });
   });
 });

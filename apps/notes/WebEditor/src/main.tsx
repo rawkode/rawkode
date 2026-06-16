@@ -10,10 +10,12 @@ import {
   findParagraphQueryFenceReplacement,
   parseQueryCodeBlock,
   parseQueryViewMode,
+  queryFenceReplacementToNodeAttributes,
   type QueryFenceReplacement,
   type QueryFenceTextBlock,
   type QueryViewMode,
 } from './queryFence';
+import { buildBoardGroups, parseQueryGroupBy } from './queryView';
 import './styles.css';
 
 type EditorBridgePayload = {
@@ -170,6 +172,7 @@ const QueryViewNode = Node.create({
     return {
       query: { default: 'SELECT * FROM entities' },
       view: { default: 'table' },
+      groupBy: { default: null },
     };
   },
 
@@ -183,6 +186,7 @@ const QueryViewNode = Node.create({
       mergeAttributes({
         'data-query-view': 'true',
         'data-view': node.attrs.view,
+        'data-group-by': node.attrs.groupBy,
         class: 'query-view-node',
       }),
       node.attrs.query,
@@ -244,6 +248,7 @@ function EntityReferenceView({ node }: NodeViewProps) {
 function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) {
   const query = typeof node.attrs.query === 'string' ? node.attrs.query : '';
   const view = parseQueryViewMode(node.attrs.view);
+  const groupBy = parseQueryGroupBy(node.attrs.groupBy);
   const [result, setResult] = React.useState<QueryResultPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
@@ -317,6 +322,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     updateAttributes({ query: nextQuery });
   }
 
+  function updateGroupBy(nextGroupBy: string) {
+    updateAttributes({ groupBy: parseQueryGroupBy(nextGroupBy) || null });
+  }
+
   React.useEffect(() => {
     if (didAutoRunRef.current) {
       return;
@@ -341,6 +350,16 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         <button type="button" onClick={() => void run()} disabled={isRunning}>
           {isRunning ? 'Running' : 'Run'}
         </button>
+        {view === 'board' ? (
+          <label className="query-block__group">
+            <span>Group</span>
+            <input
+              value={groupBy}
+              onChange={(event) => updateGroupBy(event.target.value)}
+              placeholder="status"
+            />
+          </label>
+        ) : null}
       </div>
       <textarea
         value={query}
@@ -348,7 +367,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         onChange={(event) => updateQuery(event.target.value)}
       />
       {error ? <p className="query-block__error">{error}</p> : null}
-      {renderQueryResult(result, view)}
+      {renderQueryResult(result, view, groupBy)}
     </NodeViewWrapper>
   );
 }
@@ -591,6 +610,7 @@ function Toolbar({
               attrs: {
                 query: 'SELECT * FROM entities',
                 view: 'table',
+                groupBy: null,
               },
             })
             .run();
@@ -846,7 +866,11 @@ function parseProperties(value: string): Record<string, string> {
   return result;
 }
 
-function renderQueryResult(result: QueryResultPayload | null, view: QueryViewMode) {
+function renderQueryResult(
+  result: QueryResultPayload | null,
+  view: QueryViewMode,
+  groupBy = ''
+) {
   if (!result) {
     return <p className="query-block__empty">Run the query to load results.</p>;
   }
@@ -873,17 +897,28 @@ function renderQueryResult(result: QueryResultPayload | null, view: QueryViewMod
       );
 
     case 'board':
+      const groups = buildBoardGroups(result.rows, result.columns, groupBy);
       return (
         <div className="query-board">
-          {result.rows.map((row, index) => (
-            <article key={queryRowKey(row, index)}>
-              <strong>{primaryQueryValue(row, result.columns)}</strong>
-              {secondaryQueryValues(row, result.columns).map(([column, value]) => (
-                <span key={column}>
-                  {column}: {value}
-                </span>
-              ))}
-            </article>
+          {groups.map((group) => (
+            <section className="query-board__column" key={group.title}>
+              <div className="query-board__header">
+                <strong>{group.title}</strong>
+                <span>{group.rows.length}</span>
+              </div>
+              <div className="query-board__cards">
+                {group.rows.map((row, index) => (
+                  <article key={queryRowKey(row, index)}>
+                    <strong>{primaryQueryValue(row, result.columns)}</strong>
+                    {secondaryQueryValues(row, result.columns, [group.column]).map(([column, value]) => (
+                      <span key={column}>
+                        {column}: {value}
+                      </span>
+                    ))}
+                  </article>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       );
@@ -918,11 +953,16 @@ function primaryQueryValue(row: Record<string, string>, columns: string[]) {
   return row.name || row.title || row.date || row[columns[0]] || 'Untitled';
 }
 
-function secondaryQueryValues(row: Record<string, string>, columns: string[]) {
+function secondaryQueryValues(
+  row: Record<string, string>,
+  columns: string[],
+  excludedColumns: Array<string | null> = []
+) {
   const primary = primaryQueryValue(row, columns);
+  const excluded = new Set(excludedColumns.filter((column): column is string => Boolean(column)));
   return columns
     .map((column) => [column, row[column] || ''] as const)
-    .filter(([_, value]) => value && value !== primary)
+    .filter(([column, value]) => !excluded.has(column) && value && value !== primary)
     .slice(0, 4);
 }
 
@@ -939,10 +979,9 @@ function convertQueryFenceBlocks(editor: NonNullable<ReturnType<typeof useEditor
   }
 
   return editor.commands.command(({ tr, dispatch }) => {
-    const queryViewNode = editor.state.schema.nodes.queryView?.create({
-      query: replacement.query,
-      view: replacement.view,
-    });
+    const queryViewNode = editor.state.schema.nodes.queryView?.create(
+      queryFenceReplacementToNodeAttributes(replacement)
+    );
     if (!queryViewNode) {
       return false;
     }

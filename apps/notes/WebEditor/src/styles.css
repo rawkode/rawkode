@@ -175,6 +175,7 @@ input {
 }
 
 .query-block select,
+.query-block input,
 .query-block textarea {
   border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
   border-radius: 7px;
@@ -186,6 +187,23 @@ input {
 .query-block select {
   min-height: 30px;
   padding: 4px 8px;
+}
+
+.query-block input {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.query-block__group {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__group input {
+  width: 120px;
 }
 
 .query-block textarea {
@@ -264,7 +282,40 @@ input {
 
 .query-board {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.query-board__column {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 84%, CanvasText 3%);
+}
+
+.query-board__header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+  font-size: 0.82rem;
+}
+
+.query-board__header span {
+  display: inline-grid;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+.query-board__cards {
+  display: grid;
   gap: 8px;
 }
 

@@ -3,11 +3,18 @@ export type QueryViewMode = 'table' | 'list' | 'board';
 export type ParsedQueryFence = {
   query: string;
   view: QueryViewMode;
+  groupBy?: string;
 };
 
 export type QueryFenceReplacement = ParsedQueryFence & {
   from: number;
   to: number;
+};
+
+export type QueryViewNodeAttributes = {
+  query: string;
+  view: QueryViewMode;
+  groupBy: string | null;
 };
 
 export type QueryFenceTextBlock = {
@@ -19,6 +26,7 @@ export type QueryFenceTextBlock = {
 
 type QueryFenceOpening = {
   view: QueryViewMode;
+  groupBy?: string;
 };
 
 export function parseQueryViewMode(value: unknown): QueryViewMode {
@@ -46,7 +54,7 @@ export function parseQueryFenceText(text: string): ParsedQueryFence | null {
     return null;
   }
 
-  return { query, view: opening.view };
+  return { query, view: opening.view, ...queryFenceOptionalAttributes(opening) };
 }
 
 export function parseQueryCodeBlock(language: unknown, text: string): ParsedQueryFence | null {
@@ -66,7 +74,7 @@ export function parseQueryCodeBlock(language: unknown, text: string): ParsedQuer
     return null;
   }
 
-  return { query, view: opening.view };
+  return { query, view: opening.view, ...queryFenceOptionalAttributes(opening) };
 }
 
 export function parseQueryFenceOpening(text: string): QueryFenceOpening | null {
@@ -119,6 +127,7 @@ export function findParagraphQueryFenceReplacement(
           to: nextBlock.to,
           query,
           view: opening.view,
+          ...queryFenceOptionalAttributes(opening),
         };
       }
 
@@ -127,6 +136,16 @@ export function findParagraphQueryFenceReplacement(
   }
 
   return null;
+}
+
+export function queryFenceReplacementToNodeAttributes(
+  replacement: QueryFenceReplacement
+): QueryViewNodeAttributes {
+  return {
+    query: replacement.query,
+    view: replacement.view,
+    groupBy: replacement.groupBy ?? null,
+  };
 }
 
 function parseQueryFenceInfo(info: unknown): QueryFenceOpening | null {
@@ -144,15 +163,26 @@ function parseQueryFenceInfo(info: unknown): QueryFenceOpening | null {
     return null;
   }
 
-  return { view: parseQueryFenceAttributes(rawAttributes.join(' ')).view };
+  return parseQueryFenceAttributes(rawAttributes.join(' '));
 }
 
 function parseQueryFenceAttributes(attributes: string): QueryFenceOpening {
   const viewMatch = attributes.match(
     /(?:^|\s|\{)view\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
   );
+  const groupMatch = attributes.match(
+    /(?:^|\s|\{)(?:group|groupBy)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
+  );
+  const groupBy = groupMatch?.[1] ?? groupMatch?.[2] ?? groupMatch?.[3];
 
-  return { view: parseQueryViewMode(viewMatch?.[1] ?? viewMatch?.[2] ?? viewMatch?.[3]) };
+  return {
+    view: parseQueryViewMode(viewMatch?.[1] ?? viewMatch?.[2] ?? viewMatch?.[3]),
+    ...(groupBy ? { groupBy: groupBy.trim() } : {}),
+  };
+}
+
+function queryFenceOptionalAttributes(opening: QueryFenceOpening) {
+  return opening.groupBy ? { groupBy: opening.groupBy } : {};
 }
 
 function normalizeLines(value: string) {
