@@ -15,6 +15,15 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(try repository.fetchDocuments(kind: .daily).count, 1)
     }
 
+    func testDailyNoteDisplayTitleNamesTomorrow() throws {
+        let tomorrow = try XCTUnwrap(
+            Calendar(identifier: .gregorian).date(byAdding: .day, value: 1, to: .now)
+        )
+        let storageDate = DailyNoteDateFormatter.storageString(from: tomorrow)
+
+        XCTAssertEqual(DailyNoteDateFormatter.displayTitle(for: storageDate), "Tomorrow")
+    }
+
     func testDocumentContentPersistsAcrossRepositoryInstances() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -1311,6 +1320,27 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.selectedDocument?.date, "2026-01-06")
         XCTAssertTrue(store.dailyNotes.contains { $0.date == "2026-01-04" })
         XCTAssertTrue(store.dailyNotes.contains { $0.date == "2026-01-06" })
+    }
+
+    @MainActor
+    func testStoreCanSelectTomorrowDailyNote() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+        let tomorrowDate = try XCTUnwrap(DailyNoteDateFormatter.relativeStorageString(for: "tomorrow"))
+
+        store.load()
+        store.selectTomorrow()
+
+        XCTAssertEqual(store.selectedDocument?.kind, .daily)
+        XCTAssertEqual(store.selectedDocument?.date, tomorrowDate)
+        XCTAssertTrue(store.dailyNotes.contains { $0.date == tomorrowDate })
+
+        store.selectTomorrow()
+
+        XCTAssertEqual(store.dailyNotes.filter { $0.date == tomorrowDate }.count, 1)
     }
 
     @MainActor

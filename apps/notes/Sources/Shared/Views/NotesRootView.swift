@@ -23,6 +23,12 @@ struct NotesRootView: View {
                         Label("Today", systemImage: "calendar")
                     }
 
+                    Button {
+                        store.selectTomorrow()
+                    } label: {
+                        Label("Tomorrow", systemImage: "calendar.badge.plus")
+                    }
+
                     DailyNoteDatePicker(date: $dailyNoteDate) {
                         store.createDailyNote(for: dailyNoteDate)
                     }
@@ -57,6 +63,11 @@ struct NotesRootView: View {
                         Button(action: store.selectToday) {
                             Label("Open Today", systemImage: "calendar")
                         }
+
+                        Button(action: store.selectTomorrow) {
+                            Label("Open Tomorrow", systemImage: "calendar.badge.plus")
+                        }
+                        .keyboardShortcut("t", modifiers: [.command, .shift])
 
                         Button(action: store.createStandaloneNote) {
                             Label("New Note", systemImage: "square.and.pencil")

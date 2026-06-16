@@ -138,6 +138,10 @@ enum DailyNoteDateFormatter {
             return "Yesterday"
         }
 
+        if calendar.isDateInTomorrow(date) {
+            return "Tomorrow"
+        }
+
         return makeDisplayFormatter().string(from: date)
     }
 

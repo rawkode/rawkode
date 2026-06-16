@@ -47,6 +47,22 @@ final class NotesStore {
         }
     }
 
+    func selectTomorrow() {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        let tomorrowDate = DailyNoteDateFormatter.relativeStorageString(for: "tomorrow")
+            ?? DailyNoteDateFormatter.storageString(from: fallbackDate(movingByDays: 1))
+
+        do {
+            let tomorrow = try repository.createDailyNote(date: tomorrowDate)
+            try reloadDocuments(selecting: tomorrow.id)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
     func createDailyNote(for date: Date = .now) {
         guard let repository = requireRepository() else {
             return
