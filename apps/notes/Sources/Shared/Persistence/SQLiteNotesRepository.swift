@@ -209,6 +209,42 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func runQuery(_ rawQuery: String) throws -> QueryResult {
+        let query = try LocalQuery(rawQuery)
+
+        switch query.source {
+        case "documents", "notes":
+            return try filtered(
+                QueryResult(
+                    columns: ["id", "kind", "date", "title", "updated_at"],
+                    rows: try fetchDocuments().map(documentQueryRow)
+                ),
+                by: query.predicate
+            )
+
+        case "daily_notes", "daily":
+            return try filtered(
+                QueryResult(
+                    columns: ["id", "date", "title", "updated_at"],
+                    rows: try fetchDocuments(kind: .daily).map(dailyNoteQueryRow)
+                ),
+                by: query.predicate
+            )
+
+        case "entities":
+            return try filtered(try fetchEntityQueryResult(supertagSlugCandidates: []), by: query.predicate)
+
+        case "supertags", "tags":
+            return try filtered(try fetchSupertagQueryResult(), by: query.predicate)
+
+        default:
+            return try filtered(
+                try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source)),
+                by: query.predicate
+            )
+        }
+    }
+
     static func defaultDailyNoteJSON(title: String) -> String {
         """
         {"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"\(escapeJSON(title))"}]},{"type":"paragraph","content":[{"type":"text","text":"Capture the day. Add sketches inline."}]}]}
@@ -546,6 +582,105 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func fetchEntityQueryResult(supertagSlugCandidates: [String]) throws -> QueryResult {
+        let columns = ["id", "name", "supertags", "updated_at"]
+        let hasSupertagFilter = !supertagSlugCandidates.isEmpty
+        let placeholders = supertagSlugCandidates.map { _ in "?" }.joined(separator: ", ")
+        let whereClause = hasSupertagFilter
+            ? """
+              WHERE EXISTS (
+                  SELECT 1
+                  FROM entity_supertags filtered_link
+                  INNER JOIN supertags filtered_tag ON filtered_tag.id = filtered_link.supertag_id
+                  WHERE filtered_link.entity_id = entities.id
+                    AND filtered_tag.slug IN (\(placeholders))
+              )
+              """
+            : ""
+
+        let rows = try prepare(
+            """
+            SELECT
+                entities.id,
+                entities.canonical_name,
+                COALESCE((
+                    SELECT GROUP_CONCAT(ordered_tags.name, ', ')
+                    FROM (
+                        SELECT supertags.name
+                        FROM entity_supertags
+                        INNER JOIN supertags ON supertags.id = entity_supertags.supertag_id
+                        WHERE entity_supertags.entity_id = entities.id
+                        ORDER BY supertags.name COLLATE NOCASE ASC
+                    ) ordered_tags
+                ), '') AS supertags,
+                entities.updated_at
+            FROM entities
+            \(whereClause)
+            ORDER BY entities.canonical_name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            for (index, slug) in supertagSlugCandidates.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 1), slug, -1, sqliteTransient)
+            }
+
+            var rows: [[String: String]] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                rows.append([
+                    "id": textColumn(statement, 0),
+                    "name": textColumn(statement, 1),
+                    "supertags": textColumn(statement, 2),
+                    "updated_at": textColumn(statement, 3),
+                ])
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return rows
+        }
+
+        return QueryResult(columns: columns, rows: rows)
+    }
+
+    private func fetchSupertagQueryResult() throws -> QueryResult {
+        let rows = try prepare(
+            """
+            SELECT
+                supertags.name,
+                supertags.slug,
+                CAST(COUNT(entity_supertags.entity_id) AS TEXT) AS entities
+            FROM supertags
+            LEFT JOIN entity_supertags ON entity_supertags.supertag_id = supertags.id
+            GROUP BY supertags.id
+            ORDER BY supertags.name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var rows: [[String: String]] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                rows.append([
+                    "name": textColumn(statement, 0),
+                    "slug": textColumn(statement, 1),
+                    "entities": textColumn(statement, 2),
+                ])
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return rows
+        }
+
+        return QueryResult(columns: ["name", "slug", "entities"], rows: rows)
+    }
+
     private func document(from statement: OpaquePointer?) throws -> NoteDocument {
         guard let id = UUID(uuidString: textColumn(statement, 0)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid document id")
@@ -653,6 +788,138 @@ private func slugified(_ value: String) -> String {
     }
 
     return lowercased.isEmpty ? "tag" : lowercased
+}
+
+private func sourceSlugCandidates(_ source: String) -> [String] {
+    let slug = slugified(source)
+    var candidates = [slug]
+
+    if slug.hasSuffix("s"), slug.count > 1 {
+        candidates.append(String(slug.dropLast()))
+    }
+
+    var seen: Set<String> = []
+    return candidates.filter { seen.insert($0).inserted }
+}
+
+private func documentQueryRow(_ document: NoteDocument) -> [String: String] {
+    [
+        "id": document.id.uuidString,
+        "kind": document.kind.rawValue,
+        "date": document.date ?? "",
+        "title": document.title,
+        "updated_at": document.updatedAt.ISO8601Format(),
+    ]
+}
+
+private func dailyNoteQueryRow(_ document: NoteDocument) -> [String: String] {
+    [
+        "id": document.id.uuidString,
+        "date": document.date ?? "",
+        "title": document.title,
+        "updated_at": document.updatedAt.ISO8601Format(),
+    ]
+}
+
+private func filtered(_ result: QueryResult, by predicate: LocalQueryPredicate?) throws -> QueryResult {
+    guard let predicate else {
+        return result
+    }
+
+    guard result.columns.contains(predicate.field) else {
+        throw SQLiteNotesError.validationFailed("Unknown query field '\(predicate.field)'.")
+    }
+
+    return QueryResult(
+        columns: result.columns,
+        rows: result.rows.filter { row in
+            let value = row[predicate.field] ?? ""
+            switch predicate.operation {
+            case .equals:
+                return value.localizedCaseInsensitiveCompare(predicate.value) == .orderedSame
+            case .contains:
+                return value.localizedCaseInsensitiveContains(predicate.value)
+            }
+        }
+    )
+}
+
+private struct LocalQuery {
+    var source: String
+    var predicate: LocalQueryPredicate?
+
+    init(_ rawQuery: String) throws {
+        let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query cannot be empty.")
+        }
+
+        let pattern = #"(?is)^\s*SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?\s*;?\s*$"#
+        guard let match = trimmed.firstMatch(pattern: pattern) else {
+            throw SQLiteNotesError.validationFailed("Only SELECT * FROM <source> queries are supported.")
+        }
+
+        guard let sourceName = match[1] else {
+            throw SQLiteNotesError.validationFailed("Query source is missing.")
+        }
+
+        source = sourceName.lowercased()
+        if match.indices.contains(2), let whereClause = match[2], !whereClause.isEmpty {
+            predicate = try LocalQueryPredicate(whereClause)
+        }
+    }
+}
+
+private struct LocalQueryPredicate {
+    enum Operation {
+        case equals
+        case contains
+    }
+
+    var field: String
+    var operation: Operation
+    var value: String
+
+    init(_ whereClause: String) throws {
+        let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|CONTAINS)\s*('([^']*)'|"([^"]*)"|([A-Za-z0-9_.:-]+))\s*$"#
+        guard let match = whereClause.firstMatch(pattern: pattern) else {
+            throw SQLiteNotesError.validationFailed("Only WHERE <field> = value and WHERE <field> CONTAINS value are supported.")
+        }
+
+        guard let fieldName = match[1], let operationName = match[2] else {
+            throw SQLiteNotesError.validationFailed("Query filter is incomplete.")
+        }
+
+        field = fieldName.lowercased()
+        operation = operationName.caseInsensitiveCompare("CONTAINS") == .orderedSame ? .contains : .equals
+        value = (match[4] ?? match[5] ?? match[6] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !value.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Query filter value cannot be empty.")
+        }
+    }
+}
+
+private extension String {
+    func firstMatch(pattern: String) -> [String?]? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(startIndex..<endIndex, in: self)
+        guard let match = expression.firstMatch(in: self, range: range) else {
+            return nil
+        }
+
+        return (0..<match.numberOfRanges).map { index in
+            let range = match.range(at: index)
+            guard range.location != NSNotFound, let swiftRange = Range(range, in: self) else {
+                return nil
+            }
+
+            return String(self[swiftRange])
+        }
+    }
 }
 
 private func escapeJSON(_ value: String) -> String {

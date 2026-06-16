@@ -13,6 +13,7 @@ struct WebEditorView {
     let document: NoteDocument
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
+    let onQueryRun: (_ query: String) throws -> QueryResult
     let onReady: () -> Void
     let onError: (_ message: String) -> Void
 
@@ -20,6 +21,7 @@ struct WebEditorView {
         Coordinator(
             onChange: onChange,
             onEntityUpsert: onEntityUpsert,
+            onQueryRun: onQueryRun,
             onReady: onReady,
             onError: onError
         )
@@ -48,6 +50,7 @@ struct WebEditorView {
     private func updateWebView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.onChange = onChange
         coordinator.onEntityUpsert = onEntityUpsert
+        coordinator.onQueryRun = onQueryRun
         coordinator.onReady = onReady
         coordinator.onError = onError
         coordinator.scheduleLoad(document)
@@ -115,6 +118,7 @@ extension WebEditorView {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
         var onEntityUpsert: (_ name: String, _ supertagNames: [String]) throws -> EntityReference
+        var onQueryRun: (_ query: String) throws -> QueryResult
         var onReady: () -> Void
         var onError: (_ message: String) -> Void
         weak var webView: WKWebView?
@@ -129,11 +133,13 @@ extension WebEditorView {
         init(
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
             onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String]) throws -> EntityReference,
+            onQueryRun: @escaping (_ query: String) throws -> QueryResult,
             onReady: @escaping () -> Void,
             onError: @escaping (_ message: String) -> Void
         ) {
             self.onChange = onChange
             self.onEntityUpsert = onEntityUpsert
+            self.onQueryRun = onQueryRun
             self.onReady = onReady
             self.onError = onError
         }
@@ -278,6 +284,35 @@ extension WebEditorView {
                     )
                 }
 
+            case "runQuery":
+                guard
+                    let requestID = body["requestId"] as? String,
+                    let query = body["query"] as? String
+                else {
+                    return
+                }
+
+                do {
+                    let result = try onQueryRun(query)
+                    sendQueryResponse(
+                        QueryBridgeResponse(
+                            requestId: requestID,
+                            columns: result.columns,
+                            rows: result.rows,
+                            error: nil
+                        )
+                    )
+                } catch {
+                    sendQueryResponse(
+                        QueryBridgeResponse(
+                            requestId: requestID,
+                            columns: [],
+                            rows: [],
+                            error: error.localizedDescription
+                        )
+                    )
+                }
+
             case "clientError":
                 let message = body["message"] as? String ?? "Unknown editor error"
                 let source = body["source"] as? String ?? ""
@@ -286,6 +321,30 @@ extension WebEditorView {
 
             default:
                 return
+            }
+        }
+
+        private func sendQueryResponse(_ response: QueryBridgeResponse) {
+            guard let webView else {
+                return
+            }
+
+            do {
+                let data = try JSONEncoder().encode(response)
+                guard let json = String(data: data, encoding: .utf8) else {
+                    onError("Could not encode query bridge response.")
+                    return
+                }
+
+                webView.evaluateJavaScript(
+                    "window.NotesEditor?.completeQueryRequest(\(json));"
+                ) { [weak self] _, error in
+                    if let error {
+                        self?.onError("Could not complete query request: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                onError("Could not encode query bridge response: \(error.localizedDescription)")
             }
         }
 
@@ -394,6 +453,13 @@ private struct EntityBridgeResponse: Encodable {
     let entityId: String?
     let label: String?
     let tags: [String]
+    let error: String?
+}
+
+private struct QueryBridgeResponse: Encodable {
+    let requestId: String
+    let columns: [String]
+    let rows: [[String: String]]
     let error: String?
 }
 

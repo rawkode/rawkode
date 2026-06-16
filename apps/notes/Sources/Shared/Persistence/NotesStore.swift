@@ -149,6 +149,19 @@ final class NotesStore {
         }
     }
 
+    func runQuery(_ query: String) throws -> QueryResult {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            return try repository.runQuery(query)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
     func clearError() {
         lastErrorMessage = nil
     }

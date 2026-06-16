@@ -28,6 +28,18 @@ type EntityBridgeResponse = {
   error?: string | null;
 };
 
+type QueryResultPayload = {
+  columns: string[];
+  rows: Record<string, string>[];
+};
+
+type QueryBridgeResponse = QueryResultPayload & {
+  requestId: string;
+  error?: string | null;
+};
+
+type QueryViewMode = 'table' | 'list' | 'board';
+
 type ActiveDocumentSnapshot = {
   documentId: string;
   loadGeneration: number;
@@ -40,6 +52,13 @@ type PendingEntityRequest = {
   reject(error: Error): void;
 };
 
+type PendingQueryRequest = {
+  documentId: string;
+  loadGeneration: number;
+  resolve(result: QueryResultPayload): void;
+  reject(error: Error): void;
+};
+
 type NativeBridgeMessage =
   | { type: 'ready' }
   | { type: 'loaded'; documentId: string }
@@ -48,6 +67,11 @@ type NativeBridgeMessage =
       requestId: string;
       name: string;
       supertags: string[];
+    }
+  | {
+      type: 'runQuery';
+      requestId: string;
+      query: string;
     }
   | {
       type: 'change';
@@ -62,6 +86,7 @@ declare global {
     NotesEditor?: {
       loadDocument(payload: EditorBridgePayload): boolean;
       completeEntityRequest(response: EntityBridgeResponse): void;
+      completeQueryRequest(response: QueryBridgeResponse): void;
     };
     webkit?: {
       messageHandlers?: {
@@ -85,6 +110,8 @@ const emptyScene: ExcalidrawInitialDataState = {
 };
 
 const pendingEntityRequests = new Map<string, PendingEntityRequest>();
+const pendingQueryRequests = new Map<string, PendingQueryRequest>();
+let activeDocumentSnapshot: ActiveDocumentSnapshot = { documentId: '', loadGeneration: 0 };
 
 const EntityReferenceNode = Node.create({
   name: 'entityReference',
@@ -120,6 +147,41 @@ const EntityReferenceNode = Node.create({
 
   addNodeView() {
     return ReactNodeViewRenderer(EntityReferenceView);
+  },
+});
+
+const QueryViewNode = Node.create({
+  name: 'queryView',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  isolating: true,
+
+  addAttributes() {
+    return {
+      query: { default: 'SELECT * FROM entities' },
+      view: { default: 'table' },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'section[data-query-view]' }];
+  },
+
+  renderHTML({ node }) {
+    return [
+      'section',
+      mergeAttributes({
+        'data-query-view': 'true',
+        'data-view': node.attrs.view,
+        class: 'query-view-node',
+      }),
+      node.attrs.query,
+    ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(QueryViewNodeView);
   },
 });
 
@@ -166,6 +228,118 @@ function EntityReferenceView({ node }: NodeViewProps) {
     <NodeViewWrapper as="span" className="entity-chip" data-entity-id={node.attrs.entityId}>
       <span className="entity-chip__label">{node.attrs.label || 'Untitled entity'}</span>
       {tags.length > 0 ? <span className="entity-chip__tag">{tags[0]}</span> : null}
+    </NodeViewWrapper>
+  );
+}
+
+function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) {
+  const query = typeof node.attrs.query === 'string' ? node.attrs.query : '';
+  const view = parseQueryViewMode(node.attrs.view);
+  const [result, setResult] = React.useState<QueryResultPayload | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isRunning, setIsRunning] = React.useState(false);
+  const didAutoRunRef = React.useRef(false);
+  const isMountedRef = React.useRef(true);
+  const queryGenerationRef = React.useRef(0);
+  const activeRunRef = React.useRef(0);
+
+  React.useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const run = React.useCallback(async () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      setError('Query cannot be empty.');
+      setResult(null);
+      return;
+    }
+
+    const snapshot = getCurrentDocumentSnapshot();
+    if (!snapshot.documentId) {
+      setError('No active note is loaded.');
+      setResult(null);
+      return;
+    }
+
+    const queryGeneration = queryGenerationRef.current;
+    const runId = activeRunRef.current + 1;
+    activeRunRef.current = runId;
+    setIsRunning(true);
+    setError(null);
+
+    try {
+      const nextResult = await requestQuery(trimmedQuery, snapshot);
+      if (
+        !isMountedRef.current ||
+        queryGenerationRef.current !== queryGeneration ||
+        activeRunRef.current !== runId
+      ) {
+        return;
+      }
+
+      setResult(nextResult);
+    } catch (requestError) {
+      if (
+        !isMountedRef.current ||
+        queryGenerationRef.current !== queryGeneration ||
+        activeRunRef.current !== runId
+      ) {
+        return;
+      }
+
+      setResult(null);
+      setError(requestError instanceof Error ? requestError.message : 'Query failed.');
+    } finally {
+      if (isMountedRef.current && activeRunRef.current === runId) {
+        setIsRunning(false);
+      }
+    }
+  }, [query]);
+
+  function updateQuery(nextQuery: string) {
+    queryGenerationRef.current += 1;
+    activeRunRef.current += 1;
+    setResult(null);
+    setError(null);
+    setIsRunning(false);
+    updateAttributes({ query: nextQuery });
+  }
+
+  React.useEffect(() => {
+    if (didAutoRunRef.current) {
+      return;
+    }
+
+    didAutoRunRef.current = true;
+    void run();
+  }, [run]);
+
+  return (
+    <NodeViewWrapper className={`query-block ${selected ? 'is-selected' : ''}`}>
+      <div className="query-block__toolbar">
+        <strong>Query</strong>
+        <select
+          value={view}
+          onChange={(event) => updateAttributes({ view: parseQueryViewMode(event.target.value) })}
+        >
+          <option value="table">Table</option>
+          <option value="list">List</option>
+          <option value="board">Board</option>
+        </select>
+        <button type="button" onClick={() => void run()} disabled={isRunning}>
+          {isRunning ? 'Running' : 'Run'}
+        </button>
+      </div>
+      <textarea
+        value={query}
+        spellCheck={false}
+        onChange={(event) => updateQuery(event.target.value)}
+      />
+      {error ? <p className="query-block__error">{error}</p> : null}
+      {renderQueryResult(result, view)}
     </NodeViewWrapper>
   );
 }
@@ -233,7 +407,7 @@ function App() {
   }, []);
 
   const editor = useEditor({
-    extensions: [StarterKit, EntityReferenceNode, ExcalidrawNode],
+    extensions: [StarterKit, EntityReferenceNode, QueryViewNode, ExcalidrawNode],
     content: emptyDocument,
     editorProps: {
       attributes: {
@@ -271,9 +445,14 @@ function App() {
       loadDocument(payload) {
         flushPendingChange();
         rejectPendingEntityRequests('Entity request cancelled because the active note changed.');
+        rejectPendingQueryRequests('Query request cancelled because the active note changed.');
         loadGenerationRef.current += 1;
         documentIdRef.current = payload.documentId;
         titleRef.current = payload.title;
+        activeDocumentSnapshot = {
+          documentId: documentIdRef.current,
+          loadGeneration: loadGenerationRef.current,
+        };
         suppressUpdateRef.current = true;
 
         const parsedContent = parseEditorContent(payload.contentJSON);
@@ -316,6 +495,32 @@ function App() {
           tags: Array.isArray(response.tags) ? response.tags : [],
         });
       },
+      completeQueryRequest(response) {
+        const pending = pendingQueryRequests.get(response.requestId);
+        if (!pending) {
+          return;
+        }
+
+        pendingQueryRequests.delete(response.requestId);
+
+        if (
+          pending.documentId !== activeDocumentSnapshot.documentId ||
+          pending.loadGeneration !== activeDocumentSnapshot.loadGeneration
+        ) {
+          pending.reject(new Error('Query request cancelled because the active note changed.'));
+          return;
+        }
+
+        if (response.error) {
+          pending.reject(new Error(response.error));
+          return;
+        }
+
+        pending.resolve({
+          columns: Array.isArray(response.columns) ? response.columns : [],
+          rows: Array.isArray(response.rows) ? response.rows : [],
+        });
+      },
     };
 
     postNativeMessage({ type: 'ready' });
@@ -323,6 +528,7 @@ function App() {
     return () => {
       delete window.NotesEditor;
       rejectPendingEntityRequests('Editor unloaded before entity request completed.');
+      rejectPendingQueryRequests('Editor unloaded before query request completed.');
       flushPendingChange();
     };
   }, [editor, flushPendingChange]);
@@ -359,6 +565,25 @@ function Toolbar({
         disabled={disabled}
         getActiveDocumentSnapshot={getActiveDocumentSnapshot}
       />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          editor
+            ?.chain()
+            .focus()
+            .insertContent({
+              type: 'queryView',
+              attrs: {
+                query: 'SELECT * FROM entities',
+                view: 'table',
+              },
+            })
+            .run();
+        }}
+      >
+        Query
+      </button>
       <button
         type="button"
         disabled={disabled}
@@ -515,6 +740,38 @@ function rejectPendingEntityRequests(message: string) {
   }
 }
 
+function requestQuery(
+  query: string,
+  snapshot: ActiveDocumentSnapshot
+): Promise<QueryResultPayload> {
+  const requestId = makeId('query_request');
+
+  return new Promise((resolve, reject) => {
+    if (!window.webkit?.messageHandlers?.notesBridge) {
+      reject(new Error('Query database is unavailable.'));
+      return;
+    }
+
+    pendingQueryRequests.set(requestId, { ...snapshot, resolve, reject });
+    postNativeMessage({
+      type: 'runQuery',
+      requestId,
+      query,
+    });
+  });
+}
+
+function rejectPendingQueryRequests(message: string) {
+  for (const [requestId, pending] of Array.from(pendingQueryRequests)) {
+    pendingQueryRequests.delete(requestId);
+    pending.reject(new Error(message));
+  }
+}
+
+function getCurrentDocumentSnapshot(): ActiveDocumentSnapshot {
+  return { ...activeDocumentSnapshot };
+}
+
 function parseSupertags(value: string): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -531,6 +788,94 @@ function parseSupertags(value: string): string[] {
   }
 
   return result;
+}
+
+function parseQueryViewMode(value: unknown): QueryViewMode {
+  return value === 'list' || value === 'board' ? value : 'table';
+}
+
+function renderQueryResult(result: QueryResultPayload | null, view: QueryViewMode) {
+  if (!result) {
+    return <p className="query-block__empty">Run the query to load results.</p>;
+  }
+
+  if (result.rows.length === 0) {
+    return <p className="query-block__empty">No rows.</p>;
+  }
+
+  switch (view) {
+    case 'list':
+      return (
+        <ul className="query-list">
+          {result.rows.map((row, index) => (
+            <li key={queryRowKey(row, index)}>
+              <strong>{primaryQueryValue(row, result.columns)}</strong>
+              {secondaryQueryValues(row, result.columns).map(([column, value]) => (
+                <span key={column}>
+                  {column}: {value}
+                </span>
+              ))}
+            </li>
+          ))}
+        </ul>
+      );
+
+    case 'board':
+      return (
+        <div className="query-board">
+          {result.rows.map((row, index) => (
+            <article key={queryRowKey(row, index)}>
+              <strong>{primaryQueryValue(row, result.columns)}</strong>
+              {secondaryQueryValues(row, result.columns).map(([column, value]) => (
+                <span key={column}>
+                  {column}: {value}
+                </span>
+              ))}
+            </article>
+          ))}
+        </div>
+      );
+
+    case 'table':
+      return (
+        <div className="query-table-wrap">
+          <table className="query-table">
+            <thead>
+              <tr>
+                {result.columns.map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map((row, index) => (
+                <tr key={queryRowKey(row, index)}>
+                  {result.columns.map((column) => (
+                    <td key={column}>{row[column] || ''}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+  }
+}
+
+function primaryQueryValue(row: Record<string, string>, columns: string[]) {
+  return row.name || row.title || row.date || row[columns[0]] || 'Untitled';
+}
+
+function secondaryQueryValues(row: Record<string, string>, columns: string[]) {
+  const primary = primaryQueryValue(row, columns);
+  return columns
+    .map((column) => [column, row[column] || ''] as const)
+    .filter(([_, value]) => value && value !== primary)
+    .slice(0, 4);
+}
+
+function queryRowKey(row: Record<string, string>, index: number) {
+  return row.id || `${index}-${primaryQueryValue(row, Object.keys(row))}`;
 }
 
 type PendingEditorChange = Extract<NativeBridgeMessage, { type: 'change' }>;

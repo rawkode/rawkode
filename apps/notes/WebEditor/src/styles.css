@@ -141,6 +141,126 @@ input {
   opacity: 0.75;
 }
 
+.query-block {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 88%, CanvasText 3%);
+}
+
+.query-block.is-selected {
+  border-color: color-mix(in srgb, LinkText 55%, transparent);
+}
+
+.query-block__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.query-block__toolbar strong {
+  margin-right: auto;
+  font-size: 0.92rem;
+}
+
+.query-block select,
+.query-block textarea {
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 7px;
+  color: CanvasText;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 2%);
+  font: inherit;
+}
+
+.query-block select {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.query-block textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 8px;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.query-block__error,
+.query-block__empty {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.query-block__error {
+  color: color-mix(in srgb, red 70%, CanvasText);
+}
+
+.query-block__empty {
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+}
+
+.query-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.query-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.query-table th,
+.query-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.query-table th {
+  color: color-mix(in srgb, CanvasText 64%, transparent);
+  font-weight: 650;
+}
+
+.query-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-list li,
+.query-board article {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 90%, CanvasText 2%);
+}
+
+.query-list span,
+.query-board span {
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.8rem;
+}
+
+.query-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
 .editor-prose {
   width: min(100%, 900px);
   min-height: calc(100vh - 52px);

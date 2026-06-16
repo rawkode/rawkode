@@ -72,6 +72,8 @@ struct NotesRootView: View {
                     )
                 } onEntityUpsert: { name, supertagNames in
                     try store.upsertEntity(named: name, supertagNames: supertagNames)
+                } onQueryRun: { query in
+                    try store.runQuery(query)
                 }
             } else {
                 ContentUnavailableView(

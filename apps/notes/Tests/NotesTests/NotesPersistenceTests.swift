@@ -80,6 +80,38 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(try countRows("entity_supertags", databaseURL: databaseURL), 0)
     }
 
+    func testRunQueryReadsDailyNotesAndSupertagCollections() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let dailyNote = try repository.createDailyNote(date: "2026-06-16")
+        _ = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["bookmark", "company"])
+
+        let dailyResult = try repository.runQuery("SELECT * FROM daily_notes WHERE date = '2026-06-16'")
+        XCTAssertEqual(dailyResult.columns, ["id", "date", "title", "updated_at"])
+        XCTAssertEqual(dailyResult.rows.count, 1)
+        XCTAssertEqual(dailyResult.rows.first?["id"], dailyNote.id.uuidString)
+
+        let bookmarks = try repository.runQuery("SELECT * FROM bookmarks WHERE name CONTAINS academy")
+        XCTAssertEqual(bookmarks.columns, ["id", "name", "supertags", "updated_at"])
+        XCTAssertEqual(bookmarks.rows.count, 1)
+        XCTAssertEqual(bookmarks.rows.first?["name"], "Rawkode Academy")
+        XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company")
+    }
+
+    func testRunQueryRejectsUnsupportedStatements() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        XCTAssertThrowsError(try repository.runQuery("DELETE FROM entities"))
+
+        let entities = try repository.runQuery("SELECT * FROM entities")
+        XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])
+        XCTAssertTrue(entities.rows.isEmpty)
+    }
+
     @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
