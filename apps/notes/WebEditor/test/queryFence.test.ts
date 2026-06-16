@@ -1,0 +1,88 @@
+import { describe, expect, test } from 'bun:test';
+import { Schema } from '@tiptap/pm/model';
+import {
+  findParagraphQueryFenceReplacement,
+  parseQueryCodeBlock,
+  parseQueryFenceOpening,
+  parseQueryFenceText,
+  parseQueryViewMode,
+} from '../src/queryFence';
+
+describe('query fence parsing', () => {
+  test('parses a ql fence with an explicit board view', () => {
+    expect(
+      parseQueryFenceText(`\`\`\`ql view=board
+SELECT * FROM bookmarks
+\`\`\``)
+    ).toEqual({
+      query: 'SELECT * FROM bookmarks',
+      view: 'board',
+    });
+  });
+
+  test('defaults ql fences to the table view', () => {
+    expect(
+      parseQueryFenceText(`\`\`\`ql
+SELECT name FROM projects
+\`\`\``)
+    ).toEqual({
+      query: 'SELECT name FROM projects',
+      view: 'table',
+    });
+  });
+
+  test('accepts quoted and braced view attributes', () => {
+    expect(parseQueryFenceOpening('```ql view="list"')?.view).toBe('list');
+    expect(parseQueryFenceOpening('```ql {view=board}')?.view).toBe('board');
+  });
+
+  test('ignores incomplete or non-query fences', () => {
+    expect(parseQueryFenceText('```ts\nconst value = 1;\n```')).toBeNull();
+    expect(parseQueryFenceText('```ql\nSELECT * FROM bookmarks')).toBeNull();
+    expect(parseQueryFenceText('```ql\n```')).toBeNull();
+  });
+
+  test('parses completed ql code blocks', () => {
+    expect(parseQueryCodeBlock('ql view=board', 'SELECT * FROM bookmarks\n```')).toEqual({
+      query: 'SELECT * FROM bookmarks',
+      view: 'board',
+    });
+  });
+
+  test('normalizes unknown query view modes', () => {
+    expect(parseQueryViewMode('kanban')).toBe('table');
+  });
+
+  test('uses ProseMirror top-level paragraph positions for pasted fences', () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: 'block+' },
+        paragraph: { content: 'text*', group: 'block' },
+        text: { group: 'inline' },
+      },
+    });
+    const document = schema.node('doc', null, [
+      schema.node('paragraph', null, schema.text('```ql view=board')),
+      schema.node('paragraph', null, schema.text('SELECT * FROM bookmarks')),
+      schema.node('paragraph', null, schema.text('```')),
+    ]);
+    const blocks: Array<{ from: number; to: number; text: string; type: string }> = [];
+
+    document.forEach((node, offset) => {
+      blocks.push({
+        from: offset,
+        to: offset + node.nodeSize,
+        text: node.textContent,
+        type: node.type.name,
+      });
+    });
+
+    expect(blocks[0].from).toBe(0);
+    expect(findParagraphQueryFenceReplacement(blocks)).toEqual({
+      from: 0,
+      to: document.content.size,
+      query: 'SELECT * FROM bookmarks',
+      view: 'board',
+    });
+  });
+});

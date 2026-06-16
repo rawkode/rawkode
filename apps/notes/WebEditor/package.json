@@ -6,6 +6,7 @@
     "build": "bun run typecheck && bun run clean && vite build",
     "clean": "find ../Sources/Shared/Resources/Editor -mindepth 1 ! -name .gitkeep -exec rm -rf {} +",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test test",
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {

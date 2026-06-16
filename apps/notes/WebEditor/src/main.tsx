@@ -6,6 +6,14 @@ import StarterKit from '@tiptap/starter-kit';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type { AppState, BinaryFileData, BinaryFiles, ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
+import {
+  findParagraphQueryFenceReplacement,
+  parseQueryCodeBlock,
+  parseQueryViewMode,
+  type QueryFenceReplacement,
+  type QueryFenceTextBlock,
+  type QueryViewMode,
+} from './queryFence';
 import './styles.css';
 
 type EditorBridgePayload = {
@@ -39,8 +47,6 @@ type QueryBridgeResponse = QueryResultPayload & {
   requestId: string;
   error?: string | null;
 };
-
-type QueryViewMode = 'table' | 'list' | 'board';
 
 type ActiveDocumentSnapshot = {
   documentId: string;
@@ -419,6 +425,10 @@ function App() {
     },
     onUpdate: ({ editor }) => {
       if (suppressUpdateRef.current) {
+        return;
+      }
+
+      if (convertQueryFenceBlocks(editor)) {
         return;
       }
 
@@ -836,10 +846,6 @@ function parseProperties(value: string): Record<string, string> {
   return result;
 }
 
-function parseQueryViewMode(value: unknown): QueryViewMode {
-  return value === 'list' || value === 'board' ? value : 'table';
-}
-
 function renderQueryResult(result: QueryResultPayload | null, view: QueryViewMode) {
   if (!result) {
     return <p className="query-block__empty">Run the query to load results.</p>;
@@ -925,6 +931,65 @@ function queryRowKey(row: Record<string, string>, index: number) {
 }
 
 type PendingEditorChange = Extract<NativeBridgeMessage, { type: 'change' }>;
+
+function convertQueryFenceBlocks(editor: NonNullable<ReturnType<typeof useEditor>>) {
+  const replacement = findQueryFenceReplacement(editor);
+  if (!replacement) {
+    return false;
+  }
+
+  return editor.commands.command(({ tr, dispatch }) => {
+    const queryViewNode = editor.state.schema.nodes.queryView?.create({
+      query: replacement.query,
+      view: replacement.view,
+    });
+    if (!queryViewNode) {
+      return false;
+    }
+
+    tr.replaceWith(replacement.from, replacement.to, queryViewNode);
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  });
+}
+
+function findQueryFenceReplacement(
+  editor: NonNullable<ReturnType<typeof useEditor>>
+): QueryFenceReplacement | null {
+  let codeBlockReplacement: QueryFenceReplacement | null = null;
+  editor.state.doc.descendants((node, position) => {
+    if (codeBlockReplacement || node.type.name !== 'codeBlock') {
+      return !codeBlockReplacement;
+    }
+
+    const parsed = parseQueryCodeBlock(node.attrs.language, node.textContent);
+    if (parsed) {
+      codeBlockReplacement = {
+        from: position,
+        to: position + node.nodeSize,
+        ...parsed,
+      };
+    }
+
+    return !codeBlockReplacement;
+  });
+
+  return codeBlockReplacement || findParagraphQueryFenceReplacement(buildTopLevelTextBlocks(editor));
+}
+
+function buildTopLevelTextBlocks(editor: NonNullable<ReturnType<typeof useEditor>>) {
+  const blocks: QueryFenceTextBlock[] = [];
+  editor.state.doc.forEach((node, offset) => {
+    blocks.push({
+      from: offset,
+      to: offset + node.nodeSize,
+      text: node.textBetween(0, node.content.size, '\n', '\n'),
+      type: node.type.name,
+    });
+  });
+
+  return blocks;
+}
 
 function buildChangePayload(
   documentId: string,
