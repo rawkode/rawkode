@@ -815,6 +815,53 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertTrue(try repository.runQuery("SELECT * FROM backlinks").rows.isEmpty)
     }
 
+    func testEntityReferenceIndexCreatesEntitiesFromPlainTextMentions() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let existingEntity = try repository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
+        var document = try repository.createStandaloneNote()
+        document.title = "Meeting note"
+        document.tiptapJSON = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Plain mentions"}]}]}"#
+        document.plainText = "Discuss [[rawkode academy]], [[ Notes Roadmap ]], and [[rawkode academy]]."
+        try repository.upsertDocument(document)
+
+        let entities = try repository.runQuery("SELECT id, name, supertags FROM entities ORDER BY name ASC")
+        let roadmapEntityID = try XCTUnwrap(entities.rows.first?["id"])
+        XCTAssertEqual(entities.rows, [
+            ["id": roadmapEntityID, "name": "Notes Roadmap", "supertags": ""],
+            ["id": existingEntity.id.uuidString, "name": "Rawkode Academy", "supertags": "company"],
+        ])
+
+        let references = try repository.runQuery(
+            "SELECT entity, entity_id, document FROM backlinks WHERE document = 'Meeting note' ORDER BY entity ASC"
+        )
+        XCTAssertEqual(references.columns, ["entity", "entity_id", "document"])
+        XCTAssertEqual(references.rows, [
+            [
+                "entity": "Notes Roadmap",
+                "entity_id": roadmapEntityID,
+                "document": "Meeting note",
+            ],
+            [
+                "entity": "Rawkode Academy",
+                "entity_id": existingEntity.id.uuidString,
+                "document": "Meeting note",
+            ],
+        ])
+
+        document.plainText = "Only [[Notes Roadmap]] remains."
+        try repository.upsertDocument(document)
+
+        let refreshedReferences = try repository.runQuery(
+            "SELECT entity, document FROM backlinks WHERE document = 'Meeting note' ORDER BY entity ASC"
+        )
+        XCTAssertEqual(refreshedReferences.rows, [
+            ["entity": "Notes Roadmap", "document": "Meeting note"],
+        ])
+    }
+
     func testEntityReferenceIndexBackfillsExistingDocumentsDuringMigration() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

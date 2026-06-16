@@ -576,6 +576,16 @@ final class SQLiteNotesRepository {
         return entityID
     }
 
+    private func ensureEntityRecord(named canonicalName: String, createdAt: Date) throws -> UUID {
+        if let existingID = try fetchEntityID(named: canonicalName) {
+            return existingID
+        }
+
+        let entityID = UUID()
+        try insertEntity(id: entityID, canonicalName: canonicalName, createdAt: createdAt, updatedAt: createdAt)
+        return entityID
+    }
+
     private func upsertSupertag(named name: String, updatedAt: Date) throws -> UUID {
         let slug = slugified(name)
         if let existingID = try fetchSupertagID(slug: slug) {
@@ -739,26 +749,62 @@ final class SQLiteNotesRepository {
     }
 
     private func insertEntityReferences(for document: NoteDocument) throws {
-        for entityID in entityReferenceIDs(in: document.tiptapJSON) {
-            try prepare(
-                """
-                INSERT OR IGNORE INTO document_entity_references (document_id, entity_id, indexed_at)
-                SELECT ?, ?, ?
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM entities
-                    WHERE id = ?
-                );
-                """
-            ) { statement in
-                sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 2, entityID.uuidString, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 3, Date().ISO8601Format(), -1, sqliteTransient)
-                sqlite3_bind_text(statement, 4, entityID.uuidString, -1, sqliteTransient)
+        let now = Date()
 
-                guard sqlite3_step(statement) == SQLITE_DONE else {
-                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
-                }
+        for entityID in entityReferenceIDs(in: document.tiptapJSON) {
+            try insertExistingDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
+        }
+
+        for entityName in entityReferenceNames(in: document.plainText) {
+            let entityID = try ensureEntityRecord(named: entityName, createdAt: now)
+            try insertDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
+        }
+    }
+
+    private func insertExistingDocumentEntityReference(
+        documentID: UUID,
+        entityID: UUID,
+        indexedAt: Date
+    ) throws {
+        try prepare(
+            """
+            INSERT OR IGNORE INTO document_entity_references (document_id, entity_id, indexed_at)
+            SELECT ?, ?, ?
+            WHERE EXISTS (
+                SELECT 1
+                FROM entities
+                WHERE id = ?
+            );
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, documentID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, entityID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, indexedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, entityID.uuidString, -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertDocumentEntityReference(
+        documentID: UUID,
+        entityID: UUID,
+        indexedAt: Date
+    ) throws {
+        try prepare(
+            """
+            INSERT OR IGNORE INTO document_entity_references (document_id, entity_id, indexed_at)
+            VALUES (?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, documentID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, entityID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, indexedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
             }
         }
     }
@@ -1316,6 +1362,38 @@ private func entityReferenceIDs(in tiptapJSON: String) -> [UUID] {
     var seen: Set<UUID> = []
     collectEntityReferenceIDs(from: value, into: &ids, seen: &seen)
     return ids
+}
+
+private func entityReferenceNames(in plainText: String) -> [String] {
+    var names: [String] = []
+    var seen: Set<String> = []
+    var searchStart = plainText.startIndex
+
+    while let openRange = plainText[searchStart...].range(of: "[[") {
+        let nameStart = openRange.upperBound
+        guard let closeRange = plainText[nameStart...].range(of: "]]") else {
+            break
+        }
+
+        let rawName = String(plainText[nameStart..<closeRange.lowerBound])
+        searchStart = closeRange.upperBound
+
+        guard rawName.rangeOfCharacter(from: .newlines) == nil,
+              !rawName.contains("["),
+              !rawName.contains("]") else {
+            continue
+        }
+
+        let normalized = normalizedName(rawName)
+        let key = normalized.lowercased()
+        guard !normalized.isEmpty, seen.insert(key).inserted else {
+            continue
+        }
+
+        names.append(normalized)
+    }
+
+    return names
 }
 
 private func collectEntityReferenceIDs(from value: Any, into ids: inout [UUID], seen: inout Set<UUID>) {
