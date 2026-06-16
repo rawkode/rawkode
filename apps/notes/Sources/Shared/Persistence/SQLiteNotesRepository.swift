@@ -241,6 +241,9 @@ final class SQLiteNotesRepository {
         case "entity_references", "references", "backlinks":
             result = try fetchEntityReferenceQueryResult()
 
+        case "entity_relationships", "entity_relations", "relationships", "relations":
+            result = try fetchEntityRelationshipQueryResult()
+
         default:
             result = try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source))
         }
@@ -999,6 +1002,58 @@ final class SQLiteNotesRepository {
 
         return QueryResult(
             columns: ["name", "entity", "document", "document_kind", "date", "entity_id", "document_id"],
+            rows: rows
+        )
+    }
+
+    private func fetchEntityRelationshipQueryResult() throws -> QueryResult {
+        let rows = try prepare(
+            """
+            SELECT
+                source_entities.canonical_name,
+                entity_properties.property_key,
+                target_entities.canonical_name,
+                source_entities.id,
+                target_entities.id,
+                entity_properties.updated_at
+            FROM entity_properties
+            INNER JOIN entities source_entities
+                ON source_entities.id = entity_properties.entity_id
+            INNER JOIN entities target_entities
+                ON target_entities.id = entity_properties.value_entity_id
+            ORDER BY target_entities.canonical_name COLLATE NOCASE ASC,
+                entity_properties.property_key COLLATE NOCASE ASC,
+                source_entities.canonical_name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var rows: [[String: String]] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                let source = textColumn(statement, 0)
+                let property = textColumn(statement, 1)
+                let target = textColumn(statement, 2)
+                rows.append([
+                    "name": "\(source) \(property) -> \(target)",
+                    "source": source,
+                    "property": property,
+                    "target": target,
+                    "source_id": textColumn(statement, 3),
+                    "target_id": textColumn(statement, 4),
+                    "updated_at": textColumn(statement, 5),
+                ])
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return rows
+        }
+
+        return QueryResult(
+            columns: ["name", "source", "property", "target", "source_id", "target_id", "updated_at"],
             rows: rows
         )
     }

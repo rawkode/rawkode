@@ -121,6 +121,44 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testRunQueryReadsEntityRelationships() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Owner": "[[Rawkode Academy]]",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Website",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+
+        let relationships = try repository.runQuery(
+            "SELECT source, property, target FROM relations WHERE target CONTAINS academy ORDER BY source ASC"
+        )
+
+        XCTAssertEqual(relationships.columns, ["source", "property", "target"])
+        XCTAssertEqual(relationships.rows, [
+            [
+                "source": "Notes Roadmap",
+                "property": "owner",
+                "target": "Rawkode Academy",
+            ],
+            [
+                "source": "Website",
+                "property": "owner",
+                "target": "Rawkode Academy",
+            ],
+        ])
+    }
+
     func testEntityPropertyReferenceColumnIsAddedDuringMigration() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
