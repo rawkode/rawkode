@@ -93,6 +93,9 @@ struct NotesRootView: View {
                     },
                     onQueryRun: { query in
                         try store.runQuery(query)
+                    },
+                    onOpenDocument: { documentID in
+                        store.openDocument(id: documentID)
                     }
                 )
             } else {

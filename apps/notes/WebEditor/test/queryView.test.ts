@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildBoardGroups, parseQueryGroupBy } from '../src/queryView';
+import { buildBoardGroups, parseQueryGroupBy, queryDocumentIdMetadataKey, queryRowDocumentId } from '../src/queryView';
 
 describe('query board view helpers', () => {
   test('groups board rows by an explicit column', () => {
@@ -66,5 +66,69 @@ describe('query board view helpers', () => {
   test('normalizes group field input', () => {
     expect(parseQueryGroupBy(' status ')).toBe('status');
     expect(parseQueryGroupBy(null)).toBe('');
+  });
+
+  test('finds trusted document metadata on backlink rows', () => {
+    expect(
+      queryRowDocumentId(
+        {
+          entity_id: 'entity-1',
+          document_id: 'document-1',
+          [queryDocumentIdMetadataKey]: 'document-1',
+          document: 'Daily note',
+        },
+        ['entity_id', 'document_id', 'document']
+      )
+    ).toBe('document-1');
+  });
+
+  test('finds trusted document metadata on document rows', () => {
+    expect(
+      queryRowDocumentId(
+        { id: 'daily-1', date: '2026-06-16', title: 'Today', [queryDocumentIdMetadataKey]: 'daily-1' },
+        ['id', 'date', 'title']
+      )
+    ).toBe('daily-1');
+    expect(
+      queryRowDocumentId(
+        { id: 'note-1', kind: 'note', title: 'Research', [queryDocumentIdMetadataKey]: 'note-1' },
+        ['id', 'kind', 'title']
+      )
+    ).toBe('note-1');
+  });
+
+  test('does not treat entity ids as document ids', () => {
+    expect(queryRowDocumentId({ id: 'entity-1', name: 'Rawkode Academy', supertags: 'company' }, ['id', 'name', 'supertags'])).toBeNull();
+    expect(queryRowDocumentId({ document_id: 'entity-1', title: 'Aliased' }, ['document_id', 'title'])).toBeNull();
+    expect(
+      queryRowDocumentId(
+        { id: 'entity-1', entity_id: 'entity-1', date: '2026-06-16', title: 'Mention' },
+        ['id', 'entity_id', 'date', 'title']
+      )
+    ).toBeNull();
+    expect(
+      queryRowDocumentId(
+        {
+          id: 'entity-1',
+          name: 'Shipping Plan',
+          supertags: 'project',
+          date: '2026-06-16',
+          title: 'Launch',
+        },
+        ['id', 'name', 'supertags', 'date', 'title']
+      )
+    ).toBeNull();
+    expect(
+      queryRowDocumentId(
+        { id: 'entity-1', owner_entity_id: 'entity-2', date: '2026-06-16', title: 'Launch' },
+        ['id', 'owner_entity_id', 'date', 'title']
+      )
+    ).toBeNull();
+    expect(
+      queryRowDocumentId(
+        { id: 'entity-1', title: 'Aliased entity', date: '2026-06-16' },
+        ['id', 'title', 'date']
+      )
+    ).toBeNull();
   });
 });

@@ -226,12 +226,24 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(dailyResult.columns, ["id", "date", "title", "updated_at"])
         XCTAssertEqual(dailyResult.rows.count, 1)
         XCTAssertEqual(dailyResult.rows.first?["id"], dailyNote.id.uuidString)
+        XCTAssertEqual(dailyResult.rows.first?[queryDocumentIDMetadataKey], dailyNote.id.uuidString)
+
+        let projectedDailyResult = try repository.runQuery(
+            "SELECT id, title FROM daily_notes WHERE date = '2026-06-16'"
+        )
+        XCTAssertEqual(projectedDailyResult.columns, ["id", "title"])
+        XCTAssertEqual(projectedDailyResult.rows.first?[queryDocumentIDMetadataKey], dailyNote.id.uuidString)
 
         let bookmarks = try repository.runQuery("SELECT * FROM bookmarks WHERE name CONTAINS academy")
         XCTAssertEqual(bookmarks.columns, ["id", "name", "supertags", "updated_at"])
         XCTAssertEqual(bookmarks.rows.count, 1)
         XCTAssertEqual(bookmarks.rows.first?["name"], "Rawkode Academy")
         XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company")
+
+        let aliasedEntityID = try repository.runQuery(
+            "SELECT id AS document_id, name AS title, updated_at AS date FROM bookmarks WHERE name CONTAINS academy"
+        )
+        XCTAssertNil(aliasedEntityID.rows.first?[queryDocumentIDMetadataKey])
     }
 
     func testRunQuerySupportsRelativeDailyNoteDates() throws {
@@ -971,7 +983,7 @@ final class NotesPersistenceTests: XCTestCase {
             "SELECT entity, entity_id, document FROM backlinks WHERE document = 'Meeting note' ORDER BY entity ASC"
         )
         XCTAssertEqual(references.columns, ["entity", "entity_id", "document"])
-        XCTAssertEqual(references.rows, [
+        XCTAssertEqual(references.rows.map(visibleEntityReferenceRow), [
             [
                 "entity": "Notes Roadmap",
                 "entity_id": roadmapEntityID,
@@ -983,6 +995,10 @@ final class NotesPersistenceTests: XCTestCase {
                 "document": "Meeting note",
             ],
         ])
+        XCTAssertEqual(
+            Set(references.rows.compactMap { $0[queryDocumentIDMetadataKey] }),
+            [document.id.uuidString]
+        )
 
         document.plainText = "Only [[Notes Roadmap]] remains."
         try repository.upsertDocument(document)
@@ -990,9 +1006,15 @@ final class NotesPersistenceTests: XCTestCase {
         let refreshedReferences = try repository.runQuery(
             "SELECT entity, document FROM backlinks WHERE document = 'Meeting note' ORDER BY entity ASC"
         )
-        XCTAssertEqual(refreshedReferences.rows, [
+        XCTAssertEqual(refreshedReferences.rows.map { row in
+            [
+                "entity": row["entity"] ?? "",
+                "document": row["document"] ?? "",
+            ]
+        }, [
             ["entity": "Notes Roadmap", "document": "Meeting note"],
         ])
+        XCTAssertEqual(refreshedReferences.rows.first?[queryDocumentIDMetadataKey], document.id.uuidString)
     }
 
     func testPlainTextMentionsApplySameLineSupertags() throws {
@@ -1241,6 +1263,31 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreOpenDocumentIgnoresEntityIDs() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        let initialDocument = try XCTUnwrap(store.selectedDocument)
+        let entity = try repository.upsertEntity(named: "Aliased Entity", supertagNames: ["project"])
+
+        store.openDocument(id: entity.id)
+
+        XCTAssertEqual(store.selectedDocument?.id, initialDocument.id)
+
+        store.createStandaloneNote()
+        let standaloneNote = try XCTUnwrap(store.selectedDocument)
+
+        store.selectToday()
+        store.openDocument(id: standaloneNote.id)
+
+        XCTAssertEqual(store.selectedDocument?.id, standaloneNote.id)
+    }
+
+    @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -1267,6 +1314,14 @@ final class NotesPersistenceTests: XCTestCase {
 
     private func removeTemporaryDatabase(at databaseURL: URL) {
         try? FileManager.default.removeItem(at: databaseURL.deletingLastPathComponent())
+    }
+
+    private func visibleEntityReferenceRow(_ row: [String: String]) -> [String: String] {
+        [
+            "entity": row["entity"] ?? "",
+            "entity_id": row["entity_id"] ?? "",
+            "document": row["document"] ?? "",
+        ]
     }
 
     private func executeRawSQL(_ sql: String, databaseURL: URL, createIfNeeded: Bool = false) throws {

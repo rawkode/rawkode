@@ -15,7 +15,7 @@ import {
   type QueryFenceTextBlock,
   type QueryViewMode,
 } from './queryFence';
-import { buildBoardGroups, parseQueryGroupBy } from './queryView';
+import { buildBoardGroups, parseQueryGroupBy, queryRowDocumentId } from './queryView';
 import './styles.css';
 
 type EditorBridgePayload = {
@@ -83,6 +83,10 @@ type NativeBridgeMessage =
       type: 'runQuery';
       requestId: string;
       query: string;
+    }
+  | {
+      type: 'openDocument';
+      documentId: string;
     }
   | {
       type: 'change';
@@ -883,16 +887,24 @@ function renderQueryResult(
     case 'list':
       return (
         <ul className="query-list">
-          {result.rows.map((row, index) => (
-            <li key={queryRowKey(row, index)}>
-              <strong>{primaryQueryValue(row, result.columns)}</strong>
-              {secondaryQueryValues(row, result.columns).map(([column, value]) => (
-                <span key={column}>
-                  {column}: {value}
-                </span>
-              ))}
-            </li>
-          ))}
+          {result.rows.map((row, index) => {
+            const documentId = queryRowDocumentId(row, result.columns);
+            return (
+              <li key={queryRowKey(row, index)}>
+                <strong>{primaryQueryValue(row, result.columns)}</strong>
+                {secondaryQueryValues(row, result.columns).map(([column, value]) => (
+                  <span key={column}>
+                    {column}: {value}
+                  </span>
+                ))}
+                {documentId ? (
+                  <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
+                    Open
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       );
 
@@ -907,16 +919,24 @@ function renderQueryResult(
                 <span>{group.rows.length}</span>
               </div>
               <div className="query-board__cards">
-                {group.rows.map((row, index) => (
-                  <article key={queryRowKey(row, index)}>
-                    <strong>{primaryQueryValue(row, result.columns)}</strong>
-                    {secondaryQueryValues(row, result.columns, [group.column]).map(([column, value]) => (
-                      <span key={column}>
-                        {column}: {value}
-                      </span>
-                    ))}
-                  </article>
-                ))}
+                {group.rows.map((row, index) => {
+                  const documentId = queryRowDocumentId(row, result.columns);
+                  return (
+                    <article key={queryRowKey(row, index)}>
+                      <strong>{primaryQueryValue(row, result.columns)}</strong>
+                      {secondaryQueryValues(row, result.columns, [group.column]).map(([column, value]) => (
+                        <span key={column}>
+                          {column}: {value}
+                        </span>
+                      ))}
+                      {documentId ? (
+                        <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
+                          Open
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             </section>
           ))}
@@ -924,6 +944,7 @@ function renderQueryResult(
       );
 
     case 'table':
+      const hasDocumentActions = result.rows.some((row) => queryRowDocumentId(row, result.columns));
       return (
         <div className="query-table-wrap">
           <table className="query-table">
@@ -932,16 +953,29 @@ function renderQueryResult(
                 {result.columns.map((column) => (
                   <th key={column}>{column}</th>
                 ))}
+                {hasDocumentActions ? <th className="query-table__action">Action</th> : null}
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((row, index) => (
-                <tr key={queryRowKey(row, index)}>
-                  {result.columns.map((column) => (
-                    <td key={column}>{row[column] || ''}</td>
-                  ))}
-                </tr>
-              ))}
+              {result.rows.map((row, index) => {
+                const documentId = queryRowDocumentId(row, result.columns);
+                return (
+                  <tr key={queryRowKey(row, index)}>
+                    {result.columns.map((column) => (
+                      <td key={column}>{row[column] || ''}</td>
+                    ))}
+                    {hasDocumentActions ? (
+                      <td className="query-table__action">
+                        {documentId ? (
+                          <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
+                            Open
+                          </button>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -968,6 +1002,13 @@ function secondaryQueryValues(
 
 function queryRowKey(row: Record<string, string>, index: number) {
   return row.id || `${index}-${primaryQueryValue(row, Object.keys(row))}`;
+}
+
+function openQueryDocument(documentId: string) {
+  postNativeMessage({
+    type: 'openDocument',
+    documentId,
+  });
 }
 
 type PendingEditorChange = Extract<NativeBridgeMessage, { type: 'change' }>;

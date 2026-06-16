@@ -319,6 +319,29 @@ input {
   gap: 8px;
 }
 
+.query-row-action {
+  width: fit-content;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, LinkText 28%, transparent);
+  border-radius: 7px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 8%, Canvas);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.query-row-action:hover {
+  background: color-mix(in srgb, LinkText 13%, Canvas);
+}
+
+.query-table th.query-table__action,
+.query-table td.query-table__action {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .editor-prose {
   width: min(100%, 900px);
   min-height: calc(100vh - 52px);

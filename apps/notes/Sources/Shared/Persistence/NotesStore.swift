@@ -97,7 +97,15 @@ final class NotesStore {
             return
         }
 
-        selectedDocument = (dailyNotes + standaloneNotes).first { $0.id == id }
+        selectedDocument = cachedDocument(id: id)
+    }
+
+    func openDocument(id: NoteDocument.ID) {
+        guard let document = cachedDocument(id: id) else {
+            return
+        }
+
+        selectedDocument = document
     }
 
     func saveEditorChange(documentID: UUID, title: String, contentJSON: String, plainText: String) {
@@ -226,6 +234,10 @@ final class NotesStore {
                 standaloneNotes[index] = document
             }
         }
+    }
+
+    private func cachedDocument(id: UUID) -> NoteDocument? {
+        (dailyNotes + standaloneNotes).first { $0.id == id }
     }
 
     private func nextSelection(afterDeleting deletedID: UUID) -> UUID? {

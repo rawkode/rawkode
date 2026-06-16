@@ -6,6 +6,8 @@ export type QueryBoardGroup = {
   column: string | null;
 };
 
+export const queryDocumentIdMetadataKey = '__notes.document_id';
+
 const boardAutoGroupColumns = ['status', 'lane', 'stage', 'state', 'date', 'supertags'];
 
 export function parseQueryGroupBy(value: unknown) {
@@ -46,4 +48,17 @@ function resolveBoardGroupColumn(columns: string[], requestedGroupBy: string) {
   }
 
   return boardAutoGroupColumns.find((column) => columns.includes(column)) ?? null;
+}
+
+export function queryRowDocumentId(row: QueryResultRow, columns: string[]) {
+  if (columns.includes(queryDocumentIdMetadataKey)) {
+    return null;
+  }
+
+  return normalizedCell(row[queryDocumentIdMetadataKey]);
+}
+
+function normalizedCell(value: string | undefined) {
+  const normalized = value?.trim() ?? '';
+  return normalized.length > 0 ? normalized : null;
 }

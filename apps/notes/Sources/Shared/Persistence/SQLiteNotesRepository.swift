@@ -1,6 +1,8 @@
 import Foundation
 import SQLite3
 
+let queryDocumentIDMetadataKey = "__notes.document_id"
+
 enum SQLiteNotesError: LocalizedError {
     case openFailed(String)
     case prepareFailed(String)
@@ -1141,6 +1143,7 @@ final class SQLiteNotesRepository {
                     "document_kind": textColumn(statement, 4),
                     "date": textColumn(statement, 5),
                     "name": "\(entityName) -> \(documentTitle)",
+                    queryDocumentIDMetadataKey: textColumn(statement, 2),
                 ])
                 result = sqlite3_step(statement)
             }
@@ -1452,6 +1455,7 @@ private func documentQueryRow(_ document: NoteDocument) -> [String: String] {
         "date": document.date ?? "",
         "title": document.title,
         "updated_at": document.updatedAt.ISO8601Format(),
+        queryDocumentIDMetadataKey: document.id.uuidString,
     ]
 }
 
@@ -1461,6 +1465,7 @@ private func dailyNoteQueryRow(_ document: NoteDocument) -> [String: String] {
         "date": document.date ?? "",
         "title": document.title,
         "updated_at": document.updatedAt.ISO8601Format(),
+        queryDocumentIDMetadataKey: document.id.uuidString,
     ]
 }
 
@@ -1670,9 +1675,11 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     }
 
     let projectedRows = rows.map { row in
-        Dictionary(uniqueKeysWithValues: projection.map { item in
+        var projectedRow = Dictionary(uniqueKeysWithValues: projection.map { item in
             (item.outputName, row[item.field] ?? "")
         })
+        projectedRow[queryDocumentIDMetadataKey] = row[queryDocumentIDMetadataKey]
+        return projectedRow
     }
 
     return QueryResult(columns: projection.map { $0.outputName }, rows: projectedRows)
