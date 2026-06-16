@@ -2,7 +2,7 @@
 
 Universal local-first notes app for iOS, iPadOS, and macOS.
 
-Daily notes are the primary document type. The app creates today on launch, lets you open any date from the Daily Notes section, stores one daily note per local date, and keeps note content as Tiptap JSON in SQLite rather than Markdown files.
+Daily notes are the primary document type. The app creates today on launch, lets you open today, tomorrow, or any date from the Daily Notes section, stores one daily note per local date, and keeps note content as Tiptap JSON in SQLite rather than Markdown files.
 
 ## Architecture
 
@@ -12,7 +12,29 @@ Daily notes are the primary document type. The app creates today on launch, lets
 - Tiptap persists rich document JSON, SQLite-backed entity references, local query blocks, and inline Excalidraw sketches.
 - The generated web editor bundle is ignored by version control. Xcode builds it from `WebEditor/` before copying app resources.
 
-Local query blocks support table, list, and grouped board views over SQLite-backed documents, daily notes, entities, supertags, supertag collections, entity backlinks, and entity relationship fields, with `SELECT *`, explicit field projections, `COUNT(*)`, or grouped counts such as `SELECT status, COUNT(*) FROM bookmarks GROUP BY status HAVING count > 1`. Query selections support optional `AS` aliases, plus optional `WHERE` and grouped `HAVING` predicates using `=`, `!=`, `CONTAINS`, `NOT CONTAINS`, `IN (...)`, `NOT IN (...)`, or ordered comparisons, with `AND` and `OR` predicate groups. Row-returning and grouped-count queries also support `ORDER BY` and `LIMIT` clauses. Daily-note date filters understand `today`, `yesterday`, `tomorrow`, and day arithmetic such as `today-7d`, `today+1d`, or `'today - 2 days'`. Supertag collection rows expose entity properties as queryable columns. Typed or pasted fences such as ```` ```ql view=board group=status```` create live query blocks with the selected view and board grouping. Typed note mentions like `[[Entity Name]]` create or reuse local entities, same-line hashtags such as `[[Entity Name]] #project` apply supertags, and both appear in backlink queries. Property lines directly below a typed mention, such as `owner:: [[Rawkode Academy]]`, add or update local entity properties. Property values written as `[[Entity Name]]` are stored as entity references, expose a matching `<property>_entity_id` query column, and appear in the `entity_relationships` query source. Cloudflare sync/storage and a broader query language are still roadmap features.
+Local query blocks support table, list, and grouped board views over SQLite-backed documents, daily notes, entities, supertags, supertag collections, entity backlinks, and entity relationship fields, with `SELECT *`, explicit field projections, `COUNT(*)`, or grouped counts such as `SELECT status, COUNT(*) FROM bookmarks GROUP BY status HAVING count > 1`. Query selections support optional `AS` aliases, plus optional `WHERE` and grouped `HAVING` predicates using `=`, `!=`, `CONTAINS`, `NOT CONTAINS`, `IN (...)`, `NOT IN (...)`, `BETWEEN ... AND ...`, `NOT BETWEEN ... AND ...`, `IS EMPTY`, `IS NOT EMPTY`, or ordered comparisons, with `AND` and `OR` predicate groups. Row-returning and grouped-count queries also support `ORDER BY` and `LIMIT` clauses. Daily-note date filters understand `today`, `yesterday`, `tomorrow`, and day arithmetic such as `today-7d`, `today+1d`, or `'today - 2 days'`. Supertag collection rows expose entity properties as queryable columns. Typed or pasted fences such as ```` ```ql view=board group=status```` create live query blocks with the selected view and board grouping. Typed note mentions like `[[Entity Name]]` create or reuse local entities and appear in backlink queries, while same-line hashtags such as `[[Entity Name]] #project` apply supertags and make the entity queryable through supertag collections. Property lines directly below a typed mention, such as `owner:: [[Rawkode Academy]]`, add or update local entity properties. Property values written as `[[Entity Name]]` are stored as entity references, expose a matching `<property>_entity_id` query column, and appear in the `entity_relationships` query source.
+
+## Roadmap
+
+Current local-first foundation:
+
+- Daily notes are calendar-backed documents with today, tomorrow, arbitrary-date, and adjacent-day navigation.
+- Notes are persisted as Tiptap JSON in local SQLite, with inline Excalidraw sketches.
+- Entities, supertags, entity properties, backlinks, and entity-to-entity property references are indexed locally.
+- Query blocks run against local SQLite materializations and can render as tables, lists, or grouped boards.
+
+Next local milestones:
+
+- Saved named views for recurring query blocks.
+- Supertag schema editing for expected fields, defaults, and validation.
+- First-class backlink and relationship panels beside the editor.
+- Import/export for local vault portability before sync is introduced.
+
+Cloudflare-backed milestones remain later:
+
+- Durable sync protocol with conflict handling around SQLite-backed note/entity changes.
+- Object snapshots for large document/editor payloads and Excalidraw assets.
+- Server-side query acceleration only after the local query semantics settle.
 
 ## Project
 
