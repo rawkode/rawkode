@@ -1,0 +1,23 @@
+{
+  "name": "@rawkode/notes-editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run typecheck && bun run clean && vite build",
+    "clean": "find ../Sources/Shared/Resources/Editor -mindepth 1 ! -name .gitkeep -exec rm -rf {} +",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "@tiptap/core": "3.26.1",
+    "@tiptap/react": "3.26.1",
+    "@tiptap/starter-kit": "3.26.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "vite": "8.0.16",
+    "typescript": "6.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {}
+}

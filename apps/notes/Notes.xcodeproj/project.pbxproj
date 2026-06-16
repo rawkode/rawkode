@@ -1,0 +1,693 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3016130EBDAB859894D02297 /* NotesPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */; };
+		36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
+		385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */; };
+		388DDE8AFA6E951D90D98112 /* NotesAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */; };
+		427FCAE35715974092E91E9B /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
+		44B3E2FC215ABEB2548C52D7 /* SQLiteNotesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */; };
+		4FC70A16FFFDF551C99C8D8C /* NotesMacOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7320508405ED52BEA0DDF5F9 /* NotesMacOSApp.swift */; };
+		5B6C05BA5B34FECEEA4C17F2 /* SQLiteNotesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */; };
+		692C13ABDCB167401DA1EE18 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 3698E95C2388BC623332FAB8 /* Editor */; };
+		69ECAB39CACEA5E89AFA5175 /* NotesIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6689B5EEF83EC8AD26366F8E /* NotesIOSApp.swift */; };
+		736A2D54E1A2812C8509784A /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 75DFE58850022E6B2FDF1A73 /* WebKit.framework */; };
+		7DB28B99A57D0DDAF8594FAC /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */; };
+		85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3734EB80024C3E9441C3629C /* NotesStore.swift */; };
+		982D166487A14563D4809A26 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */; };
+		BAD2215651AAE293EC129615 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 75DFE58850022E6B2FDF1A73 /* WebKit.framework */; };
+		C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
+		D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
+		D142DDDD55304706E9AAF420 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 3698E95C2388BC623332FAB8 /* Editor */; };
+		E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3734EB80024C3E9441C3629C /* NotesStore.swift */; };
+		EA000EF367FC08143CA74749 /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
+		EAD99FB152FA81339E5D7C79 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
+		EE60F491D12CAE7EA95D5BA5 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */; };
+		FF5AD071A827C694A65DA743 /* NotesAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3F4F5B116F88716F57205C89 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B0F2AFDF7927E9C5FB5AD009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F672363A9D1AC53B4D97F24A;
+			remoteInfo = "Notes-macOS";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		24596F4743ECB504BE8BC504 /* NotesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3698E95C2388BC623332FAB8 /* Editor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Editor; path = Sources/Shared/Resources/Editor; sourceTree = SOURCE_ROOT; };
+		3734EB80024C3E9441C3629C /* NotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
+		3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesAppScene.swift; sourceTree = "<group>"; };
+		4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesPersistenceTests.swift; sourceTree = "<group>"; };
+		59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteDocument.swift; sourceTree = "<group>"; };
+		5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		6689B5EEF83EC8AD26366F8E /* NotesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesIOSApp.swift; sourceTree = "<group>"; };
+		7320508405ED52BEA0DDF5F9 /* NotesMacOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesMacOSApp.swift; sourceTree = "<group>"; };
+		75DFE58850022E6B2FDF1A73 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		76A647B18DDA354B4A4580EB /* NotesRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesRootView.swift; sourceTree = "<group>"; };
+		7D24E4A67B1571D565D65A3D /* Notes-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Notes-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorView.swift; sourceTree = "<group>"; };
+		A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteNotesRepository.swift; sourceTree = "<group>"; };
+		D2BF955E0697743C652D5DAF /* WebEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorView.swift; sourceTree = "<group>"; };
+		EBF05D697B7AEB76A22BD35B /* Notes-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Notes-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D5DA2EFF19839D769366650D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				982D166487A14563D4809A26 /* libsqlite3.tbd in Frameworks */,
+				BAD2215651AAE293EC129615 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E64F73092560FBDE91EAC512 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EE60F491D12CAE7EA95D5BA5 /* libsqlite3.tbd in Frameworks */,
+				736A2D54E1A2812C8509784A /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1F568819BC420B2747FB16CC = {
+			isa = PBXGroup;
+			children = (
+				4974DD42E0C8AB2A47F05DA0 /* Sources */,
+				C4E264411C8C0061C92CF1BD /* Tests */,
+				AA4221674985FFB69EA59EC0 /* Frameworks */,
+				D126E93300653EB6B5CC3A59 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4974DD42E0C8AB2A47F05DA0 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B2FA8B3F55AB3E00A724F280 /* iOS */,
+				A57386C109D7B8FADAE5B1F7 /* macOS */,
+				63B5FEF249576EF825277521 /* Shared */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		52131BB48CD07B8583D313CB /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				3734EB80024C3E9441C3629C /* NotesStore.swift */,
+				A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		63B5FEF249576EF825277521 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				3B715400C151BCF6CEF152D5 /* NotesAppScene.swift */,
+				F9575E5272FC57DFFD401510 /* Models */,
+				52131BB48CD07B8583D313CB /* Persistence */,
+				9A88D79AD7ED94C4E132588F /* Resources */,
+				ECF824F88F23E18CA13B04AC /* Views */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		9A88D79AD7ED94C4E132588F /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				3698E95C2388BC623332FAB8 /* Editor */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A57386C109D7B8FADAE5B1F7 /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				7320508405ED52BEA0DDF5F9 /* NotesMacOSApp.swift */,
+			);
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		AA4221674985FFB69EA59EC0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */,
+				75DFE58850022E6B2FDF1A73 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B2FA8B3F55AB3E00A724F280 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				6689B5EEF83EC8AD26366F8E /* NotesIOSApp.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		C4E264411C8C0061C92CF1BD /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				D0F3589D81CCFEDEE04E4E64 /* NotesTests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		D0F3589D81CCFEDEE04E4E64 /* NotesTests */ = {
+			isa = PBXGroup;
+			children = (
+				4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */,
+			);
+			path = NotesTests;
+			sourceTree = "<group>";
+		};
+		D126E93300653EB6B5CC3A59 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7D24E4A67B1571D565D65A3D /* Notes-iOS.app */,
+				EBF05D697B7AEB76A22BD35B /* Notes-macOS.app */,
+				24596F4743ECB504BE8BC504 /* NotesTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		ECF824F88F23E18CA13B04AC /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */,
+				76A647B18DDA354B4A4580EB /* NotesRootView.swift */,
+				D2BF955E0697743C652D5DAF /* WebEditorView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		F9575E5272FC57DFFD401510 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8BB920828A652DF0EACBB39E /* NotesTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB6F4D4CEFA067EDA7C49BD1 /* Build configuration list for PBXNativeTarget "NotesTests" */;
+			buildPhases = (
+				679AC323540538FDE7E5C9E1 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4276528CB77CE58427795605 /* PBXTargetDependency */,
+			);
+			name = NotesTests;
+			packageProductDependencies = (
+			);
+			productName = NotesTests;
+			productReference = 24596F4743ECB504BE8BC504 /* NotesTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		BB07924154447F4536E14971 /* Notes-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 99409291ADF14E1388F64E88 /* Build configuration list for PBXNativeTarget "Notes-iOS" */;
+			buildPhases = (
+				74460C55DFE05250827C8803 /* Build Web Editor */,
+				B66488465519355C845E085F /* Sources */,
+				9E20A5A3DF5E2924A803F1D6 /* Resources */,
+				E64F73092560FBDE91EAC512 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Notes-iOS";
+			packageProductDependencies = (
+			);
+			productName = "Notes-iOS";
+			productReference = 7D24E4A67B1571D565D65A3D /* Notes-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F672363A9D1AC53B4D97F24A /* Notes-macOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C33BE9749F224EFFD8471935 /* Build configuration list for PBXNativeTarget "Notes-macOS" */;
+			buildPhases = (
+				4B8EE9F03F379E3BBA835CF4 /* Build Web Editor */,
+				958956E5ABA85293A4366E0D /* Sources */,
+				41AB312890C9F36F18A26DE0 /* Resources */,
+				D5DA2EFF19839D769366650D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Notes-macOS";
+			packageProductDependencies = (
+			);
+			productName = "Notes-macOS";
+			productReference = EBF05D697B7AEB76A22BD35B /* Notes-macOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B0F2AFDF7927E9C5FB5AD009 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					8BB920828A652DF0EACBB39E = {
+						DevelopmentTeam = "";
+					};
+					BB07924154447F4536E14971 = {
+						DevelopmentTeam = "";
+					};
+					F672363A9D1AC53B4D97F24A = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = A50297AA61232F959865C9A8 /* Build configuration list for PBXProject "Notes" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1F568819BC420B2747FB16CC;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D126E93300653EB6B5CC3A59 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BB07924154447F4536E14971 /* Notes-iOS */,
+				F672363A9D1AC53B4D97F24A /* Notes-macOS */,
+				8BB920828A652DF0EACBB39E /* NotesTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		41AB312890C9F36F18A26DE0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				692C13ABDCB167401DA1EE18 /* Editor in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9E20A5A3DF5E2924A803F1D6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D142DDDD55304706E9AAF420 /* Editor in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4B8EE9F03F379E3BBA835CF4 /* Build Web Editor */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Web Editor";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nBUN=\"/Users/rawkode/.bun/bin/bun\"\nif [ ! -x \"${BUN}\" ]; then\n  BUN=\"bun\"\nfi\n\ncd \"${SRCROOT}/WebEditor\"\n\"${BUN}\" install --frozen-lockfile\n\"${BUN}\" run build\n";
+		};
+		74460C55DFE05250827C8803 /* Build Web Editor */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Web Editor";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nBUN=\"/Users/rawkode/.bun/bin/bun\"\nif [ ! -x \"${BUN}\" ]; then\n  BUN=\"bun\"\nfi\n\ncd \"${SRCROOT}/WebEditor\"\n\"${BUN}\" install --frozen-lockfile\n\"${BUN}\" run build\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		679AC323540538FDE7E5C9E1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3016130EBDAB859894D02297 /* NotesPersistenceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		958956E5ABA85293A4366E0D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */,
+				EA000EF367FC08143CA74749 /* NoteEditorView.swift in Sources */,
+				388DDE8AFA6E951D90D98112 /* NotesAppScene.swift in Sources */,
+				4FC70A16FFFDF551C99C8D8C /* NotesMacOSApp.swift in Sources */,
+				36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */,
+				E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */,
+				5B6C05BA5B34FECEEA4C17F2 /* SQLiteNotesRepository.swift in Sources */,
+				427FCAE35715974092E91E9B /* WebEditorView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B66488465519355C845E085F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7DB28B99A57D0DDAF8594FAC /* NoteDocument.swift in Sources */,
+				C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */,
+				FF5AD071A827C694A65DA743 /* NotesAppScene.swift in Sources */,
+				69ECAB39CACEA5E89AFA5175 /* NotesIOSApp.swift in Sources */,
+				EAD99FB152FA81339E5D7C79 /* NotesRootView.swift in Sources */,
+				85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */,
+				44B3E2FC215ABEB2548C52D7 /* SQLiteNotesRepository.swift in Sources */,
+				D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4276528CB77CE58427795605 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F672363A9D1AC53B4D97F24A /* Notes-macOS */;
+			targetProxy = 3F4F5B116F88716F57205C89 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0D0D5E8C155742EE0BC82B3A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Notes;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.notes;
+				PRODUCT_NAME = Notes;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		24DD5171A556843E4C2A7A1E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Notes;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.notes;
+				PRODUCT_NAME = Notes;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6E3A7902D95012EED637573A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		71293B7BA4BDB906D2F2F8AE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8BE9D943A7C3B00962A24103 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.NotesTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Notes.app/Contents/MacOS/Notes";
+			};
+			name = Debug;
+		};
+		8E797730923057CB28C90DE9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Notes;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.notes;
+				PRODUCT_NAME = Notes;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		C4868FEB36C88185731672F8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Notes;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.notes;
+				PRODUCT_NAME = Notes;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C49B354029D9C870963AA244 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rawkode.NotesTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Notes.app/Contents/MacOS/Notes";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		99409291ADF14E1388F64E88 /* Build configuration list for PBXNativeTarget "Notes-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4868FEB36C88185731672F8 /* Debug */,
+				24DD5171A556843E4C2A7A1E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A50297AA61232F959865C9A8 /* Build configuration list for PBXProject "Notes" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71293B7BA4BDB906D2F2F8AE /* Debug */,
+				6E3A7902D95012EED637573A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BB6F4D4CEFA067EDA7C49BD1 /* Build configuration list for PBXNativeTarget "NotesTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BE9D943A7C3B00962A24103 /* Debug */,
+				C49B354029D9C870963AA244 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C33BE9749F224EFFD8471935 /* Build configuration list for PBXNativeTarget "Notes-macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E797730923057CB28C90DE9 /* Debug */,
+				0D0D5E8C155742EE0BC82B3A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B0F2AFDF7927E9C5FB5AD009 /* Project object */;
+}

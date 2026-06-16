@@ -1,0 +1,89 @@
+import Foundation
+
+enum NoteDocumentKind: String, Codable, CaseIterable, Sendable {
+    case daily
+    case note
+}
+
+struct NoteDocument: Identifiable, Equatable, Sendable {
+    var id: UUID
+    var kind: NoteDocumentKind
+    var date: String?
+    var title: String
+    var tiptapJSON: String
+    var plainText: String
+    var createdAt: Date
+    var updatedAt: Date
+
+    var displayTitle: String {
+        if kind == .daily, let date {
+            return DailyNoteDateFormatter.displayTitle(for: date)
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? "Untitled Note" : trimmedTitle
+    }
+
+    var previewText: String {
+        plainText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    var isToday: Bool {
+        kind == .daily && date == DailyNoteDateFormatter.storageString(from: .now)
+    }
+}
+
+enum DailyNoteDateFormatter {
+    private static var calendar: Calendar {
+        Calendar(identifier: .gregorian)
+    }
+
+    private static func makeStorageFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
+    private static func makeDisplayFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = .current
+        formatter.timeZone = .current
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        return formatter
+    }
+
+    static func storageString(from date: Date) -> String {
+        makeStorageFormatter().string(from: date)
+    }
+
+    static func displayTitle(for storageDate: String) -> String {
+        guard let date = makeStorageFormatter().date(from: storageDate) else {
+            return storageDate
+        }
+
+        if calendar.isDateInToday(date) {
+            return "Today"
+        }
+
+        if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+
+        return makeDisplayFormatter().string(from: date)
+    }
+
+    static func subtitle(for storageDate: String) -> String {
+        guard let date = makeStorageFormatter().date(from: storageDate) else {
+            return storageDate
+        }
+
+        return makeDisplayFormatter().string(from: date)
+    }
+}
