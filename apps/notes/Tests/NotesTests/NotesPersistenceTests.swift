@@ -608,6 +608,115 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(projectedCountProperty.rows, [["count": "7"]])
     }
 
+    func testRunQuerySupportsGroupedCountAggregate() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Alpha Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Archive Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "archived",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Beta Draft",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "draft",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Gamma Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Rawkode",
+                "Status": "active",
+            ]
+        )
+        _ = try repository.upsertEntity(
+            named: "Team Resource",
+            supertagNames: ["bookmark"],
+            properties: [
+                "Owner": "Team",
+                "Status": "active",
+            ]
+        )
+
+        let grouped = try repository.runQuery(
+            "SELECT status AS lane, COUNT(*) AS total FROM bookmarks WHERE owner IN (Rawkode, Team) GROUP BY status ORDER BY lane ASC"
+        )
+        XCTAssertEqual(grouped.columns, ["lane", "total"])
+        XCTAssertEqual(grouped.rows, [
+            [
+                "lane": "active",
+                "total": "3",
+            ],
+            [
+                "lane": "archived",
+                "total": "1",
+            ],
+            [
+                "lane": "draft",
+                "total": "1",
+            ],
+        ])
+
+        let largestGroup = try repository.runQuery(
+            "SELECT status, COUNT(*) AS total FROM bookmarks GROUP BY status ORDER BY total DESC LIMIT 1"
+        )
+        XCTAssertEqual(largestGroup.columns, ["status", "total"])
+        XCTAssertEqual(largestGroup.rows, [
+            [
+                "status": "active",
+                "total": "3",
+            ],
+        ])
+
+        let multiFieldGroup = try repository.runQuery(
+            "SELECT owner, status, COUNT(*) AS total FROM bookmarks GROUP BY owner, status ORDER BY total DESC"
+        )
+        XCTAssertEqual(multiFieldGroup.columns, ["owner", "status", "total"])
+        XCTAssertEqual(
+            Set(multiFieldGroup.rows.map { "\($0["owner"] ?? ""):\($0["status"] ?? ""):\($0["total"] ?? "")" }),
+            Set([
+                "Rawkode:active:2",
+                "Rawkode:archived:1",
+                "Rawkode:draft:1",
+                "Team:active:1",
+            ])
+        )
+
+        _ = try repository.createDailyNote(date: "2026-06-16")
+        _ = try repository.createDailyNote(date: "2026-06-17")
+        let dailyCounts = try repository.runQuery(
+            "SELECT date, COUNT(*) AS notes FROM daily_notes GROUP BY date ORDER BY date ASC"
+        )
+        XCTAssertEqual(dailyCounts.columns, ["date", "notes"])
+        XCTAssertEqual(dailyCounts.rows.map { $0["notes"] }, ["1", "1"])
+
+        XCTAssertThrowsError(
+            try repository.runQuery("SELECT status, COUNT(*) AS total FROM bookmarks GROUP BY status ORDER BY missing")
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery("SELECT owner, COUNT(*) FROM bookmarks GROUP BY status")
+        )
+        XCTAssertThrowsError(
+            try repository.runQuery("SELECT COUNT(*) AS total, status FROM bookmarks GROUP BY status")
+        )
+    }
+
     func testRunQueryRejectsUnsupportedStatements() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -626,6 +735,11 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities"))
         XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities ORDER BY name"))
         XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities LIMIT 1"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name FROM entities GROUP BY name"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT COUNT(*) FROM entities GROUP BY name"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities GROUP BY updated_at"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) FROM entities GROUP BY name, name"))
+        XCTAssertThrowsError(try repository.runQuery("SELECT name, COUNT(*) AS name FROM entities GROUP BY name"))
 
         let entities = try repository.runQuery("SELECT * FROM entities")
         XCTAssertEqual(entities.columns, ["id", "name", "supertags", "updated_at"])

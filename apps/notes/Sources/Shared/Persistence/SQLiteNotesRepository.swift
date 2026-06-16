@@ -1387,6 +1387,15 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
         }
     }
 
+    if let group = query.group {
+        return try materializedGroupedAggregate(
+            rows: rows,
+            sourceResult: result,
+            group: group,
+            query: query
+        )
+    }
+
     if let aggregate = query.aggregate {
         switch aggregate.kind {
         case .countAll:
@@ -1440,6 +1449,92 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
     return QueryResult(columns: projection.map { $0.outputName }, rows: projectedRows)
 }
 
+private func materializedGroupedAggregate(
+    rows: [[String: String]],
+    sourceResult: QueryResult,
+    group: LocalQueryGroup,
+    query: LocalQuery
+) throws -> QueryResult {
+    guard let aggregate = query.aggregate else {
+        throw SQLiteNotesError.validationFailed("GROUP BY currently supports COUNT(*) queries only.")
+    }
+
+    guard let projection = query.projection, !projection.isEmpty else {
+        throw SQLiteNotesError.validationFailed("Grouped COUNT(*) queries must select their GROUP BY fields.")
+    }
+
+    for field in group.fields {
+        try requireQueryField(field, in: sourceResult)
+    }
+
+    for item in projection {
+        try requireQueryField(item.field, in: sourceResult)
+    }
+
+    struct GroupBucket {
+        var valuesByField: [String: String]
+        var count: Int
+        var firstIndex: Int
+    }
+
+    var buckets: [[String]: GroupBucket] = [:]
+    for (index, row) in rows.enumerated() {
+        let key = group.fields.map { row[$0] ?? "" }
+        if var bucket = buckets[key] {
+            bucket.count += 1
+            buckets[key] = bucket
+        } else {
+            buckets[key] = GroupBucket(
+                valuesByField: Dictionary(uniqueKeysWithValues: zip(group.fields, key)),
+                count: 1,
+                firstIndex: index
+            )
+        }
+    }
+
+    let columns = projection.map { $0.outputName } + [aggregate.outputName]
+    var groupedRows = buckets.values
+        .sorted { left, right in
+            left.firstIndex < right.firstIndex
+        }
+        .map { bucket in
+            var row = Dictionary(uniqueKeysWithValues: projection.map { item in
+                (item.outputName, bucket.valuesByField[item.field] ?? "")
+            })
+            row[aggregate.outputName] = String(bucket.count)
+            return row
+        }
+
+    if let order = query.order {
+        let groupedResult = QueryResult(columns: columns, rows: groupedRows)
+        try requireQueryField(order.field, in: groupedResult)
+        groupedRows = groupedRows
+            .enumerated()
+            .sorted { left, right in
+                let comparison = (left.element[order.field] ?? "")
+                    .localizedStandardCompare(right.element[order.field] ?? "")
+
+                if comparison == .orderedSame {
+                    return left.offset < right.offset
+                }
+
+                switch order.direction {
+                case .ascending:
+                    return comparison == .orderedAscending
+                case .descending:
+                    return comparison == .orderedDescending
+                }
+            }
+            .map { $0.element }
+    }
+
+    if let limit = query.limit {
+        groupedRows = Array(groupedRows.prefix(limit))
+    }
+
+    return QueryResult(columns: columns, rows: groupedRows)
+}
+
 private func queryComparisonValues(for predicate: LocalQueryPredicate, relativeDate: Date) -> [String] {
     predicate.values.map { value in
         guard predicate.field == "date",
@@ -1484,11 +1579,16 @@ private struct LocalQueryAggregate {
     var outputName: String
 }
 
+private struct LocalQueryGroup {
+    var fields: [String]
+}
+
 private struct LocalQuery {
     var projection: [LocalQueryProjection]?
     var aggregate: LocalQueryAggregate?
     var source: String
     var predicates: [LocalQueryPredicate] = []
+    var group: LocalQueryGroup?
     var order: LocalQueryOrder?
     var limit: Int?
 
@@ -1498,7 +1598,7 @@ private struct LocalQuery {
             throw SQLiteNotesError.validationFailed("Query cannot be empty.")
         }
 
-        let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
+        let pattern = #"(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s+WHERE\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+ORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(ASC|DESC))?)?(?:\s+LIMIT\s+([0-9]+))?\s*;?\s*$"#
         guard let match = trimmed.firstMatch(pattern: pattern) else {
             throw SQLiteNotesError.validationFailed("Only SELECT * or SELECT <field[, ...]> FROM <source> queries are supported.")
         }
@@ -1515,20 +1615,45 @@ private struct LocalQuery {
             predicates = try Self.parsePredicates(whereClause)
         }
 
-        if match.indices.contains(4), let orderField = match[4], !orderField.isEmpty {
-            let direction: LocalQueryOrder.Direction = (match[5] ?? "")
+        if match.indices.contains(4), let groupClause = match[4], !groupClause.isEmpty {
+            group = LocalQueryGroup(fields: try Self.parseGroupFields(groupClause))
+        }
+
+        if match.indices.contains(5), let orderField = match[5], !orderField.isEmpty {
+            let direction: LocalQueryOrder.Direction = (match[6] ?? "")
                 .caseInsensitiveCompare("DESC") == .orderedSame ? .descending : .ascending
             order = LocalQueryOrder(field: orderField.lowercased(), direction: direction)
         }
 
-        if match.indices.contains(6), let rawLimit = match[6], !rawLimit.isEmpty {
+        if match.indices.contains(7), let rawLimit = match[7], !rawLimit.isEmpty {
             guard let parsedLimit = Int(rawLimit), parsedLimit >= 0 else {
                 throw SQLiteNotesError.validationFailed("Query limit must be a non-negative integer.")
             }
             limit = parsedLimit
         }
 
-        if aggregate != nil, order != nil || limit != nil {
+        if let group {
+            guard aggregate != nil else {
+                throw SQLiteNotesError.validationFailed("GROUP BY currently supports COUNT(*) queries only.")
+            }
+            guard let projection, !projection.isEmpty else {
+                throw SQLiteNotesError.validationFailed("Grouped COUNT(*) queries must select their GROUP BY fields.")
+            }
+
+            let projectionFields = Set(projection.map(\.field))
+            let groupFields = Set(group.fields)
+            guard projectionFields == groupFields, projectionFields.count == projection.count else {
+                throw SQLiteNotesError.validationFailed(
+                    "Grouped COUNT(*) query projections must match GROUP BY fields."
+                )
+            }
+        }
+
+        if aggregate != nil, group == nil, projection != nil {
+            throw SQLiteNotesError.validationFailed("COUNT(*) with selected fields requires GROUP BY.")
+        }
+
+        if aggregate != nil, group == nil, order != nil || limit != nil {
             throw SQLiteNotesError.validationFailed("ORDER BY and LIMIT are not supported with COUNT(*) queries.")
         }
     }
@@ -1545,17 +1670,30 @@ private struct LocalQuery {
             return (nil, nil)
         }
 
-        if let aggregate = try parseAggregate(trimmed) {
-            return (nil, aggregate)
-        }
-
         let rawFields = trimmed
             .split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
         var projection: [LocalQueryProjection] = []
+        var aggregate: LocalQueryAggregate?
         var seenOutputNames: Set<String> = []
-        for rawField in rawFields {
+        for (index, rawField) in rawFields.enumerated() {
+            if let item = try parseAggregate(rawField) {
+                guard index == rawFields.count - 1 else {
+                    throw SQLiteNotesError.validationFailed("COUNT(*) must be the final selected field.")
+                }
+                guard aggregate == nil else {
+                    throw SQLiteNotesError.validationFailed("Only one COUNT(*) aggregate is supported.")
+                }
+                guard seenOutputNames.insert(item.outputName).inserted else {
+                    throw SQLiteNotesError.validationFailed(
+                        "Query projection contains duplicate output field '\(item.outputName)'."
+                    )
+                }
+                aggregate = item
+                continue
+            }
+
             let item = try parseProjectionItem(rawField)
             guard seenOutputNames.insert(item.outputName).inserted else {
                 throw SQLiteNotesError.validationFailed(
@@ -1565,7 +1703,7 @@ private struct LocalQuery {
             projection.append(item)
         }
 
-        return (projection, nil)
+        return (projection.isEmpty ? nil : projection, aggregate)
     }
 
     private static func parseAggregate(_ rawSelection: String) throws -> LocalQueryAggregate? {
@@ -1597,6 +1735,38 @@ private struct LocalQuery {
             field: field.lowercased(),
             outputName: (match[2] ?? field).lowercased()
         )
+    }
+
+    private static func parseGroupFields(_ rawGroupClause: String) throws -> [String] {
+        let rawFields = rawGroupClause
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        var fields: [String] = []
+        var seenFields: Set<String> = []
+        for rawField in rawFields {
+            let pattern = #"(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*$"#
+            guard let match = rawField.firstMatch(pattern: pattern),
+                  let field = match[1] else {
+                throw SQLiteNotesError.validationFailed(
+                    "Only comma-separated GROUP BY field names are supported."
+                )
+            }
+
+            let normalizedField = field.lowercased()
+            guard seenFields.insert(normalizedField).inserted else {
+                throw SQLiteNotesError.validationFailed(
+                    "GROUP BY contains duplicate field '\(normalizedField)'."
+                )
+            }
+            fields.append(normalizedField)
+        }
+
+        guard !fields.isEmpty else {
+            throw SQLiteNotesError.validationFailed("GROUP BY field is missing.")
+        }
+
+        return fields
     }
 
     private static func parsePredicates(_ rawWhereClause: String) throws -> [LocalQueryPredicate] {
