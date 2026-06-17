@@ -12,7 +12,11 @@
 	"observability": { "enabled": true },
 	"vars": {
 		"DEV_USER_EMAIL": "rawkode.local",
+		"CLOUDFLARE_ACCOUNT_ID": "0aeb879de8e3cdde5fb3d413025222ce",
 		"CLOUDFLARE_DISPATCH_NAMESPACE": "enchiridion-mini-apps"
+	},
+	"secrets": {
+		"required": ["CLOUDFLARE_API_TOKEN"]
 	},
 	"d1_databases": [
 		{
@@ -20,6 +24,12 @@
 			"database_name": "enchiridion",
 			"database_id": "0b7c04ac-8fdc-4941-a9cf-36757c24efa7",
 			"migrations_dir": "./migrations"
+		}
+	],
+	"dispatch_namespaces": [
+		{
+			"binding": "MINI_APP_DISPATCHER",
+			"namespace": "enchiridion-mini-apps"
 		}
 	],
 	"migrations": [

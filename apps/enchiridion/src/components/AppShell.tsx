@@ -16,6 +16,7 @@ import {
 	FolderKanban,
 	LayoutGrid,
 	Link,
+	Send,
 	Plus,
 	Save,
 	Search,
@@ -81,6 +82,12 @@ function addDays(date: string, delta: number): string {
 	next.setUTCDate(next.getUTCDate() + delta);
 	return next.toISOString().slice(0, 10);
 }
+
+type AgentMessage = {
+	id: string;
+	role: "user" | "assistant" | "system";
+	text: string;
+};
 
 export default function AppShell() {
 	const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
@@ -497,10 +504,9 @@ export default function AppShell() {
 				<section {...stylex.props(shell.panel)}>
 					<div {...stylex.props(shell.panelHeading)}>
 						<Bot size={16} />
-						<h2 {...stylex.props(shell.sectionHeading)}>Agent surface</h2>
+						<h2 {...stylex.props(shell.sectionHeading)}>Agent</h2>
 					</div>
-					<p {...stylex.props(shell.rowMeta)}>Second-brain agent route is mounted at <code {...stylex.props(shell.inlineCode)}>/api/flue/agents/second-brain-agent/:id</code>.</p>
-					<a {...stylex.props(shell.agentLink)} href="/api/flue/openapi.json">Inspect Flue routes</a>
+					<AgentPanel onRefresh={() => loadSnapshot(selectedDate)} />
 				</section>
 			</aside>
 
@@ -586,6 +592,134 @@ function CommandPalette({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
+	const [messages, setMessages] = useState<AgentMessage[]>([]);
+	const [prompt, setPrompt] = useState("");
+	const [busy, setBusy] = useState<"chat" | "build" | null>(null);
+
+	const appendMessage = useCallback((message: Omit<AgentMessage, "id">) => {
+		setMessages((current) => [
+			...current,
+			{ ...message, id: `${Date.now()}-${Math.random().toString(16).slice(2)}` },
+		]);
+	}, []);
+
+	const submit = useCallback(async (mode: "chat" | "build") => {
+		const message = prompt.trim();
+		if (!message || busy) {
+			return;
+		}
+
+		setPrompt("");
+		setBusy(mode);
+		appendMessage({ role: "user", text: message });
+
+		try {
+			if (mode === "build") {
+				const response = await fetch("/api/flue/workflows/generate-mini-app?wait=result", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						prompt: message,
+						autonomousDeploy: true,
+					}),
+				});
+				const body = await response.json() as { result?: Record<string, unknown>; error?: unknown };
+				if (!response.ok) {
+					throw new Error(String(body.error ?? `Workflow failed with ${response.status}`));
+				}
+
+				const result = body.result ?? {};
+				const status = String(result.status ?? "completed");
+				const slug = String(result.slug ?? "mini-app");
+				const deployed = result.deployed === true;
+				const detail = typeof result.message === "string" ? ` ${result.message}` : "";
+				appendMessage({
+					role: "assistant",
+					text: `${status}: ${slug}${deployed ? " deployed" : " registered"}.${detail}`.trim(),
+				});
+				await onRefresh();
+				return;
+			}
+
+			const response = await fetch("/api/flue/agents/second-brain-agent/default?wait=result", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ message }),
+			});
+			const body = await response.json() as { result?: { text?: string }; error?: unknown };
+			if (!response.ok) {
+				throw new Error(String(body.error ?? `Agent failed with ${response.status}`));
+			}
+
+			appendMessage({
+				role: "assistant",
+				text: body.result?.text ?? "Done.",
+			});
+		} catch (error) {
+			appendMessage({
+				role: "system",
+				text: error instanceof Error ? error.message : "Agent request failed.",
+			});
+		} finally {
+			setBusy(null);
+		}
+	}, [appendMessage, busy, onRefresh, prompt]);
+
+	return (
+		<form {...stylex.props(shell.agentPanel)} onSubmit={(event) => {
+			event.preventDefault();
+			void submit("chat");
+		}}>
+			<div {...stylex.props(shell.agentTranscript)} aria-live="polite">
+				{messages.length === 0 ? (
+					<div {...stylex.props(shell.agentEmpty)}>
+						<Sparkles size={16} />
+						<span>Ready</span>
+					</div>
+				) : messages.map((message) => (
+					<div
+						key={message.id}
+						{...stylex.props(
+							shell.agentMessage,
+							message.role === "user" ? shell.agentUserMessage : null,
+							message.role === "system" ? shell.agentSystemMessage : null,
+						)}
+					>
+						{message.text}
+					</div>
+				))}
+			</div>
+			<textarea
+				{...stylex.props(shell.field, shell.agentTextArea)}
+				value={prompt}
+				onChange={(event) => setPrompt(event.target.value)}
+				placeholder="Ask Enchiridion"
+				rows={3}
+			/>
+			<div {...stylex.props(shell.agentActions)}>
+				<button
+					{...stylex.props(shell.controlBase, shell.interactiveHover, shell.toolbarButton)}
+					type="button"
+					disabled={busy !== null}
+					onClick={() => void submit("build")}
+				>
+					<Sparkles size={15} />
+					<span>{busy === "build" ? "Building" : "Build app"}</span>
+				</button>
+				<button
+					{...stylex.props(shell.controlBase, shell.primaryTextButton)}
+					type="submit"
+					disabled={busy !== null}
+				>
+					<Send size={15} />
+					<span>{busy === "chat" ? "Sending" : "Send"}</span>
+				</button>
+			</div>
+		</form>
 	);
 }
 
