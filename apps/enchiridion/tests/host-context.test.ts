@@ -40,6 +40,20 @@ describe("host context signing secrets", () => {
 		expect(await verifyHostContext(token, "wrong-secret")).toBeNull();
 	});
 
+	it("rejects tokens signed with the raw secret instead of scoped host-context key material", async () => {
+		const payload = {
+			app: "hello-world",
+			scopes: ["resource-index:read"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/hello-world" },
+		};
+		const body = base64UrlEncode(JSON.stringify(payload));
+		const rawSignature = await rawHmacSha256(body, "configured-secret");
+		const rawToken = `${body}.${rawSignature}`;
+
+		expect(await verifyHostContext(rawToken, "configured-secret")).toBeNull();
+	});
+
 	it("authorizes host API calls with the required scope", async () => {
 		const token = await signHostContext({
 			app: "search-app",
@@ -115,3 +129,27 @@ describe("host context signing secrets", () => {
 		)).rejects.toMatchObject({ status: 401 });
 	});
 });
+
+async function rawHmacSha256(value: string, secret: string): Promise<string> {
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(secret),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+	return base64UrlEncodeBytes(new Uint8Array(signature));
+}
+
+function base64UrlEncode(value: string): string {
+	return base64UrlEncodeBytes(new TextEncoder().encode(value));
+}
+
+function base64UrlEncodeBytes(bytes: Uint8Array): string {
+	let binary = "";
+	for (const byte of bytes) {
+		binary += String.fromCharCode(byte);
+	}
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}

@@ -77,9 +77,10 @@ export async function requireHostApiContext(env: Env, request: Request, required
 }
 
 async function hmacSha256(value: string, secret: string): Promise<string> {
+	const keyMaterial = `enchiridion:host-context:v1:${secret}`;
 	const key = await crypto.subtle.importKey(
 		"raw",
-		new TextEncoder().encode(secret),
+		new TextEncoder().encode(keyMaterial),
 		{ name: "HMAC", hash: "SHA-256" },
 		false,
 		["sign"],
