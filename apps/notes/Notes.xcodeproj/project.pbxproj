@@ -10,6 +10,7 @@
 		0E30FD6DB1F73759B0662ED9 /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
 		0F62BE3915BEF63CA3271685 /* QueryResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0B81DBB386303650091E13 /* QueryResult.swift */; };
 		1982E979861349B89131E2E5 /* SavedQueryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59C6E854092A4441A962B8CC /* SavedQueryView.swift */; };
+		1B7C9A4E6D5F4321A987B654 /* NotesVaultSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E60718293A4B5C /* NotesVaultSnapshot.swift */; };
 		3016130EBDAB859894D02297 /* NotesPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E611FB22CE2640C3C215373 /* NotesPersistenceTests.swift */; };
 		36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A647B18DDA354B4A4580EB /* NotesRootView.swift */; };
 		385B962F66A017C38124DDAD /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */; };
@@ -30,6 +31,7 @@
 		B7A48C1E5D8A43F9AF10B2C3 /* SupertagFieldDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */; };
 		C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
 		C8B59D2F6E9B54A0BF21C3D4 /* SupertagFieldDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */; };
+		C9D8E7F6A5B4039281F0E9D8 /* NotesVaultSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E60718293A4B5C /* NotesVaultSnapshot.swift */; };
 		D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
 		D142DDDD55304706E9AAF420 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 3698E95C2388BC623332FAB8 /* Editor */; };
 		E50975CE9B85B0C63976001C /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
@@ -71,6 +73,7 @@
 		CEAB59412833D691F787F819 /* EntityReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityReference.swift; sourceTree = "<group>"; };
 		D2BF955E0697743C652D5DAF /* WebEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorView.swift; sourceTree = "<group>"; };
 		EBF05D697B7AEB76A22BD35B /* Notes-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Notes-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1A2B3C4D5E60718293A4B5C /* NotesVaultSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesVaultSnapshot.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -210,6 +213,7 @@
 			children = (
 				CEAB59412833D691F787F819 /* EntityReference.swift */,
 				59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */,
+				F1A2B3C4D5E60718293A4B5C /* NotesVaultSnapshot.swift */,
 				1A0B81DBB386303650091E13 /* QueryResult.swift */,
 				59C6E854092A4441A962B8CC /* SavedQueryView.swift */,
 				A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */,
@@ -399,6 +403,7 @@
 				4FC70A16FFFDF551C99C8D8C /* NotesMacOSApp.swift in Sources */,
 				36B7CF42E0B9892B724C27B2 /* NotesRootView.swift in Sources */,
 				E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */,
+				1B7C9A4E6D5F4321A987B654 /* NotesVaultSnapshot.swift in Sources */,
 				0F62BE3915BEF63CA3271685 /* QueryResult.swift in Sources */,
 				3DE33E2FE88E4C10A1E72FD0 /* SavedQueryView.swift in Sources */,
 				B7A48C1E5D8A43F9AF10B2C3 /* SupertagFieldDefinition.swift in Sources */,
@@ -418,6 +423,7 @@
 				69ECAB39CACEA5E89AFA5175 /* NotesIOSApp.swift in Sources */,
 				EAD99FB152FA81339E5D7C79 /* NotesRootView.swift in Sources */,
 				85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */,
+				C9D8E7F6A5B4039281F0E9D8 /* NotesVaultSnapshot.swift in Sources */,
 				673D0970D0208FB5D9D200C5 /* QueryResult.swift in Sources */,
 				1982E979861349B89131E2E5 /* SavedQueryView.swift in Sources */,
 				C8B59D2F6E9B54A0BF21C3D4 /* SupertagFieldDefinition.swift in Sources */,

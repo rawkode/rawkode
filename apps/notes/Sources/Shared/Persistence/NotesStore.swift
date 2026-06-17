@@ -295,6 +295,60 @@ final class NotesStore {
         }
     }
 
+    func exportVault() throws -> NotesVaultSnapshot {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            return try repository.exportVault()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func exportVaultJSON() throws -> Data {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            return try repository.exportVaultJSON()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func importVault(_ snapshot: NotesVaultSnapshot) throws {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            try repository.importVault(snapshot)
+            try reloadDocuments(selecting: selectedDocument?.id)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func importVaultJSON(_ data: Data) throws {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            try repository.importVaultJSON(data)
+            try reloadDocuments(selecting: selectedDocument?.id)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
     func clearError() {
         lastErrorMessage = nil
     }

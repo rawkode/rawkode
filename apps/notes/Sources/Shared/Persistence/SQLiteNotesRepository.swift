@@ -363,6 +363,62 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func exportVault(exportedAt: Date = .now) throws -> NotesVaultSnapshot {
+        NotesVaultSnapshot(
+            exportedAt: exportedAt,
+            documents: try fetchVaultDocuments(),
+            entities: try fetchVaultEntities(),
+            supertags: try fetchVaultSupertags(),
+            entitySupertags: try fetchVaultEntitySupertags(),
+            entityProperties: try fetchVaultEntityProperties(),
+            supertagFieldDefinitions: try fetchVaultSupertagFields(),
+            savedQueryViews: try fetchVaultSavedViews()
+        )
+    }
+
+    func exportVaultJSON(exportedAt: Date = .now) throws -> Data {
+        try Self.vaultJSONEncoder().encode(exportVault(exportedAt: exportedAt))
+    }
+
+    func importVault(_ snapshot: NotesVaultSnapshot) throws {
+        guard snapshot.version == NotesVaultSnapshot.currentVersion else {
+            throw SQLiteNotesError.validationFailed("Unsupported notes vault snapshot version \(snapshot.version).")
+        }
+
+        try withTransaction {
+            try clearVaultTables()
+
+            for document in snapshot.documents {
+                try insertImportedDocument(document)
+            }
+            for entity in snapshot.entities {
+                try insertImportedEntity(entity)
+            }
+            for supertag in snapshot.supertags {
+                try insertImportedSupertag(supertag)
+            }
+            for link in snapshot.entitySupertags {
+                try insertImportedEntitySupertag(link)
+            }
+            for definition in snapshot.supertagFieldDefinitions {
+                try insertImportedSupertagField(definition)
+            }
+            for property in snapshot.entityProperties {
+                try insertImportedEntityProperty(property)
+            }
+            for savedView in snapshot.savedQueryViews {
+                try insertImportedSavedView(savedView)
+            }
+
+            try rebuildImportedDocumentEntityReferenceIndex()
+        }
+    }
+
+    func importVaultJSON(_ data: Data) throws {
+        let snapshot = try Self.vaultJSONDecoder().decode(NotesVaultSnapshot.self, from: data)
+        try importVault(snapshot)
+    }
+
     func upsertEntity(
         named rawName: String,
         supertagNames rawSupertagNames: [String],
@@ -595,6 +651,32 @@ final class SQLiteNotesRepository {
             .appendingPathComponent("notes.sqlite")
     }
 
+    private static func vaultJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(date.ISO8601Format())
+        }
+        return encoder
+    }
+
+    private static func vaultJSONDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            guard let date = Date(iso8601String: value) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Invalid ISO8601 date: \(value)"
+                )
+            }
+            return date
+        }
+        return decoder
+    }
+
     private func execute(_ sql: String) throws {
         guard let db else {
             throw SQLiteNotesError.missingDatabase
@@ -706,6 +788,512 @@ final class SQLiteNotesRepository {
         }
 
         return try body(statement)
+    }
+
+    private func fetchVaultDocuments() throws -> [NotesVaultSnapshot.Document] {
+        try prepare(
+            """
+            SELECT id, kind, date, title, tiptap_json, plain_text, created_at, updated_at
+            FROM documents
+            ORDER BY kind ASC, COALESCE(date, title) ASC, id ASC;
+            """
+        ) { statement in
+            var documents: [NotesVaultSnapshot.Document] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported document id")
+                }
+                guard let kind = NoteDocumentKind(rawValue: textColumn(statement, 1)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported document kind")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 6)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 7)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported document timestamp")
+                }
+
+                documents.append(
+                    NotesVaultSnapshot.Document(
+                        id: id,
+                        kind: kind,
+                        date: nullableTextColumn(statement, 2),
+                        title: textColumn(statement, 3),
+                        tiptapJSON: textColumn(statement, 4),
+                        plainText: textColumn(statement, 5),
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return documents
+        }
+    }
+
+    private func fetchVaultEntities() throws -> [NotesVaultSnapshot.Entity] {
+        try prepare(
+            """
+            SELECT id, canonical_name, created_at, updated_at
+            FROM entities
+            ORDER BY canonical_name COLLATE NOCASE ASC, id ASC;
+            """
+        ) { statement in
+            var entities: [NotesVaultSnapshot.Entity] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity id")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 2)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 3)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity timestamp")
+                }
+
+                entities.append(
+                    NotesVaultSnapshot.Entity(
+                        id: id,
+                        name: textColumn(statement, 1),
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return entities
+        }
+    }
+
+    private func fetchVaultSupertags() throws -> [NotesVaultSnapshot.Supertag] {
+        try prepare(
+            """
+            SELECT id, name, slug, created_at, updated_at
+            FROM supertags
+            ORDER BY name COLLATE NOCASE ASC, id ASC;
+            """
+        ) { statement in
+            var supertags: [NotesVaultSnapshot.Supertag] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported supertag id")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 3)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 4)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported supertag timestamp")
+                }
+
+                supertags.append(
+                    NotesVaultSnapshot.Supertag(
+                        id: id,
+                        name: textColumn(statement, 1),
+                        slug: textColumn(statement, 2),
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return supertags
+        }
+    }
+
+    private func fetchVaultEntitySupertags() throws -> [NotesVaultSnapshot.EntitySupertag] {
+        try prepare(
+            """
+            SELECT entity_id, supertag_id, created_at
+            FROM entity_supertags
+            ORDER BY entity_id ASC, supertag_id ASC;
+            """
+        ) { statement in
+            var links: [NotesVaultSnapshot.EntitySupertag] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let entityID = UUID(uuidString: textColumn(statement, 0)),
+                      let supertagID = UUID(uuidString: textColumn(statement, 1)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity supertag id")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 2)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity supertag timestamp")
+                }
+
+                links.append(
+                    NotesVaultSnapshot.EntitySupertag(
+                        entityID: entityID,
+                        supertagID: supertagID,
+                        createdAt: createdAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return links
+        }
+    }
+
+    private func fetchVaultEntityProperties() throws -> [NotesVaultSnapshot.EntityProperty] {
+        try prepare(
+            """
+            SELECT entity_id, property_key, property_value, value_entity_id, updated_at
+            FROM entity_properties
+            ORDER BY entity_id ASC, property_key COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var properties: [NotesVaultSnapshot.EntityProperty] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let entityID = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity property entity id")
+                }
+                let valueEntityID: UUID?
+                if sqlite3_column_type(statement, 3) == SQLITE_NULL {
+                    valueEntityID = nil
+                } else {
+                    guard let decodedID = UUID(uuidString: textColumn(statement, 3)) else {
+                        throw SQLiteNotesError.rowDecodeFailed("invalid exported entity property value entity id")
+                    }
+                    valueEntityID = decodedID
+                }
+                guard let updatedAt = Date(iso8601String: textColumn(statement, 4)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported entity property timestamp")
+                }
+
+                properties.append(
+                    NotesVaultSnapshot.EntityProperty(
+                        entityID: entityID,
+                        key: textColumn(statement, 1),
+                        value: textColumn(statement, 2),
+                        valueEntityID: valueEntityID,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return properties
+        }
+    }
+
+    private func fetchVaultSupertagFields() throws -> [NotesVaultSnapshot.SupertagField] {
+        try prepare(
+            """
+            SELECT id, supertag_id, field_key, label, value_type, default_value, is_required, sort_order, created_at, updated_at
+            FROM supertag_field_definitions
+            ORDER BY supertag_id ASC, sort_order ASC, label COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var definitions: [NotesVaultSnapshot.SupertagField] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)),
+                      let supertagID = UUID(uuidString: textColumn(statement, 1)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported supertag field id")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 8)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 9)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported supertag field timestamp")
+                }
+
+                definitions.append(
+                    NotesVaultSnapshot.SupertagField(
+                        id: id,
+                        supertagID: supertagID,
+                        key: textColumn(statement, 2),
+                        label: textColumn(statement, 3),
+                        valueType: textColumn(statement, 4),
+                        defaultValue: nullableTextColumn(statement, 5),
+                        isRequired: sqlite3_column_int(statement, 6) != 0,
+                        sortOrder: Int(sqlite3_column_int64(statement, 7)),
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return definitions
+        }
+    }
+
+    private func fetchVaultSavedViews() throws -> [NotesVaultSnapshot.SavedView] {
+        try prepare(
+            """
+            SELECT id, name, query, view, group_by, created_at, updated_at
+            FROM saved_query_views
+            ORDER BY name COLLATE NOCASE ASC, id ASC;
+            """
+        ) { statement in
+            var savedViews: [NotesVaultSnapshot.SavedView] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view id")
+                }
+                guard let createdAt = Date(iso8601String: textColumn(statement, 5)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 6)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view timestamp")
+                }
+
+                savedViews.append(
+                    NotesVaultSnapshot.SavedView(
+                        id: id,
+                        name: textColumn(statement, 1),
+                        query: textColumn(statement, 2),
+                        view: textColumn(statement, 3),
+                        groupBy: nullableTextColumn(statement, 4),
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return savedViews
+        }
+    }
+
+    private func clearVaultTables() throws {
+        try prepare("DELETE FROM document_entity_references;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM entity_properties;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM entity_supertags;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM supertag_field_definitions;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM saved_query_views;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM documents;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM entities;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+        try prepare("DELETE FROM supertags;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedDocument(_ document: NotesVaultSnapshot.Document) throws {
+        try prepare(
+            """
+            INSERT INTO documents (
+                id, kind, date, title, tiptap_json, plain_text, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, document.kind.rawValue, -1, sqliteTransient)
+            if let date = document.date {
+                sqlite3_bind_text(statement, 3, date, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
+            sqlite3_bind_text(statement, 4, document.title, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, document.tiptapJSON, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 6, document.plainText, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 7, document.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 8, document.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedEntity(_ entity: NotesVaultSnapshot.Entity) throws {
+        try prepare(
+            """
+            INSERT INTO entities (id, canonical_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, entity.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, entity.name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, entity.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, entity.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedSupertag(_ supertag: NotesVaultSnapshot.Supertag) throws {
+        try prepare(
+            """
+            INSERT INTO supertags (id, name, slug, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, supertag.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, supertag.name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, supertag.slug, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, supertag.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, supertag.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedEntitySupertag(_ link: NotesVaultSnapshot.EntitySupertag) throws {
+        try prepare(
+            """
+            INSERT INTO entity_supertags (entity_id, supertag_id, created_at)
+            VALUES (?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, link.entityID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, link.supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, link.createdAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedSupertagField(_ definition: NotesVaultSnapshot.SupertagField) throws {
+        try prepare(
+            """
+            INSERT INTO supertag_field_definitions (
+                id, supertag_id, field_key, label, value_type, default_value, is_required, sort_order, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, definition.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, definition.supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, definition.key, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, definition.label, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, definition.valueType, -1, sqliteTransient)
+            if let defaultValue = definition.defaultValue {
+                sqlite3_bind_text(statement, 6, defaultValue, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 6)
+            }
+            sqlite3_bind_int(statement, 7, definition.isRequired ? 1 : 0)
+            sqlite3_bind_int64(statement, 8, Int64(definition.sortOrder))
+            sqlite3_bind_text(statement, 9, definition.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 10, definition.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedEntityProperty(_ property: NotesVaultSnapshot.EntityProperty) throws {
+        try prepare(
+            """
+            INSERT INTO entity_properties (
+                entity_id, property_key, property_value, value_entity_id, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, property.entityID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, property.value, -1, sqliteTransient)
+            if let valueEntityID = property.valueEntityID {
+                sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 4)
+            }
+            sqlite3_bind_text(statement, 5, property.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func insertImportedSavedView(_ savedView: NotesVaultSnapshot.SavedView) throws {
+        try prepare(
+            """
+            INSERT INTO saved_query_views (
+                id, name, query, view, group_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, savedView.id.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, savedView.name, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, savedView.query, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, savedView.view, -1, sqliteTransient)
+            if let groupBy = savedView.groupBy {
+                sqlite3_bind_text(statement, 5, groupBy, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 5)
+            }
+            sqlite3_bind_text(statement, 6, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 7, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
     }
 
     private func bind(_ document: NoteDocument, to statement: OpaquePointer?) {
@@ -1144,6 +1732,36 @@ final class SQLiteNotesRepository {
 
             for document in documents {
                 try insertEntityReferences(for: document)
+            }
+        }
+    }
+
+    private func rebuildImportedDocumentEntityReferenceIndex() throws {
+        try prepare("DELETE FROM document_entity_references;") { statement in
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+
+        let documents = try fetchDocuments()
+        let indexedAt = Date()
+        for document in documents {
+            for entityID in entityReferenceIDs(in: document.tiptapJSON) {
+                try insertExistingDocumentEntityReference(
+                    documentID: document.id,
+                    entityID: entityID,
+                    indexedAt: indexedAt
+                )
+            }
+
+            for mention in entityMentions(in: document.plainText) {
+                if let entityID = try fetchEntityID(named: mention.name) {
+                    try insertDocumentEntityReference(
+                        documentID: document.id,
+                        entityID: entityID,
+                        indexedAt: indexedAt
+                    )
+                }
             }
         }
     }

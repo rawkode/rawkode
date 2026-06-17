@@ -425,6 +425,110 @@ final class NotesPersistenceTests: XCTestCase {
         )
     }
 
+    func testVaultSnapshotJSONExportsAndImportsLocalData() throws {
+        let sourceDatabaseURL = try temporaryDatabaseURL()
+        let importedDatabaseURL = try temporaryDatabaseURL()
+        defer {
+            removeTemporaryDatabase(at: sourceDatabaseURL)
+            removeTemporaryDatabase(at: importedDatabaseURL)
+        }
+
+        let sourceRepository = try SQLiteNotesRepository(databaseURL: sourceDatabaseURL)
+        var dailyNote = try sourceRepository.createDailyNote(date: "2026-06-17")
+        dailyNote.title = "Daily field notes"
+        dailyNote.plainText = "Daily capture for [[Notes Roadmap]]."
+        try sourceRepository.upsertDocument(dailyNote)
+
+        _ = try sourceRepository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: "text",
+            defaultValue: "active",
+            isRequired: true,
+            sortOrder: 1
+        )
+        _ = try sourceRepository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: "entity",
+            sortOrder: 2
+        )
+        _ = try sourceRepository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
+        _ = try sourceRepository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+
+        var note = try sourceRepository.createStandaloneNote()
+        note.title = "Project capture"
+        note.plainText = """
+        [[Notes Roadmap]] #project
+        owner:: [[Rawkode Academy]]
+        """
+        try sourceRepository.upsertDocument(note)
+
+        _ = try sourceRepository.saveSavedQueryView(
+            named: "Open Projects",
+            query: "SELECT name, status, owner FROM projects WHERE status = active",
+            view: "board",
+            groupBy: "status"
+        )
+
+        let exportedJSON = try sourceRepository.exportVaultJSON()
+        XCTAssertGreaterThan(exportedJSON.count, 0)
+
+        let importedRepository = try SQLiteNotesRepository(databaseURL: importedDatabaseURL)
+        _ = try importedRepository.upsertEntity(named: "Junk Entity", supertagNames: ["junk"])
+        try importedRepository.importVaultJSON(exportedJSON)
+
+        XCTAssertEqual(try importedRepository.fetchDocuments(kind: .daily).map(\.title), ["Daily field notes"])
+        XCTAssertEqual(try importedRepository.fetchDocuments(kind: .note).map(\.title), ["Project capture"])
+        XCTAssertEqual(try importedRepository.fetchSavedQueryViews().map(\.name), ["Open Projects"])
+        XCTAssertEqual(try importedRepository.fetchSupertagFieldDefinitions(supertagName: "project").map(\.key), [
+            "status",
+            "owner",
+        ])
+
+        let projects = try importedRepository.runQuery(
+            "SELECT name, status, owner, owner_entity_id FROM projects"
+        )
+        XCTAssertEqual(projects.rows.first?["name"], "Notes Roadmap")
+        XCTAssertEqual(projects.rows.first?["status"], "active")
+        XCTAssertEqual(projects.rows.first?["owner"], "Rawkode Academy")
+        XCTAssertFalse(projects.rows.first?["owner_entity_id"]?.isEmpty ?? true)
+
+        let backlinks = try importedRepository.runQuery(
+            "SELECT entity, document FROM backlinks WHERE entity = 'Notes Roadmap' ORDER BY document ASC"
+        )
+        XCTAssertEqual(backlinks.rows.map { row in
+            [
+                "entity": row["entity"] ?? "",
+                "document": row["document"] ?? "",
+            ]
+        }, [
+            ["entity": "Notes Roadmap", "document": "Daily field notes"],
+            ["entity": "Notes Roadmap", "document": "Project capture"],
+        ])
+
+        XCTAssertTrue(try importedRepository.runQuery("SELECT name FROM junk").rows.isEmpty)
+    }
+
+    func testVaultImportRejectsUnsupportedSnapshotVersionsWithoutReplacingData() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(named: "Existing Entity", supertagNames: ["project"])
+        var snapshot = try repository.exportVault()
+        snapshot.version = NotesVaultSnapshot.currentVersion + 1
+
+        XCTAssertThrowsError(try repository.importVault(snapshot))
+
+        let entities = try repository.runQuery("SELECT name FROM project")
+        XCTAssertEqual(entities.rows, [["name": "Existing Entity"]])
+    }
+
     func testEntityUpsertReusesEntityAndLinksSupertags() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
