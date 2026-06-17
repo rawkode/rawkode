@@ -11,6 +11,7 @@ final class NotesStore {
     private(set) var standaloneNotes: [NoteDocument] = []
     private(set) var savedQueryViews: [SavedQueryView] = []
     private(set) var supertagFieldDefinitions: [SupertagFieldDefinition] = []
+    private(set) var supertagSchemas: [SupertagSchema] = []
     private(set) var selectedDocument: NoteDocument?
     private(set) var selectedDocumentContext = DocumentContext.empty
     private(set) var lastErrorMessage: String?
@@ -148,6 +149,7 @@ final class NotesStore {
         do {
             try repository.upsertDocument(document)
             replaceCached(document)
+            try reloadSupertagSchemaCache()
             if isSelectedDocumentSave {
                 selectedDocument = document
                 refreshSelectedDocumentContext()
@@ -199,6 +201,7 @@ final class NotesStore {
 
         do {
             let entity = try repository.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
+            try reloadSupertagSchemaCache()
             refreshSelectedDocumentContext()
             return entity
         } catch {
@@ -294,7 +297,37 @@ final class NotesStore {
                 isRequired: isRequired,
                 sortOrder: sortOrder
             )
-            supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+            try reloadSupertagSchemaCache()
+            return definition
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    @discardableResult
+    func updateSupertagFieldDefinition(
+        id: UUID,
+        field: String,
+        valueType: SupertagFieldValueType = .text,
+        defaultValue: String? = nil,
+        isRequired: Bool = false,
+        sortOrder: Int = 0
+    ) throws -> SupertagFieldDefinition {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let definition = try repository.updateSupertagFieldDefinition(
+                id: id,
+                field: field,
+                valueType: valueType,
+                defaultValue: defaultValue,
+                isRequired: isRequired,
+                sortOrder: sortOrder
+            )
+            try reloadSupertagSchemaCache()
             return definition
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -309,7 +342,7 @@ final class NotesStore {
 
         do {
             try repository.deleteSupertagFieldDefinition(id: id)
-            supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+            try reloadSupertagSchemaCache()
         } catch {
             lastErrorMessage = error.localizedDescription
         }
@@ -389,7 +422,7 @@ final class NotesStore {
         dailyNotes = try repository.fetchDocuments(kind: .daily)
         standaloneNotes = try repository.fetchDocuments(kind: .note)
         savedQueryViews = try repository.fetchSavedQueryViews()
-        supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+        try reloadSupertagSchemaCache()
 
         let allDocuments = dailyNotes + standaloneNotes
         if let selectedID, let selected = allDocuments.first(where: { $0.id == selectedID }) {
@@ -435,6 +468,15 @@ final class NotesStore {
             selectedDocumentContext = .empty
             lastErrorMessage = error.localizedDescription
         }
+    }
+
+    private func reloadSupertagSchemaCache() throws {
+        guard let repository else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+        supertagSchemas = try repository.fetchSupertagSchemas()
     }
 
     private func fallbackDate(movingByDays dayOffset: Int) -> Date {

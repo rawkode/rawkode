@@ -292,6 +292,54 @@ final class SQLiteNotesRepository {
         return try querySupertagFieldDefinitions()
     }
 
+    func fetchSupertagSchemas() throws -> [SupertagSchema] {
+        let definitionsBySupertagID = Dictionary(grouping: try fetchSupertagFieldDefinitions(), by: \.supertagID)
+
+        return try prepare(
+            """
+            SELECT id, name, slug, created_at, updated_at
+            FROM supertags
+            ORDER BY name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            var schemas: [SupertagSchema] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid supertag id")
+                }
+
+                guard let createdAt = Date(iso8601String: textColumn(statement, 3)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid supertag created_at timestamp")
+                }
+
+                guard let updatedAt = Date(iso8601String: textColumn(statement, 4)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid supertag updated_at timestamp")
+                }
+
+                schemas.append(
+                    SupertagSchema(
+                        id: id,
+                        name: textColumn(statement, 1),
+                        slug: textColumn(statement, 2),
+                        fields: definitionsBySupertagID[id] ?? [],
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                )
+
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return schemas
+        }
+    }
+
     @discardableResult
     func saveSupertagFieldDefinition(
         supertagName rawSupertagName: String,
@@ -348,7 +396,103 @@ final class SQLiteNotesRepository {
                 updatedAt: now
             )
 
+            let defaultBackfillEntities = try entitiesNeedingDefaultBackfill(
+                supertagID: supertagID,
+                oldKey: existing?.key ?? key,
+                updated: definition
+            )
             try upsert(definition)
+            try backfillDefaultSupertagFieldValues(
+                definition: definition,
+                entities: defaultBackfillEntities,
+                updatedAt: now
+            )
+            return definition
+        }
+    }
+
+    @discardableResult
+    func updateSupertagFieldDefinition(
+        id: UUID,
+        field rawLabel: String,
+        valueType rawValueType: SupertagFieldValueType = .text,
+        defaultValue rawDefaultValue: String? = nil,
+        isRequired: Bool = false,
+        sortOrder: Int = 0
+    ) throws -> SupertagFieldDefinition {
+        let label = normalizedName(rawLabel)
+        guard !label.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Supertag field label cannot be empty.")
+        }
+
+        let key = normalizedEntityPropertyKey(label)
+        guard !key.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Supertag field key cannot be empty.")
+        }
+
+        guard sortOrder >= 0 else {
+            throw SQLiteNotesError.validationFailed("Supertag field sort order cannot be negative.")
+        }
+
+        let defaultValue = normalizedDefaultValue(rawDefaultValue)
+
+        return try withTransaction {
+            guard let existing = try fetchSupertagFieldDefinition(id: id) else {
+                throw SQLiteNotesError.validationFailed("Supertag field does not exist.")
+            }
+
+            if let duplicate = try fetchSupertagFieldDefinition(supertagID: existing.supertagID, key: key),
+               duplicate.id != id {
+                throw SQLiteNotesError.validationFailed("\(existing.supertagName).\(label) already exists.")
+            }
+
+            if let defaultValue {
+                try validateSupertagFieldDefaultValue(
+                    defaultValue,
+                    valueType: rawValueType,
+                    supertagName: existing.supertagName,
+                    label: label
+                )
+            }
+
+            let now = Date()
+            let definition = SupertagFieldDefinition(
+                id: id,
+                supertagID: existing.supertagID,
+                supertagName: existing.supertagName,
+                supertagSlug: existing.supertagSlug,
+                key: key,
+                label: label,
+                valueType: rawValueType,
+                defaultValue: defaultValue,
+                isRequired: isRequired,
+                sortOrder: sortOrder,
+                createdAt: existing.createdAt,
+                updatedAt: now
+            )
+
+            let defaultBackfillEntities = try entitiesNeedingDefaultBackfill(
+                supertagID: existing.supertagID,
+                oldKey: existing.key,
+                updated: definition
+            )
+            try rejectSharedPropertyKeyRename(
+                supertagID: existing.supertagID,
+                oldKey: existing.key,
+                updated: definition
+            )
+            try upsert(definition)
+            try migrateEntityPropertyKey(
+                supertagID: existing.supertagID,
+                from: existing.key,
+                to: definition.key,
+                updatedAt: now
+            )
+            try backfillDefaultSupertagFieldValues(
+                definition: definition,
+                entities: defaultBackfillEntities,
+                updatedAt: now
+            )
             return definition
         }
     }
@@ -1734,6 +1878,180 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func entitiesNeedingDefaultBackfill(
+        supertagID: UUID,
+        oldKey: String,
+        updated definition: SupertagFieldDefinition
+    ) throws -> [SupertaggedEntity] {
+        let entities = try fetchSupertaggedEntities(supertagID: supertagID)
+        let groupedProperties = try fetchStoredEntityProperties(entityIDs: entities.map { $0.id.uuidString })
+        var defaultBackfillEntities: [SupertaggedEntity] = []
+
+        for entity in entities {
+            let properties = groupedProperties[entity.id.uuidString] ?? [:]
+            let storedOldValue = properties[oldKey]
+            let storedUpdatedValue = properties[definition.key]
+
+            if oldKey != definition.key, storedOldValue != nil, storedUpdatedValue != nil {
+                throw SQLiteNotesError.validationFailed(
+                    "Cannot rename \(definition.supertagName).\(definition.label) for \(entity.name) because \(definition.key) already exists."
+                )
+            }
+
+            guard let storedValue = storedOldValue ?? storedUpdatedValue else {
+                if definition.defaultValue != nil {
+                    defaultBackfillEntities.append(entity)
+                    continue
+                }
+
+                guard !definition.isRequired else {
+                    throw SQLiteNotesError.validationFailed(
+                        "\(definition.supertagName) requires \(definition.label) for \(entity.name)."
+                    )
+                }
+                continue
+            }
+
+            let property = NormalizedEntityProperty(
+                key: definition.key,
+                value: storedValue.value,
+                referencedEntityName: nil,
+                valueEntityID: storedValue.valueEntityID
+            )
+            try validateSupertagFieldValue(property, definition: definition, entityName: entity.name)
+        }
+
+        return defaultBackfillEntities
+    }
+
+    private func rejectSharedPropertyKeyRename(
+        supertagID: UUID,
+        oldKey: String,
+        updated definition: SupertagFieldDefinition
+    ) throws {
+        guard oldKey != definition.key else {
+            return
+        }
+
+        if let conflict = try fetchSharedPropertyKeyMigrationConflict(
+            supertagID: supertagID,
+            propertyKey: oldKey,
+            schemaKey: oldKey
+        ) {
+            throw SQLiteNotesError.validationFailed(
+                "Cannot rename \(definition.supertagName).\(definition.label) for \(conflict.entityName) because \(conflict.supertagName) still uses \(oldKey)."
+            )
+        }
+
+        if let conflict = try fetchSharedPropertyKeyMigrationConflict(
+            supertagID: supertagID,
+            propertyKey: oldKey,
+            schemaKey: definition.key
+        ) {
+            throw SQLiteNotesError.validationFailed(
+                "Cannot rename \(definition.supertagName).\(definition.label) for \(conflict.entityName) because \(conflict.supertagName) already uses \(definition.key)."
+            )
+        }
+    }
+
+    private func fetchSharedPropertyKeyMigrationConflict(
+        supertagID: UUID,
+        propertyKey: String,
+        schemaKey: String
+    ) throws -> (entityName: String, supertagName: String)? {
+        try prepare(
+            """
+            SELECT entities.canonical_name, other_supertags.name
+            FROM entity_properties
+            INNER JOIN entities
+                ON entities.id = entity_properties.entity_id
+            INNER JOIN entity_supertags target_link
+                ON target_link.entity_id = entity_properties.entity_id
+               AND target_link.supertag_id = ?
+            INNER JOIN entity_supertags other_link
+                ON other_link.entity_id = entity_properties.entity_id
+               AND other_link.supertag_id != ?
+            INNER JOIN supertag_field_definitions other_fields
+                ON other_fields.supertag_id = other_link.supertag_id
+               AND other_fields.field_key = ?
+            INNER JOIN supertags other_supertags
+                ON other_supertags.id = other_link.supertag_id
+            WHERE entity_properties.property_key = ?
+            ORDER BY entities.canonical_name COLLATE NOCASE ASC,
+                     other_supertags.name COLLATE NOCASE ASC
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, schemaKey, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, propertyKey, -1, sqliteTransient)
+
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return (entityName: textColumn(statement, 0), supertagName: textColumn(statement, 1))
+        }
+    }
+
+    private func migrateEntityPropertyKey(
+        supertagID: UUID,
+        from oldKey: String,
+        to newKey: String,
+        updatedAt: Date
+    ) throws {
+        guard oldKey != newKey else {
+            return
+        }
+
+        try prepare(
+            """
+            UPDATE entity_properties
+            SET property_key = ?, updated_at = ?
+            WHERE property_key = ?
+              AND entity_id IN (
+                  SELECT entity_id
+                  FROM entity_supertags
+                  WHERE supertag_id = ?
+              );
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, newKey, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, updatedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, oldKey, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, supertagID.uuidString, -1, sqliteTransient)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+        }
+    }
+
+    private func backfillDefaultSupertagFieldValues(
+        definition: SupertagFieldDefinition,
+        entities: [SupertaggedEntity],
+        updatedAt: Date
+    ) throws {
+        guard let defaultValue = definition.defaultValue,
+              let defaultProperty = normalizedProperty(key: definition.key, value: defaultValue) else {
+            return
+        }
+
+        for entity in entities {
+            try upsertEntityProperties(
+                entityID: entity.id,
+                properties: [defaultProperty],
+                updatedAt: updatedAt
+            )
+        }
+    }
+
     private func syncEntityReferences(for document: NoteDocument) throws {
         try prepare("DELETE FROM document_entity_references WHERE document_id = ?;") { statement in
             sqlite3_bind_text(statement, 1, document.id.uuidString, -1, sqliteTransient)
@@ -1934,6 +2252,43 @@ final class SQLiteNotesRepository {
             }
 
             return grouped
+        }
+    }
+
+    private func fetchSupertaggedEntities(supertagID: UUID) throws -> [SupertaggedEntity] {
+        try prepare(
+            """
+            SELECT entities.id, entities.canonical_name
+            FROM entities
+            INNER JOIN entity_supertags
+                ON entity_supertags.entity_id = entities.id
+            WHERE entity_supertags.supertag_id = ?
+            ORDER BY entities.canonical_name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, supertagID.uuidString, -1, sqliteTransient)
+
+            var entities: [SupertaggedEntity] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let id = UUID(uuidString: textColumn(statement, 0)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid supertagged entity id")
+                }
+                entities.append(
+                    SupertaggedEntity(
+                        id: id,
+                        name: textColumn(statement, 1)
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return entities
         }
     }
 
@@ -2317,6 +2672,16 @@ final class SQLiteNotesRepository {
         .first
     }
 
+    private func fetchSupertagFieldDefinition(id: UUID) throws -> SupertagFieldDefinition? {
+        try querySupertagFieldDefinitions(
+            whereClause: "WHERE supertag_field_definitions.id = ?",
+            bind: { statement in
+                sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+            }
+        )
+        .first
+    }
+
     private func fetchSupertagFieldDefinitions(entityID: UUID) throws -> [SupertagFieldDefinition] {
         try querySupertagFieldDefinitions(
             whereClause: """
@@ -2611,6 +2976,11 @@ private struct NormalizedEntityProperty {
 private struct StoredEntityProperty {
     var value: String
     var valueEntityID: String?
+}
+
+private struct SupertaggedEntity {
+    var id: UUID
+    var name: String
 }
 
 private struct PlainTextEntityMention {

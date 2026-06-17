@@ -243,6 +243,232 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testSupertagSchemasExposeTypedFieldsAndEmptyAppliedTags() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Swift Article",
+            supertagNames: ["Bookmark"],
+            properties: [:]
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text,
+            defaultValue: "active",
+            isRequired: true,
+            sortOrder: 1
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: .entity,
+            sortOrder: 2
+        )
+
+        let schemas = try repository.fetchSupertagSchemas()
+
+        XCTAssertEqual(schemas.map(\.name), ["Bookmark", "Project"])
+        XCTAssertTrue(try XCTUnwrap(schemas.first { $0.name == "Bookmark" }).fields.isEmpty)
+
+        let project = try XCTUnwrap(schemas.first { $0.name == "Project" })
+        XCTAssertEqual(project.slug, "project")
+        XCTAssertEqual(project.fieldCount, 2)
+        XCTAssertEqual(project.requiredFieldCount, 1)
+        XCTAssertEqual(project.fields.map(\.key), ["status", "owner"])
+        XCTAssertEqual(project.fields.map(\.valueType), [.text, .entity])
+        XCTAssertEqual(project.fields.first?.defaultValue, "active")
+    }
+
+    func testSupertagFieldDefinitionsCanBeUpdatedByID() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let status = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text,
+            defaultValue: "active",
+            isRequired: true,
+            sortOrder: 1
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: .entity,
+            sortOrder: 2
+        )
+
+        let updated = try repository.updateSupertagFieldDefinition(
+            id: status.id,
+            field: "State",
+            valueType: .boolean,
+            defaultValue: "false",
+            isRequired: false,
+            sortOrder: 3
+        )
+
+        XCTAssertEqual(updated.id, status.id)
+        XCTAssertEqual(updated.key, "state")
+        XCTAssertEqual(updated.label, "State")
+        XCTAssertEqual(updated.valueType, .boolean)
+        XCTAssertEqual(updated.defaultValue, "false")
+        XCTAssertFalse(updated.isRequired)
+        XCTAssertEqual(
+            updated.createdAt.timeIntervalSince1970,
+            status.createdAt.timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertGreaterThan(updated.updatedAt, status.updatedAt)
+
+        let fields = try repository.fetchSupertagFieldDefinitions(supertagName: "Project")
+        XCTAssertEqual(fields.map(\.key), ["owner", "state"])
+
+        XCTAssertThrowsError(
+            try repository.updateSupertagFieldDefinition(
+                id: status.id,
+                field: "Owner",
+                valueType: .text
+            )
+        )
+    }
+
+    func testSupertagFieldDefinitionUpdatesMigrateExistingPropertyKeys() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let status = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Status": "active"]
+        )
+
+        let updated = try repository.updateSupertagFieldDefinition(
+            id: status.id,
+            field: "State",
+            valueType: .text
+        )
+
+        XCTAssertEqual(updated.key, "state")
+        XCTAssertEqual(updated.label, "State")
+
+        let entity = try repository.upsertEntity(named: "Notes Roadmap", supertagNames: ["project"])
+        XCTAssertEqual(entity.properties["state"], "active")
+        XCTAssertNil(entity.properties["status"])
+    }
+
+    func testSupertagFieldDefinitionRenamesRejectSharedPropertyKeysAcrossSupertags() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let projectStatus = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Bookmark",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.upsertEntity(
+            named: "Swift Article",
+            supertagNames: ["project", "bookmark"],
+            properties: ["Status": "active"]
+        )
+
+        XCTAssertThrowsError(
+            try repository.updateSupertagFieldDefinition(
+                id: projectStatus.id,
+                field: "State",
+                valueType: .text
+            )
+        )
+
+        let fields = try repository.fetchSupertagFieldDefinitions(supertagName: "Project")
+        XCTAssertEqual(fields.map(\.key), ["status"])
+
+        let entity = try repository.upsertEntity(named: "Swift Article", supertagNames: ["project", "bookmark"])
+        XCTAssertEqual(entity.properties["status"], "active")
+        XCTAssertNil(entity.properties["state"])
+    }
+
+    func testSupertagFieldDefinitionUpdatesRejectIncompatibleExistingValues() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let status = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Status": "active"]
+        )
+
+        XCTAssertThrowsError(
+            try repository.updateSupertagFieldDefinition(
+                id: status.id,
+                field: "Status",
+                valueType: .number
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.saveSupertagFieldDefinition(
+                supertagName: "Project",
+                field: "Status",
+                valueType: .number
+            )
+        )
+
+        let field = try XCTUnwrap(repository.fetchSupertagFieldDefinitions(supertagName: "Project").first)
+        XCTAssertEqual(field.valueType, .text)
+
+        let entity = try repository.upsertEntity(named: "Notes Roadmap", supertagNames: ["project"])
+        XCTAssertEqual(entity.properties["status"], "active")
+    }
+
+    func testSupertagFieldDefinitionsValidateAndBackfillExistingTaggedEntities() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(named: "Notes Roadmap", supertagNames: ["project"])
+
+        XCTAssertThrowsError(
+            try repository.saveSupertagFieldDefinition(
+                supertagName: "Project",
+                field: "Rank",
+                valueType: .number,
+                isRequired: true
+            )
+        )
+
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Rank",
+            valueType: .number,
+            defaultValue: "1",
+            isRequired: true
+        )
+
+        let entity = try repository.upsertEntity(named: "Notes Roadmap", supertagNames: ["project"])
+        XCTAssertEqual(entity.properties["rank"], "1")
+    }
+
     func testSupertagFieldDefinitionsRejectInvalidDefinitions() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -2072,6 +2298,34 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreRefreshesSupertagSchemasAfterEditorAndEntityWrites() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        let document = try XCTUnwrap(store.selectedDocument)
+        XCTAssertTrue(store.supertagSchemas.isEmpty)
+
+        store.saveEditorChange(
+            documentID: document.id,
+            title: "Tagged daily note",
+            contentJSON: document.tiptapJSON,
+            plainText: "[[Notes Roadmap]] #project"
+        )
+
+        XCTAssertEqual(store.supertagSchemas.map(\.name), ["project"])
+        XCTAssertTrue(store.supertagSchemas.first?.fields.isEmpty ?? false)
+
+        _ = try store.upsertEntity(named: "Swift Article", supertagNames: ["bookmark"])
+
+        XCTAssertEqual(Set(store.supertagSchemas.map(\.name)), Set(["bookmark", "project"]))
+        XCTAssertTrue(store.supertagSchemas.allSatisfy(\.fields.isEmpty))
+    }
+
+    @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -2138,6 +2392,7 @@ final class NotesPersistenceTests: XCTestCase {
 
         store.load()
         XCTAssertTrue(store.supertagFieldDefinitions.isEmpty)
+        XCTAssertTrue(store.supertagSchemas.isEmpty)
 
         let definition = try store.saveSupertagFieldDefinition(
             supertagName: "Project",
@@ -2152,22 +2407,29 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.supertagFieldDefinitions.first?.key, "status")
         XCTAssertEqual(store.supertagFieldDefinitions.first?.defaultValue, "active")
         XCTAssertEqual(store.supertagFieldDefinitions.first?.isRequired, true)
+        XCTAssertEqual(store.supertagSchemas.count, 1)
+        XCTAssertEqual(store.supertagSchemas.first?.name, "Project")
+        XCTAssertEqual(store.supertagSchemas.first?.fields.map(\.id), [definition.id])
 
-        let updated = try store.saveSupertagFieldDefinition(
-            supertagName: "Project",
-            field: "Status",
+        let updated = try store.updateSupertagFieldDefinition(
+            id: definition.id,
+            field: "Done",
             valueType: .boolean
         )
 
         XCTAssertEqual(updated.id, definition.id)
         XCTAssertEqual(store.supertagFieldDefinitions.count, 1)
+        XCTAssertEqual(store.supertagFieldDefinitions.first?.key, "done")
         XCTAssertEqual(store.supertagFieldDefinitions.first?.valueType, .boolean)
         XCTAssertNil(store.supertagFieldDefinitions.first?.defaultValue)
         XCTAssertEqual(store.supertagFieldDefinitions.first?.isRequired, false)
+        XCTAssertEqual(store.supertagSchemas.first?.fields.first?.valueType, .boolean)
 
         store.deleteSupertagFieldDefinition(id: definition.id)
 
         XCTAssertTrue(store.supertagFieldDefinitions.isEmpty)
+        XCTAssertEqual(store.supertagSchemas.count, 1)
+        XCTAssertTrue(store.supertagSchemas.first?.fields.isEmpty ?? false)
     }
 
     private func temporaryDatabaseURL() throws -> URL {

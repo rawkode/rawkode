@@ -87,3 +87,20 @@ struct SupertagFieldDefinition: Identifiable, Equatable, Sendable {
     var createdAt: Date
     var updatedAt: Date
 }
+
+struct SupertagSchema: Identifiable, Equatable, Sendable {
+    var id: UUID
+    var name: String
+    var slug: String
+    var fields: [SupertagFieldDefinition]
+    var createdAt: Date
+    var updatedAt: Date
+
+    var fieldCount: Int {
+        fields.count
+    }
+
+    var requiredFieldCount: Int {
+        fields.filter(\.isRequired).count
+    }
+}

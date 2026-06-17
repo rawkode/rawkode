@@ -22,6 +22,7 @@ Current local-first foundation:
 - Notes are persisted as Tiptap JSON in local SQLite, with inline Excalidraw sketches.
 - Entities, supertags, entity properties, backlinks, and entity-to-entity property references are indexed locally.
 - Query blocks run against local SQLite materializations and can render as tables, lists, or grouped boards.
+- Supertags have strongly typed schema fields, and the native Database editor can select schemas plus create, update, and delete typed properties.
 - Vault export and replacement import are available from the native app for local JSON portability before sync exists.
 
 Next local milestones:
