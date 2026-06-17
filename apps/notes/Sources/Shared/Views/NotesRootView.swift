@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 private enum NotesSidebarSelection: Hashable {
     case document(UUID)
+    case entity(UUID)
     case savedQueryView(UUID)
     case databaseEditor
 }
@@ -160,6 +161,12 @@ struct NotesRootView: View {
                 SavedQueryViewDetailView(savedView: selectedSavedQueryView) { query in
                     try store.runQuery(query)
                 }
+            } else if let selectedEntityDetail = store.selectedEntityDetail {
+                EntityDetailView(
+                    detail: selectedEntityDetail,
+                    onOpenDocument: openDocument,
+                    onOpenEntity: openEntity
+                )
             } else if let selectedDocument {
                 NoteEditorView(
                     document: selectedDocument,
@@ -189,10 +196,10 @@ struct NotesRootView: View {
                         try store.runQuery(query)
                     },
                     onOpenDocument: { documentID in
-                        store.openDocument(id: documentID)
-                        if store.selectedDocument?.id == documentID {
-                            sidebarSelection = .document(documentID)
-                        }
+                        openDocument(documentID)
+                    },
+                    onOpenEntity: { entityID in
+                        openEntity(entityID)
                     }
                 )
             } else {
@@ -353,6 +360,20 @@ struct NotesRootView: View {
         }
     }
 
+    private func openDocument(_ documentID: UUID) {
+        store.openDocument(id: documentID)
+        if store.selectedDocument?.id == documentID {
+            sidebarSelection = .document(documentID)
+        }
+    }
+
+    private func openEntity(_ entityID: UUID) {
+        store.openEntity(id: entityID)
+        if store.selectedEntityDetail?.id == entityID {
+            sidebarSelection = .entity(entityID)
+        }
+    }
+
     private func exportVault() {
         do {
             vaultExportDocument = NotesVaultFileDocument(data: try store.exportVaultJSON())
@@ -440,6 +461,8 @@ struct NotesRootView: View {
         switch selection {
         case .document(let id):
             store.selectDocument(id: id)
+        case .entity(let id):
+            store.openEntity(id: id)
         case .savedQueryView, .databaseEditor, nil:
             store.selectDocument(id: nil)
         }
@@ -481,6 +504,245 @@ private struct NotesVaultFileDocument: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
     }
+}
+
+private struct EntityDetailView: View {
+    let detail: EntityDetail
+    let onOpenDocument: (_ documentID: UUID) -> Void
+    let onOpenEntity: (_ entityID: UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+
+            List {
+                Section("Supertags") {
+                    if detail.supertags.isEmpty {
+                        Text("No supertags")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        FlowTagList(tags: detail.supertags)
+                    }
+                }
+
+                Section("Properties") {
+                    if detail.properties.isEmpty {
+                        Text("No properties")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(detail.sortedProperties, id: \.key) { property in
+                            EntityPropertyRow(property: property)
+                        }
+                    }
+                }
+
+                Section("Backlinks") {
+                    if detail.backlinks.isEmpty {
+                        Text("No document mentions")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(detail.backlinks) { backlink in
+                            EntityBacklinkRow(backlink: backlink) {
+                                onOpenDocument(backlink.documentID)
+                            }
+                        }
+                    }
+                }
+
+                Section("Outgoing Relationships") {
+                    if detail.outgoingRelationships.isEmpty {
+                        Text("No outgoing relationships")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(detail.outgoingRelationships) { relationship in
+                            EntityRelationshipDetailRow(
+                                relationship: relationship,
+                                direction: .outgoing,
+                                onOpenEntity: onOpenEntity
+                            )
+                        }
+                    }
+                }
+
+                Section("Incoming Relationships") {
+                    if detail.incomingRelationships.isEmpty {
+                        Text("No incoming relationships")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(detail.incomingRelationships) { relationship in
+                            EntityRelationshipDetailRow(
+                                relationship: relationship,
+                                direction: .incoming,
+                                onOpenEntity: onOpenEntity
+                            )
+                        }
+                    }
+                }
+            }
+            .listStyle(.inset)
+        }
+        .navigationTitle(detail.name)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(detail.name, systemImage: "at")
+                .font(.title.weight(.semibold))
+                .lineLimit(2)
+
+            HStack(spacing: 12) {
+                Label("\(detail.supertags.count)", systemImage: "tag")
+                    .accessibilityLabel("\(detail.supertags.count) supertags")
+
+                Label("\(detail.properties.count)", systemImage: "slider.horizontal.3")
+                    .accessibilityLabel("\(detail.properties.count) properties")
+
+                Label("\(detail.backlinks.count)", systemImage: "link")
+                    .accessibilityLabel("\(detail.backlinks.count) backlinks")
+
+                Label("\(detail.relationshipCount)", systemImage: "arrow.left.and.right")
+                    .accessibilityLabel("\(detail.relationshipCount) relationships")
+
+                Text(detail.updatedAt, format: .dateTime.month().day().hour().minute())
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+}
+
+private struct FlowTagList: View {
+    let tags: [String]
+
+    var body: some View {
+        HStack {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.secondary.opacity(0.12), in: Capsule())
+            }
+        }
+    }
+}
+
+private struct EntityPropertyRow: View {
+    let property: (key: String, value: String)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(propertyLabel)
+                .font(.callout.weight(.semibold))
+
+            Text(property.value)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var propertyLabel: String {
+        property.key
+            .split(separator: "_")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+}
+
+private struct EntityBacklinkRow: View {
+    let backlink: DocumentBacklink
+    let onOpenDocument: () -> Void
+
+    var body: some View {
+        Button(action: onOpenDocument) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(documentLabel)
+                        .font(.callout.weight(.semibold))
+
+                    Text(backlink.documentKind == .daily ? "Daily Note" : "Note")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: backlink.documentKind == .daily ? "calendar" : "note.text")
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 3)
+    }
+
+    private var documentLabel: String {
+        if backlink.documentKind == .daily, let documentDate = backlink.documentDate {
+            return DailyNoteDateFormatter.displayTitle(for: documentDate)
+        }
+
+        return backlink.documentTitle
+    }
+}
+
+private struct EntityRelationshipDetailRow: View {
+    let relationship: EntityRelationship
+    let direction: EntityRelationshipDetailDirection
+    let onOpenEntity: (_ entityID: UUID) -> Void
+
+    var body: some View {
+        Button {
+            onOpenEntity(relatedEntityID)
+        } label: {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(relatedName)
+                        .font(.callout.weight(.semibold))
+
+                    HStack(spacing: 6) {
+                        Text(propertyLabel)
+                        Text(relationship.updatedAt, format: .dateTime.month().day().hour().minute())
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: direction == .outgoing ? "arrow.right" : "arrow.left")
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 3)
+    }
+
+    private var relatedEntityID: UUID {
+        switch direction {
+        case .outgoing:
+            relationship.targetEntityID
+        case .incoming:
+            relationship.sourceEntityID
+        }
+    }
+
+    private var relatedName: String {
+        switch direction {
+        case .outgoing:
+            relationship.targetName
+        case .incoming:
+            relationship.sourceName
+        }
+    }
+
+    private var propertyLabel: String {
+        relationship.property
+            .split(separator: "_")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+}
+
+private enum EntityRelationshipDetailDirection {
+    case outgoing
+    case incoming
 }
 
 private struct SavedQueryViewEditorSheet: View {

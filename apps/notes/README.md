@@ -21,13 +21,13 @@ Current local-first foundation:
 - Daily notes are calendar-backed documents with today, tomorrow, arbitrary-date, and adjacent-day navigation.
 - Notes are persisted as Tiptap JSON in local SQLite, with inline Excalidraw sketches.
 - Entities, supertags, entity properties, backlinks, and entity-to-entity property references are indexed locally.
+- Entity detail navigation opens from context panels and query rows, with local backlinks, properties, and relationship context.
 - Query blocks run against local SQLite materializations and can render as tables, lists, or grouped boards.
 - Supertags have strongly typed schema fields, and the native Database editor can select schemas plus create, update, and delete typed properties.
 - Vault export and replacement import are available from the native app for local JSON portability before sync exists.
 
 Next local milestones:
 
-- Entity detail navigation from context panels and query rows.
 - Richer schema-aware entity editing for typed supertag fields.
 - Query view management for editing, duplicating, and organizing saved views.
 

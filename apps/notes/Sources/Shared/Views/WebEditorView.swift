@@ -16,6 +16,7 @@ struct WebEditorView {
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
     let onOpenDocument: (_ documentID: UUID) -> Void
+    let onOpenEntity: (_ entityID: UUID) -> Void
     let onReady: () -> Void
     let onError: (_ message: String) -> Void
 
@@ -26,6 +27,7 @@ struct WebEditorView {
             onEntityUpsert: onEntityUpsert,
             onQueryRun: onQueryRun,
             onOpenDocument: onOpenDocument,
+            onOpenEntity: onOpenEntity,
             onReady: onReady,
             onError: onError
         )
@@ -56,6 +58,7 @@ struct WebEditorView {
         coordinator.onEntityUpsert = onEntityUpsert
         coordinator.onQueryRun = onQueryRun
         coordinator.onOpenDocument = onOpenDocument
+        coordinator.onOpenEntity = onOpenEntity
         coordinator.onReady = onReady
         coordinator.onError = onError
         coordinator.syncSavedQueryViews(savedQueryViews)
@@ -126,6 +129,7 @@ extension WebEditorView {
         var onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
         var onQueryRun: (_ query: String) throws -> QueryResult
         var onOpenDocument: (_ documentID: UUID) -> Void
+        var onOpenEntity: (_ entityID: UUID) -> Void
         var onReady: () -> Void
         var onError: (_ message: String) -> Void
         weak var webView: WKWebView?
@@ -145,6 +149,7 @@ extension WebEditorView {
             onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference,
             onQueryRun: @escaping (_ query: String) throws -> QueryResult,
             onOpenDocument: @escaping (_ documentID: UUID) -> Void,
+            onOpenEntity: @escaping (_ entityID: UUID) -> Void,
             onReady: @escaping () -> Void,
             onError: @escaping (_ message: String) -> Void
         ) {
@@ -153,6 +158,7 @@ extension WebEditorView {
             self.onEntityUpsert = onEntityUpsert
             self.onQueryRun = onQueryRun
             self.onOpenDocument = onOpenDocument
+            self.onOpenEntity = onOpenEntity
             self.onReady = onReady
             self.onError = onError
         }
@@ -341,6 +347,16 @@ extension WebEditorView {
                 }
 
                 onOpenDocument(documentID)
+
+            case "openEntity":
+                guard
+                    let entityIDString = body["entityId"] as? String,
+                    let entityID = UUID(uuidString: entityIDString)
+                else {
+                    return
+                }
+
+                onOpenEntity(entityID)
 
             case "clientError":
                 let message = body["message"] as? String ?? "Unknown editor error"

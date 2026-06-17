@@ -19,6 +19,7 @@ export type SavedQueryViewDefinition = {
 export type SavedQueryViewsListener = () => void;
 
 export const queryDocumentIdMetadataKey = '__notes.document_id';
+export const queryEntityIdMetadataKey = '__notes.entity_id';
 
 const boardAutoGroupColumns = ['status', 'lane', 'stage', 'state', 'date', 'supertags'];
 const queryRefreshListeners = new Set<QueryRefreshListener>();
@@ -129,6 +130,19 @@ export function queryRowDocumentId(row: QueryResultRow, columns: string[]) {
   }
 
   return normalizedCell(row[queryDocumentIdMetadataKey]);
+}
+
+export function queryRowEntityId(row: QueryResultRow, columns: string[]) {
+  if (columns.includes(queryEntityIdMetadataKey)) {
+    return null;
+  }
+
+  const metadataEntityId = normalizedCell(row[queryEntityIdMetadataKey]);
+  if (metadataEntityId) {
+    return metadataEntityId;
+  }
+
+  return null;
 }
 
 function normalizedCell(value: string | undefined) {

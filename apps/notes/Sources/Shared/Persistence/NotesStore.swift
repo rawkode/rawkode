@@ -13,6 +13,7 @@ final class NotesStore {
     private(set) var supertagFieldDefinitions: [SupertagFieldDefinition] = []
     private(set) var supertagSchemas: [SupertagSchema] = []
     private(set) var selectedDocument: NoteDocument?
+    private(set) var selectedEntityDetail: EntityDetail?
     private(set) var selectedDocumentContext = DocumentContext.empty
     private(set) var lastErrorMessage: String?
 
@@ -114,11 +115,13 @@ final class NotesStore {
     func selectDocument(id: NoteDocument.ID?) {
         guard let id else {
             selectedDocument = nil
+            selectedEntityDetail = nil
             selectedDocumentContext = .empty
             return
         }
 
         selectedDocument = cachedDocument(id: id)
+        selectedEntityDetail = nil
         refreshSelectedDocumentContext()
     }
 
@@ -128,7 +131,27 @@ final class NotesStore {
         }
 
         selectedDocument = document
+        selectedEntityDetail = nil
         refreshSelectedDocumentContext()
+    }
+
+    func openEntity(id: EntityDetail.ID) {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        do {
+            guard let detail = try repository.fetchEntityDetail(entityID: id) else {
+                lastErrorMessage = "Entity could not be found."
+                return
+            }
+
+            selectedDocument = nil
+            selectedDocumentContext = .empty
+            selectedEntityDetail = detail
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func saveEditorChange(documentID: UUID, title: String, contentJSON: String, plainText: String) {
@@ -427,8 +450,10 @@ final class NotesStore {
         let allDocuments = dailyNotes + standaloneNotes
         if let selectedID, let selected = allDocuments.first(where: { $0.id == selectedID }) {
             selectedDocument = selected
+            selectedEntityDetail = nil
         } else {
             selectedDocument = allDocuments.first
+            selectedEntityDetail = nil
         }
 
         refreshSelectedDocumentContext()

@@ -11,6 +11,7 @@ struct NoteEditorView: View {
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
     let onOpenDocument: (_ documentID: UUID) -> Void
+    let onOpenEntity: (_ entityID: UUID) -> Void
     @State private var editorStatus: EditorStatus = .loading
 
     var body: some View {
@@ -64,7 +65,11 @@ struct NoteEditorView: View {
 
                     Divider()
 
-                    DocumentContextPanel(context: documentContext)
+                    DocumentContextPanel(
+                        context: documentContext,
+                        onOpenDocument: onOpenDocument,
+                        onOpenEntity: onOpenEntity
+                    )
                         .frame(width: min(340, max(292, proxy.size.width * 0.28)))
                 }
             } else {
@@ -73,7 +78,11 @@ struct NoteEditorView: View {
 
                     Divider()
 
-                    DocumentContextPanel(context: documentContext)
+                    DocumentContextPanel(
+                        context: documentContext,
+                        onOpenDocument: onOpenDocument,
+                        onOpenEntity: onOpenEntity
+                    )
                         .frame(height: 230)
                 }
             }
@@ -89,6 +98,7 @@ struct NoteEditorView: View {
                 onEntityUpsert: onEntityUpsert,
                 onQueryRun: onQueryRun,
                 onOpenDocument: onOpenDocument,
+                onOpenEntity: onOpenEntity,
                 onReady: {
                     editorStatus = .ready
                 },
@@ -129,6 +139,8 @@ struct NoteEditorView: View {
 
 private struct DocumentContextPanel: View {
     let context: DocumentContext
+    let onOpenDocument: (_ documentID: UUID) -> Void
+    let onOpenEntity: (_ entityID: UUID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +155,11 @@ private struct DocumentContextPanel: View {
                     if !context.backlinks.isEmpty {
                         Section("Mentioned Entities") {
                             ForEach(context.backlinks) { backlink in
-                                BacklinkContextRow(backlink: backlink)
+                                BacklinkContextRow(
+                                    backlink: backlink,
+                                    onOpenDocument: onOpenDocument,
+                                    onOpenEntity: onOpenEntity
+                                )
                             }
                         }
                     }
@@ -153,7 +169,8 @@ private struct DocumentContextPanel: View {
                             ForEach(context.outgoingRelationships) { relationship in
                                 RelationshipContextRow(
                                     relationship: relationship,
-                                    direction: .outgoing
+                                    direction: .outgoing,
+                                    onOpenEntity: onOpenEntity
                                 )
                             }
                         }
@@ -164,7 +181,8 @@ private struct DocumentContextPanel: View {
                             ForEach(context.incomingRelationships) { relationship in
                                 RelationshipContextRow(
                                     relationship: relationship,
-                                    direction: .incoming
+                                    direction: .incoming,
+                                    onOpenEntity: onOpenEntity
                                 )
                             }
                         }
@@ -200,23 +218,43 @@ private struct DocumentContextPanel: View {
 
 private struct BacklinkContextRow: View {
     let backlink: DocumentBacklink
+    let onOpenDocument: (_ documentID: UUID) -> Void
+    let onOpenEntity: (_ entityID: UUID) -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "tag")
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
+            Button {
+                onOpenEntity(backlink.entityID)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "tag")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(backlink.entityName)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(backlink.entityName)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
 
-                Text(documentLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                        Text(documentLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 8)
+
+            Button {
+                onOpenDocument(backlink.documentID)
+            } label: {
+                Label("Open Note", systemImage: backlink.documentKind == .daily ? "calendar" : "note.text")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Open Note")
         }
         .padding(.vertical, 3)
     }
@@ -238,21 +276,28 @@ private enum RelationshipContextDirection {
 private struct RelationshipContextRow: View {
     let relationship: EntityRelationship
     let direction: RelationshipContextDirection
+    let onOpenEntity: (_ entityID: UUID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(primaryName)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(1)
+                Button(primaryName) {
+                    onOpenEntity(primaryEntityID)
+                }
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .buttonStyle(.plain)
 
                 Image(systemName: direction == .outgoing ? "arrow.right" : "arrow.left")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text(secondaryName)
-                    .font(.callout)
-                    .lineLimit(1)
+                Button(secondaryName) {
+                    onOpenEntity(secondaryEntityID)
+                }
+                .font(.callout)
+                .lineLimit(1)
+                .buttonStyle(.plain)
             }
 
             HStack(spacing: 6) {
@@ -276,12 +321,30 @@ private struct RelationshipContextRow: View {
         }
     }
 
+    private var primaryEntityID: UUID {
+        switch direction {
+        case .outgoing:
+            relationship.sourceEntityID
+        case .incoming:
+            relationship.targetEntityID
+        }
+    }
+
     private var secondaryName: String {
         switch direction {
         case .outgoing:
             relationship.targetName
         case .incoming:
             relationship.sourceName
+        }
+    }
+
+    private var secondaryEntityID: UUID {
+        switch direction {
+        case .outgoing:
+            relationship.targetEntityID
+        case .incoming:
+            relationship.sourceEntityID
         }
     }
 
@@ -357,7 +420,8 @@ private struct EditorStatusBanner: View {
             onQueryRun: { _ in
                 QueryResult(columns: ["name"], rows: [["name": "Preview"]])
             },
-            onOpenDocument: { _ in }
+            onOpenDocument: { _ in },
+            onOpenEntity: { _ in }
         )
     }
 }

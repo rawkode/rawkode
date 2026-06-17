@@ -111,7 +111,7 @@ final class NotesPersistenceTests: XCTestCase {
         ])
 
         let supertagCollection = try repository.runQuery("SELECT name FROM views")
-        XCTAssertEqual(supertagCollection.rows, [["name": "Visual Index"]])
+        XCTAssertEqual(visibleQueryRows(supertagCollection.rows), [["name": "Visual Index"]])
     }
 
     func testSavedQueryViewsRejectInvalidDefinitions() throws {
@@ -613,7 +613,7 @@ final class NotesPersistenceTests: XCTestCase {
         try repository.upsertDocument(document)
 
         let projects = try repository.runQuery("SELECT name, status FROM projects")
-        XCTAssertEqual(projects.rows, [
+        XCTAssertEqual(visibleQueryRows(projects.rows), [
             ["name": "Notes Roadmap", "status": "active"],
         ])
     }
@@ -750,7 +750,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(try repository.importVault(snapshot))
 
         let entities = try repository.runQuery("SELECT name FROM project")
-        XCTAssertEqual(entities.rows, [["name": "Existing Entity"]])
+        XCTAssertEqual(visibleQueryRows(entities.rows), [["name": "Existing Entity"]])
     }
 
     func testVaultImportNormalizesSupertagFieldValueTypes() throws {
@@ -827,11 +827,13 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertTrue(bookmarks.columns.contains("url"))
         XCTAssertTrue(bookmarks.columns.contains("status"))
         XCTAssertTrue(bookmarks.columns.contains("property_updated_at"))
+        XCTAssertFalse(bookmarks.columns.contains(queryEntityIDMetadataKey))
         XCTAssertEqual(bookmarks.rows.count, 1)
         XCTAssertEqual(bookmarks.rows.first?["name"], "Rawkode Academy")
         XCTAssertEqual(bookmarks.rows.first?["url"], "https://rawkode.academy")
         XCTAssertEqual(bookmarks.rows.first?["status"], "active")
         XCTAssertEqual(bookmarks.rows.first?["supertags"], "bookmark, company, project")
+        XCTAssertEqual(bookmarks.rows.first?[queryEntityIDMetadataKey], entity.id.uuidString)
     }
 
     func testEntityPropertiesCanReferenceOtherEntities() throws {
@@ -858,7 +860,7 @@ final class NotesPersistenceTests: XCTestCase {
             "SELECT name, owner, owner_entity_id FROM projects WHERE owner = 'Rawkode Academy'"
         )
         XCTAssertEqual(projects.columns, ["name", "owner", "owner_entity_id"])
-        XCTAssertEqual(projects.rows, [
+        XCTAssertEqual(visibleQueryRows(projects.rows), [
             [
                 "name": "Notes Roadmap",
                 "owner": "Rawkode Academy",
@@ -903,6 +905,41 @@ final class NotesPersistenceTests: XCTestCase {
                 "target": "Rawkode Academy",
             ],
         ])
+    }
+
+    func testFetchEntityDetailIncludesBacklinksPropertiesAndRelationships() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let project = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Owner": "[[Rawkode Academy]]",
+                "Status": "active",
+            ]
+        )
+        let projectRow = try XCTUnwrap(repository.runQuery("SELECT owner_entity_id FROM projects").rows.first)
+        var document = try repository.createStandaloneNote()
+        document.title = "Roadmap note"
+        document.plainText = "[[Notes Roadmap]] #project"
+        try repository.upsertDocument(document)
+
+        let detail = try XCTUnwrap(repository.fetchEntityDetail(entityID: project.id))
+
+        XCTAssertEqual(detail.id, project.id)
+        XCTAssertEqual(detail.name, "Notes Roadmap")
+        XCTAssertEqual(detail.supertags, ["project"])
+        XCTAssertEqual(detail.properties["status"], "active")
+        XCTAssertEqual(detail.properties["owner"], "Rawkode Academy")
+        XCTAssertEqual(detail.backlinks.map(\.documentTitle), ["Roadmap note"])
+        XCTAssertEqual(detail.outgoingRelationships.map(\.targetName), ["Rawkode Academy"])
+        XCTAssertTrue(detail.incomingRelationships.isEmpty)
+
+        let ownerID = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(projectRow["owner_entity_id"])))
+        let ownerDetail = try XCTUnwrap(repository.fetchEntityDetail(entityID: ownerID))
+        XCTAssertEqual(ownerDetail.incomingRelationships.map(\.sourceName), ["Notes Roadmap"])
     }
 
     func testFetchDocumentContextReadsBacklinksAndRelationships() throws {
@@ -1216,7 +1253,7 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.columns, ["name", "url"])
-        XCTAssertEqual(result.rows, [
+        XCTAssertEqual(visibleQueryRows(result.rows), [
             [
                 "name": "Beta Resource",
                 "url": "https://beta.example",
@@ -1248,7 +1285,7 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.columns, ["title", "link"])
-        XCTAssertEqual(result.rows, [
+        XCTAssertEqual(visibleQueryRows(result.rows), [
             [
                 "title": "Rawkode Academy",
                 "link": "https://rawkode.academy",
@@ -1297,7 +1334,7 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.columns, ["title", "owner"])
-        XCTAssertEqual(result.rows, [
+        XCTAssertEqual(visibleQueryRows(result.rows), [
             [
                 "title": "Rawkode Academy",
                 "owner": "Rawkode",
@@ -1609,13 +1646,13 @@ final class NotesPersistenceTests: XCTestCase {
             "SELECT account FROM bookmarks WHERE name = 'Alpha Resource'"
         )
         XCTAssertEqual(projectedProperty.columns, ["account"])
-        XCTAssertEqual(projectedProperty.rows, [["account": "personal"]])
+        XCTAssertEqual(visibleQueryRows(projectedProperty.rows), [["account": "personal"]])
 
         let projectedCountProperty = try repository.runQuery(
             "SELECT count FROM bookmarks WHERE name = 'Alpha Resource'"
         )
         XCTAssertEqual(projectedCountProperty.columns, ["count"])
-        XCTAssertEqual(projectedCountProperty.rows, [["count": "7"]])
+        XCTAssertEqual(visibleQueryRows(projectedCountProperty.rows), [["count": "7"]])
     }
 
     func testRunQuerySupportsGroupedCountAggregate() throws {
@@ -1836,6 +1873,8 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(references.rows.first?["name"], "Rawkode Academy -> Meeting note")
         XCTAssertEqual(references.rows.first?["entity_id"], entity.id.uuidString)
         XCTAssertEqual(references.rows.first?["document"], "Meeting note")
+        XCTAssertEqual(references.rows.first?[queryEntityIDMetadataKey], entity.id.uuidString)
+        XCTAssertEqual(references.rows.first?[queryDocumentIDMetadataKey], document.id.uuidString)
 
         document.tiptapJSON = #"{"type":"doc","content":[{"type":"paragraph"}]}"#
         try repository.upsertDocument(document)
@@ -1857,7 +1896,7 @@ final class NotesPersistenceTests: XCTestCase {
 
         let entities = try repository.runQuery("SELECT id, name, supertags FROM entities ORDER BY name ASC")
         let roadmapEntityID = try XCTUnwrap(entities.rows.first?["id"])
-        XCTAssertEqual(entities.rows, [
+        XCTAssertEqual(visibleQueryRows(entities.rows), [
             ["id": roadmapEntityID, "name": "Notes Roadmap", "supertags": ""],
             ["id": existingEntity.id.uuidString, "name": "Rawkode Academy", "supertags": "company"],
         ])
@@ -1919,7 +1958,7 @@ final class NotesPersistenceTests: XCTestCase {
         let customers = try repository.runQuery(
             "SELECT id, name, supertags FROM customers WHERE name = 'Rawkode Academy'"
         )
-        XCTAssertEqual(customers.rows, [
+        XCTAssertEqual(visibleQueryRows(customers.rows), [
             [
                 "id": existingEntity.id.uuidString,
                 "name": "Rawkode Academy",
@@ -1930,13 +1969,13 @@ final class NotesPersistenceTests: XCTestCase {
         let projects = try repository.runQuery(
             "SELECT name, supertags FROM projects ORDER BY name ASC"
         )
-        XCTAssertEqual(projects.rows, [
+        XCTAssertEqual(visibleQueryRows(projects.rows), [
             ["name": "Launch Plan", "supertags": "project"],
             ["name": "Notes Roadmap", "supertags": "active, bookmark, project"],
         ])
 
         let bookmarks = try repository.runQuery("SELECT name FROM bookmarks")
-        XCTAssertEqual(bookmarks.rows, [
+        XCTAssertEqual(visibleQueryRows(bookmarks.rows), [
             ["name": "Notes Roadmap"],
         ])
     }
@@ -1963,7 +2002,7 @@ final class NotesPersistenceTests: XCTestCase {
         let projects = try repository.runQuery(
             "SELECT name, supertags, owner, owner_entity_id, status FROM projects"
         )
-        XCTAssertEqual(projects.rows, [
+        XCTAssertEqual(visibleQueryRows(projects.rows), [
             [
                 "name": "Notes Roadmap",
                 "supertags": "project",
@@ -1997,7 +2036,7 @@ final class NotesPersistenceTests: XCTestCase {
         let updatedProject = try repository.runQuery(
             "SELECT owner, status FROM projects WHERE name = 'Notes Roadmap'"
         )
-        XCTAssertEqual(updatedProject.rows, [
+        XCTAssertEqual(visibleQueryRows(updatedProject.rows), [
             ["owner": "Launch Plan", "status": "paused"],
         ])
     }
@@ -2192,6 +2231,35 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreCanOpenEntityDetails() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        let entity = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Status": "active"]
+        )
+
+        store.openEntity(id: entity.id)
+
+        XCTAssertNil(store.selectedDocument)
+        XCTAssertEqual(store.selectedDocumentContext, .empty)
+        XCTAssertEqual(store.selectedEntityDetail?.id, entity.id)
+        XCTAssertEqual(store.selectedEntityDetail?.name, "Notes Roadmap")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["status"], "active")
+
+        store.selectToday()
+
+        XCTAssertNotNil(store.selectedDocument)
+        XCTAssertNil(store.selectedEntityDetail)
+    }
+
+    @MainActor
     func testStoreReadsSelectedDocumentContext() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -2291,7 +2359,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertNotNil(importedStore.selectedDocument)
 
         let projects = try importedStore.runQuery("SELECT name, owner FROM projects")
-        XCTAssertEqual(projects.rows, [
+        XCTAssertEqual(visibleQueryRows(projects.rows), [
             ["name": "Notes Roadmap", "owner": "Rawkode Academy"],
         ])
         XCTAssertTrue(try importedStore.runQuery("SELECT name FROM junk").rows.isEmpty)
@@ -2450,6 +2518,16 @@ final class NotesPersistenceTests: XCTestCase {
             "entity_id": row["entity_id"] ?? "",
             "document": row["document"] ?? "",
         ]
+    }
+
+    private func visibleQueryRows(_ rows: [[String: String]]) -> [[String: String]] {
+        rows.map(visibleQueryRow)
+    }
+
+    private func visibleQueryRow(_ row: [String: String]) -> [String: String] {
+        row.filter { key, _ in
+            key != queryDocumentIDMetadataKey && key != queryEntityIDMetadataKey
+        }
     }
 
     private func executeRawSQL(_ sql: String, databaseURL: URL, createIfNeeded: Bool = false) throws {

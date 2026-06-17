@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 
 let queryDocumentIDMetadataKey = "__notes.document_id"
+let queryEntityIDMetadataKey = "__notes.entity_id"
 
 enum SQLiteNotesError: LocalizedError {
     case openFailed(String)
@@ -670,6 +671,28 @@ final class SQLiteNotesRepository {
             backlinks: backlinks,
             outgoingRelationships: try fetchEntityRelationships(sourceEntityIDs: entityIDs),
             incomingRelationships: try fetchEntityRelationships(targetEntityIDs: entityIDs)
+        )
+    }
+
+    func fetchEntityDetail(entityID: UUID) throws -> EntityDetail? {
+        guard let entityRecord = try fetchEntityRecord(id: entityID) else {
+            return nil
+        }
+
+        return EntityDetail(
+            id: entityID,
+            name: entityRecord.name,
+            supertags: try fetchSupertagNames(forEntityID: entityID),
+            properties: try fetchEntityProperties(forEntityID: entityID),
+            backlinks: try fetchDocumentBacklinks(
+                whereClause: "WHERE entities.id = ?",
+                bind: { statement in
+                    sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+                }
+            ),
+            outgoingRelationships: try fetchEntityRelationships(sourceEntityIDs: [entityID]),
+            incomingRelationships: try fetchEntityRelationships(targetEntityIDs: [entityID]),
+            updatedAt: entityRecord.updatedAt
         )
     }
 
@@ -1537,6 +1560,37 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func fetchEntityRecord(id entityID: UUID) throws -> StoredEntityRecord? {
+        try prepare(
+            """
+            SELECT canonical_name, updated_at
+            FROM entities
+            WHERE id = ?
+            LIMIT 1;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            let result = sqlite3_step(statement)
+
+            if result == SQLITE_DONE {
+                return nil
+            }
+
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            guard let updatedAt = Date(iso8601String: textColumn(statement, 1)) else {
+                throw SQLiteNotesError.rowDecodeFailed("invalid entity updated_at timestamp")
+            }
+
+            return StoredEntityRecord(
+                name: textColumn(statement, 0),
+                updatedAt: updatedAt
+            )
+        }
+    }
+
     private func insertEntity(id: UUID, canonicalName: String, createdAt: Date, updatedAt: Date) throws {
         try prepare(
             """
@@ -2342,6 +2396,7 @@ final class SQLiteNotesRepository {
                     "name": textColumn(statement, 1),
                     "supertags": textColumn(statement, 2),
                     "updated_at": textColumn(statement, 3),
+                    queryEntityIDMetadataKey: textColumn(statement, 0),
                 ])
                 result = sqlite3_step(statement)
             }
@@ -2429,6 +2484,7 @@ final class SQLiteNotesRepository {
                 "date": backlink.documentDate ?? "",
                 "name": "\(backlink.entityName) -> \(backlink.documentTitle)",
                 queryDocumentIDMetadataKey: backlink.documentID.uuidString,
+                queryEntityIDMetadataKey: backlink.entityID.uuidString,
             ]
         }
 
@@ -2978,6 +3034,11 @@ private struct StoredEntityProperty {
     var valueEntityID: String?
 }
 
+private struct StoredEntityRecord {
+    var name: String
+    var updatedAt: Date
+}
+
 private struct SupertaggedEntity {
     var id: UUID
     var name: String
@@ -3493,6 +3554,7 @@ private func materialized(_ result: QueryResult, using query: LocalQuery, relati
             (item.outputName, row[item.field] ?? "")
         })
         projectedRow[queryDocumentIDMetadataKey] = row[queryDocumentIDMetadataKey]
+        projectedRow[queryEntityIDMetadataKey] = row[queryEntityIDMetadataKey]
         return projectedRow
     }
 

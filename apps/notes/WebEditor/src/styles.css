@@ -364,6 +364,12 @@ select {
   gap: 8px;
 }
 
+.query-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .query-row-action {
   width: fit-content;
   min-height: 26px;

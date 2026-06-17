@@ -6,7 +6,9 @@ import {
   notifyQueryRefresh,
   parseQueryGroupBy,
   queryDocumentIdMetadataKey,
+  queryEntityIdMetadataKey,
   queryRowDocumentId,
+  queryRowEntityId,
   resolveSavedQueryView,
   setSavedQueryViews,
   subscribeSavedQueryViews,
@@ -140,6 +142,34 @@ describe('query board view helpers', () => {
       queryRowDocumentId(
         { id: 'entity-1', title: 'Aliased entity', date: '2026-06-16' },
         ['id', 'title', 'date']
+      )
+    ).toBeNull();
+  });
+
+  test('finds entity metadata on entity and backlink rows', () => {
+    expect(
+      queryRowEntityId(
+        { id: 'entity-1', name: 'Rawkode Academy', supertags: 'company', [queryEntityIdMetadataKey]: 'entity-1' },
+        ['id', 'name', 'supertags']
+      )
+    ).toBe('entity-1');
+    expect(
+      queryRowEntityId(
+        {
+          entity_id: 'entity-2',
+          entity: 'Notes Roadmap',
+          document: 'Daily note',
+          [queryEntityIdMetadataKey]: 'entity-2',
+        },
+        ['entity_id', 'entity', 'document']
+      )
+    ).toBe('entity-2');
+    expect(queryRowEntityId({ entity_id: 'entity-3', entity: 'Visible backlink' }, ['entity_id', 'entity'])).toBeNull();
+    expect(queryRowEntityId({ id: 'entity-3', name: 'Loose row' }, ['id', 'name'])).toBeNull();
+    expect(
+      queryRowEntityId(
+        { [queryEntityIdMetadataKey]: 'entity-4', name: 'Visible metadata' },
+        [queryEntityIdMetadataKey, 'name']
       )
     ).toBeNull();
   });

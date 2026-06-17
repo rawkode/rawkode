@@ -21,6 +21,7 @@ import {
   notifyQueryRefresh,
   parseQueryGroupBy,
   queryRowDocumentId,
+  queryRowEntityId,
   resolveSavedQueryView,
   setSavedQueryViews as setSavedQueryViewsSnapshot,
   subscribeQueryRefresh,
@@ -102,6 +103,10 @@ type NativeBridgeMessage =
   | {
       type: 'openDocument';
       documentId: string;
+    }
+  | {
+      type: 'openEntity';
+      entityId: string;
     }
   | {
       type: 'change';
@@ -1076,7 +1081,6 @@ function renderQueryResult(
       return (
         <ul className="query-list">
           {result.rows.map((row, index) => {
-            const documentId = queryRowDocumentId(row, result.columns);
             return (
               <li key={queryRowKey(row, index)}>
                 <strong>{primaryQueryValue(row, result.columns)}</strong>
@@ -1085,11 +1089,7 @@ function renderQueryResult(
                     {column}: {value}
                   </span>
                 ))}
-                {documentId ? (
-                  <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
-                    Open
-                  </button>
-                ) : null}
+                {renderQueryRowActions(row, result.columns)}
               </li>
             );
           })}
@@ -1108,7 +1108,6 @@ function renderQueryResult(
               </div>
               <div className="query-board__cards">
                 {group.rows.map((row, index) => {
-                  const documentId = queryRowDocumentId(row, result.columns);
                   return (
                     <article key={queryRowKey(row, index)}>
                       <strong>{primaryQueryValue(row, result.columns)}</strong>
@@ -1117,11 +1116,7 @@ function renderQueryResult(
                           {column}: {value}
                         </span>
                       ))}
-                      {documentId ? (
-                        <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
-                          Open
-                        </button>
-                      ) : null}
+                      {renderQueryRowActions(row, result.columns)}
                     </article>
                   );
                 })}
@@ -1132,7 +1127,7 @@ function renderQueryResult(
       );
 
     case 'table':
-      const hasDocumentActions = result.rows.some((row) => queryRowDocumentId(row, result.columns));
+      const hasRowActions = result.rows.some((row) => hasQueryRowActions(row, result.columns));
       return (
         <div className="query-table-wrap">
           <table className="query-table">
@@ -1141,25 +1136,18 @@ function renderQueryResult(
                 {result.columns.map((column) => (
                   <th key={column}>{column}</th>
                 ))}
-                {hasDocumentActions ? <th className="query-table__action">Action</th> : null}
+                {hasRowActions ? <th className="query-table__action">Action</th> : null}
               </tr>
             </thead>
             <tbody>
               {result.rows.map((row, index) => {
-                const documentId = queryRowDocumentId(row, result.columns);
                 return (
                   <tr key={queryRowKey(row, index)}>
                     {result.columns.map((column) => (
                       <td key={column}>{row[column] || ''}</td>
                     ))}
-                    {hasDocumentActions ? (
-                      <td className="query-table__action">
-                        {documentId ? (
-                          <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
-                            Open
-                          </button>
-                        ) : null}
-                      </td>
+                    {hasRowActions ? (
+                      <td className="query-table__action">{renderQueryRowActions(row, result.columns)}</td>
                     ) : null}
                   </tr>
                 );
@@ -1169,6 +1157,34 @@ function renderQueryResult(
         </div>
       );
   }
+}
+
+function hasQueryRowActions(row: Record<string, string>, columns: string[]) {
+  return Boolean(queryRowDocumentId(row, columns) || queryRowEntityId(row, columns));
+}
+
+function renderQueryRowActions(row: Record<string, string>, columns: string[]) {
+  const documentId = queryRowDocumentId(row, columns);
+  const entityId = queryRowEntityId(row, columns);
+
+  if (!documentId && !entityId) {
+    return null;
+  }
+
+  return (
+    <div className="query-row-actions">
+      {documentId ? (
+        <button type="button" className="query-row-action" onClick={() => openQueryDocument(documentId)}>
+          Note
+        </button>
+      ) : null}
+      {entityId ? (
+        <button type="button" className="query-row-action" onClick={() => openQueryEntity(entityId)}>
+          Entity
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function primaryQueryValue(row: Record<string, string>, columns: string[]) {
@@ -1196,6 +1212,13 @@ function openQueryDocument(documentId: string) {
   postNativeMessage({
     type: 'openDocument',
     documentId,
+  });
+}
+
+function openQueryEntity(entityId: string) {
+  postNativeMessage({
+    type: 'openEntity',
+    entityId,
   });
 }
 
