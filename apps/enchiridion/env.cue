@@ -5,9 +5,9 @@ import (
 	"github.com/cuenv/cuenv/schema"
 )
 
-schema.#Project & {
-	name: "enchiridion"
-}
+schema.#Project
+
+name: "enchiridion"
 
 let _t = tasks
 
@@ -82,19 +82,50 @@ tasks: {
 		hermetic: false
 	}
 
-	deployPreview: schema.#Task & {
-		description: "Upload a Cloudflare Worker preview version"
-		command:     "npm"
-		args: ["run", "preview:upload", "--"]
-		dependsOn: [build]
-		hermetic: false
-	}
-
-	deploy: schema.#Task & {
-		description: "Deploy Enchiridion to Cloudflare Workers"
-		command:     "npm"
-		args: ["run", "deploy"]
-		hermetic: false
+	deploy: schema.#TaskGroup & {
+		type: "group"
+		main: schema.#Task & {
+			description: "Apply production D1 migrations and deploy Enchiridion"
+			command:     "npm"
+			args: ["run", "deploy"]
+			hermetic: false
+			inputs: [
+				"astro.config.mjs",
+				"env.cue",
+				"flue.config.ts",
+				"migrations/**/*",
+				"package-lock.json",
+				"package.json",
+				"public/**/*",
+				"scripts/**/*",
+				"src/**/*",
+				"tsconfig.json",
+				"wrangler.jsonc",
+			]
+		}
+		preview: schema.#Task & {
+			description: "Upload a Cloudflare Worker preview version"
+			command:     "npm"
+			args: ["run", "preview:upload"]
+			dependsOn: [_t.build]
+			hermetic: false
+			inputs: [
+				"astro.config.mjs",
+				"env.cue",
+				"flue.config.ts",
+				"migrations/**/*",
+				"package-lock.json",
+				"package.json",
+				"public/**/*",
+				"scripts/**/*",
+				"src/**/*",
+				"tsconfig.json",
+				"wrangler.jsonc",
+			]
+			captures: previewUrl: {
+				pattern: "Version Preview URL: (.+)"
+			}
+		}
 	}
 }
 
@@ -106,10 +137,23 @@ ci: {
 		"pull-requests": "write"
 	}
 	pipelines: {
-		preview: {
+		default: {
+			environment: "production"
+			when: {
+				branch: ["main"]
+				defaultBranch: true
+				manual:        true
+			}
+			tasks: [_t.deploy.main]
+		}
+		pullRequest: {
 			environment: "production"
 			when: pullRequest: true
-			tasks: [_t.check, _t.deployPreview]
+			tasks: [_t.check, _t.deploy.preview]
+			annotations: "Preview URL": schema.#TaskCaptureRef & {
+				cuenvTask:    "deploy.preview"
+				cuenvCapture: "previewUrl"
+			}
 		}
 	}
 }

@@ -18,7 +18,7 @@
 		{
 			"binding": "DB",
 			"database_name": "enchiridion",
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			"database_id": "0b7c04ac-8fdc-4941-a9cf-36757c24efa7",
 			"migrations_dir": "./migrations"
 		}
 	],
