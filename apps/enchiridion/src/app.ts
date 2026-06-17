@@ -1,7 +1,7 @@
 import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import { z } from "zod";
-import { authenticate, requirePrincipal } from "./lib/auth";
+import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { signHostContext } from "./lib/host-context";
 import {
@@ -78,7 +78,7 @@ app.use("*", async (c, next) => {
 
 	const principal = authenticate(c.req.raw, c.env);
 	if (!principal) {
-		return json({ error: "Unauthorized" }, 401);
+		return unauthorizedResponse();
 	}
 
 	await ensureBuiltins(c.env);

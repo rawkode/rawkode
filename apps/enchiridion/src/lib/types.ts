@@ -13,6 +13,7 @@ export interface Env {
 	};
 	DEV_USER_EMAIL?: string;
 	ALLOWED_EMAILS?: string;
+	ENCHIRIDION_PASSWORD?: string;
 	HOST_SIGNING_SECRET?: string;
 	CLOUDFLARE_ACCOUNT_ID?: string;
 	CLOUDFLARE_API_TOKEN?: string;
@@ -22,7 +23,7 @@ export interface Env {
 export interface Principal {
 	email: string;
 	name: string;
-	source: "cloudflare-access" | "dev";
+	source: "cloudflare-access" | "password" | "dev";
 }
 
 export interface DailyNote {

@@ -18,11 +18,14 @@ The app builds in two stages:
 - `npm run deploy` builds the app, applies production D1 migrations, and deploys the Worker.
 
 `env.cue` mirrors the rawkode cuenv Cloudflare production environment shape. Use `cuenv exec -e production -- ...` for commands that need the Cloudflare account and API token.
-Production deploys resolve `CLOUDFLARE_API_TOKEN` from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion`.
+
+Production deploys use `op://sa.rawkode.academy/cloudflare/api-tokens/workers` as Wrangler's `CLOUDFLARE_API_TOKEN`. The deployed Worker also receives that token for dynamic mini-app uploads.
 
 ## Auth
 
-Production requests must be authenticated by Cloudflare Access. Enchiridion accepts the `cf-access-authenticated-user-email` and `cf-access-authenticated-user-name` headers and can restrict accepted identities with `ALLOWED_EMAILS`.
+Production requests must be authenticated. Enchiridion accepts either Cloudflare Access headers or HTTP Basic auth. The Basic auth password is loaded from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion` and synced into the Worker as `ENCHIRIDION_PASSWORD`.
+
+Cloudflare Access mode accepts the `cf-access-authenticated-user-email` and `cf-access-authenticated-user-name` headers and can restrict accepted identities with `ALLOWED_EMAILS`.
 
 The dev identity fallback is local-only. Requests to `localhost`, `127.0.0.1`, or `[::1]` use `DEV_USER_EMAIL` when set, otherwise `rawkode.local`. The fallback is ignored on deployed hosts.
 

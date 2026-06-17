@@ -18,7 +18,7 @@
 		"CLOUDFLARE_DISPATCH_NAMESPACE": "enchiridion-mini-apps"
 	},
 	"secrets": {
-		"required": ["CLOUDFLARE_API_TOKEN"]
+		"required": ["CLOUDFLARE_API_TOKEN", "ENCHIRIDION_PASSWORD"]
 	},
 	"d1_databases": [
 		{

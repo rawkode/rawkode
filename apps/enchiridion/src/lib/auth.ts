@@ -8,6 +8,11 @@ export function authenticate(request: Request, env: Env): Principal | null {
 		return { email, name: name ?? email, source: "cloudflare-access" };
 	}
 
+	const passwordPrincipal = authenticateWithPassword(request, env.ENCHIRIDION_PASSWORD);
+	if (passwordPrincipal) {
+		return passwordPrincipal;
+	}
+
 	if (isLocalDevelopmentRequest(request)) {
 		const devEmail = env.DEV_USER_EMAIL ?? "rawkode.local";
 		return {
@@ -24,13 +29,20 @@ export function requirePrincipal(request: Request, env: Env): Principal {
 	const principal = authenticate(request, env);
 
 	if (!principal) {
-		throw new Response(JSON.stringify({ error: "Unauthorized" }), {
-			status: 401,
-			headers: { "content-type": "application/json" },
-		});
+		throw unauthorizedResponse();
 	}
 
 	return principal;
+}
+
+export function unauthorizedResponse(): Response {
+	return new Response(JSON.stringify({ error: "Unauthorized" }), {
+		status: 401,
+		headers: {
+			"content-type": "application/json",
+			"www-authenticate": 'Basic realm="Enchiridion", charset="UTF-8"',
+		},
+	});
 }
 
 function isAllowedEmail(email: string, allowedEmails?: string): boolean {
@@ -40,6 +52,58 @@ function isAllowedEmail(email: string, allowedEmails?: string): boolean {
 
 	const allowed = allowedEmails.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean);
 	return allowed.includes(email.toLowerCase());
+}
+
+function authenticateWithPassword(request: Request, password?: string): Principal | null {
+	if (!password) {
+		return null;
+	}
+
+	const credentials = readBasicAuth(request.headers.get("authorization"));
+	if (!credentials || !passwordMatches(credentials.password, password)) {
+		return null;
+	}
+
+	const name = credentials.username || "enchiridion";
+	return {
+		email: `${name}@password.enchiridion.local`,
+		name,
+		source: "password",
+	};
+}
+
+function readBasicAuth(header: string | null): { username: string; password: string } | null {
+	if (!header?.toLowerCase().startsWith("basic ")) {
+		return null;
+	}
+
+	try {
+		const decoded = atob(header.slice("basic ".length).trim());
+		const separator = decoded.indexOf(":");
+		if (separator < 0) {
+			return null;
+		}
+
+		return {
+			username: decoded.slice(0, separator),
+			password: decoded.slice(separator + 1),
+		};
+	} catch {
+		return null;
+	}
+}
+
+function passwordMatches(candidate: string, password: string): boolean {
+	if (candidate.length !== password.length) {
+		return false;
+	}
+
+	let mismatch = 0;
+	for (let index = 0; index < password.length; index += 1) {
+		mismatch |= candidate.charCodeAt(index) ^ password.charCodeAt(index);
+	}
+
+	return mismatch === 0;
 }
 
 function isLocalDevelopmentRequest(request: Request): boolean {
