@@ -29,12 +29,14 @@ import type {
 	DailyNote,
 	ExtensionCommand,
 	ExtensionEditorBlock,
+	ExtensionManifest,
 	JsonObject,
 	KanbanBoard,
 	KanbanCard,
 	KanbanColumn,
 	ResourceIndexRecord,
 } from "../lib/types";
+import { inferMiniAppIntent, summarizeMiniApp, type MiniAppIntent } from "../lib/mini-app-requests";
 import { shell } from "../styles/shell.stylex";
 
 const ExtensionBlock = Node.create({
@@ -506,7 +508,7 @@ export default function AppShell() {
 						<Bot size={16} />
 						<h2 {...stylex.props(shell.sectionHeading)}>Agent</h2>
 					</div>
-					<AgentPanel onRefresh={() => loadSnapshot(selectedDate)} />
+					<AgentPanel extensions={snapshot.extensions} onRefresh={() => loadSnapshot(selectedDate)} />
 				</section>
 			</aside>
 
@@ -595,7 +597,7 @@ function CommandPalette({
 	);
 }
 
-function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
+function AgentPanel({ extensions, onRefresh }: { extensions: ExtensionManifest[]; onRefresh: () => Promise<void> }) {
 	const [messages, setMessages] = useState<AgentMessage[]>([]);
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState<"chat" | "build" | null>(null);
@@ -618,28 +620,28 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 		appendMessage({ role: "user", text: message });
 
 		try {
-			if (mode === "build") {
+			const intent = inferMiniAppIntent(message, extensions, mode === "build");
+			if (intent.shouldBuild) {
 				const response = await fetch("/api/flue/workflows/generate-mini-app?wait=result", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
 						prompt: message,
+						operation: intent.operation,
+						targetSlug: intent.targetSlug,
+						slugHint: intent.slugHint,
 						autonomousDeploy: true,
 					}),
 				});
-				const body = await response.json() as { result?: Record<string, unknown>; error?: unknown };
+				const body = await readJsonBody<{ result?: Record<string, unknown>; error?: unknown }>(response);
 				if (!response.ok) {
 					throw new Error(formatAgentError(body.error, `Workflow failed with ${response.status}`));
 				}
 
 				const result = body.result ?? {};
-				const status = String(result.status ?? "completed");
-				const slug = String(result.slug ?? "mini-app");
-				const deployed = result.deployed === true;
-				const detail = typeof result.message === "string" ? ` ${result.message}` : "";
 				appendMessage({
 					role: "assistant",
-					text: `${status}: ${slug}${deployed ? " deployed" : " registered"}.${detail}`.trim(),
+					text: formatMiniAppResult(result, intent),
 				});
 				await onRefresh();
 				return;
@@ -648,16 +650,16 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 			const response = await fetch("/api/flue/agents/second-brain-agent/default?wait=result", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ message }),
+				body: JSON.stringify({ message: buildAgentMessage(message, extensions) }),
 			});
-			const body = await response.json() as { result?: { text?: string }; error?: unknown };
+			const body = await readJsonBody<{ result?: unknown; error?: unknown }>(response);
 			if (!response.ok) {
 				throw new Error(formatAgentError(body.error, `Agent failed with ${response.status}`));
 			}
 
 			appendMessage({
 				role: "assistant",
-				text: body.result?.text ?? "Done.",
+				text: formatAgentResult(body.result),
 			});
 		} catch (error) {
 			appendMessage({
@@ -667,7 +669,7 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 		} finally {
 			setBusy(null);
 		}
-	}, [appendMessage, busy, onRefresh, prompt]);
+	}, [appendMessage, busy, extensions, onRefresh, prompt]);
 
 	return (
 		<form {...stylex.props(shell.agentPanel)} onSubmit={(event) => {
@@ -721,6 +723,76 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 			</div>
 		</form>
 	);
+}
+
+async function readJsonBody<T>(response: Response): Promise<T> {
+	const text = await response.text();
+	if (!text) {
+		return {} as T;
+	}
+
+	try {
+		return JSON.parse(text) as T;
+	} catch {
+		return { error: text } as T;
+	}
+}
+
+function buildAgentMessage(message: string, extensions: ExtensionManifest[]): string {
+	return [
+		message,
+		"Current Enchiridion mini apps:",
+		JSON.stringify(extensions.map((extension) => summarizeMiniApp(extension)), null, 2),
+	].join("\n\n");
+}
+
+function formatMiniAppResult(result: Record<string, unknown>, intent: MiniAppIntent): string {
+	const status = String(result.status ?? "completed");
+	const operation = String(result.operation ?? intent.operation);
+	const slug = String(result.slug ?? intent.targetSlug ?? "mini-app");
+	const message = typeof result.message === "string" ? result.message : "";
+	const routeUrl = typeof result.routeUrl === "string" ? result.routeUrl : "";
+	const issues = Array.isArray(result.issues) ? result.issues.map(String) : [];
+
+	if (issues.length > 0) {
+		return `${status}: ${slug}. ${issues.join(" ")}`.trim();
+	}
+
+	if (status === "validation_failed") {
+		return `${status}: ${slug}. ${message || "The Worker uploaded, but the primary route did not render. The previous active app was left unchanged."}`.trim();
+	}
+
+	if (result.deployed === true) {
+		const routeHref = routeUrl.startsWith("/") && typeof window !== "undefined"
+			? `${window.location.origin}${routeUrl}`
+			: routeUrl;
+		const route = routeHref ? ` ${routeHref}` : "";
+		return `${status}: ${slug} ${operation === "update" ? "updated" : "deployed"}.${route}`.trim();
+	}
+
+	return `${status}: ${slug}. ${message}`.trim();
+}
+
+function formatAgentResult(result: unknown): string {
+	if (!result) {
+		return "Done.";
+	}
+	if (typeof result === "string") {
+		return result;
+	}
+	if (typeof result === "object") {
+		const text = readStringProperty(result, "text") ?? readStringProperty(result, "message");
+		if (text) {
+			return text;
+		}
+		try {
+			return JSON.stringify(result);
+		} catch {
+			return "Done.";
+		}
+	}
+
+	return String(result);
 }
 
 function formatAgentError(error: unknown, fallback: string): string {

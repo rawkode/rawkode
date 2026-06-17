@@ -13,6 +13,7 @@ import type {
 	KanbanColumn,
 	Principal,
 	Project,
+	RegisteredExtension,
 	ResourceIndexRecord,
 	ScheduledWorkflow,
 } from "./types";
@@ -262,12 +263,17 @@ export async function listExtensions(env: Env): Promise<ExtensionManifest[]> {
 	return (result.results ?? []).map(mapExtension);
 }
 
-export async function getExtension(env: Env, slug: string): Promise<(ExtensionManifest & { deployedScriptName?: string | null }) | null> {
+export async function listRegisteredExtensions(env: Env): Promise<RegisteredExtension[]> {
+	const result = await env.DB.prepare("SELECT * FROM extension_manifests ORDER BY slug ASC").all<ExtensionRow>();
+	return (result.results ?? []).map(mapRegisteredExtension);
+}
+
+export async function getExtension(env: Env, slug: string): Promise<RegisteredExtension | null> {
 	const row = await env.DB.prepare("SELECT * FROM extension_manifests WHERE slug = ?").bind(slug).first<ExtensionRow>();
 	if (!row) {
 		return null;
 	}
-	return { ...mapExtension(row), deployedScriptName: row.deployed_script_name };
+	return mapRegisteredExtension(row);
 }
 
 export async function saveExtension(env: Env, manifest: ExtensionManifest, deployedScriptName: string | null, status = "dynamic"): Promise<void> {
@@ -586,6 +592,10 @@ function mapDailyNote(row: DailyNoteRow): DailyNote {
 function mapExtension(row: ExtensionRow): ExtensionManifest {
 	const manifest = parseJsonObject(row.manifest_json) as unknown as ExtensionManifest;
 	return { ...manifest, status: row.status };
+}
+
+function mapRegisteredExtension(row: ExtensionRow): RegisteredExtension {
+	return { ...mapExtension(row), deployedScriptName: row.deployed_script_name };
 }
 
 function mapResource(row: ResourceRow): ResourceIndexRecord {

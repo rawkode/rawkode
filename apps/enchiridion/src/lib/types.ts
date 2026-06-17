@@ -195,3 +195,7 @@ export interface ExtensionManifest {
 	hostApis: string[];
 	indexProjections: ExtensionIndexProjection[];
 }
+
+export type RegisteredExtension = ExtensionManifest & {
+	deployedScriptName?: string | null;
+};

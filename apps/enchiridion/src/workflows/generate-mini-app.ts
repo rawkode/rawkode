@@ -1,10 +1,21 @@
 import { createAgent, type FlueContext, type WorkflowRouteHandler } from "@flue/runtime";
 import * as v from "valibot";
-import { deployMiniAppWorker, scriptNameForManifest } from "../lib/cloudflare-dispatch";
+import {
+	candidateScriptNameForManifest,
+	deployMiniAppWorker,
+	scriptNameForManifest,
+	smokeTestMiniAppWorker,
+} from "../lib/cloudflare-dispatch";
 import { validateExtensionManifest } from "../lib/extension-manifest";
 import { registerRuntimeProviders } from "../lib/flue-providers";
-import { createAuditRecord, saveExtension } from "../lib/repository";
-import type { Env, ExtensionManifest } from "../lib/types";
+import {
+	buildMiniAppGenerationPrompt,
+	findReferencedExtension,
+	inferMiniAppIntent,
+	type MiniAppOperation,
+} from "../lib/mini-app-requests";
+import { createAuditRecord, listRegisteredExtensions, saveExtension } from "../lib/repository";
+import type { Env, ExtensionManifest, JsonObject, RegisteredExtension } from "../lib/types";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
@@ -49,39 +60,82 @@ const generatedMiniAppSchema = v.object({
 interface GenerateMiniAppPayload {
 	prompt: string;
 	slugHint?: string;
+	operation?: MiniAppOperation;
+	targetSlug?: string;
 	autonomousDeploy?: boolean;
 }
 
 export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
+	const installedExtensions = await listRegisteredExtensions(env);
+	const inferred = inferMiniAppIntent(payload.prompt, installedExtensions, true);
+	const operation = payload.operation ?? inferred.operation;
+	const targetExtension = findReferencedExtension(
+		payload.prompt,
+		installedExtensions,
+		payload.targetSlug ?? inferred.targetSlug,
+	);
+	const slugHint = payload.slugHint ?? inferred.slugHint ?? targetExtension?.slug;
+
+	if (operation === "update") {
+		const rejection = rejectInvalidUpdateTarget(targetExtension, payload.targetSlug ?? inferred.targetSlug);
+		if (rejection) {
+			await createAuditRecord(env, {
+				slug: rejection.slug,
+				action: "update-mini-app",
+				status: "rejected",
+				details: { issues: rejection.issues },
+			});
+
+			return {
+				status: "rejected",
+				operation,
+				slug: rejection.slug,
+				issues: rejection.issues,
+				deployed: false,
+			};
+		}
+	}
+
 	const harness = await init(miniAppBuilder);
 	const session = await harness.session();
 
 	const response = await session.prompt(
-		[
-			"Create an Enchiridion mini app for this request:",
-			payload.prompt,
-			payload.slugHint ? `Preferred slug: ${payload.slugHint}` : "",
-			"Return only fields matching the requested result schema.",
-		].filter(Boolean).join("\n\n"),
+		buildMiniAppGenerationPrompt({
+			userPrompt: payload.prompt,
+			operation,
+			installedExtensions,
+			targetExtension,
+			slugHint,
+		}),
 		{ result: generatedMiniAppSchema },
 	);
 
 	const generated = response.data;
 	const validation = validateExtensionManifest(generated.manifest);
 	const slug = validation.manifest?.slug ?? generated.manifest.slug;
+	const validationIssues = [...validation.issues];
 
-	if (!validation.ok || !validation.manifest) {
+	if (operation === "update" && targetExtension && validation.manifest?.slug !== targetExtension.slug) {
+		validationIssues.push(`manifest.slug: update must keep target slug ${targetExtension.slug}`);
+	}
+
+	if (operation === "create" && installedExtensions.some((extension) => extension.slug === validation.manifest?.slug)) {
+		validationIssues.push(`manifest.slug: ${validation.manifest?.slug} already exists; use update instead`);
+	}
+
+	if (!validation.ok || !validation.manifest || validationIssues.length > 0) {
 		await createAuditRecord(env, {
 			slug,
-			action: "generate-mini-app",
+			action: `${operation}-mini-app`,
 			status: "rejected",
-			details: { issues: validation.issues },
+			details: { issues: validationIssues },
 		});
 
 		return {
 			status: "rejected",
+			operation,
 			slug,
-			issues: validation.issues,
+			issues: validationIssues,
 			deployed: false,
 		};
 	}
@@ -96,13 +150,94 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 		: await deployMiniAppWorker(env, {
 			manifest,
 			workerSource: generated.workerSource,
+			scriptName: candidateScriptNameForManifest(manifest),
 		});
+
+	if (deployment.deployed) {
+		const smokeTest = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: deployment.scriptName,
+		});
+
+		if (!smokeTest.ok) {
+			await createAuditRecord(env, {
+				slug: manifest.slug,
+				action: `${operation}-mini-app`,
+				status: "validation_failed",
+				details: {
+					scriptName: deployment.scriptName,
+					message: deployment.message,
+					deploymentNotes: generated.deploymentNotes,
+					validation: smokeTest as unknown as JsonObject,
+				},
+			});
+
+			return {
+				status: "validation_failed",
+				operation,
+				slug: manifest.slug,
+				scriptName: deployment.scriptName,
+				deployed: false,
+				message: smokeTest.message,
+				validation: smokeTest,
+				manifest,
+			};
+		}
+
+		await saveExtension(env, manifest, deployment.scriptName, "dynamic");
+		await createAuditRecord(env, {
+			slug: manifest.slug,
+			action: `${operation}-mini-app`,
+			status: operation === "update" ? "updated" : "deployed",
+			details: {
+				scriptName: deployment.scriptName,
+				message: deployment.message,
+				deploymentNotes: generated.deploymentNotes,
+				validation: smokeTest as unknown as JsonObject,
+			},
+		});
+
+		return {
+			status: operation === "update" ? "updated" : "deployed",
+			operation,
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: true,
+			message: `${deployment.message} ${smokeTest.message}`,
+			routeUrl: smokeTest.route,
+			validation: smokeTest,
+			manifest,
+		};
+	}
+
+	if (payload.autonomousDeploy !== false) {
+		await createAuditRecord(env, {
+			slug: manifest.slug,
+			action: `${operation}-mini-app`,
+			status: "deploy_failed",
+			details: {
+				scriptName: deployment.scriptName,
+				message: deployment.message,
+				deploymentNotes: generated.deploymentNotes,
+			},
+		});
+
+		return {
+			status: "deploy_failed",
+			operation,
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: false,
+			message: deployment.message,
+			manifest,
+		};
+	}
 
 	await saveExtension(env, manifest, deployment.deployed ? deployment.scriptName : null, "dynamic");
 	await createAuditRecord(env, {
 		slug: manifest.slug,
-		action: "generate-mini-app",
-		status: deployment.deployed ? "deployed" : "registered",
+		action: `${operation}-mini-app`,
+		status: "registered",
 		details: {
 			scriptName: deployment.scriptName,
 			message: deployment.message,
@@ -111,11 +246,44 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	});
 
 	return {
-		status: deployment.deployed ? "deployed" : "registered",
+		status: "registered",
+		operation,
 		slug: manifest.slug,
 		scriptName: deployment.scriptName,
-		deployed: deployment.deployed,
+		deployed: false,
 		message: deployment.message,
 		manifest,
 	};
+}
+
+function rejectInvalidUpdateTarget(
+	targetExtension: RegisteredExtension | undefined,
+	requestedSlug?: string,
+): { slug: string; issues: string[] } | null {
+	if (!targetExtension) {
+		return {
+			slug: requestedSlug ?? "unknown",
+			issues: [
+				requestedSlug
+					? `No registered mini app found for ${requestedSlug}.`
+					: "No existing mini app matched the update request.",
+			],
+		};
+	}
+
+	if (targetExtension.status !== "dynamic") {
+		return {
+			slug: targetExtension.slug,
+			issues: [`${targetExtension.slug} is ${targetExtension.status ?? "unknown"} and requires a host rebuild instead of dynamic Worker regeneration.`],
+		};
+	}
+
+	if (!targetExtension.deployedScriptName) {
+		return {
+			slug: targetExtension.slug,
+			issues: [`${targetExtension.slug} has no active deployed Worker to update.`],
+		};
+	}
+
+	return null;
 }
