@@ -100,6 +100,7 @@ tasks: {
 			description: "Apply production D1 migrations and deploy Enchiridion"
 			command:     "bun"
 			args: ["run", "deploy"]
+			dependsOn: [_t.install]
 			hermetic: false
 			inputs: [
 				"astro.config.mjs",
