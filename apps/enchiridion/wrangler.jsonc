@@ -14,7 +14,6 @@
 		"binding": "AI"
 	},
 	"vars": {
-		"DEV_USER_EMAIL": "rawkode.local",
 		"CLOUDFLARE_ACCOUNT_ID": "0aeb879de8e3cdde5fb3d413025222ce",
 		"CLOUDFLARE_DISPATCH_NAMESPACE": "enchiridion-mini-apps"
 	},

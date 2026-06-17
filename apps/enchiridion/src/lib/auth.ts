@@ -8,10 +8,11 @@ export function authenticate(request: Request, env: Env): Principal | null {
 		return { email, name: name ?? email, source: "cloudflare-access" };
 	}
 
-	if (env.DEV_USER_EMAIL) {
+	if (isLocalDevelopmentRequest(request)) {
+		const devEmail = env.DEV_USER_EMAIL ?? "rawkode.local";
 		return {
-			email: env.DEV_USER_EMAIL,
-			name: env.DEV_USER_EMAIL,
+			email: devEmail,
+			name: devEmail,
 			source: "dev",
 		};
 	}
@@ -39,4 +40,13 @@ function isAllowedEmail(email: string, allowedEmails?: string): boolean {
 
 	const allowed = allowedEmails.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean);
 	return allowed.includes(email.toLowerCase());
+}
+
+function isLocalDevelopmentRequest(request: Request): boolean {
+	const { hostname } = new URL(request.url);
+	return hostname === "localhost"
+		|| hostname === "127.0.0.1"
+		|| hostname === "::1"
+		|| hostname === "[::1]"
+		|| hostname.endsWith(".localhost");
 }
