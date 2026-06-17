@@ -78,6 +78,67 @@ export function savedQueryViewOptionLabel(savedView: SavedQueryViewDefinition) {
   return `${savedView.name} · ${savedQueryViewSummary(savedView)}`;
 }
 
+export function savedQueryViewPromotionName(title: unknown, query: unknown) {
+  const normalizedTitle = normalizedOptionalString(title);
+  if (normalizedTitle) {
+    return normalizedTitle;
+  }
+
+  if (typeof query !== 'string') {
+    return 'Query View';
+  }
+
+  const sourceMatch = query.match(/\bfrom\s+([a-z_][a-z0-9_]*)/i);
+  if (!sourceMatch) {
+    return 'Query View';
+  }
+
+  return sourceMatch[1]
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function savedQueryViewPromotionSignature(input: {
+  savedViewId: unknown;
+  title: unknown;
+  query: unknown;
+  view: unknown;
+  groupBy: unknown;
+}) {
+  const savedViewId = normalizedOptionalString(input.savedViewId) ?? '';
+  const title = normalizedOptionalString(input.title) ?? '';
+  const query = typeof input.query === 'string' ? input.query : '';
+  const view = normalizedOptionalString(input.view) ?? 'table';
+  const groupBy = normalizedOptionalString(input.groupBy) ?? '';
+
+  return [savedViewId, title, query, view, groupBy].join('\u0000');
+}
+
+export function upsertSavedQueryViewSnapshot(savedQueryView: unknown) {
+  const normalized = normalizeSavedQueryView(savedQueryView);
+  if (!normalized) {
+    return null;
+  }
+
+  const existingIndex = savedQueryViewsSnapshot.findIndex((candidate) => candidate.id === normalized.id);
+  if (existingIndex >= 0) {
+    savedQueryViewsSnapshot = savedQueryViewsSnapshot.map((candidate, index) =>
+      index === existingIndex ? normalized : candidate
+    );
+  } else {
+    savedQueryViewsSnapshot = [...savedQueryViewsSnapshot, normalized];
+  }
+
+  for (const listener of Array.from(savedQueryViewsListeners)) {
+    listener();
+  }
+
+  notifyQueryRefresh('savedViewsChanged');
+  return normalized;
+}
+
 export function setSavedQueryViews(savedQueryViews: unknown) {
   savedQueryViewsSnapshot = normalizeSavedQueryViews(savedQueryViews);
 

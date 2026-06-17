@@ -15,6 +15,7 @@ struct WebEditorView {
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
+    let onSavedQueryViewCreate: (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView
     let onOpenDocument: (_ documentID: UUID) -> Void
     let onOpenEntity: (_ entityID: UUID) -> Void
     let onReady: () -> Void
@@ -26,6 +27,7 @@ struct WebEditorView {
             onChange: onChange,
             onEntityUpsert: onEntityUpsert,
             onQueryRun: onQueryRun,
+            onSavedQueryViewCreate: onSavedQueryViewCreate,
             onOpenDocument: onOpenDocument,
             onOpenEntity: onOpenEntity,
             onReady: onReady,
@@ -57,6 +59,7 @@ struct WebEditorView {
         coordinator.onChange = onChange
         coordinator.onEntityUpsert = onEntityUpsert
         coordinator.onQueryRun = onQueryRun
+        coordinator.onSavedQueryViewCreate = onSavedQueryViewCreate
         coordinator.onOpenDocument = onOpenDocument
         coordinator.onOpenEntity = onOpenEntity
         coordinator.onReady = onReady
@@ -128,6 +131,7 @@ extension WebEditorView {
         var onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
         var onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
         var onQueryRun: (_ query: String) throws -> QueryResult
+        var onSavedQueryViewCreate: (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView
         var onOpenDocument: (_ documentID: UUID) -> Void
         var onOpenEntity: (_ entityID: UUID) -> Void
         var onReady: () -> Void
@@ -148,6 +152,7 @@ extension WebEditorView {
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
             onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference,
             onQueryRun: @escaping (_ query: String) throws -> QueryResult,
+            onSavedQueryViewCreate: @escaping (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView,
             onOpenDocument: @escaping (_ documentID: UUID) -> Void,
             onOpenEntity: @escaping (_ entityID: UUID) -> Void,
             onReady: @escaping () -> Void,
@@ -157,6 +162,7 @@ extension WebEditorView {
             self.onChange = onChange
             self.onEntityUpsert = onEntityUpsert
             self.onQueryRun = onQueryRun
+            self.onSavedQueryViewCreate = onSavedQueryViewCreate
             self.onOpenDocument = onOpenDocument
             self.onOpenEntity = onOpenEntity
             self.onReady = onReady
@@ -338,6 +344,38 @@ extension WebEditorView {
                     )
                 }
 
+            case "saveQueryView":
+                guard
+                    let requestID = body["requestId"] as? String,
+                    let name = body["name"] as? String,
+                    let query = body["query"] as? String,
+                    let view = body["view"] as? String
+                else {
+                    return
+                }
+
+                let groupBy = body["groupBy"] as? String
+
+                do {
+                    let savedView = try onSavedQueryViewCreate(name, query, view, groupBy)
+                    sendSavedQueryViewResponse(
+                        SavedQueryViewBridgeResponse(
+                            requestId: requestID,
+                            savedView: savedView,
+                            error: nil
+                        )
+                    )
+                    sendQueryRefresh(reason: "savedViewSaved")
+                } catch {
+                    sendSavedQueryViewResponse(
+                        SavedQueryViewBridgeResponse(
+                            requestId: requestID,
+                            savedView: nil,
+                            error: error.localizedDescription
+                        )
+                    )
+                }
+
             case "openDocument":
                 guard
                     let documentIDString = body["documentId"] as? String,
@@ -454,6 +492,30 @@ extension WebEditorView {
                 }
             } catch {
                 onError("Could not encode query bridge response: \(error.localizedDescription)")
+            }
+        }
+
+        private func sendSavedQueryViewResponse(_ response: SavedQueryViewBridgeResponse) {
+            guard let webView else {
+                return
+            }
+
+            do {
+                let data = try JSONEncoder().encode(response)
+                guard let json = String(data: data, encoding: .utf8) else {
+                    onError("Could not encode saved query view bridge response.")
+                    return
+                }
+
+                webView.evaluateJavaScript(
+                    "window.NotesEditor?.completeSavedQueryViewRequest(\(json));"
+                ) { [weak self] _, error in
+                    if let error {
+                        self?.onError("Could not complete saved query view request: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                onError("Could not encode saved query view bridge response: \(error.localizedDescription)")
             }
         }
 
@@ -587,6 +649,26 @@ private struct QueryBridgeResponse: Encodable {
     let columns: [String]
     let rows: [[String: String]]
     let error: String?
+}
+
+private struct SavedQueryViewBridgeResponse: Encodable {
+    let requestId: String
+    let id: String?
+    let name: String?
+    let query: String?
+    let view: String?
+    let groupBy: String?
+    let error: String?
+
+    init(requestId: String, savedView: SavedQueryView?, error: String?) {
+        self.requestId = requestId
+        self.id = savedView?.id.uuidString
+        self.name = savedView?.name
+        self.query = savedView?.query
+        self.view = savedView?.view
+        self.groupBy = savedView?.groupBy
+        self.error = error
+    }
 }
 
 private struct QueryRefreshPayload: Encodable {

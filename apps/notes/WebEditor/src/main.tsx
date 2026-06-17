@@ -24,11 +24,14 @@ import {
   queryRowEntityId,
   resolveSavedQueryView,
   savedQueryViewOptionLabel,
+  savedQueryViewPromotionName,
+  savedQueryViewPromotionSignature,
   savedQueryViewSummary,
   setSavedQueryViews as setSavedQueryViewsSnapshot,
   subscribeQueryRefresh,
   subscribeSavedQueryViews,
   type SavedQueryViewDefinition,
+  upsertSavedQueryViewSnapshot,
 } from './queryView';
 import './styles.css';
 
@@ -68,6 +71,11 @@ type QueryRefreshPayload = {
   reason?: string;
 };
 
+type SavedQueryViewBridgeResponse = Partial<SavedQueryViewDefinition> & {
+  requestId: string;
+  error?: string | null;
+};
+
 type ActiveDocumentSnapshot = {
   documentId: string;
   loadGeneration: number;
@@ -87,6 +95,13 @@ type PendingQueryRequest = {
   reject(error: Error): void;
 };
 
+type PendingSavedQueryViewRequest = {
+  documentId: string;
+  loadGeneration: number;
+  resolve(savedView: SavedQueryViewDefinition): void;
+  reject(error: Error): void;
+};
+
 type NativeBridgeMessage =
   | { type: 'ready' }
   | { type: 'loaded'; documentId: string }
@@ -101,6 +116,14 @@ type NativeBridgeMessage =
       type: 'runQuery';
       requestId: string;
       query: string;
+    }
+  | {
+      type: 'saveQueryView';
+      requestId: string;
+      name: string;
+      query: string;
+      view: QueryViewMode;
+      groupBy?: string | null;
     }
   | {
       type: 'openDocument';
@@ -124,6 +147,7 @@ declare global {
       loadDocument(payload: EditorBridgePayload): boolean;
       completeEntityRequest(response: EntityBridgeResponse): void;
       completeQueryRequest(response: QueryBridgeResponse): void;
+      completeSavedQueryViewRequest(response: SavedQueryViewBridgeResponse): void;
       refreshQueryViews(payload?: QueryRefreshPayload): void;
       setSavedQueryViews(savedQueryViews: unknown): void;
     };
@@ -150,6 +174,7 @@ const emptyScene: ExcalidrawInitialDataState = {
 
 const pendingEntityRequests = new Map<string, PendingEntityRequest>();
 const pendingQueryRequests = new Map<string, PendingQueryRequest>();
+const pendingSavedQueryViewRequests = new Map<string, PendingSavedQueryViewRequest>();
 let activeDocumentSnapshot: ActiveDocumentSnapshot = { documentId: '', loadGeneration: 0 };
 
 const EntityReferenceNode = Node.create({
@@ -294,20 +319,38 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const isSavedViewBacked = Boolean(savedView);
   const isMissingSavedView = Boolean(savedViewId && !savedView);
   const querySignature = `${savedViewId}\u0000${effectiveQuery}\u0000${view}\u0000${groupBy}`;
+  const promotionBlockSignature = savedQueryViewPromotionSignature({
+    savedViewId,
+    title: displayTitle,
+    query: effectiveQuery,
+    view,
+    groupBy,
+  });
   const [result, setResult] = React.useState<QueryResultPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
+  const [isPromoting, setIsPromoting] = React.useState(false);
+  const [promotionName, setPromotionName] = React.useState('');
+  const [promotionError, setPromotionError] = React.useState<string | null>(null);
+  const [isSavingPromotion, setIsSavingPromotion] = React.useState(false);
   const didAutoRunRef = React.useRef(false);
   const isMountedRef = React.useRef(true);
   const queryGenerationRef = React.useRef(0);
   const activeRunRef = React.useRef(0);
   const previousQuerySignatureRef = React.useRef(querySignature);
+  const promotionBlockSignatureRef = React.useRef(promotionBlockSignature);
+  const trimmedPromotionName = promotionName.trim();
+  const defaultPromotionName = savedQueryViewPromotionName(displayTitle, effectiveQuery);
 
   React.useEffect(() => {
     return () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  React.useEffect(() => {
+    promotionBlockSignatureRef.current = promotionBlockSignature;
+  }, [promotionBlockSignature]);
 
   const run = React.useCallback(async () => {
     const trimmedQuery = effectiveQuery.trim();
@@ -390,6 +433,68 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     });
   }
 
+  function beginPromoting() {
+    setPromotionName(defaultPromotionName);
+    setPromotionError(null);
+    setIsPromoting(true);
+  }
+
+  async function promoteQueryView(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedQuery = effectiveQuery.trim();
+    if (!trimmedPromotionName || !trimmedQuery || isSavingPromotion) {
+      return;
+    }
+
+    const snapshot = getCurrentDocumentSnapshot();
+    if (!snapshot.documentId) {
+      setPromotionError('No active note is loaded.');
+      return;
+    }
+
+    setIsSavingPromotion(true);
+    setPromotionError(null);
+    const submittedPromotionSignature = promotionBlockSignature;
+
+    try {
+      const savedView = await requestSavedQueryView(
+        {
+          name: trimmedPromotionName,
+          query: trimmedQuery,
+          view,
+          groupBy: groupBy || null,
+        },
+        snapshot
+      );
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      if (promotionBlockSignatureRef.current !== submittedPromotionSignature) {
+        setPromotionError('Query block changed before the saved view was applied. Review the block and save it again.');
+        return;
+      }
+
+      updateAttributes({
+        query: savedView.query,
+        view: parseQueryViewMode(savedView.view),
+        groupBy: parseQueryGroupBy(savedView.groupBy) || null,
+        title: savedView.name,
+        savedViewId: savedView.id,
+      });
+      setIsPromoting(false);
+    } catch (requestError) {
+      if (isMountedRef.current) {
+        setPromotionError(requestError instanceof Error ? requestError.message : 'Could not save view.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsSavingPromotion(false);
+      }
+    }
+  }
+
   React.useEffect(() => {
     if (didAutoRunRef.current) {
       return;
@@ -426,6 +531,13 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     });
   }, [run]);
 
+  React.useEffect(() => {
+    if (isSavedViewBacked) {
+      setIsPromoting(false);
+      setPromotionError(null);
+    }
+  }, [isSavedViewBacked]);
+
   return (
     <NodeViewWrapper className={`query-block ${selected ? 'is-selected' : ''}`}>
       <div className="query-block__toolbar">
@@ -436,14 +548,14 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
           <span>Title</span>
           <input
             value={displayTitle}
-            readOnly={isSavedViewBacked}
+            readOnly={isSavedViewBacked || isSavingPromotion}
             onChange={(event) => updateTitle(event.target.value)}
             placeholder="View title"
           />
         </label>
         <select
           value={view}
-          disabled={isSavedViewBacked}
+          disabled={isSavedViewBacked || isSavingPromotion}
           onChange={(event) => updateView(event.target.value)}
         >
           <option value="table">Table</option>
@@ -458,7 +570,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
             <span>Group</span>
             <input
               value={groupBy}
-              readOnly={isSavedViewBacked}
+              readOnly={isSavedViewBacked || isSavingPromotion}
               onChange={(event) => updateGroupBy(event.target.value)}
               placeholder="status"
             />
@@ -469,10 +581,36 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
             Detach
           </button>
         ) : null}
+        {!isSavedViewBacked ? (
+          <button type="button" onClick={beginPromoting} disabled={!effectiveQuery.trim() || isSavingPromotion}>
+            Save View
+          </button>
+        ) : null}
       </div>
+      {isPromoting && !isSavedViewBacked ? (
+        <form className="query-block__promotion" onSubmit={promoteQueryView}>
+          <label>
+            <span>Name</span>
+            <input
+              value={promotionName}
+              onChange={(event) => setPromotionName(event.target.value)}
+              placeholder="Saved view name"
+            />
+          </label>
+          {promotionError ? <p className="query-block__promotion-error">{promotionError}</p> : null}
+          <div className="query-block__promotion-actions">
+            <button type="button" onClick={() => setIsPromoting(false)} disabled={isSavingPromotion}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!trimmedPromotionName || !effectiveQuery.trim() || isSavingPromotion}>
+              {isSavingPromotion ? 'Saving' : 'Save View'}
+            </button>
+          </div>
+        </form>
+      ) : null}
       <textarea
         value={effectiveQuery}
-        readOnly={isSavedViewBacked}
+        readOnly={isSavedViewBacked || isSavingPromotion}
         spellCheck={false}
         onChange={(event) => updateQuery(event.target.value)}
       />
@@ -588,6 +726,7 @@ function App() {
         flushPendingChange();
         rejectPendingEntityRequests('Entity request cancelled because the active note changed.');
         rejectPendingQueryRequests('Query request cancelled because the active note changed.');
+        rejectPendingSavedQueryViewRequests('Saved view request cancelled because the active note changed.');
         loadGenerationRef.current += 1;
         documentIdRef.current = payload.documentId;
         titleRef.current = payload.title;
@@ -664,6 +803,35 @@ function App() {
           rows: Array.isArray(response.rows) ? response.rows : [],
         });
       },
+      completeSavedQueryViewRequest(response) {
+        const pending = pendingSavedQueryViewRequests.get(response.requestId);
+        if (!pending) {
+          return;
+        }
+
+        pendingSavedQueryViewRequests.delete(response.requestId);
+
+        if (
+          pending.documentId !== activeDocumentSnapshot.documentId ||
+          pending.loadGeneration !== activeDocumentSnapshot.loadGeneration
+        ) {
+          pending.reject(new Error('Saved view request cancelled because the active note changed.'));
+          return;
+        }
+
+        if (response.error) {
+          pending.reject(new Error(response.error));
+          return;
+        }
+
+        const savedView = upsertSavedQueryViewSnapshot(response);
+        if (!savedView) {
+          pending.reject(new Error('Saved view response was invalid.'));
+          return;
+        }
+
+        pending.resolve(savedView);
+      },
       refreshQueryViews(payload) {
         const reason = typeof payload?.reason === 'string' ? payload.reason : 'dataChanged';
         notifyQueryRefresh(reason);
@@ -680,6 +848,7 @@ function App() {
       setSavedQueryViewsSnapshot([]);
       rejectPendingEntityRequests('Editor unloaded before entity request completed.');
       rejectPendingQueryRequests('Editor unloaded before query request completed.');
+      rejectPendingSavedQueryViewRequests('Editor unloaded before saved view request completed.');
       flushPendingChange();
     };
   }, [editor, flushPendingChange]);
@@ -1023,9 +1192,45 @@ function requestQuery(
   });
 }
 
+function requestSavedQueryView(
+  savedView: {
+    name: string;
+    query: string;
+    view: QueryViewMode;
+    groupBy: string | null;
+  },
+  snapshot: ActiveDocumentSnapshot
+): Promise<SavedQueryViewDefinition> {
+  const requestId = makeId('saved_view_request');
+
+  return new Promise((resolve, reject) => {
+    if (!window.webkit?.messageHandlers?.notesBridge) {
+      reject(new Error('Saved view database is unavailable.'));
+      return;
+    }
+
+    pendingSavedQueryViewRequests.set(requestId, { ...snapshot, resolve, reject });
+    postNativeMessage({
+      type: 'saveQueryView',
+      requestId,
+      name: savedView.name,
+      query: savedView.query,
+      view: savedView.view,
+      groupBy: savedView.groupBy,
+    });
+  });
+}
+
 function rejectPendingQueryRequests(message: string) {
   for (const [requestId, pending] of Array.from(pendingQueryRequests)) {
     pendingQueryRequests.delete(requestId);
+    pending.reject(new Error(message));
+  }
+}
+
+function rejectPendingSavedQueryViewRequests(message: string) {
+  for (const [requestId, pending] of Array.from(pendingSavedQueryViewRequests)) {
+    pendingSavedQueryViewRequests.delete(requestId);
     pending.reject(new Error(message));
   }
 }

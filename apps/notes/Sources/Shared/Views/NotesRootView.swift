@@ -268,6 +268,14 @@ struct NotesRootView: View {
                     onQueryRun: { query in
                         try store.runQuery(query)
                     },
+                    onSavedQueryViewCreate: { name, query, view, groupBy in
+                        try store.createSavedQueryView(
+                            named: name,
+                            query: query,
+                            view: view,
+                            groupBy: groupBy
+                        )
+                    },
                     onOpenDocument: { documentID in
                         openDocument(documentID)
                     },

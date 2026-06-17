@@ -330,6 +330,32 @@ final class NotesStore {
         }
     }
 
+    @discardableResult
+    func createSavedQueryView(
+        named name: String,
+        query: String,
+        view: String = "table",
+        groupBy: String? = nil
+    ) throws -> SavedQueryView {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let savedView = try repository.createSavedQueryView(
+                named: name,
+                query: query,
+                view: view,
+                groupBy: groupBy
+            )
+            savedQueryViews = try repository.fetchSavedQueryViews()
+            return savedView
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
     func deleteSavedQueryView(id: UUID) {
         guard let repository = requireRepository() else {
             return

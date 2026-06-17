@@ -275,6 +275,39 @@ final class SQLiteNotesRepository {
     }
 
     @discardableResult
+    func createSavedQueryView(
+        named rawName: String,
+        query rawQuery: String,
+        view rawView: String = "table",
+        groupBy rawGroupBy: String? = nil
+    ) throws -> SavedQueryView {
+        let name = normalizedName(rawName)
+        guard !name.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Saved view name cannot be empty.")
+        }
+
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try LocalQuery(query)
+
+        let view = try normalizedSavedQueryViewMode(rawView)
+        let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let now = Date()
+        let savedView = SavedQueryView(
+            id: UUID(),
+            name: try uniqueSavedQueryViewName(for: name),
+            query: query,
+            view: view,
+            groupBy: groupBy,
+            sortOrder: try nextSavedQueryViewSortOrder(),
+            createdAt: now,
+            updatedAt: now
+        )
+
+        try upsert(savedView)
+        return savedView
+    }
+
+    @discardableResult
     func updateSavedQueryView(
         id: UUID,
         named rawName: String,
@@ -2965,8 +2998,20 @@ final class SQLiteNotesRepository {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
             }
 
-            return try savedQueryView(from: statement)
+        return try savedQueryView(from: statement)
         }
+    }
+
+    private func uniqueSavedQueryViewName(for name: String) throws -> String {
+        var candidate = name
+        var suffix = 2
+
+        while try fetchSavedQueryView(name: candidate) != nil {
+            candidate = "\(name) \(suffix)"
+            suffix += 1
+        }
+
+        return candidate
     }
 
     private func uniqueSavedQueryViewCopyName(for name: String) throws -> String {

@@ -268,6 +268,38 @@ select {
   width: 120px;
 }
 
+.query-block__promotion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 84%, CanvasText 4%);
+}
+
+.query-block__promotion label {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 4px;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__promotion-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.query-block__promotion-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: color-mix(in srgb, red 70%, CanvasText);
+  font-size: 0.84rem;
+}
+
 .query-block textarea {
   width: 100%;
   min-height: 74px;

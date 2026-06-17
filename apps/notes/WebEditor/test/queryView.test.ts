@@ -11,10 +11,13 @@ import {
   queryRowEntityId,
   resolveSavedQueryView,
   savedQueryViewOptionLabel,
+  savedQueryViewPromotionName,
+  savedQueryViewPromotionSignature,
   savedQueryViewSummary,
   setSavedQueryViews,
   subscribeSavedQueryViews,
   subscribeQueryRefresh,
+  upsertSavedQueryViewSnapshot,
 } from '../src/queryView';
 
 describe('query board view helpers', () => {
@@ -236,6 +239,50 @@ describe('query board view helpers', () => {
     ).toBe('Active Projects · Board by status');
   });
 
+  test('builds promotion names from query block metadata', () => {
+    expect(savedQueryViewPromotionName(' Active Projects ', 'SELECT * FROM projects')).toBe('Active Projects');
+    expect(savedQueryViewPromotionName('', 'SELECT date, title FROM daily_notes')).toBe('Daily Notes');
+    expect(savedQueryViewPromotionName(null, 'SELECT 1')).toBe('Query View');
+  });
+
+  test('detects query block state changes during promotion', () => {
+    const submitted = savedQueryViewPromotionSignature({
+      savedViewId: '',
+      title: ' Active Projects ',
+      query: 'SELECT * FROM projects',
+      view: 'board',
+      groupBy: ' status ',
+    });
+
+    expect(
+      savedQueryViewPromotionSignature({
+        savedViewId: '',
+        title: 'Active Projects',
+        query: 'SELECT * FROM projects',
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).toBe(submitted);
+    expect(
+      savedQueryViewPromotionSignature({
+        savedViewId: '',
+        title: 'Active Projects',
+        query: 'SELECT * FROM projects WHERE status = "active"',
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).not.toBe(submitted);
+    expect(
+      savedQueryViewPromotionSignature({
+        savedViewId: 'saved-view-1',
+        title: 'Active Projects',
+        query: 'SELECT * FROM projects',
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).not.toBe(submitted);
+  });
+
   test('stores saved query views and refreshes subscribers', () => {
     const savedViewUpdates: number[] = [];
     const refreshReasons: string[] = [];
@@ -259,6 +306,19 @@ describe('query board view helpers', () => {
     expect(resolveSavedQueryView(' saved-view-1 ')?.name).toBe('Active Projects');
     expect(savedViewUpdates).toEqual([1]);
     expect(refreshReasons).toEqual(['savedViewsChanged']);
+
+    expect(
+      upsertSavedQueryViewSnapshot({
+        id: 'saved-view-2',
+        name: 'Daily Notes',
+        query: 'SELECT date, title FROM daily_notes',
+        view: 'board',
+        groupBy: 'date',
+      })?.name
+    ).toBe('Daily Notes');
+    expect(resolveSavedQueryView('saved-view-2')?.groupBy).toBe('date');
+    expect(savedViewUpdates).toEqual([1, 2]);
+    expect(refreshReasons).toEqual(['savedViewsChanged', 'savedViewsChanged']);
 
     unsubscribeSavedViews();
     unsubscribeRefresh();

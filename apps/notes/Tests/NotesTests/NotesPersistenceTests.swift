@@ -70,8 +70,20 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(updatedView.id, savedView.id)
         XCTAssertEqual(try repository.fetchSavedQueryViews().count, 1)
 
+        let promotedView = try repository.createSavedQueryView(
+            named: "Active Bookmarks",
+            query: "SELECT url FROM bookmarks WHERE status = active",
+            view: "table"
+        )
+
+        XCTAssertNotEqual(promotedView.id, savedView.id)
+        XCTAssertEqual(promotedView.name, "Active Bookmarks 2")
+        XCTAssertEqual(promotedView.sortOrder, 1)
+        XCTAssertEqual(try repository.fetchSavedQueryViews().count, 2)
+
         let reopenedRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
         let reopenedView = try XCTUnwrap(reopenedRepository.fetchSavedQueryView(id: savedView.id))
+        let reopenedPromotedView = try XCTUnwrap(reopenedRepository.fetchSavedQueryView(id: promotedView.id))
 
         XCTAssertEqual(reopenedView.name, "active bookmarks")
         XCTAssertEqual(reopenedView.query, "SELECT name FROM bookmarks WHERE status = archived")
@@ -79,6 +91,8 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertNil(reopenedView.groupBy)
         XCTAssertEqual(reopenedView.sortOrder, 0)
         XCTAssertLessThan(abs(reopenedView.createdAt.timeIntervalSince(savedView.createdAt)), 1)
+        XCTAssertEqual(reopenedPromotedView.name, "Active Bookmarks 2")
+        XCTAssertEqual(reopenedPromotedView.query, "SELECT url FROM bookmarks WHERE status = active")
     }
 
     func testSavedQueryViewsCanBeEditedDuplicatedAndReordered() throws {
@@ -2743,13 +2757,23 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.savedQueryViews.first?.view, "list")
         XCTAssertEqual(store.savedQueryViews.first?.sortOrder, 0)
 
+        let promotedView = try store.createSavedQueryView(
+            named: "Open Projects",
+            query: "SELECT name FROM projects WHERE status = active",
+            view: "table"
+        )
+
+        XCTAssertNotEqual(promotedView.id, savedView.id)
+        XCTAssertEqual(promotedView.name, "Open Projects 2")
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, promotedView.id])
+
         let recentView = try store.saveSavedQueryView(
             named: "Recent Daily Notes",
             query: "SELECT date, title FROM daily_notes",
             view: "table"
         )
 
-        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, recentView.id])
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, promotedView.id, recentView.id])
 
         let updatedView = try store.updateSavedQueryView(
             id: savedView.id,
@@ -2760,31 +2784,38 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         XCTAssertEqual(updatedView.id, savedView.id)
-        XCTAssertEqual(store.savedQueryViews.count, 2)
+        XCTAssertEqual(store.savedQueryViews.count, 3)
         XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects Board")
         XCTAssertEqual(store.savedQueryViews.first?.view, "board")
         XCTAssertEqual(store.savedQueryViews.first?.groupBy, "status")
 
         let duplicateView = try store.duplicateSavedQueryView(id: savedView.id)
         XCTAssertEqual(duplicateView.name, "Open Projects Board Copy")
-        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, recentView.id, duplicateView.id])
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [
+            savedView.id,
+            promotedView.id,
+            recentView.id,
+            duplicateView.id,
+        ])
 
         store.reorderSavedQueryViews(ids: [
             duplicateView.id,
             recentView.id,
+            promotedView.id,
             savedView.id,
         ])
 
         XCTAssertEqual(store.savedQueryViews.map(\.id), [
             duplicateView.id,
             recentView.id,
+            promotedView.id,
             savedView.id,
         ])
-        XCTAssertEqual(store.savedQueryViews.map(\.sortOrder), [0, 1, 2])
+        XCTAssertEqual(store.savedQueryViews.map(\.sortOrder), [0, 1, 2, 3])
 
         store.deleteSavedQueryView(id: savedView.id)
 
-        XCTAssertEqual(store.savedQueryViews.map(\.id), [duplicateView.id, recentView.id])
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [duplicateView.id, recentView.id, promotedView.id])
     }
 
     @MainActor
