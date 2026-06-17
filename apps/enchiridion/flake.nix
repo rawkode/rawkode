@@ -15,6 +15,7 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             bash
+            bun
             coreutils
             curl
             git

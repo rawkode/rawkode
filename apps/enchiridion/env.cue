@@ -1,7 +1,7 @@
 package cuenv
 
 import (
-	contrib "github.com/cuenv/cuenv/contrib/contributors"
+	c "github.com/cuenv/cuenv/contrib/contributors"
 	"github.com/cuenv/cuenv/schema"
 )
 
@@ -23,36 +23,40 @@ env: {
 
 tasks: {
 	install: schema.#Task & {
-		description: "Install npm dependencies from the lockfile"
-		command:     "npm"
-		args: ["ci"]
+		description: "Install Bun dependencies from the lockfile"
+		command:     "bun"
+		args: ["install", "--frozen-lockfile"]
 		hermetic: false
-		outputs: ["node_modules/**/*"]
+		inputs: [
+			"bun.lock",
+			"package.json",
+		]
+		outputs: ["node_modules"]
 	}
 
 	dev: schema.#Task & {
 		description: "Start the Flue Cloudflare worker dev server"
-		command:     "npm"
+		command:     "bun"
 		args: ["run", "dev"]
 		hermetic: false
 	}
 
 	devUI: schema.#Task & {
 		description: "Start the local Astro asset proxy for the app shell"
-		command:     "npm"
+		command:     "bun"
 		args: ["run", "dev:ui"]
 		hermetic: false
 	}
 
 	check: schema.#Task & {
 		description: "Run TypeScript, Vitest, and Astro diagnostics"
-		command:     "npm"
+		command:     "bun"
 		args: ["run", "check"]
 		hermetic: false
 		inputs: [
 			"astro.config.mjs",
+			"bun.lock",
 			"flue.config.ts",
-			"package-lock.json",
 			"package.json",
 			"src/**/*",
 			"tests/**/*",
@@ -62,14 +66,14 @@ tasks: {
 
 	build: schema.#Task & {
 		description: "Build the Cloudflare worker and Astro app shell"
-		command:     "npm"
+		command:     "bun"
 		args: ["run", "build"]
 		hermetic: false
 		inputs: [
 			"astro.config.mjs",
+			"bun.lock",
 			"flue.config.ts",
 			"migrations/**/*",
-			"package-lock.json",
 			"package.json",
 			"public/**/*",
 			"scripts/**/*",
@@ -82,7 +86,7 @@ tasks: {
 
 	preview: schema.#Task & {
 		description: "Preview the built Worker and app shell locally"
-		command:     "npm"
+		command:     "bun"
 		args: ["run", "preview"]
 		dependsOn: [build]
 		hermetic: false
@@ -92,15 +96,15 @@ tasks: {
 		type: "group"
 		main: schema.#Task & {
 			description: "Apply production D1 migrations and deploy Enchiridion"
-			command:     "npm"
+			command:     "bun"
 			args: ["run", "deploy"]
 			hermetic: false
 			inputs: [
 				"astro.config.mjs",
+				"bun.lock",
 				"env.cue",
 				"flue.config.ts",
 				"migrations/**/*",
-				"package-lock.json",
 				"package.json",
 				"public/**/*",
 				"scripts/**/*",
@@ -111,16 +115,16 @@ tasks: {
 		}
 		preview: schema.#Task & {
 			description: "Upload a Cloudflare Worker preview version"
-			command:     "npm"
+			command:     "bun"
 			args: ["run", "preview:upload"]
 			dependsOn: [_t.build]
 			hermetic: false
 			inputs: [
 				"astro.config.mjs",
+				"bun.lock",
 				"env.cue",
 				"flue.config.ts",
 				"migrations/**/*",
-				"package-lock.json",
 				"package.json",
 				"public/**/*",
 				"scripts/**/*",
@@ -137,7 +141,12 @@ tasks: {
 
 ci: {
 	providers: ["github"]
-	contributors: [contrib.#Nix, contrib.#Cuenv, contrib.#NpmWorkspace, contrib.#OnePassword]
+	contributors: [
+		c.#Nix,
+		c.#BunWorkspace,
+		c.#CuenvRelease,
+		c.#OnePassword,
+	]
 	provider: github: permissions: {
 		contents:      "read"
 		"pull-requests": "write"
