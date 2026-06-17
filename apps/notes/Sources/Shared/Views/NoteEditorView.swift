@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NoteEditorView: View {
     let document: NoteDocument
+    let savedQueryViews: [SavedQueryView]
     let onOpenPreviousDailyNote: () -> Void
     let onOpenToday: () -> Void
     let onOpenNextDailyNote: () -> Void
@@ -18,6 +19,7 @@ struct NoteEditorView: View {
             ZStack(alignment: .top) {
                 WebEditorView(
                     document: document,
+                    savedQueryViews: savedQueryViews,
                     onChange: onChange,
                     onEntityUpsert: onEntityUpsert,
                     onQueryRun: onQueryRun,
@@ -147,6 +149,7 @@ private struct EditorStatusBanner: View {
                 createdAt: .now,
                 updatedAt: .now
             ),
+            savedQueryViews: [],
             onOpenPreviousDailyNote: {},
             onOpenToday: {},
             onOpenNextDailyNote: {},

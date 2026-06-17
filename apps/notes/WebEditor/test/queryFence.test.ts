@@ -132,6 +132,7 @@ SELECT * FROM bookmarks
       view: 'board',
       groupBy: 'status',
       title: 'Project Board',
+      savedViewId: null,
     });
 
     expect(
@@ -146,6 +147,7 @@ SELECT * FROM bookmarks
       view: 'table',
       groupBy: null,
       title: null,
+      savedViewId: null,
     });
   });
 });

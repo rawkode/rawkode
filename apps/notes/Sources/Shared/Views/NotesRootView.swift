@@ -123,6 +123,7 @@ struct NotesRootView: View {
             } else if let selectedDocument = store.selectedDocument {
                 NoteEditorView(
                     document: selectedDocument,
+                    savedQueryViews: store.savedQueryViews,
                     onOpenPreviousDailyNote: {
                         openDailyNote(movingByDays: -1)
                     },

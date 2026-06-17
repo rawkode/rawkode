@@ -17,6 +17,7 @@ export type QueryViewNodeAttributes = {
   view: QueryViewMode;
   groupBy: string | null;
   title: string | null;
+  savedViewId: string | null;
 };
 
 export type QueryFenceTextBlock = {
@@ -149,6 +150,7 @@ export function queryFenceReplacementToNodeAttributes(
     view: replacement.view,
     groupBy: replacement.groupBy ?? null,
     title: replacement.title ?? null,
+    savedViewId: null,
   };
 }
 

@@ -11,6 +11,7 @@ import AppKit
 @MainActor
 struct WebEditorView {
     let document: NoteDocument
+    let savedQueryViews: [SavedQueryView]
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
@@ -20,6 +21,7 @@ struct WebEditorView {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            savedQueryViews: savedQueryViews,
             onChange: onChange,
             onEntityUpsert: onEntityUpsert,
             onQueryRun: onQueryRun,
@@ -56,6 +58,7 @@ struct WebEditorView {
         coordinator.onOpenDocument = onOpenDocument
         coordinator.onReady = onReady
         coordinator.onError = onError
+        coordinator.syncSavedQueryViews(savedQueryViews)
         coordinator.scheduleLoad(document)
     }
 
@@ -133,8 +136,11 @@ extension WebEditorView {
         private var loadedDocumentID: UUID?
         private var loadedTitle: String?
         private var loadedContentJSON: String?
+        private var pendingSavedQueryViews: [SavedQueryView]
+        private var syncedSavedQueryViews: [SavedQueryView] = []
 
         init(
+            savedQueryViews: [SavedQueryView],
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
             onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference,
             onQueryRun: @escaping (_ query: String) throws -> QueryResult,
@@ -142,6 +148,7 @@ extension WebEditorView {
             onReady: @escaping () -> Void,
             onError: @escaping (_ message: String) -> Void
         ) {
+            self.pendingSavedQueryViews = savedQueryViews
             self.onChange = onChange
             self.onEntityUpsert = onEntityUpsert
             self.onQueryRun = onQueryRun
@@ -222,6 +229,7 @@ extension WebEditorView {
             case "ready":
                 isEditorReady = true
                 onReady()
+                syncSavedQueryViews(pendingSavedQueryViews)
                 if let pendingDocument {
                     sendLoad(pendingDocument)
                 }
@@ -345,6 +353,20 @@ extension WebEditorView {
             }
         }
 
+        func syncSavedQueryViews(_ savedQueryViews: [SavedQueryView]) {
+            pendingSavedQueryViews = savedQueryViews
+
+            guard isEditorReady else {
+                return
+            }
+
+            guard syncedSavedQueryViews != savedQueryViews else {
+                return
+            }
+
+            sendSavedQueryViews(savedQueryViews)
+        }
+
         private func sendQueryRefresh(reason: String) {
             guard let webView else {
                 return
@@ -366,6 +388,32 @@ extension WebEditorView {
                 }
             } catch {
                 onError("Could not encode query refresh payload: \(error.localizedDescription)")
+            }
+        }
+
+        private func sendSavedQueryViews(_ savedQueryViews: [SavedQueryView]) {
+            guard let webView else {
+                return
+            }
+
+            do {
+                let payload = savedQueryViews.map(EditorSavedQueryViewPayload.init(savedView:))
+                let data = try JSONEncoder().encode(payload)
+                guard let json = String(data: data, encoding: .utf8) else {
+                    onError("Could not encode saved query views.")
+                    return
+                }
+
+                syncedSavedQueryViews = savedQueryViews
+                webView.evaluateJavaScript(
+                    "window.NotesEditor?.setSavedQueryViews?.(\(json));"
+                ) { [weak self] _, error in
+                    if let error {
+                        self?.onError("Could not sync saved query views: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                onError("Could not encode saved query views: \(error.localizedDescription)")
             }
         }
 
@@ -491,6 +539,22 @@ private struct EditorLoadPayload: Encodable {
     let documentId: String
     let title: String
     let contentJSON: String
+}
+
+private struct EditorSavedQueryViewPayload: Encodable {
+    let id: String
+    let name: String
+    let query: String
+    let view: String
+    let groupBy: String?
+
+    init(savedView: SavedQueryView) {
+        self.id = savedView.id.uuidString
+        self.name = savedView.name
+        self.query = savedView.query
+        self.view = savedView.view
+        self.groupBy = savedView.groupBy
+    }
 }
 
 private struct EntityBridgeResponse: Encodable {

@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildBoardGroups,
+  getSavedQueryViews,
+  normalizeSavedQueryViews,
   notifyQueryRefresh,
   parseQueryGroupBy,
   queryDocumentIdMetadataKey,
   queryRowDocumentId,
+  resolveSavedQueryView,
+  setSavedQueryViews,
+  subscribeSavedQueryViews,
   subscribeQueryRefresh,
 } from '../src/queryView';
 
@@ -150,5 +155,57 @@ describe('query board view helpers', () => {
     notifyQueryRefresh('documentChanged');
 
     expect(reasons).toEqual(['entityChanged']);
+  });
+
+  test('normalizes saved query views from bridge payloads', () => {
+    expect(
+      normalizeSavedQueryViews([
+        {
+          id: ' saved-view-1 ',
+          name: ' Active Projects ',
+          query: ' SELECT * FROM projects ',
+          view: 'board',
+          groupBy: ' status ',
+        },
+        { id: 'missing-query', name: 'Broken', view: 'table' },
+      ])
+    ).toEqual([
+      {
+        id: 'saved-view-1',
+        name: 'Active Projects',
+        query: 'SELECT * FROM projects',
+        view: 'board',
+        groupBy: 'status',
+      },
+    ]);
+  });
+
+  test('stores saved query views and refreshes subscribers', () => {
+    const savedViewUpdates: number[] = [];
+    const refreshReasons: string[] = [];
+    const unsubscribeSavedViews = subscribeSavedQueryViews(() => {
+      savedViewUpdates.push(getSavedQueryViews().length);
+    });
+    const unsubscribeRefresh = subscribeQueryRefresh((reason) => {
+      refreshReasons.push(reason);
+    });
+
+    setSavedQueryViews([
+      {
+        id: 'saved-view-1',
+        name: 'Active Projects',
+        query: 'SELECT * FROM projects',
+        view: 'table',
+        groupBy: null,
+      },
+    ]);
+
+    expect(resolveSavedQueryView(' saved-view-1 ')?.name).toBe('Active Projects');
+    expect(savedViewUpdates).toEqual([1]);
+    expect(refreshReasons).toEqual(['savedViewsChanged']);
+
+    unsubscribeSavedViews();
+    unsubscribeRefresh();
+    setSavedQueryViews([]);
   });
 });

@@ -15,7 +15,18 @@ import {
   type QueryFenceTextBlock,
   type QueryViewMode,
 } from './queryFence';
-import { buildBoardGroups, notifyQueryRefresh, parseQueryGroupBy, queryRowDocumentId, subscribeQueryRefresh } from './queryView';
+import {
+  buildBoardGroups,
+  getSavedQueryViews,
+  notifyQueryRefresh,
+  parseQueryGroupBy,
+  queryRowDocumentId,
+  resolveSavedQueryView,
+  setSavedQueryViews as setSavedQueryViewsSnapshot,
+  subscribeQueryRefresh,
+  subscribeSavedQueryViews,
+  type SavedQueryViewDefinition,
+} from './queryView';
 import './styles.css';
 
 type EditorBridgePayload = {
@@ -107,6 +118,7 @@ declare global {
       completeEntityRequest(response: EntityBridgeResponse): void;
       completeQueryRequest(response: QueryBridgeResponse): void;
       refreshQueryViews(payload?: QueryRefreshPayload): void;
+      setSavedQueryViews(savedQueryViews: unknown): void;
     };
     webkit?: {
       messageHandlers?: {
@@ -183,6 +195,7 @@ const QueryViewNode = Node.create({
       view: { default: 'table' },
       groupBy: { default: null },
       title: { default: null },
+      savedViewId: { default: null },
     };
   },
 
@@ -198,6 +211,7 @@ const QueryViewNode = Node.create({
         'data-view': node.attrs.view,
         'data-group-by': node.attrs.groupBy,
         'data-title': node.attrs.title,
+        'data-saved-view-id': node.attrs.savedViewId,
         class: 'query-view-node',
       }),
       node.attrs.query,
@@ -257,11 +271,22 @@ function EntityReferenceView({ node }: NodeViewProps) {
 }
 
 function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) {
+  const savedQueryViews = React.useSyncExternalStore(
+    subscribeSavedQueryViews,
+    getSavedQueryViews,
+    getSavedQueryViews
+  );
+  const savedViewId = typeof node.attrs.savedViewId === 'string' ? node.attrs.savedViewId.trim() : '';
+  const savedView = savedViewId ? (savedQueryViews.find((candidate) => candidate.id === savedViewId) ?? null) : null;
   const query = typeof node.attrs.query === 'string' ? node.attrs.query : '';
-  const view = parseQueryViewMode(node.attrs.view);
-  const groupBy = parseQueryGroupBy(node.attrs.groupBy);
+  const effectiveQuery = savedView?.query ?? query;
+  const view = savedView ? parseQueryViewMode(savedView.view) : parseQueryViewMode(node.attrs.view);
+  const groupBy = savedView ? parseQueryGroupBy(savedView.groupBy) : parseQueryGroupBy(node.attrs.groupBy);
   const title = typeof node.attrs.title === 'string' ? node.attrs.title : '';
-  const displayTitle = title.trim();
+  const displayTitle = (savedView?.name ?? title).trim();
+  const isSavedViewBacked = Boolean(savedView);
+  const isMissingSavedView = Boolean(savedViewId && !savedView);
+  const querySignature = `${savedViewId}\u0000${effectiveQuery}\u0000${view}\u0000${groupBy}`;
   const [result, setResult] = React.useState<QueryResultPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
@@ -269,6 +294,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const isMountedRef = React.useRef(true);
   const queryGenerationRef = React.useRef(0);
   const activeRunRef = React.useRef(0);
+  const previousQuerySignatureRef = React.useRef(querySignature);
 
   React.useEffect(() => {
     return () => {
@@ -277,7 +303,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   }, []);
 
   const run = React.useCallback(async () => {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = effectiveQuery.trim();
     if (!trimmedQuery) {
       setError('Query cannot be empty.');
       setResult(null);
@@ -324,7 +350,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         setIsRunning(false);
       }
     }
-  }, [query]);
+  }, [effectiveQuery]);
 
   function updateQuery(nextQuery: string) {
     queryGenerationRef.current += 1;
@@ -332,15 +358,29 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     setResult(null);
     setError(null);
     setIsRunning(false);
-    updateAttributes({ query: nextQuery });
+    updateAttributes({ query: nextQuery, savedViewId: null });
   }
 
   function updateGroupBy(nextGroupBy: string) {
-    updateAttributes({ groupBy: parseQueryGroupBy(nextGroupBy) || null });
+    updateAttributes({ groupBy: parseQueryGroupBy(nextGroupBy) || null, savedViewId: null });
   }
 
   function updateTitle(nextTitle: string) {
-    updateAttributes({ title: nextTitle.trim().length > 0 ? nextTitle : null });
+    updateAttributes({ title: nextTitle.trim().length > 0 ? nextTitle : null, savedViewId: null });
+  }
+
+  function updateView(nextView: string) {
+    updateAttributes({ view: parseQueryViewMode(nextView), savedViewId: null });
+  }
+
+  function detachSavedView() {
+    updateAttributes({
+      query: effectiveQuery,
+      view,
+      groupBy: groupBy || null,
+      title: displayTitle || null,
+      savedViewId: null,
+    });
   }
 
   React.useEffect(() => {
@@ -351,6 +391,23 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     didAutoRunRef.current = true;
     void run();
   }, [run]);
+
+  React.useEffect(() => {
+    if (previousQuerySignatureRef.current === querySignature) {
+      return;
+    }
+
+    previousQuerySignatureRef.current = querySignature;
+    queryGenerationRef.current += 1;
+    activeRunRef.current += 1;
+    setResult(null);
+    setError(null);
+    setIsRunning(false);
+
+    if (didAutoRunRef.current) {
+      void run();
+    }
+  }, [querySignature, run]);
 
   React.useEffect(() => {
     return subscribeQueryRefresh(() => {
@@ -366,17 +423,21 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     <NodeViewWrapper className={`query-block ${selected ? 'is-selected' : ''}`}>
       <div className="query-block__toolbar">
         <strong>{displayTitle || 'Query'}</strong>
+        {savedView ? <span className="query-block__badge">Saved View</span> : null}
+        {isMissingSavedView ? <span className="query-block__badge is-warning">Saved View Missing</span> : null}
         <label className="query-block__title">
           <span>Title</span>
           <input
-            value={title}
+            value={displayTitle}
+            readOnly={isSavedViewBacked}
             onChange={(event) => updateTitle(event.target.value)}
             placeholder="View title"
           />
         </label>
         <select
           value={view}
-          onChange={(event) => updateAttributes({ view: parseQueryViewMode(event.target.value) })}
+          disabled={isSavedViewBacked}
+          onChange={(event) => updateView(event.target.value)}
         >
           <option value="table">Table</option>
           <option value="list">List</option>
@@ -390,14 +451,21 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
             <span>Group</span>
             <input
               value={groupBy}
+              readOnly={isSavedViewBacked}
               onChange={(event) => updateGroupBy(event.target.value)}
               placeholder="status"
             />
           </label>
         ) : null}
+        {savedView ? (
+          <button type="button" onClick={detachSavedView}>
+            Detach
+          </button>
+        ) : null}
       </div>
       <textarea
-        value={query}
+        value={effectiveQuery}
+        readOnly={isSavedViewBacked}
         spellCheck={false}
         onChange={(event) => updateQuery(event.target.value)}
       />
@@ -593,12 +661,16 @@ function App() {
         const reason = typeof payload?.reason === 'string' ? payload.reason : 'dataChanged';
         notifyQueryRefresh(reason);
       },
+      setSavedQueryViews(savedQueryViews) {
+        setSavedQueryViewsSnapshot(savedQueryViews);
+      },
     };
 
     postNativeMessage({ type: 'ready' });
 
     return () => {
       delete window.NotesEditor;
+      setSavedQueryViewsSnapshot([]);
       rejectPendingEntityRequests('Editor unloaded before entity request completed.');
       rejectPendingQueryRequests('Editor unloaded before query request completed.');
       flushPendingChange();
@@ -629,6 +701,11 @@ function Toolbar({
   getActiveDocumentSnapshot(): ActiveDocumentSnapshot;
 }) {
   const disabled = !editor;
+  const savedQueryViews = React.useSyncExternalStore(
+    subscribeSavedQueryViews,
+    getSavedQueryViews,
+    getSavedQueryViews
+  );
 
   return (
     <div className="toolbar">
@@ -636,6 +713,11 @@ function Toolbar({
         editor={editor}
         disabled={disabled}
         getActiveDocumentSnapshot={getActiveDocumentSnapshot}
+      />
+      <SavedViewInsertControl
+        editor={editor}
+        disabled={disabled}
+        savedQueryViews={savedQueryViews}
       />
       <button
         type="button"
@@ -651,6 +733,7 @@ function Toolbar({
                 view: 'table',
                 groupBy: null,
                 title: null,
+                savedViewId: null,
               },
             })
             .run();
@@ -677,6 +760,75 @@ function Toolbar({
         }}
       >
         Sketch
+      </button>
+    </div>
+  );
+}
+
+function SavedViewInsertControl({
+  editor,
+  disabled,
+  savedQueryViews,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  disabled: boolean;
+  savedQueryViews: SavedQueryViewDefinition[];
+}) {
+  const [selectedId, setSelectedId] = React.useState('');
+  const selectedValue = selectedId || savedQueryViews[0]?.id || '';
+  const selectedSavedView =
+    resolveSavedQueryView(selectedValue) ??
+    savedQueryViews.find((savedQueryView) => savedQueryView.id === selectedValue) ??
+    null;
+
+  React.useEffect(() => {
+    if (savedQueryViews.some((savedQueryView) => savedQueryView.id === selectedId)) {
+      return;
+    }
+
+    setSelectedId(savedQueryViews[0]?.id ?? '');
+  }, [savedQueryViews, selectedId]);
+
+  function insertSavedView() {
+    if (!editor || !selectedSavedView) {
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'queryView',
+        attrs: {
+          query: selectedSavedView.query,
+          view: parseQueryViewMode(selectedSavedView.view),
+          groupBy: parseQueryGroupBy(selectedSavedView.groupBy) || null,
+          title: selectedSavedView.name,
+          savedViewId: selectedSavedView.id,
+        },
+      })
+      .run();
+  }
+
+  return (
+    <div className="saved-view-insert">
+      <select
+        value={selectedValue}
+        disabled={disabled || savedQueryViews.length === 0}
+        onChange={(event) => setSelectedId(event.target.value)}
+      >
+        {savedQueryViews.length === 0 ? (
+          <option value="">No saved views</option>
+        ) : (
+          savedQueryViews.map((savedQueryView) => (
+            <option key={savedQueryView.id} value={savedQueryView.id}>
+              {savedQueryView.name}
+            </option>
+          ))
+        )}
+      </select>
+      <button type="button" disabled={disabled || !selectedSavedView} onClick={insertSavedView}>
+        Saved View
       </button>
     </div>
   );

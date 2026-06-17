@@ -20,7 +20,8 @@ body,
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -46,6 +47,7 @@ input {
 }
 
 .toolbar button,
+.toolbar select,
 .sketch-card button {
   min-height: 30px;
   padding: 5px 11px;
@@ -56,13 +58,25 @@ input {
 }
 
 .toolbar button:hover,
+.toolbar select:hover,
 .sketch-card button:hover {
   border-color: color-mix(in srgb, CanvasText 25%, transparent);
   background: color-mix(in srgb, Canvas 70%, CanvasText 8%);
 }
 
-.toolbar button:disabled {
+.toolbar button:disabled,
+.toolbar select:disabled {
   opacity: 0.45;
+}
+
+.saved-view-insert {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.saved-view-insert select {
+  max-width: 220px;
 }
 
 .entity-insert {
@@ -172,6 +186,22 @@ input {
 .query-block__toolbar strong {
   margin-right: auto;
   font-size: 0.92rem;
+}
+
+.query-block__badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, LinkText 24%, transparent);
+  border-radius: 999px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 9%, Canvas);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.query-block__badge.is-warning {
+  border-color: color-mix(in srgb, orange 42%, transparent);
+  color: color-mix(in srgb, orange 72%, CanvasText);
+  background: color-mix(in srgb, orange 12%, Canvas);
 }
 
 .query-block__title {
