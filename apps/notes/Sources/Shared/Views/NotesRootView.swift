@@ -8,12 +8,18 @@ private enum NotesSidebarSelection: Hashable {
     case databaseEditor
 }
 
+private enum SavedQueryViewMoveDirection {
+    case up
+    case down
+}
+
 struct NotesRootView: View {
     let store: NotesStore
 
     @State private var dailyNoteDate = Date.now
     @State private var sidebarSelection: NotesSidebarSelection?
     @State private var isPresentingSavedViewEditor = false
+    @State private var savedViewDraftEditingID: UUID?
     @State private var savedViewDraftName = ""
     @State private var savedViewDraftQuery = "SELECT * FROM daily_notes"
     @State private var savedViewDraftMode = "table"
@@ -84,17 +90,64 @@ struct NotesRootView: View {
                     .onDelete(perform: deleteStandaloneNotes)
                 }
 
-                Section("Saved Views") {
+                Section {
                     Button(action: presentSavedViewCreator) {
                         Label("New Saved View", systemImage: "plus")
                     }
 
-                    ForEach(store.savedQueryViews) { savedView in
+                    ForEach(Array(store.savedQueryViews.enumerated()), id: \.element.id) { index, savedView in
                         NavigationLink(value: NotesSidebarSelection.savedQueryView(savedView.id)) {
                             SavedQueryViewRow(savedView: savedView)
                         }
+                        .contextMenu {
+                            Button {
+                                presentSavedViewEditor(savedView)
+                            } label: {
+                                Label("Edit Saved View", systemImage: "square.and.pencil")
+                            }
+
+                            Button {
+                                duplicateSavedView(savedView)
+                            } label: {
+                                Label("Duplicate Saved View", systemImage: "plus.square.on.square")
+                            }
+
+                            Divider()
+
+                            Button {
+                                moveSavedView(savedView, direction: .up)
+                            } label: {
+                                Label("Move Up", systemImage: "arrow.up")
+                            }
+                            .disabled(index == 0)
+
+                            Button {
+                                moveSavedView(savedView, direction: .down)
+                            } label: {
+                                Label("Move Down", systemImage: "arrow.down")
+                            }
+                            .disabled(index >= store.savedQueryViews.count - 1)
+
+                            Divider()
+
+                            Button(role: .destructive) {
+                                deleteSavedView(savedView)
+                            } label: {
+                                Label("Delete Saved View", systemImage: "trash")
+                            }
+                        }
                     }
+                    .onMove(perform: moveSavedQueryViews)
                     .onDelete(perform: deleteSavedQueryViews)
+                } header: {
+                    HStack {
+                        Text("Saved Views")
+#if os(iOS)
+                        Spacer()
+                        EditButton()
+                            .font(.caption)
+#endif
+                    }
                 }
 
                 Section("Database") {
@@ -158,9 +211,21 @@ struct NotesRootView: View {
                     }
                 )
             } else if let selectedSavedQueryView {
-                SavedQueryViewDetailView(savedView: selectedSavedQueryView) { query in
-                    try store.runQuery(query)
-                }
+                SavedQueryViewDetailView(
+                    savedView: selectedSavedQueryView,
+                    onEdit: {
+                        presentSavedViewEditor(selectedSavedQueryView)
+                    },
+                    onDuplicate: {
+                        duplicateSavedView(selectedSavedQueryView)
+                    },
+                    onDelete: {
+                        deleteSavedView(selectedSavedQueryView)
+                    },
+                    runQuery: { query in
+                        try store.runQuery(query)
+                    }
+                )
             } else if let selectedEntityDetail = store.selectedEntityDetail {
                 EntityDetailView(
                     detail: selectedEntityDetail,
@@ -227,6 +292,7 @@ struct NotesRootView: View {
                 query: $savedViewDraftQuery,
                 view: $savedViewDraftMode,
                 groupBy: $savedViewDraftGroupBy,
+                isEditing: savedViewDraftEditingID != nil,
                 onCancel: {
                     isPresentingSavedViewEditor = false
                 },
@@ -313,12 +379,61 @@ struct NotesRootView: View {
         }
     }
 
+    private func deleteSavedView(_ savedView: SavedQueryView) {
+        if sidebarSelection == .savedQueryView(savedView.id) {
+            sidebarSelection = nil
+        }
+
+        store.deleteSavedQueryView(id: savedView.id)
+    }
+
+    private func moveSavedQueryViews(from source: IndexSet, to destination: Int) {
+        var orderedViews = store.savedQueryViews
+        orderedViews.move(fromOffsets: source, toOffset: destination)
+        store.reorderSavedQueryViews(ids: orderedViews.map(\.id))
+    }
+
+    private func moveSavedView(_ savedView: SavedQueryView, direction: SavedQueryViewMoveDirection) {
+        guard let currentIndex = store.savedQueryViews.firstIndex(where: { $0.id == savedView.id }) else {
+            return
+        }
+
+        let targetIndex = direction == .up ? currentIndex - 1 : currentIndex + 1
+        guard store.savedQueryViews.indices.contains(targetIndex) else {
+            return
+        }
+
+        var orderedViews = store.savedQueryViews
+        orderedViews.swapAt(currentIndex, targetIndex)
+        store.reorderSavedQueryViews(ids: orderedViews.map(\.id))
+    }
+
     private func presentSavedViewCreator() {
+        savedViewDraftEditingID = nil
         savedViewDraftName = ""
         savedViewDraftQuery = "SELECT * FROM daily_notes"
         savedViewDraftMode = "table"
         savedViewDraftGroupBy = ""
         isPresentingSavedViewEditor = true
+    }
+
+    private func presentSavedViewEditor(_ savedView: SavedQueryView) {
+        savedViewDraftEditingID = savedView.id
+        savedViewDraftName = savedView.name
+        savedViewDraftQuery = savedView.query
+        savedViewDraftMode = savedView.view
+        savedViewDraftGroupBy = savedView.groupBy ?? ""
+        isPresentingSavedViewEditor = true
+    }
+
+    private func duplicateSavedView(_ savedView: SavedQueryView) {
+        do {
+            let duplicate = try store.duplicateSavedQueryView(id: savedView.id)
+            sidebarSelection = .savedQueryView(duplicate.id)
+            store.selectDocument(id: nil)
+        } catch {
+            // NotesStore already exposes the validation failure through lastErrorMessage.
+        }
     }
 
     private func openToday() {
@@ -348,15 +463,27 @@ struct NotesRootView: View {
 
     private func saveSavedViewDraft() {
         do {
-            let savedView = try store.saveSavedQueryView(
-                named: savedViewDraftName,
-                query: savedViewDraftQuery,
-                view: savedViewDraftMode,
-                groupBy: savedViewDraftGroupBy
-            )
+            let savedView: SavedQueryView
+            if let savedViewDraftEditingID {
+                savedView = try store.updateSavedQueryView(
+                    id: savedViewDraftEditingID,
+                    named: savedViewDraftName,
+                    query: savedViewDraftQuery,
+                    view: savedViewDraftMode,
+                    groupBy: savedViewDraftGroupBy
+                )
+            } else {
+                savedView = try store.saveSavedQueryView(
+                    named: savedViewDraftName,
+                    query: savedViewDraftQuery,
+                    view: savedViewDraftMode,
+                    groupBy: savedViewDraftGroupBy
+                )
+            }
             sidebarSelection = .savedQueryView(savedView.id)
             store.selectDocument(id: nil)
             isPresentingSavedViewEditor = false
+            savedViewDraftEditingID = nil
         } catch {
             // NotesStore already exposes the validation failure through lastErrorMessage.
         }
@@ -959,6 +1086,7 @@ private struct SavedQueryViewEditorSheet: View {
     @Binding var view: String
     @Binding var groupBy: String
 
+    let isEditing: Bool
     let onCancel: () -> Void
     let onSave: () -> Void
 
@@ -975,14 +1103,18 @@ private struct SavedQueryViewEditorSheet: View {
                 .pickerStyle(.segmented)
 
                 if view == "board" {
-                    TextField("Group", text: $groupBy)
+                    TextField("Group By", text: $groupBy)
                 }
+
+                Text("Query")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
                 TextEditor(text: $query)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 160)
             }
-            .navigationTitle("Saved View")
+            .navigationTitle(isEditing ? "Edit Saved View" : "New Saved View")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -992,11 +1124,17 @@ private struct SavedQueryViewEditorSheet: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: onSave)
+                    Button(isEditing ? "Save Changes" : "Create View", action: onSave)
+                        .disabled(!canSave)
                 }
             }
         }
         .frame(minWidth: 460, minHeight: 360)
+    }
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -1432,6 +1570,9 @@ private struct SupertagSchemaFieldRow: View {
 
 private struct SavedQueryViewDetailView: View {
     let savedView: SavedQueryView
+    let onEdit: () -> Void
+    let onDuplicate: () -> Void
+    let onDelete: () -> Void
     let runQuery: (_ query: String) throws -> QueryResult
 
     @State private var result: QueryResult?
@@ -1463,7 +1604,7 @@ private struct SavedQueryViewDetailView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: savedViewIconName(savedView.view))
                     .foregroundStyle(.secondary)
@@ -1471,7 +1612,33 @@ private struct SavedQueryViewDetailView: View {
                 Text(savedView.name)
                     .font(.title.weight(.semibold))
                     .lineLimit(2)
+                    .textSelection(.enabled)
             }
+
+            HStack(spacing: 8) {
+                Button(action: refresh) {
+                    Label("Refresh Results", systemImage: "arrow.clockwise")
+                }
+                .help("Refresh results")
+
+                Button(action: onEdit) {
+                    Label("Edit Saved View", systemImage: "square.and.pencil")
+                }
+                .help("Edit saved view")
+
+                Button(action: onDuplicate) {
+                    Label("Duplicate Saved View", systemImage: "plus.square.on.square")
+                }
+                .help("Duplicate saved view")
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Saved View", systemImage: "trash")
+                }
+                .help("Delete saved view")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
 
             HStack(spacing: 10) {
                 Label(savedView.view.capitalized, systemImage: "rectangle.grid.1x2")
@@ -1479,6 +1646,8 @@ private struct SavedQueryViewDetailView: View {
                 if let groupBy = savedView.groupBy, !groupBy.isEmpty {
                     Label(groupBy, systemImage: "rectangle.3.group")
                 }
+
+                Label("Order \(savedView.sortOrder + 1)", systemImage: "arrow.up.arrow.down")
 
                 Label {
                     Text(savedView.updatedAt, format: .dateTime.month().day().hour().minute())
@@ -1488,12 +1657,6 @@ private struct SavedQueryViewDetailView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-
-            Button(action: refresh) {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -1607,6 +1770,8 @@ private struct SavedQueryViewRow: View {
                     if let groupBy = savedView.groupBy, !groupBy.isEmpty {
                         Text(groupBy)
                     }
+
+                    Text("#\(savedView.sortOrder + 1)")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

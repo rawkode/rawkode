@@ -59,6 +59,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(savedView.query, "SELECT name, status FROM bookmarks WHERE status = active")
         XCTAssertEqual(savedView.view, "board")
         XCTAssertEqual(savedView.groupBy, "status")
+        XCTAssertEqual(savedView.sortOrder, 0)
 
         let updatedView = try repository.saveSavedQueryView(
             named: "active bookmarks",
@@ -76,7 +77,152 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(reopenedView.query, "SELECT name FROM bookmarks WHERE status = archived")
         XCTAssertEqual(reopenedView.view, "list")
         XCTAssertNil(reopenedView.groupBy)
+        XCTAssertEqual(reopenedView.sortOrder, 0)
         XCTAssertLessThan(abs(reopenedView.createdAt.timeIntervalSince(savedView.createdAt)), 1)
+    }
+
+    func testSavedQueryViewsCanBeEditedDuplicatedAndReordered() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let dailyView = try repository.saveSavedQueryView(
+            named: "Daily Notes",
+            query: "SELECT date, title FROM daily_notes",
+            view: "table"
+        )
+        let projectView = try repository.saveSavedQueryView(
+            named: "Projects",
+            query: "SELECT name FROM projects",
+            view: "list"
+        )
+
+        let updatedProjectView = try repository.updateSavedQueryView(
+            id: projectView.id,
+            named: "Project Board",
+            query: "SELECT name, status FROM projects WHERE status != archived",
+            view: "board",
+            groupBy: "status"
+        )
+
+        XCTAssertEqual(updatedProjectView.id, projectView.id)
+        XCTAssertEqual(updatedProjectView.name, "Project Board")
+        XCTAssertEqual(updatedProjectView.view, "board")
+        XCTAssertEqual(updatedProjectView.groupBy, "status")
+        XCTAssertEqual(updatedProjectView.sortOrder, 1)
+
+        XCTAssertThrowsError(
+            try repository.updateSavedQueryView(
+                id: dailyView.id,
+                named: "Project Board",
+                query: "SELECT date FROM daily_notes",
+                view: "table"
+            )
+        )
+
+        let firstCopy = try repository.duplicateSavedQueryView(id: updatedProjectView.id)
+        let secondCopy = try repository.duplicateSavedQueryView(id: updatedProjectView.id)
+
+        XCTAssertNotEqual(firstCopy.id, updatedProjectView.id)
+        XCTAssertEqual(firstCopy.name, "Project Board Copy")
+        XCTAssertEqual(secondCopy.name, "Project Board Copy 2")
+        XCTAssertEqual(firstCopy.query, updatedProjectView.query)
+        XCTAssertEqual(firstCopy.view, updatedProjectView.view)
+        XCTAssertEqual(firstCopy.groupBy, updatedProjectView.groupBy)
+
+        XCTAssertThrowsError(
+            try repository.reorderSavedQueryViews(ids: [
+                secondCopy.id,
+                dailyView.id,
+                firstCopy.id,
+            ])
+        )
+        XCTAssertThrowsError(
+            try repository.reorderSavedQueryViews(ids: [
+                secondCopy.id,
+                dailyView.id,
+                firstCopy.id,
+                firstCopy.id,
+            ])
+        )
+
+        try repository.reorderSavedQueryViews(ids: [
+            secondCopy.id,
+            dailyView.id,
+            firstCopy.id,
+            updatedProjectView.id,
+        ])
+
+        let reorderedViews = try repository.fetchSavedQueryViews()
+        XCTAssertEqual(reorderedViews.map(\.id), [
+            secondCopy.id,
+            dailyView.id,
+            firstCopy.id,
+            updatedProjectView.id,
+        ])
+        XCTAssertEqual(reorderedViews.map(\.sortOrder), [0, 1, 2, 3])
+
+        let reopenedRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        XCTAssertEqual(try reopenedRepository.fetchSavedQueryViews().map(\.id), [
+            secondCopy.id,
+            dailyView.id,
+            firstCopy.id,
+            updatedProjectView.id,
+        ])
+
+        try repository.deleteSavedQueryView(id: dailyView.id)
+        let compactedViews = try repository.fetchSavedQueryViews()
+
+        XCTAssertEqual(compactedViews.map(\.id), [
+            secondCopy.id,
+            firstCopy.id,
+            updatedProjectView.id,
+        ])
+        XCTAssertEqual(compactedViews.map(\.sortOrder), [0, 1, 2])
+    }
+
+    func testSavedQueryViewSortOrderBackfillsLegacyRows() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let alphaID = UUID()
+        let bravoID = UUID()
+        let charlieID = UUID()
+        let now = Date().ISO8601Format()
+        try executeRawSQL(
+            """
+            CREATE TABLE saved_query_views (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                query TEXT NOT NULL,
+                view TEXT NOT NULL CHECK (view IN ('table', 'list', 'board')),
+                group_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            INSERT INTO saved_query_views (
+                id, name, query, view, group_by, created_at, updated_at
+            ) VALUES
+                ('\(bravoID.uuidString)', 'Bravo', 'SELECT * FROM daily_notes', 'table', NULL, '\(now)', '\(now)'),
+                ('\(charlieID.uuidString)', 'Charlie', 'SELECT * FROM daily_notes', 'table', NULL, '\(now)', '\(now)'),
+                ('\(alphaID.uuidString)', 'Alpha', 'SELECT * FROM daily_notes', 'table', NULL, '\(now)', '\(now)');
+            """,
+            databaseURL: databaseURL,
+            createIfNeeded: true
+        )
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let migratedViews = try repository.fetchSavedQueryViews()
+
+        XCTAssertEqual(migratedViews.map(\.id), [alphaID, bravoID, charlieID])
+        XCTAssertEqual(migratedViews.map(\.sortOrder), [0, 1, 2])
+
+        let duplicateView = try repository.duplicateSavedQueryView(id: alphaID)
+        XCTAssertEqual(duplicateView.sortOrder, 3)
+
+        let reopenedRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        XCTAssertEqual(try reopenedRepository.fetchSavedQueryViews().map(\.sortOrder), [0, 1, 2, 3])
     }
 
     func testSavedQueryViewsAreQueryable() throws {
@@ -98,15 +244,16 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         let result = try repository.runQuery(
-            "SELECT name, view, group_by FROM saved_views WHERE view = board"
+            "SELECT name, view, group_by, sort_order FROM saved_views WHERE view = board"
         )
 
-        XCTAssertEqual(result.columns, ["name", "view", "group_by"])
+        XCTAssertEqual(result.columns, ["name", "view", "group_by", "sort_order"])
         XCTAssertEqual(result.rows, [
             [
                 "name": "Active Bookmarks",
                 "view": "board",
                 "group_by": "status",
+                "sort_order": "0",
             ],
         ])
 
@@ -692,12 +839,21 @@ final class NotesPersistenceTests: XCTestCase {
         """
         try sourceRepository.upsertDocument(note)
 
-        _ = try sourceRepository.saveSavedQueryView(
+        let openProjectsView = try sourceRepository.saveSavedQueryView(
             named: "Open Projects",
             query: "SELECT name, status, owner FROM projects WHERE status = active",
             view: "board",
             groupBy: "status"
         )
+        let recentDailyNotesView = try sourceRepository.saveSavedQueryView(
+            named: "Recent Daily Notes",
+            query: "SELECT date, title FROM daily_notes ORDER BY date DESC LIMIT 7",
+            view: "table"
+        )
+        try sourceRepository.reorderSavedQueryViews(ids: [
+            recentDailyNotesView.id,
+            openProjectsView.id,
+        ])
 
         let exportedJSON = try sourceRepository.exportVaultJSON()
         XCTAssertGreaterThan(exportedJSON.count, 0)
@@ -708,7 +864,11 @@ final class NotesPersistenceTests: XCTestCase {
 
         XCTAssertEqual(try importedRepository.fetchDocuments(kind: .daily).map(\.title), ["Daily field notes"])
         XCTAssertEqual(try importedRepository.fetchDocuments(kind: .note).map(\.title), ["Project capture"])
-        XCTAssertEqual(try importedRepository.fetchSavedQueryViews().map(\.name), ["Open Projects"])
+        XCTAssertEqual(try importedRepository.fetchSavedQueryViews().map(\.name), [
+            "Recent Daily Notes",
+            "Open Projects",
+        ])
+        XCTAssertEqual(try importedRepository.fetchSavedQueryViews().map(\.sortOrder), [0, 1])
         XCTAssertEqual(try importedRepository.fetchSupertagFieldDefinitions(supertagName: "project").map(\.key), [
             "status",
             "owner",
@@ -2518,22 +2678,50 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects")
         XCTAssertEqual(store.savedQueryViews.first?.query, "SELECT name FROM projects WHERE status != archived")
         XCTAssertEqual(store.savedQueryViews.first?.view, "list")
+        XCTAssertEqual(store.savedQueryViews.first?.sortOrder, 0)
 
-        let updatedView = try store.saveSavedQueryView(
-            named: "Open Projects",
+        let recentView = try store.saveSavedQueryView(
+            named: "Recent Daily Notes",
+            query: "SELECT date, title FROM daily_notes",
+            view: "table"
+        )
+
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, recentView.id])
+
+        let updatedView = try store.updateSavedQueryView(
+            id: savedView.id,
+            named: "Open Projects Board",
             query: "SELECT name, status FROM projects WHERE status != archived",
             view: "board",
             groupBy: "status"
         )
 
         XCTAssertEqual(updatedView.id, savedView.id)
-        XCTAssertEqual(store.savedQueryViews.count, 1)
+        XCTAssertEqual(store.savedQueryViews.count, 2)
+        XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects Board")
         XCTAssertEqual(store.savedQueryViews.first?.view, "board")
         XCTAssertEqual(store.savedQueryViews.first?.groupBy, "status")
 
+        let duplicateView = try store.duplicateSavedQueryView(id: savedView.id)
+        XCTAssertEqual(duplicateView.name, "Open Projects Board Copy")
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [savedView.id, recentView.id, duplicateView.id])
+
+        store.reorderSavedQueryViews(ids: [
+            duplicateView.id,
+            recentView.id,
+            savedView.id,
+        ])
+
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [
+            duplicateView.id,
+            recentView.id,
+            savedView.id,
+        ])
+        XCTAssertEqual(store.savedQueryViews.map(\.sortOrder), [0, 1, 2])
+
         store.deleteSavedQueryView(id: savedView.id)
 
-        XCTAssertTrue(store.savedQueryViews.isEmpty)
+        XCTAssertEqual(store.savedQueryViews.map(\.id), [duplicateView.id, recentView.id])
     }
 
     @MainActor

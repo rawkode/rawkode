@@ -344,6 +344,63 @@ final class NotesStore {
     }
 
     @discardableResult
+    func updateSavedQueryView(
+        id: UUID,
+        named name: String,
+        query: String,
+        view: String = "table",
+        groupBy: String? = nil
+    ) throws -> SavedQueryView {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let savedView = try repository.updateSavedQueryView(
+                id: id,
+                named: name,
+                query: query,
+                view: view,
+                groupBy: groupBy
+            )
+            savedQueryViews = try repository.fetchSavedQueryViews()
+            return savedView
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    @discardableResult
+    func duplicateSavedQueryView(id: UUID) throws -> SavedQueryView {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let savedView = try repository.duplicateSavedQueryView(id: id)
+            savedQueryViews = try repository.fetchSavedQueryViews()
+            return savedView
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func reorderSavedQueryViews(ids orderedIDs: [UUID]) {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        do {
+            try repository.reorderSavedQueryViews(ids: orderedIDs)
+            savedQueryViews = try repository.fetchSavedQueryViews()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
     func saveSupertagFieldDefinition(
         supertagName: String,
         field: String,

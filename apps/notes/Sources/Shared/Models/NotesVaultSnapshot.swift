@@ -94,6 +94,7 @@ struct NotesVaultSnapshot: Codable, Equatable, Sendable {
         var query: String
         var view: String
         var groupBy: String?
+        var sortOrder: Int?
         var createdAt: Date
         var updatedAt: Date
     }

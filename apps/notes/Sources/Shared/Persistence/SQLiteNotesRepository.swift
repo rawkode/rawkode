@@ -189,9 +189,9 @@ final class SQLiteNotesRepository {
     func fetchSavedQueryViews() throws -> [SavedQueryView] {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, created_at, updated_at
+            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
             FROM saved_query_views
-            ORDER BY name COLLATE NOCASE ASC;
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC;
             """
         ) { statement in
             var views: [SavedQueryView] = []
@@ -213,7 +213,7 @@ final class SQLiteNotesRepository {
     func fetchSavedQueryView(id: UUID) throws -> SavedQueryView? {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, created_at, updated_at
+            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
             FROM saved_query_views
             WHERE id = ?
             LIMIT 1;
@@ -253,12 +253,19 @@ final class SQLiteNotesRepository {
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
         let now = Date()
         let existing = try fetchSavedQueryView(name: name)
+        let sortOrder: Int
+        if let existingSortOrder = existing?.sortOrder {
+            sortOrder = existingSortOrder
+        } else {
+            sortOrder = try nextSavedQueryViewSortOrder()
+        }
         let savedView = SavedQueryView(
             id: existing?.id ?? UUID(),
             name: name,
             query: query,
             view: view,
             groupBy: groupBy,
+            sortOrder: sortOrder,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now
         )
@@ -267,12 +274,90 @@ final class SQLiteNotesRepository {
         return savedView
     }
 
+    @discardableResult
+    func updateSavedQueryView(
+        id: UUID,
+        named rawName: String,
+        query rawQuery: String,
+        view rawView: String = "table",
+        groupBy rawGroupBy: String? = nil
+    ) throws -> SavedQueryView {
+        guard let existing = try fetchSavedQueryView(id: id) else {
+            throw SQLiteNotesError.validationFailed("Saved view could not be found.")
+        }
+
+        let name = normalizedName(rawName)
+        guard !name.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Saved view name cannot be empty.")
+        }
+
+        if let nameMatch = try fetchSavedQueryView(name: name), nameMatch.id != id {
+            throw SQLiteNotesError.validationFailed("Saved view name is already in use.")
+        }
+
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try LocalQuery(query)
+
+        let view = try normalizedSavedQueryViewMode(rawView)
+        let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let savedView = SavedQueryView(
+            id: id,
+            name: name,
+            query: query,
+            view: view,
+            groupBy: groupBy,
+            sortOrder: existing.sortOrder,
+            createdAt: existing.createdAt,
+            updatedAt: .now
+        )
+
+        try upsert(savedView)
+        return savedView
+    }
+
+    @discardableResult
+    func duplicateSavedQueryView(id: UUID) throws -> SavedQueryView {
+        guard let existing = try fetchSavedQueryView(id: id) else {
+            throw SQLiteNotesError.validationFailed("Saved view could not be found.")
+        }
+
+        let now = Date()
+        let savedView = SavedQueryView(
+            id: UUID(),
+            name: try uniqueSavedQueryViewCopyName(for: existing.name),
+            query: existing.query,
+            view: existing.view,
+            groupBy: existing.groupBy,
+            sortOrder: try nextSavedQueryViewSortOrder(),
+            createdAt: now,
+            updatedAt: now
+        )
+
+        try upsert(savedView)
+        return savedView
+    }
+
+    func reorderSavedQueryViews(ids orderedIDs: [UUID]) throws {
+        let existingIDs = try fetchSavedQueryViews().map(\.id)
+        guard Set(existingIDs) == Set(orderedIDs), existingIDs.count == orderedIDs.count else {
+            throw SQLiteNotesError.validationFailed("Saved view order must include each saved view exactly once.")
+        }
+
+        try withTransaction {
+            try updateSavedQueryViewSortOrder(ids: orderedIDs)
+        }
+    }
+
     func deleteSavedQueryView(id: UUID) throws {
-        try prepare("DELETE FROM saved_query_views WHERE id = ?;") { statement in
-            sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
-            guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+        try withTransaction {
+            try prepare("DELETE FROM saved_query_views WHERE id = ?;") { statement in
+                sqlite3_bind_text(statement, 1, id.uuidString, -1, sqliteTransient)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
             }
+
+            try updateSavedQueryViewSortOrder(ids: fetchSavedQueryViews().map(\.id))
         }
     }
 
@@ -816,14 +901,24 @@ final class SQLiteNotesRepository {
                 query TEXT NOT NULL,
                 view TEXT NOT NULL CHECK (view IN ('table', 'list', 'board')),
                 group_by TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
             """
         )
 
+        let shouldBackfillSavedQueryViewSortOrder = try !table("saved_query_views", hasColumn: "sort_order")
+        if shouldBackfillSavedQueryViewSortOrder {
+            try execute("ALTER TABLE saved_query_views ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;")
+        }
+
         if try !table("entity_properties", hasColumn: "value_entity_id") {
             try execute("ALTER TABLE entity_properties ADD COLUMN value_entity_id TEXT REFERENCES entities(id) ON DELETE SET NULL;")
+        }
+
+        if shouldBackfillSavedQueryViewSortOrder {
+            try reorderSavedQueryViews(ids: fetchSavedQueryViews().map(\.id))
         }
 
         if shouldBackfillEntityReferences {
@@ -1243,9 +1338,9 @@ final class SQLiteNotesRepository {
     private func fetchVaultSavedViews() throws -> [NotesVaultSnapshot.SavedView] {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, created_at, updated_at
+            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
             FROM saved_query_views
-            ORDER BY name COLLATE NOCASE ASC, id ASC;
+            ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC;
             """
         ) { statement in
             var savedViews: [NotesVaultSnapshot.SavedView] = []
@@ -1255,8 +1350,8 @@ final class SQLiteNotesRepository {
                 guard let id = UUID(uuidString: textColumn(statement, 0)) else {
                     throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view id")
                 }
-                guard let createdAt = Date(iso8601String: textColumn(statement, 5)),
-                      let updatedAt = Date(iso8601String: textColumn(statement, 6)) else {
+                guard let createdAt = Date(iso8601String: textColumn(statement, 6)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 7)) else {
                     throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view timestamp")
                 }
 
@@ -1267,6 +1362,7 @@ final class SQLiteNotesRepository {
                         query: textColumn(statement, 2),
                         view: textColumn(statement, 3),
                         groupBy: nullableTextColumn(statement, 4),
+                        sortOrder: Int(sqlite3_column_int64(statement, 5)),
                         createdAt: createdAt,
                         updatedAt: updatedAt
                     )
@@ -1465,12 +1561,19 @@ final class SQLiteNotesRepository {
     }
 
     private func insertImportedSavedView(_ savedView: NotesVaultSnapshot.SavedView) throws {
+        let sortOrder: Int
+        if let importedSortOrder = savedView.sortOrder {
+            sortOrder = importedSortOrder
+        } else {
+            sortOrder = try nextSavedQueryViewSortOrder()
+        }
+
         try prepare(
             """
             INSERT INTO saved_query_views (
-                id, name, query, view, group_by, created_at, updated_at
+                id, name, query, view, group_by, sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """
         ) { statement in
             sqlite3_bind_text(statement, 1, savedView.id.uuidString, -1, sqliteTransient)
@@ -1482,8 +1585,9 @@ final class SQLiteNotesRepository {
             } else {
                 sqlite3_bind_null(statement, 5)
             }
-            sqlite3_bind_text(statement, 6, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
-            sqlite3_bind_text(statement, 7, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 6, Int64(sortOrder))
+            sqlite3_bind_text(statement, 7, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 8, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
@@ -2650,7 +2754,7 @@ final class SQLiteNotesRepository {
 
     private func fetchSavedQueryViewQueryResult() throws -> QueryResult {
         QueryResult(
-            columns: ["id", "name", "query", "view", "group_by", "updated_at"],
+            columns: ["id", "name", "query", "view", "group_by", "sort_order", "updated_at"],
             rows: try fetchSavedQueryViews().map(savedQueryViewQueryRow)
         )
     }
@@ -2788,11 +2892,11 @@ final class SQLiteNotesRepository {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view id")
         }
 
-        guard let createdAt = Date(iso8601String: textColumn(statement, 5)) else {
+        guard let createdAt = Date(iso8601String: textColumn(statement, 6)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view created_at timestamp")
         }
 
-        guard let updatedAt = Date(iso8601String: textColumn(statement, 6)) else {
+        guard let updatedAt = Date(iso8601String: textColumn(statement, 7)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view updated_at timestamp")
         }
 
@@ -2802,6 +2906,7 @@ final class SQLiteNotesRepository {
             query: textColumn(statement, 2),
             view: textColumn(statement, 3),
             groupBy: nullableTextColumn(statement, 4),
+            sortOrder: Int(sqlite3_column_int64(statement, 5)),
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -2843,7 +2948,7 @@ final class SQLiteNotesRepository {
     private func fetchSavedQueryView(name: String) throws -> SavedQueryView? {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, created_at, updated_at
+            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
             FROM saved_query_views
             WHERE name = ?
             LIMIT 1;
@@ -2864,18 +2969,60 @@ final class SQLiteNotesRepository {
         }
     }
 
+    private func uniqueSavedQueryViewCopyName(for name: String) throws -> String {
+        let baseName = "\(name) Copy"
+        var candidate = baseName
+        var suffix = 2
+
+        while try fetchSavedQueryView(name: candidate) != nil {
+            candidate = "\(baseName) \(suffix)"
+            suffix += 1
+        }
+
+        return candidate
+    }
+
+    private func nextSavedQueryViewSortOrder() throws -> Int {
+        try prepare(
+            """
+            SELECT COALESCE(MAX(sort_order), -1) + 1
+            FROM saved_query_views;
+            """
+        ) { statement in
+            let result = sqlite3_step(statement)
+            guard result == SQLITE_ROW else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return Int(sqlite3_column_int64(statement, 0))
+        }
+    }
+
+    private func updateSavedQueryViewSortOrder(ids orderedIDs: [UUID]) throws {
+        for (index, id) in orderedIDs.enumerated() {
+            try prepare("UPDATE saved_query_views SET sort_order = ? WHERE id = ?;") { statement in
+                sqlite3_bind_int64(statement, 1, Int64(index))
+                sqlite3_bind_text(statement, 2, id.uuidString, -1, sqliteTransient)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
+                }
+            }
+        }
+    }
+
     private func upsert(_ savedView: SavedQueryView) throws {
         try prepare(
             """
             INSERT INTO saved_query_views (
-                id, name, query, view, group_by, created_at, updated_at
+                id, name, query, view, group_by, sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 query = excluded.query,
                 view = excluded.view,
                 group_by = excluded.group_by,
+                sort_order = excluded.sort_order,
                 updated_at = excluded.updated_at;
             """
         ) { statement in
@@ -2888,8 +3035,9 @@ final class SQLiteNotesRepository {
             } else {
                 sqlite3_bind_null(statement, 5)
             }
-            sqlite3_bind_text(statement, 6, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
-            sqlite3_bind_text(statement, 7, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_int64(statement, 6, Int64(savedView.sortOrder))
+            sqlite3_bind_text(statement, 7, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 8, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
@@ -3325,6 +3473,7 @@ private func savedQueryViewQueryRow(_ view: SavedQueryView) -> [String: String] 
         "query": view.query,
         "view": view.view,
         "group_by": view.groupBy ?? "",
+        "sort_order": String(view.sortOrder),
         "updated_at": view.updatedAt.ISO8601Format(),
     ]
 }
