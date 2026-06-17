@@ -39,9 +39,38 @@ export async function verifyHostContext(token: string, secret: string): Promise<
 		return null;
 	}
 
-	const payload = JSON.parse(base64UrlDecode(body)) as HostContextPayload;
+	let payload: HostContextPayload;
+	try {
+		payload = JSON.parse(base64UrlDecode(body)) as HostContextPayload;
+	} catch {
+		return null;
+	}
+
+	if (!isHostContextPayload(payload)) {
+		return null;
+	}
+
 	if (payload.expiresAt < Date.now()) {
 		return null;
+	}
+
+	return payload;
+}
+
+export async function requireHostApiContext(env: Env, request: Request, requiredScope: string): Promise<HostContextPayload> {
+	const token = request.headers.get("x-enchiridion-host-context");
+	if (!token) {
+		throw hostContextResponse("Missing host context token", 401);
+	}
+
+	const secret = requireHostSigningSecret(env, request);
+	const payload = await verifyHostContext(token, secret);
+	if (!payload) {
+		throw hostContextResponse("Invalid or expired host context token", 401);
+	}
+
+	if (!payload.scopes.includes(requiredScope)) {
+		throw hostContextResponse(`Host context token is missing required scope ${requiredScope}`, 403);
 	}
 
 	return payload;
@@ -87,6 +116,28 @@ function constantTimeEqual(a: string, b: string): boolean {
 		diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
 	}
 	return diff === 0;
+}
+
+function hostContextResponse(error: string, status: number): Response {
+	return new Response(JSON.stringify({ error }), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function isHostContextPayload(value: unknown): value is HostContextPayload {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+
+	const payload = value as HostContextPayload;
+	return typeof payload.app === "string"
+		&& Array.isArray(payload.scopes)
+		&& payload.scopes.every((scope) => typeof scope === "string")
+		&& typeof payload.expiresAt === "number"
+		&& Boolean(payload.context)
+		&& typeof payload.context === "object"
+		&& !Array.isArray(payload.context);
 }
 
 function isLocalDevelopmentRequest(request: Request): boolean {

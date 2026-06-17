@@ -4,7 +4,7 @@ import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
 import { createMiniAppDispatchRequest } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
-import { requireHostSigningSecret, signHostContext } from "./lib/host-context";
+import { requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
 	createBookmark,
 	createKanbanCard,
@@ -77,6 +77,11 @@ app.use("*", async (c, next) => {
 	}
 
 	registerRuntimeProviders(c.env);
+
+	if (c.req.path.startsWith("/api/host/")) {
+		await next();
+		return;
+	}
 
 	const principal = authenticate(c.req.raw, c.env);
 	if (!principal) {
@@ -194,6 +199,20 @@ app.post("/api/host-context", async (c) => {
 	}, secret);
 
 	return c.json({ token });
+});
+
+app.get("/api/host/resource-index/search", async (c) => {
+	try {
+		await requireHostApiContext(c.env, c.req.raw, "resource-index:read");
+	} catch (error) {
+		if (error instanceof Response) {
+			return error;
+		}
+		throw error;
+	}
+	const limit = Number(c.req.query("limit") ?? "20");
+	const boundedLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 50) : 20;
+	return c.json(await searchResources(c.env, c.req.query("q") ?? "", boundedLimit));
 });
 
 app.route("/api/flue", flue());
