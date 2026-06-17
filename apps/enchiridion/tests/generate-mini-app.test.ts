@@ -124,6 +124,69 @@ describe("generate mini app candidate validation", () => {
 		expect(result.issues).toContain("workerSource: autonomous workers cannot read env bindings; declare host APIs instead");
 	});
 
+	it("rejects generated workers that access bindings through bracket notation", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				"export default { fetch(request, env) { return env['DB'].prepare('SELECT 1').first() } }",
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: autonomous workers cannot read env bindings; declare host APIs instead");
+	});
+
+	it("rejects generated workers with dynamic code or background side effects", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	fetch(request, env, ctx) {
+		ctx.waitUntil(Promise.resolve());
+		const render = new Function("return '<h1>Hello</h1>'");
+		setTimeout(() => {}, 1);
+		return new Response(render(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: autonomous workers cannot use execution context side effects");
+		expect(result.issues).toContain("workerSource: generated Workers cannot evaluate dynamic code");
+		expect(result.issues).toContain("workerSource: generated Workers cannot schedule background timers");
+	});
+
+	it("rejects generated workers that use undeclared platform storage or sockets", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	async fetch() {
+		await caches.default.match("https://example.test/");
+		const socket = new WebSocket("wss://example.test/");
+		return new Response(String(socket), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: autonomous workers cannot use undeclared cache storage");
+		expect(result.issues).toContain("workerSource: generated Workers cannot open network sockets");
+	});
+
 	it("allows declared host API reads when the worker forwards host context", () => {
 		const workerSource = `
 export default {

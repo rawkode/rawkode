@@ -823,7 +823,12 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 	const forbiddenPatterns: Array<[RegExp, string]> = [
 		[/\bimport\s+[\s\S]*?\bfrom\b|\bimport\s*\(/, "workerSource: autonomous workers must be self-contained and cannot import modules"],
 		[/\brequire\s*\(/, "workerSource: autonomous workers must be self-contained and cannot require modules"],
-		[/\benv\s*\.\s*(ASSETS|DB|[A-Z][A-Z0-9_]*)\b/, "workerSource: autonomous workers cannot read env bindings; declare host APIs instead"],
+		[/\benv\s*(?:\.|\?\.|\[)/, "workerSource: autonomous workers cannot read env bindings; declare host APIs instead"],
+		[/\bctx\s*(?:\.|\?\.|\[)/, "workerSource: autonomous workers cannot use execution context side effects"],
+		[/\beval\s*\(|\bnew\s+Function\s*\(/, "workerSource: generated Workers cannot evaluate dynamic code"],
+		[/\bset(?:Timeout|Interval)\s*\(/, "workerSource: generated Workers cannot schedule background timers"],
+		[/\bcaches\s*\./, "workerSource: autonomous workers cannot use undeclared cache storage"],
+		[/\bWebSocket\s*\(|\bconnect\s*\(/, "workerSource: generated Workers cannot open network sockets"],
 		[/\b(window|document|localStorage|navigator)\s*\./, "workerSource: Cloudflare Workers cannot use browser globals during request handling"],
 		[/\bprocess\s*\.\s*env\b/, "workerSource: Cloudflare Workers cannot read process.env"],
 		[/\b(React|ReactDOM)\s*\.|jsx\s*\(/, "workerSource: generated Workers cannot depend on React or JSX runtimes"],
