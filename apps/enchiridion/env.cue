@@ -52,6 +52,7 @@ tasks: {
 		description: "Run TypeScript, Vitest, and Astro diagnostics"
 		command:     "bun"
 		args: ["run", "check"]
+		dependsOn: [_t.install]
 		hermetic: false
 		inputs: [
 			"astro.config.mjs",
@@ -68,6 +69,7 @@ tasks: {
 		description: "Build the Cloudflare worker and Astro app shell"
 		command:     "bun"
 		args: ["run", "build"]
+		dependsOn: [_t.install]
 		hermetic: false
 		inputs: [
 			"astro.config.mjs",
