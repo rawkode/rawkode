@@ -1,8 +1,13 @@
 export type JsonObject = Record<string, unknown>;
 
+export interface CloudflareAIBinding {
+	run(modelId: string, inputs: Record<string, unknown>, options?: Record<string, unknown>): Promise<Response | Record<string, unknown>>;
+}
+
 export interface Env {
 	DB: D1Database;
 	ASSETS: Fetcher;
+	AI?: CloudflareAIBinding;
 	MINI_APP_DISPATCHER?: {
 		get(scriptName: string): Fetcher;
 	};

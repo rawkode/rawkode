@@ -1,3 +1,4 @@
+import { registerProvider } from "@flue/runtime";
 import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -72,6 +73,8 @@ app.use("*", async (c, next) => {
 		await next();
 		return;
 	}
+
+	registerRuntimeProviders(c.env);
 
 	const principal = authenticate(c.req.raw, c.env);
 	if (!principal) {
@@ -231,6 +234,17 @@ function json(payload: unknown, status = 200): Response {
 	return new Response(JSON.stringify(payload), {
 		status,
 		headers: { "content-type": "application/json" },
+	});
+}
+
+function registerRuntimeProviders(env: Env) {
+	if (!env.AI) {
+		return;
+	}
+
+	registerProvider("cloudflare-workers-ai", {
+		api: "cloudflare-ai-binding",
+		binding: env.AI,
 	});
 }
 
