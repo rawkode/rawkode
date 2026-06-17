@@ -192,9 +192,27 @@ app.post("/api/host-context", async (c) => {
 		scopes: z.array(z.string()),
 		context: z.record(z.string(), z.unknown()).default({}),
 	}).parse(await c.req.json());
+	const extension = await getExtension(c.env, payload.app);
+	if (!extension) {
+		return c.json({ error: "Host context app not found", app: payload.app }, 404);
+	}
+	if (extension.status === "disabled") {
+		return c.json({ error: "Host context app is disabled", app: payload.app }, 403);
+	}
+
+	const scopes = Array.from(new Set(payload.scopes));
+	const undeclaredScopes = scopes.filter((scope) => !extension.hostApis.includes(scope));
+	if (undeclaredScopes.length > 0) {
+		return c.json({
+			error: "Requested host-context scopes are not declared by app",
+			app: payload.app,
+			scopes: undeclaredScopes,
+		}, 403);
+	}
 
 	const token = await signHostContext({
 		...payload,
+		scopes,
 		expiresAt: Date.now() + 5 * 60 * 1000,
 	}, secret);
 

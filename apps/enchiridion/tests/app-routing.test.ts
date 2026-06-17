@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import app from "../src/app";
+import { verifyHostContext } from "../src/lib/host-context";
 import type { Env, RegisteredExtension } from "../src/lib/types";
 
 const helloWorldExtension: RegisteredExtension = {
@@ -52,6 +53,62 @@ describe("app mini app routing", () => {
 
 		expect(response.status).toBe(404);
 		expect(await response.json()).toEqual({ error: "Mini app route not found", slug: "missing" });
+	});
+
+	it("mints host-context tokens only for scopes declared by the target mini app", async () => {
+		const { env } = testEnv(helloWorldExtension);
+		const response = await app.fetch(new Request("http://localhost/api/host-context", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app: "hello-world",
+				scopes: ["resource-index:read", "resource-index:read"],
+				context: { path: "/apps/hello-world" },
+			}),
+		}), env);
+		const body = await response.json() as { token: string };
+		const payload = await verifyHostContext(body.token, "test-secret");
+
+		expect(response.status).toBe(200);
+		expect(payload).toMatchObject({
+			app: "hello-world",
+			scopes: ["resource-index:read"],
+			context: { path: "/apps/hello-world" },
+		});
+	});
+
+	it("rejects host-context token minting for unknown apps", async () => {
+		const { env } = testEnv(null);
+		const response = await app.fetch(new Request("http://localhost/api/host-context", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app: "missing",
+				scopes: ["resource-index:read"],
+			}),
+		}), env);
+
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({ error: "Host context app not found", app: "missing" });
+	});
+
+	it("rejects host-context token minting for undeclared scopes", async () => {
+		const { env } = testEnv(helloWorldExtension);
+		const response = await app.fetch(new Request("http://localhost/api/host-context", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app: "hello-world",
+				scopes: ["resource-index:read", "notes:write"],
+			}),
+		}), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Requested host-context scopes are not declared by app",
+			app: "hello-world",
+			scopes: ["notes:write"],
+		});
 	});
 });
 
