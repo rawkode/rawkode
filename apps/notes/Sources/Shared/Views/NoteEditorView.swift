@@ -3,6 +3,7 @@ import SwiftUI
 struct NoteEditorView: View {
     let document: NoteDocument
     let savedQueryViews: [SavedQueryView]
+    let documentContext: DocumentContext
     let onOpenPreviousDailyNote: () -> Void
     let onOpenToday: () -> Void
     let onOpenNextDailyNote: () -> Void
@@ -16,29 +17,7 @@ struct NoteEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ZStack(alignment: .top) {
-                WebEditorView(
-                    document: document,
-                    savedQueryViews: savedQueryViews,
-                    onChange: onChange,
-                    onEntityUpsert: onEntityUpsert,
-                    onQueryRun: onQueryRun,
-                    onOpenDocument: onOpenDocument,
-                    onReady: {
-                        editorStatus = .ready
-                    },
-                    onError: { message in
-                        editorStatus = .failed(message)
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if editorStatus != .ready {
-                    EditorStatusBanner(status: editorStatus)
-                        .padding(.top, 14)
-                        .padding(.horizontal, 18)
-                }
-            }
+            editorAndContext
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(document.displayTitle)
@@ -77,6 +56,57 @@ struct NoteEditorView: View {
         .padding(.vertical, 14)
     }
 
+    private var editorAndContext: some View {
+        GeometryReader { proxy in
+            if proxy.size.width >= 920 {
+                HStack(spacing: 0) {
+                    editorPane
+
+                    Divider()
+
+                    DocumentContextPanel(context: documentContext)
+                        .frame(width: min(340, max(292, proxy.size.width * 0.28)))
+                }
+            } else {
+                VStack(spacing: 0) {
+                    editorPane
+
+                    Divider()
+
+                    DocumentContextPanel(context: documentContext)
+                        .frame(height: 230)
+                }
+            }
+        }
+    }
+
+    private var editorPane: some View {
+        ZStack(alignment: .top) {
+            WebEditorView(
+                document: document,
+                savedQueryViews: savedQueryViews,
+                onChange: onChange,
+                onEntityUpsert: onEntityUpsert,
+                onQueryRun: onQueryRun,
+                onOpenDocument: onOpenDocument,
+                onReady: {
+                    editorStatus = .ready
+                },
+                onError: { message in
+                    editorStatus = .failed(message)
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if editorStatus != .ready {
+                EditorStatusBanner(status: editorStatus)
+                    .padding(.top, 14)
+                    .padding(.horizontal, 18)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var dailyNavigationControls: some View {
         HStack(spacing: 8) {
             Button(action: onOpenPreviousDailyNote) {
@@ -94,6 +124,172 @@ struct NoteEditorView: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .font(.caption)
+    }
+}
+
+private struct DocumentContextPanel: View {
+    let context: DocumentContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+
+            if context.isEmpty {
+                ContentUnavailableView("No Linked Context", systemImage: "link")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    if !context.backlinks.isEmpty {
+                        Section("Mentioned Entities") {
+                            ForEach(context.backlinks) { backlink in
+                                BacklinkContextRow(backlink: backlink)
+                            }
+                        }
+                    }
+
+                    if !context.outgoingRelationships.isEmpty {
+                        Section("Outgoing Relationships") {
+                            ForEach(context.outgoingRelationships) { relationship in
+                                RelationshipContextRow(
+                                    relationship: relationship,
+                                    direction: .outgoing
+                                )
+                            }
+                        }
+                    }
+
+                    if !context.incomingRelationships.isEmpty {
+                        Section("Incoming Relationships") {
+                            ForEach(context.incomingRelationships) { relationship in
+                                RelationshipContextRow(
+                                    relationship: relationship,
+                                    direction: .incoming
+                                )
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+        }
+        .background(.background)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Context", systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.headline)
+
+            HStack(spacing: 10) {
+                Label("\(context.backlinks.count)", systemImage: "at")
+                    .accessibilityLabel("\(context.backlinks.count) mentioned entities")
+
+                Label("\(context.relationshipCount)", systemImage: "arrow.left.and.right")
+                    .accessibilityLabel("\(context.relationshipCount) relationships")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BacklinkContextRow: View {
+    let backlink: DocumentBacklink
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "tag")
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(backlink.entityName)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(documentLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var documentLabel: String {
+        if backlink.documentKind == .daily, let documentDate = backlink.documentDate {
+            return DailyNoteDateFormatter.displayTitle(for: documentDate)
+        }
+
+        return backlink.documentTitle
+    }
+}
+
+private enum RelationshipContextDirection {
+    case outgoing
+    case incoming
+}
+
+private struct RelationshipContextRow: View {
+    let relationship: EntityRelationship
+    let direction: RelationshipContextDirection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(primaryName)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+
+                Image(systemName: direction == .outgoing ? "arrow.right" : "arrow.left")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(secondaryName)
+                    .font(.callout)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 6) {
+                Label(propertyLabel, systemImage: "slider.horizontal.3")
+
+                Text(relationship.updatedAt, format: .dateTime.month().day().hour().minute())
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var primaryName: String {
+        switch direction {
+        case .outgoing:
+            relationship.sourceName
+        case .incoming:
+            relationship.targetName
+        }
+    }
+
+    private var secondaryName: String {
+        switch direction {
+        case .outgoing:
+            relationship.targetName
+        case .incoming:
+            relationship.sourceName
+        }
+    }
+
+    private var propertyLabel: String {
+        relationship.property
+            .split(separator: "_")
+            .map { $0.capitalized }
+            .joined(separator: " ")
     }
 }
 
@@ -150,6 +346,7 @@ private struct EditorStatusBanner: View {
                 updatedAt: .now
             ),
             savedQueryViews: [],
+            documentContext: .empty,
             onOpenPreviousDailyNote: {},
             onOpenToday: {},
             onOpenNextDailyNote: {},

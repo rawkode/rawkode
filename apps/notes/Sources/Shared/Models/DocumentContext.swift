@@ -32,4 +32,12 @@ struct DocumentContext: Equatable, Sendable {
     var backlinks: [DocumentBacklink]
     var outgoingRelationships: [EntityRelationship]
     var incomingRelationships: [EntityRelationship]
+
+    var isEmpty: Bool {
+        backlinks.isEmpty && outgoingRelationships.isEmpty && incomingRelationships.isEmpty
+    }
+
+    var relationshipCount: Int {
+        outgoingRelationships.count + incomingRelationships.count
+    }
 }

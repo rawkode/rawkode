@@ -146,6 +146,7 @@ struct NotesRootView: View {
                 NoteEditorView(
                     document: selectedDocument,
                     savedQueryViews: store.savedQueryViews,
+                    documentContext: store.selectedDocumentContext,
                     onOpenPreviousDailyNote: {
                         openDailyNote(movingByDays: -1)
                     },
