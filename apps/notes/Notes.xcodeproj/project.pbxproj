@@ -27,7 +27,9 @@
 		85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3734EB80024C3E9441C3629C /* NotesStore.swift */; };
 		982D166487A14563D4809A26 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 5BD41B8A5F2E62C8C81516D0 /* libsqlite3.tbd */; };
 		BAD2215651AAE293EC129615 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 75DFE58850022E6B2FDF1A73 /* WebKit.framework */; };
+		B7A48C1E5D8A43F9AF10B2C3 /* SupertagFieldDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */; };
 		C065100CDFEA18410DC84B4E /* NoteEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */; };
+		C8B59D2F6E9B54A0BF21C3D4 /* SupertagFieldDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */; };
 		D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2BF955E0697743C652D5DAF /* WebEditorView.swift */; };
 		D142DDDD55304706E9AAF420 /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 3698E95C2388BC623332FAB8 /* Editor */; };
 		E50975CE9B85B0C63976001C /* EntityReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB59412833D691F787F819 /* EntityReference.swift */; };
@@ -64,6 +66,7 @@
 		76A647B18DDA354B4A4580EB /* NotesRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesRootView.swift; sourceTree = "<group>"; };
 		7D24E4A67B1571D565D65A3D /* Notes-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Notes-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C4C45C4FB140CEB2FA783D8 /* NoteEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorView.swift; sourceTree = "<group>"; };
+		A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagFieldDefinition.swift; sourceTree = "<group>"; };
 		A17D847F0CEFA42F3F6A43C6 /* SQLiteNotesRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteNotesRepository.swift; sourceTree = "<group>"; };
 		CEAB59412833D691F787F819 /* EntityReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityReference.swift; sourceTree = "<group>"; };
 		D2BF955E0697743C652D5DAF /* WebEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebEditorView.swift; sourceTree = "<group>"; };
@@ -209,6 +212,7 @@
 				59E8B7A4A7E7608B6AC015DF /* NoteDocument.swift */,
 				1A0B81DBB386303650091E13 /* QueryResult.swift */,
 				59C6E854092A4441A962B8CC /* SavedQueryView.swift */,
+				A9B8C7D6E5F40123456789AB /* SupertagFieldDefinition.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -397,6 +401,7 @@
 				E98C732961B0A1AAFDABC1B0 /* NotesStore.swift in Sources */,
 				0F62BE3915BEF63CA3271685 /* QueryResult.swift in Sources */,
 				3DE33E2FE88E4C10A1E72FD0 /* SavedQueryView.swift in Sources */,
+				B7A48C1E5D8A43F9AF10B2C3 /* SupertagFieldDefinition.swift in Sources */,
 				5B6C05BA5B34FECEEA4C17F2 /* SQLiteNotesRepository.swift in Sources */,
 				427FCAE35715974092E91E9B /* WebEditorView.swift in Sources */,
 			);
@@ -415,6 +420,7 @@
 				85E06C305B0E5CE231D9C097 /* NotesStore.swift in Sources */,
 				673D0970D0208FB5D9D200C5 /* QueryResult.swift in Sources */,
 				1982E979861349B89131E2E5 /* SavedQueryView.swift in Sources */,
+				C8B59D2F6E9B54A0BF21C3D4 /* SupertagFieldDefinition.swift in Sources */,
 				44B3E2FC215ABEB2548C52D7 /* SQLiteNotesRepository.swift in Sources */,
 				D0ACA6DEA64EBB61F3E384D4 /* WebEditorView.swift in Sources */,
 			);

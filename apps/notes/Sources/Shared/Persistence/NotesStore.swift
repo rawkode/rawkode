@@ -10,6 +10,7 @@ final class NotesStore {
     private(set) var dailyNotes: [NoteDocument] = []
     private(set) var standaloneNotes: [NoteDocument] = []
     private(set) var savedQueryViews: [SavedQueryView] = []
+    private(set) var supertagFieldDefinitions: [SupertagFieldDefinition] = []
     private(set) var selectedDocument: NoteDocument?
     private(set) var lastErrorMessage: String?
 
@@ -251,6 +252,49 @@ final class NotesStore {
         }
     }
 
+    @discardableResult
+    func saveSupertagFieldDefinition(
+        supertagName: String,
+        field: String,
+        valueType: String = "text",
+        defaultValue: String? = nil,
+        isRequired: Bool = false,
+        sortOrder: Int = 0
+    ) throws -> SupertagFieldDefinition {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            let definition = try repository.saveSupertagFieldDefinition(
+                supertagName: supertagName,
+                field: field,
+                valueType: valueType,
+                defaultValue: defaultValue,
+                isRequired: isRequired,
+                sortOrder: sortOrder
+            )
+            supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+            return definition
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    func deleteSupertagFieldDefinition(id: UUID) {
+        guard let repository = requireRepository() else {
+            return
+        }
+
+        do {
+            try repository.deleteSupertagFieldDefinition(id: id)
+            supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
     func clearError() {
         lastErrorMessage = nil
     }
@@ -271,6 +315,7 @@ final class NotesStore {
         dailyNotes = try repository.fetchDocuments(kind: .daily)
         standaloneNotes = try repository.fetchDocuments(kind: .note)
         savedQueryViews = try repository.fetchSavedQueryViews()
+        supertagFieldDefinitions = try repository.fetchSupertagFieldDefinitions()
 
         let allDocuments = dailyNotes + standaloneNotes
         if let selectedID, let selected = allDocuments.first(where: { $0.id == selectedID }) {
