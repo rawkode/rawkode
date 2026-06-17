@@ -8,6 +8,9 @@ import (
 schema.#Project
 
 name: "enchiridion"
+runtime: schema.#NixRuntime & {
+	flake: "."
+}
 
 let _t = tasks
 
