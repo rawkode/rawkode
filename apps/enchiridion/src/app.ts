@@ -230,6 +230,10 @@ app.all("/apps/:slug/*", async (c) => {
 	return c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
 });
 
+app.get("*", async (c) => {
+	return fetchAsset(c.env, c.req.raw);
+});
+
 function json(payload: unknown, status = 200): Response {
 	return new Response(JSON.stringify(payload), {
 		status,
