@@ -23,6 +23,7 @@ tasks: {
 		description: "Install npm dependencies from the lockfile"
 		command:     "npm"
 		args: ["ci"]
+		hermetic: false
 		outputs: ["node_modules/**/*"]
 	}
 
@@ -44,6 +45,7 @@ tasks: {
 		description: "Run TypeScript, Vitest, and Astro diagnostics"
 		command:     "npm"
 		args: ["run", "check"]
+		hermetic: false
 		inputs: [
 			"astro.config.mjs",
 			"flue.config.ts",
@@ -59,6 +61,7 @@ tasks: {
 		description: "Build the Cloudflare worker and Astro app shell"
 		command:     "npm"
 		args: ["run", "build"]
+		hermetic: false
 		inputs: [
 			"astro.config.mjs",
 			"flue.config.ts",
