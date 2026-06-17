@@ -18,6 +18,12 @@ export interface DeployMiniAppResult {
 	message: string;
 }
 
+export interface DeleteMiniAppResult {
+	scriptName: string;
+	deleted: boolean;
+	message: string;
+}
+
 export interface SmokeTestMiniAppResult {
 	ok: boolean;
 	route: string;
@@ -71,6 +77,42 @@ export async function deployMiniAppWorker(env: Env, input: DeployMiniAppInput): 
 		scriptName,
 		deployed: true,
 		message: "Mini app Worker deployed.",
+	};
+}
+
+export async function deleteMiniAppWorker(env: Env, scriptName: string): Promise<DeleteMiniAppResult> {
+	const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+	const apiToken = env.CLOUDFLARE_API_TOKEN;
+	const namespace = env.CLOUDFLARE_DISPATCH_NAMESPACE;
+
+	if (!accountId || !apiToken || !namespace) {
+		return {
+			scriptName,
+			deleted: false,
+			message: "Cloudflare account ID, API token, or dispatch namespace is not configured.",
+		};
+	}
+
+	const response = await fetch(
+		`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/dispatch/namespaces/${namespace}/scripts/${scriptName}`,
+		{
+			method: "DELETE",
+			headers: { authorization: `Bearer ${apiToken}` },
+		},
+	);
+
+	if (!response.ok && response.status !== 404) {
+		return {
+			scriptName,
+			deleted: false,
+			message: `Cloudflare cleanup failed with ${response.status}: ${await response.text()}`,
+		};
+	}
+
+	return {
+		scriptName,
+		deleted: true,
+		message: response.status === 404 ? "Mini app Worker candidate was already absent." : "Mini app Worker candidate removed.",
 	};
 }
 
@@ -129,14 +171,26 @@ export async function smokeTestMiniAppWorker(
 	try {
 		const response = await env.MINI_APP_DISPATCHER.get(input.scriptName).fetch(request);
 		const contentType = response.headers.get("content-type");
+		const body = await response.text();
+		const bodySample = sampleBody(body);
 		if (!response.ok) {
-			const body = await response.text();
 			return {
 				ok: false,
 				route,
 				status: response.status,
 				contentType,
-				message: `Smoke test failed with ${response.status}: ${body.slice(0, 500)}`,
+				message: `Smoke test failed with ${response.status}: ${bodySample}`,
+			};
+		}
+
+		const contractFailure = validateSmokeTestBody(contentType, body);
+		if (contractFailure) {
+			return {
+				ok: false,
+				route,
+				status: response.status,
+				contentType,
+				message: `Smoke test failed with ${response.status}: ${contractFailure}`,
 			};
 		}
 
@@ -154,6 +208,28 @@ export async function smokeTestMiniAppWorker(
 			message: error instanceof Error ? error.message : "Smoke test failed.",
 		};
 	}
+}
+
+function validateSmokeTestBody(contentType: string | null, body: string): string | null {
+	if (!contentType?.toLowerCase().includes("text/html")) {
+		return `primary route must return text/html, got ${contentType ?? "no content-type"}`;
+	}
+
+	const trimmed = body.trim();
+	if (/Load failed/i.test(trimmed)) {
+		return `primary route returned a generic failure body: ${sampleBody(trimmed)}`;
+	}
+
+	if (trimmed.length < 20 || !/<(?:!doctype|html|body|main|section|article|h1|h2|div)\b/i.test(trimmed)) {
+		return `primary route returned an empty or non-HTML body: ${sampleBody(trimmed)}`;
+	}
+
+	return null;
+}
+
+function sampleBody(body: string): string {
+	const sample = body.replace(/\s+/g, " ").trim().slice(0, 500);
+	return sample || "<empty body>";
 }
 
 function bindingsToUploadMetadata(bindings: ExtensionBinding[]): UploadBindingMetadata[] {

@@ -2,6 +2,7 @@ import { createAgent, type FlueContext, type WorkflowRouteHandler } from "@flue/
 import * as v from "valibot";
 import {
 	candidateScriptNameForManifest,
+	deleteMiniAppWorker,
 	deployMiniAppWorker,
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
@@ -180,12 +181,14 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 			});
 
 			if (!smokeTest.ok) {
+				const cleanup = await deleteMiniAppWorker(env, deployment.scriptName);
 				attempts.push({
 					attempt,
 					status: "validation_failed",
 					scriptName: deployment.scriptName,
 					message: smokeTest.message,
 					route: smokeTest.route,
+					cleanup: cleanup.message,
 				});
 
 				if (attempt < maxGenerationAttempts) {
@@ -208,6 +211,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 						message: deployment.message,
 						deploymentNotes: generated.deploymentNotes,
 						validation: smokeTest as unknown as JsonObject,
+						cleanup: cleanup as unknown as JsonObject,
 						attempts,
 					},
 				});
