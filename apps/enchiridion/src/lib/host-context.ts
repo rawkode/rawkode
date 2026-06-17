@@ -1,0 +1,75 @@
+import type { JsonObject } from "./types";
+
+export interface HostContextPayload {
+	app: string;
+	scopes: string[];
+	expiresAt: number;
+	context: JsonObject;
+}
+
+export async function signHostContext(payload: HostContextPayload, secret: string): Promise<string> {
+	const body = base64UrlEncode(JSON.stringify(payload));
+	const signature = await hmacSha256(body, secret);
+	return `${body}.${signature}`;
+}
+
+export async function verifyHostContext(token: string, secret: string): Promise<HostContextPayload | null> {
+	const [body, signature] = token.split(".");
+	if (!body || !signature) {
+		return null;
+	}
+
+	const expected = await hmacSha256(body, secret);
+	if (!constantTimeEqual(signature, expected)) {
+		return null;
+	}
+
+	const payload = JSON.parse(base64UrlDecode(body)) as HostContextPayload;
+	if (payload.expiresAt < Date.now()) {
+		return null;
+	}
+
+	return payload;
+}
+
+async function hmacSha256(value: string, secret: string): Promise<string> {
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(secret),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+	return base64UrlEncodeBytes(new Uint8Array(signature));
+}
+
+function base64UrlEncode(value: string): string {
+	return base64UrlEncodeBytes(new TextEncoder().encode(value));
+}
+
+function base64UrlEncodeBytes(bytes: Uint8Array): string {
+	let binary = "";
+	for (const byte of bytes) {
+		binary += String.fromCharCode(byte);
+	}
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value: string): string {
+	const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+	const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+	return atob(padded);
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+	if (a.length !== b.length) {
+		return false;
+	}
+
+	let diff = 0;
+	for (let index = 0; index < a.length; index += 1) {
+		diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+	}
+	return diff === 0;
+}

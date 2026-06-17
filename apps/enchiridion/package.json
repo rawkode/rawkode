@@ -1,0 +1,53 @@
+{
+	"name": "enchiridion",
+	"version": "0.1.0",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "bun run build:client && flue dev --target cloudflare",
+		"dev:ui": "node scripts/dev-ui-proxy.mjs",
+		"build": "bun run build:worker && bun run build:client",
+		"build:client": "astro build",
+		"build:worker": "flue build --target cloudflare",
+		"check": "bun run typecheck && bun run test && bun run astro:check",
+		"preview": "wrangler dev --config dist/enchiridion/wrangler.json",
+		"preview:upload": "wrangler versions upload --config dist/enchiridion/wrangler.json",
+		"deploy:preview": "bun run build && bun run preview:upload --",
+		"migrate:production": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
+		"deploy": "bun run build && bun run migrate:production && wrangler deploy --config dist/enchiridion/wrangler.json",
+		"dry-run": "bun run build && wrangler deploy --dry-run --config dist/enchiridion/wrangler.json",
+		"typecheck": "tsc --noEmit",
+		"astro:check": "astro check",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@astrojs/react": "^5.0.7",
+		"@flue/runtime": "^1.0.0-beta.1",
+		"@stylexjs/stylex": "^0.19.0",
+		"@tiptap/core": "^3.27.0",
+		"@tiptap/extension-placeholder": "^3.27.0",
+		"@tiptap/react": "^3.27.0",
+		"@tiptap/starter-kit": "^3.27.0",
+		"agents": "^0.14.1",
+		"astro": "^6.4.8",
+		"hono": "^4.12.25",
+		"lucide-react": "^1.20.0",
+		"react": "^19.2.7",
+		"react-dom": "^19.2.7",
+		"valibot": "^1.4.1",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@astrojs/check": "*",
+		"@cloudflare/workers-types": "*",
+		"@flue/cli": "^1.0.0-beta.1",
+		"@stylexjs/unplugin": "^0.19.0",
+		"@types/node": "*",
+		"@types/react": "^19.2.7",
+		"@types/react-dom": "^19.2.3",
+		"typescript": "^5.9.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.0",
+		"wrangler": "^4.95.0"
+	}
+}

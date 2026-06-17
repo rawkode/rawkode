@@ -1,0 +1,597 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.editor-shell {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(111, 111, 111, 0.05), transparent 130px),
+    Canvas;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 18px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  background: color-mix(in srgb, Canvas 88%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.toolbar button,
+.toolbar select,
+.sketch-card button {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+  border-radius: 7px;
+  color: CanvasText;
+  background: color-mix(in srgb, Canvas 80%, CanvasText 4%);
+}
+
+.toolbar button:hover,
+.toolbar select:hover,
+.sketch-card button:hover {
+  border-color: color-mix(in srgb, CanvasText 25%, transparent);
+  background: color-mix(in srgb, Canvas 70%, CanvasText 8%);
+}
+
+.toolbar button:disabled,
+.toolbar select:disabled {
+  opacity: 0.45;
+}
+
+.saved-view-insert {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.saved-view-insert__picker {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.saved-view-insert__picker select {
+  max-width: 260px;
+}
+
+.saved-view-insert__summary {
+  max-width: 140px;
+  overflow: hidden;
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-insert {
+  position: relative;
+}
+
+.entity-insert__form {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 4;
+  display: grid;
+  width: min(360px, calc(100vw - 24px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 8px;
+  background: Canvas;
+  box-shadow: 0 8px 18px color-mix(in srgb, CanvasText 14%, transparent);
+}
+
+.entity-insert__form label {
+  display: grid;
+  gap: 4px;
+  color: color-mix(in srgb, CanvasText 70%, transparent);
+  font-size: 0.82rem;
+}
+
+.entity-insert__form input,
+.entity-insert__form textarea {
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 7px;
+  color: CanvasText;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 2%);
+  font: inherit;
+}
+
+.entity-insert__form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.entity-insert__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.entity-insert__error {
+  margin: 0;
+  color: color-mix(in srgb, red 70%, CanvasText);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.entity-chip {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 6px;
+  align-items: center;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, LinkText 28%, transparent);
+  border-radius: 999px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 9%, Canvas);
+  vertical-align: baseline;
+}
+
+.entity-chip__label,
+.entity-chip__tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-chip__tag {
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, LinkText 25%, transparent);
+  font-size: 0.77em;
+  opacity: 0.75;
+}
+
+.query-block {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 88%, CanvasText 3%);
+}
+
+.query-block.is-selected {
+  border-color: color-mix(in srgb, LinkText 55%, transparent);
+}
+
+.query-block__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.query-block__toolbar strong {
+  margin-right: auto;
+  font-size: 0.92rem;
+}
+
+.query-block__badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, LinkText 24%, transparent);
+  border-radius: 999px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 9%, Canvas);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.query-block__badge.is-warning {
+  border-color: color-mix(in srgb, orange 42%, transparent);
+  color: color-mix(in srgb, orange 72%, CanvasText);
+  background: color-mix(in srgb, orange 12%, Canvas);
+}
+
+.query-block__title {
+  display: inline-flex;
+  flex: 1 1 220px;
+  gap: 6px;
+  align-items: center;
+  max-width: 360px;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__title input {
+  min-width: 120px;
+  width: 100%;
+}
+
+.query-block select,
+.query-block input,
+.query-block textarea {
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 7px;
+  color: CanvasText;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 2%);
+  font: inherit;
+}
+
+.query-block select {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.query-block input {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.query-block__group,
+.query-block__display {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__group input,
+.query-block__display input {
+  width: 120px;
+}
+
+.query-block__display--columns input {
+  width: 150px;
+}
+
+.query-block__display--limit input {
+  width: 76px;
+}
+
+.query-block__promotion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 84%, CanvasText 4%);
+}
+
+.query-block__promotion label {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 4px;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.query-block__promotion-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.query-block__promotion-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: color-mix(in srgb, red 70%, CanvasText);
+  font-size: 0.84rem;
+}
+
+.query-block textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 8px;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.query-block__error,
+.query-block__empty {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.query-block__error {
+  color: color-mix(in srgb, red 70%, CanvasText);
+}
+
+.query-block__diagnostics {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.query-block__diagnostics li {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 6px;
+}
+
+.query-block__diagnostics li[data-severity="error"] {
+  color: color-mix(in srgb, red 70%, CanvasText);
+  background: color-mix(in srgb, red 8%, Canvas);
+}
+
+.query-block__diagnostics li[data-severity="warning"] {
+  color: color-mix(in srgb, orange 62%, CanvasText);
+  background: color-mix(in srgb, orange 10%, Canvas);
+}
+
+.query-block__empty {
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+}
+
+.query-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.query-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.query-table th,
+.query-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.query-table th {
+  color: color-mix(in srgb, CanvasText 64%, transparent);
+  font-weight: 650;
+}
+
+.query-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-list li,
+.query-board article {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 90%, CanvasText 2%);
+}
+
+.query-list span,
+.query-board span {
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.8rem;
+}
+
+.query-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.query-board__column {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 84%, CanvasText 3%);
+}
+
+.query-board__header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+  font-size: 0.82rem;
+}
+
+.query-board__header span {
+  display: inline-grid;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+.query-board__cards {
+  display: grid;
+  gap: 8px;
+}
+
+.query-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.query-row-action {
+  width: fit-content;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, LinkText 28%, transparent);
+  border-radius: 7px;
+  color: LinkText;
+  background: color-mix(in srgb, LinkText 8%, Canvas);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.query-row-action:hover {
+  background: color-mix(in srgb, LinkText 13%, Canvas);
+}
+
+.query-table th.query-table__action,
+.query-table td.query-table__action {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.editor-prose {
+  width: min(100%, 900px);
+  min-height: calc(100vh - 52px);
+  margin: 0 auto;
+  padding: 32px 28px 56px;
+  outline: none;
+}
+
+.editor-prose > *:first-child {
+  margin-top: 0;
+}
+
+.editor-prose h1 {
+  margin: 0 0 18px;
+  font-size: 2.1rem;
+  line-height: 1.12;
+}
+
+.editor-prose h2 {
+  margin: 30px 0 12px;
+  font-size: 1.45rem;
+}
+
+.editor-prose p {
+  margin: 12px 0;
+  font-size: 1rem;
+  line-height: 1.68;
+}
+
+.editor-prose ul,
+.editor-prose ol {
+  padding-left: 1.4rem;
+}
+
+.sketch-card {
+  margin: 18px 0;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 86%, CanvasText 3%);
+  box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 8%, transparent);
+}
+
+.sketch-card.is-selected {
+  border-color: color-mix(in srgb, LinkText 55%, transparent);
+}
+
+.sketch-card__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+.sketch-card__eyebrow {
+  margin: 0 0 3px;
+  color: color-mix(in srgb, CanvasText 60%, transparent);
+  font-size: 0.75rem;
+}
+
+.sketch-card strong {
+  display: block;
+  font-size: 0.98rem;
+}
+
+.sketch-card__canvas {
+  height: min(520px, 70vh);
+}
+
+.sketch-card__preview {
+  display: flex;
+  width: 100%;
+  min-height: 120px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  border: 0;
+  border-radius: 0 0 8px 8px;
+  color: CanvasText;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, LinkText 10%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, LinkText 10%, transparent) 1px, transparent 1px),
+    color-mix(in srgb, Canvas 82%, CanvasText 4%);
+  background-size: 24px 24px;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    overflow: visible;
+    padding-inline: 12px;
+  }
+
+  .entity-insert__form {
+    position: fixed;
+    top: 56px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 68px);
+    overflow-y: auto;
+  }
+
+  .editor-prose {
+    padding: 22px 18px 42px;
+  }
+
+  .editor-prose h1 {
+    font-size: 1.75rem;
+  }
+
+  .sketch-card__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

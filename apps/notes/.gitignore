@@ -1,0 +1,7 @@
+.DS_Store
+DerivedData/
+*.xcuserstate
+*.xcuserdata/
+.xcodebuildmcp/
+Sources/Shared/Resources/Editor/*
+!Sources/Shared/Resources/Editor/.gitkeep

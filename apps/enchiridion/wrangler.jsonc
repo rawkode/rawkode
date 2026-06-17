@@ -1,0 +1,31 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "enchiridion",
+	"compatibility_date": "2026-06-17",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"directory": "./dist/client",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*", "/apps/*"]
+	},
+	"observability": { "enabled": true },
+	"vars": {
+		"DEV_USER_EMAIL": "rawkode.local",
+		"CLOUDFLARE_DISPATCH_NAMESPACE": "enchiridion-mini-apps"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "enchiridion",
+			"database_id": "0b7c04ac-8fdc-4941-a9cf-36757c24efa7",
+			"migrations_dir": "./migrations"
+		}
+	],
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["FlueRegistry", "FlueSecondBrainAgentAgent", "FlueGenerateMiniAppWorkflow"]
+		}
+	]
+}
