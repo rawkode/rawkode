@@ -1,8 +1,8 @@
-import { registerProvider } from "@flue/runtime";
 import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal } from "./lib/auth";
+import { registerRuntimeProviders } from "./lib/flue-providers";
 import { signHostContext } from "./lib/host-context";
 import {
 	createBookmark,
@@ -234,17 +234,6 @@ function json(payload: unknown, status = 200): Response {
 	return new Response(JSON.stringify(payload), {
 		status,
 		headers: { "content-type": "application/json" },
-	});
-}
-
-function registerRuntimeProviders(env: Env) {
-	if (!env.AI) {
-		return;
-	}
-
-	registerProvider("cloudflare-workers-ai", {
-		api: "cloudflare-ai-binding",
-		binding: env.AI,
 	});
 }
 

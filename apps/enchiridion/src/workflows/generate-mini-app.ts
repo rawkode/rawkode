@@ -2,21 +2,26 @@ import { createAgent, type FlueContext, type WorkflowRouteHandler } from "@flue/
 import * as v from "valibot";
 import { deployMiniAppWorker, scriptNameForManifest } from "../lib/cloudflare-dispatch";
 import { validateExtensionManifest } from "../lib/extension-manifest";
+import { registerRuntimeProviders } from "../lib/flue-providers";
 import { createAuditRecord, saveExtension } from "../lib/repository";
 import type { Env, ExtensionManifest } from "../lib/types";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
 
-const miniAppBuilder = createAgent<unknown, Env>(() => ({
-	model: "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6",
-	instructions: [
-		"Generate Enchiridion mini apps as Cloudflare module Workers.",
-		"Return a strict extension manifest and one JavaScript module worker source.",
-		"Routes must stay under /apps/<slug>.",
-		"Mini apps must use signed host APIs for host data and isolated bindings for app-owned state.",
-		"Never request direct access to the host DB binding.",
-	].join(" "),
-}));
+const miniAppBuilder = createAgent<unknown, Env>(({ env }) => {
+	registerRuntimeProviders(env);
+
+	return {
+		model: "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6",
+		instructions: [
+			"Generate Enchiridion mini apps as Cloudflare module Workers.",
+			"Return a strict extension manifest and one JavaScript module worker source.",
+			"Routes must stay under /apps/<slug>.",
+			"Mini apps must use signed host APIs for host data and isolated bindings for app-owned state.",
+			"Never request direct access to the host DB binding.",
+		].join(" "),
+	};
+});
 
 const generatedMiniAppSchema = v.object({
 	manifest: v.object({
