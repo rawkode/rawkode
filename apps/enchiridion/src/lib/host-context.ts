@@ -1,10 +1,25 @@
-import type { JsonObject } from "./types";
+import type { Env, JsonObject } from "./types";
 
 export interface HostContextPayload {
 	app: string;
 	scopes: string[];
 	expiresAt: number;
 	context: JsonObject;
+}
+
+export function requireHostSigningSecret(env: Env, request?: Request): string {
+	if (env.HOST_SIGNING_SECRET) {
+		return env.HOST_SIGNING_SECRET;
+	}
+
+	if (request && isLocalDevelopmentRequest(request)) {
+		return "dev-host-signing-secret";
+	}
+
+	throw new Response(JSON.stringify({ error: "HOST_SIGNING_SECRET is not configured" }), {
+		status: 500,
+		headers: { "content-type": "application/json" },
+	});
 }
 
 export async function signHostContext(payload: HostContextPayload, secret: string): Promise<string> {
@@ -72,4 +87,13 @@ function constantTimeEqual(a: string, b: string): boolean {
 		diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
 	}
 	return diff === 0;
+}
+
+function isLocalDevelopmentRequest(request: Request): boolean {
+	const { hostname } = new URL(request.url);
+	return hostname === "localhost"
+		|| hostname === "127.0.0.1"
+		|| hostname === "::1"
+		|| hostname === "[::1]"
+		|| hostname.endsWith(".localhost");
 }

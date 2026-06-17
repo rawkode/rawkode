@@ -21,6 +21,8 @@ The app builds in two stages:
 
 Production deploys use `op://sa.rawkode.academy/cloudflare/api-tokens/workers` as Wrangler's `CLOUDFLARE_API_TOKEN`. The deployed Worker also receives that token for dynamic mini-app uploads.
 
+Worker runtime secrets are synced during production deploy with `npm run sync:secrets`. `ENCHIRIDION_PASSWORD` comes from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion`. `HOST_SIGNING_SECRET` is a domain-separated hash derived from the same 1Password-backed Enchiridion secret unless an explicit `HOST_SIGNING_SECRET` is provided in the cuenv environment.
+
 ## Auth
 
 Production requests must be authenticated. Enchiridion accepts either Cloudflare Access headers or HTTP Basic auth. The Basic auth password is loaded from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion` and synced into the Worker as `ENCHIRIDION_PASSWORD`.
@@ -28,6 +30,8 @@ Production requests must be authenticated. Enchiridion accepts either Cloudflare
 Cloudflare Access mode accepts the `cf-access-authenticated-user-email` and `cf-access-authenticated-user-name` headers and can restrict accepted identities with `ALLOWED_EMAILS`.
 
 The dev identity fallback is local-only. Requests to `localhost`, `127.0.0.1`, or `[::1]` use `DEV_USER_EMAIL` when set, otherwise `rawkode.local`. The fallback is ignored on deployed hosts.
+
+Host-context signing also has a local-only fallback. Production dispatch and host-context token issuance require `HOST_SIGNING_SECRET`; missing production signing material returns a server error instead of using a hardcoded secret.
 
 ## Pull Request Previews
 

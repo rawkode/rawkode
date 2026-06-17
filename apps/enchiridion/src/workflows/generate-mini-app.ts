@@ -69,7 +69,7 @@ interface GenerateMiniAppPayload {
 
 type GeneratedMiniApp = v.InferOutput<typeof generatedMiniAppSchema>;
 
-const maxGenerationAttempts = 2;
+const maxGenerationAttempts = 3;
 
 export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
 	const installedExtensions = await listRegisteredExtensions(env);
@@ -372,6 +372,7 @@ export function validateGeneratedMiniApp(input: {
 }): ValidatedMiniAppCandidate {
 	const validation = validateExtensionManifest(input.generated.manifest);
 	const issues = [...validation.issues];
+	issues.push(...validateWorkerSource(input.generated.workerSource));
 
 	if (input.operation === "update" && input.targetExtension && validation.manifest?.slug !== input.targetExtension.slug) {
 		issues.push(`manifest.slug: update must keep target slug ${input.targetExtension.slug}`);
@@ -386,6 +387,10 @@ export function validateGeneratedMiniApp(input: {
 		issues.push(`bindings: autonomous deploy cannot provision isolated bindings yet (${requested}); return bindings: [] or use host APIs`);
 	}
 
+	if (input.autonomousDeploy && validation.manifest && !validation.manifest.routes.some((route) => route.mode === "worker-page")) {
+		issues.push("routes: autonomous mini apps must expose at least one worker-page route");
+	}
+
 	return {
 		ok: Boolean(validation.manifest) && issues.length === 0,
 		status: issues.some((issue) => issue.startsWith("bindings: autonomous deploy cannot provision"))
@@ -398,4 +403,36 @@ export function validateGeneratedMiniApp(input: {
 
 export function isRepairableDeploymentFailure(message: string): boolean {
 	return !message.includes("is not configured");
+}
+
+function validateWorkerSource(workerSource: string): string[] {
+	const source = workerSource.trim();
+	const issues: string[] = [];
+
+	if (!/\bexport\s+default\b/.test(source)) {
+		issues.push("workerSource: must export a default Cloudflare module Worker");
+	}
+
+	if (!/\bfetch\s*\(/.test(source)) {
+		issues.push("workerSource: default export must include a fetch(request, env, ctx) handler");
+	}
+
+	const forbiddenPatterns: Array<[RegExp, string]> = [
+		[/\bimport\s+[\s\S]*?\bfrom\b|\bimport\s*\(/, "workerSource: autonomous workers must be self-contained and cannot import modules"],
+		[/\brequire\s*\(/, "workerSource: autonomous workers must be self-contained and cannot require modules"],
+		[/\benv\s*\.\s*(ASSETS|DB|[A-Z][A-Z0-9_]*)\b/, "workerSource: autonomous workers cannot read env bindings; declare host APIs instead"],
+		[/\b(window|document|localStorage|navigator)\s*\./, "workerSource: Cloudflare Workers cannot use browser globals during request handling"],
+		[/\bprocess\s*\.\s*env\b/, "workerSource: Cloudflare Workers cannot read process.env"],
+		[/\b(React|ReactDOM)\s*\.|jsx\s*\(/, "workerSource: generated Workers cannot depend on React or JSX runtimes"],
+		[/\bfetch\s*\(\s*["'`]/, "workerSource: generated pages must not fetch external resources during route rendering"],
+		[/Load failed/i, "workerSource: primary route must render useful HTML instead of a generic Load failed response"],
+	];
+
+	for (const [pattern, message] of forbiddenPatterns) {
+		if (pattern.test(source)) {
+			issues.push(message);
+		}
+	}
+
+	return issues;
 }

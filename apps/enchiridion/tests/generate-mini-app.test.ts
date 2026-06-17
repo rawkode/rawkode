@@ -22,10 +22,10 @@ const registeredHelloWorld: RegisteredExtension = {
 	deployedScriptName: "enchiridion-hello-world",
 };
 
-function generated(manifest: ExtensionManifest) {
+function generated(manifest: ExtensionManifest, workerSource = "export default { fetch() { return new Response('<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }") {
 	return {
 		manifest,
-		workerSource: "export default { fetch() { return new Response('<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }",
+		workerSource,
 		deploymentNotes: "Generated for test.",
 	};
 }
@@ -88,6 +88,51 @@ describe("generate mini app candidate validation", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues).toContain("manifest.slug: update must keep target slug hello-world");
+	});
+
+	it("rejects generated workers that render generic load failures", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				"export default { fetch() { return new Response('Load failed', { status: 500 }) } }",
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: primary route must render useful HTML instead of a generic Load failed response");
+	});
+
+	it("rejects generated workers that depend on unavailable runtime bindings", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				"export default { fetch(request, env) { return env.ASSETS.fetch(request) } }",
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: autonomous workers cannot read env bindings; declare host APIs instead");
+	});
+
+	it("requires an autonomous mini app route that can be smoke tested", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				routes: [],
+			}),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("routes: autonomous mini apps must expose at least one worker-page route");
 	});
 
 	it("does not retry missing Cloudflare configuration failures", () => {

@@ -1,5 +1,5 @@
 import type { Env, ExtensionBinding, ExtensionManifest } from "./types";
-import { signHostContext } from "./host-context";
+import { requireHostSigningSecret, signHostContext } from "./host-context";
 
 type UploadBindingMetadata =
 	| { type: "kv_namespace"; name: string; namespace_id: string }
@@ -97,7 +97,20 @@ export async function smokeTestMiniAppWorker(
 		};
 	}
 
-	const secret = env.HOST_SIGNING_SECRET ?? "dev-host-signing-secret";
+	let secret: string;
+	try {
+		secret = requireHostSigningSecret(env);
+	} catch (error) {
+		if (error instanceof Response) {
+			return {
+				ok: false,
+				route,
+				status: error.status,
+				message: "HOST_SIGNING_SECRET is not configured.",
+			};
+		}
+		throw error;
+	}
 	const token = await signHostContext({
 		app: input.manifest.slug,
 		scopes: input.manifest.hostApis,

@@ -60,6 +60,7 @@ describe("Cloudflare dispatch helpers", () => {
 
 	it("reports smoke test failures without throwing", async () => {
 		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
 			MINI_APP_DISPATCHER: {
 				get() {
 					return {
@@ -79,5 +80,24 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.ok).toBe(false);
 		expect(result.status).toBe(500);
 		expect(result.message).toContain("Load failed");
+	});
+
+	it("fails smoke tests when production signing material is missing", async () => {
+		const env = {
+			MINI_APP_DISPATCHER: {
+				get() {
+					throw new Error("dispatcher should not be called without signing material");
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(500);
+		expect(result.message).toBe("HOST_SIGNING_SECRET is not configured.");
 	});
 });

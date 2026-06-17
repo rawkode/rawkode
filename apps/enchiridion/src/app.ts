@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
 import { registerRuntimeProviders } from "./lib/flue-providers";
-import { signHostContext } from "./lib/host-context";
+import { requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
 	createBookmark,
 	createKanbanCard,
@@ -180,7 +180,7 @@ app.post("/api/apps/projects/cards", async (c) => {
 });
 
 app.post("/api/host-context", async (c) => {
-	const secret = c.env.HOST_SIGNING_SECRET ?? "dev-host-signing-secret";
+	const secret = requireHostSigningSecret(c.env, c.req.raw);
 	const payload = z.object({
 		app: z.string().min(1),
 		scopes: z.array(z.string()),
@@ -221,7 +221,7 @@ app.all("/apps/:slug/*", async (c) => {
 		return json({ error: "Mini app route not found", slug }, 404);
 	}
 
-	const secret = c.env.HOST_SIGNING_SECRET ?? "dev-host-signing-secret";
+	const secret = requireHostSigningSecret(c.env, c.req.raw);
 	const token = await signHostContext({
 		app: slug,
 		scopes: extension.hostApis,

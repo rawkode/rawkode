@@ -833,7 +833,8 @@ function formatMiniAppResult(result: Record<string, unknown>, intent: MiniAppInt
 	}
 
 	if (status === "validation_failed") {
-		return `${status}: ${slug}. ${message || "The Worker uploaded, but the primary route did not render. The previous active app was left unchanged."}`.trim();
+		const details = message || "The Worker uploaded, but the primary route did not render.";
+		return `${status}: ${slug}. Candidate Worker failed smoke testing and was not activated. ${details}`.trim();
 	}
 
 	if (result.deployed === true) {
@@ -855,7 +856,7 @@ function formatAgentResult(result: unknown): string {
 		return result;
 	}
 	if (typeof result === "object") {
-		const text = readStringProperty(result, "text") ?? readStringProperty(result, "message");
+		const text = readAgentText(result);
 		if (text) {
 			return text;
 		}
@@ -867,6 +868,42 @@ function formatAgentResult(result: unknown): string {
 	}
 
 	return String(result);
+}
+
+function readAgentText(source: unknown, depth = 0): string | undefined {
+	if (depth > 4 || !source) {
+		return undefined;
+	}
+	if (typeof source === "string") {
+		return source;
+	}
+	if (Array.isArray(source)) {
+		const parts = source
+			.map((entry) => readAgentText(entry, depth + 1))
+			.filter((entry): entry is string => Boolean(entry));
+		return parts.length > 0 ? parts.join("\n") : undefined;
+	}
+	if (typeof source !== "object") {
+		return undefined;
+	}
+
+	const text = readStringProperty(source, "text")
+		?? readStringProperty(source, "message")
+		?? readStringProperty(source, "content");
+	if (text) {
+		return text;
+	}
+
+	for (const key of ["result", "response", "output", "data", "content"]) {
+		if (key in source) {
+			const nested = readAgentText((source as Record<string, unknown>)[key], depth + 1);
+			if (nested) {
+				return nested;
+			}
+		}
+	}
+
+	return undefined;
 }
 
 function formatAgentError(error: unknown, fallback: string): string {

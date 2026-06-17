@@ -64,6 +64,8 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Request operation: update");
 		expect(prompt).toContain('"slug": "hello-world"');
 		expect(prompt).toContain("keep the target manifest slug exactly the same");
+		expect(prompt).toContain("self-contained JavaScript module");
+		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
 	});
 
@@ -79,6 +81,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("failed Enchiridion validation, deployment, or route smoke testing");
 		expect(prompt).toContain("Smoke test failed with 500: Load failed");
 		expect(prompt).toContain("Keep the manifest slug exactly as hello-world");
+		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(prompt).toContain("export default");
 	});
 });
