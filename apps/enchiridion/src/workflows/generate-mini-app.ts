@@ -775,7 +775,7 @@ export function validateGeneratedMiniApp(input: {
 }): ValidatedMiniAppCandidate {
 	const validation = validateExtensionManifest(input.generated.manifest);
 	const issues = [...validation.issues];
-	issues.push(...validateWorkerSource(input.generated.workerSource));
+	issues.push(...validateWorkerSource(input.generated.workerSource, validation.manifest));
 
 	if (input.operation === "update" && input.targetExtension && validation.manifest?.slug !== input.targetExtension.slug) {
 		issues.push(`manifest.slug: update must keep target slug ${input.targetExtension.slug}`);
@@ -808,7 +808,7 @@ export function isRepairableDeploymentFailure(message: string): boolean {
 	return !message.includes("is not configured");
 }
 
-function validateWorkerSource(workerSource: string): string[] {
+function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest): string[] {
 	const source = workerSource.trim();
 	const issues: string[] = [];
 
@@ -828,6 +828,9 @@ function validateWorkerSource(workerSource: string): string[] {
 		[/\bprocess\s*\.\s*env\b/, "workerSource: Cloudflare Workers cannot read process.env"],
 		[/\b(React|ReactDOM)\s*\.|jsx\s*\(/, "workerSource: generated Workers cannot depend on React or JSX runtimes"],
 		[/\bfetch\s*\(\s*["'`]/, "workerSource: generated pages must not fetch external resources during route rendering"],
+		[/\b(fetch|new Request)\s*\(\s*["'`]https?:\/\//, "workerSource: generated pages must not fetch external resources during route rendering"],
+		[/\bnew\s+URL\s*\(\s*["'`]https?:\/\//, "workerSource: generated Workers must build URLs from request.url, not absolute external origins"],
+		[/\/api\/(?!host\/)/, "workerSource: generated Workers must use /api/host/* for host APIs instead of browser-authenticated APIs"],
 		[/Load failed/i, "workerSource: primary route must render useful HTML instead of a generic Load failed response"],
 	];
 
@@ -835,6 +838,31 @@ function validateWorkerSource(workerSource: string): string[] {
 		if (pattern.test(source)) {
 			issues.push(message);
 		}
+	}
+
+	issues.push(...validateHostApiUsage(source, manifest));
+
+	return issues;
+}
+
+function validateHostApiUsage(source: string, manifest?: ExtensionManifest): string[] {
+	const issues: string[] = [];
+	const hostApiPaths = Array.from(source.matchAll(/\/api\/host\/[a-z0-9_./-]*/gi)).map((match) => match[0]);
+	if (hostApiPaths.length === 0) {
+		return issues;
+	}
+
+	const unsupportedHostApiPaths = hostApiPaths.filter((path) => path !== "/api/host/resource-index/search");
+	if (unsupportedHostApiPaths.length > 0) {
+		issues.push(`workerSource: unsupported host API path ${Array.from(new Set(unsupportedHostApiPaths)).join(", ")}`);
+	}
+
+	if (!manifest?.hostApis.includes("resource-index:read")) {
+		issues.push("workerSource: /api/host/resource-index/search requires manifest.hostApis to include resource-index:read");
+	}
+
+	if (!source.includes("x-enchiridion-host-context")) {
+		issues.push("workerSource: host API calls must forward the incoming x-enchiridion-host-context header");
 	}
 
 	return issues;

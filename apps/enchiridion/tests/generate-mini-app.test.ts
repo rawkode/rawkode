@@ -124,6 +124,147 @@ describe("generate mini app candidate validation", () => {
 		expect(result.issues).toContain("workerSource: autonomous workers cannot read env bindings; declare host APIs instead");
 	});
 
+	it("allows declared host API reads when the worker forwards host context", () => {
+		const workerSource = `
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		url.searchParams.set("q", "kubernetes");
+		url.searchParams.set("limit", "5");
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		const resources = await response.json();
+		return new Response(\`<html><body><h1>Results</h1><pre>\${JSON.stringify(resources)}</pre></body></html>\`, {
+			headers: { "content-type": "text/html; charset=utf-8" },
+		});
+	},
+}`;
+
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				hostApis: ["resource-index:read"],
+			}, workerSource),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects host API reads that are not declared by the manifest", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: /api/host/resource-index/search requires manifest.hostApis to include resource-index:read");
+	});
+
+	it("rejects host API reads that do not forward host context", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await fetch(url);
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: host API calls must forward the incoming x-enchiridion-host-context header");
+	});
+
+	it("rejects browser-authenticated host routes from generated workers", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/search", request.url);
+		return new Response(String(url), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers must use /api/host/* for host APIs instead of browser-authenticated APIs");
+	});
+
+	it("rejects unsupported host API paths", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/notes", request.url);
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: unsupported host API path /api/host/notes");
+	});
+
+	it("allows static outbound links in generated tutorial pages", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`export default { fetch() { return new Response('<html><body><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/">Docs</a></body></html>', { headers: { 'content-type': 'text/html' } }) } }`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
 	it("requires an autonomous mini app route that can be smoke tested", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated({
