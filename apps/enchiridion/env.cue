@@ -1,12 +1,15 @@
 package cuenv
 
 import (
+	contrib "github.com/cuenv/cuenv/contrib/contributors"
 	"github.com/cuenv/cuenv/schema"
 )
 
 schema.#Project & {
 	name: "enchiridion"
 }
+
+let _t = tasks
 
 env: {
 	environment: production: {
@@ -92,5 +95,21 @@ tasks: {
 		command:     "npm"
 		args: ["run", "deploy"]
 		hermetic: false
+	}
+}
+
+ci: {
+	providers: ["github"]
+	contributors: [contrib.#Cuenv, contrib.#OnePassword]
+	provider: github: permissions: {
+		contents:      "read"
+		"pull-requests": "write"
+	}
+	pipelines: {
+		preview: {
+			environment: "production"
+			when: pullRequest: true
+			tasks: [_t.check, _t.deployPreview]
+		}
 	}
 }

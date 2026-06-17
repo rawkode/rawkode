@@ -22,10 +22,7 @@ The app builds in two stages:
 
 Opening, reopening, or updating a PR that touches `apps/enchiridion/**` runs `.github/workflows/enchiridion-preview.yml`. The workflow builds Enchiridion, uploads a Cloudflare Worker version with preview alias `pr-<number>`, extracts the `workers.dev` preview URL from Wrangler, and comments that URL back on the PR.
 
-The repository needs these GitHub Actions secrets:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
+Cloudflare credentials are not duplicated into GitHub repository secrets. The workflow installs cuenv, sets up the 1Password provider, and runs the preview upload through `cuenv exec -e production`, which resolves the `env.cue` production environment in the same shape as `rawkode.dev`.
 
 ## Architecture
 

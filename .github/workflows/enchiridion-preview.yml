@@ -23,11 +23,35 @@ jobs:
       run:
         working-directory: apps/enchiridion
     env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CUENV_ENVIRONMENT: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup cuenv
+        run: |-
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) cuenv_asset="cuenv-linux-x64" ;;
+            aarch64|arm64) cuenv_asset="cuenv-linux-arm64" ;;
+            *) echo "Unsupported Linux architecture: $arch" >&2; exit 1 ;;
+          esac
+          cuenv_version="0.53.2"
+          if [ "$cuenv_version" = "latest" ]; then
+            cuenv_url="https://github.com/cuenv/cuenv/releases/latest/download/${cuenv_asset}"
+          else
+            cuenv_url="https://github.com/cuenv/cuenv/releases/download/${cuenv_version}/${cuenv_asset}"
+          fi
+          curl -sSL -o /usr/local/bin/cuenv "$cuenv_url" && chmod +x /usr/local/bin/cuenv && /usr/local/bin/cuenv sync ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup 1Password
+        run: cuenv exec -- cuenv secrets setup onepassword
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -52,7 +76,7 @@ jobs:
           set -euo pipefail
 
           preview_alias="pr-${{ github.event.pull_request.number }}"
-          deploy_output="$(npm run preview:upload -- --preview-alias "$preview_alias" --tag "$preview_alias" --message "PR #${{ github.event.pull_request.number }} ${GITHUB_SHA}" 2>&1)"
+          deploy_output="$(cuenv exec -e production npm run preview:upload -- --preview-alias "$preview_alias" --tag "$preview_alias" --message "PR #${{ github.event.pull_request.number }} ${GITHUB_SHA}" 2>&1)"
 
           printf '%s\n' "$deploy_output"
           preview_url="$(printf '%s\n' "$deploy_output" | grep -Eo 'https://[^[:space:]\")]+workers.dev[^[:space:]\")]*' | tail -n 1)"
@@ -63,6 +87,8 @@ jobs:
           fi
 
           echo "url=$preview_url" >> "$GITHUB_OUTPUT"
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 
       - name: Comment preview URL
         uses: actions/github-script@v7
