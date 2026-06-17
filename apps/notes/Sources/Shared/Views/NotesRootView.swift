@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum NotesSidebarSelection: Hashable {
     case document(UUID)
@@ -16,6 +17,11 @@ struct NotesRootView: View {
     @State private var savedViewDraftQuery = "SELECT * FROM daily_notes"
     @State private var savedViewDraftMode = "table"
     @State private var savedViewDraftGroupBy = ""
+    @State private var vaultExportDocument: NotesVaultFileDocument?
+    @State private var isPresentingVaultExporter = false
+    @State private var isConfirmingVaultImport = false
+    @State private var isPresentingVaultImporter = false
+    @State private var vaultNotice: VaultNotice?
 
     private var selectedSavedQueryView: SavedQueryView? {
         guard case .savedQueryView(let selectedID) = sidebarSelection else {
@@ -124,6 +130,18 @@ struct NotesRootView: View {
                         Button(action: presentSavedViewCreator) {
                             Label("New Saved View", systemImage: "rectangle.grid.1x2")
                         }
+
+                        Divider()
+
+                        Button(action: exportVault) {
+                            Label("Export Vault", systemImage: "square.and.arrow.up")
+                        }
+
+                        Button {
+                            isConfirmingVaultImport = true
+                        } label: {
+                            Label("Replace Vault...", systemImage: "square.and.arrow.down")
+                        }
                     } label: {
                         Label("Create", systemImage: "plus")
                     }
@@ -206,12 +224,55 @@ struct NotesRootView: View {
                 onSave: saveSavedViewDraft
             )
         }
+        .fileExporter(
+            isPresented: $isPresentingVaultExporter,
+            document: vaultExportDocument,
+            contentType: .json,
+            defaultFilename: vaultExportFilename,
+            onCompletion: handleVaultExportCompletion
+        )
+        .fileImporter(
+            isPresented: $isPresentingVaultImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: importVault
+        )
+        .confirmationDialog(
+            "Replace local vault?",
+            isPresented: $isConfirmingVaultImport,
+            titleVisibility: .visible
+        ) {
+            Button("Choose Vault File", role: .destructive) {
+                isPresentingVaultImporter = true
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Importing a vault replaces all local notes, entities, saved views, and schema fields with the selected JSON snapshot.")
+        }
+        .alert(vaultNotice?.title ?? "Vault", isPresented: vaultNoticeBinding) {
+            Button("OK") {
+                vaultNotice = nil
+            }
+        } message: {
+            Text(vaultNotice?.message ?? "")
+        }
         .alert("Notes Database", isPresented: errorBinding) {
             Button("OK") {
                 store.clearError()
             }
         } message: {
             Text(store.lastErrorMessage ?? "Unknown database error.")
+        }
+    }
+
+    private var vaultNoticeBinding: Binding<Bool> {
+        Binding {
+            vaultNotice != nil
+        } set: { isPresented in
+            if !isPresented {
+                vaultNotice = nil
+            }
         }
     }
 
@@ -292,6 +353,59 @@ struct NotesRootView: View {
         }
     }
 
+    private func exportVault() {
+        do {
+            vaultExportDocument = NotesVaultFileDocument(data: try store.exportVaultJSON())
+            isPresentingVaultExporter = true
+        } catch {
+            // NotesStore already exposes repository errors through lastErrorMessage.
+        }
+    }
+
+    private func handleVaultExportCompletion(_ result: Result<URL, Error>) {
+        vaultExportDocument = nil
+
+        switch result {
+        case .success(let url):
+            vaultNotice = VaultNotice(
+                title: "Vault Exported",
+                message: "Saved \(url.lastPathComponent)."
+            )
+        case .failure(let error):
+            vaultNotice = VaultNotice(
+                title: "Vault Export Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func importVault(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else {
+                return
+            }
+
+            let didAccessSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            try store.importVaultJSON(Data(contentsOf: url))
+            selectCurrentDocument()
+            vaultNotice = VaultNotice(
+                title: "Vault Imported",
+                message: "Loaded \(url.lastPathComponent)."
+            )
+        } catch {
+            vaultNotice = VaultNotice(
+                title: "Vault Import Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
     private func saveSupertagSchemaDraft(_ draft: SupertagSchemaDraft) throws {
         try store.saveSupertagFieldDefinition(
             supertagName: draft.supertagName,
@@ -326,6 +440,35 @@ struct NotesRootView: View {
         } else {
             sidebarSelection = nil
         }
+    }
+
+    private var vaultExportFilename: String {
+        "notes-vault-\(DailyNoteDateFormatter.storageString(from: .now))"
+    }
+}
+
+private struct VaultNotice: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+}
+
+private struct NotesVaultFileDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    static var writableContentTypes: [UTType] { [.json] }
+
+    var data: Data
+
+    init(data: Data = Data()) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 

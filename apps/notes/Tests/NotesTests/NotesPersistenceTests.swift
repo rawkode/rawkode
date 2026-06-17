@@ -2017,6 +2017,61 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreExportsAndImportsVaultJSON() throws {
+        let sourceDatabaseURL = try temporaryDatabaseURL()
+        let importedDatabaseURL = try temporaryDatabaseURL()
+        defer {
+            removeTemporaryDatabase(at: sourceDatabaseURL)
+            removeTemporaryDatabase(at: importedDatabaseURL)
+        }
+
+        let sourceStore = NotesStore(repository: try SQLiteNotesRepository(databaseURL: sourceDatabaseURL))
+        sourceStore.load()
+        sourceStore.createStandaloneNote()
+        let sourceNote = try XCTUnwrap(sourceStore.selectedDocument)
+        sourceStore.saveEditorChange(
+            documentID: sourceNote.id,
+            title: "Portable project",
+            contentJSON: sourceNote.tiptapJSON,
+            plainText: """
+            [[Notes Roadmap]] #project
+            owner:: [[Rawkode Academy]]
+            """
+        )
+        _ = try sourceStore.saveSavedQueryView(
+            named: "Portable Projects",
+            query: "SELECT name, owner FROM projects",
+            view: "table"
+        )
+
+        let exportedJSON = try sourceStore.exportVaultJSON()
+
+        let importedStore = NotesStore(repository: try SQLiteNotesRepository(databaseURL: importedDatabaseURL))
+        importedStore.load()
+        importedStore.createStandaloneNote()
+        let junkNote = try XCTUnwrap(importedStore.selectedDocument)
+        importedStore.saveEditorChange(
+            documentID: junkNote.id,
+            title: "Junk note",
+            contentJSON: junkNote.tiptapJSON,
+            plainText: "[[Junk Entity]] #junk"
+        )
+
+        try importedStore.importVaultJSON(exportedJSON)
+
+        XCTAssertEqual(importedStore.standaloneNotes.map(\.title), ["Portable project"])
+        XCTAssertFalse(importedStore.standaloneNotes.contains { $0.title == "Junk note" })
+        XCTAssertEqual(importedStore.savedQueryViews.map(\.name), ["Portable Projects"])
+        XCTAssertNotNil(importedStore.selectedDocument)
+
+        let projects = try importedStore.runQuery("SELECT name, owner FROM projects")
+        XCTAssertEqual(projects.rows, [
+            ["name": "Notes Roadmap", "owner": "Rawkode Academy"],
+        ])
+        XCTAssertTrue(try importedStore.runQuery("SELECT name FROM junk").rows.isEmpty)
+    }
+
+    @MainActor
     func testDailyNotesCannotBeDeletedFromStore() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

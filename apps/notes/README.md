@@ -22,13 +22,13 @@ Current local-first foundation:
 - Notes are persisted as Tiptap JSON in local SQLite, with inline Excalidraw sketches.
 - Entities, supertags, entity properties, backlinks, and entity-to-entity property references are indexed locally.
 - Query blocks run against local SQLite materializations and can render as tables, lists, or grouped boards.
+- Vault export and replacement import are available from the native app for local JSON portability before sync exists.
 
 Next local milestones:
 
-- Saved named views for recurring query blocks.
-- Supertag schema editing for expected fields, defaults, and validation.
-- First-class backlink and relationship panels beside the editor.
-- Import/export for local vault portability before sync is introduced.
+- Entity detail navigation from context panels and query rows.
+- Richer schema-aware entity editing for typed supertag fields.
+- Query view management for editing, duplicating, and organizing saved views.
 
 Cloudflare-backed milestones remain later:
 
