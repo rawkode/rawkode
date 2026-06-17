@@ -144,7 +144,7 @@ final class NotesPersistenceTests: XCTestCase {
         let status = try repository.saveSupertagFieldDefinition(
             supertagName: "  #Project  ",
             field: " Status ",
-            valueType: "String",
+            valueType: try SupertagFieldValueType(normalizing: "String"),
             defaultValue: " active ",
             isRequired: true,
             sortOrder: 2
@@ -154,7 +154,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(status.supertagSlug, "project")
         XCTAssertEqual(status.key, "status")
         XCTAssertEqual(status.label, "Status")
-        XCTAssertEqual(status.valueType, "text")
+        XCTAssertEqual(status.valueType, .text)
         XCTAssertEqual(status.defaultValue, "active")
         XCTAssertTrue(status.isRequired)
         XCTAssertEqual(status.sortOrder, 2)
@@ -162,13 +162,13 @@ final class NotesPersistenceTests: XCTestCase {
         let updatedStatus = try repository.saveSupertagFieldDefinition(
             supertagName: "project",
             field: "status",
-            valueType: "checkbox",
+            valueType: try SupertagFieldValueType(normalizing: "checkbox"),
             isRequired: false,
             sortOrder: 1
         )
 
         XCTAssertEqual(updatedStatus.id, status.id)
-        XCTAssertEqual(updatedStatus.valueType, "boolean")
+        XCTAssertEqual(updatedStatus.valueType, .boolean)
         XCTAssertNil(updatedStatus.defaultValue)
         XCTAssertFalse(updatedStatus.isRequired)
         XCTAssertEqual(try repository.fetchSupertagFieldDefinitions(supertagName: "PROJECT").count, 1)
@@ -176,7 +176,7 @@ final class NotesPersistenceTests: XCTestCase {
         let updatedAt = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Updated At",
-            valueType: "date",
+            valueType: .date,
             sortOrder: 3
         )
 
@@ -186,7 +186,7 @@ final class NotesPersistenceTests: XCTestCase {
         let rank = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Rank",
-            valueType: "number",
+            valueType: .number,
             sortOrder: largeSortOrder
         )
 
@@ -208,7 +208,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "text",
+            valueType: .text,
             defaultValue: "active",
             isRequired: true,
             sortOrder: 1
@@ -216,7 +216,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Owner",
-            valueType: "entity",
+            valueType: .entity,
             sortOrder: 2
         )
 
@@ -255,9 +255,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertThrowsError(
             try repository.saveSupertagFieldDefinition(supertagName: "Project", field: " ")
         )
-        XCTAssertThrowsError(
-            try repository.saveSupertagFieldDefinition(supertagName: "Project", field: "Status", valueType: "money")
-        )
+        XCTAssertThrowsError(try SupertagFieldValueType(normalizing: "money"))
         XCTAssertThrowsError(
             try repository.saveSupertagFieldDefinition(
                 supertagName: "Project",
@@ -269,7 +267,7 @@ final class NotesPersistenceTests: XCTestCase {
             try repository.saveSupertagFieldDefinition(
                 supertagName: "Project",
                 field: "Rank",
-                valueType: "number",
+                valueType: .number,
                 defaultValue: "high"
             )
         )
@@ -277,7 +275,7 @@ final class NotesPersistenceTests: XCTestCase {
             try repository.saveSupertagFieldDefinition(
                 supertagName: "Project",
                 field: "Owner",
-                valueType: "entity",
+                valueType: .entity,
                 defaultValue: "Rawkode Academy"
             )
         )
@@ -292,30 +290,30 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "text",
+            valueType: .text,
             defaultValue: "active",
             isRequired: true
         )
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Rank",
-            valueType: "number",
+            valueType: .number,
             isRequired: true
         )
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Due Date",
-            valueType: "date"
+            valueType: .date
         )
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Owner",
-            valueType: "entity"
+            valueType: .entity
         )
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Done",
-            valueType: "boolean",
+            valueType: .boolean,
             defaultValue: "false"
         )
 
@@ -378,7 +376,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "text",
+            valueType: .text,
             defaultValue: "active",
             isRequired: true
         )
@@ -402,7 +400,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try repository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Rank",
-            valueType: "number",
+            valueType: .number,
             isRequired: true
         )
 
@@ -442,7 +440,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try sourceRepository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "text",
+            valueType: .text,
             defaultValue: "active",
             isRequired: true,
             sortOrder: 1
@@ -450,7 +448,7 @@ final class NotesPersistenceTests: XCTestCase {
         _ = try sourceRepository.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Owner",
-            valueType: "entity",
+            valueType: .entity,
             sortOrder: 2
         )
         _ = try sourceRepository.upsertEntity(named: "Rawkode Academy", supertagNames: ["company"])
@@ -527,6 +525,33 @@ final class NotesPersistenceTests: XCTestCase {
 
         let entities = try repository.runQuery("SELECT name FROM project")
         XCTAssertEqual(entities.rows, [["name": "Existing Entity"]])
+    }
+
+    func testVaultImportNormalizesSupertagFieldValueTypes() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let sourceRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try sourceRepository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Done",
+            valueType: .boolean,
+            defaultValue: "false"
+        )
+        var snapshot = try sourceRepository.exportVault()
+        snapshot.supertagFieldDefinitions[0].valueType = "checkbox"
+
+        let importedDatabaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: importedDatabaseURL) }
+
+        let importedRepository = try SQLiteNotesRepository(databaseURL: importedDatabaseURL)
+        try importedRepository.importVault(snapshot)
+
+        let definition = try XCTUnwrap(importedRepository.fetchSupertagFieldDefinitions().first)
+        XCTAssertEqual(definition.valueType, .boolean)
+
+        let fields = try importedRepository.runQuery("SELECT field, type FROM supertag_fields")
+        XCTAssertEqual(fields.rows, [["field": "done", "type": "boolean"]])
     }
 
     func testEntityUpsertReusesEntityAndLinksSupertags() throws {
@@ -2042,7 +2067,7 @@ final class NotesPersistenceTests: XCTestCase {
         let definition = try store.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "text",
+            valueType: .text,
             defaultValue: "active",
             isRequired: true
         )
@@ -2056,12 +2081,12 @@ final class NotesPersistenceTests: XCTestCase {
         let updated = try store.saveSupertagFieldDefinition(
             supertagName: "Project",
             field: "Status",
-            valueType: "boolean"
+            valueType: .boolean
         )
 
         XCTAssertEqual(updated.id, definition.id)
         XCTAssertEqual(store.supertagFieldDefinitions.count, 1)
-        XCTAssertEqual(store.supertagFieldDefinitions.first?.valueType, "boolean")
+        XCTAssertEqual(store.supertagFieldDefinitions.first?.valueType, .boolean)
         XCTAssertNil(store.supertagFieldDefinitions.first?.defaultValue)
         XCTAssertEqual(store.supertagFieldDefinitions.first?.isRequired, false)
 

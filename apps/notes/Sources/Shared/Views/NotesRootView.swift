@@ -1,37 +1,49 @@
 import SwiftUI
 
+private enum NotesSidebarSelection: Hashable {
+    case document(UUID)
+    case savedQueryView(UUID)
+    case supertagSchemas
+}
+
 struct NotesRootView: View {
     let store: NotesStore
 
     @State private var dailyNoteDate = Date.now
-    @State private var selectedSavedQueryViewID: SavedQueryView.ID?
+    @State private var sidebarSelection: NotesSidebarSelection?
     @State private var isPresentingSavedViewEditor = false
     @State private var savedViewDraftName = ""
     @State private var savedViewDraftQuery = "SELECT * FROM daily_notes"
     @State private var savedViewDraftMode = "table"
     @State private var savedViewDraftGroupBy = ""
 
-    private var selectedDocumentID: Binding<UUID?> {
-        Binding {
-            guard selectedSavedQueryViewID == nil else {
-                return nil
-            }
-            return store.selectedDocument?.id
-        } set: { newValue in
-            selectedSavedQueryViewID = nil
-            store.selectDocument(id: newValue)
+    private var selectedSavedQueryView: SavedQueryView? {
+        guard case .savedQueryView(let selectedID) = sidebarSelection else {
+            return nil
         }
+
+        return store.savedQueryViews.first { $0.id == selectedID }
     }
 
-    private var selectedSavedQueryView: SavedQueryView? {
-        selectedSavedQueryViewID.flatMap { selectedID in
-            store.savedQueryViews.first { $0.id == selectedID }
+    private var isSupertagSchemaSelected: Bool {
+        if case .supertagSchemas = sidebarSelection {
+            return true
         }
+
+        return false
+    }
+
+    private var selectedDocument: NoteDocument? {
+        guard case .document(let selectedID) = sidebarSelection else {
+            return nil
+        }
+
+        return (store.dailyNotes + store.standaloneNotes).first { $0.id == selectedID }
     }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: selectedDocumentID) {
+            List(selection: $sidebarSelection) {
                 Section("Daily Notes") {
                     Button {
                         openToday()
@@ -50,7 +62,7 @@ struct NotesRootView: View {
                     }
 
                     ForEach(store.dailyNotes) { document in
-                        NavigationLink(value: document.id) {
+                        NavigationLink(value: NotesSidebarSelection.document(document.id)) {
                             NoteRow(document: document)
                         }
                     }
@@ -58,7 +70,7 @@ struct NotesRootView: View {
 
                 Section("Notes") {
                     ForEach(store.standaloneNotes) { document in
-                        NavigationLink(value: document.id) {
+                        NavigationLink(value: NotesSidebarSelection.document(document.id)) {
                             NoteRow(document: document)
                         }
                     }
@@ -71,15 +83,17 @@ struct NotesRootView: View {
                     }
 
                     ForEach(store.savedQueryViews) { savedView in
-                        Button {
-                            selectedSavedQueryViewID = savedView.id
-                            store.selectDocument(id: nil)
-                        } label: {
+                        NavigationLink(value: NotesSidebarSelection.savedQueryView(savedView.id)) {
                             SavedQueryViewRow(savedView: savedView)
                         }
-                        .buttonStyle(.plain)
                     }
                     .onDelete(perform: deleteSavedQueryViews)
+                }
+
+                Section("Database") {
+                    NavigationLink(value: NotesSidebarSelection.supertagSchemas) {
+                        Label("Supertag Schemas", systemImage: "tag")
+                    }
                 }
             }
             .navigationTitle("Notes")
@@ -116,11 +130,19 @@ struct NotesRootView: View {
                 }
             }
         } detail: {
-            if let selectedSavedQueryView {
+            if isSupertagSchemaSelected {
+                SupertagSchemaEditorView(
+                    definitions: store.supertagFieldDefinitions,
+                    onSave: saveSupertagSchemaDraft,
+                    onDelete: { id in
+                        store.deleteSupertagFieldDefinition(id: id)
+                    }
+                )
+            } else if let selectedSavedQueryView {
                 SavedQueryViewDetailView(savedView: selectedSavedQueryView) { query in
                     try store.runQuery(query)
                 }
-            } else if let selectedDocument = store.selectedDocument {
+            } else if let selectedDocument {
                 NoteEditorView(
                     document: selectedDocument,
                     savedQueryViews: store.savedQueryViews,
@@ -149,6 +171,9 @@ struct NotesRootView: View {
                     },
                     onOpenDocument: { documentID in
                         store.openDocument(id: documentID)
+                        if store.selectedDocument?.id == documentID {
+                            sidebarSelection = .document(documentID)
+                        }
                     }
                 )
             } else {
@@ -161,6 +186,12 @@ struct NotesRootView: View {
         }
         .task {
             store.load()
+            if sidebarSelection == nil, let selectedDocument = store.selectedDocument {
+                sidebarSelection = .document(selectedDocument.id)
+            }
+        }
+        .onChange(of: sidebarSelection) { _, selection in
+            syncSidebarSelection(selection)
         }
         .sheet(isPresented: $isPresentingSavedViewEditor) {
             SavedQueryViewEditorSheet(
@@ -201,8 +232,9 @@ struct NotesRootView: View {
         let savedViews = store.savedQueryViews
         let deletedIDs = offsets.map { savedViews[$0].id }
 
-        if let selectedSavedQueryViewID, deletedIDs.contains(selectedSavedQueryViewID) {
-            self.selectedSavedQueryViewID = nil
+        if case .savedQueryView(let selectedSavedQueryViewID) = sidebarSelection,
+           deletedIDs.contains(selectedSavedQueryViewID) {
+            sidebarSelection = nil
         }
 
         for id in deletedIDs {
@@ -219,28 +251,28 @@ struct NotesRootView: View {
     }
 
     private func openToday() {
-        selectedSavedQueryViewID = nil
         store.selectToday()
+        selectCurrentDocument()
     }
 
     private func openTomorrow() {
-        selectedSavedQueryViewID = nil
         store.selectTomorrow()
+        selectCurrentDocument()
     }
 
     private func openSelectedDailyNoteDate() {
-        selectedSavedQueryViewID = nil
         store.createDailyNote(for: dailyNoteDate)
+        selectCurrentDocument()
     }
 
     private func openDailyNote(movingByDays dayOffset: Int) {
-        selectedSavedQueryViewID = nil
         store.openDailyNote(movingByDays: dayOffset)
+        selectCurrentDocument()
     }
 
     private func createStandaloneNote() {
-        selectedSavedQueryViewID = nil
         store.createStandaloneNote()
+        selectCurrentDocument()
     }
 
     private func saveSavedViewDraft() {
@@ -251,7 +283,7 @@ struct NotesRootView: View {
                 view: savedViewDraftMode,
                 groupBy: savedViewDraftGroupBy
             )
-            selectedSavedQueryViewID = savedView.id
+            sidebarSelection = .savedQueryView(savedView.id)
             store.selectDocument(id: nil)
             isPresentingSavedViewEditor = false
         } catch {
@@ -259,9 +291,39 @@ struct NotesRootView: View {
         }
     }
 
+    private func saveSupertagSchemaDraft(_ draft: SupertagSchemaDraft) throws {
+        try store.saveSupertagFieldDefinition(
+            supertagName: draft.supertagName,
+            field: draft.fieldLabel,
+            valueType: draft.valueType,
+            defaultValue: draft.normalizedDefaultValue,
+            isRequired: draft.isRequired,
+            sortOrder: draft.sortOrder
+        )
+    }
+
     private func deleteDocuments(_ documents: [NoteDocument], at offsets: IndexSet) {
         for offset in offsets {
             store.deleteDocument(id: documents[offset].id)
+        }
+
+        selectCurrentDocument()
+    }
+
+    private func syncSidebarSelection(_ selection: NotesSidebarSelection?) {
+        switch selection {
+        case .document(let id):
+            store.selectDocument(id: id)
+        case .savedQueryView, .supertagSchemas, nil:
+            store.selectDocument(id: nil)
+        }
+    }
+
+    private func selectCurrentDocument() {
+        if let selectedDocument = store.selectedDocument {
+            sidebarSelection = .document(selectedDocument.id)
+        } else {
+            sidebarSelection = nil
         }
     }
 }
@@ -310,6 +372,228 @@ private struct SavedQueryViewEditorSheet: View {
             }
         }
         .frame(minWidth: 460, minHeight: 360)
+    }
+}
+
+private struct SupertagSchemaDraft: Equatable {
+    var editingID: UUID?
+    var supertagName = ""
+    var fieldLabel = ""
+    var valueType: SupertagFieldValueType = .text
+    var defaultValue = ""
+    var isRequired = false
+    var sortOrder = 0
+
+    var normalizedDefaultValue: String? {
+        let trimmed = defaultValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var isEditing: Bool {
+        editingID != nil
+    }
+
+    var canSave: Bool {
+        !supertagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !fieldLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func editing(_ definition: SupertagFieldDefinition) -> SupertagSchemaDraft {
+        SupertagSchemaDraft(
+            editingID: definition.id,
+            supertagName: definition.supertagName,
+            fieldLabel: definition.label,
+            valueType: definition.valueType,
+            defaultValue: definition.defaultValue ?? "",
+            isRequired: definition.isRequired,
+            sortOrder: definition.sortOrder
+        )
+    }
+}
+
+private struct SupertagSchemaEditorView: View {
+    let definitions: [SupertagFieldDefinition]
+    let onSave: (_ draft: SupertagSchemaDraft) throws -> Void
+    let onDelete: (_ id: UUID) -> Void
+
+    @State private var draft = SupertagSchemaDraft()
+    @State private var deletionCandidate: SupertagFieldDefinition?
+    @State private var errorMessage: String?
+
+    private var definitionsBySupertag: [(supertag: String, definitions: [SupertagFieldDefinition])] {
+        Dictionary(grouping: definitions, by: \.supertagName)
+            .map { supertag, definitions in
+                (
+                    supertag,
+                    definitions.sorted {
+                        if $0.sortOrder == $1.sortOrder {
+                            return $0.label.localizedStandardCompare($1.label) == .orderedAscending
+                        }
+
+                        return $0.sortOrder < $1.sortOrder
+                    }
+                )
+            }
+            .sorted { $0.supertag.localizedStandardCompare($1.supertag) == .orderedAscending }
+    }
+
+    var body: some View {
+        Form {
+            Section(draft.isEditing ? "Edit Field" : "New Field") {
+                TextField("Supertag", text: $draft.supertagName)
+                    .disabled(draft.isEditing)
+
+                TextField("Field", text: $draft.fieldLabel)
+                    .disabled(draft.isEditing)
+
+                Picker("Type", selection: $draft.valueType) {
+                    ForEach(SupertagFieldValueType.allCases) { valueType in
+                        Label(valueType.label, systemImage: valueType.systemImage)
+                            .tag(valueType)
+                    }
+                }
+
+                TextField(draft.valueType.defaultValuePlaceholder, text: $draft.defaultValue)
+
+                Toggle("Required", isOn: $draft.isRequired)
+
+                Stepper(value: $draft.sortOrder, in: 0...999) {
+                    Text("Sort Order: \(draft.sortOrder)")
+                }
+
+                HStack {
+                    Button(draft.isEditing ? "Save changes" : "Create field", action: saveDraft)
+                        .disabled(!draft.canSave)
+
+                    if draft.isEditing {
+                        Button("Cancel edit", action: resetDraft)
+                    }
+                }
+            }
+
+            if definitions.isEmpty {
+                Section {
+                    ContentUnavailableView("No Supertag Fields", systemImage: "tag")
+                }
+            } else {
+                ForEach(definitionsBySupertag, id: \.supertag) { group in
+                    Section(group.supertag) {
+                        ForEach(group.definitions) { definition in
+                            SupertagSchemaFieldRow(
+                                definition: definition,
+                                onEdit: {
+                                    draft = .editing(definition)
+                                },
+                                onDelete: {
+                                    deletionCandidate = definition
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Supertag Schemas")
+        .alert("Supertag Schema", isPresented: errorBinding) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "Unknown schema error.")
+        }
+        .confirmationDialog(
+            "Delete field?",
+            isPresented: deletionBinding,
+            presenting: deletionCandidate
+        ) { definition in
+            Button("Delete \(definition.label)", role: .destructive) {
+                onDelete(definition.id)
+                if draft.editingID == definition.id {
+                    resetDraft()
+                }
+                deletionCandidate = nil
+            }
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding {
+            errorMessage != nil
+        } set: { isPresented in
+            if !isPresented {
+                errorMessage = nil
+            }
+        }
+    }
+
+    private var deletionBinding: Binding<Bool> {
+        Binding {
+            deletionCandidate != nil
+        } set: { isPresented in
+            if !isPresented {
+                deletionCandidate = nil
+            }
+        }
+    }
+
+    private func saveDraft() {
+        do {
+            try onSave(draft)
+            resetDraft()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resetDraft() {
+        draft = SupertagSchemaDraft()
+    }
+}
+
+private struct SupertagSchemaFieldRow: View {
+    let definition: SupertagFieldDefinition
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Label(definition.label, systemImage: definition.valueType.systemImage)
+                .font(.headline)
+                .frame(minWidth: 140, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(definition.valueType.label)
+
+                    if definition.isRequired {
+                        Text("Required")
+                    }
+
+                    if let defaultValue = definition.defaultValue {
+                        Text("Default: \(defaultValue)")
+                    }
+                }
+                .font(.subheadline)
+
+                Text(definition.key)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(action: onEdit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            .labelStyle(.iconOnly)
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+            .labelStyle(.iconOnly)
+        }
+        .padding(.vertical, 4)
     }
 }
 

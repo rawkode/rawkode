@@ -296,7 +296,7 @@ final class SQLiteNotesRepository {
     func saveSupertagFieldDefinition(
         supertagName rawSupertagName: String,
         field rawLabel: String,
-        valueType rawValueType: String = "text",
+        valueType rawValueType: SupertagFieldValueType = .text,
         defaultValue rawDefaultValue: String? = nil,
         isRequired: Bool = false,
         sortOrder: Int = 0
@@ -315,7 +315,6 @@ final class SQLiteNotesRepository {
             throw SQLiteNotesError.validationFailed("Supertag field key cannot be empty.")
         }
 
-        let valueType = try normalizedSupertagFieldValueType(rawValueType)
         guard sortOrder >= 0 else {
             throw SQLiteNotesError.validationFailed("Supertag field sort order cannot be negative.")
         }
@@ -324,7 +323,7 @@ final class SQLiteNotesRepository {
         if let defaultValue {
             try validateSupertagFieldDefaultValue(
                 defaultValue,
-                valueType: valueType,
+                valueType: rawValueType,
                 supertagName: supertagName,
                 label: label
             )
@@ -341,7 +340,7 @@ final class SQLiteNotesRepository {
                 supertagSlug: slugified(supertagName),
                 key: key,
                 label: label,
-                valueType: valueType,
+                valueType: rawValueType,
                 defaultValue: defaultValue,
                 isRequired: isRequired,
                 sortOrder: sortOrder,
@@ -1242,6 +1241,8 @@ final class SQLiteNotesRepository {
     }
 
     private func insertImportedSupertagField(_ definition: NotesVaultSnapshot.SupertagField) throws {
+        let valueType = try SupertagFieldValueType(normalizing: definition.valueType)
+
         try prepare(
             """
             INSERT INTO supertag_field_definitions (
@@ -1254,7 +1255,7 @@ final class SQLiteNotesRepository {
             sqlite3_bind_text(statement, 2, definition.supertagID.uuidString, -1, sqliteTransient)
             sqlite3_bind_text(statement, 3, definition.key, -1, sqliteTransient)
             sqlite3_bind_text(statement, 4, definition.label, -1, sqliteTransient)
-            sqlite3_bind_text(statement, 5, definition.valueType, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, valueType.rawValue, -1, sqliteTransient)
             if let defaultValue = definition.defaultValue {
                 sqlite3_bind_text(statement, 6, defaultValue, -1, sqliteTransient)
             } else {
@@ -2409,7 +2410,7 @@ final class SQLiteNotesRepository {
             supertagSlug: textColumn(statement, 3),
             key: textColumn(statement, 4),
             label: textColumn(statement, 5),
-            valueType: textColumn(statement, 6),
+            valueType: try SupertagFieldValueType(normalizing: textColumn(statement, 6)),
             defaultValue: nullableTextColumn(statement, 7),
             isRequired: sqlite3_column_int(statement, 8) != 0,
             sortOrder: Int(sqlite3_column_int64(statement, 9)),
@@ -2497,7 +2498,7 @@ final class SQLiteNotesRepository {
             sqlite3_bind_text(statement, 2, definition.supertagID.uuidString, -1, sqliteTransient)
             sqlite3_bind_text(statement, 3, definition.key, -1, sqliteTransient)
             sqlite3_bind_text(statement, 4, definition.label, -1, sqliteTransient)
-            sqlite3_bind_text(statement, 5, definition.valueType, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 5, definition.valueType.rawValue, -1, sqliteTransient)
             if let defaultValue = definition.defaultValue {
                 sqlite3_bind_text(statement, 6, defaultValue, -1, sqliteTransient)
             } else {
@@ -2590,24 +2591,6 @@ private func normalizedOptionalField(_ value: String?) -> String? {
     return normalized.isEmpty ? nil : normalized
 }
 
-private func normalizedSupertagFieldValueType(_ value: String) throws -> String {
-    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    switch normalized {
-    case "text", "string":
-        return "text"
-    case "number", "numeric":
-        return "number"
-    case "date":
-        return "date"
-    case "entity", "reference":
-        return "entity"
-    case "boolean", "bool", "checkbox":
-        return "boolean"
-    default:
-        throw SQLiteNotesError.validationFailed("Supertag field type must be text, number, date, entity, or boolean.")
-    }
-}
-
 private func normalizedDefaultValue(_ value: String?) -> String? {
     let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return normalized.isEmpty ? nil : normalized
@@ -2683,7 +2666,7 @@ private func isMissingSchemaProperty(_ property: NormalizedEntityProperty?) -> B
 
 private func validateSupertagFieldDefaultValue(
     _ value: String,
-    valueType: String,
+    valueType: SupertagFieldValueType,
     supertagName: String,
     label: String
 ) throws {
@@ -2719,43 +2702,39 @@ private func validateSupertagFieldValue(
 
 private func isValidSupertagFieldValue(
     value: String,
-    valueType: String,
+    valueType: SupertagFieldValueType,
     referencedEntityName: String?,
     valueEntityID: String?
 ) -> Bool {
     switch valueType {
-    case "text":
+    case .text:
         return true
-    case "number":
+    case .number:
         guard let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return false
         }
         return number.isFinite
-    case "date":
+    case .date:
         return isValidSupertagDateValue(value)
-    case "entity":
+    case .entity:
         return referencedEntityName != nil || valueEntityID != nil
-    case "boolean":
+    case .boolean:
         return isValidSupertagBooleanValue(value)
-    default:
-        return false
     }
 }
 
-private func supertagFieldTypeDescription(_ valueType: String) -> String {
+private func supertagFieldTypeDescription(_ valueType: SupertagFieldValueType) -> String {
     switch valueType {
-    case "text":
+    case .text:
         return "text"
-    case "number":
+    case .number:
         return "a number"
-    case "date":
+    case .date:
         return "a date"
-    case "entity":
+    case .entity:
         return "an entity reference"
-    case "boolean":
+    case .boolean:
         return "a boolean"
-    default:
-        return "a valid value"
     }
 }
 
@@ -2926,7 +2905,7 @@ private func supertagFieldDefinitionQueryRow(_ definition: SupertagFieldDefiniti
         "supertag_slug": definition.supertagSlug,
         "field": definition.key,
         "label": definition.label,
-        "type": definition.valueType,
+        "type": definition.valueType.rawValue,
         "default_value": definition.defaultValue ?? "",
         "required": definition.isRequired ? "true" : "false",
         "sort_order": String(definition.sortOrder),

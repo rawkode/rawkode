@@ -269,7 +269,7 @@ final class NotesStore {
     func saveSupertagFieldDefinition(
         supertagName: String,
         field: String,
-        valueType: String = "text",
+        valueType: SupertagFieldValueType = .text,
         defaultValue: String? = nil,
         isRequired: Bool = false,
         sortOrder: Int = 0
