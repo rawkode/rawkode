@@ -459,6 +459,173 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func previewSupertagFieldDefinitionChange(
+        id: UUID? = nil,
+        supertagName rawSupertagName: String,
+        field rawLabel: String,
+        valueType rawValueType: SupertagFieldValueType = .text,
+        defaultValue rawDefaultValue: String? = nil,
+        isRequired: Bool = false
+    ) throws -> SupertagSchemaImpactPreview {
+        guard var supertagName = normalizedSupertagName(rawSupertagName) else {
+            throw SQLiteNotesError.validationFailed("Supertag name cannot be empty.")
+        }
+
+        let label = normalizedName(rawLabel)
+        guard !label.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Supertag field label cannot be empty.")
+        }
+
+        let key = normalizedEntityPropertyKey(label)
+        guard !key.isEmpty else {
+            throw SQLiteNotesError.validationFailed("Supertag field key cannot be empty.")
+        }
+
+        let defaultValue = normalizedDefaultValue(rawDefaultValue)
+        if let defaultValue {
+            try validateSupertagFieldDefaultValue(
+                defaultValue,
+                valueType: rawValueType,
+                supertagName: supertagName,
+                label: label
+            )
+        }
+
+        let existing = try id.flatMap { try fetchSupertagFieldDefinition(id: $0) }
+        if id != nil, existing == nil {
+            throw SQLiteNotesError.validationFailed("Supertag field does not exist.")
+        }
+
+        let supertagID: UUID?
+        if let existing {
+            supertagID = existing.supertagID
+            supertagName = existing.supertagName
+        } else {
+            supertagID = try fetchSupertagID(slug: slugified(supertagName))
+        }
+
+        var keyConflictCount = 0
+        if let supertagID,
+           let duplicate = try fetchSupertagFieldDefinition(supertagID: supertagID, key: key),
+           duplicate.id != id {
+            keyConflictCount += 1
+        }
+
+        guard let supertagID else {
+            return SupertagSchemaImpactPreview(
+                supertagName: supertagName,
+                fieldLabel: label,
+                currentFieldKey: existing?.key,
+                proposedFieldKey: key,
+                currentValueType: existing?.valueType,
+                proposedValueType: rawValueType,
+                currentDefaultValue: existing?.defaultValue,
+                proposedDefaultValue: defaultValue,
+                currentIsRequired: existing?.isRequired,
+                proposedIsRequired: isRequired,
+                taggedEntityCount: 0,
+                storedValueCount: 0,
+                missingValueCount: 0,
+                renamedValueCount: 0,
+                defaultBackfillCount: 0,
+                requiredMissingValueCount: 0,
+                incompatibleValueCount: 0,
+                keyConflictCount: keyConflictCount,
+                sharedKeyConflictCount: 0
+            )
+        }
+
+        let sourceKey = existing?.key ?? key
+        let entities = try fetchSupertaggedEntities(supertagID: supertagID)
+        let groupedProperties = try fetchStoredEntityProperties(entityIDs: entities.map { $0.id.uuidString })
+        var storedValueCount = 0
+        var missingValueCount = 0
+        var renamedValueCount = 0
+        var defaultBackfillCount = 0
+        var requiredMissingValueCount = 0
+        var incompatibleValueCount = 0
+
+        for entity in entities {
+            let properties = groupedProperties[entity.id.uuidString] ?? [:]
+            let storedSourceValue = properties[sourceKey]
+            let storedProposedValue = properties[key]
+
+            if sourceKey != key, storedSourceValue != nil {
+                renamedValueCount += 1
+                if storedProposedValue != nil {
+                    keyConflictCount += 1
+                }
+            }
+
+            guard let storedValue = storedSourceValue ?? storedProposedValue else {
+                missingValueCount += 1
+                if defaultValue != nil {
+                    defaultBackfillCount += 1
+                } else if isRequired {
+                    requiredMissingValueCount += 1
+                }
+                continue
+            }
+
+            storedValueCount += 1
+            let property = NormalizedEntityProperty(
+                key: key,
+                value: storedValue.value,
+                referencedEntityName: nil,
+                valueEntityID: storedValue.valueEntityID
+            )
+
+            if !isValidSupertagFieldValue(
+                value: property.value,
+                valueType: rawValueType,
+                referencedEntityName: property.referencedEntityName,
+                valueEntityID: property.valueEntityID
+            ) {
+                incompatibleValueCount += 1
+            }
+        }
+
+        var sharedKeyConflictEntityIDs: Set<String> = []
+        if sourceKey != key {
+            sharedKeyConflictEntityIDs.formUnion(
+                try fetchSharedPropertyKeyMigrationConflictEntityIDs(
+                    supertagID: supertagID,
+                    propertyKey: sourceKey,
+                    schemaKey: sourceKey
+                )
+            )
+            sharedKeyConflictEntityIDs.formUnion(
+                try fetchSharedPropertyKeyMigrationConflictEntityIDs(
+                    supertagID: supertagID,
+                    propertyKey: sourceKey,
+                    schemaKey: key
+                )
+            )
+        }
+
+        return SupertagSchemaImpactPreview(
+            supertagName: supertagName,
+            fieldLabel: label,
+            currentFieldKey: existing?.key,
+            proposedFieldKey: key,
+            currentValueType: existing?.valueType,
+            proposedValueType: rawValueType,
+            currentDefaultValue: existing?.defaultValue,
+            proposedDefaultValue: defaultValue,
+            currentIsRequired: existing?.isRequired,
+            proposedIsRequired: isRequired,
+            taggedEntityCount: entities.count,
+            storedValueCount: storedValueCount,
+            missingValueCount: missingValueCount,
+            renamedValueCount: renamedValueCount,
+            defaultBackfillCount: defaultBackfillCount,
+            requiredMissingValueCount: requiredMissingValueCount,
+            incompatibleValueCount: incompatibleValueCount,
+            keyConflictCount: keyConflictCount,
+            sharedKeyConflictCount: sharedKeyConflictEntityIDs.count
+        )
+    }
+
     @discardableResult
     func saveSupertagFieldDefinition(
         supertagName rawSupertagName: String,
@@ -2188,6 +2355,48 @@ final class SQLiteNotesRepository {
             }
 
             return (entityName: textColumn(statement, 0), supertagName: textColumn(statement, 1))
+        }
+    }
+
+    private func fetchSharedPropertyKeyMigrationConflictEntityIDs(
+        supertagID: UUID,
+        propertyKey: String,
+        schemaKey: String
+    ) throws -> Set<String> {
+        try prepare(
+            """
+            SELECT DISTINCT entity_properties.entity_id
+            FROM entity_properties
+            INNER JOIN entity_supertags target_link
+                ON target_link.entity_id = entity_properties.entity_id
+               AND target_link.supertag_id = ?
+            INNER JOIN entity_supertags other_link
+                ON other_link.entity_id = entity_properties.entity_id
+               AND other_link.supertag_id != ?
+            INNER JOIN supertag_field_definitions other_fields
+                ON other_fields.supertag_id = other_link.supertag_id
+               AND other_fields.field_key = ?
+            WHERE entity_properties.property_key = ?;
+            """
+        ) { statement in
+            sqlite3_bind_text(statement, 1, supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 2, supertagID.uuidString, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 3, schemaKey, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, propertyKey, -1, sqliteTransient)
+
+            var entityIDs: Set<String> = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                entityIDs.insert(textColumn(statement, 0))
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return entityIDs
         }
     }
 

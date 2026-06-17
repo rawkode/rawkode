@@ -560,6 +560,104 @@ final class NotesPersistenceTests: XCTestCase {
         )
     }
 
+    func testSupertagFieldDefinitionImpactPreviewCountsBlockingChanges() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let status = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.upsertEntity(
+            named: "Launch Plan",
+            supertagNames: ["project"],
+            properties: ["Status": "true"]
+        )
+        _ = try repository.upsertEntity(
+            named: "Release Notes",
+            supertagNames: ["project"]
+        )
+        _ = try repository.upsertEntity(
+            named: "Backlog",
+            supertagNames: ["project"],
+            properties: ["Status": "later"]
+        )
+        _ = try repository.upsertEntity(
+            named: "Unrelated",
+            supertagNames: ["bookmark"],
+            properties: ["Status": "later"]
+        )
+
+        let blocked = try repository.previewSupertagFieldDefinitionChange(
+            id: status.id,
+            supertagName: "Project",
+            field: "Status",
+            valueType: .boolean,
+            isRequired: true
+        )
+
+        XCTAssertEqual(blocked.taggedEntityCount, 3)
+        XCTAssertEqual(blocked.storedValueCount, 2)
+        XCTAssertEqual(blocked.missingValueCount, 1)
+        XCTAssertEqual(blocked.requiredMissingValueCount, 1)
+        XCTAssertEqual(blocked.defaultBackfillCount, 0)
+        XCTAssertEqual(blocked.incompatibleValueCount, 1)
+        XCTAssertEqual(blocked.blockingIssueCount, 2)
+        XCTAssertTrue(blocked.hasBlockingIssues)
+
+        let withDefault = try repository.previewSupertagFieldDefinitionChange(
+            id: status.id,
+            supertagName: "Project",
+            field: "Status",
+            valueType: .boolean,
+            defaultValue: "false",
+            isRequired: true
+        )
+
+        XCTAssertEqual(withDefault.requiredMissingValueCount, 0)
+        XCTAssertEqual(withDefault.defaultBackfillCount, 1)
+        XCTAssertEqual(withDefault.incompatibleValueCount, 1)
+        XCTAssertTrue(withDefault.hasBlockingIssues)
+    }
+
+    func testSupertagFieldDefinitionImpactPreviewCountsRenameConflicts() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let status = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text
+        )
+        _ = try repository.upsertEntity(
+            named: "Launch Plan",
+            supertagNames: ["project"],
+            properties: ["Status": "active"]
+        )
+        _ = try repository.upsertEntity(
+            named: "Release Notes",
+            supertagNames: ["project"],
+            properties: ["Status": "draft", "State": "current"]
+        )
+
+        let preview = try repository.previewSupertagFieldDefinitionChange(
+            id: status.id,
+            supertagName: "Project",
+            field: "State",
+            valueType: .text
+        )
+
+        XCTAssertEqual(preview.taggedEntityCount, 2)
+        XCTAssertEqual(preview.storedValueCount, 2)
+        XCTAssertEqual(preview.missingValueCount, 0)
+        XCTAssertEqual(preview.renamedValueCount, 2)
+        XCTAssertEqual(preview.keyConflictCount, 1)
+        XCTAssertTrue(preview.hasBlockingIssues)
+    }
+
     func testSupertagFieldDefinitionUpdatesMigrateExistingPropertyKeys() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -2885,6 +2983,30 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertTrue(store.supertagFieldDefinitions.isEmpty)
         XCTAssertEqual(store.supertagSchemas.count, 1)
         XCTAssertTrue(store.supertagSchemas.first?.fields.isEmpty ?? false)
+    }
+
+    @MainActor
+    func testStoreSchemaImpactPreviewDoesNotReplaceGlobalErrors() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        let dailyNote = try XCTUnwrap(store.dailyNotes.first)
+        store.deleteDocument(id: dailyNote.id)
+        XCTAssertEqual(store.lastErrorMessage, "Daily notes are calendar-backed and cannot be deleted.")
+
+        XCTAssertThrowsError(
+            try store.previewSupertagFieldDefinitionChange(
+                supertagName: "Project",
+                field: "Due",
+                valueType: .date,
+                defaultValue: "someday"
+            )
+        )
+        XCTAssertEqual(store.lastErrorMessage, "Daily notes are calendar-backed and cannot be deleted.")
     }
 
     private func temporaryDatabaseURL() throws -> URL {

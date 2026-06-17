@@ -206,6 +206,7 @@ struct NotesRootView: View {
                 DatabaseEditorView(
                     schemas: store.supertagSchemas,
                     onSave: saveSupertagSchemaDraft,
+                    onPreview: previewSupertagSchemaDraft,
                     onDelete: { id in
                         store.deleteSupertagFieldDefinition(id: id)
                     }
@@ -589,6 +590,17 @@ struct NotesRootView: View {
             defaultValue: draft.normalizedDefaultValue,
             isRequired: draft.isRequired,
             sortOrder: draft.sortOrder
+        )
+    }
+
+    private func previewSupertagSchemaDraft(_ draft: SupertagSchemaDraft) throws -> SupertagSchemaImpactPreview {
+        try store.previewSupertagFieldDefinitionChange(
+            id: draft.editingID,
+            supertagName: draft.supertagName,
+            field: draft.fieldLabel,
+            valueType: draft.valueType,
+            defaultValue: draft.normalizedDefaultValue,
+            isRequired: draft.isRequired
         )
     }
 
@@ -1202,11 +1214,16 @@ private struct SupertagSchemaDraft: Equatable {
 private struct DatabaseEditorView: View {
     let schemas: [SupertagSchema]
     let onSave: (_ draft: SupertagSchemaDraft) throws -> SupertagFieldDefinition
+    let onPreview: (_ draft: SupertagSchemaDraft) throws -> SupertagSchemaImpactPreview
     let onDelete: (_ id: UUID) -> Void
 
     @State private var selectedSchemaID: UUID?
     @State private var draft = SupertagSchemaDraft()
     @State private var deletionCandidate: SupertagFieldDefinition?
+    @State private var deletionImpactPreview: SupertagSchemaImpactPreview?
+    @State private var impactPreview: SupertagSchemaImpactPreview?
+    @State private var impactPreviewError: String?
+    @State private var saveConfirmation: SchemaSaveConfirmation?
     @State private var errorMessage: String?
 
     private var fieldCount: Int {
@@ -1225,27 +1242,22 @@ private struct DatabaseEditorView: View {
         return schemas.first { $0.id == selectedSchemaID }
     }
 
-    private var selectedFieldDefinition: SupertagFieldDefinition? {
-        guard let selectedSchema, let editingID = draft.editingID else {
-            return nil
-        }
-
-        return selectedSchema.fields.first { $0.id == editingID }
-    }
-
-    private var schemaIDs: [UUID] {
-        schemas.map(\.id)
-    }
-
     var body: some View {
         editorLayout
             .navigationTitle("Database")
-            .onAppear(perform: selectDefaultSchemaIfNeeded)
+            .onAppear {
+                selectDefaultSchemaIfNeeded()
+                refreshImpactPreview()
+            }
             .onChange(of: selectedSchemaID) { _, id in
                 syncDraftWithSelectedSchema(id: id)
             }
-            .onChange(of: schemaIDs) { _, _ in
+            .onChange(of: draft) { _, _ in
+                refreshImpactPreview()
+            }
+            .onChange(of: schemas) { _, _ in
                 selectDefaultSchemaIfNeeded()
+                refreshImpactPreview()
             }
             .alert("Database Schema", isPresented: errorBinding) {
                 Button("OK") {
@@ -1265,7 +1277,30 @@ private struct DatabaseEditorView: View {
                         resetDraft()
                     }
                     deletionCandidate = nil
+                    deletionImpactPreview = nil
                 }
+            } message: { definition in
+                if let deletionImpactPreview {
+                    Text(schemaDeleteConfirmationSummary(for: definition, impact: deletionImpactPreview))
+                } else {
+                    Text("This removes \(definition.label) from the schema.")
+                }
+            }
+            .confirmationDialog(
+                "Apply schema change?",
+                isPresented: saveConfirmationBinding,
+                presenting: saveConfirmation
+            ) { confirmation in
+                Button("Apply Schema Change") {
+                    performSave(confirmation.draft)
+                    saveConfirmation = nil
+                }
+
+                Button("Cancel", role: .cancel) {
+                    saveConfirmation = nil
+                }
+            } message: { confirmation in
+                Text(schemaSaveConfirmationSummary(for: confirmation.impact))
             }
     }
 
@@ -1377,7 +1412,7 @@ private struct DatabaseEditorView: View {
                                 selectField(definition)
                             },
                             onDelete: {
-                                deletionCandidate = definition
+                                prepareDelete(definition)
                             }
                         )
                     }
@@ -1425,13 +1460,13 @@ private struct DatabaseEditorView: View {
                 Text("Sort Order: \(draft.sortOrder)")
             }
 
-            schemaChangeNotice
+            schemaImpactPreview
 
             HStack {
                 Button(action: saveDraft) {
                     Label(draft.isEditing ? "Save Property" : "Create Property", systemImage: "checkmark")
                 }
-                .disabled(!draft.canSave)
+                .disabled(!canSaveDraft)
 
                 Button(action: resetDraft) {
                     Label(draft.isEditing ? "Cancel Edit" : "Reset", systemImage: "arrow.counterclockwise")
@@ -1458,30 +1493,20 @@ private struct DatabaseEditorView: View {
     }
 
     @ViewBuilder
-    private var schemaChangeNotice: some View {
-        if let selectedFieldDefinition,
-           selectedFieldDefinition.key != draft.fieldKeyPreview
-            || selectedFieldDefinition.valueType != draft.valueType
-            || selectedFieldDefinition.isRequired != draft.isRequired {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Schema Change Preview", systemImage: "exclamationmark.triangle")
-                    .font(.caption.weight(.semibold))
-
-                if selectedFieldDefinition.key != draft.fieldKeyPreview {
-                    Text("Renaming changes the stored key from \(selectedFieldDefinition.key) to \(draft.fieldKeyPreview). Existing values are migrated after validation.")
-                }
-
-                if selectedFieldDefinition.valueType != draft.valueType {
-                    Text("Changing the type validates existing values before the schema is saved.")
-                }
-
-                if selectedFieldDefinition.isRequired != draft.isRequired {
-                    Text(draft.isRequired ? "Required fields must be present on every tagged entity." : "This property will become optional.")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+    private var schemaImpactPreview: some View {
+        if let impactPreview {
+            SchemaImpactPreviewView(impact: impactPreview)
+        } else if let impactPreviewError {
+            Label(impactPreviewError, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundStyle(.red)
         }
+    }
+
+    private var canSaveDraft: Bool {
+        draft.canSave
+            && impactPreviewError == nil
+            && impactPreview?.hasBlockingIssues != true
     }
 
     private var selectedSchemaBinding: Binding<UUID?> {
@@ -1581,15 +1606,51 @@ private struct DatabaseEditorView: View {
         } set: { isPresented in
             if !isPresented {
                 deletionCandidate = nil
+                deletionImpactPreview = nil
+            }
+        }
+    }
+
+    private var saveConfirmationBinding: Binding<Bool> {
+        Binding {
+            saveConfirmation != nil
+        } set: { isPresented in
+            if !isPresented {
+                saveConfirmation = nil
             }
         }
     }
 
     private func saveDraft() {
+        let impact: SupertagSchemaImpactPreview?
+        do {
+            impact = try loadImpactPreview(for: draft)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        if let impact, impact.hasBlockingIssues {
+            impactPreview = impact
+            impactPreviewError = nil
+            errorMessage = schemaBlockingSummary(for: impact)
+            return
+        }
+
+        if let impact, impact.needsSaveConfirmation {
+            saveConfirmation = SchemaSaveConfirmation(draft: draft, impact: impact)
+            return
+        }
+
+        performSave(draft)
+    }
+
+    private func performSave(_ draft: SupertagSchemaDraft) {
         do {
             let definition = try onSave(draft)
             selectedSchemaID = definition.supertagID
-            draft = .editing(definition)
+            self.draft = .editing(definition)
+            refreshImpactPreview()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1602,6 +1663,196 @@ private struct DatabaseEditorView: View {
             draft = SupertagSchemaDraft()
         }
     }
+
+    private func prepareDelete(_ definition: SupertagFieldDefinition) {
+        do {
+            deletionImpactPreview = try onPreview(.editing(definition))
+        } catch {
+            deletionImpactPreview = nil
+            errorMessage = error.localizedDescription
+        }
+        deletionCandidate = definition
+    }
+
+    private func refreshImpactPreview() {
+        do {
+            impactPreview = try loadImpactPreview(for: draft)
+            impactPreviewError = nil
+        } catch {
+            impactPreview = nil
+            impactPreviewError = error.localizedDescription
+        }
+    }
+
+    private func loadImpactPreview(for draft: SupertagSchemaDraft) throws -> SupertagSchemaImpactPreview? {
+        guard draft.canSave else {
+            return nil
+        }
+
+        return try onPreview(draft)
+    }
+}
+
+private struct SchemaSaveConfirmation: Identifiable {
+    let id = UUID()
+    var draft: SupertagSchemaDraft
+    var impact: SupertagSchemaImpactPreview
+}
+
+private struct SchemaImpactPreviewView: View {
+    let impact: SupertagSchemaImpactPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(
+                impact.hasBlockingIssues ? "Schema Change Blocked" : "Schema Impact Preview",
+                systemImage: impact.hasBlockingIssues ? "exclamationmark.octagon" : "checklist"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(impact.hasBlockingIssues ? .red : .secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                LabeledContent("Tagged Entities", value: "\(impact.taggedEntityCount)")
+                LabeledContent("Stored Values", value: "\(impact.storedValueCount)")
+                LabeledContent("Missing Values", value: "\(impact.missingValueCount)")
+
+                if impact.defaultBackfillCount > 0 {
+                    LabeledContent("Default Backfills", value: "\(impact.defaultBackfillCount)")
+                }
+
+                if impact.renamedValueCount > 0 {
+                    LabeledContent("Renamed Values", value: "\(impact.renamedValueCount)")
+                }
+            }
+
+            let messages = schemaImpactMessages(for: impact)
+            if !messages.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(messages, id: \.self) { message in
+                        Text(message)
+                    }
+                }
+                .foregroundStyle(impact.hasBlockingIssues ? .red : .secondary)
+            }
+        }
+        .font(.caption)
+    }
+}
+
+private func schemaImpactMessages(for impact: SupertagSchemaImpactPreview) -> [String] {
+    var messages: [String] = []
+
+    if let currentFieldKey = impact.currentFieldKey,
+       currentFieldKey != impact.proposedFieldKey {
+        if impact.renamedValueCount > 0 {
+            messages.append(
+                "\(schemaCountPhrase(impact.renamedValueCount, singular: "stored value")) will move from \(currentFieldKey) to \(impact.proposedFieldKey)."
+            )
+        } else {
+            messages.append("Future values will use \(impact.proposedFieldKey).")
+        }
+    }
+
+    if impact.currentValueType != nil,
+       impact.currentValueType != impact.proposedValueType,
+       impact.storedValueCount > 0,
+       impact.incompatibleValueCount == 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.storedValueCount, singular: "stored value")) already match \(impact.proposedValueType.label)."
+        )
+    }
+
+    if impact.defaultBackfillCount > 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.defaultBackfillCount, singular: "tagged entity", plural: "tagged entities")) will receive the default value."
+        )
+    }
+
+    messages.append(contentsOf: schemaBlockingMessages(for: impact))
+
+    if messages.isEmpty, impact.taggedEntityCount == 0 {
+        messages.append("No existing entities are affected.")
+    }
+
+    return messages
+}
+
+private func schemaBlockingMessages(for impact: SupertagSchemaImpactPreview) -> [String] {
+    var messages: [String] = []
+
+    if impact.requiredMissingValueCount > 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.requiredMissingValueCount, singular: "tagged entity", plural: "tagged entities")) \(schemaVerb(impact.requiredMissingValueCount, singular: "is", plural: "are")) missing a required value."
+        )
+    }
+
+    if impact.incompatibleValueCount > 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.incompatibleValueCount, singular: "stored value")) \(schemaVerb(impact.incompatibleValueCount, singular: "does", plural: "do")) not match \(impact.proposedValueType.label)."
+        )
+    }
+
+    if impact.keyConflictCount > 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.keyConflictCount, singular: "property key conflict")) must be resolved before saving."
+        )
+    }
+
+    if impact.sharedKeyConflictCount > 0 {
+        messages.append(
+            "\(schemaCountPhrase(impact.sharedKeyConflictCount, singular: "tagged entity", plural: "tagged entities")) \(schemaVerb(impact.sharedKeyConflictCount, singular: "shares", plural: "share")) this property through another supertag."
+        )
+    }
+
+    return messages
+}
+
+private func schemaBlockingSummary(for impact: SupertagSchemaImpactPreview) -> String {
+    let messages = schemaBlockingMessages(for: impact)
+    guard !messages.isEmpty else {
+        return "Resolve the schema impact warnings before saving."
+    }
+
+    return "Resolve before saving: \(messages.joined(separator: " "))"
+}
+
+private func schemaSaveConfirmationSummary(for impact: SupertagSchemaImpactPreview) -> String {
+    var parts = [
+        "This change affects \(schemaCountPhrase(impact.taggedEntityCount, singular: "tagged entity", plural: "tagged entities"))."
+    ]
+
+    if impact.renamedValueCount > 0 {
+        parts.append("\(schemaCountPhrase(impact.renamedValueCount, singular: "stored value")) will be renamed.")
+    }
+
+    if impact.defaultBackfillCount > 0 {
+        parts.append("\(schemaCountPhrase(impact.defaultBackfillCount, singular: "missing value")) will receive the default.")
+    }
+
+    return parts.joined(separator: " ")
+}
+
+private func schemaDeleteConfirmationSummary(
+    for definition: SupertagFieldDefinition,
+    impact: SupertagSchemaImpactPreview
+) -> String {
+    let entityPhrase = schemaCountPhrase(
+        impact.taggedEntityCount,
+        singular: "tagged entity",
+        plural: "tagged entities"
+    )
+    let valuePhrase = schemaCountPhrase(impact.storedValueCount, singular: "stored value")
+
+    return "This removes \(definition.label) from the \(definition.supertagName) schema. \(entityPhrase) \(schemaVerb(impact.taggedEntityCount, singular: "is", plural: "are")) affected. \(valuePhrase) \(schemaVerb(impact.storedValueCount, singular: "stays", plural: "stay")) as extra properties and will no longer be schema-managed."
+}
+
+private func schemaCountPhrase(_ count: Int, singular: String, plural: String? = nil) -> String {
+    let plural = plural ?? "\(singular)s"
+    return "\(count) \(count == 1 ? singular : plural)"
+}
+
+private func schemaVerb(_ count: Int, singular: String, plural: String) -> String {
+    count == 1 ? singular : plural
 }
 
 private struct DatabaseSchemaRow: View {

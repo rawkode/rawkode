@@ -486,6 +486,28 @@ final class NotesStore {
         }
     }
 
+    func previewSupertagFieldDefinitionChange(
+        id: UUID? = nil,
+        supertagName: String,
+        field: String,
+        valueType: SupertagFieldValueType = .text,
+        defaultValue: String? = nil,
+        isRequired: Bool = false
+    ) throws -> SupertagSchemaImpactPreview {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        return try repository.previewSupertagFieldDefinitionChange(
+            id: id,
+            supertagName: supertagName,
+            field: field,
+            valueType: valueType,
+            defaultValue: defaultValue,
+            isRequired: isRequired
+        )
+    }
+
     func deleteSupertagFieldDefinition(id: UUID) {
         guard let repository = requireRepository() else {
             return

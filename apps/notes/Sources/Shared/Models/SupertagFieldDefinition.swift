@@ -104,3 +104,50 @@ struct SupertagSchema: Identifiable, Equatable, Sendable {
         fields.filter(\.isRequired).count
     }
 }
+
+struct SupertagSchemaImpactPreview: Equatable, Sendable {
+    var supertagName: String
+    var fieldLabel: String
+    var currentFieldKey: String?
+    var proposedFieldKey: String
+    var currentValueType: SupertagFieldValueType?
+    var proposedValueType: SupertagFieldValueType
+    var currentDefaultValue: String?
+    var proposedDefaultValue: String?
+    var currentIsRequired: Bool?
+    var proposedIsRequired: Bool
+    var taggedEntityCount: Int
+    var storedValueCount: Int
+    var missingValueCount: Int
+    var renamedValueCount: Int
+    var defaultBackfillCount: Int
+    var requiredMissingValueCount: Int
+    var incompatibleValueCount: Int
+    var keyConflictCount: Int
+    var sharedKeyConflictCount: Int
+
+    var blockingIssueCount: Int {
+        requiredMissingValueCount + incompatibleValueCount + keyConflictCount + sharedKeyConflictCount
+    }
+
+    var hasBlockingIssues: Bool {
+        blockingIssueCount > 0
+    }
+
+    var isEditingExistingField: Bool {
+        currentFieldKey != nil
+    }
+
+    var hasSchemaChange: Bool {
+        currentFieldKey != proposedFieldKey
+            || currentValueType != proposedValueType
+            || currentDefaultValue != proposedDefaultValue
+            || currentIsRequired != proposedIsRequired
+    }
+
+    var needsSaveConfirmation: Bool {
+        (isEditingExistingField || taggedEntityCount > 0)
+            && hasSchemaChange
+            && (taggedEntityCount > 0 || storedValueCount > 0 || defaultBackfillCount > 0)
+    }
+}
