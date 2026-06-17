@@ -63,6 +63,21 @@ export function resolveSavedQueryView(savedViewId: unknown) {
   return savedQueryViewsSnapshot.find((savedView) => savedView.id === normalizedId) ?? null;
 }
 
+export function savedQueryViewSummary(savedView: Pick<SavedQueryViewDefinition, 'view' | 'groupBy'>) {
+  const view = normalizedSavedQueryViewMode(savedView.view);
+  const groupBy = parseQueryGroupBy(savedView.groupBy);
+
+  if (view === 'board' && groupBy) {
+    return `Board by ${groupBy}`;
+  }
+
+  return view.charAt(0).toUpperCase() + view.slice(1);
+}
+
+export function savedQueryViewOptionLabel(savedView: SavedQueryViewDefinition) {
+  return `${savedView.name} · ${savedQueryViewSummary(savedView)}`;
+}
+
 export function setSavedQueryViews(savedQueryViews: unknown) {
   savedQueryViewsSnapshot = normalizeSavedQueryViews(savedQueryViews);
 
@@ -170,6 +185,21 @@ function normalizeSavedQueryView(savedQueryView: unknown): SavedQueryViewDefinit
     view: normalizedRequiredString(record.view) ?? 'table',
     groupBy: normalizedOptionalString(record.groupBy),
   };
+}
+
+function normalizedSavedQueryViewMode(value: unknown): 'table' | 'list' | 'board' {
+  if (typeof value !== 'string') {
+    return 'table';
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case 'list':
+      return 'list';
+    case 'board':
+      return 'board';
+    default:
+      return 'table';
+  }
 }
 
 function normalizedRequiredString(value: unknown) {

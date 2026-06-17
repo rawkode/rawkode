@@ -23,6 +23,8 @@ import {
   queryRowDocumentId,
   queryRowEntityId,
   resolveSavedQueryView,
+  savedQueryViewOptionLabel,
+  savedQueryViewSummary,
   setSavedQueryViews as setSavedQueryViewsSnapshot,
   subscribeQueryRefresh,
   subscribeSavedQueryViews,
@@ -817,23 +819,29 @@ function SavedViewInsertControl({
 
   return (
     <div className="saved-view-insert">
-      <select
-        value={selectedValue}
-        disabled={disabled || savedQueryViews.length === 0}
-        onChange={(event) => setSelectedId(event.target.value)}
-      >
-        {savedQueryViews.length === 0 ? (
-          <option value="">No saved views</option>
-        ) : (
-          savedQueryViews.map((savedQueryView) => (
-            <option key={savedQueryView.id} value={savedQueryView.id}>
-              {savedQueryView.name}
-            </option>
-          ))
-        )}
-      </select>
+      <label className="saved-view-insert__picker">
+        <span>Saved View</span>
+        <select
+          value={selectedValue}
+          disabled={disabled || savedQueryViews.length === 0}
+          onChange={(event) => setSelectedId(event.target.value)}
+        >
+          {savedQueryViews.length === 0 ? (
+            <option value="">No saved views</option>
+          ) : (
+            savedQueryViews.map((savedQueryView) => (
+              <option key={savedQueryView.id} value={savedQueryView.id}>
+                {savedQueryViewOptionLabel(savedQueryView)}
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+      {selectedSavedView ? (
+        <span className="saved-view-insert__summary">{savedQueryViewSummary(selectedSavedView)}</span>
+      ) : null}
       <button type="button" disabled={disabled || !selectedSavedView} onClick={insertSavedView}>
-        Saved View
+        Insert
       </button>
     </div>
   );

@@ -25,12 +25,13 @@ Current local-first foundation:
 - Entity detail screens expose schema-aware editors for typed supertag fields and keep extra properties separate.
 - Query blocks run against local SQLite materializations and can render as tables, lists, or grouped boards.
 - Saved query views can be created, edited, duplicated, reordered, inserted into notes, and queried locally.
+- Saved query detail screens render table, list, and grouped board layouts, and editor insertion shows saved-view layout metadata.
 - Supertags have strongly typed schema fields, and the native Database editor can select schemas plus create, update, and delete typed properties.
 - Vault export and replacement import are available from the native app for local JSON portability before sync exists.
 
 Next local milestones:
 
-- Richer query view layouts and saved-view insertion ergonomics.
+- Inline query-to-saved-view promotion from document query blocks.
 
 Cloudflare-backed milestones remain later:
 

@@ -71,12 +71,29 @@ select {
 
 .saved-view-insert {
   display: inline-flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
-.saved-view-insert select {
-  max-width: 220px;
+.saved-view-insert__picker {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: color-mix(in srgb, CanvasText 66%, transparent);
+  font-size: 0.84rem;
+}
+
+.saved-view-insert__picker select {
+  max-width: 260px;
+}
+
+.saved-view-insert__summary {
+  max-width: 140px;
+  overflow: hidden;
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entity-insert {

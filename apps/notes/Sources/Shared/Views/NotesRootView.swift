@@ -222,6 +222,12 @@ struct NotesRootView: View {
                     onDelete: {
                         deleteSavedView(selectedSavedQueryView)
                     },
+                    onOpenDocument: { documentID in
+                        openDocument(documentID)
+                    },
+                    onOpenEntity: { entityID in
+                        openEntity(entityID)
+                    },
                     runQuery: { query in
                         try store.runQuery(query)
                     }
@@ -1573,6 +1579,8 @@ private struct SavedQueryViewDetailView: View {
     let onEdit: () -> Void
     let onDuplicate: () -> Void
     let onDelete: () -> Void
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
     let runQuery: (_ query: String) throws -> QueryResult
 
     @State private var result: QueryResult?
@@ -1689,7 +1697,13 @@ private struct SavedQueryViewDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                QueryResultGrid(result: result)
+                QueryResultView(
+                    result: result,
+                    view: normalizedQueryViewMode(savedView.view),
+                    groupBy: savedView.groupBy,
+                    onOpenDocument: onOpenDocument,
+                    onOpenEntity: onOpenEntity
+                )
             }
         } else {
             ProgressView()
@@ -1708,18 +1722,65 @@ private struct SavedQueryViewDetailView: View {
     }
 }
 
+private struct QueryResultView: View {
+    let result: QueryResult
+    let view: String
+    let groupBy: String?
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
+
+    var body: some View {
+        switch view {
+        case "list":
+            QueryResultList(
+                result: result,
+                onOpenDocument: onOpenDocument,
+                onOpenEntity: onOpenEntity
+            )
+
+        case "board":
+            QueryResultBoard(
+                result: result,
+                groupBy: groupBy,
+                onOpenDocument: onOpenDocument,
+                onOpenEntity: onOpenEntity
+            )
+
+        default:
+            QueryResultGrid(
+                result: result,
+                onOpenDocument: onOpenDocument,
+                onOpenEntity: onOpenEntity
+            )
+        }
+    }
+}
+
 private struct QueryResultGrid: View {
     let result: QueryResult
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
 
     var body: some View {
         if result.rows.isEmpty {
             ContentUnavailableView("No Results", systemImage: "tablecells")
         } else {
+            let hasActions = result.rows.contains { row in
+                queryDocumentID(row: row, columns: result.columns) != nil
+                    || queryEntityID(row: row, columns: result.columns) != nil
+            }
+
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
                     GridRow {
                         ForEach(result.columns, id: \.self) { column in
                             Text(column)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if hasActions {
+                            Text("Action")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                         }
@@ -1736,6 +1797,15 @@ private struct QueryResultGrid: View {
                                     .lineLimit(3)
                                     .textSelection(.enabled)
                             }
+
+                            if hasActions {
+                                QueryResultRowActions(
+                                    row: row,
+                                    columns: result.columns,
+                                    onOpenDocument: onOpenDocument,
+                                    onOpenEntity: onOpenEntity
+                                )
+                            }
                         }
                     }
                 }
@@ -1746,6 +1816,161 @@ private struct QueryResultGrid: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(.secondary.opacity(0.16))
             }
+        }
+    }
+}
+
+private struct QueryResultList: View {
+    let result: QueryResult
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
+
+    var body: some View {
+        if result.rows.isEmpty {
+            ContentUnavailableView("No Results", systemImage: "list.bullet")
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(result.rows.enumerated()), id: \.offset) { _, row in
+                    QueryResultCard(
+                        row: row,
+                        columns: result.columns,
+                        excludedColumns: [],
+                        onOpenDocument: onOpenDocument,
+                        onOpenEntity: onOpenEntity
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct QueryResultBoard: View {
+    let result: QueryResult
+    let groupBy: String?
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
+
+    var body: some View {
+        let groups = queryResultBoardGroups(result: result, groupBy: groupBy)
+
+        if groups.isEmpty {
+            ContentUnavailableView("No Results", systemImage: "rectangle.3.group")
+        } else {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(groups, id: \.title) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(group.title)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 8)
+
+                                Text("\(group.rows.count)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+
+                            ForEach(Array(group.rows.enumerated()), id: \.offset) { _, row in
+                                QueryResultCard(
+                                    row: row,
+                                    columns: result.columns,
+                                    excludedColumns: [group.column],
+                                    onOpenDocument: onOpenDocument,
+                                    onOpenEntity: onOpenEntity
+                                )
+                            }
+                        }
+                        .padding(10)
+                        .frame(width: 260, alignment: .topLeading)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.secondary.opacity(0.16))
+                        }
+                    }
+                }
+                .padding(.bottom, 2)
+            }
+        }
+    }
+}
+
+private struct QueryResultCard: View {
+    let row: [String: String]
+    let columns: [String]
+    let excludedColumns: [String?]
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(queryPrimaryValue(row: row, columns: columns))
+                .font(.callout.weight(.semibold))
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            ForEach(querySecondaryValues(row: row, columns: columns, excluding: excludedColumns), id: \.column) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(item.column)
+                        .foregroundStyle(.secondary)
+                    Text(item.value)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .lineLimit(2)
+            }
+
+            QueryResultRowActions(
+                row: row,
+                columns: columns,
+                onOpenDocument: onOpenDocument,
+                onOpenEntity: onOpenEntity
+            )
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.secondary.opacity(0.16))
+        }
+    }
+}
+
+private struct QueryResultRowActions: View {
+    let row: [String: String]
+    let columns: [String]
+    let onOpenDocument: (UUID) -> Void
+    let onOpenEntity: (UUID) -> Void
+
+    var body: some View {
+        let documentID = queryDocumentID(row: row, columns: columns)
+        let entityID = queryEntityID(row: row, columns: columns)
+
+        if documentID != nil || entityID != nil {
+            HStack(spacing: 6) {
+                if let documentID {
+                    Button {
+                        onOpenDocument(documentID)
+                    } label: {
+                        Label("Open Note", systemImage: "doc.text")
+                    }
+                }
+
+                if let entityID {
+                    Button {
+                        onOpenEntity(entityID)
+                    } label: {
+                        Label("Open Entity", systemImage: "at")
+                    }
+                }
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 }

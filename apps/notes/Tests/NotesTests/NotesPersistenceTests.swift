@@ -283,6 +283,69 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertTrue(try repository.fetchSavedQueryViews().isEmpty)
     }
 
+    func testQueryResultPresentationBuildsLayoutsAndTrustedActions() throws {
+        let documentID = UUID()
+        let entityID = UUID()
+        let result = QueryResult(
+            columns: ["name", "status", "owner"],
+            rows: [
+                [
+                    "name": "Alpha",
+                    "status": "active",
+                    "owner": "Rawkode",
+                    queryDocumentIDMetadataKey: documentID.uuidString,
+                ],
+                [
+                    "name": "Beta",
+                    "status": "",
+                    "owner": "Notes",
+                    queryEntityIDMetadataKey: entityID.uuidString,
+                ],
+            ]
+        )
+
+        XCTAssertEqual(normalizedQueryViewMode(" Board "), "board")
+        XCTAssertEqual(normalizedQueryViewMode("calendar"), "table")
+        XCTAssertEqual(queryPrimaryValue(row: result.rows[0], columns: result.columns), "Alpha")
+        XCTAssertEqual(
+            querySecondaryValues(row: result.rows[0], columns: result.columns),
+            [
+                QueryResultSecondaryValue(column: "status", value: "active"),
+                QueryResultSecondaryValue(column: "owner", value: "Rawkode"),
+            ]
+        )
+
+        let groups = queryResultBoardGroups(result: result, groupBy: "status")
+        XCTAssertEqual(groups.map(\.title), ["active", "No status"])
+        XCTAssertEqual(groups.first?.column, "status")
+        XCTAssertEqual(groups.first?.rows.map { $0["name"] ?? "" }, ["Alpha"])
+
+        let missingExplicitGroup = queryResultBoardGroups(result: result, groupBy: "missing")
+        XCTAssertEqual(missingExplicitGroup.map(\.title), ["Items"])
+        XCTAssertNil(missingExplicitGroup.first?.column)
+        XCTAssertEqual(missingExplicitGroup.first?.rows.count, 2)
+
+        let dailyResult = QueryResult(
+            columns: ["title", "date"],
+            rows: [
+                ["title": "Daily Note", "date": "2026-06-17"],
+                ["title": "Inbox", "date": ""],
+            ]
+        )
+        let dailyGroups = queryResultBoardGroups(result: dailyResult, groupBy: nil)
+        XCTAssertEqual(dailyGroups.map(\.title), ["2026-06-17", "No date"])
+        XCTAssertEqual(dailyGroups.first?.column, "date")
+
+        XCTAssertEqual(queryDocumentID(row: result.rows[0], columns: result.columns), documentID)
+        XCTAssertEqual(queryEntityID(row: result.rows[1], columns: result.columns), entityID)
+        XCTAssertNil(
+            queryDocumentID(
+                row: [queryDocumentIDMetadataKey: documentID.uuidString],
+                columns: [queryDocumentIDMetadataKey]
+            )
+        )
+    }
+
     func testSupertagFieldDefinitionsPersistAcrossRepositoryInstances() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }

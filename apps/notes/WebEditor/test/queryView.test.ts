@@ -10,6 +10,8 @@ import {
   queryRowDocumentId,
   queryRowEntityId,
   resolveSavedQueryView,
+  savedQueryViewOptionLabel,
+  savedQueryViewSummary,
   setSavedQueryViews,
   subscribeSavedQueryViews,
   subscribeQueryRefresh,
@@ -208,6 +210,30 @@ describe('query board view helpers', () => {
         groupBy: 'status',
       },
     ]);
+  });
+
+  test('summarizes saved query views for insertion controls', () => {
+    expect(
+      savedQueryViewSummary({
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).toBe('Board by status');
+    expect(
+      savedQueryViewSummary({
+        view: 'list',
+        groupBy: null,
+      })
+    ).toBe('List');
+    expect(
+      savedQueryViewOptionLabel({
+        id: 'saved-view-1',
+        name: 'Active Projects',
+        query: 'SELECT * FROM projects',
+        view: 'board',
+        groupBy: 'status',
+      })
+    ).toBe('Active Projects · Board by status');
   });
 
   test('stores saved query views and refreshes subscribers', () => {
