@@ -120,10 +120,38 @@ export function buildMiniAppGenerationPrompt(input: {
 		"- For update operations, preserve existing routes, commands, editor blocks, workflows, host APIs, and index projections unless the user explicitly changes them.",
 		"- For create operations, choose a new slug that does not collide with installed mini apps.",
 		"- The Worker must return a useful HTML response from its primary /apps/<slug> route.",
+		"- Set bindings to [] for autonomous deploys. Dedicated KV, D1, and R2 provisioning is not available yet.",
 		"- Return only fields matching the requested result schema.",
 	];
 
 	return sections.filter(Boolean).join("\n\n");
+}
+
+export function buildMiniAppRepairPrompt(input: {
+	userPrompt: string;
+	operation: MiniAppOperation;
+	failureMessage: string;
+	manifest: ExtensionManifest;
+	workerSource: string;
+}): string {
+	return [
+		"The previous generated mini app failed Enchiridion validation, deployment, or route smoke testing.",
+		`Request operation: ${input.operation}`,
+		"Original user request:",
+		input.userPrompt,
+		"Failure:",
+		input.failureMessage,
+		"Previous manifest:",
+		JSON.stringify(input.manifest, null, 2),
+		"Previous Worker source:",
+		input.workerSource,
+		"Repair rules:",
+		"- Return a complete replacement manifest and complete Cloudflare module Worker source.",
+		`- Keep the manifest slug exactly as ${input.manifest.slug}.`,
+		"- Preserve the route namespace and make the primary /apps/<slug> route return a successful HTML response.",
+		"- Do not request KV, D1, or R2 bindings.",
+		"- Return only fields matching the requested result schema.",
+	].join("\n\n");
 }
 
 function extensionAliases(extension: Pick<ExtensionManifest, "slug" | "name">): string[] {

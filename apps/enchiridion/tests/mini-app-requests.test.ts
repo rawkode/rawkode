@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	buildMiniAppRepairPrompt,
 	buildMiniAppGenerationPrompt,
 	findReferencedExtension,
 	inferMiniAppIntent,
@@ -64,5 +65,20 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain('"slug": "hello-world"');
 		expect(prompt).toContain("keep the target manifest slug exactly the same");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
+	});
+
+	it("builds repair prompts with the smoke-test failure and previous source", () => {
+		const prompt = buildMiniAppRepairPrompt({
+			userPrompt: "Update hello world app to have blue background",
+			operation: "update",
+			failureMessage: "Smoke test failed with 500: Load failed",
+			manifest: helloWorld,
+			workerSource: "export default { fetch() { return new Response('bad') } }",
+		});
+
+		expect(prompt).toContain("failed Enchiridion validation, deployment, or route smoke testing");
+		expect(prompt).toContain("Smoke test failed with 500: Load failed");
+		expect(prompt).toContain("Keep the manifest slug exactly as hello-world");
+		expect(prompt).toContain("export default");
 	});
 });
