@@ -503,6 +503,33 @@ final class SQLiteNotesRepository {
         return try materialized(result, using: query, relativeDate: relativeDate)
     }
 
+    func fetchDocumentBacklinks(documentID: UUID) throws -> [DocumentBacklink] {
+        try fetchDocumentBacklinks(
+            whereClause: "WHERE documents.id = ?",
+            bind: { statement in
+                sqlite3_bind_text(statement, 1, documentID.uuidString, -1, sqliteTransient)
+            }
+        )
+    }
+
+    func fetchEntityRelationships(sourceEntityIDs: [UUID]) throws -> [EntityRelationship] {
+        try fetchEntityRelationships(entityIDs: sourceEntityIDs, column: "source_entities.id")
+    }
+
+    func fetchEntityRelationships(targetEntityIDs: [UUID]) throws -> [EntityRelationship] {
+        try fetchEntityRelationships(entityIDs: targetEntityIDs, column: "target_entities.id")
+    }
+
+    func fetchDocumentContext(documentID: UUID) throws -> DocumentContext {
+        let backlinks = try fetchDocumentBacklinks(documentID: documentID)
+        let entityIDs = backlinks.map(\.entityID)
+        return DocumentContext(
+            backlinks: backlinks,
+            outgoingRelationships: try fetchEntityRelationships(sourceEntityIDs: entityIDs),
+            incomingRelationships: try fetchEntityRelationships(targetEntityIDs: entityIDs)
+        )
+    }
+
     static func defaultDailyNoteJSON(title: String) -> String {
         """
         {"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"\(escapeJSON(title))"}]},{"type":"paragraph","content":[{"type":"text","text":"Capture the day. Add sketches inline."}]}]}
@@ -2036,7 +2063,30 @@ final class SQLiteNotesRepository {
     }
 
     private func fetchEntityReferenceQueryResult() throws -> QueryResult {
-        let rows = try prepare(
+        let rows = try fetchDocumentBacklinks().map { backlink in
+            [
+                "entity_id": backlink.entityID.uuidString,
+                "entity": backlink.entityName,
+                "document_id": backlink.documentID.uuidString,
+                "document": backlink.documentTitle,
+                "document_kind": backlink.documentKind.rawValue,
+                "date": backlink.documentDate ?? "",
+                "name": "\(backlink.entityName) -> \(backlink.documentTitle)",
+                queryDocumentIDMetadataKey: backlink.documentID.uuidString,
+            ]
+        }
+
+        return QueryResult(
+            columns: ["name", "entity", "document", "document_kind", "date", "entity_id", "document_id"],
+            rows: rows
+        )
+    }
+
+    private func fetchDocumentBacklinks(
+        whereClause: String = "",
+        bind: (OpaquePointer?) throws -> Void = { _ in }
+    ) throws -> [DocumentBacklink] {
+        try prepare(
             """
             SELECT
                 entities.id,
@@ -2048,25 +2098,35 @@ final class SQLiteNotesRepository {
             FROM document_entity_references
             INNER JOIN entities ON entities.id = document_entity_references.entity_id
             INNER JOIN documents ON documents.id = document_entity_references.document_id
+            \(whereClause)
             ORDER BY entities.canonical_name COLLATE NOCASE ASC, documents.updated_at DESC;
             """
         ) { statement in
-            var rows: [[String: String]] = []
+            try bind(statement)
+            var backlinks: [DocumentBacklink] = []
             var result = sqlite3_step(statement)
 
             while result == SQLITE_ROW {
-                let entityName = textColumn(statement, 1)
-                let documentTitle = textColumn(statement, 3)
-                rows.append([
-                    "entity_id": textColumn(statement, 0),
-                    "entity": entityName,
-                    "document_id": textColumn(statement, 2),
-                    "document": documentTitle,
-                    "document_kind": textColumn(statement, 4),
-                    "date": textColumn(statement, 5),
-                    "name": "\(entityName) -> \(documentTitle)",
-                    queryDocumentIDMetadataKey: textColumn(statement, 2),
-                ])
+                guard let entityID = UUID(uuidString: textColumn(statement, 0)),
+                      let documentID = UUID(uuidString: textColumn(statement, 2)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid document backlink id")
+                }
+
+                guard let documentKind = NoteDocumentKind(rawValue: textColumn(statement, 4)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid document backlink kind")
+                }
+
+                let documentDate = textColumn(statement, 5)
+                backlinks.append(
+                    DocumentBacklink(
+                        entityID: entityID,
+                        entityName: textColumn(statement, 1),
+                        documentID: documentID,
+                        documentTitle: textColumn(statement, 3),
+                        documentKind: documentKind,
+                        documentDate: documentDate.isEmpty ? nil : documentDate
+                    )
+                )
                 result = sqlite3_step(statement)
             }
 
@@ -2074,65 +2134,106 @@ final class SQLiteNotesRepository {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
             }
 
-            return rows
+            return backlinks
         }
-
-        return QueryResult(
-            columns: ["name", "entity", "document", "document_kind", "date", "entity_id", "document_id"],
-            rows: rows
-        )
     }
 
     private func fetchEntityRelationshipQueryResult() throws -> QueryResult {
-        let rows = try prepare(
-            """
-            SELECT
-                source_entities.canonical_name,
-                entity_properties.property_key,
-                target_entities.canonical_name,
-                source_entities.id,
-                target_entities.id,
-                entity_properties.updated_at
-            FROM entity_properties
-            INNER JOIN entities source_entities
-                ON source_entities.id = entity_properties.entity_id
-            INNER JOIN entities target_entities
-                ON target_entities.id = entity_properties.value_entity_id
-            ORDER BY target_entities.canonical_name COLLATE NOCASE ASC,
-                entity_properties.property_key COLLATE NOCASE ASC,
-                source_entities.canonical_name COLLATE NOCASE ASC;
-            """
-        ) { statement in
-            var rows: [[String: String]] = []
-            var result = sqlite3_step(statement)
-
-            while result == SQLITE_ROW {
-                let source = textColumn(statement, 0)
-                let property = textColumn(statement, 1)
-                let target = textColumn(statement, 2)
-                rows.append([
-                    "name": "\(source) \(property) -> \(target)",
-                    "source": source,
-                    "property": property,
-                    "target": target,
-                    "source_id": textColumn(statement, 3),
-                    "target_id": textColumn(statement, 4),
-                    "updated_at": textColumn(statement, 5),
-                ])
-                result = sqlite3_step(statement)
-            }
-
-            guard result == SQLITE_DONE else {
-                throw SQLiteNotesError.stepFailed(lastErrorMessage)
-            }
-
-            return rows
+        let rows = try fetchEntityRelationships().map { relationship in
+            [
+                "name": "\(relationship.sourceName) \(relationship.property) -> \(relationship.targetName)",
+                "source": relationship.sourceName,
+                "property": relationship.property,
+                "target": relationship.targetName,
+                "source_id": relationship.sourceEntityID.uuidString,
+                "target_id": relationship.targetEntityID.uuidString,
+                "updated_at": relationship.updatedAt.ISO8601Format(),
+            ]
         }
 
         return QueryResult(
             columns: ["name", "source", "property", "target", "source_id", "target_id", "updated_at"],
             rows: rows
         )
+    }
+
+    private func fetchEntityRelationships(
+        entityIDs: [UUID],
+        column: String
+    ) throws -> [EntityRelationship] {
+        let uniqueIDs = Array(Set(entityIDs)).sorted { $0.uuidString < $1.uuidString }
+        guard !uniqueIDs.isEmpty else {
+            return []
+        }
+
+        let placeholders = uniqueIDs.map { _ in "?" }.joined(separator: ", ")
+        return try fetchEntityRelationships(
+            whereClause: "WHERE \(column) IN (\(placeholders))",
+            bind: { statement in
+                for (index, id) in uniqueIDs.enumerated() {
+                    sqlite3_bind_text(statement, Int32(index + 1), id.uuidString, -1, sqliteTransient)
+                }
+            }
+        )
+    }
+
+    private func fetchEntityRelationships(
+        whereClause: String = "",
+        bind: (OpaquePointer?) throws -> Void = { _ in }
+    ) throws -> [EntityRelationship] {
+        try prepare(
+            """
+            SELECT
+                source_entities.id,
+                source_entities.canonical_name,
+                entity_properties.property_key,
+                target_entities.id,
+                target_entities.canonical_name,
+                entity_properties.updated_at
+            FROM entity_properties
+            INNER JOIN entities source_entities
+                ON source_entities.id = entity_properties.entity_id
+            INNER JOIN entities target_entities
+                ON target_entities.id = entity_properties.value_entity_id
+            \(whereClause)
+            ORDER BY target_entities.canonical_name COLLATE NOCASE ASC,
+                entity_properties.property_key COLLATE NOCASE ASC,
+                source_entities.canonical_name COLLATE NOCASE ASC;
+            """
+        ) { statement in
+            try bind(statement)
+            var relationships: [EntityRelationship] = []
+            var result = sqlite3_step(statement)
+
+            while result == SQLITE_ROW {
+                guard let sourceEntityID = UUID(uuidString: textColumn(statement, 0)),
+                      let targetEntityID = UUID(uuidString: textColumn(statement, 3)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid entity relationship id")
+                }
+
+                guard let updatedAt = Date(iso8601String: textColumn(statement, 5)) else {
+                    throw SQLiteNotesError.rowDecodeFailed("invalid entity relationship timestamp")
+                }
+
+                relationships.append(
+                    EntityRelationship(
+                        sourceEntityID: sourceEntityID,
+                        sourceName: textColumn(statement, 1),
+                        property: textColumn(statement, 2),
+                        targetEntityID: targetEntityID,
+                        targetName: textColumn(statement, 4),
+                        updatedAt: updatedAt
+                    )
+                )
+                result = sqlite3_step(statement)
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return relationships
+        }
     }
 
     private func fetchSavedQueryViewQueryResult() throws -> QueryResult {

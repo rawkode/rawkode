@@ -654,6 +654,59 @@ final class NotesPersistenceTests: XCTestCase {
         ])
     }
 
+    func testFetchDocumentContextReadsBacklinksAndRelationships() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let roadmap = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+        let academy = try repository.upsertEntity(
+            named: "Rawkode Academy",
+            supertagNames: ["company"]
+        )
+        _ = try repository.upsertEntity(
+            named: "Website",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+
+        var document = try repository.createStandaloneNote()
+        document.title = "Planning note"
+        document.plainText = "Discuss [[Notes Roadmap]] today."
+        try repository.upsertDocument(document)
+
+        var unrelatedDocument = try repository.createStandaloneNote()
+        unrelatedDocument.title = "Company note"
+        unrelatedDocument.plainText = "Discuss [[Rawkode Academy]] separately."
+        try repository.upsertDocument(unrelatedDocument)
+
+        let context = try repository.fetchDocumentContext(documentID: document.id)
+
+        XCTAssertEqual(context.backlinks.map(\.entityName), ["Notes Roadmap"])
+        XCTAssertEqual(context.backlinks.first?.entityID, roadmap.id)
+        XCTAssertEqual(context.backlinks.first?.documentID, document.id)
+        XCTAssertEqual(context.backlinks.first?.documentKind, .note)
+        XCTAssertNil(context.backlinks.first?.documentDate)
+
+        XCTAssertEqual(context.outgoingRelationships.map(\.sourceName), ["Notes Roadmap"])
+        XCTAssertEqual(context.outgoingRelationships.first?.property, "owner")
+        XCTAssertEqual(context.outgoingRelationships.first?.targetEntityID, academy.id)
+
+        XCTAssertTrue(context.incomingRelationships.isEmpty)
+
+        let academyContext = try repository.fetchDocumentContext(documentID: unrelatedDocument.id)
+        XCTAssertEqual(academyContext.backlinks.map(\.entityName), ["Rawkode Academy"])
+        XCTAssertEqual(
+            Set(academyContext.incomingRelationships.map(\.sourceName)),
+            Set(["Notes Roadmap", "Website"])
+        )
+        XCTAssertTrue(academyContext.outgoingRelationships.isEmpty)
+    }
+
     func testEntityPropertyReferenceColumnIsAddedDuringMigration() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
@@ -1885,6 +1938,37 @@ final class NotesPersistenceTests: XCTestCase {
         store.openDocument(id: standaloneNote.id)
 
         XCTAssertEqual(store.selectedDocument?.id, standaloneNote.id)
+    }
+
+    @MainActor
+    func testStoreReadsSelectedDocumentContext() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        _ = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[Rawkode Academy]]"]
+        )
+
+        store.createStandaloneNote()
+        let note = try XCTUnwrap(store.selectedDocument)
+        store.saveEditorChange(
+            documentID: note.id,
+            title: "Planning note",
+            contentJSON: note.tiptapJSON,
+            plainText: "Discuss [[Notes Roadmap]]."
+        )
+
+        let context = try store.documentContext(for: note.id)
+
+        XCTAssertEqual(context.backlinks.map(\.entityName), ["Notes Roadmap"])
+        XCTAssertEqual(context.outgoingRelationships.map(\.targetName), ["Rawkode Academy"])
+        XCTAssertTrue(context.incomingRelationships.isEmpty)
     }
 
     @MainActor

@@ -213,6 +213,19 @@ final class NotesStore {
         }
     }
 
+    func documentContext(for documentID: UUID) throws -> DocumentContext {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            return try repository.fetchDocumentContext(documentID: documentID)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
     @discardableResult
     func saveSavedQueryView(
         named name: String,
