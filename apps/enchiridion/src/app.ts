@@ -1,5 +1,5 @@
 import { flue } from "@flue/runtime/routing";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
 import { createMiniAppDispatchRequest } from "./lib/cloudflare-dispatch";
@@ -233,8 +233,15 @@ app.get("/apps/projects/fragment", async (c) => {
 	return renderProjectsFragment(await listBoards(c.env), c.req.query("boardId"));
 });
 
-app.all("/apps/:slug/*", async (c) => {
+app.all("/apps/:slug", dispatchMiniAppRoute);
+app.all("/apps/:slug/*", dispatchMiniAppRoute);
+
+async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 	const slug = c.req.param("slug");
+	if (!slug) {
+		return json({ error: "Mini app route not found" }, 404);
+	}
+
 	const extension = await getExtension(c.env, slug);
 
 	if (!extension?.deployedScriptName || !c.env.MINI_APP_DISPATCHER) {
@@ -252,7 +259,7 @@ app.all("/apps/:slug/*", async (c) => {
 	const request = createMiniAppDispatchRequest(c.req.raw, token);
 
 	return c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
-});
+}
 
 app.get("*", async (c) => {
 	return fetchAsset(c.env, c.req.raw);
