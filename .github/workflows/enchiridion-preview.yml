@@ -1,0 +1,106 @@
+name: Enchiridion Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "apps/enchiridion/**"
+      - ".github/workflows/enchiridion-preview.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: enchiridion-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Build and publish preview
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/enchiridion
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/enchiridion/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload Cloudflare preview version
+        id: preview
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          preview_alias="pr-${{ github.event.pull_request.number }}"
+          deploy_output="$(npm run preview:upload -- --preview-alias "$preview_alias" --tag "$preview_alias" --message "PR #${{ github.event.pull_request.number }} ${GITHUB_SHA}" 2>&1)"
+
+          printf '%s\n' "$deploy_output"
+          preview_url="$(printf '%s\n' "$deploy_output" | grep -Eo 'https://[^[:space:]\")]+workers.dev[^[:space:]\")]*' | tail -n 1)"
+
+          if [ -z "$preview_url" ]; then
+            echo "Wrangler did not print a workers.dev preview URL." >&2
+            exit 1
+          fi
+
+          echo "url=$preview_url" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- enchiridion-preview -->';
+            const previewUrl = '${{ steps.preview.outputs.url }}';
+            const body = [
+              marker,
+              `Enchiridion preview: ${previewUrl}`,
+              '',
+              `Built from \`${context.sha.slice(0, 12)}\`.`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => {
+              return comment.user.type === 'Bot' && comment.body.includes(marker);
+            });
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
