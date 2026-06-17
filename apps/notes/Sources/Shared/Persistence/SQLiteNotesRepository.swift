@@ -321,6 +321,15 @@ final class SQLiteNotesRepository {
         }
 
         let defaultValue = normalizedDefaultValue(rawDefaultValue)
+        if let defaultValue {
+            try validateSupertagFieldDefaultValue(
+                defaultValue,
+                valueType: valueType,
+                supertagName: supertagName,
+                label: label
+            )
+        }
+
         return try withTransaction {
             let now = Date()
             let supertagID = try upsertSupertag(named: supertagName, updatedAt: now)
@@ -373,8 +382,18 @@ final class SQLiteNotesRepository {
                 try link(entityID: entityID, toSupertagID: supertagID)
             }
 
-            if let rawProperties {
-                try syncEntityProperties(entityID: entityID, properties: rawProperties, updatedAt: now)
+            let schemaProperties = try schemaConformingEntityProperties(
+                entityID: entityID,
+                entityName: canonicalName,
+                rawProperties: rawProperties ?? [:],
+                mode: rawProperties == nil ? .patch : .replace,
+                updatedAt: now
+            )
+
+            if rawProperties == nil {
+                try upsertEntityProperties(entityID: entityID, properties: schemaProperties, updatedAt: now)
+            } else {
+                try syncEntityProperties(entityID: entityID, properties: schemaProperties, updatedAt: now)
             }
 
             return EntityReference(
@@ -934,6 +953,18 @@ final class SQLiteNotesRepository {
         properties rawProperties: [String: String],
         updatedAt: Date
     ) throws {
+        try syncEntityProperties(
+            entityID: entityID,
+            properties: normalizedProperties(rawProperties),
+            updatedAt: updatedAt
+        )
+    }
+
+    private func syncEntityProperties(
+        entityID: UUID,
+        properties: [NormalizedEntityProperty],
+        updatedAt: Date
+    ) throws {
         try prepare("DELETE FROM entity_properties WHERE entity_id = ?;") { statement in
             sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
             guard sqlite3_step(statement) == SQLITE_DONE else {
@@ -941,29 +972,61 @@ final class SQLiteNotesRepository {
             }
         }
 
-        for property in normalizedProperties(rawProperties) {
-            let valueEntityID: UUID?
-            let propertyValue: String
-            if let referencedEntityName = property.referencedEntityName {
-                valueEntityID = try ensureEntityRecord(named: referencedEntityName, createdAt: updatedAt)
-                propertyValue = try valueEntityID.flatMap { try fetchEntityName(id: $0) } ?? referencedEntityName
-            } else {
-                valueEntityID = nil
-                propertyValue = property.value
-            }
+        try insertEntityProperties(entityID: entityID, properties: properties, updatedAt: updatedAt)
+    }
+
+    private func upsertEntityProperties(
+        entityID: UUID,
+        properties rawProperties: [String: String],
+        updatedAt: Date
+    ) throws {
+        try upsertEntityProperties(
+            entityID: entityID,
+            properties: normalizedProperties(rawProperties),
+            updatedAt: updatedAt
+        )
+    }
+
+    private func upsertEntityProperties(
+        entityID: UUID,
+        properties: [NormalizedEntityProperty],
+        updatedAt: Date
+    ) throws {
+        try insertEntityProperties(
+            entityID: entityID,
+            properties: properties,
+            updatedAt: updatedAt,
+            onConflict: """
+            ON CONFLICT(entity_id, property_key) DO UPDATE SET
+                property_value = excluded.property_value,
+                value_entity_id = excluded.value_entity_id,
+                updated_at = excluded.updated_at
+            """
+        )
+    }
+
+    private func insertEntityProperties(
+        entityID: UUID,
+        properties: [NormalizedEntityProperty],
+        updatedAt: Date,
+        onConflict: String = ""
+    ) throws {
+        for property in properties {
+            let storage = try storageValue(for: property, updatedAt: updatedAt)
 
             try prepare(
                 """
                 INSERT INTO entity_properties (
                     entity_id, property_key, property_value, value_entity_id, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?)
+                \(onConflict);
                 """
             ) { statement in
                 sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
                 sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 3, propertyValue, -1, sqliteTransient)
-                if let valueEntityID {
+                sqlite3_bind_text(statement, 3, storage.value, -1, sqliteTransient)
+                if let valueEntityID = storage.valueEntityID {
                     sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
                 } else {
                     sqlite3_bind_null(statement, 4)
@@ -977,48 +1040,81 @@ final class SQLiteNotesRepository {
         }
     }
 
-    private func upsertEntityProperties(
-        entityID: UUID,
-        properties rawProperties: [String: String],
+    private func storageValue(
+        for property: NormalizedEntityProperty,
         updatedAt: Date
-    ) throws {
-        for property in normalizedProperties(rawProperties) {
-            let valueEntityID: UUID?
-            let propertyValue: String
-            if let referencedEntityName = property.referencedEntityName {
-                valueEntityID = try ensureEntityRecord(named: referencedEntityName, createdAt: updatedAt)
-                propertyValue = try valueEntityID.flatMap { try fetchEntityName(id: $0) } ?? referencedEntityName
-            } else {
-                valueEntityID = nil
-                propertyValue = property.value
+    ) throws -> (value: String, valueEntityID: UUID?) {
+        guard let referencedEntityName = property.referencedEntityName else {
+            if let valueEntityID = property.valueEntityID.flatMap(UUID.init(uuidString:)),
+               let entityName = try fetchEntityName(id: valueEntityID) {
+                return (entityName, valueEntityID)
             }
 
-            try prepare(
-                """
-                INSERT INTO entity_properties (
-                    entity_id, property_key, property_value, value_entity_id, updated_at
+            return (property.value, nil)
+        }
+
+        let valueEntityID = try ensureEntityRecord(named: referencedEntityName, createdAt: updatedAt)
+        let propertyValue = try fetchEntityName(id: valueEntityID) ?? referencedEntityName
+        return (propertyValue, valueEntityID)
+    }
+
+    private func schemaConformingEntityProperties(
+        entityID: UUID,
+        entityName: String,
+        rawProperties: [String: String],
+        mode: EntityPropertySchemaMode,
+        updatedAt: Date
+    ) throws -> [NormalizedEntityProperty] {
+        let incomingProperties = normalizedPropertyMap(rawProperties)
+        var effectiveProperties: [String: NormalizedEntityProperty]
+        var writableProperties: [String: NormalizedEntityProperty]
+
+        switch mode {
+        case .replace:
+            effectiveProperties = incomingProperties
+            writableProperties = incomingProperties
+        case .patch:
+            effectiveProperties = try fetchStoredNormalizedEntityProperties(forEntityID: entityID)
+            for (key, property) in incomingProperties {
+                effectiveProperties[key] = property
+            }
+            writableProperties = incomingProperties
+        }
+
+        for definition in try fetchSupertagFieldDefinitions(entityID: entityID) {
+            if isMissingSchemaProperty(effectiveProperties[definition.key]),
+               let defaultValue = definition.defaultValue,
+               let defaultProperty = normalizedProperty(key: definition.key, value: defaultValue) {
+                effectiveProperties[definition.key] = defaultProperty
+                writableProperties[definition.key] = defaultProperty
+            }
+
+            guard !definition.isRequired || !isMissingSchemaProperty(effectiveProperties[definition.key]) else {
+                throw SQLiteNotesError.validationFailed(
+                    "\(definition.supertagName) requires \(definition.label) for \(entityName)."
                 )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(entity_id, property_key) DO UPDATE SET
-                    property_value = excluded.property_value,
-                    value_entity_id = excluded.value_entity_id,
-                    updated_at = excluded.updated_at;
-                """
-            ) { statement in
-                sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 2, property.key, -1, sqliteTransient)
-                sqlite3_bind_text(statement, 3, propertyValue, -1, sqliteTransient)
-                if let valueEntityID {
-                    sqlite3_bind_text(statement, 4, valueEntityID.uuidString, -1, sqliteTransient)
-                } else {
-                    sqlite3_bind_null(statement, 4)
-                }
-                sqlite3_bind_text(statement, 5, updatedAt.ISO8601Format(), -1, sqliteTransient)
-
-                guard sqlite3_step(statement) == SQLITE_DONE else {
-                    throw SQLiteNotesError.stepFailed(lastErrorMessage)
-                }
             }
+
+            if let property = effectiveProperties[definition.key] {
+                try validateSupertagFieldValue(property, definition: definition, entityName: entityName)
+            }
+        }
+
+        return sortedProperties(writableProperties)
+    }
+
+    private func fetchStoredNormalizedEntityProperties(
+        forEntityID entityID: UUID
+    ) throws -> [String: NormalizedEntityProperty] {
+        let grouped = try fetchStoredEntityProperties(entityIDs: [entityID.uuidString])
+        let storedProperties = grouped[entityID.uuidString] ?? [:]
+        return storedProperties.reduce(into: [:]) { result, item in
+            result[item.key] = NormalizedEntityProperty(
+                key: item.key,
+                value: item.value.value,
+                referencedEntityName: nil,
+                valueEntityID: item.value.valueEntityID
+            )
         }
     }
 
@@ -1065,9 +1161,14 @@ final class SQLiteNotesRepository {
                 let supertagID = try ensureSupertagRecord(named: supertagName, createdAt: now)
                 try link(entityID: entityID, toSupertagID: supertagID)
             }
-            if !mention.properties.isEmpty {
-                try upsertEntityProperties(entityID: entityID, properties: mention.properties, updatedAt: now)
-            }
+            let schemaProperties = try schemaConformingEntityProperties(
+                entityID: entityID,
+                entityName: mention.name,
+                rawProperties: mention.properties,
+                mode: .patch,
+                updatedAt: now
+            )
+            try upsertEntityProperties(entityID: entityID, properties: schemaProperties, updatedAt: now)
             try insertDocumentEntityReference(documentID: document.id, entityID: entityID, indexedAt: now)
         }
     }
@@ -1496,6 +1597,22 @@ final class SQLiteNotesRepository {
         .first
     }
 
+    private func fetchSupertagFieldDefinitions(entityID: UUID) throws -> [SupertagFieldDefinition] {
+        try querySupertagFieldDefinitions(
+            whereClause: """
+            WHERE EXISTS (
+                SELECT 1
+                FROM entity_supertags
+                WHERE entity_supertags.entity_id = ?
+                  AND entity_supertags.supertag_id = supertags.id
+            )
+            """,
+            bind: { statement in
+                sqlite3_bind_text(statement, 1, entityID.uuidString, -1, sqliteTransient)
+            }
+        )
+    }
+
     private func document(from statement: OpaquePointer?) throws -> NoteDocument {
         guard let id = UUID(uuidString: textColumn(statement, 0)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid document id")
@@ -1777,10 +1894,16 @@ private func normalizedDefaultValue(_ value: String?) -> String? {
     return normalized.isEmpty ? nil : normalized
 }
 
+private enum EntityPropertySchemaMode {
+    case replace
+    case patch
+}
+
 private struct NormalizedEntityProperty {
     var key: String
     var value: String
     var referencedEntityName: String?
+    var valueEntityID: String? = nil
 }
 
 private struct StoredEntityProperty {
@@ -1795,30 +1918,148 @@ private struct PlainTextEntityMention {
 }
 
 private func normalizedProperties(_ properties: [String: String]) -> [NormalizedEntityProperty] {
+    sortedProperties(normalizedPropertyMap(properties))
+}
+
+private func normalizedPropertyMap(_ properties: [String: String]) -> [String: NormalizedEntityProperty] {
     var normalized: [String: NormalizedEntityProperty] = [:]
 
     for (rawKey, rawValue) in properties {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            continue
+        if let property = normalizedProperty(key: rawKey, value: rawValue) {
+            normalized[property.key] = property
         }
-
-        let key = normalizedEntityPropertyKey(rawKey)
-        guard !key.isEmpty else {
-            continue
-        }
-
-        let referencedEntityName = entityReferencePropertyValue(value)
-        normalized[key] = NormalizedEntityProperty(
-            key: key,
-            value: referencedEntityName ?? value,
-            referencedEntityName: referencedEntityName
-        )
     }
 
     return normalized
+}
+
+private func normalizedProperty(key rawKey: String, value rawValue: String) -> NormalizedEntityProperty? {
+    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else {
+        return nil
+    }
+
+    let key = normalizedEntityPropertyKey(rawKey)
+    guard !key.isEmpty else {
+        return nil
+    }
+
+    let referencedEntityName = entityReferencePropertyValue(value)
+    return NormalizedEntityProperty(
+        key: key,
+        value: referencedEntityName ?? value,
+        referencedEntityName: referencedEntityName
+    )
+}
+
+private func sortedProperties(_ properties: [String: NormalizedEntityProperty]) -> [NormalizedEntityProperty] {
+    properties
         .map { $0.value }
         .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+}
+
+private func isMissingSchemaProperty(_ property: NormalizedEntityProperty?) -> Bool {
+    property?.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+}
+
+private func validateSupertagFieldDefaultValue(
+    _ value: String,
+    valueType: String,
+    supertagName: String,
+    label: String
+) throws {
+    let referencedEntityName = entityReferencePropertyValue(value)
+    guard isValidSupertagFieldValue(
+        value: referencedEntityName ?? value,
+        valueType: valueType,
+        referencedEntityName: referencedEntityName,
+        valueEntityID: nil
+    ) else {
+        throw SQLiteNotesError.validationFailed(
+            "Default value for \(supertagName).\(label) must be \(supertagFieldTypeDescription(valueType))."
+        )
+    }
+}
+
+private func validateSupertagFieldValue(
+    _ property: NormalizedEntityProperty,
+    definition: SupertagFieldDefinition,
+    entityName: String
+) throws {
+    guard isValidSupertagFieldValue(
+        value: property.value,
+        valueType: definition.valueType,
+        referencedEntityName: property.referencedEntityName,
+        valueEntityID: property.valueEntityID
+    ) else {
+        throw SQLiteNotesError.validationFailed(
+            "\(definition.supertagName).\(definition.label) for \(entityName) must be \(supertagFieldTypeDescription(definition.valueType))."
+        )
+    }
+}
+
+private func isValidSupertagFieldValue(
+    value: String,
+    valueType: String,
+    referencedEntityName: String?,
+    valueEntityID: String?
+) -> Bool {
+    switch valueType {
+    case "text":
+        return true
+    case "number":
+        guard let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+        return number.isFinite
+    case "date":
+        return isValidSupertagDateValue(value)
+    case "entity":
+        return referencedEntityName != nil || valueEntityID != nil
+    case "boolean":
+        return isValidSupertagBooleanValue(value)
+    default:
+        return false
+    }
+}
+
+private func supertagFieldTypeDescription(_ valueType: String) -> String {
+    switch valueType {
+    case "text":
+        return "text"
+    case "number":
+        return "a number"
+    case "date":
+        return "a date"
+    case "entity":
+        return "an entity reference"
+    case "boolean":
+        return "a boolean"
+    default:
+        return "a valid value"
+    }
+}
+
+private func isValidSupertagDateValue(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if Date(iso8601String: trimmed) != nil {
+        return true
+    }
+
+    guard let date = DailyNoteDateFormatter.date(from: trimmed) else {
+        return false
+    }
+
+    return DailyNoteDateFormatter.storageString(from: date) == trimmed
+}
+
+private func isValidSupertagBooleanValue(_ value: String) -> Bool {
+    switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "true", "false", "yes", "no", "on", "off", "1", "0":
+        return true
+    default:
+        return false
+    }
 }
 
 private func entityReferencePropertyValue(_ value: String) -> String? {

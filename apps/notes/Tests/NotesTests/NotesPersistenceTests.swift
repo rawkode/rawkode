@@ -265,7 +265,164 @@ final class NotesPersistenceTests: XCTestCase {
                 sortOrder: -1
             )
         )
+        XCTAssertThrowsError(
+            try repository.saveSupertagFieldDefinition(
+                supertagName: "Project",
+                field: "Rank",
+                valueType: "number",
+                defaultValue: "high"
+            )
+        )
+        XCTAssertThrowsError(
+            try repository.saveSupertagFieldDefinition(
+                supertagName: "Project",
+                field: "Owner",
+                valueType: "entity",
+                defaultValue: "Rawkode Academy"
+            )
+        )
         XCTAssertTrue(try repository.fetchSupertagFieldDefinitions().isEmpty)
+    }
+
+    func testSupertagFieldDefinitionsApplyDefaultsAndValidateEntityUpserts() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: "text",
+            defaultValue: "active",
+            isRequired: true
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Rank",
+            valueType: "number",
+            isRequired: true
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Due Date",
+            valueType: "date"
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: "entity"
+        )
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Done",
+            valueType: "boolean",
+            defaultValue: "false"
+        )
+
+        let project = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Rank": "7",
+                "Due Date": "2026-06-17",
+                "Owner": "[[Rawkode Academy]]",
+            ]
+        )
+
+        XCTAssertEqual(project.properties["status"], "active")
+        XCTAssertEqual(project.properties["rank"], "7")
+        XCTAssertEqual(project.properties["due_date"], "2026-06-17")
+        XCTAssertEqual(project.properties["owner"], "Rawkode Academy")
+        XCTAssertEqual(project.properties["done"], "false")
+
+        let projects = try repository.runQuery(
+            "SELECT name, status, rank, due_date, owner, owner_entity_id, done FROM projects"
+        )
+        XCTAssertEqual(projects.rows.first?["name"], "Notes Roadmap")
+        XCTAssertEqual(projects.rows.first?["status"], "active")
+        XCTAssertEqual(projects.rows.first?["rank"], "7")
+        XCTAssertEqual(projects.rows.first?["due_date"], "2026-06-17")
+        XCTAssertEqual(projects.rows.first?["owner"], "Rawkode Academy")
+        XCTAssertFalse(projects.rows.first?["owner_entity_id"]?.isEmpty ?? true)
+        XCTAssertEqual(projects.rows.first?["done"], "false")
+
+        XCTAssertThrowsError(
+            try repository.upsertEntity(
+                named: "Missing Rank",
+                supertagNames: ["project"]
+            )
+        )
+        XCTAssertEqual(
+            try countRows("entities", matching: "canonical_name = 'Missing Rank'", databaseURL: databaseURL),
+            0
+        )
+
+        XCTAssertThrowsError(
+            try repository.upsertEntity(
+                named: "Bad Rank",
+                supertagNames: ["project"],
+                properties: ["Rank": "high"]
+            )
+        )
+        XCTAssertEqual(
+            try countRows("entities", matching: "canonical_name = 'Bad Rank'", databaseURL: databaseURL),
+            0
+        )
+    }
+
+    func testPlainTextMentionsApplySupertagSchemaDefaults() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: "text",
+            defaultValue: "active",
+            isRequired: true
+        )
+
+        var document = try repository.createStandaloneNote()
+        document.title = "Project capture"
+        document.plainText = "[[Notes Roadmap]] #project"
+        try repository.upsertDocument(document)
+
+        let projects = try repository.runQuery("SELECT name, status FROM projects")
+        XCTAssertEqual(projects.rows, [
+            ["name": "Notes Roadmap", "status": "active"],
+        ])
+    }
+
+    func testPlainTextMentionsRejectSupertagSchemaViolations() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Rank",
+            valueType: "number",
+            isRequired: true
+        )
+
+        var document = try repository.createStandaloneNote()
+        let originalTitle = document.title
+        document.title = "Invalid project capture"
+        document.plainText = """
+        [[Notes Roadmap]] #project
+        rank:: high
+        """
+
+        XCTAssertThrowsError(try repository.upsertDocument(document))
+
+        let storedDocument = try XCTUnwrap(repository.fetchDocument(id: document.id))
+        XCTAssertEqual(storedDocument.title, originalTitle)
+        XCTAssertEqual(storedDocument.plainText, "")
+        XCTAssertEqual(
+            try countRows("entities", matching: "canonical_name = 'Notes Roadmap'", databaseURL: databaseURL),
+            0
+        )
     }
 
     func testEntityUpsertReusesEntityAndLinksSupertags() throws {
