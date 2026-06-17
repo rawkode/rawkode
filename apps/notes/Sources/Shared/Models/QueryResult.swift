@@ -5,6 +5,33 @@ struct QueryResult: Equatable, Sendable {
     var rows: [[String: String]]
 }
 
+struct QueryValidationDiagnostic: Equatable, Sendable {
+    enum Severity: String, Sendable {
+        case error
+        case warning
+    }
+
+    var severity: Severity
+    var message: String
+}
+
+struct QueryValidationReport: Equatable, Sendable {
+    var diagnostics: [QueryValidationDiagnostic] = []
+    var columns: [String] = []
+    var rowCount: Int?
+
+    var hasErrors: Bool {
+        diagnostics.contains { $0.severity == .error }
+    }
+
+    var errorSummary: String {
+        diagnostics
+            .filter { $0.severity == .error }
+            .map(\.message)
+            .joined(separator: "\n")
+    }
+}
+
 struct QueryResultBoardGroup: Equatable, Sendable {
     var title: String
     var column: String?
@@ -168,6 +195,56 @@ func queryDisplayRows(
     }
 
     return rows
+}
+
+func queryViewDisplayDiagnostics(
+    result: QueryResult,
+    view: String,
+    groupBy rawGroupBy: String?,
+    settings: QueryViewDisplaySettings
+) -> [QueryValidationDiagnostic] {
+    var diagnostics: [QueryValidationDiagnostic] = []
+    let columns = Set(result.columns)
+    let mode = normalizedQueryViewMode(view)
+    let groupBy = rawGroupBy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+    if mode == "board" {
+        if !groupBy.isEmpty, !columns.contains(groupBy) {
+            diagnostics.append(
+                QueryValidationDiagnostic(
+                    severity: .error,
+                    message: "Board group field '\(groupBy)' is not returned by the query."
+                )
+            )
+        } else if groupBy.isEmpty, queryResultBoardGroupColumn(columns: result.columns, groupBy: nil) == nil {
+            diagnostics.append(
+                QueryValidationDiagnostic(
+                    severity: .warning,
+                    message: "Board view will use a single Items column because no groupable field is returned."
+                )
+            )
+        }
+    }
+
+    for column in settings.visibleColumns where !columns.contains(column) {
+        diagnostics.append(
+            QueryValidationDiagnostic(
+                severity: .error,
+                message: "Visible column '\(column)' is not returned by the query."
+            )
+        )
+    }
+
+    if let sortColumn = settings.sortColumn, !columns.contains(sortColumn) {
+        diagnostics.append(
+            QueryValidationDiagnostic(
+                severity: .error,
+                message: "Sort field '\(sortColumn)' is not returned by the query."
+            )
+        )
+    }
+
+    return diagnostics
 }
 
 private func queryCompareDisplayValues(_ left: String, _ right: String) -> ComparisonResult {

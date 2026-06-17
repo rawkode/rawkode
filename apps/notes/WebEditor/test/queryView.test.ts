@@ -12,6 +12,7 @@ import {
   queryEntityIdMetadataKey,
   queryRowDocumentId,
   queryRowEntityId,
+  queryViewDisplayDiagnostics,
   resolveSavedQueryView,
   savedQueryViewOptionLabel,
   savedQueryViewPromotionName,
@@ -243,6 +244,49 @@ describe('query board view helpers', () => {
     expect(queryDisplayColumns(columns, settings)).toEqual(['status', 'name']);
     expect(queryDisplayRows(rows, columns, settings).map((row) => row.name)).toEqual(['Beta', 'Alpha']);
     expect(queryRowEntityId(queryDisplayRows(rows, columns, settings)[0], ['status', 'name'])).toBe('entity-2');
+  });
+
+  test('reports missing query display fields', () => {
+    const diagnostics = queryViewDisplayDiagnostics(
+      ['name', 'status'],
+      'board',
+      'lane',
+      normalizeQueryViewDisplaySettings({
+        visibleColumns: ['name', 'owner'],
+        sortColumn: 'updated_at',
+      })
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: 'error',
+        message: "Board group field 'lane' is not returned by the query.",
+      },
+      {
+        severity: 'error',
+        message: "Visible column 'owner' is not returned by the query.",
+      },
+      {
+        severity: 'error',
+        message: "Sort field 'updated_at' is not returned by the query.",
+      },
+    ]);
+  });
+
+  test('warns when a board has no grouping field', () => {
+    expect(
+      queryViewDisplayDiagnostics(
+        ['name'],
+        'board',
+        '',
+        normalizeQueryViewDisplaySettings({})
+      )
+    ).toEqual([
+      {
+        severity: 'warning',
+        message: 'Board view will use a single Items column because no groupable field is returned.',
+      },
+    ]);
   });
 
   test('summarizes saved query views for insertion controls', () => {

@@ -27,6 +27,11 @@ export type QueryViewDisplaySettings = {
   rowLimit: number | null;
 };
 
+export type QueryValidationDiagnostic = {
+  severity: 'error' | 'warning';
+  message: string;
+};
+
 export type SavedQueryViewsListener = () => void;
 
 export const queryDocumentIdMetadataKey = '__notes.document_id';
@@ -330,6 +335,51 @@ export function queryDisplayRows(
   }
 
   return displayRows;
+}
+
+export function queryViewDisplayDiagnostics(
+  columns: string[],
+  view: string,
+  requestedGroupBy: string,
+  settings: QueryViewDisplaySettings
+): QueryValidationDiagnostic[] {
+  const diagnostics: QueryValidationDiagnostic[] = [];
+  const columnSet = new Set(columns);
+  const viewMode = normalizedSavedQueryViewMode(view);
+  const groupBy = parseQueryGroupBy(requestedGroupBy);
+
+  if (viewMode === 'board') {
+    if (groupBy && !columnSet.has(groupBy)) {
+      diagnostics.push({
+        severity: 'error',
+        message: `Board group field '${groupBy}' is not returned by the query.`,
+      });
+    } else if (!groupBy && !resolveBoardGroupColumn(columns, '')) {
+      diagnostics.push({
+        severity: 'warning',
+        message: 'Board view will use a single Items column because no groupable field is returned.',
+      });
+    }
+  }
+
+  for (const column of normalizeVisibleColumns(settings.visibleColumns)) {
+    if (!columnSet.has(column)) {
+      diagnostics.push({
+        severity: 'error',
+        message: `Visible column '${column}' is not returned by the query.`,
+      });
+    }
+  }
+
+  const sortColumn = parseQuerySortColumn(settings.sortColumn);
+  if (sortColumn && !columnSet.has(sortColumn)) {
+    diagnostics.push({
+      severity: 'error',
+      message: `Sort field '${sortColumn}' is not returned by the query.`,
+    });
+  }
+
+  return diagnostics;
 }
 
 function resolveBoardGroupColumn(columns: string[], requestedGroupBy: string) {

@@ -29,6 +29,7 @@ import {
   queryDisplayRows,
   queryRowDocumentId,
   queryRowEntityId,
+  queryViewDisplayDiagnostics,
   resolveSavedQueryView,
   savedQueryViewOptionLabel,
   savedQueryViewPromotionName,
@@ -380,6 +381,18 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const [promotionError, setPromotionError] = React.useState<string | null>(null);
   const [isSavingPromotion, setIsSavingPromotion] = React.useState(false);
   const [visibleColumnsInput, setVisibleColumnsInput] = React.useState(visibleColumnsText);
+  const displayDiagnostics = React.useMemo(
+    () => (result ? queryViewDisplayDiagnostics(result.columns, view, groupBy, displaySettings) : []),
+    [
+      result,
+      view,
+      groupBy,
+      displaySettings.visibleColumns.join('\u0000'),
+      displaySettings.sortColumn,
+      displaySettings.sortDescending,
+      displaySettings.rowLimit,
+    ]
+  );
   const didAutoRunRef = React.useRef(false);
   const isMountedRef = React.useRef(true);
   const queryGenerationRef = React.useRef(0);
@@ -747,6 +760,15 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         onChange={(event) => updateQuery(event.target.value)}
       />
       {error ? <p className="query-block__error">{error}</p> : null}
+      {displayDiagnostics.length > 0 ? (
+        <ul className="query-block__diagnostics" aria-label="Query diagnostics">
+          {displayDiagnostics.map((diagnostic) => (
+            <li key={`${diagnostic.severity}:${diagnostic.message}`} data-severity={diagnostic.severity}>
+              {diagnostic.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {renderQueryResult(result, view, groupBy, displaySettings)}
     </NodeViewWrapper>
   );

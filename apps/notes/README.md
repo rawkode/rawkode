@@ -28,13 +28,14 @@ Current local-first foundation:
 - Saved query detail screens render table, list, and grouped board layouts, and editor insertion shows saved-view layout metadata.
 - Inline query blocks can be promoted into saved query views from inside the editor.
 - Saved and inline query views can configure visible columns, display ordering, row limits, and board grouping without changing the underlying query.
+- Query validation rejects missing sources, fields, and display settings before saved views are committed, with diagnostics in the native editor and inline query blocks.
 - Supertags have strongly typed schema fields, and the native Database editor can select types, inspect properties, edit property metadata in place, and create or delete typed properties.
 - Schema edits preview affected entities, stored values, default backfills, and blocking conflicts before saving or deleting schema-managed properties.
 - Vault export and replacement import are available from the native app for local JSON portability before sync exists.
 
 Next local milestones:
 
-- Query validation and diagnostics that explain missing sources, fields, and display settings before a saved view is committed.
+- Query authoring aids that use the local schema for source and field suggestions.
 
 Cloudflare-backed milestones remain later:
 

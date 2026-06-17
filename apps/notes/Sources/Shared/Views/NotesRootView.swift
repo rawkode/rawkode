@@ -28,6 +28,8 @@ struct NotesRootView: View {
     @State private var savedViewDraftSortColumn = ""
     @State private var savedViewDraftSortDescending = false
     @State private var savedViewDraftRowLimit = 0
+    @State private var savedViewDraftValidationReport: QueryValidationReport?
+    @State private var savedViewDraftValidationSignature: String?
     @State private var vaultExportDocument: NotesVaultFileDocument?
     @State private var isPresentingVaultExporter = false
     @State private var isConfirmingVaultImport = false
@@ -319,9 +321,14 @@ struct NotesRootView: View {
                 sortColumn: $savedViewDraftSortColumn,
                 sortDescending: $savedViewDraftSortDescending,
                 rowLimit: $savedViewDraftRowLimit,
+                validationReport: currentSavedViewDraftValidationReport,
+                hasBlockingValidationErrors: savedViewDraftHasBlockingValidationErrors,
                 isEditing: savedViewDraftEditingID != nil,
                 onCancel: {
                     isPresentingSavedViewEditor = false
+                },
+                onValidate: {
+                    _ = validateSavedViewDraft()
                 },
                 onSave: saveSavedViewDraft
             )
@@ -445,6 +452,8 @@ struct NotesRootView: View {
         savedViewDraftSortColumn = ""
         savedViewDraftSortDescending = false
         savedViewDraftRowLimit = 0
+        savedViewDraftValidationReport = nil
+        savedViewDraftValidationSignature = nil
         isPresentingSavedViewEditor = true
     }
 
@@ -458,6 +467,8 @@ struct NotesRootView: View {
         savedViewDraftSortColumn = savedView.sortColumn ?? ""
         savedViewDraftSortDescending = savedView.sortDescending
         savedViewDraftRowLimit = savedView.rowLimit ?? 0
+        savedViewDraftValidationReport = nil
+        savedViewDraftValidationSignature = nil
         isPresentingSavedViewEditor = true
     }
 
@@ -497,6 +508,11 @@ struct NotesRootView: View {
     }
 
     private func saveSavedViewDraft() {
+        let report = validateSavedViewDraft()
+        guard !report.hasErrors else {
+            return
+        }
+
         do {
             let savedView: SavedQueryView
             if let savedViewDraftEditingID {
@@ -527,9 +543,57 @@ struct NotesRootView: View {
             store.selectDocument(id: nil)
             isPresentingSavedViewEditor = false
             savedViewDraftEditingID = nil
+            savedViewDraftValidationReport = nil
+            savedViewDraftValidationSignature = nil
         } catch {
-            // NotesStore already exposes the validation failure through lastErrorMessage.
+            savedViewDraftValidationReport = QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(severity: .error, message: error.localizedDescription),
+                ]
+            )
+            savedViewDraftValidationSignature = savedViewDraftSignature
         }
+    }
+
+    private func validateSavedViewDraft() -> QueryValidationReport {
+        let report = store.validateSavedQueryView(
+            query: savedViewDraftQuery,
+            view: savedViewDraftMode,
+            groupBy: savedViewDraftGroupBy,
+            visibleColumns: savedViewDraftVisibleColumnList,
+            sortColumn: savedViewDraftSortColumnValue,
+            sortDescending: savedViewDraftSortDescending,
+            rowLimit: savedViewDraftRowLimitValue
+        )
+        savedViewDraftValidationReport = report
+        savedViewDraftValidationSignature = savedViewDraftSignature
+        return report
+    }
+
+    private var currentSavedViewDraftValidationReport: QueryValidationReport? {
+        guard savedViewDraftValidationSignature == savedViewDraftSignature else {
+            return nil
+        }
+
+        return savedViewDraftValidationReport
+    }
+
+    private var savedViewDraftHasBlockingValidationErrors: Bool {
+        currentSavedViewDraftValidationReport?.hasErrors ?? false
+    }
+
+    private var savedViewDraftSignature: String {
+        [
+            savedViewDraftEditingID?.uuidString ?? "",
+            savedViewDraftName,
+            savedViewDraftQuery,
+            savedViewDraftMode,
+            savedViewDraftGroupBy,
+            savedViewDraftVisibleColumns,
+            savedViewDraftSortColumn,
+            savedViewDraftSortDescending ? "desc" : "asc",
+            String(savedViewDraftRowLimit),
+        ].joined(separator: "\u{0}")
     }
 
     private var savedViewDraftVisibleColumnList: [String] {
@@ -1157,8 +1221,11 @@ private struct SavedQueryViewEditorSheet: View {
     @Binding var sortDescending: Bool
     @Binding var rowLimit: Int
 
+    let validationReport: QueryValidationReport?
+    let hasBlockingValidationErrors: Bool
     let isEditing: Bool
     let onCancel: () -> Void
+    let onValidate: () -> Void
     let onSave: () -> Void
 
     var body: some View {
@@ -1200,6 +1267,16 @@ private struct SavedQueryViewEditorSheet: View {
                         .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 160)
                 }
+
+                Section("Diagnostics") {
+                    Button(action: onValidate) {
+                        Label("Validate Query", systemImage: "checkmark.seal")
+                    }
+
+                    if let validationReport {
+                        QueryValidationReportView(report: validationReport)
+                    }
+                }
             }
             .navigationTitle(isEditing ? "Edit Saved View" : "New Saved View")
 #if os(iOS)
@@ -1212,7 +1289,7 @@ private struct SavedQueryViewEditorSheet: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Save Changes" : "Create View", action: onSave)
-                        .disabled(!canSave)
+                        .disabled(!canSave || hasBlockingValidationErrors)
                 }
             }
         }
@@ -1222,6 +1299,61 @@ private struct SavedQueryViewEditorSheet: View {
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+private struct QueryValidationReportView: View {
+    let report: QueryValidationReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if report.diagnostics.isEmpty {
+                Label("Ready to save", systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+            } else {
+                ForEach(Array(report.diagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                    Label {
+                        Text(diagnostic.message)
+                    } icon: {
+                        Image(systemName: iconName(for: diagnostic.severity))
+                    }
+                    .foregroundStyle(color(for: diagnostic.severity))
+                }
+            }
+
+            if let rowCount = report.rowCount {
+                Text("\(rowCount) rows · \(report.columns.count) fields")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !report.columns.isEmpty {
+                Text(report.columns.joined(separator: ", "))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func iconName(for severity: QueryValidationDiagnostic.Severity) -> String {
+        switch severity {
+        case .error:
+            "xmark.octagon"
+        case .warning:
+            "exclamationmark.triangle"
+        }
+    }
+
+    private func color(for severity: QueryValidationDiagnostic.Severity) -> Color {
+        switch severity {
+        case .error:
+            .red
+        case .warning:
+            .orange
+        }
     }
 }
 
@@ -2214,11 +2346,27 @@ private struct SavedQueryViewDetailView: View {
             )
         } else if let result {
             let displayedRows = queryDisplayRows(result: result, settings: savedView.displaySettings)
+            let diagnostics = queryViewDisplayDiagnostics(
+                result: result,
+                view: savedView.view,
+                groupBy: savedView.groupBy,
+                settings: savedView.displaySettings
+            )
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("\(displayedRows.count) rows")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if !diagnostics.isEmpty {
+                    QueryValidationReportView(
+                        report: QueryValidationReport(
+                            diagnostics: diagnostics,
+                            columns: result.columns,
+                            rowCount: displayedRows.count
+                        )
+                    )
+                }
 
                 QueryResultView(
                     result: result,

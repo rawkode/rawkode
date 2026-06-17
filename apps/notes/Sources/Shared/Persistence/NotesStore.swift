@@ -291,6 +291,37 @@ final class NotesStore {
         }
     }
 
+    func validateSavedQueryView(
+        query: String,
+        view: String = "table",
+        groupBy: String? = nil,
+        visibleColumns: [String] = [],
+        sortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit: Int? = nil
+    ) -> QueryValidationReport {
+        guard let repository = requireRepository() else {
+            return QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(
+                        severity: .error,
+                        message: SQLiteNotesError.missingDatabase.localizedDescription
+                    ),
+                ]
+            )
+        }
+
+        return repository.validateQueryView(
+            query: query,
+            view: view,
+            groupBy: groupBy,
+            visibleColumns: visibleColumns,
+            sortColumn: sortColumn,
+            sortDescending: sortDescending,
+            rowLimit: rowLimit
+        )
+    }
+
     func documentContext(for documentID: UUID) throws -> DocumentContext {
         guard let repository = requireRepository() else {
             throw SQLiteNotesError.missingDatabase

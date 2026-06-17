@@ -234,6 +234,75 @@ final class SQLiteNotesRepository {
         }
     }
 
+    func validateQueryView(
+        query rawQuery: String,
+        view rawView: String = "table",
+        groupBy rawGroupBy: String? = nil,
+        visibleColumns rawVisibleColumns: [String] = [],
+        sortColumn rawSortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit rawRowLimit: Int? = nil,
+        relativeDate: Date = .now
+    ) -> QueryValidationReport {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(severity: .error, message: "Query cannot be empty."),
+                ]
+            )
+        }
+
+        let view: String
+        do {
+            view = try normalizedSavedQueryViewMode(rawView)
+        } catch {
+            return QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(severity: .error, message: error.localizedDescription),
+                ]
+            )
+        }
+
+        let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let displaySettings: QueryViewDisplaySettings
+        do {
+            displaySettings = try normalizedQueryViewDisplaySettings(
+                visibleColumns: rawVisibleColumns,
+                sortColumn: rawSortColumn,
+                sortDescending: sortDescending,
+                rowLimit: rawRowLimit
+            )
+        } catch {
+            return QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(severity: .error, message: error.localizedDescription),
+                ]
+            )
+        }
+
+        do {
+            let result = try runQuery(query, relativeDate: relativeDate)
+            let displayDiagnostics = queryViewDisplayDiagnostics(
+                result: result,
+                view: view,
+                groupBy: groupBy,
+                settings: displaySettings
+            )
+            return QueryValidationReport(
+                diagnostics: displayDiagnostics,
+                columns: result.columns,
+                rowCount: result.rows.count
+            )
+        } catch {
+            return QueryValidationReport(
+                diagnostics: [
+                    QueryValidationDiagnostic(severity: .error, message: error.localizedDescription),
+                ]
+            )
+        }
+    }
+
     @discardableResult
     func saveSavedQueryView(
         named rawName: String,
@@ -251,8 +320,6 @@ final class SQLiteNotesRepository {
         }
 
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try LocalQuery(query)
-
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
         let displaySettings = try normalizedQueryViewDisplaySettings(
@@ -260,6 +327,17 @@ final class SQLiteNotesRepository {
             sortColumn: rawSortColumn,
             sortDescending: sortDescending,
             rowLimit: rawRowLimit
+        )
+        try requireValidQueryView(
+            validateQueryView(
+                query: query,
+                view: view,
+                groupBy: groupBy,
+                visibleColumns: displaySettings.visibleColumns,
+                sortColumn: displaySettings.sortColumn,
+                sortDescending: displaySettings.sortDescending,
+                rowLimit: displaySettings.rowLimit
+            )
         )
         let now = Date()
         let existing = try fetchSavedQueryView(name: name)
@@ -305,8 +383,6 @@ final class SQLiteNotesRepository {
         }
 
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try LocalQuery(query)
-
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
         let displaySettings = try normalizedQueryViewDisplaySettings(
@@ -314,6 +390,17 @@ final class SQLiteNotesRepository {
             sortColumn: rawSortColumn,
             sortDescending: sortDescending,
             rowLimit: rawRowLimit
+        )
+        try requireValidQueryView(
+            validateQueryView(
+                query: query,
+                view: view,
+                groupBy: groupBy,
+                visibleColumns: displaySettings.visibleColumns,
+                sortColumn: displaySettings.sortColumn,
+                sortDescending: displaySettings.sortDescending,
+                rowLimit: displaySettings.rowLimit
+            )
         )
         let now = Date()
         let savedView = SavedQueryView(
@@ -361,8 +448,6 @@ final class SQLiteNotesRepository {
         }
 
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try LocalQuery(query)
-
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
         let displaySettings = try normalizedQueryViewDisplaySettings(
@@ -370,6 +455,17 @@ final class SQLiteNotesRepository {
             sortColumn: rawSortColumn,
             sortDescending: sortDescending,
             rowLimit: rawRowLimit
+        )
+        try requireValidQueryView(
+            validateQueryView(
+                query: query,
+                view: view,
+                groupBy: groupBy,
+                visibleColumns: displaySettings.visibleColumns,
+                sortColumn: displaySettings.sortColumn,
+                sortDescending: displaySettings.sortDescending,
+                rowLimit: displaySettings.rowLimit
+            )
         )
         let savedView = SavedQueryView(
             id: id,
@@ -396,6 +492,17 @@ final class SQLiteNotesRepository {
             throw SQLiteNotesError.validationFailed("Saved view could not be found.")
         }
 
+        try requireValidQueryView(
+            validateQueryView(
+                query: existing.query,
+                view: existing.view,
+                groupBy: existing.groupBy,
+                visibleColumns: existing.visibleColumns,
+                sortColumn: existing.sortColumn,
+                sortDescending: existing.sortDescending,
+                rowLimit: existing.rowLimit
+            )
+        )
         let now = Date()
         let savedView = SavedQueryView(
             id: UUID(),
@@ -972,7 +1079,11 @@ final class SQLiteNotesRepository {
             result = try fetchSupertagFieldDefinitionQueryResult()
 
         default:
-            result = try fetchEntityQueryResult(supertagSlugCandidates: sourceSlugCandidates(query.source))
+            let slugCandidates = sourceSlugCandidates(query.source)
+            guard try hasSupertagSource(slugCandidates: slugCandidates) else {
+                throw SQLiteNotesError.validationFailed("Unknown query source '\(query.source)'.")
+            }
+            result = try fetchEntityQueryResult(supertagSlugCandidates: slugCandidates)
         }
 
         return try materialized(result, using: query, relativeDate: relativeDate)
@@ -1837,6 +1948,26 @@ final class SQLiteNotesRepository {
         } else {
             sortOrder = try nextSavedQueryViewSortOrder()
         }
+        let query = savedView.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let view = try normalizedSavedQueryViewMode(savedView.view)
+        let groupBy = view == "board" ? normalizedOptionalField(savedView.groupBy) : nil
+        let displaySettings = try normalizedQueryViewDisplaySettings(
+            visibleColumns: savedView.visibleColumns ?? [],
+            sortColumn: savedView.sortColumn,
+            sortDescending: savedView.sortDescending ?? false,
+            rowLimit: savedView.rowLimit
+        )
+        try requireValidQueryView(
+            validateQueryView(
+                query: query,
+                view: view,
+                groupBy: groupBy,
+                visibleColumns: displaySettings.visibleColumns,
+                sortColumn: displaySettings.sortColumn,
+                sortDescending: displaySettings.sortDescending,
+                rowLimit: displaySettings.rowLimit
+            )
+        )
 
         try prepare(
             """
@@ -1846,18 +1977,11 @@ final class SQLiteNotesRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
         ) { statement in
-            let displaySettings = try normalizedQueryViewDisplaySettings(
-                visibleColumns: savedView.visibleColumns ?? [],
-                sortColumn: savedView.sortColumn,
-                sortDescending: savedView.sortDescending ?? false,
-                rowLimit: savedView.rowLimit
-            )
-
             sqlite3_bind_text(statement, 1, savedView.id.uuidString, -1, sqliteTransient)
             sqlite3_bind_text(statement, 2, savedView.name, -1, sqliteTransient)
-            sqlite3_bind_text(statement, 3, savedView.query, -1, sqliteTransient)
-            sqlite3_bind_text(statement, 4, savedView.view, -1, sqliteTransient)
-            if let groupBy = savedView.groupBy {
+            sqlite3_bind_text(statement, 3, query, -1, sqliteTransient)
+            sqlite3_bind_text(statement, 4, view, -1, sqliteTransient)
+            if let groupBy {
                 sqlite3_bind_text(statement, 5, groupBy, -1, sqliteTransient)
             } else {
                 sqlite3_bind_null(statement, 5)
@@ -2877,6 +3001,37 @@ final class SQLiteNotesRepository {
         )
     }
 
+    private func hasSupertagSource(slugCandidates: [String]) throws -> Bool {
+        guard !slugCandidates.isEmpty else {
+            return false
+        }
+
+        let placeholders = slugCandidates.map { _ in "?" }.joined(separator: ", ")
+        return try prepare(
+            """
+            SELECT 1
+            FROM supertags
+            WHERE slug IN (\(placeholders))
+            LIMIT 1;
+            """
+        ) { statement in
+            for (index, slug) in slugCandidates.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 1), slug, -1, sqliteTransient)
+            }
+
+            let result = sqlite3_step(statement)
+            if result == SQLITE_ROW {
+                return true
+            }
+
+            guard result == SQLITE_DONE else {
+                throw SQLiteNotesError.stepFailed(lastErrorMessage)
+            }
+
+            return false
+        }
+    }
+
     private func fetchSupertagQueryResult() throws -> QueryResult {
         let rows = try prepare(
             """
@@ -3543,6 +3698,12 @@ private func normalizedSavedQueryViewMode(_ value: String) throws -> String {
         return normalized
     default:
         throw SQLiteNotesError.validationFailed("Saved view mode must be table, list, or board.")
+    }
+}
+
+private func requireValidQueryView(_ report: QueryValidationReport) throws {
+    guard !report.hasErrors else {
+        throw SQLiteNotesError.validationFailed(report.errorSummary)
     }
 }
 

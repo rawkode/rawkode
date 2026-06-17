@@ -332,6 +332,32 @@ select {
   color: color-mix(in srgb, red 70%, CanvasText);
 }
 
+.query-block__diagnostics {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.query-block__diagnostics li {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 6px;
+}
+
+.query-block__diagnostics li[data-severity="error"] {
+  color: color-mix(in srgb, red 70%, CanvasText);
+  background: color-mix(in srgb, red 8%, Canvas);
+}
+
+.query-block__diagnostics li[data-severity="warning"] {
+  color: color-mix(in srgb, orange 62%, CanvasText);
+  background: color-mix(in srgb, orange 10%, Canvas);
+}
+
 .query-block__empty {
   color: color-mix(in srgb, CanvasText 62%, transparent);
 }

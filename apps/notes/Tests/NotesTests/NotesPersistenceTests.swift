@@ -48,6 +48,14 @@ final class NotesPersistenceTests: XCTestCase {
         defer { removeTemporaryDatabase(at: databaseURL) }
 
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Rawkode Bookmark",
+            supertagNames: ["bookmark"],
+            properties: [
+                "status": "active",
+                "url": "https://rawkode.academy",
+            ]
+        )
         let savedView = try repository.saveSavedQueryView(
             named: "  Active Bookmarks  ",
             query: " SELECT name, status FROM bookmarks WHERE status = active ",
@@ -104,6 +112,14 @@ final class NotesPersistenceTests: XCTestCase {
         defer { removeTemporaryDatabase(at: databaseURL) }
 
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "priority": "2",
+                "status": "active",
+            ]
+        )
         let savedView = try repository.saveSavedQueryView(
             named: "Open Projects",
             query: "SELECT name, status, priority FROM projects",
@@ -147,6 +163,11 @@ final class NotesPersistenceTests: XCTestCase {
         defer { removeTemporaryDatabase(at: databaseURL) }
 
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["status": "active"]
+        )
         let dailyView = try repository.saveSavedQueryView(
             named: "Daily Notes",
             query: "SELECT date, title FROM daily_notes",
@@ -292,6 +313,11 @@ final class NotesPersistenceTests: XCTestCase {
 
         let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
         _ = try repository.upsertEntity(named: "Visual Index", supertagNames: ["views"])
+        _ = try repository.upsertEntity(
+            named: "Rawkode Bookmark",
+            supertagNames: ["bookmark"],
+            properties: ["status": "active"]
+        )
         _ = try repository.saveSavedQueryView(
             named: "Active Bookmarks",
             query: "SELECT name, status FROM bookmarks WHERE status = active",
@@ -359,6 +385,83 @@ final class NotesPersistenceTests: XCTestCase {
             )
         )
         XCTAssertTrue(try repository.fetchSavedQueryViews().isEmpty)
+    }
+
+    func testQueryValidationReportsMissingSourcesAndDisplaySettings() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+
+        let missingSource = repository.validateQueryView(
+            query: "SELECT name FROM missing",
+            view: "table"
+        )
+        XCTAssertTrue(missingSource.hasErrors)
+        XCTAssertEqual(missingSource.diagnostics.map(\.message), ["Unknown query source 'missing'."])
+        XCTAssertThrowsError(try repository.runQuery("SELECT name FROM missing"))
+
+        _ = try repository.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["status": "active"]
+        )
+        let missingDisplayFields = repository.validateQueryView(
+            query: "SELECT name, status FROM projects",
+            view: "board",
+            groupBy: "lane",
+            visibleColumns: ["name", "owner"],
+            sortColumn: "updated_at"
+        )
+
+        XCTAssertTrue(missingDisplayFields.hasErrors)
+        XCTAssertEqual(missingDisplayFields.columns, ["name", "status"])
+        XCTAssertEqual(missingDisplayFields.rowCount, 1)
+        XCTAssertEqual(missingDisplayFields.diagnostics.map(\.message), [
+            "Board group field 'lane' is not returned by the query.",
+            "Visible column 'owner' is not returned by the query.",
+            "Sort field 'updated_at' is not returned by the query.",
+        ])
+        XCTAssertThrowsError(
+            try repository.saveSavedQueryView(
+                named: "Broken Project Board",
+                query: "SELECT name, status FROM projects",
+                view: "board",
+                groupBy: "lane",
+                visibleColumns: ["name", "owner"],
+                sortColumn: "updated_at"
+            )
+        )
+        XCTAssertTrue(try repository.fetchSavedQueryViews().isEmpty)
+    }
+
+    func testQueryValidationWarningsDoNotBlockSavedViews() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(named: "Notes Roadmap", supertagNames: ["project"])
+
+        let report = repository.validateQueryView(
+            query: "SELECT name FROM projects",
+            view: "board"
+        )
+
+        XCTAssertFalse(report.hasErrors)
+        XCTAssertEqual(report.diagnostics, [
+            QueryValidationDiagnostic(
+                severity: .warning,
+                message: "Board view will use a single Items column because no groupable field is returned."
+            ),
+        ])
+
+        let savedView = try repository.saveSavedQueryView(
+            named: "Project Cards",
+            query: "SELECT name FROM projects",
+            view: "board"
+        )
+        XCTAssertEqual(savedView.name, "Project Cards")
+        XCTAssertEqual(try repository.fetchSavedQueryViews().count, 1)
     }
 
     func testQueryResultPresentationBuildsLayoutsAndTrustedActions() throws {
@@ -1158,7 +1261,7 @@ final class NotesPersistenceTests: XCTestCase {
             ["entity": "Notes Roadmap", "document": "Project capture"],
         ])
 
-        XCTAssertTrue(try importedRepository.runQuery("SELECT name FROM junk").rows.isEmpty)
+        XCTAssertThrowsError(try importedRepository.runQuery("SELECT name FROM junk"))
     }
 
     func testVaultImportRejectsUnsupportedSnapshotVersionsWithoutReplacingData() throws {
@@ -1174,6 +1277,53 @@ final class NotesPersistenceTests: XCTestCase {
 
         let entities = try repository.runQuery("SELECT name FROM project")
         XCTAssertEqual(visibleQueryRows(entities.rows), [["name": "Existing Entity"]])
+    }
+
+    func testVaultImportRejectsInvalidSavedViewsWithoutReplacingData() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        _ = try repository.upsertEntity(
+            named: "Existing Project",
+            supertagNames: ["project"],
+            properties: ["status": "active"]
+        )
+        _ = try repository.saveSavedQueryView(
+            named: "Existing Projects",
+            query: "SELECT name, status FROM projects",
+            view: "board",
+            groupBy: "status"
+        )
+
+        let now = Date()
+        let invalidSnapshot = NotesVaultSnapshot(
+            exportedAt: now,
+            savedQueryViews: [
+                NotesVaultSnapshot.SavedView(
+                    id: UUID(),
+                    name: "Broken Import",
+                    query: "SELECT name FROM missing",
+                    view: "table",
+                    groupBy: nil,
+                    visibleColumns: nil,
+                    sortColumn: nil,
+                    sortDescending: nil,
+                    rowLimit: nil,
+                    sortOrder: 0,
+                    createdAt: now,
+                    updatedAt: now
+                ),
+            ]
+        )
+
+        XCTAssertThrowsError(try repository.importVault(invalidSnapshot)) { error in
+            XCTAssertEqual(error.localizedDescription, "Unknown query source 'missing'.")
+        }
+
+        XCTAssertEqual(try repository.fetchSavedQueryViews().map(\.name), ["Existing Projects"])
+        let projects = try repository.runQuery("SELECT name, status FROM projects")
+        XCTAssertEqual(projects.rows.first?["name"], "Existing Project")
     }
 
     func testVaultImportNormalizesSupertagFieldValueTypes() throws {
@@ -2871,7 +3021,7 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleQueryRows(projects.rows), [
             ["name": "Notes Roadmap", "owner": "Rawkode Academy"],
         ])
-        XCTAssertTrue(try importedStore.runQuery("SELECT name FROM junk").rows.isEmpty)
+        XCTAssertThrowsError(try importedStore.runQuery("SELECT name FROM junk"))
     }
 
     @MainActor
@@ -2929,6 +3079,11 @@ final class NotesPersistenceTests: XCTestCase {
 
         store.load()
         XCTAssertTrue(store.savedQueryViews.isEmpty)
+        _ = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["status": "active"]
+        )
 
         let savedView = try store.saveSavedQueryView(
             named: "Open Projects",
