@@ -220,14 +220,32 @@ app.post("/api/host-context", async (c) => {
 });
 
 app.get("/api/host/resource-index/search", async (c) => {
+	const requiredScope = "resource-index:read";
+	let hostContext;
 	try {
-		await requireHostApiContext(c.env, c.req.raw, "resource-index:read");
+		hostContext = await requireHostApiContext(c.env, c.req.raw, requiredScope);
 	} catch (error) {
 		if (error instanceof Response) {
 			return error;
 		}
 		throw error;
 	}
+
+	const extension = await getExtension(c.env, hostContext.app);
+	if (!extension) {
+		return c.json({ error: "Host context app not found", app: hostContext.app }, 403);
+	}
+	if (extension.status === "disabled") {
+		return c.json({ error: "Host context app is disabled", app: hostContext.app }, 403);
+	}
+	if (!extension.hostApis.includes(requiredScope)) {
+		return c.json({
+			error: "Host context app no longer declares required scope",
+			app: hostContext.app,
+			scope: requiredScope,
+		}, 403);
+	}
+
 	const limit = Number(c.req.query("limit") ?? "20");
 	const boundedLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 50) : 20;
 	return c.json(await searchResources(c.env, c.req.query("q") ?? "", boundedLimit));
