@@ -137,7 +137,7 @@ tasks: {
 
 ci: {
 	providers: ["github"]
-	contributors: [contrib.#Nix, contrib.#Cuenv, contrib.#OnePassword]
+	contributors: [contrib.#Nix, contrib.#Cuenv, contrib.#NpmWorkspace, contrib.#OnePassword]
 	provider: github: permissions: {
 		contents:      "read"
 		"pull-requests": "write"
