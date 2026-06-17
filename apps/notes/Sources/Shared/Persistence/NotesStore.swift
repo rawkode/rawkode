@@ -12,6 +12,7 @@ final class NotesStore {
     private(set) var savedQueryViews: [SavedQueryView] = []
     private(set) var supertagFieldDefinitions: [SupertagFieldDefinition] = []
     private(set) var selectedDocument: NoteDocument?
+    private(set) var selectedDocumentContext = DocumentContext.empty
     private(set) var lastErrorMessage: String?
 
     init(repository: SQLiteNotesRepository? = nil) {
@@ -112,10 +113,12 @@ final class NotesStore {
     func selectDocument(id: NoteDocument.ID?) {
         guard let id else {
             selectedDocument = nil
+            selectedDocumentContext = .empty
             return
         }
 
         selectedDocument = cachedDocument(id: id)
+        refreshSelectedDocumentContext()
     }
 
     func openDocument(id: NoteDocument.ID) {
@@ -124,6 +127,7 @@ final class NotesStore {
         }
 
         selectedDocument = document
+        refreshSelectedDocumentContext()
     }
 
     func saveEditorChange(documentID: UUID, title: String, contentJSON: String, plainText: String) {
@@ -146,6 +150,7 @@ final class NotesStore {
             replaceCached(document)
             if isSelectedDocumentSave {
                 selectedDocument = document
+                refreshSelectedDocumentContext()
             }
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -193,7 +198,9 @@ final class NotesStore {
         }
 
         do {
-            return try repository.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
+            let entity = try repository.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
+            refreshSelectedDocumentContext()
+            return entity
         } catch {
             lastErrorMessage = error.localizedDescription
             throw error
@@ -390,6 +397,8 @@ final class NotesStore {
         } else {
             selectedDocument = allDocuments.first
         }
+
+        refreshSelectedDocumentContext()
     }
 
     private func replaceCached(_ document: NoteDocument) {
@@ -412,6 +421,20 @@ final class NotesStore {
     private func nextSelection(afterDeleting deletedID: UUID) -> UUID? {
         let remaining = (dailyNotes + standaloneNotes).filter { $0.id != deletedID }
         return remaining.first?.id
+    }
+
+    private func refreshSelectedDocumentContext() {
+        guard let repository, let selectedDocument else {
+            selectedDocumentContext = .empty
+            return
+        }
+
+        do {
+            selectedDocumentContext = try repository.fetchDocumentContext(documentID: selectedDocument.id)
+        } catch {
+            selectedDocumentContext = .empty
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func fallbackDate(movingByDays dayOffset: Int) -> Date {

@@ -1974,6 +1974,8 @@ final class NotesPersistenceTests: XCTestCase {
         let store = NotesStore(repository: repository)
 
         store.load()
+        XCTAssertEqual(store.selectedDocumentContext, .empty)
+
         _ = try store.upsertEntity(
             named: "Notes Roadmap",
             supertagNames: ["project"],
@@ -1994,6 +1996,24 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(context.backlinks.map(\.entityName), ["Notes Roadmap"])
         XCTAssertEqual(context.outgoingRelationships.map(\.targetName), ["Rawkode Academy"])
         XCTAssertTrue(context.incomingRelationships.isEmpty)
+        XCTAssertEqual(store.selectedDocumentContext, context)
+
+        _ = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: ["Owner": "[[New Owner]]"]
+        )
+
+        XCTAssertEqual(store.selectedDocumentContext.backlinks.map(\.entityName), ["Notes Roadmap"])
+        XCTAssertEqual(store.selectedDocumentContext.outgoingRelationships.map(\.targetName), ["New Owner"])
+
+        store.selectDocument(id: nil)
+        XCTAssertNil(store.selectedDocument)
+        XCTAssertEqual(store.selectedDocumentContext, .empty)
+
+        store.selectDocument(id: note.id)
+        XCTAssertEqual(store.selectedDocumentContext.backlinks.map(\.entityName), ["Notes Roadmap"])
+        XCTAssertEqual(store.selectedDocumentContext.outgoingRelationships.map(\.targetName), ["New Owner"])
     }
 
     @MainActor

@@ -23,6 +23,12 @@ struct EntityRelationship: Identifiable, Equatable, Sendable {
 }
 
 struct DocumentContext: Equatable, Sendable {
+    static let empty = DocumentContext(
+        backlinks: [],
+        outgoingRelationships: [],
+        incomingRelationships: []
+    )
+
     var backlinks: [DocumentBacklink]
     var outgoingRelationships: [EntityRelationship]
     var incomingRelationships: [EntityRelationship]
