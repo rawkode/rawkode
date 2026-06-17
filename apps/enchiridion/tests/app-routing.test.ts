@@ -55,6 +55,18 @@ describe("app mini app routing", () => {
 		expect(await response.json()).toEqual({ error: "Mini app route not found", slug: "missing" });
 	});
 
+	it("does not dispatch disabled mini apps even when a deployed script remains", async () => {
+		const { env, dispatchedRequests } = testEnv({
+			...helloWorldExtension,
+			status: "disabled",
+		});
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "Mini app is disabled", slug: "hello-world" });
+		expect(dispatchedRequests).toEqual([]);
+	});
+
 	it("mints host-context tokens only for scopes declared by the target mini app", async () => {
 		const { env } = testEnv(helloWorldExtension);
 		const response = await app.fetch(new Request("http://localhost/api/host-context", {

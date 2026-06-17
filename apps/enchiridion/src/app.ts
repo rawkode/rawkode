@@ -262,6 +262,10 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 
 	const extension = await getExtension(c.env, slug);
 
+	if (extension?.status === "disabled") {
+		return json({ error: "Mini app is disabled", slug }, 403);
+	}
+
 	if (!extension?.deployedScriptName || !c.env.MINI_APP_DISPATCHER) {
 		return json({ error: "Mini app route not found", slug }, 404);
 	}
