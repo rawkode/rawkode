@@ -32,6 +32,14 @@ export interface SmokeTestMiniAppResult {
 	message: string;
 }
 
+const forwardedMiniAppHeaders = new Set([
+	"accept",
+	"accept-language",
+	"cache-control",
+	"content-type",
+	"user-agent",
+]);
+
 export async function deployMiniAppWorker(env: Env, input: DeployMiniAppInput): Promise<DeployMiniAppResult> {
 	const accountId = env.CLOUDFLARE_ACCOUNT_ID;
 	const apiToken = env.CLOUDFLARE_API_TOKEN;
@@ -124,6 +132,20 @@ export function candidateScriptNameForManifest(manifest: Pick<ExtensionManifest,
 	const suffix = crypto.randomUUID().slice(0, 8);
 	const base = scriptNameForManifest(manifest);
 	return `${base.slice(0, 54)}-${suffix}`;
+}
+
+export function createMiniAppDispatchRequest(source: Request, hostContextToken: string): Request {
+	const headers = new Headers();
+
+	for (const [key, value] of source.headers) {
+		const normalized = key.toLowerCase();
+		if (forwardedMiniAppHeaders.has(normalized)) {
+			headers.set(normalized, value);
+		}
+	}
+	headers.set("x-enchiridion-host-context", hostContextToken);
+
+	return new Request(source, { headers });
 }
 
 export async function smokeTestMiniAppWorker(

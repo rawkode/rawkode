@@ -2,6 +2,7 @@ import { flue } from "@flue/runtime/routing";
 import { Hono } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
+import { createMiniAppDispatchRequest } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
@@ -229,10 +230,7 @@ app.all("/apps/:slug/*", async (c) => {
 		context: { path: c.req.path },
 	}, secret);
 
-	const request = new Request(c.req.raw, {
-		headers: new Headers(c.req.raw.headers),
-	});
-	request.headers.set("x-enchiridion-host-context", token);
+	const request = createMiniAppDispatchRequest(c.req.raw, token);
 
 	return c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
 });

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	candidateScriptNameForManifest,
+	createMiniAppDispatchRequest,
 	deleteMiniAppWorker,
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
@@ -30,6 +31,30 @@ describe("Cloudflare dispatch helpers", () => {
 	it("uses stable and candidate script names for mini app deployments", () => {
 		expect(scriptNameForManifest(manifest)).toBe("enchiridion-hello-world");
 		expect(candidateScriptNameForManifest(manifest)).toMatch(/^enchiridion-hello-world-[a-f0-9]{8}$/);
+	});
+
+	it("strips host credentials before dispatching to mini app workers", () => {
+		const source = new Request("https://enchiridion.rawkodeacademy.workers.dev/apps/hello-world", {
+			headers: {
+				accept: "text/html",
+				authorization: "Basic secret",
+				cookie: "session=secret",
+				"cf-access-jwt-assertion": "access-secret",
+				"cf-access-authenticated-user-email": "rawkode@example.com",
+				"x-enchiridion-host-context": "client-forged",
+				"x-forwarded-for": "127.0.0.1",
+			},
+		});
+
+		const request = createMiniAppDispatchRequest(source, "signed-host-context");
+
+		expect(request.headers.get("accept")).toBe("text/html");
+		expect(request.headers.get("x-enchiridion-host-context")).toBe("signed-host-context");
+		expect(request.headers.get("authorization")).toBeNull();
+		expect(request.headers.get("cookie")).toBeNull();
+		expect(request.headers.get("cf-access-jwt-assertion")).toBeNull();
+		expect(request.headers.get("cf-access-authenticated-user-email")).toBeNull();
+		expect(request.headers.get("x-forwarded-for")).toBeNull();
 	});
 
 	it("deletes failed candidate mini app workers from the dispatch namespace", async () => {
