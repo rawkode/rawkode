@@ -629,7 +629,7 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 				});
 				const body = await response.json() as { result?: Record<string, unknown>; error?: unknown };
 				if (!response.ok) {
-					throw new Error(String(body.error ?? `Workflow failed with ${response.status}`));
+					throw new Error(formatAgentError(body.error, `Workflow failed with ${response.status}`));
 				}
 
 				const result = body.result ?? {};
@@ -652,7 +652,7 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 			});
 			const body = await response.json() as { result?: { text?: string }; error?: unknown };
 			if (!response.ok) {
-				throw new Error(String(body.error ?? `Agent failed with ${response.status}`));
+				throw new Error(formatAgentError(body.error, `Agent failed with ${response.status}`));
 			}
 
 			appendMessage({
@@ -721,6 +721,40 @@ function AgentPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
 			</div>
 		</form>
 	);
+}
+
+function formatAgentError(error: unknown, fallback: string): string {
+	if (!error) {
+		return fallback;
+	}
+	if (typeof error === "string") {
+		return error;
+	}
+	if (error instanceof Error) {
+		return error.message || fallback;
+	}
+	if (typeof error === "object") {
+		const message = readStringProperty(error, "message") ?? readStringProperty(error, "error");
+		if (message) {
+			return message;
+		}
+
+		try {
+			return JSON.stringify(error);
+		} catch {
+			return fallback;
+		}
+	}
+
+	return String(error);
+}
+
+function readStringProperty(source: object, key: string): string | undefined {
+	if (!(key in source)) {
+		return undefined;
+	}
+	const value = (source as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function BookmarkForm({ onCreate }: { onCreate: (payload: { title: string; url: string; description: string; tags: string[] }) => Promise<void> }) {
