@@ -106,11 +106,21 @@ export interface AppSnapshot {
 	commands: ExtensionCommand[];
 	editorBlocks: ExtensionEditorBlock[];
 	scheduledWorkflows: ScheduledWorkflow[];
+	miniAppAudit: MiniAppAuditRecord[];
 	bookmarks: Bookmark[];
 	projects: Project[];
 	boards: Array<KanbanBoard & { columns: Array<KanbanColumn & { cards: KanbanCard[] }> }>;
 	resourceIndex: ResourceIndexRecord[];
 	principal: Principal;
+}
+
+export interface MiniAppAuditRecord {
+	id: string;
+	slug: string;
+	action: string;
+	status: string;
+	details: JsonObject;
+	createdAt: string;
 }
 
 export interface ScheduledWorkflow {

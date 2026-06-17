@@ -10,6 +10,7 @@ import {
 	Check,
 	ChevronLeft,
 	ChevronRight,
+	Clock3,
 	Command,
 	ExternalLink,
 	FileText,
@@ -34,8 +35,10 @@ import type {
 	KanbanBoard,
 	KanbanCard,
 	KanbanColumn,
+	MiniAppAuditRecord,
 	ResourceIndexRecord,
 } from "../lib/types";
+import { auditDetailSummary, auditToneForStatus } from "../lib/audit";
 import { inferMiniAppIntent, summarizeMiniApp, type MiniAppIntent } from "../lib/mini-app-requests";
 import { shell } from "../styles/shell.stylex";
 
@@ -505,6 +508,14 @@ export default function AppShell() {
 
 				<section {...stylex.props(shell.panel)}>
 					<div {...stylex.props(shell.panelHeading)}>
+						<Clock3 size={16} />
+						<h2 {...stylex.props(shell.sectionHeading)}>Agent activity</h2>
+					</div>
+					<MiniAppAuditList records={snapshot.miniAppAudit} />
+				</section>
+
+				<section {...stylex.props(shell.panel)}>
+					<div {...stylex.props(shell.panelHeading)}>
 						<Bot size={16} />
 						<h2 {...stylex.props(shell.sectionHeading)}>Agent</h2>
 					</div>
@@ -523,6 +534,69 @@ export default function AppShell() {
 			)}
 		</div>
 	);
+}
+
+function MiniAppAuditList({ records }: { records: MiniAppAuditRecord[] }) {
+	if (records.length === 0) {
+		return (
+			<div {...stylex.props(shell.agentEmpty)}>
+				<Clock3 size={15} />
+				<span>No activity yet</span>
+			</div>
+		);
+	}
+
+	return (
+		<div {...stylex.props(shell.stack)}>
+			{records.map((record) => {
+				const tone = auditToneForStatus(record.status);
+				const summary = auditDetailSummary(record.details);
+				return (
+					<div key={record.id} {...stylex.props(shell.resourceRow, shell.auditRow)}>
+						<div {...stylex.props(shell.auditHeader)}>
+							<strong {...stylex.props(shell.auditTitle)}>{record.slug}</strong>
+							<span
+								{...stylex.props(
+									shell.auditStatus,
+									tone === "success" ? shell.auditStatusSuccess : null,
+									tone === "warning" ? shell.auditStatusWarning : null,
+									tone === "danger" ? shell.auditStatusDanger : null,
+								)}
+							>
+								{record.status.replace(/_/g, " ")}
+							</span>
+						</div>
+						<span {...stylex.props(shell.rowMeta)}>
+							{record.action.replace(/-/g, " ")} · {formatRelativeTime(record.createdAt)}
+						</span>
+						{summary ? <span {...stylex.props(shell.auditSummary)}>{summary}</span> : null}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function formatRelativeTime(value: string): string {
+	const timestamp = Date.parse(value);
+	if (!Number.isFinite(timestamp)) {
+		return value;
+	}
+
+	const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+	if (seconds < 60) {
+		return `${seconds}s ago`;
+	}
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) {
+		return `${minutes}m ago`;
+	}
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) {
+		return `${hours}h ago`;
+	}
+	const days = Math.round(hours / 24);
+	return `${days}d ago`;
 }
 
 function SaveState({ state }: { state: "idle" | "saving" | "saved" | "conflict" | "error" }) {

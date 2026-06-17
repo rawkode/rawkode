@@ -15,6 +15,7 @@ import {
 	listBoards,
 	listBookmarks,
 	listExtensions,
+	listMiniAppAudit,
 	listProjects,
 	listRecentDailyNotes,
 	listScheduledWorkflows,
@@ -143,6 +144,12 @@ app.get("/api/editor-blocks", async (c) => {
 
 app.get("/api/scheduled-workflows", async (c) => {
 	return c.json(await listScheduledWorkflows(c.env));
+});
+
+app.get("/api/mini-app-audit", async (c) => {
+	const limit = Number(c.req.query("limit") ?? "12");
+	const boundedLimit = Number.isFinite(limit) ? limit : 12;
+	return c.json(await listMiniAppAudit(c.env, boundedLimit, c.req.query("slug")));
 });
 
 app.get("/api/apps/bookmarks/bookmarks", async (c) => {

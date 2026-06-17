@@ -11,6 +11,7 @@ import type {
 	KanbanBoard,
 	KanbanCard,
 	KanbanColumn,
+	MiniAppAuditRecord,
 	Principal,
 	Project,
 	RegisteredExtension,
@@ -111,6 +112,15 @@ interface WorkflowRow {
 	last_run_at: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+interface MiniAppAuditRow {
+	id: string;
+	slug: string;
+	action: string;
+	status: string;
+	details_json: string;
+	created_at: string;
 }
 
 export async function ensureBuiltins(env: Env): Promise<void> {
@@ -499,6 +509,15 @@ export async function listScheduledWorkflows(env: Env): Promise<ScheduledWorkflo
 	return (result.results ?? []).map(mapWorkflow);
 }
 
+export async function listMiniAppAudit(env: Env, limit = 12, slug?: string): Promise<MiniAppAuditRecord[]> {
+	const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
+	const query = slug
+		? env.DB.prepare("SELECT * FROM mini_app_audit WHERE slug = ? ORDER BY created_at DESC LIMIT ?").bind(slug, boundedLimit)
+		: env.DB.prepare("SELECT * FROM mini_app_audit ORDER BY created_at DESC LIMIT ?").bind(boundedLimit);
+	const result = await query.all<MiniAppAuditRow>();
+	return (result.results ?? []).map(mapMiniAppAudit);
+}
+
 export async function createAuditRecord(env: Env, input: { slug: string; action: string; status: string; details: JsonObject }): Promise<void> {
 	await env.DB.prepare(`
 		INSERT INTO mini_app_audit (id, slug, action, status, details_json, created_at)
@@ -515,6 +534,7 @@ export async function getAppSnapshot(env: Env, principal: Principal, date = toda
 	const commands = extensions.flatMap((extension) => extension.commands);
 	const editorBlocks = extensions.flatMap((extension) => extension.editorBlocks);
 	const scheduledWorkflows = await listScheduledWorkflows(env);
+	const miniAppAudit = await listMiniAppAudit(env, 8);
 	const bookmarks = await listBookmarks(env);
 	const projects = await listProjects(env);
 	const boards = await listBoards(env);
@@ -527,6 +547,7 @@ export async function getAppSnapshot(env: Env, principal: Principal, date = toda
 		commands,
 		editorBlocks,
 		scheduledWorkflows,
+		miniAppAudit,
 		bookmarks,
 		projects,
 		boards,
@@ -596,6 +617,17 @@ function mapExtension(row: ExtensionRow): ExtensionManifest {
 
 function mapRegisteredExtension(row: ExtensionRow): RegisteredExtension {
 	return { ...mapExtension(row), deployedScriptName: row.deployed_script_name };
+}
+
+function mapMiniAppAudit(row: MiniAppAuditRow): MiniAppAuditRecord {
+	return {
+		id: row.id,
+		slug: row.slug,
+		action: row.action,
+		status: row.status,
+		details: parseJsonObject(row.details_json),
+		createdAt: row.created_at,
+	};
 }
 
 function mapResource(row: ResourceRow): ResourceIndexRecord {
