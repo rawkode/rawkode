@@ -225,8 +225,53 @@ final class NotesStore {
         do {
             let entity = try repository.upsertEntity(named: name, supertagNames: supertagNames, properties: properties)
             try reloadSupertagSchemaCache()
+            if selectedEntityDetail?.id == entity.id {
+                selectedEntityDetail = try repository.fetchEntityDetail(entityID: entity.id)
+            }
             refreshSelectedDocumentContext()
             return entity
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    @discardableResult
+    func updateEntityProperty(entityID: UUID, key: String, value: String) throws -> EntityDetail {
+        guard let repository = requireRepository() else {
+            throw SQLiteNotesError.missingDatabase
+        }
+
+        do {
+            guard let currentDetail = try repository.fetchEntityDetail(entityID: entityID) else {
+                throw SQLiteNotesError.validationFailed("Entity could not be found.")
+            }
+
+            let entityReferenceFieldKeys = entityReferencePropertyKeys(for: currentDetail)
+            var properties = editableProperties(from: currentDetail, entityReferenceFieldKeys: entityReferenceFieldKeys)
+            let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedValue.isEmpty {
+                properties.removeValue(forKey: key)
+            } else if entityReferenceFieldKeys.contains(key), !isEntityReferenceSyntax(normalizedValue) {
+                properties[key] = "[[\(normalizedValue)]]"
+            } else {
+                properties[key] = normalizedValue
+            }
+
+            _ = try repository.upsertEntity(
+                named: currentDetail.name,
+                supertagNames: currentDetail.supertags,
+                properties: properties
+            )
+
+            guard let updatedDetail = try repository.fetchEntityDetail(entityID: entityID) else {
+                throw SQLiteNotesError.validationFailed("Entity could not be found.")
+            }
+
+            if selectedEntityDetail?.id == entityID {
+                selectedEntityDetail = updatedDetail
+            }
+            return updatedDetail
         } catch {
             lastErrorMessage = error.localizedDescription
             throw error
@@ -513,4 +558,48 @@ final class NotesStore {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
     }
+
+    private func editableProperties(
+        from detail: EntityDetail,
+        entityReferenceFieldKeys: Set<String>
+    ) -> [String: String] {
+        var properties = detail.properties
+        for key in entityReferenceFieldKeys {
+            guard let value = properties[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  !isEntityReferenceSyntax(value) else {
+                continue
+            }
+
+            properties[key] = "[[\(value)]]"
+        }
+
+        return properties
+    }
+
+    private func entityReferencePropertyKeys(for detail: EntityDetail) -> Set<String> {
+        let appliedTags = Set(detail.supertags.map(normalizedSupertagIdentifier))
+        let fields = supertagSchemas
+            .filter { schema in
+                appliedTags.contains(normalizedSupertagIdentifier(schema.name))
+                    || appliedTags.contains(normalizedSupertagIdentifier(schema.slug))
+            }
+            .flatMap(\.fields)
+
+        var keys = Set(fields.filter { $0.valueType == .entity }.map(\.key))
+        keys.formUnion(detail.outgoingRelationships.map(\.property))
+        return keys
+    }
+}
+
+private func normalizedSupertagIdentifier(_ value: String) -> String {
+    value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        .lowercased()
+}
+
+private func isEntityReferenceSyntax(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]")
 }

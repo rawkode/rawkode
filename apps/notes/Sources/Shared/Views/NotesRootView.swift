@@ -164,6 +164,8 @@ struct NotesRootView: View {
             } else if let selectedEntityDetail = store.selectedEntityDetail {
                 EntityDetailView(
                     detail: selectedEntityDetail,
+                    schemas: store.supertagSchemas,
+                    onSaveSchemaField: saveEntitySchemaField,
                     onOpenDocument: openDocument,
                     onOpenEntity: openEntity
                 )
@@ -449,6 +451,31 @@ struct NotesRootView: View {
         )
     }
 
+    private func saveEntitySchemaField(
+        entityID: UUID,
+        field: SupertagFieldDefinition,
+        value: String
+    ) throws {
+        try store.updateEntityProperty(
+            entityID: entityID,
+            key: field.key,
+            value: normalizedEntitySchemaValue(value, for: field)
+        )
+    }
+
+    private func normalizedEntitySchemaValue(_ value: String, for field: SupertagFieldDefinition) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard field.valueType == .entity, !trimmedValue.isEmpty else {
+            return trimmedValue
+        }
+
+        if trimmedValue.hasPrefix("[["), trimmedValue.hasSuffix("]]") {
+            return trimmedValue
+        }
+
+        return "[[\(trimmedValue)]]"
+    }
+
     private func deleteDocuments(_ documents: [NoteDocument], at offsets: IndexSet) {
         for offset in offsets {
             store.deleteDocument(id: documents[offset].id)
@@ -508,6 +535,8 @@ private struct NotesVaultFileDocument: FileDocument {
 
 private struct EntityDetailView: View {
     let detail: EntityDetail
+    let schemas: [SupertagSchema]
+    let onSaveSchemaField: (_ entityID: UUID, _ field: SupertagFieldDefinition, _ value: String) throws -> Void
     let onOpenDocument: (_ documentID: UUID) -> Void
     let onOpenEntity: (_ entityID: UUID) -> Void
 
@@ -526,12 +555,38 @@ private struct EntityDetailView: View {
                     }
                 }
 
-                Section("Properties") {
-                    if detail.properties.isEmpty {
-                        Text("No properties")
+                if appliedSchemas.isEmpty {
+                    Section("Typed Fields") {
+                        Text("No typed fields for applied supertags")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(appliedSchemas) { schema in
+                        Section("\(schema.name) Fields") {
+                            if schema.fields.isEmpty {
+                                Text("No typed fields")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(schema.fields) { field in
+                                    EntitySchemaPropertyRow(
+                                        entityID: detail.id,
+                                        field: field,
+                                        value: detail.properties[field.key],
+                                        onSave: onSaveSchemaField
+                                    )
+                                    .id("\(detail.id.uuidString)-\(field.id.uuidString)")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Other Properties") {
+                    if otherProperties.isEmpty {
+                        Text("No extra properties")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(detail.sortedProperties, id: \.key) { property in
+                        ForEach(otherProperties, id: \.key) { property in
                             EntityPropertyRow(property: property)
                         }
                     }
@@ -611,6 +666,159 @@ private struct EntityDetailView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+    }
+
+    private var appliedSchemas: [SupertagSchema] {
+        let appliedTags = Set(detail.supertags.map(normalizedSupertagName))
+        return schemas
+            .filter { schema in
+                appliedTags.contains(normalizedSupertagName(schema.name))
+                    || appliedTags.contains(normalizedSupertagName(schema.slug))
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var typedFieldKeys: Set<String> {
+        Set(appliedSchemas.flatMap { schema in schema.fields.map(\.key) })
+    }
+
+    private var otherProperties: [(key: String, value: String)] {
+        detail.sortedProperties.filter { property in
+            !typedFieldKeys.contains(property.key)
+        }
+    }
+}
+
+private struct EntitySchemaPropertyRow: View {
+    let entityID: UUID
+    let field: SupertagFieldDefinition
+    let value: String?
+    let onSave: (_ entityID: UUID, _ field: SupertagFieldDefinition, _ value: String) throws -> Void
+
+    @State private var draft: String
+    @State private var errorMessage: String?
+
+    init(
+        entityID: UUID,
+        field: SupertagFieldDefinition,
+        value: String?,
+        onSave: @escaping (_ entityID: UUID, _ field: SupertagFieldDefinition, _ value: String) throws -> Void
+    ) {
+        self.entityID = entityID
+        self.field = field
+        self.value = value
+        self.onSave = onSave
+        _draft = State(initialValue: value ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(field.label, systemImage: field.valueType.systemImage)
+                    .font(.callout.weight(.semibold))
+
+                if field.isRequired {
+                    Label("Required", systemImage: "asterisk")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(field.key)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                valueEditor
+
+                Button(action: saveDraft) {
+                    Label("Save", systemImage: "checkmark")
+                }
+                .labelStyle(.iconOnly)
+                .disabled(!hasChanges)
+
+                Button(action: resetDraft) {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+                .labelStyle(.iconOnly)
+                .disabled(!hasChanges)
+            }
+
+            HStack(spacing: 8) {
+                Text(field.valueType.label)
+
+                if let defaultValue = field.defaultValue {
+                    Text("Default: \(defaultValue)")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .onChange(of: value ?? "") { _, newValue in
+            draft = newValue
+        }
+        .alert("Property Could Not Be Saved", isPresented: errorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let errorMessage {
+                Text(errorMessage)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var valueEditor: some View {
+        switch field.valueType {
+        case .boolean:
+            Picker("Value", selection: $draft) {
+                Text("Unset").tag("")
+                Text("True").tag("true")
+                Text("False").tag("false")
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 280)
+        default:
+            TextField(field.valueType.defaultValuePlaceholder, text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 360)
+        }
+    }
+
+    private var hasChanges: Bool {
+        normalizedDraft != normalizedValue
+    }
+
+    private var normalizedDraft: String {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedValue: String {
+        (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding {
+            errorMessage != nil
+        } set: { isPresented in
+            if !isPresented {
+                errorMessage = nil
+            }
+        }
+    }
+
+    private func saveDraft() {
+        do {
+            try onSave(entityID, field, draft)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resetDraft() {
+        draft = value ?? ""
     }
 }
 
@@ -1423,6 +1631,13 @@ private func savedViewIconName(_ view: String) -> String {
     default:
         "tablecells"
     }
+}
+
+private func normalizedSupertagName(_ value: String) -> String {
+    value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        .lowercased()
 }
 
 private struct DailyNoteDatePicker: View {

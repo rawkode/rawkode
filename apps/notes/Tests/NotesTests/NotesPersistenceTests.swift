@@ -2260,6 +2260,92 @@ final class NotesPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreUpdatesTypedEntityPropertiesFromSelectedEntityDetail() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let store = NotesStore(repository: repository)
+
+        store.load()
+        _ = try store.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Status",
+            valueType: .text,
+            isRequired: true
+        )
+        _ = try store.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Rank",
+            valueType: .number
+        )
+        _ = try store.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: .entity
+        )
+        _ = try store.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Done",
+            valueType: .boolean
+        )
+
+        let entity = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Status": "draft",
+                "Rank": "1",
+            ]
+        )
+        store.openEntity(id: entity.id)
+
+        try store.updateEntityProperty(entityID: entity.id, key: "status", value: "active")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["status"], "active")
+
+        try store.updateEntityProperty(entityID: entity.id, key: "done", value: "true")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["done"], "true")
+
+        try store.updateEntityProperty(entityID: entity.id, key: "owner", value: "[[Rawkode Academy]]")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["owner"], "Rawkode Academy")
+        XCTAssertEqual(store.selectedEntityDetail?.outgoingRelationships.map(\.targetName), ["Rawkode Academy"])
+
+        try store.updateEntityProperty(entityID: entity.id, key: "sponsor", value: "[[SQLite]]")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["sponsor"], "SQLite")
+        XCTAssertTrue(store.selectedEntityDetail?.outgoingRelationships.contains { relationship in
+            relationship.property == "sponsor" && relationship.targetName == "SQLite"
+        } ?? false)
+
+        try store.updateEntityProperty(entityID: entity.id, key: "status", value: "review")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["status"], "review")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["owner"], "Rawkode Academy")
+        XCTAssertTrue(store.selectedEntityDetail?.outgoingRelationships.contains { relationship in
+            relationship.property == "owner" && relationship.targetName == "Rawkode Academy"
+        } ?? false)
+        XCTAssertTrue(store.selectedEntityDetail?.outgoingRelationships.contains { relationship in
+            relationship.property == "sponsor" && relationship.targetName == "SQLite"
+        } ?? false)
+
+        XCTAssertThrowsError(
+            try store.updateEntityProperty(entityID: entity.id, key: "rank", value: "not a number")
+        )
+        XCTAssertEqual(store.selectedEntityDetail?.properties["rank"], "1")
+
+        _ = try store.upsertEntity(
+            named: "Notes Roadmap",
+            supertagNames: ["project"],
+            properties: [
+                "Status": "paused",
+                "Rank": "2",
+                "Done": "false",
+            ]
+        )
+        XCTAssertEqual(store.selectedEntityDetail?.properties["status"], "paused")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["rank"], "2")
+        XCTAssertEqual(store.selectedEntityDetail?.properties["done"], "false")
+    }
+
+    @MainActor
     func testStoreReadsSelectedDocumentContext() throws {
         let databaseURL = try temporaryDatabaseURL()
         defer { removeTemporaryDatabase(at: databaseURL) }
