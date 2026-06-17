@@ -29,8 +29,11 @@ describe("agent result formatting", () => {
 			fallback: true,
 			routeUrl: "/apps/kubernetes-topology-spread-constraints",
 			message: "LLM generation failed; deployed a static fallback mini app.",
+			attempts: [
+				{ attempt: 1, status: "validation_failed", message: "Smoke test failed with 500: Load failed" },
+			],
 		}, createIntent, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
-			"deployed: kubernetes-topology-spread-constraints fallback deployed. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; deployed a static fallback mini app.",
+			"deployed: kubernetes-topology-spread-constraints fallback deployed. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; deployed a static fallback mini app. Attempt: #1 validation_failed Smoke test failed with 500: Load failed",
 		);
 	});
 
@@ -53,8 +56,24 @@ describe("agent result formatting", () => {
 			slug: "hello-world",
 			deployed: false,
 			message: "Smoke test failed with 500: Load failed",
+			attempts: [
+				{ attempt: 1, status: "validation_failed", message: "Smoke test failed with 500: Load failed", cleanup: "Mini app Worker candidate removed." },
+			],
 		}, createIntent)).toBe(
-			"validation_failed: hello-world. Candidate Worker failed smoke testing and was not activated. Smoke test failed with 500: Load failed",
+			"validation_failed: hello-world. Candidate Worker failed smoke testing and was not activated. Smoke test failed with 500: Load failed Attempt: #1 validation_failed Smoke test failed with 500: Load failed cleanup: Mini app Worker candidate removed.",
+		);
+	});
+
+	it("renders structured issue objects without object string placeholders", () => {
+		expect(formatMiniAppResult({
+			status: "rejected",
+			operation: "create",
+			slug: "bad-app",
+			deployed: false,
+			issues: [{ message: "Manifest route is unsafe." }],
+			attempts: [{ attempt: 1, status: "rejected", issues: [{ error: "Load failed body rejected." }] }],
+		}, createIntent)).toBe(
+			"rejected: bad-app. Manifest route is unsafe. Attempt: #1 rejected Load failed body rejected.",
 		);
 	});
 

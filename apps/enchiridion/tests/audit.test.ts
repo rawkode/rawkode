@@ -4,8 +4,11 @@ import { auditDetailSummary, auditToneForStatus } from "../src/lib/audit";
 describe("mini app audit helpers", () => {
 	it("maps workflow statuses to semantic tones", () => {
 		expect(auditToneForStatus("deployed")).toBe("success");
+		expect(auditToneForStatus("fallback_deployed")).toBe("success");
 		expect(auditToneForStatus("requires_binding_provisioning")).toBe("warning");
+		expect(auditToneForStatus("fallback_rejected")).toBe("warning");
 		expect(auditToneForStatus("validation_failed")).toBe("danger");
+		expect(auditToneForStatus("fallback_validation_failed")).toBe("danger");
 		expect(auditToneForStatus("queued")).toBe("neutral");
 	});
 
@@ -36,5 +39,28 @@ describe("mini app audit helpers", () => {
 				"bindings: autonomous deploy cannot provision isolated bindings yet",
 			],
 		})).toBe("manifest.slug: hello-world already exists; use update instead bindings: autonomous deploy cannot provision isolated bindings yet");
+	});
+
+	it("surfaces previous failures for fallback deployments", () => {
+		expect(auditDetailSummary({
+			fallback: true,
+			message: "Mini app Worker deployed.",
+			previousFailure: {
+				validation: { message: "Smoke test failed with 500: Load failed" },
+			},
+		}, "fallback_deployed")).toBe("Fallback deployed after Smoke test failed with 500: Load failed");
+	});
+
+	it("summarizes current and previous failures for failed fallbacks", () => {
+		expect(auditDetailSummary({
+			fallback: true,
+			message: "Mini app Worker deployed.",
+			validation: { message: "Smoke test failed with 200: primary route must return text/html" },
+			previousFailure: {
+				message: "Cloudflare upload failed with 400: parse error",
+			},
+		}, "fallback_validation_failed")).toBe(
+			"Smoke test failed with 200: primary route must return text/html Previous failure: Cloudflare upload failed with 400: parse error",
+		);
 	});
 });

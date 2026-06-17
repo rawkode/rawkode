@@ -6,33 +6,34 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 	const slug = String(result.slug ?? intent.targetSlug ?? "mini-app");
 	const message = typeof result.message === "string" ? result.message : "";
 	const routeUrl = typeof result.routeUrl === "string" ? result.routeUrl : "";
-	const issues = Array.isArray(result.issues) ? result.issues.map(String) : [];
+	const issues = Array.isArray(result.issues) ? result.issues.map(formatUnknown).filter(Boolean) : [];
+	const attemptSummary = formatAttemptSummary(result.attempts);
 
 	if (issues.length > 0) {
-		return `${status}: ${slug}. ${issues.join(" ")}`.trim();
+		return `${status}: ${slug}. ${joinParts([issues.join(" "), attemptSummary])}`.trim();
 	}
 
 	if (status === "validation_failed") {
 		const details = message || "The Worker uploaded, but the primary route did not render.";
-		return `${status}: ${slug}. Candidate Worker failed smoke testing and was not activated. ${details}`.trim();
+		return `${status}: ${slug}. Candidate Worker failed smoke testing and was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 
 	if (status.startsWith("fallback_")) {
 		const details = message || "Static fallback mini app could not be activated.";
-		return `${status}: ${slug}. Fallback mini app was not activated. ${details}`.trim();
+		return `${status}: ${slug}. Fallback mini app was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 
 	if (result.deployed === true) {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
 		if (result.fallback === true) {
 			const details = message || "LLM generation failed; deployed a static fallback mini app.";
-			return `${status}: ${slug} fallback deployed.${route} ${details}`.trim();
+			return `${status}: ${slug} fallback deployed.${route} ${joinParts([details, attemptSummary])}`.trim();
 		}
 
 		return `${status}: ${slug} ${operation === "update" ? "updated" : "deployed"}.${route}`.trim();
 	}
 
-	return `${status}: ${slug}. ${message}`.trim();
+	return `${status}: ${slug}. ${joinParts([message, attemptSummary])}`.trim();
 }
 
 export function formatAgentResult(result: unknown): string {
@@ -89,6 +90,64 @@ function formatRouteUrl(routeUrl: string, origin?: string): string {
 	}
 
 	return routeUrl;
+}
+
+function formatAttemptSummary(value: unknown): string {
+	if (!Array.isArray(value) || value.length === 0) {
+		return "";
+	}
+
+	const attempts = value.map(formatAttempt).filter(Boolean);
+	if (attempts.length === 0) {
+		return "";
+	}
+
+	const visibleAttempts = attempts.slice(-2);
+	const label = attempts.length === 1 ? "Attempt" : "Attempts";
+	return `${label}: ${visibleAttempts.join(" | ")}`;
+}
+
+function formatAttempt(value: unknown, index: number): string {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return formatUnknown(value);
+	}
+
+	const record = value as Record<string, unknown>;
+	const attempt = typeof record.attempt === "number" ? record.attempt : index + 1;
+	const status = formatUnknown(record.status);
+	const message = formatUnknown(record.message);
+	const cleanup = formatUnknown(record.cleanup);
+	const issues = Array.isArray(record.issues) ? record.issues.map(formatUnknown).filter(Boolean).join(" ") : "";
+	const details = joinParts([message, issues, cleanup ? `cleanup: ${cleanup}` : ""]);
+
+	return joinParts([`#${attempt}`, status, details]);
+}
+
+function joinParts(parts: string[]): string {
+	return parts.map((part) => part.trim()).filter(Boolean).join(" ");
+}
+
+function formatUnknown(value: unknown): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	if (value === null || value === undefined) {
+		return "";
+	}
+	if (typeof value === "object") {
+		const message = readStringProperty(value, "message") ?? readStringProperty(value, "error");
+		if (message) {
+			return message;
+		}
+
+		try {
+			return JSON.stringify(value);
+		} catch {
+			return String(value);
+		}
+	}
+
+	return String(value);
 }
 
 function readAgentText(source: unknown, depth = 0): string | undefined {

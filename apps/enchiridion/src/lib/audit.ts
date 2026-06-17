@@ -2,9 +2,9 @@ import type { JsonObject } from "./types";
 
 export type AuditTone = "neutral" | "success" | "warning" | "danger";
 
-const successStatuses = new Set(["deployed", "updated", "registered"]);
-const warningStatuses = new Set(["rejected", "requires_binding_provisioning"]);
-const dangerStatuses = new Set(["deploy_failed", "validation_failed", "error", "failed"]);
+const successStatuses = new Set(["deployed", "fallback_deployed", "updated", "registered"]);
+const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "fallback_rejected"]);
+const dangerStatuses = new Set(["deploy_failed", "fallback_deploy_failed", "fallback_validation_failed", "validation_failed", "error", "failed"]);
 
 export function auditToneForStatus(status: string): AuditTone {
 	if (successStatuses.has(status)) {
@@ -19,7 +19,22 @@ export function auditToneForStatus(status: string): AuditTone {
 	return "neutral";
 }
 
-export function auditDetailSummary(details: JsonObject): string {
+export function auditDetailSummary(details: JsonObject, status = ""): string {
+	if (status === "fallback_deployed") {
+		const previousFailure = summarizeNestedDetails(details.previousFailure);
+		if (previousFailure) {
+			return `Fallback deployed after ${previousFailure}`;
+		}
+	}
+
+	if (status.startsWith("fallback_") && status !== "fallback_deployed") {
+		const currentFailure = summarizeNestedDetails(details.validation) || readString(details.message);
+		const previousFailure = summarizeNestedDetails(details.previousFailure);
+		return [currentFailure, previousFailure ? `Previous failure: ${previousFailure}` : ""]
+			.filter(Boolean)
+			.join(" ");
+	}
+
 	const message = readString(details.message);
 	if (message) {
 		return message;
@@ -44,6 +59,31 @@ export function auditDetailSummary(details: JsonObject): string {
 	}
 
 	return readString(details.deploymentNotes) || readString(details.scriptName) || "";
+}
+
+function summarizeNestedDetails(value: unknown): string {
+	const details = readObject(value);
+	if (!details) {
+		return "";
+	}
+
+	const message = readString(details.message);
+	if (message) {
+		return message;
+	}
+
+	const issues = readStringArray(details.issues);
+	if (issues.length > 0) {
+		return issues.join(" ");
+	}
+
+	const validation = readObject(details.validation);
+	const validationMessage = validation ? readString(validation.message) : "";
+	if (validationMessage) {
+		return validationMessage;
+	}
+
+	return readString(details.deploymentNotes) || readString(details.scriptName);
 }
 
 function readObject(value: unknown): JsonObject | null {

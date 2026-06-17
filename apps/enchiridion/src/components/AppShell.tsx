@@ -551,7 +551,7 @@ function MiniAppAuditList({ records }: { records: MiniAppAuditRecord[] }) {
 		<div {...stylex.props(shell.stack)}>
 			{records.map((record) => {
 				const tone = auditToneForStatus(record.status);
-				const summary = auditDetailSummary(record.details);
+				const summary = auditDetailSummary(record.details, record.status);
 				return (
 					<div key={record.id} {...stylex.props(shell.resourceRow, shell.auditRow)}>
 						<div {...stylex.props(shell.auditHeader)}>
