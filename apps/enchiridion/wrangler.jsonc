@@ -22,12 +22,6 @@
 			"migrations_dir": "./migrations"
 		}
 	],
-	"dispatch_namespaces": [
-		{
-			"binding": "MINI_APP_DISPATCHER",
-			"namespace": "enchiridion-mini-apps"
-		}
-	],
 	"migrations": [
 		{
 			"tag": "v1",
