@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildBoardGroups,
   getSavedQueryViews,
+  normalizeQueryViewDisplaySettings,
   normalizeSavedQueryViews,
   notifyQueryRefresh,
   parseQueryGroupBy,
+  queryDisplayColumns,
+  queryDisplayRows,
   queryDocumentIdMetadataKey,
   queryEntityIdMetadataKey,
   queryRowDocumentId,
@@ -201,6 +204,10 @@ describe('query board view helpers', () => {
           query: ' SELECT * FROM projects ',
           view: 'board',
           groupBy: ' status ',
+          visibleColumns: [' name ', 'status', 'name'],
+          sortColumn: ' updated_at ',
+          sortDescending: true,
+          rowLimit: 20,
         },
         { id: 'missing-query', name: 'Broken', view: 'table' },
       ])
@@ -211,8 +218,31 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects',
         view: 'board',
         groupBy: 'status',
+        visibleColumns: ['name', 'status'],
+        sortColumn: 'updated_at',
+        sortDescending: true,
+        rowLimit: 20,
       },
     ]);
+  });
+
+  test('applies query display settings without mutating result rows', () => {
+    const rows = [
+      { name: 'Alpha', priority: '2', status: 'active', [queryEntityIdMetadataKey]: 'entity-1' },
+      { name: 'Beta', priority: '10', status: 'blocked', [queryEntityIdMetadataKey]: 'entity-2' },
+      { name: 'Gamma', priority: '1', status: 'active', [queryEntityIdMetadataKey]: 'entity-3' },
+    ];
+    const columns = ['name', 'priority', 'status'];
+    const settings = normalizeQueryViewDisplaySettings({
+      visibleColumns: 'status, name, missing',
+      sortColumn: 'priority',
+      sortDirection: 'desc',
+      rowLimit: '2',
+    });
+
+    expect(queryDisplayColumns(columns, settings)).toEqual(['status', 'name']);
+    expect(queryDisplayRows(rows, columns, settings).map((row) => row.name)).toEqual(['Beta', 'Alpha']);
+    expect(queryRowEntityId(queryDisplayRows(rows, columns, settings)[0], ['status', 'name'])).toBe('entity-2');
   });
 
   test('summarizes saved query views for insertion controls', () => {
@@ -235,8 +265,12 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects',
         view: 'board',
         groupBy: 'status',
+        visibleColumns: ['name', 'owner'],
+        sortColumn: 'owner',
+        sortDescending: false,
+        rowLimit: 25,
       })
-    ).toBe('Active Projects · Board by status');
+    ).toBe('Active Projects · Board by status · 2 columns · sort owner asc · limit 25');
   });
 
   test('builds promotion names from query block metadata', () => {
@@ -252,6 +286,10 @@ describe('query board view helpers', () => {
       query: 'SELECT * FROM projects',
       view: 'board',
       groupBy: ' status ',
+      visibleColumns: ['name'],
+      sortColumn: 'name',
+      sortDescending: false,
+      rowLimit: 10,
     });
 
     expect(
@@ -261,6 +299,10 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects',
         view: 'board',
         groupBy: 'status',
+        visibleColumns: ['name'],
+        sortColumn: 'name',
+        sortDescending: false,
+        rowLimit: 10,
       })
     ).toBe(submitted);
     expect(
@@ -270,6 +312,10 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects WHERE status = "active"',
         view: 'board',
         groupBy: 'status',
+        visibleColumns: ['name'],
+        sortColumn: 'name',
+        sortDescending: false,
+        rowLimit: 10,
       })
     ).not.toBe(submitted);
     expect(
@@ -279,6 +325,10 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects',
         view: 'board',
         groupBy: 'status',
+        visibleColumns: ['name'],
+        sortColumn: 'name',
+        sortDescending: true,
+        rowLimit: 10,
       })
     ).not.toBe(submitted);
   });
@@ -300,6 +350,10 @@ describe('query board view helpers', () => {
         query: 'SELECT * FROM projects',
         view: 'table',
         groupBy: null,
+        visibleColumns: ['name'],
+        sortColumn: 'name',
+        sortDescending: false,
+        rowLimit: 5,
       },
     ]);
 
@@ -314,9 +368,14 @@ describe('query board view helpers', () => {
         query: 'SELECT date, title FROM daily_notes',
         view: 'board',
         groupBy: 'date',
+        visibleColumns: ['date', 'title'],
+        sortColumn: 'date',
+        sortDescending: true,
+        rowLimit: 7,
       })?.name
     ).toBe('Daily Notes');
     expect(resolveSavedQueryView('saved-view-2')?.groupBy).toBe('date');
+    expect(resolveSavedQueryView('saved-view-2')?.visibleColumns).toEqual(['date', 'title']);
     expect(savedViewUpdates).toEqual([1, 2]);
     expect(refreshReasons).toEqual(['savedViewsChanged', 'savedViewsChanged']);
 

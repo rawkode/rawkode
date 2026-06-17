@@ -189,7 +189,7 @@ final class SQLiteNotesRepository {
     func fetchSavedQueryViews() throws -> [SavedQueryView] {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
+            SELECT id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             FROM saved_query_views
             ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC;
             """
@@ -213,7 +213,7 @@ final class SQLiteNotesRepository {
     func fetchSavedQueryView(id: UUID) throws -> SavedQueryView? {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
+            SELECT id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             FROM saved_query_views
             WHERE id = ?
             LIMIT 1;
@@ -239,7 +239,11 @@ final class SQLiteNotesRepository {
         named rawName: String,
         query rawQuery: String,
         view rawView: String = "table",
-        groupBy rawGroupBy: String? = nil
+        groupBy rawGroupBy: String? = nil,
+        visibleColumns rawVisibleColumns: [String] = [],
+        sortColumn rawSortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit rawRowLimit: Int? = nil
     ) throws -> SavedQueryView {
         let name = normalizedName(rawName)
         guard !name.isEmpty else {
@@ -251,6 +255,12 @@ final class SQLiteNotesRepository {
 
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let displaySettings = try normalizedQueryViewDisplaySettings(
+            visibleColumns: rawVisibleColumns,
+            sortColumn: rawSortColumn,
+            sortDescending: sortDescending,
+            rowLimit: rawRowLimit
+        )
         let now = Date()
         let existing = try fetchSavedQueryView(name: name)
         let sortOrder: Int
@@ -265,6 +275,10 @@ final class SQLiteNotesRepository {
             query: query,
             view: view,
             groupBy: groupBy,
+            visibleColumns: displaySettings.visibleColumns,
+            sortColumn: displaySettings.sortColumn,
+            sortDescending: displaySettings.sortDescending,
+            rowLimit: displaySettings.rowLimit,
             sortOrder: sortOrder,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now
@@ -279,7 +293,11 @@ final class SQLiteNotesRepository {
         named rawName: String,
         query rawQuery: String,
         view rawView: String = "table",
-        groupBy rawGroupBy: String? = nil
+        groupBy rawGroupBy: String? = nil,
+        visibleColumns rawVisibleColumns: [String] = [],
+        sortColumn rawSortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit rawRowLimit: Int? = nil
     ) throws -> SavedQueryView {
         let name = normalizedName(rawName)
         guard !name.isEmpty else {
@@ -291,6 +309,12 @@ final class SQLiteNotesRepository {
 
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let displaySettings = try normalizedQueryViewDisplaySettings(
+            visibleColumns: rawVisibleColumns,
+            sortColumn: rawSortColumn,
+            sortDescending: sortDescending,
+            rowLimit: rawRowLimit
+        )
         let now = Date()
         let savedView = SavedQueryView(
             id: UUID(),
@@ -298,6 +322,10 @@ final class SQLiteNotesRepository {
             query: query,
             view: view,
             groupBy: groupBy,
+            visibleColumns: displaySettings.visibleColumns,
+            sortColumn: displaySettings.sortColumn,
+            sortDescending: displaySettings.sortDescending,
+            rowLimit: displaySettings.rowLimit,
             sortOrder: try nextSavedQueryViewSortOrder(),
             createdAt: now,
             updatedAt: now
@@ -313,7 +341,11 @@ final class SQLiteNotesRepository {
         named rawName: String,
         query rawQuery: String,
         view rawView: String = "table",
-        groupBy rawGroupBy: String? = nil
+        groupBy rawGroupBy: String? = nil,
+        visibleColumns rawVisibleColumns: [String] = [],
+        sortColumn rawSortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit rawRowLimit: Int? = nil
     ) throws -> SavedQueryView {
         guard let existing = try fetchSavedQueryView(id: id) else {
             throw SQLiteNotesError.validationFailed("Saved view could not be found.")
@@ -333,12 +365,22 @@ final class SQLiteNotesRepository {
 
         let view = try normalizedSavedQueryViewMode(rawView)
         let groupBy = view == "board" ? normalizedOptionalField(rawGroupBy) : nil
+        let displaySettings = try normalizedQueryViewDisplaySettings(
+            visibleColumns: rawVisibleColumns,
+            sortColumn: rawSortColumn,
+            sortDescending: sortDescending,
+            rowLimit: rawRowLimit
+        )
         let savedView = SavedQueryView(
             id: id,
             name: name,
             query: query,
             view: view,
             groupBy: groupBy,
+            visibleColumns: displaySettings.visibleColumns,
+            sortColumn: displaySettings.sortColumn,
+            sortDescending: displaySettings.sortDescending,
+            rowLimit: displaySettings.rowLimit,
             sortOrder: existing.sortOrder,
             createdAt: existing.createdAt,
             updatedAt: .now
@@ -361,6 +403,10 @@ final class SQLiteNotesRepository {
             query: existing.query,
             view: existing.view,
             groupBy: existing.groupBy,
+            visibleColumns: existing.visibleColumns,
+            sortColumn: existing.sortColumn,
+            sortDescending: existing.sortDescending,
+            rowLimit: existing.rowLimit,
             sortOrder: try nextSavedQueryViewSortOrder(),
             createdAt: now,
             updatedAt: now
@@ -1101,6 +1147,10 @@ final class SQLiteNotesRepository {
                 query TEXT NOT NULL,
                 view TEXT NOT NULL CHECK (view IN ('table', 'list', 'board')),
                 group_by TEXT,
+                visible_columns TEXT,
+                sort_column TEXT,
+                sort_direction TEXT NOT NULL DEFAULT 'asc' CHECK (sort_direction IN ('asc', 'desc')),
+                row_limit INTEGER,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -1111,6 +1161,22 @@ final class SQLiteNotesRepository {
         let shouldBackfillSavedQueryViewSortOrder = try !table("saved_query_views", hasColumn: "sort_order")
         if shouldBackfillSavedQueryViewSortOrder {
             try execute("ALTER TABLE saved_query_views ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;")
+        }
+
+        if try !table("saved_query_views", hasColumn: "visible_columns") {
+            try execute("ALTER TABLE saved_query_views ADD COLUMN visible_columns TEXT;")
+        }
+
+        if try !table("saved_query_views", hasColumn: "sort_column") {
+            try execute("ALTER TABLE saved_query_views ADD COLUMN sort_column TEXT;")
+        }
+
+        if try !table("saved_query_views", hasColumn: "sort_direction") {
+            try execute("ALTER TABLE saved_query_views ADD COLUMN sort_direction TEXT NOT NULL DEFAULT 'asc';")
+        }
+
+        if try !table("saved_query_views", hasColumn: "row_limit") {
+            try execute("ALTER TABLE saved_query_views ADD COLUMN row_limit INTEGER;")
         }
 
         if try !table("entity_properties", hasColumn: "value_entity_id") {
@@ -1538,7 +1604,7 @@ final class SQLiteNotesRepository {
     private func fetchVaultSavedViews() throws -> [NotesVaultSnapshot.SavedView] {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
+            SELECT id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             FROM saved_query_views
             ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC;
             """
@@ -1550,8 +1616,8 @@ final class SQLiteNotesRepository {
                 guard let id = UUID(uuidString: textColumn(statement, 0)) else {
                     throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view id")
                 }
-                guard let createdAt = Date(iso8601String: textColumn(statement, 6)),
-                      let updatedAt = Date(iso8601String: textColumn(statement, 7)) else {
+                guard let createdAt = Date(iso8601String: textColumn(statement, 10)),
+                      let updatedAt = Date(iso8601String: textColumn(statement, 11)) else {
                     throw SQLiteNotesError.rowDecodeFailed("invalid exported saved view timestamp")
                 }
 
@@ -1562,7 +1628,11 @@ final class SQLiteNotesRepository {
                         query: textColumn(statement, 2),
                         view: textColumn(statement, 3),
                         groupBy: nullableTextColumn(statement, 4),
-                        sortOrder: Int(sqlite3_column_int64(statement, 5)),
+                        visibleColumns: decodedVisibleColumns(nullableTextColumn(statement, 5)),
+                        sortColumn: nullableTextColumn(statement, 6),
+                        sortDescending: textColumn(statement, 7) == "desc",
+                        rowLimit: nullableIntColumn(statement, 8),
+                        sortOrder: Int(sqlite3_column_int64(statement, 9)),
                         createdAt: createdAt,
                         updatedAt: updatedAt
                     )
@@ -1771,11 +1841,18 @@ final class SQLiteNotesRepository {
         try prepare(
             """
             INSERT INTO saved_query_views (
-                id, name, query, view, group_by, sort_order, created_at, updated_at
+                id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
         ) { statement in
+            let displaySettings = try normalizedQueryViewDisplaySettings(
+                visibleColumns: savedView.visibleColumns ?? [],
+                sortColumn: savedView.sortColumn,
+                sortDescending: savedView.sortDescending ?? false,
+                rowLimit: savedView.rowLimit
+            )
+
             sqlite3_bind_text(statement, 1, savedView.id.uuidString, -1, sqliteTransient)
             sqlite3_bind_text(statement, 2, savedView.name, -1, sqliteTransient)
             sqlite3_bind_text(statement, 3, savedView.query, -1, sqliteTransient)
@@ -1785,9 +1862,25 @@ final class SQLiteNotesRepository {
             } else {
                 sqlite3_bind_null(statement, 5)
             }
-            sqlite3_bind_int64(statement, 6, Int64(sortOrder))
-            sqlite3_bind_text(statement, 7, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
-            sqlite3_bind_text(statement, 8, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+            if let visibleColumns = try encodedVisibleColumns(displaySettings.visibleColumns) {
+                sqlite3_bind_text(statement, 6, visibleColumns, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 6)
+            }
+            if let sortColumn = displaySettings.sortColumn {
+                sqlite3_bind_text(statement, 7, sortColumn, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 7)
+            }
+            sqlite3_bind_text(statement, 8, displaySettings.sortDirection, -1, sqliteTransient)
+            if let rowLimit = displaySettings.rowLimit {
+                sqlite3_bind_int64(statement, 9, Int64(rowLimit))
+            } else {
+                sqlite3_bind_null(statement, 9)
+            }
+            sqlite3_bind_int64(statement, 10, Int64(sortOrder))
+            sqlite3_bind_text(statement, 11, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 12, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
@@ -2996,7 +3089,19 @@ final class SQLiteNotesRepository {
 
     private func fetchSavedQueryViewQueryResult() throws -> QueryResult {
         QueryResult(
-            columns: ["id", "name", "query", "view", "group_by", "sort_order", "updated_at"],
+            columns: [
+                "id",
+                "name",
+                "query",
+                "view",
+                "group_by",
+                "visible_columns",
+                "sort_column",
+                "sort_direction",
+                "row_limit",
+                "sort_order",
+                "updated_at",
+            ],
             rows: try fetchSavedQueryViews().map(savedQueryViewQueryRow)
         )
     }
@@ -3134,11 +3239,11 @@ final class SQLiteNotesRepository {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view id")
         }
 
-        guard let createdAt = Date(iso8601String: textColumn(statement, 6)) else {
+        guard let createdAt = Date(iso8601String: textColumn(statement, 10)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view created_at timestamp")
         }
 
-        guard let updatedAt = Date(iso8601String: textColumn(statement, 7)) else {
+        guard let updatedAt = Date(iso8601String: textColumn(statement, 11)) else {
             throw SQLiteNotesError.rowDecodeFailed("invalid saved query view updated_at timestamp")
         }
 
@@ -3148,7 +3253,11 @@ final class SQLiteNotesRepository {
             query: textColumn(statement, 2),
             view: textColumn(statement, 3),
             groupBy: nullableTextColumn(statement, 4),
-            sortOrder: Int(sqlite3_column_int64(statement, 5)),
+            visibleColumns: decodedVisibleColumns(nullableTextColumn(statement, 5)),
+            sortColumn: nullableTextColumn(statement, 6),
+            sortDescending: textColumn(statement, 7) == "desc",
+            rowLimit: nullableIntColumn(statement, 8),
+            sortOrder: Int(sqlite3_column_int64(statement, 9)),
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -3190,7 +3299,7 @@ final class SQLiteNotesRepository {
     private func fetchSavedQueryView(name: String) throws -> SavedQueryView? {
         try prepare(
             """
-            SELECT id, name, query, view, group_by, sort_order, created_at, updated_at
+            SELECT id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             FROM saved_query_views
             WHERE name = ?
             LIMIT 1;
@@ -3207,7 +3316,7 @@ final class SQLiteNotesRepository {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
             }
 
-        return try savedQueryView(from: statement)
+            return try savedQueryView(from: statement)
         }
     }
 
@@ -3268,14 +3377,18 @@ final class SQLiteNotesRepository {
         try prepare(
             """
             INSERT INTO saved_query_views (
-                id, name, query, view, group_by, sort_order, created_at, updated_at
+                id, name, query, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 query = excluded.query,
                 view = excluded.view,
                 group_by = excluded.group_by,
+                visible_columns = excluded.visible_columns,
+                sort_column = excluded.sort_column,
+                sort_direction = excluded.sort_direction,
+                row_limit = excluded.row_limit,
                 sort_order = excluded.sort_order,
                 updated_at = excluded.updated_at;
             """
@@ -3289,9 +3402,25 @@ final class SQLiteNotesRepository {
             } else {
                 sqlite3_bind_null(statement, 5)
             }
-            sqlite3_bind_int64(statement, 6, Int64(savedView.sortOrder))
-            sqlite3_bind_text(statement, 7, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
-            sqlite3_bind_text(statement, 8, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
+            if let visibleColumns = try encodedVisibleColumns(savedView.visibleColumns) {
+                sqlite3_bind_text(statement, 6, visibleColumns, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 6)
+            }
+            if let sortColumn = savedView.sortColumn {
+                sqlite3_bind_text(statement, 7, sortColumn, -1, sqliteTransient)
+            } else {
+                sqlite3_bind_null(statement, 7)
+            }
+            sqlite3_bind_text(statement, 8, savedView.displaySettings.sortDirection, -1, sqliteTransient)
+            if let rowLimit = savedView.rowLimit {
+                sqlite3_bind_int64(statement, 9, Int64(rowLimit))
+            } else {
+                sqlite3_bind_null(statement, 9)
+            }
+            sqlite3_bind_int64(statement, 10, Int64(savedView.sortOrder))
+            sqlite3_bind_text(statement, 11, savedView.createdAt.ISO8601Format(), -1, sqliteTransient)
+            sqlite3_bind_text(statement, 12, savedView.updatedAt.ISO8601Format(), -1, sqliteTransient)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw SQLiteNotesError.stepFailed(lastErrorMessage)
@@ -3365,6 +3494,14 @@ private func nullableTextColumn(_ statement: OpaquePointer?, _ index: Int32) -> 
     return textColumn(statement, index)
 }
 
+private func nullableIntColumn(_ statement: OpaquePointer?, _ index: Int32) -> Int? {
+    guard sqlite3_column_type(statement, index) != SQLITE_NULL else {
+        return nil
+    }
+
+    return Int(sqlite3_column_int64(statement, index))
+}
+
 private func normalizedName(_ value: String) -> String {
     value
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3407,6 +3544,81 @@ private func normalizedSavedQueryViewMode(_ value: String) throws -> String {
     default:
         throw SQLiteNotesError.validationFailed("Saved view mode must be table, list, or board.")
     }
+}
+
+private func normalizedQueryViewDisplaySettings(
+    visibleColumns rawVisibleColumns: [String],
+    sortColumn rawSortColumn: String?,
+    sortDescending: Bool,
+    rowLimit rawRowLimit: Int?
+) throws -> QueryViewDisplaySettings {
+    let rowLimit: Int?
+    if let rawRowLimit {
+        guard rawRowLimit > 0 else {
+            throw SQLiteNotesError.validationFailed("Saved view row limit must be greater than zero.")
+        }
+
+        rowLimit = rawRowLimit
+    } else {
+        rowLimit = nil
+    }
+
+    return QueryViewDisplaySettings(
+        visibleColumns: normalizedVisibleColumns(rawVisibleColumns),
+        sortColumn: normalizedDisplayColumn(rawSortColumn),
+        sortDescending: sortDescending,
+        rowLimit: rowLimit
+    )
+}
+
+private func normalizedVisibleColumns(_ columns: [String]) -> [String] {
+    var seen: Set<String> = []
+    var result: [String] = []
+
+    for column in columns {
+        let normalized = column.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !seen.contains(normalized) else {
+            continue
+        }
+
+        seen.insert(normalized)
+        result.append(normalized)
+    }
+
+    return result
+}
+
+private func normalizedDisplayColumn(_ value: String?) -> String? {
+    let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return normalized.isEmpty ? nil : normalized
+}
+
+private func encodedVisibleColumns(_ columns: [String]) throws -> String? {
+    let normalized = normalizedVisibleColumns(columns)
+    guard !normalized.isEmpty else {
+        return nil
+    }
+
+    let data = try JSONEncoder().encode(normalized)
+    return String(data: data, encoding: .utf8)
+}
+
+private func decodedVisibleColumns(_ value: String?) -> [String] {
+    guard let value else {
+        return []
+    }
+
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return []
+    }
+
+    if let data = trimmed.data(using: .utf8),
+       let columns = try? JSONDecoder().decode([String].self, from: data) {
+        return normalizedVisibleColumns(columns)
+    }
+
+    return normalizedVisibleColumns(trimmed.split(separator: ",").map(String.init))
 }
 
 private func normalizedOptionalField(_ value: String?) -> String? {
@@ -3727,6 +3939,10 @@ private func savedQueryViewQueryRow(_ view: SavedQueryView) -> [String: String] 
         "query": view.query,
         "view": view.view,
         "group_by": view.groupBy ?? "",
+        "visible_columns": view.visibleColumns.joined(separator: ", "),
+        "sort_column": view.sortColumn ?? "",
+        "sort_direction": view.displaySettings.sortDirection,
+        "row_limit": view.rowLimit.map(String.init) ?? "",
         "sort_order": String(view.sortOrder),
         "updated_at": view.updatedAt.ISO8601Format(),
     ]

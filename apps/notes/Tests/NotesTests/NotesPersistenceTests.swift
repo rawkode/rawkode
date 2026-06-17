@@ -89,10 +89,57 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(reopenedView.query, "SELECT name FROM bookmarks WHERE status = archived")
         XCTAssertEqual(reopenedView.view, "list")
         XCTAssertNil(reopenedView.groupBy)
+        XCTAssertTrue(reopenedView.visibleColumns.isEmpty)
+        XCTAssertNil(reopenedView.sortColumn)
+        XCTAssertFalse(reopenedView.sortDescending)
+        XCTAssertNil(reopenedView.rowLimit)
         XCTAssertEqual(reopenedView.sortOrder, 0)
         XCTAssertLessThan(abs(reopenedView.createdAt.timeIntervalSince(savedView.createdAt)), 1)
         XCTAssertEqual(reopenedPromotedView.name, "Active Bookmarks 2")
         XCTAssertEqual(reopenedPromotedView.query, "SELECT url FROM bookmarks WHERE status = active")
+    }
+
+    func testSavedQueryViewDisplaySettingsPersistAndDuplicate() throws {
+        let databaseURL = try temporaryDatabaseURL()
+        defer { removeTemporaryDatabase(at: databaseURL) }
+
+        let repository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let savedView = try repository.saveSavedQueryView(
+            named: "Open Projects",
+            query: "SELECT name, status, priority FROM projects",
+            view: "board",
+            groupBy: "status",
+            visibleColumns: [" name ", "priority", "name", " "],
+            sortColumn: " priority ",
+            sortDescending: true,
+            rowLimit: 25
+        )
+
+        XCTAssertEqual(savedView.visibleColumns, ["name", "priority"])
+        XCTAssertEqual(savedView.sortColumn, "priority")
+        XCTAssertTrue(savedView.sortDescending)
+        XCTAssertEqual(savedView.rowLimit, 25)
+
+        let duplicateView = try repository.duplicateSavedQueryView(id: savedView.id)
+        XCTAssertEqual(duplicateView.visibleColumns, ["name", "priority"])
+        XCTAssertEqual(duplicateView.sortColumn, "priority")
+        XCTAssertTrue(duplicateView.sortDescending)
+        XCTAssertEqual(duplicateView.rowLimit, 25)
+
+        let reopenedRepository = try SQLiteNotesRepository(databaseURL: databaseURL)
+        let reopenedView = try XCTUnwrap(reopenedRepository.fetchSavedQueryView(id: savedView.id))
+        XCTAssertEqual(reopenedView.visibleColumns, ["name", "priority"])
+        XCTAssertEqual(reopenedView.sortColumn, "priority")
+        XCTAssertTrue(reopenedView.sortDescending)
+        XCTAssertEqual(reopenedView.rowLimit, 25)
+
+        XCTAssertThrowsError(
+            try repository.saveSavedQueryView(
+                named: "Invalid Limit",
+                query: "SELECT name FROM projects",
+                rowLimit: 0
+            )
+        )
     }
 
     func testSavedQueryViewsCanBeEditedDuplicatedAndReordered() throws {
@@ -249,7 +296,11 @@ final class NotesPersistenceTests: XCTestCase {
             named: "Active Bookmarks",
             query: "SELECT name, status FROM bookmarks WHERE status = active",
             view: "board",
-            groupBy: "status"
+            groupBy: "status",
+            visibleColumns: ["name"],
+            sortColumn: "name",
+            sortDescending: true,
+            rowLimit: 10
         )
         _ = try repository.saveSavedQueryView(
             named: "Recent Daily Notes",
@@ -258,15 +309,28 @@ final class NotesPersistenceTests: XCTestCase {
         )
 
         let result = try repository.runQuery(
-            "SELECT name, view, group_by, sort_order FROM saved_views WHERE view = board"
+            "SELECT name, view, group_by, visible_columns, sort_column, sort_direction, row_limit, sort_order FROM saved_views WHERE view = board"
         )
 
-        XCTAssertEqual(result.columns, ["name", "view", "group_by", "sort_order"])
+        XCTAssertEqual(result.columns, [
+            "name",
+            "view",
+            "group_by",
+            "visible_columns",
+            "sort_column",
+            "sort_direction",
+            "row_limit",
+            "sort_order",
+        ])
         XCTAssertEqual(result.rows, [
             [
                 "name": "Active Bookmarks",
                 "view": "board",
                 "group_by": "status",
+                "visible_columns": "name",
+                "sort_column": "name",
+                "sort_direction": "desc",
+                "row_limit": "10",
                 "sort_order": "0",
             ],
         ])
@@ -349,6 +413,19 @@ final class NotesPersistenceTests: XCTestCase {
         let dailyGroups = queryResultBoardGroups(result: dailyResult, groupBy: nil)
         XCTAssertEqual(dailyGroups.map(\.title), ["2026-06-17", "No date"])
         XCTAssertEqual(dailyGroups.first?.column, "date")
+
+        let displayedResult = queryDisplayedResult(
+            result: result,
+            settings: QueryViewDisplaySettings(
+                visibleColumns: ["owner", "missing", "name"],
+                sortColumn: "owner",
+                sortDescending: false,
+                rowLimit: 1
+            )
+        )
+        XCTAssertEqual(displayedResult.columns, ["owner", "name"])
+        XCTAssertEqual(displayedResult.rows.map { $0["name"] ?? "" }, ["Beta"])
+        XCTAssertEqual(queryEntityID(row: displayedResult.rows[0], columns: displayedResult.columns), entityID)
 
         XCTAssertEqual(queryDocumentID(row: result.rows[0], columns: result.columns), documentID)
         XCTAssertEqual(queryEntityID(row: result.rows[1], columns: result.columns), entityID)
@@ -1018,7 +1095,11 @@ final class NotesPersistenceTests: XCTestCase {
             named: "Open Projects",
             query: "SELECT name, status, owner FROM projects WHERE status = active",
             view: "board",
-            groupBy: "status"
+            groupBy: "status",
+            visibleColumns: ["name", "owner"],
+            sortColumn: "owner",
+            sortDescending: false,
+            rowLimit: 5
         )
         let recentDailyNotesView = try sourceRepository.saveSavedQueryView(
             named: "Recent Daily Notes",
@@ -1044,6 +1125,13 @@ final class NotesPersistenceTests: XCTestCase {
             "Open Projects",
         ])
         XCTAssertEqual(try importedRepository.fetchSavedQueryViews().map(\.sortOrder), [0, 1])
+        let importedOpenProjectsView = try XCTUnwrap(
+            try importedRepository.fetchSavedQueryViews().first { $0.name == "Open Projects" }
+        )
+        XCTAssertEqual(importedOpenProjectsView.visibleColumns, ["name", "owner"])
+        XCTAssertEqual(importedOpenProjectsView.sortColumn, "owner")
+        XCTAssertFalse(importedOpenProjectsView.sortDescending)
+        XCTAssertEqual(importedOpenProjectsView.rowLimit, 5)
         XCTAssertEqual(try importedRepository.fetchSupertagFieldDefinitions(supertagName: "project").map(\.key), [
             "status",
             "owner",
@@ -2845,7 +2933,11 @@ final class NotesPersistenceTests: XCTestCase {
         let savedView = try store.saveSavedQueryView(
             named: "Open Projects",
             query: "SELECT name FROM projects WHERE status != archived",
-            view: "list"
+            view: "list",
+            visibleColumns: ["name"],
+            sortColumn: "name",
+            sortDescending: true,
+            rowLimit: 3
         )
 
         XCTAssertEqual(store.savedQueryViews.count, 1)
@@ -2853,6 +2945,10 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects")
         XCTAssertEqual(store.savedQueryViews.first?.query, "SELECT name FROM projects WHERE status != archived")
         XCTAssertEqual(store.savedQueryViews.first?.view, "list")
+        XCTAssertEqual(store.savedQueryViews.first?.visibleColumns, ["name"])
+        XCTAssertEqual(store.savedQueryViews.first?.sortColumn, "name")
+        XCTAssertEqual(store.savedQueryViews.first?.sortDescending, true)
+        XCTAssertEqual(store.savedQueryViews.first?.rowLimit, 3)
         XCTAssertEqual(store.savedQueryViews.first?.sortOrder, 0)
 
         let promotedView = try store.createSavedQueryView(
@@ -2878,7 +2974,11 @@ final class NotesPersistenceTests: XCTestCase {
             named: "Open Projects Board",
             query: "SELECT name, status FROM projects WHERE status != archived",
             view: "board",
-            groupBy: "status"
+            groupBy: "status",
+            visibleColumns: ["name", "status"],
+            sortColumn: "status",
+            sortDescending: false,
+            rowLimit: 10
         )
 
         XCTAssertEqual(updatedView.id, savedView.id)
@@ -2886,6 +2986,10 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.savedQueryViews.first?.name, "Open Projects Board")
         XCTAssertEqual(store.savedQueryViews.first?.view, "board")
         XCTAssertEqual(store.savedQueryViews.first?.groupBy, "status")
+        XCTAssertEqual(store.savedQueryViews.first?.visibleColumns, ["name", "status"])
+        XCTAssertEqual(store.savedQueryViews.first?.sortColumn, "status")
+        XCTAssertFalse(store.savedQueryViews.first?.sortDescending ?? true)
+        XCTAssertEqual(store.savedQueryViews.first?.rowLimit, 10)
 
         let duplicateView = try store.duplicateSavedQueryView(id: savedView.id)
         XCTAssertEqual(duplicateView.name, "Open Projects Board Copy")

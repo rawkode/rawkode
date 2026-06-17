@@ -14,6 +14,17 @@ export type SavedQueryViewDefinition = {
   query: string;
   view: string;
   groupBy: string | null;
+  visibleColumns: string[];
+  sortColumn: string | null;
+  sortDescending: boolean;
+  rowLimit: number | null;
+};
+
+export type QueryViewDisplaySettings = {
+  visibleColumns: string[];
+  sortColumn: string | null;
+  sortDescending: boolean;
+  rowLimit: number | null;
 };
 
 export type SavedQueryViewsListener = () => void;
@@ -63,15 +74,33 @@ export function resolveSavedQueryView(savedViewId: unknown) {
   return savedQueryViewsSnapshot.find((savedView) => savedView.id === normalizedId) ?? null;
 }
 
-export function savedQueryViewSummary(savedView: Pick<SavedQueryViewDefinition, 'view' | 'groupBy'>) {
+export function savedQueryViewSummary(
+  savedView: Pick<SavedQueryViewDefinition, 'view' | 'groupBy'> & Partial<QueryViewDisplaySettings>
+) {
   const view = normalizedSavedQueryViewMode(savedView.view);
   const groupBy = parseQueryGroupBy(savedView.groupBy);
+  const displaySettings = normalizeQueryViewDisplaySettings(savedView);
+  const details: string[] = [];
 
   if (view === 'board' && groupBy) {
-    return `Board by ${groupBy}`;
+    details.push(`Board by ${groupBy}`);
+  } else {
+    details.push(view.charAt(0).toUpperCase() + view.slice(1));
   }
 
-  return view.charAt(0).toUpperCase() + view.slice(1);
+  if (displaySettings.visibleColumns.length > 0) {
+    details.push(`${displaySettings.visibleColumns.length} columns`);
+  }
+
+  if (displaySettings.sortColumn) {
+    details.push(`sort ${displaySettings.sortColumn} ${displaySettings.sortDescending ? 'desc' : 'asc'}`);
+  }
+
+  if (displaySettings.rowLimit) {
+    details.push(`limit ${displaySettings.rowLimit}`);
+  }
+
+  return details.join(' · ');
 }
 
 export function savedQueryViewOptionLabel(savedView: SavedQueryViewDefinition) {
@@ -106,14 +135,29 @@ export function savedQueryViewPromotionSignature(input: {
   query: unknown;
   view: unknown;
   groupBy: unknown;
+  visibleColumns?: unknown;
+  sortColumn?: unknown;
+  sortDescending?: unknown;
+  rowLimit?: unknown;
 }) {
   const savedViewId = normalizedOptionalString(input.savedViewId) ?? '';
   const title = normalizedOptionalString(input.title) ?? '';
   const query = typeof input.query === 'string' ? input.query : '';
   const view = normalizedOptionalString(input.view) ?? 'table';
   const groupBy = normalizedOptionalString(input.groupBy) ?? '';
+  const displaySettings = normalizeQueryViewDisplaySettings(input);
 
-  return [savedViewId, title, query, view, groupBy].join('\u0000');
+  return [
+    savedViewId,
+    title,
+    query,
+    view,
+    groupBy,
+    displaySettings.visibleColumns.join(','),
+    displaySettings.sortColumn ?? '',
+    displaySettings.sortDescending ? 'desc' : 'asc',
+    displaySettings.rowLimit?.toString() ?? '',
+  ].join('\u0000');
 }
 
 export function upsertSavedQueryViewSnapshot(savedQueryView: unknown) {
@@ -192,6 +236,102 @@ export function buildBoardGroups(
   }));
 }
 
+export function normalizeQueryViewDisplaySettings(input: unknown): QueryViewDisplaySettings {
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  return {
+    visibleColumns: normalizeVisibleColumns(record.visibleColumns),
+    sortColumn: parseQuerySortColumn(record.sortColumn),
+    sortDescending: parseQuerySortDescending(record.sortDescending ?? record.sortDirection),
+    rowLimit: parseQueryRowLimit(record.rowLimit),
+  };
+}
+
+export function normalizeVisibleColumns(value: unknown) {
+  const rawColumns = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const seen = new Set<string>();
+  const columns: string[] = [];
+
+  for (const rawColumn of rawColumns) {
+    if (typeof rawColumn !== 'string') {
+      continue;
+    }
+
+    const column = rawColumn.trim();
+    if (!column || seen.has(column)) {
+      continue;
+    }
+
+    seen.add(column);
+    columns.push(column);
+  }
+
+  return columns;
+}
+
+export function parseQuerySortColumn(value: unknown) {
+  return normalizedOptionalString(value);
+}
+
+export function parseQuerySortDescending(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  return value.trim().toLowerCase() === 'desc' || value.trim().toLowerCase() === 'descending';
+}
+
+export function parseQueryRowLimit(value: unknown) {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number.parseInt(value.trim(), 10)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.floor(parsed);
+}
+
+export function queryDisplayColumns(columns: string[], settings: QueryViewDisplaySettings) {
+  const visibleColumns = normalizeVisibleColumns(settings.visibleColumns);
+  const requestedColumns = visibleColumns.filter((column) => columns.includes(column));
+  return requestedColumns.length > 0 ? requestedColumns : columns;
+}
+
+export function queryDisplayRows(
+  rows: QueryResultRow[],
+  columns: string[],
+  settings: QueryViewDisplaySettings
+) {
+  let displayRows = [...rows];
+  const sortColumn = parseQuerySortColumn(settings.sortColumn);
+
+  if (sortColumn && columns.includes(sortColumn)) {
+    displayRows.sort((left, right) => {
+      const comparison = compareQueryValues(left[sortColumn] ?? '', right[sortColumn] ?? '');
+      return settings.sortDescending ? -comparison : comparison;
+    });
+  }
+
+  const rowLimit = parseQueryRowLimit(settings.rowLimit);
+  if (rowLimit && displayRows.length > rowLimit) {
+    displayRows = displayRows.slice(0, rowLimit);
+  }
+
+  return displayRows;
+}
+
 function resolveBoardGroupColumn(columns: string[], requestedGroupBy: string) {
   if (requestedGroupBy) {
     return columns.includes(requestedGroupBy) ? requestedGroupBy : null;
@@ -245,6 +385,10 @@ function normalizeSavedQueryView(savedQueryView: unknown): SavedQueryViewDefinit
     query,
     view: normalizedRequiredString(record.view) ?? 'table',
     groupBy: normalizedOptionalString(record.groupBy),
+    visibleColumns: normalizeVisibleColumns(record.visibleColumns),
+    sortColumn: parseQuerySortColumn(record.sortColumn),
+    sortDescending: parseQuerySortDescending(record.sortDescending ?? record.sortDirection),
+    rowLimit: parseQueryRowLimit(record.rowLimit),
   };
 }
 
@@ -279,4 +423,17 @@ function normalizedOptionalString(value: unknown) {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function compareQueryValues(left: string, right: string) {
+  const leftTrimmed = left.trim();
+  const rightTrimmed = right.trim();
+  const leftNumber = Number(leftTrimmed);
+  const rightNumber = Number(rightTrimmed);
+
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+
+  return leftTrimmed.localeCompare(rightTrimmed, undefined, { numeric: true, sensitivity: 'base' });
 }

@@ -309,7 +309,11 @@ final class NotesStore {
         named name: String,
         query: String,
         view: String = "table",
-        groupBy: String? = nil
+        groupBy: String? = nil,
+        visibleColumns: [String] = [],
+        sortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit: Int? = nil
     ) throws -> SavedQueryView {
         guard let repository = requireRepository() else {
             throw SQLiteNotesError.missingDatabase
@@ -320,7 +324,11 @@ final class NotesStore {
                 named: name,
                 query: query,
                 view: view,
-                groupBy: groupBy
+                groupBy: groupBy,
+                visibleColumns: visibleColumns,
+                sortColumn: sortColumn,
+                sortDescending: sortDescending,
+                rowLimit: rowLimit
             )
             savedQueryViews = try repository.fetchSavedQueryViews()
             return savedView
@@ -335,7 +343,11 @@ final class NotesStore {
         named name: String,
         query: String,
         view: String = "table",
-        groupBy: String? = nil
+        groupBy: String? = nil,
+        visibleColumns: [String] = [],
+        sortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit: Int? = nil
     ) throws -> SavedQueryView {
         guard let repository = requireRepository() else {
             throw SQLiteNotesError.missingDatabase
@@ -346,7 +358,11 @@ final class NotesStore {
                 named: name,
                 query: query,
                 view: view,
-                groupBy: groupBy
+                groupBy: groupBy,
+                visibleColumns: visibleColumns,
+                sortColumn: sortColumn,
+                sortDescending: sortDescending,
+                rowLimit: rowLimit
             )
             savedQueryViews = try repository.fetchSavedQueryViews()
             return savedView
@@ -375,7 +391,11 @@ final class NotesStore {
         named name: String,
         query: String,
         view: String = "table",
-        groupBy: String? = nil
+        groupBy: String? = nil,
+        visibleColumns: [String] = [],
+        sortColumn: String? = nil,
+        sortDescending: Bool = false,
+        rowLimit: Int? = nil
     ) throws -> SavedQueryView {
         guard let repository = requireRepository() else {
             throw SQLiteNotesError.missingDatabase
@@ -387,7 +407,11 @@ final class NotesStore {
                 named: name,
                 query: query,
                 view: view,
-                groupBy: groupBy
+                groupBy: groupBy,
+                visibleColumns: visibleColumns,
+                sortColumn: sortColumn,
+                sortDescending: sortDescending,
+                rowLimit: rowLimit
             )
             savedQueryViews = try repository.fetchSavedQueryViews()
             return savedView

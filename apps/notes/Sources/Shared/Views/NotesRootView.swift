@@ -24,6 +24,10 @@ struct NotesRootView: View {
     @State private var savedViewDraftQuery = "SELECT * FROM daily_notes"
     @State private var savedViewDraftMode = "table"
     @State private var savedViewDraftGroupBy = ""
+    @State private var savedViewDraftVisibleColumns = ""
+    @State private var savedViewDraftSortColumn = ""
+    @State private var savedViewDraftSortDescending = false
+    @State private var savedViewDraftRowLimit = 0
     @State private var vaultExportDocument: NotesVaultFileDocument?
     @State private var isPresentingVaultExporter = false
     @State private var isConfirmingVaultImport = false
@@ -269,12 +273,16 @@ struct NotesRootView: View {
                     onQueryRun: { query in
                         try store.runQuery(query)
                     },
-                    onSavedQueryViewCreate: { name, query, view, groupBy in
+                    onSavedQueryViewCreate: { name, query, view, groupBy, visibleColumns, sortColumn, sortDescending, rowLimit in
                         try store.createSavedQueryView(
                             named: name,
                             query: query,
                             view: view,
-                            groupBy: groupBy
+                            groupBy: groupBy,
+                            visibleColumns: visibleColumns,
+                            sortColumn: sortColumn,
+                            sortDescending: sortDescending,
+                            rowLimit: rowLimit
                         )
                     },
                     onOpenDocument: { documentID in
@@ -307,6 +315,10 @@ struct NotesRootView: View {
                 query: $savedViewDraftQuery,
                 view: $savedViewDraftMode,
                 groupBy: $savedViewDraftGroupBy,
+                visibleColumns: $savedViewDraftVisibleColumns,
+                sortColumn: $savedViewDraftSortColumn,
+                sortDescending: $savedViewDraftSortDescending,
+                rowLimit: $savedViewDraftRowLimit,
                 isEditing: savedViewDraftEditingID != nil,
                 onCancel: {
                     isPresentingSavedViewEditor = false
@@ -429,6 +441,10 @@ struct NotesRootView: View {
         savedViewDraftQuery = "SELECT * FROM daily_notes"
         savedViewDraftMode = "table"
         savedViewDraftGroupBy = ""
+        savedViewDraftVisibleColumns = ""
+        savedViewDraftSortColumn = ""
+        savedViewDraftSortDescending = false
+        savedViewDraftRowLimit = 0
         isPresentingSavedViewEditor = true
     }
 
@@ -438,6 +454,10 @@ struct NotesRootView: View {
         savedViewDraftQuery = savedView.query
         savedViewDraftMode = savedView.view
         savedViewDraftGroupBy = savedView.groupBy ?? ""
+        savedViewDraftVisibleColumns = savedView.visibleColumns.joined(separator: ", ")
+        savedViewDraftSortColumn = savedView.sortColumn ?? ""
+        savedViewDraftSortDescending = savedView.sortDescending
+        savedViewDraftRowLimit = savedView.rowLimit ?? 0
         isPresentingSavedViewEditor = true
     }
 
@@ -485,14 +505,22 @@ struct NotesRootView: View {
                     named: savedViewDraftName,
                     query: savedViewDraftQuery,
                     view: savedViewDraftMode,
-                    groupBy: savedViewDraftGroupBy
+                    groupBy: savedViewDraftGroupBy,
+                    visibleColumns: savedViewDraftVisibleColumnList,
+                    sortColumn: savedViewDraftSortColumnValue,
+                    sortDescending: savedViewDraftSortDescending,
+                    rowLimit: savedViewDraftRowLimitValue
                 )
             } else {
                 savedView = try store.saveSavedQueryView(
                     named: savedViewDraftName,
                     query: savedViewDraftQuery,
                     view: savedViewDraftMode,
-                    groupBy: savedViewDraftGroupBy
+                    groupBy: savedViewDraftGroupBy,
+                    visibleColumns: savedViewDraftVisibleColumnList,
+                    sortColumn: savedViewDraftSortColumnValue,
+                    sortDescending: savedViewDraftSortDescending,
+                    rowLimit: savedViewDraftRowLimitValue
                 )
             }
             sidebarSelection = .savedQueryView(savedView.id)
@@ -502,6 +530,19 @@ struct NotesRootView: View {
         } catch {
             // NotesStore already exposes the validation failure through lastErrorMessage.
         }
+    }
+
+    private var savedViewDraftVisibleColumnList: [String] {
+        normalizedDraftColumns(savedViewDraftVisibleColumns)
+    }
+
+    private var savedViewDraftSortColumnValue: String? {
+        let trimmed = savedViewDraftSortColumn.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var savedViewDraftRowLimitValue: Int? {
+        savedViewDraftRowLimit > 0 ? savedViewDraftRowLimit : nil
     }
 
     private func openDocument(_ documentID: UUID) {
@@ -1111,6 +1152,10 @@ private struct SavedQueryViewEditorSheet: View {
     @Binding var query: String
     @Binding var view: String
     @Binding var groupBy: String
+    @Binding var visibleColumns: String
+    @Binding var sortColumn: String
+    @Binding var sortDescending: Bool
+    @Binding var rowLimit: Int
 
     let isEditing: Bool
     let onCancel: () -> Void
@@ -1119,26 +1164,42 @@ private struct SavedQueryViewEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
+                Section("Definition") {
+                    TextField("Name", text: $name)
 
-                Picker("View", selection: $view) {
-                    Text("Table").tag("table")
-                    Text("List").tag("list")
-                    Text("Board").tag("board")
+                    Picker("View", selection: $view) {
+                        Text("Table").tag("table")
+                        Text("List").tag("list")
+                        Text("Board").tag("board")
+                    }
+                    .pickerStyle(.segmented)
+
+                    if view == "board" {
+                        TextField("Group By", text: $groupBy)
+                    }
                 }
-                .pickerStyle(.segmented)
 
-                if view == "board" {
-                    TextField("Group By", text: $groupBy)
+                Section("Display") {
+                    TextField("Visible Columns", text: $visibleColumns, prompt: Text("name, status"))
+                    TextField("Sort By", text: $sortColumn, prompt: Text("updated_at"))
+
+                    Picker("Direction", selection: $sortDescending) {
+                        Text("Asc").tag(false)
+                        Text("Desc").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(sortColumn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Stepper(value: $rowLimit, in: 0...1_000) {
+                        Text(rowLimit > 0 ? "Row Limit: \(rowLimit)" : "Row Limit: All")
+                    }
                 }
 
-                Text("Query")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                TextEditor(text: $query)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 160)
+                Section("Query") {
+                    TextEditor(text: $query)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 160)
+                }
             }
             .navigationTitle(isEditing ? "Edit Saved View" : "New Saved View")
 #if os(iOS)
@@ -1155,7 +1216,7 @@ private struct SavedQueryViewEditorSheet: View {
                 }
             }
         }
-        .frame(minWidth: 460, minHeight: 360)
+        .frame(minWidth: 500, minHeight: 460)
     }
 
     private var canSave: Bool {
@@ -2035,7 +2096,15 @@ private struct SavedQueryViewDetailView: View {
     }
 
     private var refreshID: String {
-        "\(savedView.id.uuidString):\(savedView.updatedAt.timeIntervalSinceReferenceDate):\(savedView.query)"
+        [
+            savedView.id.uuidString,
+            String(savedView.updatedAt.timeIntervalSinceReferenceDate),
+            savedView.query,
+            savedView.visibleColumns.joined(separator: ","),
+            savedView.sortColumn ?? "",
+            savedView.sortDescending ? "desc" : "asc",
+            savedView.rowLimit.map(String.init) ?? "",
+        ].joined(separator: ":")
     }
 
     private var header: some View {
@@ -2082,6 +2151,18 @@ private struct SavedQueryViewDetailView: View {
                     Label(groupBy, systemImage: "rectangle.3.group")
                 }
 
+                if let visibleColumnSummary {
+                    Label(visibleColumnSummary, systemImage: "eye")
+                }
+
+                if let sortColumn = savedView.sortColumn {
+                    Label("\(sortColumn) \(savedView.sortDescending ? "desc" : "asc")", systemImage: "arrow.up.arrow.down")
+                }
+
+                if let rowLimit = savedView.rowLimit {
+                    Label("Limit \(rowLimit)", systemImage: "number")
+                }
+
                 Label("Order \(savedView.sortOrder + 1)", systemImage: "arrow.up.arrow.down")
 
                 Label {
@@ -2110,6 +2191,19 @@ private struct SavedQueryViewDetailView: View {
             }
     }
 
+    private var visibleColumnSummary: String? {
+        guard !savedView.visibleColumns.isEmpty else {
+            return nil
+        }
+
+        if let result {
+            let renderedColumns = queryDisplayColumns(result: result, settings: savedView.displaySettings)
+            return "\(renderedColumns.count) columns"
+        }
+
+        return "\(savedView.visibleColumns.count) requested"
+    }
+
     @ViewBuilder
     private var queryResult: some View {
         if let errorMessage {
@@ -2119,8 +2213,10 @@ private struct SavedQueryViewDetailView: View {
                 description: Text(errorMessage)
             )
         } else if let result {
+            let displayedRows = queryDisplayRows(result: result, settings: savedView.displaySettings)
+
             VStack(alignment: .leading, spacing: 10) {
-                Text("\(result.rows.count) rows")
+                Text("\(displayedRows.count) rows")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -2128,6 +2224,7 @@ private struct SavedQueryViewDetailView: View {
                     result: result,
                     view: normalizedQueryViewMode(savedView.view),
                     groupBy: savedView.groupBy,
+                    displaySettings: savedView.displaySettings,
                     onOpenDocument: onOpenDocument,
                     onOpenEntity: onOpenEntity
                 )
@@ -2153,6 +2250,7 @@ private struct QueryResultView: View {
     let result: QueryResult
     let view: String
     let groupBy: String?
+    var displaySettings = QueryViewDisplaySettings()
     let onOpenDocument: (UUID) -> Void
     let onOpenEntity: (UUID) -> Void
 
@@ -2160,7 +2258,7 @@ private struct QueryResultView: View {
         switch view {
         case "list":
             QueryResultList(
-                result: result,
+                result: queryDisplayedResult(result: result, settings: displaySettings),
                 onOpenDocument: onOpenDocument,
                 onOpenEntity: onOpenEntity
             )
@@ -2169,13 +2267,14 @@ private struct QueryResultView: View {
             QueryResultBoard(
                 result: result,
                 groupBy: groupBy,
+                displaySettings: displaySettings,
                 onOpenDocument: onOpenDocument,
                 onOpenEntity: onOpenEntity
             )
 
         default:
             QueryResultGrid(
-                result: result,
+                result: queryDisplayedResult(result: result, settings: displaySettings),
                 onOpenDocument: onOpenDocument,
                 onOpenEntity: onOpenEntity
             )
@@ -2274,11 +2373,17 @@ private struct QueryResultList: View {
 private struct QueryResultBoard: View {
     let result: QueryResult
     let groupBy: String?
+    var displaySettings = QueryViewDisplaySettings()
     let onOpenDocument: (UUID) -> Void
     let onOpenEntity: (UUID) -> Void
 
     var body: some View {
-        let groups = queryResultBoardGroups(result: result, groupBy: groupBy)
+        let displayColumns = queryDisplayColumns(result: result, settings: displaySettings)
+        let displayedResult = QueryResult(
+            columns: result.columns,
+            rows: queryDisplayRows(result: result, settings: displaySettings)
+        )
+        let groups = queryResultBoardGroups(result: displayedResult, groupBy: groupBy)
 
         if groups.isEmpty {
             ContentUnavailableView("No Results", systemImage: "rectangle.3.group")
@@ -2303,7 +2408,7 @@ private struct QueryResultBoard: View {
                             ForEach(Array(group.rows.enumerated()), id: \.offset) { _, row in
                                 QueryResultCard(
                                     row: row,
-                                    columns: result.columns,
+                                    columns: displayColumns,
                                     excludedColumns: [group.column],
                                     onOpenDocument: onOpenDocument,
                                     onOpenEntity: onOpenEntity
@@ -2417,13 +2522,9 @@ private struct SavedQueryViewRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    Text(savedView.view.capitalized)
-
-                    if let groupBy = savedView.groupBy, !groupBy.isEmpty {
-                        Text(groupBy)
+                    ForEach(savedViewMetadataItems(savedView), id: \.self) { item in
+                        Text(item)
                     }
-
-                    Text("#\(savedView.sortOrder + 1)")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -2437,6 +2538,46 @@ private struct SavedQueryViewRow: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+private func normalizedDraftColumns(_ value: String) -> [String] {
+    var seen: Set<String> = []
+    var result: [String] = []
+
+    for column in value.split(separator: ",") {
+        let normalized = column.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !seen.contains(normalized) else {
+            continue
+        }
+
+        seen.insert(normalized)
+        result.append(normalized)
+    }
+
+    return result
+}
+
+private func savedViewMetadataItems(_ savedView: SavedQueryView) -> [String] {
+    var items = [savedView.view.capitalized]
+
+    if let groupBy = savedView.groupBy, !groupBy.isEmpty {
+        items.append(groupBy)
+    }
+
+    if !savedView.visibleColumns.isEmpty {
+        items.append("\(savedView.visibleColumns.count) requested")
+    }
+
+    if let sortColumn = savedView.sortColumn {
+        items.append("\(sortColumn) \(savedView.sortDescending ? "desc" : "asc")")
+    }
+
+    if let rowLimit = savedView.rowLimit {
+        items.append("limit \(rowLimit)")
+    }
+
+    items.append("#\(savedView.sortOrder + 1)")
+    return items
 }
 
 private func savedViewIconName(_ view: String) -> String {

@@ -66,6 +66,28 @@ SELECT * FROM bookmarks
     expect(parseQueryFenceOpening("```ql name='Weekly Planning'")?.title).toBe('Weekly Planning');
   });
 
+  test('parses query display attributes', () => {
+    expect(
+      parseQueryFenceText(`\`\`\`ql view=board group=status columns="name, owner, name" sort=priority:desc limit=10
+SELECT * FROM projects
+\`\`\``)
+    ).toEqual({
+      query: 'SELECT * FROM projects',
+      view: 'board',
+      groupBy: 'status',
+      visibleColumns: ['name', 'owner'],
+      sortColumn: 'priority',
+      sortDescending: true,
+      rowLimit: 10,
+    });
+
+    expect(parseQueryFenceOpening('```ql show="title,date" sortBy=date direction=desc')?.visibleColumns).toEqual([
+      'title',
+      'date',
+    ]);
+  });
+
+
   test('ignores incomplete or non-query fences', () => {
     expect(parseQueryFenceText('```ts\nconst value = 1;\n```')).toBeNull();
     expect(parseQueryFenceText('```ql\nSELECT * FROM bookmarks')).toBeNull();
@@ -133,6 +155,10 @@ SELECT * FROM bookmarks
       groupBy: 'status',
       title: 'Project Board',
       savedViewId: null,
+      visibleColumns: [],
+      sortColumn: null,
+      sortDescending: false,
+      rowLimit: null,
     });
 
     expect(
@@ -148,6 +174,10 @@ SELECT * FROM bookmarks
       groupBy: null,
       title: null,
       savedViewId: null,
+      visibleColumns: [],
+      sortColumn: null,
+      sortDescending: false,
+      rowLimit: null,
     });
   });
 });

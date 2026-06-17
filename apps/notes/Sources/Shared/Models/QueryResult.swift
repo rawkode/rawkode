@@ -16,6 +16,21 @@ struct QueryResultSecondaryValue: Equatable, Sendable {
     var value: String
 }
 
+struct QueryViewDisplaySettings: Equatable, Sendable, Codable {
+    var visibleColumns: [String] = []
+    var sortColumn: String?
+    var sortDescending = false
+    var rowLimit: Int?
+
+    var sortDirection: String {
+        sortDescending ? "desc" : "asc"
+    }
+
+    var hasDisplaySettings: Bool {
+        !visibleColumns.isEmpty || sortColumn != nil || rowLimit != nil
+    }
+}
+
 func normalizedQueryViewMode(_ value: String) -> String {
     switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
     case "list":
@@ -115,4 +130,59 @@ private func queryResultBoardGroupColumn(columns: [String], groupBy rawGroupBy: 
 
     let preferredColumns = ["status", "lane", "stage", "state", "date", "supertags"]
     return preferredColumns.first { columns.contains($0) }
+}
+
+func queryDisplayedResult(
+    result: QueryResult,
+    settings: QueryViewDisplaySettings
+) -> QueryResult {
+    QueryResult(
+        columns: queryDisplayColumns(result: result, settings: settings),
+        rows: queryDisplayRows(result: result, settings: settings)
+    )
+}
+
+func queryDisplayColumns(
+    result: QueryResult,
+    settings: QueryViewDisplaySettings
+) -> [String] {
+    let requestedColumns = settings.visibleColumns.filter { result.columns.contains($0) }
+    return requestedColumns.isEmpty ? result.columns : requestedColumns
+}
+
+func queryDisplayRows(
+    result: QueryResult,
+    settings: QueryViewDisplaySettings
+) -> [[String: String]] {
+    var rows = result.rows
+
+    if let sortColumn = settings.sortColumn, result.columns.contains(sortColumn) {
+        rows.sort { left, right in
+            let comparison = queryCompareDisplayValues(left[sortColumn] ?? "", right[sortColumn] ?? "")
+            return settings.sortDescending ? comparison == .orderedDescending : comparison == .orderedAscending
+        }
+    }
+
+    if let rowLimit = settings.rowLimit, rowLimit > 0, rows.count > rowLimit {
+        rows = Array(rows.prefix(rowLimit))
+    }
+
+    return rows
+}
+
+private func queryCompareDisplayValues(_ left: String, _ right: String) -> ComparisonResult {
+    let leftTrimmed = left.trimmingCharacters(in: .whitespacesAndNewlines)
+    let rightTrimmed = right.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if let leftNumber = Double(leftTrimmed), let rightNumber = Double(rightTrimmed) {
+        if leftNumber < rightNumber {
+            return .orderedAscending
+        }
+        if leftNumber > rightNumber {
+            return .orderedDescending
+        }
+        return .orderedSame
+    }
+
+    return leftTrimmed.localizedStandardCompare(rightTrimmed)
 }

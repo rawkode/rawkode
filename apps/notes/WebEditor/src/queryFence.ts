@@ -5,6 +5,10 @@ export type ParsedQueryFence = {
   view: QueryViewMode;
   groupBy?: string;
   title?: string;
+  visibleColumns?: string[];
+  sortColumn?: string;
+  sortDescending?: boolean;
+  rowLimit?: number;
 };
 
 export type QueryFenceReplacement = ParsedQueryFence & {
@@ -18,6 +22,10 @@ export type QueryViewNodeAttributes = {
   groupBy: string | null;
   title: string | null;
   savedViewId: string | null;
+  visibleColumns: string[];
+  sortColumn: string | null;
+  sortDescending: boolean;
+  rowLimit: number | null;
 };
 
 export type QueryFenceTextBlock = {
@@ -31,6 +39,10 @@ type QueryFenceOpening = {
   view: QueryViewMode;
   groupBy?: string;
   title?: string;
+  visibleColumns?: string[];
+  sortColumn?: string;
+  sortDescending?: boolean;
+  rowLimit?: number;
 };
 
 export function parseQueryViewMode(value: unknown): QueryViewMode {
@@ -151,6 +163,10 @@ export function queryFenceReplacementToNodeAttributes(
     groupBy: replacement.groupBy ?? null,
     title: replacement.title ?? null,
     savedViewId: null,
+    visibleColumns: replacement.visibleColumns ?? [],
+    sortColumn: replacement.sortColumn ?? null,
+    sortDescending: replacement.sortDescending ?? false,
+    rowLimit: replacement.rowLimit ?? null,
   };
 }
 
@@ -173,22 +189,23 @@ function parseQueryFenceInfo(info: unknown): QueryFenceOpening | null {
 }
 
 function parseQueryFenceAttributes(attributes: string): QueryFenceOpening {
-  const viewMatch = attributes.match(
-    /(?:^|\s|\{)view\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
-  );
-  const groupMatch = attributes.match(
-    /(?:^|\s|\{)(?:group|groupBy)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
-  );
-  const titleMatch = attributes.match(
-    /(?:^|\s|\{)(?:title|name)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s}]+))/i
-  );
-  const groupBy = groupMatch?.[1] ?? groupMatch?.[2] ?? groupMatch?.[3];
-  const title = titleMatch?.[1] ?? titleMatch?.[2] ?? titleMatch?.[3];
+  const view = parseAttribute(attributes, ['view']);
+  const groupBy = parseAttribute(attributes, ['group', 'groupBy']);
+  const title = parseAttribute(attributes, ['title', 'name']);
+  const visibleColumns = parseVisibleColumns(parseAttribute(attributes, ['columns', 'show']));
+  const sortAttribute = parseAttribute(attributes, ['sort', 'sortBy']);
+  const direction = parseAttribute(attributes, ['direction', 'dir']);
+  const sort = parseSortAttribute(sortAttribute, direction);
+  const rowLimit = parseRowLimit(parseAttribute(attributes, ['limit']));
 
   return {
-    view: parseQueryViewMode(viewMatch?.[1] ?? viewMatch?.[2] ?? viewMatch?.[3]),
+    view: parseQueryViewMode(view),
     ...(groupBy ? { groupBy: groupBy.trim() } : {}),
     ...(title ? { title: title.trim() } : {}),
+    ...(visibleColumns.length > 0 ? { visibleColumns } : {}),
+    ...(sort.sortColumn ? { sortColumn: sort.sortColumn } : {}),
+    ...(sort.sortDescending ? { sortDescending: true } : {}),
+    ...(rowLimit ? { rowLimit } : {}),
   };
 }
 
@@ -196,7 +213,60 @@ function queryFenceOptionalAttributes(opening: QueryFenceOpening) {
   return {
     ...(opening.groupBy ? { groupBy: opening.groupBy } : {}),
     ...(opening.title ? { title: opening.title } : {}),
+    ...(opening.visibleColumns && opening.visibleColumns.length > 0
+      ? { visibleColumns: opening.visibleColumns }
+      : {}),
+    ...(opening.sortColumn ? { sortColumn: opening.sortColumn } : {}),
+    ...(opening.sortDescending ? { sortDescending: opening.sortDescending } : {}),
+    ...(opening.rowLimit ? { rowLimit: opening.rowLimit } : {}),
   };
+}
+
+function parseAttribute(attributes: string, names: string[]) {
+  const source = names.map(escapeRegExp).join('|');
+  const match = attributes.match(
+    new RegExp(`(?:^|\\s|\\{)(?:${source})\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s}]+))`, 'i')
+  );
+
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? '';
+}
+
+function parseVisibleColumns(value: string) {
+  const seen = new Set<string>();
+  const columns: string[] = [];
+
+  for (const part of value.split(',')) {
+    const column = part.trim();
+    if (!column || seen.has(column)) {
+      continue;
+    }
+
+    seen.add(column);
+    columns.push(column);
+  }
+
+  return columns;
+}
+
+function parseSortAttribute(sortAttribute: string, direction: string) {
+  const parts = sortAttribute.split(':');
+  const sortColumn = parts[0]?.trim() ?? '';
+  const inlineDirection = parts[1]?.trim() ?? '';
+  const resolvedDirection = direction.trim() || inlineDirection;
+
+  return {
+    sortColumn,
+    sortDescending: ['desc', 'descending'].includes(resolvedDirection.toLowerCase()),
+  };
+}
+
+function parseRowLimit(value: string) {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function normalizeLines(value: string) {

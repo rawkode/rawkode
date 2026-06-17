@@ -10,7 +10,16 @@ struct NoteEditorView: View {
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
-    let onSavedQueryViewCreate: (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView
+    let onSavedQueryViewCreate: (
+        _ name: String,
+        _ query: String,
+        _ view: String,
+        _ groupBy: String?,
+        _ visibleColumns: [String],
+        _ sortColumn: String?,
+        _ sortDescending: Bool,
+        _ rowLimit: Int?
+    ) throws -> SavedQueryView
     let onOpenDocument: (_ documentID: UUID) -> Void
     let onOpenEntity: (_ entityID: UUID) -> Void
     @State private var editorStatus: EditorStatus = .loading
@@ -422,13 +431,17 @@ private struct EditorStatusBanner: View {
             onQueryRun: { _ in
                 QueryResult(columns: ["name"], rows: [["name": "Preview"]])
             },
-            onSavedQueryViewCreate: { name, query, view, groupBy in
+            onSavedQueryViewCreate: { name, query, view, groupBy, visibleColumns, sortColumn, sortDescending, rowLimit in
                 SavedQueryView(
                     id: UUID(),
                     name: name,
                     query: query,
                     view: view,
                     groupBy: groupBy,
+                    visibleColumns: visibleColumns,
+                    sortColumn: sortColumn,
+                    sortDescending: sortDescending,
+                    rowLimit: rowLimit,
                     sortOrder: 0,
                     createdAt: .now,
                     updatedAt: .now

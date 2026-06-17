@@ -15,7 +15,16 @@ struct WebEditorView {
     let onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
     let onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
     let onQueryRun: (_ query: String) throws -> QueryResult
-    let onSavedQueryViewCreate: (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView
+    let onSavedQueryViewCreate: (
+        _ name: String,
+        _ query: String,
+        _ view: String,
+        _ groupBy: String?,
+        _ visibleColumns: [String],
+        _ sortColumn: String?,
+        _ sortDescending: Bool,
+        _ rowLimit: Int?
+    ) throws -> SavedQueryView
     let onOpenDocument: (_ documentID: UUID) -> Void
     let onOpenEntity: (_ entityID: UUID) -> Void
     let onReady: () -> Void
@@ -131,7 +140,16 @@ extension WebEditorView {
         var onChange: (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void
         var onEntityUpsert: (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference
         var onQueryRun: (_ query: String) throws -> QueryResult
-        var onSavedQueryViewCreate: (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView
+        var onSavedQueryViewCreate: (
+            _ name: String,
+            _ query: String,
+            _ view: String,
+            _ groupBy: String?,
+            _ visibleColumns: [String],
+            _ sortColumn: String?,
+            _ sortDescending: Bool,
+            _ rowLimit: Int?
+        ) throws -> SavedQueryView
         var onOpenDocument: (_ documentID: UUID) -> Void
         var onOpenEntity: (_ entityID: UUID) -> Void
         var onReady: () -> Void
@@ -152,7 +170,16 @@ extension WebEditorView {
             onChange: @escaping (_ documentID: UUID, _ title: String, _ contentJSON: String, _ plainText: String) -> Void,
             onEntityUpsert: @escaping (_ name: String, _ supertagNames: [String], _ properties: [String: String]?) throws -> EntityReference,
             onQueryRun: @escaping (_ query: String) throws -> QueryResult,
-            onSavedQueryViewCreate: @escaping (_ name: String, _ query: String, _ view: String, _ groupBy: String?) throws -> SavedQueryView,
+            onSavedQueryViewCreate: @escaping (
+                _ name: String,
+                _ query: String,
+                _ view: String,
+                _ groupBy: String?,
+                _ visibleColumns: [String],
+                _ sortColumn: String?,
+                _ sortDescending: Bool,
+                _ rowLimit: Int?
+            ) throws -> SavedQueryView,
             onOpenDocument: @escaping (_ documentID: UUID) -> Void,
             onOpenEntity: @escaping (_ entityID: UUID) -> Void,
             onReady: @escaping () -> Void,
@@ -355,9 +382,22 @@ extension WebEditorView {
                 }
 
                 let groupBy = body["groupBy"] as? String
+                let visibleColumns = body["visibleColumns"] as? [String] ?? []
+                let sortColumn = body["sortColumn"] as? String
+                let sortDescending = body["sortDescending"] as? Bool ?? ((body["sortDirection"] as? String) == "desc")
+                let rowLimit = bridgeInt(body["rowLimit"])
 
                 do {
-                    let savedView = try onSavedQueryViewCreate(name, query, view, groupBy)
+                    let savedView = try onSavedQueryViewCreate(
+                        name,
+                        query,
+                        view,
+                        groupBy,
+                        visibleColumns,
+                        sortColumn,
+                        sortDescending,
+                        rowLimit
+                    )
                     sendSavedQueryViewResponse(
                         SavedQueryViewBridgeResponse(
                             requestId: requestID,
@@ -625,6 +665,10 @@ private struct EditorSavedQueryViewPayload: Encodable {
     let query: String
     let view: String
     let groupBy: String?
+    let visibleColumns: [String]
+    let sortColumn: String?
+    let sortDescending: Bool
+    let rowLimit: Int?
 
     init(savedView: SavedQueryView) {
         self.id = savedView.id.uuidString
@@ -632,6 +676,10 @@ private struct EditorSavedQueryViewPayload: Encodable {
         self.query = savedView.query
         self.view = savedView.view
         self.groupBy = savedView.groupBy
+        self.visibleColumns = savedView.visibleColumns
+        self.sortColumn = savedView.sortColumn
+        self.sortDescending = savedView.sortDescending
+        self.rowLimit = savedView.rowLimit
     }
 }
 
@@ -658,6 +706,10 @@ private struct SavedQueryViewBridgeResponse: Encodable {
     let query: String?
     let view: String?
     let groupBy: String?
+    let visibleColumns: [String]?
+    let sortColumn: String?
+    let sortDescending: Bool?
+    let rowLimit: Int?
     let error: String?
 
     init(requestId: String, savedView: SavedQueryView?, error: String?) {
@@ -667,12 +719,32 @@ private struct SavedQueryViewBridgeResponse: Encodable {
         self.query = savedView?.query
         self.view = savedView?.view
         self.groupBy = savedView?.groupBy
+        self.visibleColumns = savedView?.visibleColumns
+        self.sortColumn = savedView?.sortColumn
+        self.sortDescending = savedView?.sortDescending
+        self.rowLimit = savedView?.rowLimit
         self.error = error
     }
 }
 
 private struct QueryRefreshPayload: Encodable {
     let reason: String
+}
+
+private func bridgeInt(_ value: Any?) -> Int? {
+    if let value = value as? Int {
+        return value
+    }
+
+    if let value = value as? NSNumber {
+        return value.intValue
+    }
+
+    if let value = value as? String {
+        return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    return nil
 }
 
 private final class EditorResourceSchemeHandler: NSObject, WKURLSchemeHandler {

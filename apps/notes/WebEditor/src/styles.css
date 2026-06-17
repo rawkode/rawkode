@@ -256,7 +256,8 @@ select {
   padding: 4px 8px;
 }
 
-.query-block__group {
+.query-block__group,
+.query-block__display {
   display: inline-flex;
   gap: 6px;
   align-items: center;
@@ -264,8 +265,17 @@ select {
   font-size: 0.84rem;
 }
 
-.query-block__group input {
+.query-block__group input,
+.query-block__display input {
   width: 120px;
+}
+
+.query-block__display--columns input {
+  width: 150px;
+}
+
+.query-block__display--limit input {
+  width: 76px;
 }
 
 .query-block__promotion {

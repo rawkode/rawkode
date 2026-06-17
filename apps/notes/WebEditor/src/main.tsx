@@ -18,8 +18,15 @@ import {
 import {
   buildBoardGroups,
   getSavedQueryViews,
+  normalizeQueryViewDisplaySettings,
+  normalizeVisibleColumns,
   notifyQueryRefresh,
   parseQueryGroupBy,
+  parseQueryRowLimit,
+  parseQuerySortColumn,
+  parseQuerySortDescending,
+  queryDisplayColumns,
+  queryDisplayRows,
   queryRowDocumentId,
   queryRowEntityId,
   resolveSavedQueryView,
@@ -30,6 +37,7 @@ import {
   setSavedQueryViews as setSavedQueryViewsSnapshot,
   subscribeQueryRefresh,
   subscribeSavedQueryViews,
+  type QueryViewDisplaySettings,
   type SavedQueryViewDefinition,
   upsertSavedQueryViewSnapshot,
 } from './queryView';
@@ -124,6 +132,10 @@ type NativeBridgeMessage =
       query: string;
       view: QueryViewMode;
       groupBy?: string | null;
+      visibleColumns?: string[];
+      sortColumn?: string | null;
+      sortDescending?: boolean;
+      rowLimit?: number | null;
     }
   | {
       type: 'openDocument';
@@ -228,6 +240,10 @@ const QueryViewNode = Node.create({
       groupBy: { default: null },
       title: { default: null },
       savedViewId: { default: null },
+      visibleColumns: { default: [] },
+      sortColumn: { default: null },
+      sortDescending: { default: false },
+      rowLimit: { default: null },
     };
   },
 
@@ -244,6 +260,12 @@ const QueryViewNode = Node.create({
         'data-group-by': node.attrs.groupBy,
         'data-title': node.attrs.title,
         'data-saved-view-id': node.attrs.savedViewId,
+        'data-visible-columns': Array.isArray(node.attrs.visibleColumns)
+          ? node.attrs.visibleColumns.join(',')
+          : '',
+        'data-sort-column': node.attrs.sortColumn,
+        'data-sort-direction': node.attrs.sortDescending ? 'desc' : 'asc',
+        'data-row-limit': node.attrs.rowLimit,
         class: 'query-view-node',
       }),
       node.attrs.query,
@@ -314,17 +336,41 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const effectiveQuery = savedView?.query ?? query;
   const view = savedView ? parseQueryViewMode(savedView.view) : parseQueryViewMode(node.attrs.view);
   const groupBy = savedView ? parseQueryGroupBy(savedView.groupBy) : parseQueryGroupBy(node.attrs.groupBy);
+  const displaySettings = savedView
+    ? normalizeQueryViewDisplaySettings(savedView)
+    : normalizeQueryViewDisplaySettings({
+        visibleColumns: node.attrs.visibleColumns,
+        sortColumn: node.attrs.sortColumn,
+        sortDescending: node.attrs.sortDescending,
+        rowLimit: node.attrs.rowLimit,
+      });
+  const visibleColumnsText = displaySettings.visibleColumns.join(', ');
+  const sortColumn = displaySettings.sortColumn ?? '';
+  const rowLimitText = displaySettings.rowLimit?.toString() ?? '';
   const title = typeof node.attrs.title === 'string' ? node.attrs.title : '';
   const displayTitle = (savedView?.name ?? title).trim();
   const isSavedViewBacked = Boolean(savedView);
   const isMissingSavedView = Boolean(savedViewId && !savedView);
-  const querySignature = `${savedViewId}\u0000${effectiveQuery}\u0000${view}\u0000${groupBy}`;
+  const querySignature = [
+    savedViewId,
+    effectiveQuery,
+    view,
+    groupBy,
+    displaySettings.visibleColumns.join(','),
+    displaySettings.sortColumn ?? '',
+    displaySettings.sortDescending ? 'desc' : 'asc',
+    displaySettings.rowLimit?.toString() ?? '',
+  ].join('\u0000');
   const promotionBlockSignature = savedQueryViewPromotionSignature({
     savedViewId,
     title: displayTitle,
     query: effectiveQuery,
     view,
     groupBy,
+    visibleColumns: displaySettings.visibleColumns,
+    sortColumn: displaySettings.sortColumn,
+    sortDescending: displaySettings.sortDescending,
+    rowLimit: displaySettings.rowLimit,
   });
   const [result, setResult] = React.useState<QueryResultPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -333,6 +379,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   const [promotionName, setPromotionName] = React.useState('');
   const [promotionError, setPromotionError] = React.useState<string | null>(null);
   const [isSavingPromotion, setIsSavingPromotion] = React.useState(false);
+  const [visibleColumnsInput, setVisibleColumnsInput] = React.useState(visibleColumnsText);
   const didAutoRunRef = React.useRef(false);
   const isMountedRef = React.useRef(true);
   const queryGenerationRef = React.useRef(0);
@@ -351,6 +398,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
   React.useEffect(() => {
     promotionBlockSignatureRef.current = promotionBlockSignature;
   }, [promotionBlockSignature]);
+
+  React.useEffect(() => {
+    setVisibleColumnsInput(visibleColumnsText);
+  }, [visibleColumnsText]);
 
   const run = React.useCallback(async () => {
     const trimmedQuery = effectiveQuery.trim();
@@ -423,6 +474,30 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
     updateAttributes({ view: parseQueryViewMode(nextView), savedViewId: null });
   }
 
+  function updateVisibleColumns(nextColumns: string) {
+    updateAttributes({ visibleColumns: normalizeVisibleColumns(nextColumns), savedViewId: null });
+  }
+
+  function commitVisibleColumnsInput() {
+    if (isSavedViewBacked || isSavingPromotion) {
+      return;
+    }
+
+    updateVisibleColumns(visibleColumnsInput);
+  }
+
+  function updateSortColumn(nextSortColumn: string) {
+    updateAttributes({ sortColumn: parseQuerySortColumn(nextSortColumn), savedViewId: null });
+  }
+
+  function updateSortDescending(nextSortDirection: string) {
+    updateAttributes({ sortDescending: parseQuerySortDescending(nextSortDirection), savedViewId: null });
+  }
+
+  function updateRowLimit(nextRowLimit: string) {
+    updateAttributes({ rowLimit: parseQueryRowLimit(nextRowLimit), savedViewId: null });
+  }
+
   function detachSavedView() {
     updateAttributes({
       query: effectiveQuery,
@@ -430,6 +505,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
       groupBy: groupBy || null,
       title: displayTitle || null,
       savedViewId: null,
+      visibleColumns: displaySettings.visibleColumns,
+      sortColumn: displaySettings.sortColumn,
+      sortDescending: displaySettings.sortDescending,
+      rowLimit: displaySettings.rowLimit,
     });
   }
 
@@ -463,6 +542,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
           query: trimmedQuery,
           view,
           groupBy: groupBy || null,
+          visibleColumns: displaySettings.visibleColumns,
+          sortColumn: displaySettings.sortColumn,
+          sortDescending: displaySettings.sortDescending,
+          rowLimit: displaySettings.rowLimit,
         },
         snapshot
       );
@@ -482,6 +565,10 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         groupBy: parseQueryGroupBy(savedView.groupBy) || null,
         title: savedView.name,
         savedViewId: savedView.id,
+        visibleColumns: savedView.visibleColumns,
+        sortColumn: savedView.sortColumn,
+        sortDescending: savedView.sortDescending,
+        rowLimit: savedView.rowLimit,
       });
       setIsPromoting(false);
     } catch (requestError) {
@@ -576,6 +663,51 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
             />
           </label>
         ) : null}
+        <label className="query-block__display query-block__display--columns">
+          <span>Columns</span>
+          <input
+            value={visibleColumnsInput}
+            readOnly={isSavedViewBacked || isSavingPromotion}
+            onBlur={commitVisibleColumnsInput}
+            onChange={(event) => setVisibleColumnsInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitVisibleColumnsInput();
+              }
+            }}
+            placeholder="name, status"
+          />
+        </label>
+        <label className="query-block__display">
+          <span>Sort</span>
+          <input
+            value={sortColumn}
+            readOnly={isSavedViewBacked || isSavingPromotion}
+            onChange={(event) => updateSortColumn(event.target.value)}
+            placeholder="updated_at"
+          />
+        </label>
+        <select
+          value={displaySettings.sortDescending ? 'desc' : 'asc'}
+          disabled={isSavedViewBacked || isSavingPromotion || !sortColumn}
+          onChange={(event) => updateSortDescending(event.target.value)}
+        >
+          <option value="asc">Asc</option>
+          <option value="desc">Desc</option>
+        </select>
+        <label className="query-block__display query-block__display--limit">
+          <span>Limit</span>
+          <input
+            type="number"
+            min="1"
+            inputMode="numeric"
+            value={rowLimitText}
+            readOnly={isSavedViewBacked || isSavingPromotion}
+            onChange={(event) => updateRowLimit(event.target.value)}
+            placeholder="All"
+          />
+        </label>
         {savedView ? (
           <button type="button" onClick={detachSavedView}>
             Detach
@@ -615,7 +747,7 @@ function QueryViewNodeView({ node, updateAttributes, selected }: NodeViewProps) 
         onChange={(event) => updateQuery(event.target.value)}
       />
       {error ? <p className="query-block__error">{error}</p> : null}
-      {renderQueryResult(result, view, groupBy)}
+      {renderQueryResult(result, view, groupBy, displaySettings)}
     </NodeViewWrapper>
   );
 }
@@ -910,6 +1042,10 @@ function Toolbar({
                 groupBy: null,
                 title: null,
                 savedViewId: null,
+                visibleColumns: [],
+                sortColumn: null,
+                sortDescending: false,
+                rowLimit: null,
               },
             })
             .run();
@@ -981,6 +1117,10 @@ function SavedViewInsertControl({
           groupBy: parseQueryGroupBy(selectedSavedView.groupBy) || null,
           title: selectedSavedView.name,
           savedViewId: selectedSavedView.id,
+          visibleColumns: selectedSavedView.visibleColumns,
+          sortColumn: selectedSavedView.sortColumn,
+          sortDescending: selectedSavedView.sortDescending,
+          rowLimit: selectedSavedView.rowLimit,
         },
       })
       .run();
@@ -1198,6 +1338,10 @@ function requestSavedQueryView(
     query: string;
     view: QueryViewMode;
     groupBy: string | null;
+    visibleColumns: string[];
+    sortColumn: string | null;
+    sortDescending: boolean;
+    rowLimit: number | null;
   },
   snapshot: ActiveDocumentSnapshot
 ): Promise<SavedQueryViewDefinition> {
@@ -1217,6 +1361,10 @@ function requestSavedQueryView(
       query: savedView.query,
       view: savedView.view,
       groupBy: savedView.groupBy,
+      visibleColumns: savedView.visibleColumns,
+      sortColumn: savedView.sortColumn,
+      sortDescending: savedView.sortDescending,
+      rowLimit: savedView.rowLimit,
     });
   });
 }
@@ -1279,13 +1427,22 @@ function parseProperties(value: string): Record<string, string> {
 function renderQueryResult(
   result: QueryResultPayload | null,
   view: QueryViewMode,
-  groupBy = ''
+  groupBy = '',
+  displaySettings: QueryViewDisplaySettings = {
+    visibleColumns: [],
+    sortColumn: null,
+    sortDescending: false,
+    rowLimit: null,
+  }
 ) {
   if (!result) {
     return <p className="query-block__empty">Run the query to load results.</p>;
   }
 
-  if (result.rows.length === 0) {
+  const displayRows = queryDisplayRows(result.rows, result.columns, displaySettings);
+  const displayColumns = queryDisplayColumns(result.columns, displaySettings);
+
+  if (displayRows.length === 0) {
     return <p className="query-block__empty">No rows.</p>;
   }
 
@@ -1293,16 +1450,16 @@ function renderQueryResult(
     case 'list':
       return (
         <ul className="query-list">
-          {result.rows.map((row, index) => {
+          {displayRows.map((row, index) => {
             return (
               <li key={queryRowKey(row, index)}>
-                <strong>{primaryQueryValue(row, result.columns)}</strong>
-                {secondaryQueryValues(row, result.columns).map(([column, value]) => (
+                <strong>{primaryQueryValue(row, displayColumns)}</strong>
+                {secondaryQueryValues(row, displayColumns).map(([column, value]) => (
                   <span key={column}>
                     {column}: {value}
                   </span>
                 ))}
-                {renderQueryRowActions(row, result.columns)}
+                {renderQueryRowActions(row, displayColumns)}
               </li>
             );
           })}
@@ -1310,7 +1467,7 @@ function renderQueryResult(
       );
 
     case 'board':
-      const groups = buildBoardGroups(result.rows, result.columns, groupBy);
+      const groups = buildBoardGroups(displayRows, result.columns, groupBy);
       return (
         <div className="query-board">
           {groups.map((group) => (
@@ -1323,13 +1480,13 @@ function renderQueryResult(
                 {group.rows.map((row, index) => {
                   return (
                     <article key={queryRowKey(row, index)}>
-                      <strong>{primaryQueryValue(row, result.columns)}</strong>
-                      {secondaryQueryValues(row, result.columns, [group.column]).map(([column, value]) => (
+                      <strong>{primaryQueryValue(row, displayColumns)}</strong>
+                      {secondaryQueryValues(row, displayColumns, [group.column]).map(([column, value]) => (
                         <span key={column}>
                           {column}: {value}
                         </span>
                       ))}
-                      {renderQueryRowActions(row, result.columns)}
+                      {renderQueryRowActions(row, displayColumns)}
                     </article>
                   );
                 })}
@@ -1340,27 +1497,27 @@ function renderQueryResult(
       );
 
     case 'table':
-      const hasRowActions = result.rows.some((row) => hasQueryRowActions(row, result.columns));
+      const hasRowActions = displayRows.some((row) => hasQueryRowActions(row, displayColumns));
       return (
         <div className="query-table-wrap">
           <table className="query-table">
             <thead>
               <tr>
-                {result.columns.map((column) => (
+                {displayColumns.map((column) => (
                   <th key={column}>{column}</th>
                 ))}
                 {hasRowActions ? <th className="query-table__action">Action</th> : null}
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((row, index) => {
+              {displayRows.map((row, index) => {
                 return (
                   <tr key={queryRowKey(row, index)}>
-                    {result.columns.map((column) => (
+                    {displayColumns.map((column) => (
                       <td key={column}>{row[column] || ''}</td>
                     ))}
                     {hasRowActions ? (
-                      <td className="query-table__action">{renderQueryRowActions(row, result.columns)}</td>
+                      <td className="query-table__action">{renderQueryRowActions(row, displayColumns)}</td>
                     ) : null}
                   </tr>
                 );
