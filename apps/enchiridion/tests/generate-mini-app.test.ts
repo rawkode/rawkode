@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isRepairableDeploymentFailure, validateGeneratedMiniApp } from "../src/workflows/generate-mini-app";
+import {
+	createFallbackMiniAppCandidate,
+	isRepairableDeploymentFailure,
+	validateGeneratedMiniApp,
+} from "../src/workflows/generate-mini-app";
 import type { ExtensionManifest, RegisteredExtension } from "../src/lib/types";
 
 const baseManifest: ExtensionManifest = {
@@ -133,6 +137,40 @@ describe("generate mini app candidate validation", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues).toContain("routes: autonomous mini apps must expose at least one worker-page route");
+	});
+
+	it("creates a valid static fallback mini app from a failed app prompt", () => {
+		const candidate = createFallbackMiniAppCandidate({
+			userPrompt: "Web app Kubernetes how to for topology spread constraints",
+			installedExtensions: [registeredHelloWorld],
+		});
+		const result = validateGeneratedMiniApp({
+			generated: candidate,
+			installedExtensions: [registeredHelloWorld],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(candidate.manifest.slug).toBe("kubernetes-topology-spread-constraints");
+		expect(candidate.manifest.routes).toEqual([expect.objectContaining({
+			path: "/apps/kubernetes-topology-spread-constraints",
+			mode: "worker-page",
+		})]);
+		expect(candidate.manifest.bindings).toEqual([]);
+		expect(candidate.manifest.hostApis).toEqual([]);
+		expect(candidate.workerSource).toContain("export default");
+		expect(candidate.workerSource).toContain("text/html; charset=utf-8");
+		expect(result.ok).toBe(true);
+	});
+
+	it("avoids slug collisions when creating fallback mini apps", () => {
+		const candidate = createFallbackMiniAppCandidate({
+			userPrompt: "Hello world",
+			installedExtensions: [registeredHelloWorld],
+		});
+
+		expect(candidate.manifest.slug).toBe("hello-world-2");
+		expect(candidate.manifest.routes[0]?.path).toBe("/apps/hello-world-2");
 	});
 
 	it("does not retry missing Cloudflare configuration failures", () => {

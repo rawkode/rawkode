@@ -144,6 +144,22 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				continue;
 			}
 
+			if (isFallbackEligibleValidationFailure(validation)) {
+				const fallback = await maybeDeployFallbackMiniApp({
+					env,
+					payload,
+					operation,
+					installedExtensions,
+					slugHint,
+					attempts,
+					failureStatus: validation.status,
+					failureDetails: { issues: validation.issues },
+				});
+				if (fallback) {
+					return fallback;
+				}
+			}
+
 			await createAuditRecord(env, {
 				slug,
 				action: `${operation}-mini-app`,
@@ -200,6 +216,26 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 						workerSource: generated.workerSource,
 					});
 					continue;
+				}
+
+				const fallback = await maybeDeployFallbackMiniApp({
+					env,
+					payload,
+					operation,
+					installedExtensions,
+					slugHint,
+					attempts,
+					failureStatus: "validation_failed",
+					failureDetails: {
+						scriptName: deployment.scriptName,
+						message: deployment.message,
+						deploymentNotes: generated.deploymentNotes,
+						validation: smokeTest as unknown as JsonObject,
+						cleanup: cleanup as unknown as JsonObject,
+					},
+				});
+				if (fallback) {
+					return fallback;
 				}
 
 				await createAuditRecord(env, {
@@ -276,6 +312,26 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				continue;
 			}
 
+			if (isRepairableDeploymentFailure(deployment.message)) {
+				const fallback = await maybeDeployFallbackMiniApp({
+					env,
+					payload,
+					operation,
+					installedExtensions,
+					slugHint,
+					attempts,
+					failureStatus: "deploy_failed",
+					failureDetails: {
+						scriptName: deployment.scriptName,
+						message: deployment.message,
+						deploymentNotes: generated.deploymentNotes,
+					},
+				});
+				if (fallback) {
+					return fallback;
+				}
+			}
+
 			await createAuditRecord(env, {
 				slug: manifest.slug,
 				action: `${operation}-mini-app`,
@@ -328,6 +384,344 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	throw new Error("Mini app generation failed without a terminal result.");
 }
 
+async function maybeDeployFallbackMiniApp(input: {
+	env: Env;
+	payload: GenerateMiniAppPayload;
+	operation: MiniAppOperation;
+	installedExtensions: RegisteredExtension[];
+	slugHint?: string;
+	attempts: JsonObject[];
+	failureStatus: string;
+	failureDetails: JsonObject;
+}) {
+	if (input.operation !== "create" || input.payload.autonomousDeploy === false) {
+		return null;
+	}
+
+	const generated = createFallbackMiniAppCandidate({
+		userPrompt: input.payload.prompt,
+		installedExtensions: input.installedExtensions,
+		slugHint: input.slugHint,
+	});
+	const validation = validateGeneratedMiniApp({
+		generated,
+		installedExtensions: input.installedExtensions,
+		operation: "create",
+		autonomousDeploy: true,
+	});
+
+	if (!validation.ok || !validation.manifest) {
+		await createAuditRecord(input.env, {
+			slug: generated.manifest.slug,
+			action: "create-mini-app",
+			status: "fallback_rejected",
+			details: {
+				fallback: true,
+				previousFailureStatus: input.failureStatus,
+				previousFailure: input.failureDetails,
+				issues: validation.issues,
+				attempts: input.attempts,
+			},
+		});
+
+		return {
+			status: "fallback_rejected",
+			operation: "create",
+			slug: generated.manifest.slug,
+			issues: validation.issues,
+			deployed: false,
+			attempts: input.attempts,
+		};
+	}
+
+	const manifest = validation.manifest;
+	const deployment = await deployMiniAppWorker(input.env, {
+		manifest,
+		workerSource: generated.workerSource,
+		scriptName: candidateScriptNameForManifest(manifest),
+	});
+
+	if (!deployment.deployed) {
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: "create-mini-app",
+			status: "fallback_deploy_failed",
+			details: {
+				fallback: true,
+				previousFailureStatus: input.failureStatus,
+				previousFailure: input.failureDetails,
+				scriptName: deployment.scriptName,
+				message: deployment.message,
+				attempts: input.attempts,
+			},
+		});
+
+		return {
+			status: "fallback_deploy_failed",
+			operation: "create",
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: false,
+			message: deployment.message,
+			manifest,
+			attempts: input.attempts,
+		};
+	}
+
+	const smokeTest = await smokeTestMiniAppWorker(input.env, {
+		manifest,
+		scriptName: deployment.scriptName,
+	});
+
+	if (!smokeTest.ok) {
+		const cleanup = await deleteMiniAppWorker(input.env, deployment.scriptName);
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: "create-mini-app",
+			status: "fallback_validation_failed",
+			details: {
+				fallback: true,
+				previousFailureStatus: input.failureStatus,
+				previousFailure: input.failureDetails,
+				scriptName: deployment.scriptName,
+				message: deployment.message,
+				deploymentNotes: generated.deploymentNotes,
+				validation: smokeTest as unknown as JsonObject,
+				cleanup: cleanup as unknown as JsonObject,
+				attempts: input.attempts,
+			},
+		});
+
+		return {
+			status: "fallback_validation_failed",
+			operation: "create",
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: false,
+			message: smokeTest.message,
+			validation: smokeTest,
+			manifest,
+			attempts: input.attempts,
+		};
+	}
+
+	await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
+	await createAuditRecord(input.env, {
+		slug: manifest.slug,
+		action: "create-mini-app",
+		status: "fallback_deployed",
+		details: {
+			fallback: true,
+			previousFailureStatus: input.failureStatus,
+			previousFailure: input.failureDetails,
+			scriptName: deployment.scriptName,
+			message: deployment.message,
+			deploymentNotes: generated.deploymentNotes,
+			validation: smokeTest as unknown as JsonObject,
+			attempts: input.attempts,
+		},
+	});
+
+	return {
+		status: "deployed",
+		operation: "create",
+		slug: manifest.slug,
+		scriptName: deployment.scriptName,
+		deployed: true,
+		fallback: true,
+		message: `LLM generation failed; deployed a static fallback mini app. ${deployment.message} ${smokeTest.message}`,
+		routeUrl: smokeTest.route,
+		validation: smokeTest,
+		manifest,
+		attempts: input.attempts,
+	};
+}
+
+export function createFallbackMiniAppCandidate(input: {
+	userPrompt: string;
+	installedExtensions: Pick<RegisteredExtension, "slug">[];
+	slugHint?: string;
+}): GeneratedMiniApp {
+	const slug = uniqueFallbackSlug(input.slugHint ?? fallbackSlugFromPrompt(input.userPrompt), input.installedExtensions);
+	const name = fallbackNameFromSlug(slug);
+	const routePath = `/apps/${slug}`;
+	const prompt = input.userPrompt.trim() || "Untitled mini app";
+	const description = `Static fallback mini app generated after autonomous app-builder repair attempts failed.`;
+	const html = renderFallbackHtml({ name, prompt });
+
+	return {
+		manifest: {
+			slug,
+			name,
+			version: "0.1.0",
+			description,
+			routes: [{
+				path: routePath,
+				mode: "worker-page",
+				label: name,
+				description: "Independent fallback route served by a dynamic Worker.",
+			}],
+			commands: [{
+				id: "open",
+				label: `Open ${name}`,
+				description: `Open the ${name} mini app.`,
+				kind: "navigate",
+				scope: "global",
+				app: slug,
+				action: routePath,
+				requiredHostApis: [],
+			}],
+			editorBlocks: [],
+			workflows: [],
+			bindings: [],
+			hostApis: [],
+			indexProjections: [],
+		},
+		workerSource: [
+			`const html = ${JSON.stringify(html)};`,
+			"export default {",
+			"	async fetch(request) {",
+			"		const url = new URL(request.url);",
+			`		if (!url.pathname.startsWith(${JSON.stringify(routePath)})) {`,
+			`			return Response.redirect(new URL(${JSON.stringify(routePath)}, url), 302);`,
+			"		}",
+			"		return new Response(html, {",
+			"			status: 200,",
+			"			headers: { \"content-type\": \"text/html; charset=utf-8\" },",
+			"		});",
+			"	},",
+			"};",
+		].join("\n"),
+		deploymentNotes: "Deployed deterministic static fallback after LLM-generated candidates failed validation, deployment, or smoke testing.",
+	};
+}
+
+function fallbackSlugFromPrompt(prompt: string): string {
+	const words = prompt
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.filter((word) => word.length > 1 && !fallbackSlugStopWords.has(word));
+	const slug = words.slice(0, 6).join("-");
+	return slug || "mini-app";
+}
+
+function uniqueFallbackSlug(baseSlug: string, installedExtensions: Pick<RegisteredExtension, "slug">[]): string {
+	const normalized = normalizeSlug(baseSlug);
+	const existing = new Set(installedExtensions.map((extension) => extension.slug));
+
+	if (!existing.has(normalized)) {
+		return normalized;
+	}
+
+	for (let suffix = 2; suffix <= 99; suffix += 1) {
+		const candidate = `${normalized}-${suffix}`;
+		if (!existing.has(candidate)) {
+			return candidate;
+		}
+	}
+
+	return `${normalized}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function normalizeSlug(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.replace(/-{2,}/g, "-")
+		.slice(0, 54)
+		.replace(/-+$/g, "") || "mini-app";
+}
+
+function fallbackNameFromSlug(slug: string): string {
+	return slug
+		.split("-")
+		.filter(Boolean)
+		.map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+		.join(" ");
+}
+
+function renderFallbackHtml(input: { name: string; prompt: string }): string {
+	return `<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>${escapeHtml(input.name)}</title>
+		<style>
+			:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+			body { margin: 0; background: #f7f8f3; color: #20211d; }
+			main { max-width: 920px; margin: 0 auto; padding: 48px 24px 64px; }
+			header { border-bottom: 1px solid #d6d9cd; padding-bottom: 24px; margin-bottom: 28px; }
+			p { line-height: 1.65; }
+			.panel { border: 1px solid #d6d9cd; background: #ffffff; border-radius: 8px; padding: 22px; margin: 18px 0; }
+			.kicker { color: #5f6b2d; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+			.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+			.item { border-left: 3px solid #6b7f32; padding-left: 14px; }
+			code { background: #eef0e6; border-radius: 4px; padding: 2px 5px; }
+		</style>
+	</head>
+	<body>
+		<main>
+			<header>
+				<div class="kicker">Enchiridion fallback mini app</div>
+				<h1>${escapeHtml(input.name)}</h1>
+				<p>This static app was generated because the autonomous Worker candidates did not pass validation or smoke testing.</p>
+			</header>
+			<section class="panel">
+				<h2>Request</h2>
+				<p>${escapeHtml(input.prompt)}</p>
+			</section>
+			<section class="grid" aria-label="Next steps">
+				<div class="item">
+					<h2>Use It Now</h2>
+					<p>The route is live and can be replaced by asking the agent to update this mini app with more specific behavior.</p>
+				</div>
+				<div class="item">
+					<h2>Make It Richer</h2>
+					<p>Add data capture, commands, editor blocks, or host API access once the workflow requirements are clear.</p>
+				</div>
+				<div class="item">
+					<h2>Promote Later</h2>
+					<p>If this becomes important, promote it into host-native UI through an explicit rebuild.</p>
+				</div>
+			</section>
+		</main>
+	</body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
+
+const fallbackSlugStopWords = new Set([
+	"a",
+	"an",
+	"and",
+	"app",
+	"for",
+	"how",
+	"make",
+	"mini",
+	"new",
+	"page",
+	"simple",
+	"site",
+	"the",
+	"to",
+	"tool",
+	"web",
+	"with",
+]);
+
 function rejectInvalidUpdateTarget(
 	targetExtension: RegisteredExtension | undefined,
 	requestedSlug?: string,
@@ -358,6 +752,11 @@ function rejectInvalidUpdateTarget(
 	}
 
 	return null;
+}
+
+function isFallbackEligibleValidationFailure(validation: ValidatedMiniAppCandidate): boolean {
+	return validation.status !== "requires_binding_provisioning"
+		&& !validation.issues.some((issue) => issue.includes("already exists; use update instead"));
 }
 
 interface ValidatedMiniAppCandidate {
