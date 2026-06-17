@@ -71,6 +71,23 @@ interface GenerateMiniAppPayload {
 type GeneratedMiniApp = v.InferOutput<typeof generatedMiniAppSchema>;
 
 const maxGenerationAttempts = 3;
+const maxWorkerSourceBytes = 64 * 1024;
+const maxDeploymentNotesLength = 2_000;
+const manifestCollectionLimits: Array<{
+	key: keyof Pick<ExtensionManifest, "routes" | "commands" | "editorBlocks" | "workflows" | "indexProjections">;
+	label: string;
+	max: number;
+}> = [
+	{ key: "routes", label: "routes", max: 8 },
+	{ key: "commands", label: "commands", max: 12 },
+	{ key: "editorBlocks", label: "editor blocks", max: 12 },
+	{ key: "workflows", label: "workflows", max: 8 },
+	{ key: "indexProjections", label: "index projections", max: 12 },
+];
+
+interface MiniAppBuilderSession {
+	prompt(prompt: string, options: { result: typeof generatedMiniAppSchema }): Promise<{ data: GeneratedMiniApp }>;
+}
 
 export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
 	const installedExtensions = await listRegisteredExtensions(env);
@@ -103,8 +120,6 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 		}
 	}
 
-	const harness = await init(miniAppBuilder);
-	const session = await harness.session();
 	const attempts: JsonObject[] = [];
 	let prompt = buildMiniAppGenerationPrompt({
 		userPrompt: payload.prompt,
@@ -113,10 +128,57 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 		targetExtension,
 		slugHint,
 	});
+	let session: MiniAppBuilderSession;
+
+	try {
+		const harness = await init(miniAppBuilder);
+		session = await harness.session() as MiniAppBuilderSession;
+	} catch (error) {
+		const message = errorMessage(error);
+		attempts.push({
+			attempt: 1,
+			status: "generation_failed",
+			phase: "session",
+			message,
+		});
+
+		return finishGenerationFailure({
+			env,
+			payload,
+			operation,
+			installedExtensions,
+			targetExtension,
+			slugHint,
+			attempts,
+			message,
+		});
+	}
 
 	for (let attempt = 1; attempt <= maxGenerationAttempts; attempt += 1) {
-		const response = await session.prompt(prompt, { result: generatedMiniAppSchema });
-		const generated = response.data;
+		let generated: GeneratedMiniApp;
+		try {
+			const response = await session.prompt(prompt, { result: generatedMiniAppSchema });
+			generated = response.data;
+		} catch (error) {
+			const message = errorMessage(error);
+			attempts.push({
+				attempt,
+				status: "generation_failed",
+				message,
+			});
+
+			return finishGenerationFailure({
+				env,
+				payload,
+				operation,
+				installedExtensions,
+				targetExtension,
+				slugHint,
+				attempts,
+				message,
+			});
+		}
+
 		const validation = validateGeneratedMiniApp({
 			generated,
 			installedExtensions,
@@ -382,6 +444,52 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	}
 
 	throw new Error("Mini app generation failed without a terminal result.");
+}
+
+async function finishGenerationFailure(input: {
+	env: Env;
+	payload: GenerateMiniAppPayload;
+	operation: MiniAppOperation;
+	installedExtensions: RegisteredExtension[];
+	targetExtension?: RegisteredExtension;
+	slugHint?: string;
+	attempts: JsonObject[];
+	message: string;
+}) {
+	const fallback = await maybeDeployFallbackMiniApp({
+		env: input.env,
+		payload: input.payload,
+		operation: input.operation,
+		installedExtensions: input.installedExtensions,
+		slugHint: input.slugHint,
+		attempts: input.attempts,
+		failureStatus: "generation_failed",
+		failureDetails: { message: input.message },
+	});
+	if (fallback) {
+		return fallback;
+	}
+
+	const slug = input.targetExtension?.slug
+		?? normalizeSlug(input.slugHint ?? fallbackSlugFromPrompt(input.payload.prompt));
+	await createAuditRecord(input.env, {
+		slug,
+		action: `${input.operation}-mini-app`,
+		status: "generation_failed",
+		details: {
+			message: input.message,
+			attempts: input.attempts,
+		},
+	});
+
+	return {
+		status: "generation_failed",
+		operation: input.operation,
+		slug,
+		deployed: false,
+		message: input.message,
+		attempts: input.attempts,
+	};
 }
 
 async function maybeDeployFallbackMiniApp(input: {
@@ -775,6 +883,7 @@ export function validateGeneratedMiniApp(input: {
 }): ValidatedMiniAppCandidate {
 	const validation = validateExtensionManifest(input.generated.manifest);
 	const issues = [...validation.issues];
+	issues.push(...validateGeneratedPayloadBounds(input.generated, validation.manifest));
 	issues.push(...validateWorkerSource(input.generated.workerSource, validation.manifest));
 
 	if (input.operation === "update" && input.targetExtension && validation.manifest?.slug !== input.targetExtension.slug) {
@@ -804,8 +913,64 @@ export function validateGeneratedMiniApp(input: {
 	};
 }
 
+function validateGeneratedPayloadBounds(generated: GeneratedMiniApp, manifest?: ExtensionManifest): string[] {
+	const issues: string[] = [];
+	const workerSourceBytes = byteLength(generated.workerSource);
+	if (workerSourceBytes > maxWorkerSourceBytes) {
+		issues.push(`workerSource: generated Worker source exceeds ${maxWorkerSourceBytes} bytes`);
+	}
+
+	if (generated.deploymentNotes.length > maxDeploymentNotesLength) {
+		issues.push(`deploymentNotes: must be ${maxDeploymentNotesLength} characters or fewer`);
+	}
+
+	if (manifest) {
+		for (const limit of manifestCollectionLimits) {
+			if (manifest[limit.key].length > limit.max) {
+				issues.push(`manifest.${limit.key}: generated mini apps may declare at most ${limit.max} ${limit.label}`);
+			}
+		}
+	}
+
+	return issues;
+}
+
 export function isRepairableDeploymentFailure(message: string): boolean {
 	return !message.includes("is not configured");
+}
+
+function byteLength(value: string): number {
+	return new TextEncoder().encode(value).byteLength;
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message || "Mini app generation failed.";
+	}
+	if (typeof error === "string") {
+		return error;
+	}
+	if (error && typeof error === "object") {
+		const message = readStringProperty(error, "message") ?? readStringProperty(error, "error");
+		if (message) {
+			return message;
+		}
+		try {
+			return JSON.stringify(error);
+		} catch {
+			return "Mini app generation failed.";
+		}
+	}
+
+	return String(error || "Mini app generation failed.");
+}
+
+function readStringProperty(source: object, key: string): string | undefined {
+	if (!(key in source)) {
+		return undefined;
+	}
+	const value = (source as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest): string[] {

@@ -26,11 +26,15 @@ const registeredHelloWorld: RegisteredExtension = {
 	deployedScriptName: "enchiridion-hello-world",
 };
 
-function generated(manifest: ExtensionManifest, workerSource = "export default { fetch() { return new Response('<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }") {
+function generated(
+	manifest: ExtensionManifest,
+	workerSource = "export default { fetch() { return new Response('<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }",
+	deploymentNotes = "Generated for test.",
+) {
 	return {
 		manifest,
 		workerSource,
-		deploymentNotes: "Generated for test.",
+		deploymentNotes,
 	};
 }
 
@@ -107,6 +111,53 @@ describe("generate mini app candidate validation", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues).toContain("workerSource: primary route must render useful HTML instead of a generic Load failed response");
+	});
+
+	it("rejects oversized generated workers before Cloudflare upload", () => {
+		const workerSource = [
+			"export default { fetch() { return new Response('<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }",
+			" ".repeat(65 * 1024),
+		].join("\n");
+		const result = validateGeneratedMiniApp({
+			generated: generated(baseManifest, workerSource),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Worker source exceeds 65536 bytes");
+	});
+
+	it("rejects oversized generated deployment notes", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(baseManifest, undefined, "x".repeat(2_001)),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("deploymentNotes: must be 2000 characters or fewer");
+	});
+
+	it("rejects oversized generated manifest route lists", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				routes: Array.from({ length: 9 }, (_, index) => ({
+					path: `/apps/hello-world/${index}`,
+					mode: "worker-page",
+					label: `Route ${index}`,
+				})),
+			}),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("manifest.routes: generated mini apps may declare at most 8 routes");
 	});
 
 	it("rejects generated workers that depend on unavailable runtime bindings", () => {
