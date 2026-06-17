@@ -1,0 +1,7 @@
+version = 4
+
+[runtimes."apps/enchiridion"]
+type = "nix"
+flake = "."
+digest = "sha256:8c15f4086d942fcb2dbe27ad468060e8fa78f93dfdc8265764c6af70c960fe4b"
+lockfile = "apps/enchiridion/./flake.lock"
