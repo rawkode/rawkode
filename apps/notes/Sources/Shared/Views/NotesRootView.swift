@@ -1175,6 +1175,10 @@ private struct SupertagSchemaDraft: Equatable {
             && !fieldLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var fieldKeyPreview: String {
+        schemaEditorFieldKey(for: fieldLabel)
+    }
+
     static func editing(_ definition: SupertagFieldDefinition) -> SupertagSchemaDraft {
         SupertagSchemaDraft(
             editingID: definition.id,
@@ -1221,6 +1225,14 @@ private struct DatabaseEditorView: View {
         return schemas.first { $0.id == selectedSchemaID }
     }
 
+    private var selectedFieldDefinition: SupertagFieldDefinition? {
+        guard let selectedSchema, let editingID = draft.editingID else {
+            return nil
+        }
+
+        return selectedSchema.fields.first { $0.id == editingID }
+    }
+
     private var schemaIDs: [UUID] {
         schemas.map(\.id)
     }
@@ -1229,6 +1241,9 @@ private struct DatabaseEditorView: View {
         editorLayout
             .navigationTitle("Database")
             .onAppear(perform: selectDefaultSchemaIfNeeded)
+            .onChange(of: selectedSchemaID) { _, id in
+                syncDraftWithSelectedSchema(id: id)
+            }
             .onChange(of: schemaIDs) { _, _ in
                 selectDefaultSchemaIfNeeded()
             }
@@ -1283,8 +1298,7 @@ private struct DatabaseEditorView: View {
             Divider()
 
             Button {
-                selectedSchemaID = nil
-                draft = SupertagSchemaDraft()
+                startNewSupertag()
             } label: {
                 Label("New Supertag", systemImage: "plus")
                     .frame(maxWidth: .infinity)
@@ -1296,37 +1310,49 @@ private struct DatabaseEditorView: View {
 
     private var schemaDetail: some View {
         Form {
-            Section("Overview") {
-                LabeledContent("Supertags", value: "\(schemas.count)")
-                LabeledContent("Properties", value: "\(fieldCount)")
-                LabeledContent("Required Properties", value: "\(requiredFieldCount)")
-            }
-
-            schemaPickerSection
-            propertiesSection
+            databaseOverviewSection
+            typeSelectorSection
             propertyEditorSection
+            propertiesSection
         }
         .formStyle(.grouped)
     }
 
     @ViewBuilder
-    private var schemaPickerSection: some View {
+    private var databaseOverviewSection: some View {
+        Section("Overview") {
+            LabeledContent("Supertag Types", value: "\(schemas.count)")
+            LabeledContent("Properties", value: "\(fieldCount)")
+            LabeledContent("Required Properties", value: "\(requiredFieldCount)")
+        }
+    }
+
+    @ViewBuilder
+    private var typeSelectorSection: some View {
         if schemas.isEmpty {
-            Section {
-                ContentUnavailableView("No Database Schemas", systemImage: "cylinder.split.1x2")
+            Section("Supertag Type") {
+                ContentUnavailableView(
+                    "No Supertag Types",
+                    systemImage: "cylinder.split.1x2",
+                    description: Text("Create the first type and add its first property below.")
+                )
             }
         } else {
-            Section("Selected Supertag") {
-                Picker("Supertag", selection: selectedSchemaBinding) {
+            Section("Supertag Type") {
+                Picker("Type", selection: selectedSchemaBinding) {
                     ForEach(schemas) { schema in
                         Text(schema.name).tag(Optional(schema.id))
                     }
                 }
 
                 if let selectedSchema {
-                    LabeledContent("Slug", value: selectedSchema.slug)
+                    LabeledContent("Slug", value: "#\(selectedSchema.slug)")
                     LabeledContent("Properties", value: "\(selectedSchema.fieldCount)")
                     LabeledContent("Required", value: "\(selectedSchema.requiredFieldCount)")
+                }
+
+                Button(action: startNewSupertag) {
+                    Label("Create New Type", systemImage: "plus")
                 }
             }
         }
@@ -1337,14 +1363,18 @@ private struct DatabaseEditorView: View {
         Section {
             if let selectedSchema {
                 if selectedSchema.fields.isEmpty {
-                    ContentUnavailableView("No Properties", systemImage: "list.bullet.rectangle")
+                    ContentUnavailableView(
+                        "No Properties",
+                        systemImage: "list.bullet.rectangle",
+                        description: Text("Add a property to make \(selectedSchema.name) queryable as structured data.")
+                    )
                 } else {
                     ForEach(selectedSchema.fields) { definition in
                         SupertagSchemaFieldRow(
                             definition: definition,
                             isSelected: draft.editingID == definition.id,
-                            onEdit: {
-                                draft = .editing(definition)
+                            onSelect: {
+                                selectField(definition)
                             },
                             onDelete: {
                                 deletionCandidate = definition
@@ -1354,13 +1384,12 @@ private struct DatabaseEditorView: View {
                 }
 
                 Button {
-                    draft = .addingField(to: selectedSchema)
-                    selectedSchemaID = selectedSchema.id
+                    startAddingProperty(to: selectedSchema)
                 } label: {
-                    Label("Add Property", systemImage: "plus")
+                    Label("Add Property to \(selectedSchema.name)", systemImage: "plus")
                 }
             } else {
-                Text("Create a property to start a new supertag schema.")
+                Text("The first saved property will create this supertag type.")
                     .foregroundStyle(.secondary)
             }
         } header: {
@@ -1378,18 +1407,15 @@ private struct DatabaseEditorView: View {
     }
 
     private var propertyEditorSection: some View {
-        Section(draft.isEditing ? "Edit Property" : "New Property") {
-            TextField("Supertag", text: $draft.supertagName)
-                .disabled(draft.isEditing)
+        Section(propertyEditorTitle) {
+            TextField("Supertag Type", text: $draft.supertagName)
+                .disabled(isSupertagNameLocked)
 
-            TextField("Property", text: $draft.fieldLabel)
+            TextField("Property Name", text: $draft.fieldLabel)
 
-            Picker("Type", selection: valueTypeBinding) {
-                ForEach(SupertagFieldValueType.allCases) { valueType in
-                    Label(valueType.label, systemImage: valueType.systemImage)
-                        .tag(valueType)
-                }
-            }
+            LabeledContent("Stored Key", value: draft.fieldKeyPreview.isEmpty ? "Not set" : draft.fieldKeyPreview)
+
+            FieldTypePicker(selection: valueTypeBinding)
 
             defaultValueEditor
 
@@ -1399,14 +1425,62 @@ private struct DatabaseEditorView: View {
                 Text("Sort Order: \(draft.sortOrder)")
             }
 
-            HStack {
-                Button(draft.isEditing ? "Save Property" : "Create Property", action: saveDraft)
-                    .disabled(!draft.canSave)
+            schemaChangeNotice
 
-                if draft.isEditing {
-                    Button("Cancel Edit", action: resetDraft)
+            HStack {
+                Button(action: saveDraft) {
+                    Label(draft.isEditing ? "Save Property" : "Create Property", systemImage: "checkmark")
+                }
+                .disabled(!draft.canSave)
+
+                Button(action: resetDraft) {
+                    Label(draft.isEditing ? "Cancel Edit" : "Reset", systemImage: "arrow.counterclockwise")
+                }
+                .disabled(!draft.isEditing && draft == SupertagSchemaDraft())
+            }
+        }
+    }
+
+    private var propertyEditorTitle: String {
+        if draft.isEditing {
+            return "Property Inspector"
+        }
+
+        if selectedSchema == nil {
+            return "New Supertag Type"
+        }
+
+        return "New Property"
+    }
+
+    private var isSupertagNameLocked: Bool {
+        draft.isEditing || selectedSchema != nil
+    }
+
+    @ViewBuilder
+    private var schemaChangeNotice: some View {
+        if let selectedFieldDefinition,
+           selectedFieldDefinition.key != draft.fieldKeyPreview
+            || selectedFieldDefinition.valueType != draft.valueType
+            || selectedFieldDefinition.isRequired != draft.isRequired {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Schema Change Preview", systemImage: "exclamationmark.triangle")
+                    .font(.caption.weight(.semibold))
+
+                if selectedFieldDefinition.key != draft.fieldKeyPreview {
+                    Text("Renaming changes the stored key from \(selectedFieldDefinition.key) to \(draft.fieldKeyPreview). Existing values are migrated after validation.")
+                }
+
+                if selectedFieldDefinition.valueType != draft.valueType {
+                    Text("Changing the type validates existing values before the schema is saved.")
+                }
+
+                if selectedFieldDefinition.isRequired != draft.isRequired {
+                    Text(draft.isRequired ? "Required fields must be present on every tagged entity." : "This property will become optional.")
                 }
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -1414,12 +1488,7 @@ private struct DatabaseEditorView: View {
         Binding {
             selectedSchemaID
         } set: { id in
-            selectedSchemaID = id
-            if let id, let schema = schemas.first(where: { $0.id == id }) {
-                draft = .addingField(to: schema)
-            } else {
-                draft = SupertagSchemaDraft()
-            }
+            selectSchema(id: id)
         }
     }
 
@@ -1429,10 +1498,46 @@ private struct DatabaseEditorView: View {
         }
 
         let nextSchema = schemas.first
-        selectedSchemaID = nextSchema?.id
-        if let nextSchema, !draft.isEditing, draft.supertagName.isEmpty {
-            draft = .addingField(to: nextSchema)
+        selectSchema(id: nextSchema?.id)
+    }
+
+    private func selectSchema(id: UUID?) {
+        selectedSchemaID = id
+        syncDraftWithSelectedSchema(id: id)
+    }
+
+    private func syncDraftWithSelectedSchema(id: UUID?) {
+        guard let id, let schema = schemas.first(where: { $0.id == id }) else {
+            if selectedSchemaID == nil {
+                draft = SupertagSchemaDraft()
+            }
+            return
         }
+
+        if let editingID = draft.editingID, schema.fields.contains(where: { $0.id == editingID }) {
+            return
+        }
+
+        if let firstField = schema.fields.first {
+            draft = .editing(firstField)
+        } else {
+            draft = .addingField(to: schema)
+        }
+    }
+
+    private func selectField(_ definition: SupertagFieldDefinition) {
+        selectedSchemaID = definition.supertagID
+        draft = .editing(definition)
+    }
+
+    private func startAddingProperty(to schema: SupertagSchema) {
+        selectedSchemaID = schema.id
+        draft = .addingField(to: schema)
+    }
+
+    private func startNewSupertag() {
+        selectedSchemaID = nil
+        draft = SupertagSchemaDraft()
     }
 
     private var valueTypeBinding: Binding<SupertagFieldValueType> {
@@ -1484,10 +1589,7 @@ private struct DatabaseEditorView: View {
         do {
             let definition = try onSave(draft)
             selectedSchemaID = definition.supertagID
-            draft = SupertagSchemaDraft(
-                supertagName: definition.supertagName,
-                sortOrder: definition.sortOrder + 1
-            )
+            draft = .editing(definition)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1527,44 +1629,53 @@ private struct DatabaseSchemaRow: View {
 private struct SupertagSchemaFieldRow: View {
     let definition: SupertagFieldDefinition
     let isSelected: Bool
-    let onEdit: () -> Void
+    let onSelect: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Label(definition.label, systemImage: definition.valueType.systemImage)
-                .font(.headline)
-                .frame(minWidth: 140, alignment: .leading)
+            Button(action: onSelect) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Label(definition.label, systemImage: definition.valueType.systemImage)
+                        .font(.headline)
+                        .frame(minWidth: 140, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(definition.valueType.label)
-                        .foregroundStyle(isSelected ? .primary : .secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(definition.valueType.label)
+                                .foregroundStyle(isSelected ? .primary : .secondary)
 
-                    if definition.isRequired {
-                        Label("Required", systemImage: "asterisk")
-                            .labelStyle(.titleAndIcon)
+                            if definition.isRequired {
+                                Label("Required", systemImage: "asterisk")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                        .font(.subheadline)
+
+                        if let defaultValue = definition.defaultValue {
+                            Text("Default: \(defaultValue)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text(definition.key)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color.accentColor)
                     }
                 }
-                .font(.subheadline)
-
-                if let defaultValue = definition.defaultValue {
-                    Text("Default: \(defaultValue)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(definition.key)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
             }
-
-            Spacer(minLength: 12)
-
-            Button(action: onEdit) {
-                Label("Edit", systemImage: "pencil")
-            }
-            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(definition.label) property")
+            .accessibilityValue(isSelected ? "Selected" : "\(definition.valueType.label), key \(definition.key)")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
 
             Button(role: .destructive, action: onDelete) {
                 Label("Delete", systemImage: "trash")
@@ -1579,6 +1690,63 @@ private struct SupertagSchemaFieldRow: View {
                     .fill(Color.accentColor.opacity(0.12))
             }
         }
+    }
+}
+
+private struct FieldTypePicker: View {
+    @Binding var selection: SupertagFieldValueType
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 118), spacing: 8)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Type")
+                .font(.subheadline.weight(.semibold))
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                ForEach(SupertagFieldValueType.allCases) { valueType in
+                    Button {
+                        selection = valueType
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: valueType.systemImage)
+                                .frame(width: 18)
+
+                            Text(valueType.label)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            if selection == valueType {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selection == valueType ? Color.accentColor.opacity(0.14) : Color.clear)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(
+                                    selection == valueType ? Color.accentColor : Color.secondary.opacity(0.24),
+                                    lineWidth: 1
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(valueType.label) field type")
+                    .accessibilityValue(selection == valueType ? "Selected" : "Not selected")
+                    .accessibilityAddTraits(selection == valueType ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -2036,6 +2204,33 @@ private func normalizedSupertagName(_ value: String) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         .lowercased()
+}
+
+private func schemaEditorFieldKey(for value: String) -> String {
+    let lowercased = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    var result = ""
+    var previousWasSeparator = false
+
+    for scalar in lowercased.unicodeScalars {
+        switch scalar.value {
+        case 48...57, 65...90, 97...122:
+            result.unicodeScalars.append(scalar)
+            previousWasSeparator = false
+        default:
+            if !previousWasSeparator {
+                result.append("_")
+                previousWasSeparator = true
+            }
+        }
+    }
+
+    result = result.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    if let first = result.unicodeScalars.first, (48...57).contains(first.value) {
+        result = "_\(result)"
+    }
+
+    let reservedColumns: Set<String> = ["id", "name", "supertags", "updated_at"]
+    return reservedColumns.contains(result) ? "property_\(result)" : result
 }
 
 private struct DailyNoteDatePicker: View {

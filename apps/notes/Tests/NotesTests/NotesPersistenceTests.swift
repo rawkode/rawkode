@@ -2847,21 +2847,40 @@ final class NotesPersistenceTests: XCTestCase {
         XCTAssertEqual(store.supertagSchemas.first?.name, "Project")
         XCTAssertEqual(store.supertagSchemas.first?.fields.map(\.id), [definition.id])
 
+        let ownerDefinition = try store.saveSupertagFieldDefinition(
+            supertagName: "Project",
+            field: "Owner",
+            valueType: .entity,
+            sortOrder: 0
+        )
+
+        XCTAssertEqual(store.supertagSchemas.first?.fieldCount, 2)
+        XCTAssertEqual(store.supertagSchemas.first?.requiredFieldCount, 1)
+        XCTAssertEqual(store.supertagSchemas.first?.fields.map(\.key), ["owner", "status"])
+
         let updated = try store.updateSupertagFieldDefinition(
             id: definition.id,
             field: "Done",
-            valueType: .boolean
+            valueType: .boolean,
+            sortOrder: 2
         )
 
         XCTAssertEqual(updated.id, definition.id)
-        XCTAssertEqual(store.supertagFieldDefinitions.count, 1)
-        XCTAssertEqual(store.supertagFieldDefinitions.first?.key, "done")
-        XCTAssertEqual(store.supertagFieldDefinitions.first?.valueType, .boolean)
-        XCTAssertNil(store.supertagFieldDefinitions.first?.defaultValue)
-        XCTAssertEqual(store.supertagFieldDefinitions.first?.isRequired, false)
-        XCTAssertEqual(store.supertagSchemas.first?.fields.first?.valueType, .boolean)
+        XCTAssertEqual(store.supertagFieldDefinitions.count, 2)
+        XCTAssertEqual(store.supertagFieldDefinitions.map(\.key), ["owner", "done"])
+        XCTAssertEqual(store.supertagFieldDefinitions.last?.valueType, .boolean)
+        XCTAssertNil(store.supertagFieldDefinitions.last?.defaultValue)
+        XCTAssertEqual(store.supertagFieldDefinitions.last?.isRequired, false)
+        XCTAssertEqual(store.supertagSchemas.first?.fields.map(\.valueType), [.entity, .boolean])
+        XCTAssertEqual(store.supertagSchemas.first?.requiredFieldCount, 0)
 
         store.deleteSupertagFieldDefinition(id: definition.id)
+
+        XCTAssertEqual(store.supertagFieldDefinitions.map(\.id), [ownerDefinition.id])
+        XCTAssertEqual(store.supertagSchemas.count, 1)
+        XCTAssertEqual(store.supertagSchemas.first?.fields.map(\.id), [ownerDefinition.id])
+
+        store.deleteSupertagFieldDefinition(id: ownerDefinition.id)
 
         XCTAssertTrue(store.supertagFieldDefinitions.isEmpty)
         XCTAssertEqual(store.supertagSchemas.count, 1)
