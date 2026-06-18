@@ -45,6 +45,11 @@ function visitNode(node: unknown, chunks: string[]): void {
 		}
 	}
 
+	if (record.type === "youtubeEmbed" && record.attrs && typeof record.attrs === "object") {
+		const attrs = record.attrs as Record<string, unknown>;
+		chunks.push([attrs.title, attrs.url].filter((value) => typeof value === "string" && value).join(" "));
+	}
+
 	if (record.type === "admonition" && record.attrs && typeof record.attrs === "object") {
 		const attrs = record.attrs as Record<string, unknown>;
 		chunks.push([attrs.kind, attrs.title].filter((value) => typeof value === "string" && value).join(" "));

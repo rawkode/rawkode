@@ -1,27 +1,38 @@
 import * as stylex from "@stylexjs/stylex";
 
 export const colors = stylex.defineVars({
-	bg: "oklch(1 0 0)",
-	chrome: "oklch(0.965 0.006 50)",
-	surface: "oklch(0.985 0.002 50)",
-	surfaceRaised: "oklch(1 0 0)",
-	ink: "oklch(0.18 0.018 55)",
-	muted: "oklch(0.46 0.018 55)",
-	subtle: "oklch(0.69 0.014 55)",
-	border: "oklch(0.88 0.012 55)",
-	primary: "oklch(0.40 0.103 50)",
-	primaryHover: "oklch(0.34 0.112 50)",
-	primarySoft: "oklch(0.93 0.038 50)",
-	accent: "oklch(0.36 0.094 215)",
-	success: "oklch(0.48 0.11 150)",
-	warning: "oklch(0.62 0.14 75)",
-	danger: "oklch(0.52 0.17 28)",
-	backdrop: "oklch(0.18 0.018 55 / 0.22)",
+	bg: "var(--color-bg)",
+	chrome: "var(--color-chrome)",
+	surface: "var(--color-surface)",
+	surfaceRaised: "var(--color-surface-raised)",
+	ink: "var(--color-ink)",
+	muted: "var(--color-muted)",
+	subtle: "var(--color-subtle)",
+	border: "var(--color-border)",
+	borderStrong: "var(--color-border-strong)",
+	primary: "var(--color-primary)",
+	primaryHover: "var(--color-primary-hover)",
+	primarySoft: "var(--color-primary-soft)",
+	accent: "var(--color-accent)",
+	info: "var(--color-info)",
+	infoSoft: "var(--color-info-soft)",
+	infoBorder: "var(--color-info-border)",
+	success: "var(--color-success)",
+	successSoft: "var(--color-success-soft)",
+	successBorder: "var(--color-success-border)",
+	warning: "var(--color-warning)",
+	warningSoft: "var(--color-warning-soft)",
+	warningBorder: "var(--color-warning-border)",
+	warningText: "var(--color-warning-text)",
+	danger: "var(--color-danger)",
+	dangerSoft: "var(--color-danger-soft)",
+	dangerBorder: "var(--color-danger-border)",
+	backdrop: "var(--color-backdrop)",
 });
 
 export const fonts = stylex.defineVars({
-	sans: "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-	mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+	sans: "\"Geist Sans\", Geist, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+	mono: "\"Geist Mono\", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 });
 
 export const sizes = stylex.defineVars({
@@ -58,20 +69,23 @@ export const space = stylex.defineVars({
 });
 
 export const radii = stylex.defineVars({
-	control: "8px",
-	panel: "10px",
+	control: "6px",
+	panel: "8px",
 	modal: "12px",
 	pill: "999px",
 	tag: "6px",
 });
 
 export const shadows = stylex.defineVars({
-	focus: "0 0 0 3px oklch(0.84 0.08 50 / 0.55)",
-	popover: "0 8px 24px oklch(0.18 0.018 55 / 0.14)",
+	focus: "0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus)",
+	popover: "var(--shadow-popover)",
 });
 
 export const motion = stylex.defineVars({
-	fast: "160ms ease",
+	fast: "150ms",
+	popover: "200ms",
+	overlay: "300ms",
+	ease: "cubic-bezier(0.175, 0.885, 0.32, 1.1)",
 	spin: "0.8s linear infinite",
 });
 

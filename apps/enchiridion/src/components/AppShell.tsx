@@ -71,6 +71,13 @@ import {
 	type MiniAppOperation,
 } from "../lib/mini-app-requests";
 import { textToTiptapBlocks } from "../lib/text";
+import {
+	isYouTubeVideoId,
+	parseYouTubeUrl,
+	youtubeEmbedUrl,
+	youtubeWatchUrl,
+	type YouTubeEmbedAttrs,
+} from "../lib/youtube";
 import { shell } from "../styles/shell.stylex";
 
 const ExtensionBlock = Node.create({
@@ -210,6 +217,107 @@ const Admonition = Node.create({
 			},
 			["div", { "data-admonition-heading": "" }, title],
 			["div", { "data-admonition-body": "" }, 0],
+		];
+	},
+});
+
+const YouTubeEmbed = Node.create({
+	name: "youtubeEmbed",
+	group: "block",
+	atom: true,
+	draggable: true,
+	addAttributes() {
+		return {
+			videoId: {
+				default: "",
+				parseHTML: (element) => element.getAttribute("data-video-id") ?? "",
+				renderHTML: (attributes) => ({ "data-video-id": readStringAttr(attributes.videoId) }),
+			},
+			url: {
+				default: "",
+				parseHTML: (element) => element.getAttribute("data-url") ?? "",
+				renderHTML: (attributes) => ({ "data-url": readStringAttr(attributes.url) }),
+			},
+			title: {
+				default: "YouTube video",
+				parseHTML: (element) => element.getAttribute("data-title") ?? "YouTube video",
+				renderHTML: (attributes) => ({ "data-title": readStringAttr(attributes.title) || "YouTube video" }),
+			},
+		};
+	},
+	parseHTML() {
+		return [{ tag: "figure[data-youtube-embed]" }];
+	},
+	renderHTML({ node }) {
+		const attrs = readYouTubeEmbedAttrs(node.attrs);
+		if (!attrs.videoId) {
+			return [
+				"figure",
+				{
+					"data-youtube-embed": "",
+					class: "youtube-embed-node youtube-embed-node-invalid",
+				},
+				["figcaption", { class: "youtube-embed-caption" }, "Invalid YouTube embed"],
+			];
+		}
+		const embedUrl = youtubeEmbedUrl(attrs.videoId);
+		return [
+			"figure",
+			{
+				"data-youtube-embed": "",
+				"data-video-id": attrs.videoId,
+				"data-url": attrs.url,
+				"data-title": attrs.title,
+				class: "youtube-embed-node",
+			},
+			[
+				"div",
+				{ class: "youtube-embed-frame" },
+				[
+					"iframe",
+					{
+						src: embedUrl,
+						title: attrs.title,
+						loading: "lazy",
+						allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
+						allowfullscreen: "true",
+						referrerpolicy: "strict-origin-when-cross-origin",
+					},
+				],
+			],
+			[
+				"figcaption",
+				{ class: "youtube-embed-caption" },
+				["a", { href: attrs.url, target: "_blank", rel: "noopener noreferrer" }, attrs.title],
+			],
+		];
+	},
+	addNodeView() {
+		return ReactNodeViewRenderer(YouTubeEmbedView);
+	},
+	addProseMirrorPlugins() {
+		const nodeType = this.type;
+		return [
+			new Plugin({
+				props: {
+					handlePaste(view, event) {
+						const attrs = parseYouTubeUrl(event.clipboardData?.getData("text/plain") ?? "");
+						if (!attrs) {
+							return false;
+						}
+
+						const node = nodeType.create(attrs);
+						const { selection } = view.state;
+						const transaction = selection.empty
+							&& selection.$from.parent.isTextblock
+							&& selection.$from.parent.content.size === 0
+							? view.state.tr.replaceRangeWith(selection.$from.before(), selection.$from.after(), node)
+							: view.state.tr.replaceSelectionWith(node);
+						view.dispatch(transaction.scrollIntoView());
+						return true;
+					},
+				},
+			}),
 		];
 	},
 });
@@ -521,6 +629,48 @@ function ReferenceMentionView({ node }: ReactNodeViewProps) {
 			}}
 		>
 			@{attrs.label}
+		</NodeViewWrapper>
+	);
+}
+
+function YouTubeEmbedView({ node }: ReactNodeViewProps) {
+	const attrs = readYouTubeEmbedAttrs(node.attrs);
+	if (!attrs.videoId) {
+		return (
+			<NodeViewWrapper
+				as="figure"
+				className="youtube-embed-node youtube-embed-node-invalid"
+				contentEditable={false}
+				data-youtube-embed=""
+			>
+				<figcaption className="youtube-embed-caption">Invalid YouTube embed</figcaption>
+			</NodeViewWrapper>
+		);
+	}
+
+	return (
+		<NodeViewWrapper
+			as="figure"
+			className="youtube-embed-node"
+			contentEditable={false}
+			data-youtube-embed=""
+			data-video-id={attrs.videoId}
+			data-url={attrs.url}
+			data-title={attrs.title}
+		>
+			<div className="youtube-embed-frame">
+				<iframe
+					src={youtubeEmbedUrl(attrs.videoId)}
+					title={attrs.title}
+					loading="lazy"
+					allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+					allowFullScreen
+					referrerPolicy="strict-origin-when-cross-origin"
+				/>
+			</div>
+			<figcaption className="youtube-embed-caption">
+				<a href={attrs.url} target="_blank" rel="noopener noreferrer">{attrs.title}</a>
+			</figcaption>
 		</NodeViewWrapper>
 	);
 }
@@ -1309,6 +1459,7 @@ export default function AppShell() {
 		extensions: [
 			StarterKit,
 			Admonition,
+			YouTubeEmbed,
 			ReferenceMention,
 			ExtensionBlock,
 			SlashCommandExtension,
@@ -4299,6 +4450,18 @@ function readReferenceKind(value: unknown): ReferenceTarget["referenceKind"] {
 
 function readStringAttr(value: unknown): string {
 	return typeof value === "string" ? value : "";
+}
+
+function readYouTubeEmbedAttrs(attrs: Record<string, unknown>): YouTubeEmbedAttrs {
+	const videoId = readStringAttr(attrs.videoId);
+	const safeVideoId = isYouTubeVideoId(videoId) ? videoId : "";
+	const url = safeVideoId ? youtubeWatchUrl(safeVideoId) : "";
+	const title = readStringAttr(attrs.title).trim() || "YouTube video";
+	return {
+		videoId: safeVideoId,
+		url,
+		title,
+	};
 }
 
 function isAgentRequestMode(value: unknown): value is AgentRequestMode {

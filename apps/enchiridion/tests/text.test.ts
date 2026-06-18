@@ -42,9 +42,17 @@ describe("tiptap text extraction", () => {
 						},
 					}],
 				},
+				{
+					type: "youtubeEmbed",
+					attrs: {
+						videoId: "dQw4w9WgXcQ",
+						title: "YouTube video",
+						url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+					},
+				},
 				{ type: "paragraph", content: [{ type: "text", text: "Review links after lunch." }] },
 			],
-		})).toBe("Daily capture bookmarks bookmark-query warning Warning Check the dispatch namespace. Enchiridion platform Review links after lunch.");
+		})).toBe("Daily capture bookmarks bookmark-query warning Warning Check the dispatch namespace. Enchiridion platform YouTube video https://www.youtube.com/watch?v=dQw4w9WgXcQ Review links after lunch.");
 	});
 });
 
