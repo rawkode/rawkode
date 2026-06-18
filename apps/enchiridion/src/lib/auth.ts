@@ -98,13 +98,13 @@ function readBasicAuth(header: string | null): { username: string; password: str
 }
 
 function passwordMatches(candidate: string, password: string): boolean {
-	if (candidate.length !== password.length) {
-		return false;
-	}
+	const candidateBytes = new TextEncoder().encode(candidate);
+	const passwordBytes = new TextEncoder().encode(password);
+	const comparisonLength = Math.max(candidateBytes.length, passwordBytes.length, 256);
 
-	let mismatch = 0;
-	for (let index = 0; index < password.length; index += 1) {
-		mismatch |= candidate.charCodeAt(index) ^ password.charCodeAt(index);
+	let mismatch = candidateBytes.length ^ passwordBytes.length;
+	for (let index = 0; index < comparisonLength; index += 1) {
+		mismatch |= (candidateBytes[index] ?? 0) ^ (passwordBytes[index] ?? 0);
 	}
 
 	return mismatch === 0;

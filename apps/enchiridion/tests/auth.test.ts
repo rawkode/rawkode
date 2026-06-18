@@ -88,9 +88,21 @@ describe("authentication", () => {
 				authorization: `Basic ${btoa("rawkode:wrong")}`,
 			},
 		});
+		const shorterPrefix = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/bootstrap", {
+			headers: {
+				authorization: `Basic ${btoa("rawkode:secret")}`,
+			},
+		});
+		const longerPrefix = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/bootstrap", {
+			headers: {
+				authorization: `Basic ${btoa("rawkode:secret-password-extra")}`,
+			},
+		});
 
 		expect(authenticate(unauthenticated, testEnv({ ENCHIRIDION_PASSWORD: "secret-password" }))).toBeNull();
 		expect(authenticate(incorrect, testEnv({ ENCHIRIDION_PASSWORD: "secret-password" }))).toBeNull();
+		expect(authenticate(shorterPrefix, testEnv({ ENCHIRIDION_PASSWORD: "secret-password" }))).toBeNull();
+		expect(authenticate(longerPrefix, testEnv({ ENCHIRIDION_PASSWORD: "secret-password" }))).toBeNull();
 	});
 
 	it("does not use the dev identity on production hosts", () => {
