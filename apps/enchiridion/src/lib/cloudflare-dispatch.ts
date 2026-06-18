@@ -220,37 +220,76 @@ export async function smokeTestMiniAppWorker(
 	env: Env,
 	input: { manifest: ExtensionManifest; scriptName: string },
 ): Promise<SmokeTestMiniAppResult> {
-	const route = primaryRouteForManifest(input.manifest);
+	const routes = smokeTestRoutesForManifest(input.manifest);
+	const primaryRoute = routes[0] ?? primaryRouteForManifest(input.manifest);
 	if (!env.MINI_APP_DISPATCHER) {
 		return {
 			ok: false,
-			route,
+			route: primaryRoute,
 			message: "Dispatch namespace binding is not configured.",
 		};
 	}
 
-	let token: string | undefined;
+	let signingSecret: string | undefined;
 	if (input.manifest.hostApis.length > 0) {
-		let secret: string;
 		try {
-			secret = requireHostSigningSecret(env);
+			signingSecret = requireHostSigningSecret(env);
 		} catch (error) {
 			if (error instanceof Response) {
 				return {
 					ok: false,
-					route,
+					route: primaryRoute,
 					status: error.status,
 					message: "HOST_SIGNING_SECRET is not configured.",
 				};
 			}
 			throw error;
 		}
+	}
+
+	const fetcher = env.MINI_APP_DISPATCHER.get(input.scriptName);
+	let firstSuccess: SmokeTestMiniAppResult | null = null;
+	for (const route of routes) {
+		const result = await smokeTestMiniAppWorkerRoute(fetcher, input, route, signingSecret);
+		if (!result.ok) {
+			return result;
+		}
+		firstSuccess ??= result;
+	}
+
+	if (!firstSuccess) {
+		return {
+			ok: false,
+			route: primaryRoute,
+			message: "No mini app worker-page routes were available for smoke testing.",
+		};
+	}
+
+	if (routes.length > 1) {
+		return {
+			...firstSuccess,
+			route: primaryRoute,
+			message: "All mini app worker-page routes rendered successfully.",
+		};
+	}
+
+	return firstSuccess;
+}
+
+async function smokeTestMiniAppWorkerRoute(
+	fetcher: Fetcher,
+	input: { manifest: ExtensionManifest; scriptName: string },
+	route: string,
+	signingSecret?: string,
+): Promise<SmokeTestMiniAppResult> {
+	let token: string | undefined;
+	if (signingSecret && input.manifest.hostApis.length > 0) {
 		token = await signHostContext({
 			app: input.manifest.slug,
 			scopes: input.manifest.hostApis,
 			expiresAt: Date.now() + 5 * 60 * 1000,
 			context: { path: route, smokeTest: true },
-		}, secret);
+		}, signingSecret);
 	}
 
 	const url = new URL(route, "https://enchiridion.local");
@@ -265,7 +304,7 @@ export async function smokeTestMiniAppWorker(
 	});
 
 	try {
-		const response = await env.MINI_APP_DISPATCHER.get(input.scriptName).fetch(request);
+		const response = await fetcher.fetch(request);
 		const contentType = response.headers.get("content-type");
 		const headerFailure = validateMiniAppResponseHeaders(response.headers);
 		if (headerFailure) {
@@ -335,16 +374,16 @@ function validateSmokeTestBody(contentType: string | null, body: string, hostCon
 	}
 
 	if (!contentType?.toLowerCase().includes("text/html")) {
-		return `primary route must return text/html, got ${contentType ?? "no content-type"}`;
+		return `worker-page route must return text/html, got ${contentType ?? "no content-type"}`;
 	}
 
 	const trimmed = body.trim();
 	if (/Load failed/i.test(trimmed)) {
-		return `primary route returned a generic failure body: ${sampleBody(trimmed)}`;
+		return `worker-page route returned a generic failure body: ${sampleBody(trimmed)}`;
 	}
 
 	if (trimmed.length < 20 || !/<(?:!doctype|html|body|main|section|article|h1|h2|div)\b/i.test(trimmed)) {
-		return `primary route returned an empty or non-HTML body: ${sampleBody(trimmed)}`;
+		return `worker-page route returned an empty or non-HTML body: ${sampleBody(trimmed)}`;
 	}
 
 	return null;
@@ -594,4 +633,12 @@ function primaryRouteForManifest(manifest: ExtensionManifest): string {
 	return manifest.routes.find((route) => route.mode === "worker-page")?.path
 		?? manifest.routes[0]?.path
 		?? `/apps/${manifest.slug}`;
+}
+
+function smokeTestRoutesForManifest(manifest: ExtensionManifest): string[] {
+	const workerPageRoutes = manifest.routes
+		.filter((route) => route.mode === "worker-page")
+		.map((route) => route.path);
+	const routes = workerPageRoutes.length > 0 ? workerPageRoutes : [primaryRouteForManifest(manifest)];
+	return Array.from(new Set(routes));
 }

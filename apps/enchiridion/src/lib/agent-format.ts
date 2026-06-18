@@ -14,7 +14,7 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 	}
 
 	if (status === "validation_failed") {
-		const details = message || "The Worker uploaded, but the primary route did not render.";
+		const details = message || "The Worker uploaded, but a worker-page route did not render.";
 		return `${status}: ${slug}. Candidate Worker failed smoke testing and was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 

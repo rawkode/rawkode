@@ -6,6 +6,7 @@ import {
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
 } from "../src/lib/cloudflare-dispatch";
+import { verifyHostContext } from "../src/lib/host-context";
 import type { Env, ExtensionManifest } from "../src/lib/types";
 
 const manifest: ExtensionManifest = {
@@ -125,6 +126,91 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(requestedPath).toBe("/apps/hello-world");
 	});
 
+	it("smoke tests every worker-page route through the dispatch binding", async () => {
+		const requestedPaths: string[] = [];
+		const multiRouteManifest: ExtensionManifest = {
+			...manifest,
+			routes: [
+				{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" },
+				{ path: "/apps/hello-world/fragment", mode: "worker-fragment", label: "Fragment" },
+				{ path: "/apps/hello-world/settings", mode: "worker-page", label: "Settings" },
+			],
+		};
+		const env = {
+			MINI_APP_DISPATCHER: {
+				get(scriptName: string) {
+					expect(scriptName).toBe("enchiridion-hello-world-candidate");
+					return {
+						async fetch(request: Request) {
+							const url = new URL(request.url);
+							requestedPaths.push(url.pathname);
+							return new Response(`<html><body><h1>${url.pathname}</h1></body></html>`, {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest: multiRouteManifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.route).toBe("/apps/hello-world");
+		expect(result.message).toBe("All mini app worker-page routes rendered successfully.");
+		expect(requestedPaths).toEqual([
+			"/apps/hello-world",
+			"/apps/hello-world/settings",
+		]);
+	});
+
+	it("fails smoke testing when a secondary worker-page route fails", async () => {
+		const requestedPaths: string[] = [];
+		const multiRouteManifest: ExtensionManifest = {
+			...manifest,
+			routes: [
+				{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" },
+				{ path: "/apps/hello-world/settings", mode: "worker-page", label: "Settings" },
+			],
+		};
+		const env = {
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch(request: Request) {
+							const url = new URL(request.url);
+							requestedPaths.push(url.pathname);
+							if (url.pathname === "/apps/hello-world/settings") {
+								return new Response("Load failed", { status: 500 });
+							}
+
+							return new Response("<html><body><h1>Hello</h1></body></html>", {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest: multiRouteManifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.route).toBe("/apps/hello-world/settings");
+		expect(result.status).toBe(500);
+		expect(result.message).toContain("Load failed");
+		expect(requestedPaths).toEqual([
+			"/apps/hello-world",
+			"/apps/hello-world/settings",
+		]);
+	});
+
 	it("smoke tests scoped mini apps with a host-context token", async () => {
 		const env = {
 			HOST_SIGNING_SECRET: "test-secret",
@@ -149,6 +235,46 @@ describe("Cloudflare dispatch helpers", () => {
 		});
 
 		expect(result.ok).toBe(true);
+	});
+
+	it("signs scoped smoke-test host contexts for each worker-page route", async () => {
+		const tokenPaths: string[] = [];
+		const multiRouteManifest: ExtensionManifest = {
+			...scopedManifest,
+			routes: [
+				{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" },
+				{ path: "/apps/hello-world/settings", mode: "worker-page", label: "Settings" },
+			],
+		};
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch(request: Request) {
+							const token = request.headers.get("x-enchiridion-host-context");
+							expect(token).toBeTruthy();
+							const payload = await verifyHostContext(token ?? "", "test-secret");
+							tokenPaths.push(String(payload?.context.path));
+							return new Response("<html><body><h1>Hello</h1></body></html>", {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest: multiRouteManifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(tokenPaths).toEqual([
+			"/apps/hello-world",
+			"/apps/hello-world/settings",
+		]);
 	});
 
 	it("reports smoke test failures without throwing", async () => {
@@ -197,7 +323,7 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.ok).toBe(false);
 		expect(result.status).toBe(200);
 		expect(result.contentType).toContain("application/json");
-		expect(result.message).toContain("primary route must return text/html");
+		expect(result.message).toContain("worker-page route must return text/html");
 	});
 
 	it("rejects smoke tests that return empty or generic HTML", async () => {
@@ -223,7 +349,7 @@ describe("Cloudflare dispatch helpers", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.status).toBe(200);
-		expect(result.message).toContain("primary route returned an empty or non-HTML body");
+		expect(result.message).toContain("worker-page route returned an empty or non-HTML body");
 	});
 
 	it("rejects smoke tests that return unsafe dynamic HTML", async () => {
