@@ -192,7 +192,7 @@ describe("generate mini app workflow recovery", () => {
 		});
 	});
 
-	it("registers a generated candidate as pending when only dispatch loading stays transient", async () => {
+	it("cleans up and retries a generated create candidate when dispatch loading stays transient", async () => {
 		const { smokeTestMiniAppWorker, deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
 		vi.mocked(smokeTestMiniAppWorker)
 			.mockRejectedValueOnce(new Error("Load failed"))
@@ -233,18 +233,31 @@ describe("generate mini app workflow recovery", () => {
 		} as never);
 
 		expect(result).toMatchObject({
-			status: "deployed_pending",
+			status: "deployed",
 			operation: "create",
 			slug: "hello-world",
 			deployed: true,
 			routeUrl: "/apps/hello-world",
 			validationAttempts: [
-				{ attempt: 1, status: "failed", route: "/apps/hello-world", message: "Load failed" },
-				{ attempt: 2, status: "failed", route: "/apps/hello-world", message: "Load failed" },
-				{ attempt: 3, status: "failed", route: "/apps/hello-world", message: "Load failed" },
-				{ attempt: 4, status: "failed", route: "/apps/hello-world", message: "Load failed" },
+				{ attempt: 1, status: "passed", route: "/apps/hello-world", message: "Primary mini-app route rendered successfully." },
 			],
 		});
+		expect(result.attempts).toEqual([
+			expect.objectContaining({
+				attempt: 1,
+				status: "validation_failed",
+				message: "Load failed",
+				transient: true,
+				cleanup: "Mini app Worker candidate removed.",
+				smokeTestAttempts: [
+					{ attempt: 1, status: "failed", route: "/apps/hello-world", message: "Load failed" },
+					{ attempt: 2, status: "failed", route: "/apps/hello-world", message: "Load failed" },
+					{ attempt: 3, status: "failed", route: "/apps/hello-world", message: "Load failed" },
+					{ attempt: 4, status: "failed", route: "/apps/hello-world", message: "Load failed" },
+				],
+			}),
+		]);
+		expect(mockState.deployments).toHaveLength(2);
 		expect(mockState.savedExtensions).toEqual([
 			expect.objectContaining({
 				scriptName: "enchiridion-hello-world-candidate",
@@ -252,15 +265,22 @@ describe("generate mini app workflow recovery", () => {
 				manifest: expect.objectContaining({ slug: "hello-world" }),
 			}),
 		]);
-		expect(deleteMiniAppWorker).not.toHaveBeenCalled();
+		expect(deleteMiniAppWorker).toHaveBeenCalledTimes(1);
+		expect(deleteMiniAppWorker).toHaveBeenCalledWith(expect.anything(), "enchiridion-hello-world-candidate");
 		expect(mockState.audits[0]).toMatchObject({
 			slug: "hello-world",
-			status: "deployed_pending",
+			status: "deployed",
+			details: {
+				attempts: [
+					expect.objectContaining({
+						attempt: 1,
+						status: "validation_failed",
+						message: "Load failed",
+						transient: true,
+					}),
+				],
+			},
 		});
-		expect((mockState.audits[0]?.details as Record<string, unknown>).validationAttempts).toEqual(expect.arrayContaining([
-			expect.objectContaining({ attempt: 1, status: "failed", message: "Load failed" }),
-			expect.objectContaining({ attempt: 4, status: "failed", message: "Load failed" }),
-		]));
 	});
 
 	it("cleans up the superseded Worker after a successful dynamic mini app update", async () => {
@@ -532,7 +552,7 @@ describe("generate mini app workflow recovery", () => {
 		});
 	});
 
-	it("registers a deterministic fallback as pending after repeated transient dispatch load failures", async () => {
+	it("does not activate a deterministic fallback after repeated transient dispatch load failures", async () => {
 		const { smokeTestMiniAppWorker, deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
 		vi.mocked(smokeTestMiniAppWorker)
 			.mockRejectedValueOnce(new Error("Load failed"))
@@ -557,25 +577,22 @@ describe("generate mini app workflow recovery", () => {
 		} as never);
 
 		expect(result).toMatchObject({
-			status: "deployed_pending",
+			status: "fallback_validation_failed",
 			operation: "create",
 			slug: "kubernetes-topology-spread-constraints",
-			deployed: true,
-			fallback: true,
-			routeUrl: "/apps/kubernetes-topology-spread-constraints",
+			deployed: false,
+			message: "Load failed",
 		});
 		expect(smokeTestMiniAppWorker).toHaveBeenCalledTimes(4);
-		expect(mockState.savedExtensions).toEqual([
-			expect.objectContaining({
-				scriptName: "enchiridion-kubernetes-topology-spread-constraints-candidate",
-				status: "dynamic",
-				manifest: expect.objectContaining({ slug: "kubernetes-topology-spread-constraints" }),
-			}),
-		]);
-		expect(deleteMiniAppWorker).not.toHaveBeenCalled();
+		expect(mockState.savedExtensions).toEqual([]);
+		expect(deleteMiniAppWorker).toHaveBeenCalledTimes(1);
+		expect(deleteMiniAppWorker).toHaveBeenCalledWith(
+			expect.anything(),
+			"enchiridion-kubernetes-topology-spread-constraints-candidate",
+		);
 		expect(mockState.audits[0]).toMatchObject({
 			slug: "kubernetes-topology-spread-constraints",
-			status: "fallback_deployed_pending",
+			status: "fallback_validation_failed",
 			details: {
 				previousFailureStatus: "generation_failed",
 				validationAttempts: [
@@ -584,6 +601,10 @@ describe("generate mini app workflow recovery", () => {
 					{ attempt: 3, status: "failed", message: "Load failed" },
 					{ attempt: 4, status: "failed", message: "Load failed" },
 				],
+				cleanup: {
+					scriptName: "enchiridion-kubernetes-topology-spread-constraints-candidate",
+					deleted: true,
+				},
 			},
 		});
 	});

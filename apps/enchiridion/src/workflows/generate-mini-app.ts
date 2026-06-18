@@ -269,72 +269,39 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 			const smokeTest = smokeTestRun.result;
 
 			if (!smokeTest.ok) {
-				if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
-					const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
-					if (operation === "update" && supersededScriptName) {
-						const cleanup = await cleanupMiniAppCandidate(env, deployment.scriptName);
-						await createAuditRecord(env, {
-							slug: manifest.slug,
-							action: "update-mini-app",
-							status: "update_deferred",
-							details: {
-								activeScriptName: supersededScriptName,
-								candidateScriptName: deployment.scriptName,
-								message: deployment.message,
-								deploymentNotes: generated.deploymentNotes,
-								validation: smokeTest as unknown as JsonObject,
-								validationAttempts: smokeTestRun.attempts,
-								cleanup: cleanup as unknown as JsonObject,
-								attempts,
-							},
-						});
-
-						return {
-							status: "update_deferred",
-							operation,
-							slug: manifest.slug,
-							scriptName: supersededScriptName,
-							candidateScriptName: deployment.scriptName,
-							deployed: false,
-							activeRoutePreserved: true,
-							message: `Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: ${smokeTest.message}`,
-							routeUrl: smokeTest.route,
-							validation: smokeTest,
-							validationAttempts: smokeTestRun.attempts,
-							cleanup,
-							manifest,
-							attempts,
-						};
-					}
-
-					await saveExtension(env, manifest, deployment.scriptName, "dynamic");
+				const transientSmokeTestRun = isTransientSmokeTestRun(smokeTestRun.attempts);
+				const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
+				if (transientSmokeTestRun && operation === "update" && supersededScriptName) {
+					const cleanup = await cleanupMiniAppCandidate(env, deployment.scriptName);
 					await createAuditRecord(env, {
 						slug: manifest.slug,
-						action: `${operation}-mini-app`,
-						status: operation === "update" ? "updated_pending" : "deployed_pending",
+						action: "update-mini-app",
+						status: "update_deferred",
 						details: {
-							scriptName: deployment.scriptName,
-							pendingSupersededScriptName: supersededScriptName && supersededScriptName !== deployment.scriptName
-								? supersededScriptName
-								: undefined,
+							activeScriptName: supersededScriptName,
+							candidateScriptName: deployment.scriptName,
 							message: deployment.message,
 							deploymentNotes: generated.deploymentNotes,
 							validation: smokeTest as unknown as JsonObject,
 							validationAttempts: smokeTestRun.attempts,
+							cleanup: cleanup as unknown as JsonObject,
 							attempts,
 						},
 					});
 
 					return {
-						status: operation === "update" ? "updated_pending" : "deployed_pending",
+						status: "update_deferred",
 						operation,
 						slug: manifest.slug,
-						scriptName: deployment.scriptName,
-						deployed: true,
-						message: `Mini app Worker was uploaded and registered, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+						scriptName: supersededScriptName,
+						candidateScriptName: deployment.scriptName,
+						deployed: false,
+						activeRoutePreserved: true,
+						message: `Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: ${smokeTest.message}`,
 						routeUrl: smokeTest.route,
 						validation: smokeTest,
 						validationAttempts: smokeTestRun.attempts,
+						cleanup,
 						manifest,
 						attempts,
 					};
@@ -349,6 +316,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 					route: smokeTest.route,
 					smokeTestAttempts: smokeTestRun.attempts,
 					cleanup: cleanup.message,
+					transient: transientSmokeTestRun || undefined,
 				});
 
 				if (attempt < maxGenerationAttempts) {
@@ -712,41 +680,6 @@ async function maybeDeployFallbackMiniApp(input: {
 	const smokeTest = smokeTestRun.result;
 
 	if (!smokeTest.ok) {
-		if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
-			await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
-			await createAuditRecord(input.env, {
-				slug: manifest.slug,
-				action: "create-mini-app",
-				status: "fallback_deployed_pending",
-				details: {
-					fallback: true,
-					previousFailureStatus: input.failureStatus,
-					previousFailure: input.failureDetails,
-					scriptName: deployment.scriptName,
-					message: deployment.message,
-					deploymentNotes: generated.deploymentNotes,
-					validation: smokeTest as unknown as JsonObject,
-					validationAttempts: smokeTestRun.attempts,
-					attempts: input.attempts,
-				},
-			});
-
-			return {
-				status: "deployed_pending",
-				operation: "create",
-				slug: manifest.slug,
-				scriptName: deployment.scriptName,
-				deployed: true,
-				fallback: true,
-				message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
-				routeUrl: smokeTest.route,
-				validation: smokeTest,
-				validationAttempts: smokeTestRun.attempts,
-				manifest,
-				attempts: input.attempts,
-			};
-		}
-
 		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
 		await createAuditRecord(input.env, {
 			slug: manifest.slug,
