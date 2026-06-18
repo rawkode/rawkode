@@ -36,6 +36,8 @@ export default createAgent<unknown, Env>(({ env, id }) => {
 			"If the request needs recurring work, declare scheduled manifest workflows and worker-owned callback routes under /apps/<slug>/_workflows/*. The Enchiridion host owns cron scheduling; generated Workers must not rely on Cloudflare Cron Triggers inside the dispatch namespace.",
 			"Scheduled workflow manifest entries must use this exact shape: { id, label, trigger: \"scheduled\", workflowName: \"run-mini-app-workflow\", cron, requiredHostApis }. The id must be kebab-case and the Worker must provide a matching worker-fragment POST route at /apps/<slug>/_workflows/<id>.",
 			"Routes must stay under /apps/<slug>. Generated Workers must be self-contained module Workers and must not import packages or access the host D1 binding.",
+			"Stateful apps may declare isolated D1/KV/R2 binding needs, but activation will stop at provisioning until Enchiridion provides scoped Dynamic Worker custom bindings. Do not fake stateful behavior with a static app.",
+			"Generated Workers must use only manifest-declared capabilities. They must not assume raw D1, R2, KV, AI, or cron bindings exist in env unless the manifest declares them and the host provisions them.",
 			"Generated dispatch Workers must not use setInterval, setTimeout, browser globals, Cache API state, service-worker globals, script tags, inline event handlers, or browser-authenticated app APIs.",
 			"Use scoped host APIs only when declared in the manifest. Prefer worker-page routes plus host scheduler workflows for mini apps that need background syncing.",
 			"If you cannot produce a safe candidate, call fail_mini_app_build with the concrete reason.",

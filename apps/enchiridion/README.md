@@ -44,6 +44,8 @@ D1 migrations are applied only on the production deploy path. PR previews upload
 ## Cloudflare Resources
 
 - D1 database: `enchiridion` (`0b7c04ac-8fdc-4941-a9cf-36757c24efa7`)
+- Workers for Platforms dispatch namespace: `enchiridion-mini-apps`
+- Dynamic Worker loader binding: `LOADER`
 
 ## Architecture
 
@@ -52,12 +54,17 @@ D1 migrations are applied only on the production deploy path. PR previews upload
 - D1 stores daily notes, extension manifests, resource index records, audit logs, and demo app data.
 - Flue owns the in-app agent, the durable `mini-app-builder` agent, and bounded host workflows.
 - Workers for Platforms dispatches autonomous mini-app Workers.
+- Dynamic Workers custom bindings are the target primitive for stateful mini apps. The host should expose scoped RPC stubs for D1/KV/R2/AI and app capabilities rather than passing raw resource bindings to generated code.
 
 ## Mini-App Builds
 
 Mini-app requests are admitted through `POST /api/mini-app-builds`. The route creates a D1 build ledger row, dispatches the durable Flue `mini-app-builder` agent with that build id, stores the returned submission id, and returns immediately. The browser only embeds the request block and polls the build row, so closing or reloading the tab does not own the work.
 
 Builds have a 30 minute deadline. The builder agent must call its scoped `submit_mini_app_candidate` tool to validate the manifest, upload the Workers for Platforms dispatch Worker, smoke test routes, save the extension, and settle the build. Scheduled mini-app behavior is declared as manifest workflows; the Enchiridion host scheduler owns cron and calls app-owned workflow routes under `/apps/:slug/*`.
+
+Stateful mini apps are first-class platform work, not a fallback path. A generated app may declare D1/KV/R2/AI-style binding needs and scheduled workflows, but autonomous activation stops at `requires_binding_provisioning` until Enchiridion provisions scoped Dynamic Worker custom bindings and records app-owned migrations. The next platform slice is a capability broker that wraps host resources as narrow WorkerEntrypoint stubs, passes those stubs through `LOADER.load({ env })`, and exposes TypeScript capability declarations to the builder agent.
+
+Mini apps should get real D1, R2, KV, AI, scheduled workflow, and future connector access through those scoped stubs. They should not receive raw host bindings or account-wide credentials. Each capability must be declared in the manifest, resolved by the host, passed to the Dynamic Worker explicitly, and audited when used.
 
 ## First Slice
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import app from "../src/app";
-import { fallbackMiniAppDescription } from "../src/lib/fallback-mini-app";
 import { signSchedulerWorkflowRequest, verifyHostContext } from "../src/lib/host-context";
 import type { Env, RegisteredExtension } from "../src/lib/types";
 
@@ -487,17 +486,17 @@ describe("app mini app routing", () => {
 		expect(dispatchedRequests).toHaveLength(4);
 	});
 
-	it("renders static fallback mini apps from the host when dispatch cannot load the Worker", async () => {
-		const fallbackExtension: RegisteredExtension = {
-			slug: "kubernetes-topology-spread-constraints",
-			name: "Kubernetes Topology Spread Constraints",
+	it("does not host-render static fallback pages when dispatch cannot load a Worker", async () => {
+		const { env, dispatchedRequests } = testEnv({
+			slug: "rss-reader-periodic-sync-update-articles",
+			name: "RSS Reader Periodic Sync Update Articles",
 			version: "0.1.0",
-			description: fallbackMiniAppDescription,
+			description: "Static fallback mini app generated after autonomous app-builder repair attempts failed.",
 			status: "dynamic",
 			routes: [{
-				path: "/apps/kubernetes-topology-spread-constraints",
+				path: "/apps/rss-reader-periodic-sync-update-articles",
 				mode: "worker-page",
-				label: "Kubernetes Topology Spread Constraints",
+				label: "RSS Reader Periodic Sync Update Articles",
 			}],
 			commands: [],
 			editorBlocks: [],
@@ -505,21 +504,20 @@ describe("app mini app routing", () => {
 			bindings: [],
 			hostApis: [],
 			indexProjections: [],
-			deployedScriptName: "enchiridion-kubernetes-topology-spread-constraints",
-		};
-		const { env, dispatchedRequests } = testEnv(fallbackExtension, () => {
+			deployedScriptName: "enchiridion-rss-reader-periodic-sync-update-articles",
+		}, () => {
 			throw new Error("Load failed");
 		});
-		const response = await app.fetch(new Request("http://localhost/apps/kubernetes-topology-spread-constraints", {
+		const response = await app.fetch(new Request("http://localhost/apps/rss-reader-periodic-sync-update-articles", {
 			headers: { accept: "text/html" },
 		}), env);
 		const body = await response.text();
 
-		expect(response.status).toBe(200);
-		expect(response.headers.get("x-enchiridion-fallback-renderer")).toBe("host");
-		expect(body).toContain("Topology spread constraints tell Kubernetes");
-		expect(body).toContain("topologySpreadConstraints");
-		expect(body).toContain("kubectl get pods -o wide");
+		expect(response.status).toBe(502);
+		expect(response.headers.get("x-enchiridion-fallback-renderer")).toBeNull();
+		expect(body).toContain("rss-reader-periodic-sync-update-articles failed to load");
+		expect(body).toContain("Load failed");
+		expect(body).not.toContain("Enchiridion fallback mini app");
 		expect(dispatchedRequests).toHaveLength(4);
 	});
 

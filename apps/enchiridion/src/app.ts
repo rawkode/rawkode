@@ -10,11 +10,6 @@ import {
 	recordPasswordAuthFailure,
 } from "./lib/auth-throttle";
 import { createMiniAppDispatchRequest, isTransientMiniAppLoadFailure, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
-import {
-	fallbackPromptFromManifest,
-	isFallbackMiniAppManifest,
-	renderFallbackMiniAppHtml,
-} from "./lib/fallback-mini-app";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import {
 	isHostContextPathForApp,
@@ -36,6 +31,7 @@ import {
 	getExtension,
 	getMiniAppBuild,
 	getOrCreateDailyNote,
+	listMiniAppBuildEvents,
 	listBoards,
 	listBookmarks,
 	listExtensionBindingRequests,
@@ -55,6 +51,7 @@ import {
 	renderProjectsFragment,
 	renderProjectsPage,
 } from "./lib/mini-app-pages";
+import { refineAgentPrompt } from "./lib/prompt-refinement";
 import type { Env, ExtensionBindingRequestStatus, JsonObject, RegisteredExtension } from "./lib/types";
 
 type HonoEnv = {
@@ -89,6 +86,14 @@ const cardSchema = z.object({
 
 const scheduledWorkflowUpdateSchema = z.object({
 	enabled: z.boolean(),
+});
+
+const promptRefinementSchema = z.object({
+	mode: z.enum(["ask", "build", "update"]),
+	prompt: z.string().trim().min(1).max(8_000),
+	contextPrompt: z.string().max(4_000).optional(),
+	contextResponse: z.string().max(8_000).optional(),
+	targetSlug: z.string().max(160).optional(),
 });
 
 const miniAppDispatchRetryDelaysMs = [150, 500, 1_000];
@@ -265,7 +270,18 @@ app.get("/api/mini-app-builds/:id", async (c) => {
 	if (!build) {
 		return c.json({ error: "Mini app build not found" }, 404);
 	}
-	return c.json(build);
+	const events = await listMiniAppBuildEvents(c.env, build.id, { limit: 100 });
+	return c.json({ ...build, events });
+});
+
+app.post("/api/agent/refine-prompt", async (c) => {
+	if (!c.env.AI) {
+		return c.json({ error: "AI prompt refinement is not available in this environment." }, 503);
+	}
+
+	const payload = promptRefinementSchema.parse(await c.req.json());
+	const prompt = await refineAgentPrompt(c.env.AI, payload);
+	return c.json({ prompt });
 });
 
 app.get("/api/apps/bookmarks/bookmarks", async (c) => {
@@ -571,7 +587,6 @@ function miniAppBuildSucceeded(result: JsonObject): boolean {
 	const status = typeof result.status === "string" ? result.status : "";
 	return status === "deployed"
 		|| status === "updated"
-		|| status === "deployed_pending"
 		|| status === "registered"
 		|| status === "requires_binding_provisioning"
 		|| status === "update_deferred";
@@ -651,10 +666,6 @@ function miniAppLoadFailedResponse(request: Request, extension: RegisteredExtens
 		return json({ error: "Mini app failed to load", slug, message }, 502);
 	}
 
-	if (isFallbackMiniAppManifest(extension)) {
-		return hostRenderedFallbackMiniAppResponse(extension);
-	}
-
 	return new Response(`<!doctype html>
 <html lang="en">
 	<head>
@@ -685,23 +696,6 @@ function miniAppLoadFailedResponse(request: Request, extension: RegisteredExtens
 		headers: {
 			"cache-control": "no-store",
 			"content-type": "text/html; charset=utf-8",
-		},
-	});
-}
-
-function hostRenderedFallbackMiniAppResponse(extension: RegisteredExtension): Response {
-	const html = renderFallbackMiniAppHtml({
-		name: extension.name,
-		prompt: fallbackPromptFromManifest(extension),
-		notice: "Dynamic Worker dispatch is temporarily unavailable. Enchiridion rendered this static fallback page from the host.",
-	});
-
-	return new Response(html, {
-		status: 200,
-		headers: {
-			"cache-control": "no-store",
-			"content-type": "text/html; charset=utf-8",
-			"x-enchiridion-fallback-renderer": "host",
 		},
 	});
 }

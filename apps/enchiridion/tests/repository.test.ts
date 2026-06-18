@@ -244,6 +244,7 @@ describe("extension repository scheduling", () => {
 
 	it("recovers pending and interrupted mini app builds before their deadline", async () => {
 		const rows: unknown[] = [];
+		let eventSequence = 0;
 		const env = {
 			DB: {
 				prepare(sql: string) {
@@ -254,8 +255,8 @@ describe("extension repository scheduling", () => {
 							return statement;
 						},
 						async run() {
-							if (sql.includes("INSERT INTO mini_app_builds")) {
-								rows.push({
+								if (sql.includes("INSERT INTO mini_app_builds")) {
+									rows.push({
 									id: bindings[0],
 									prompt: bindings[1],
 									operation: bindings[2],
@@ -271,12 +272,18 @@ describe("extension repository scheduling", () => {
 									deadline_at: bindings[12],
 									completed_at: bindings[13],
 									created_at: bindings[14],
-									updated_at: bindings[15],
-								});
-							}
-							return {};
-						},
-						async all() {
+										updated_at: bindings[15],
+									});
+								}
+								return {};
+							},
+							async first() {
+								if (sql.includes("FROM mini_app_build_events")) {
+									return { next_sequence: eventSequence++ };
+								}
+								return null;
+							},
+							async all() {
 							const deadline = String(bindings[0]);
 							return {
 								results: rows.filter((row) => {

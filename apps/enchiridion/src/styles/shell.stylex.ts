@@ -644,10 +644,39 @@ export const shell = stylex.create({
 		gap: space.two,
 		minWidth: 0,
 	},
+	agentRequestLabelRow: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: space.four,
+		minWidth: 0,
+	},
+	promptRefineButton: {
+		flexShrink: 0,
+		paddingTop: space.two,
+		paddingRight: space.four,
+		paddingBottom: space.two,
+		paddingLeft: space.four,
+		color: colors.primaryHover,
+		fontSize: sizes.textSm,
+		":disabled": {
+			cursor: "not-allowed",
+			opacity: 0.55,
+		},
+	},
+	promptRefineGlyph: {
+		fontSize: sizes.textMd,
+		lineHeight: 1,
+	},
 	agentRequestPrompt: {
 		minHeight: "92px",
 		resize: "vertical",
 		lineHeight: 1.45,
+	},
+	agentRequestError: {
+		color: colors.danger,
+		fontSize: sizes.textSm,
+		lineHeight: 1.35,
 	},
 	agentRequestActions: {
 		display: "grid",

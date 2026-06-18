@@ -15,7 +15,7 @@ export const allowedHostApis = [
 	"workflows:run",
 ] as const;
 
-export const allowedBindingTypes = ["kv_namespace", "d1_database", "r2_bucket"] as const;
+export const allowedBindingTypes = ["kv_namespace", "d1_database", "r2_bucket", "ai"] as const;
 export const allowedRouteModes = ["worker-page", "worker-fragment", "host-primitive", "native-promoted"] as const;
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());

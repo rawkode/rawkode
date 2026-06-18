@@ -8,6 +8,7 @@ export interface Env {
 	DB: D1Database;
 	ASSETS: Fetcher;
 	AI?: CloudflareAIBinding;
+	LOADER?: WorkerLoader;
 	MINI_APP_DISPATCHER?: {
 		get(scriptName: string): Fetcher;
 	};
@@ -146,6 +147,16 @@ export interface MiniAppBuild {
 	updatedAt: string;
 }
 
+export interface MiniAppBuildEvent {
+	id: string;
+	buildId: string;
+	sequence: number;
+	type: string;
+	message: string;
+	details: JsonObject;
+	createdAt: string;
+}
+
 export interface ScheduledWorkflow {
 	id: string;
 	extensionSlug: string | null;
@@ -181,7 +192,8 @@ export interface ExtensionBindingRequest {
 export type ExtensionResolvedBinding =
 	| { type: "kv_namespace"; name: string; namespaceId: string }
 	| { type: "d1_database"; name: string; databaseId: string }
-	| { type: "r2_bucket"; name: string; bucketName: string };
+	| { type: "r2_bucket"; name: string; bucketName: string }
+	| { type: "ai"; name: string; modelAllowlist?: string[] };
 
 export type ExtensionRouteMode = "worker-page" | "worker-fragment" | "host-primitive" | "native-promoted";
 
@@ -225,7 +237,7 @@ export interface ExtensionWorkflow {
 }
 
 export interface ExtensionBinding {
-	type: "kv_namespace" | "d1_database" | "r2_bucket";
+	type: "kv_namespace" | "d1_database" | "r2_bucket" | "ai";
 	name: string;
 	purpose: string;
 }

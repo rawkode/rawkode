@@ -2,9 +2,9 @@ import type { JsonObject } from "./types";
 
 export type AuditTone = "neutral" | "success" | "warning" | "danger";
 
-const successStatuses = new Set(["admitted", "completed", "deployed", "enabled", "fallback_deployed", "updated", "registered"]);
-const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "fallback_rejected", "deployed_pending", "updated_pending", "update_deferred", "fallback_deployed_pending"]);
-const dangerStatuses = new Set(["deploy_failed", "fallback_deploy_failed", "fallback_validation_failed", "validation_failed", "error", "failed"]);
+const successStatuses = new Set(["admitted", "completed", "deployed", "enabled", "updated", "registered"]);
+const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "deployed_pending", "updated_pending", "update_deferred"]);
+const dangerStatuses = new Set(["deploy_failed", "validation_failed", "error", "failed"]);
 
 export function auditToneForStatus(status: string): AuditTone {
 	if (successStatuses.has(status)) {
@@ -19,25 +19,8 @@ export function auditToneForStatus(status: string): AuditTone {
 	return "neutral";
 }
 
-export function auditDetailSummary(details: JsonObject, status = ""): string {
+export function auditDetailSummary(details: JsonObject, _status = ""): string {
 	const operationalSummaries = auditOperationalSummaries(details);
-
-	if (status === "fallback_deployed" || status === "fallback_deployed_pending") {
-		const previousFailure = summarizeNestedDetails(details.previousFailure);
-		if (previousFailure) {
-			return joinSummaryParts([`Fallback deployed after ${previousFailure}`, ...operationalSummaries]);
-		}
-	}
-
-	if (status.startsWith("fallback_") && status !== "fallback_deployed") {
-		const currentFailure = summarizeNestedDetails(details.validation) || readString(details.message);
-		const previousFailure = summarizeNestedDetails(details.previousFailure);
-		return joinSummaryParts([
-			currentFailure,
-			previousFailure ? `Previous failure: ${previousFailure}` : "",
-			...operationalSummaries,
-		]);
-	}
 
 	const message = readString(details.message);
 	if (message) {
@@ -135,31 +118,6 @@ function summarizeSupersededCleanup(value: unknown): string {
 
 function joinSummaryParts(parts: string[]): string {
 	return parts.map((part) => part.trim()).filter(Boolean).join(" ");
-}
-
-function summarizeNestedDetails(value: unknown): string {
-	const details = readObject(value);
-	if (!details) {
-		return "";
-	}
-
-	const message = readString(details.message);
-	if (message) {
-		return message;
-	}
-
-	const issues = readStringArray(details.issues);
-	if (issues.length > 0) {
-		return issues.join(" ");
-	}
-
-	const validation = readObject(details.validation);
-	const validationMessage = validation ? readString(validation.message) : "";
-	if (validationMessage) {
-		return validationMessage;
-	}
-
-	return readString(details.deploymentNotes) || readString(details.scriptName);
 }
 
 function readObject(value: unknown): JsonObject | null {

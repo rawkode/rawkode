@@ -294,10 +294,21 @@ type MiniAppBuildAdmission = {
 
 type MiniAppBuildStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "expired";
 
+type MiniAppBuildEventRecord = {
+	id: string;
+	buildId: string;
+	sequence: number;
+	type: string;
+	message: string;
+	details: JsonObject;
+	createdAt: string;
+};
+
 type MiniAppBuildRecord = MiniAppBuildAdmission & {
 	attemptCount: number;
 	completedAt: string | null;
 	createdAt: string;
+	events: MiniAppBuildEventRecord[];
 	updatedAt: string;
 };
 
@@ -826,10 +837,13 @@ function AgentRequestInputBlock({ props, updateProps }: { props: ExtensionBlockP
 	const prompt = readExtensionBlockString(props, "draftPrompt");
 	const targetSlug = readExtensionBlockString(props, "targetSlug") || (mode === "update" && targetOptions.length === 1 ? targetOptions[0]?.slug ?? "" : "");
 	const [submitted, setSubmitted] = useState(false);
+	const [isRefiningPrompt, setIsRefiningPrompt] = useState(false);
+	const [refineError, setRefineError] = useState("");
 	const promptRef = useRef<HTMLTextAreaElement | null>(null);
 	const blockId = typeof props.id === "string" && props.id ? props.id : createClientId();
 	const needsTarget = mode === "update";
 	const canSubmit = prompt.trim().length > 0 && (!needsTarget || targetSlug.trim().length > 0) && !submitted;
+	const canRefinePrompt = prompt.trim().length > 0 && !submitted && !isRefiningPrompt;
 	const actionLabel = typeof props.actionLabel === "string" ? props.actionLabel : mode === "build" ? "Build app" : mode === "update" ? "Update app" : "Ask agent";
 	const placeholder = typeof props.placeholder === "string"
 		? props.placeholder
@@ -845,6 +859,43 @@ function AgentRequestInputBlock({ props, updateProps }: { props: ExtensionBlockP
 		}, 0);
 		return () => window.clearTimeout(handle);
 	}, []);
+
+	const refinePrompt = useCallback(async () => {
+		const originalPrompt = prompt.trim();
+		if (!originalPrompt || isRefiningPrompt || submitted) {
+			return;
+		}
+
+		setIsRefiningPrompt(true);
+		setRefineError("");
+		try {
+			const response = await fetch("/api/agent/refine-prompt", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					mode,
+					prompt: originalPrompt,
+					contextPrompt: contextPrompt.trim() || undefined,
+					contextResponse: contextResponse.trim() || undefined,
+					targetSlug: targetSlug.trim() || undefined,
+				}),
+			});
+			const body = await readJsonBody<{ prompt?: unknown; error?: unknown }>(response);
+			if (!response.ok || typeof body.prompt !== "string") {
+				throw new Error(formatAgentError(body.error, `Prompt refinement failed with ${response.status}.`));
+			}
+			const nextPrompt = body.prompt.trim();
+			if (!nextPrompt) {
+				throw new Error("Prompt refinement returned an empty prompt.");
+			}
+			updateProps({ draftPrompt: nextPrompt });
+			window.setTimeout(() => promptRef.current?.focus(), 0);
+		} catch (error) {
+			setRefineError(formatAgentError(error, "Prompt refinement failed."));
+		} finally {
+			setIsRefiningPrompt(false);
+		}
+	}, [contextPrompt, contextResponse, isRefiningPrompt, mode, prompt, submitted, targetSlug, updateProps]);
 
 	return (
 		<NodeViewWrapper
@@ -913,7 +964,20 @@ function AgentRequestInputBlock({ props, updateProps }: { props: ExtensionBlockP
 					</label>
 				) : null}
 				<label {...stylex.props(shell.agentRequestField)}>
-					<span {...stylex.props(shell.paletteMeta)}>Request</span>
+					<div {...stylex.props(shell.agentRequestLabelRow)}>
+						<span {...stylex.props(shell.paletteMeta)}>Request</span>
+						<button
+							{...stylex.props(shell.controlBase, shell.interactiveHover, shell.promptRefineButton)}
+							type="button"
+							disabled={!canRefinePrompt}
+							onClick={refinePrompt}
+							aria-label="Improve prompt with AI"
+							title="Improve prompt with AI"
+						>
+							<span {...stylex.props(shell.promptRefineGlyph)} aria-hidden="true">🪄</span>
+							<span>{isRefiningPrompt ? "Improving" : "Improve prompt"}</span>
+						</button>
+					</div>
 					<textarea
 						ref={promptRef}
 						{...stylex.props(shell.field, shell.agentRequestPrompt)}
@@ -922,6 +986,7 @@ function AgentRequestInputBlock({ props, updateProps }: { props: ExtensionBlockP
 						disabled={submitted}
 						placeholder={placeholder}
 					/>
+					{refineError ? <span {...stylex.props(shell.agentRequestError)} role="alert">{refineError}</span> : null}
 				</label>
 				<div {...stylex.props(shell.agentRequestActions)}>
 					<span {...stylex.props(shell.emptyHint)}>{props.summary || "The request will move to a floating job."}</span>
@@ -1966,6 +2031,7 @@ export default function AppShell() {
 					createdAt: "",
 					currentRunId: build.currentRunId,
 					deadlineAt: build.deadlineAt,
+					events: [],
 					error: build.error,
 					id: build.id,
 					maxAttempts: build.maxAttempts,
@@ -3891,6 +3957,9 @@ function formatBindingType(type: ExtensionBindingRequest["bindings"][number]["ty
 	if (type === "d1_database") {
 		return "D1";
 	}
+	if (type === "ai") {
+		return "AI";
+	}
 	return "R2";
 }
 
@@ -3938,6 +4007,7 @@ async function fetchMiniAppBuild(buildId: string): Promise<MiniAppBuildRecord> {
 		createdAt: typeof body.createdAt === "string" ? body.createdAt : "",
 		currentRunId: typeof body.currentRunId === "string" ? body.currentRunId : null,
 		deadlineAt: body.deadlineAt,
+		events: readMiniAppBuildEvents(body.events),
 		error: body.error ?? null,
 		id: body.id,
 		maxAttempts: Number(body.maxAttempts ?? 3),
@@ -3973,6 +4043,13 @@ function formatMiniAppBuildFailure(build: MiniAppBuildRecord, intent: MiniAppInt
 }
 
 function formatMiniAppBuildStream(build: MiniAppBuildRecord): string[] {
+	if (build.events.length > 0) {
+		return build.events
+			.slice(-16)
+			.map((event) => formatMiniAppBuildEventLine(event))
+			.filter((line) => line.length > 0);
+	}
+
 	const lines = [
 		`Build ${build.id}`,
 		`Status ${build.status}; attempt ${Math.max(build.attemptCount, 1)}/${build.maxAttempts}`,
@@ -3998,6 +4075,51 @@ function formatMiniAppBuildStream(build: MiniAppBuildRecord): string[] {
 		lines.push(`Error: ${errorMessage}`);
 	}
 	return lines.filter((line) => line.trim().length > 0);
+}
+
+function formatMiniAppBuildEventLine(event: MiniAppBuildEventRecord): string {
+	const time = formatBuildEventTime(event.createdAt);
+	return `${time ? `${time} ` : ""}${event.message}`.trim();
+}
+
+function formatBuildEventTime(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return "";
+	}
+	return new Intl.DateTimeFormat("en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	}).format(date);
+}
+
+function readMiniAppBuildEvents(value: unknown): MiniAppBuildEventRecord[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+
+	return value.flatMap((entry): MiniAppBuildEventRecord[] => {
+		const record = asRecord(entry);
+		if (
+			typeof record.id !== "string"
+			|| typeof record.buildId !== "string"
+			|| typeof record.message !== "string"
+			|| typeof record.type !== "string"
+			|| typeof record.createdAt !== "string"
+		) {
+			return [];
+		}
+		return [{
+			id: record.id,
+			buildId: record.buildId,
+			sequence: Number(record.sequence ?? 0),
+			type: record.type,
+			message: record.message,
+			details: asRecord(record.details),
+			createdAt: record.createdAt,
+		}];
+	});
 }
 
 function readAttemptIssueLines(value: unknown): string[] {

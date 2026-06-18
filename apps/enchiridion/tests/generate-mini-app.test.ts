@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-	createFallbackMiniAppCandidate,
 	isRepairableDeploymentFailure,
 	validateGeneratedMiniApp,
 } from "../src/workflows/generate-mini-app";
@@ -69,6 +68,22 @@ describe("generate mini app candidate validation", () => {
 		});
 
 		expect(result.ok).toBe(true);
+	});
+
+	it("treats AI as a provisioned app capability", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				bindings: [{ type: "ai", name: "APP_AI", purpose: "Summarize feed entries." }],
+			}, "export default { async fetch(request, env) { const response = await env.APP_AI.run('@cf/zai-org/glm-5.2', { prompt: 'summarize' }); return new Response(`<html><body>${JSON.stringify(response)}</body></html>`, { headers: { 'content-type': 'text/html' } }) } }"),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe("requires_binding_provisioning");
+		expect(result.issues).toContain("bindings: autonomous deploy requires isolated binding provisioning first (APP_AI:ai)");
 	});
 
 	it("rejects unused binding declarations", () => {
@@ -913,63 +928,6 @@ export default {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues).toContain("routes: autonomous mini apps must expose at least one worker-page route");
-	});
-
-	it("creates a valid static fallback mini app from a failed app prompt", () => {
-		const candidate = createFallbackMiniAppCandidate({
-			userPrompt: "Web app Kubernetes how to for topology spread constraints",
-			installedExtensions: [registeredHelloWorld],
-		});
-		const result = validateGeneratedMiniApp({
-			generated: candidate,
-			installedExtensions: [registeredHelloWorld],
-			operation: "create",
-			autonomousDeploy: true,
-		});
-
-		expect(candidate.manifest.slug).toBe("kubernetes-topology-spread-constraints");
-		expect(candidate.manifest.routes).toEqual([expect.objectContaining({
-			path: "/apps/kubernetes-topology-spread-constraints",
-			mode: "worker-page",
-		})]);
-		expect(candidate.manifest.bindings).toEqual([]);
-		expect(candidate.manifest.hostApis).toEqual([]);
-		expect(candidate.workerSource).toContain("export default");
-		expect(candidate.workerSource).toContain("text/html; charset=utf-8");
-		expect(candidate.workerSource).toContain("topologySpreadConstraints");
-		expect(candidate.workerSource).toContain("whenUnsatisfiable: DoNotSchedule");
-		expect(candidate.workerSource).toContain("kubectl get pods -o wide");
-		expect(result.ok).toBe(true);
-	});
-
-	it("creates useful static tutorial content for generic learning prompts", () => {
-		const candidate = createFallbackMiniAppCandidate({
-			userPrompt: "Simple web tutorial to learn ML rank for training jobs",
-			installedExtensions: [],
-		});
-		const result = validateGeneratedMiniApp({
-			generated: candidate,
-			installedExtensions: [],
-			operation: "create",
-			autonomousDeploy: true,
-		});
-
-		expect(candidate.manifest.slug).toBe("tutorial-learn-ml-rank-training-jobs");
-		expect(candidate.workerSource).toContain("Generated static tutorial");
-		expect(candidate.workerSource).toContain("Learning Path");
-		expect(candidate.workerSource).toContain("Practice Loop");
-		expect(candidate.workerSource).toContain("ML rank for training jobs");
-		expect(result.ok).toBe(true);
-	});
-
-	it("avoids slug collisions when creating fallback mini apps", () => {
-		const candidate = createFallbackMiniAppCandidate({
-			userPrompt: "Hello world",
-			installedExtensions: [registeredHelloWorld],
-		});
-
-		expect(candidate.manifest.slug).toBe("hello-world-2");
-		expect(candidate.manifest.routes[0]?.path).toBe("/apps/hello-world-2");
 	});
 
 	it("does not retry missing Cloudflare configuration failures", () => {

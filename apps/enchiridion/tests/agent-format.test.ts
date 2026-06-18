@@ -20,50 +20,20 @@ describe("agent result formatting", () => {
 		);
 	});
 
-	it("makes fallback deployments explicit in the transcript", () => {
-		expect(formatMiniAppResult({
-			status: "deployed",
-			operation: "create",
-			slug: "kubernetes-topology-spread-constraints",
-			deployed: true,
-			fallback: true,
-			routeUrl: "/apps/kubernetes-topology-spread-constraints",
-			message: "LLM generation failed; deployed a static fallback mini app.",
-			attempts: [
-				{ attempt: 1, status: "validation_failed", message: "Smoke test failed with 500: Load failed" },
-			],
-		}, createIntent, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
-			"deployed: kubernetes-topology-spread-constraints fallback deployed. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; deployed a static fallback mini app. Attempt: #1 validation_failed Smoke test failed with 500: Load failed",
-		);
-	});
-
-	it("makes fallback terminal failures explicit", () => {
-		expect(formatMiniAppResult({
-			status: "fallback_validation_failed",
-			operation: "create",
-			slug: "kubernetes-topology-spread-constraints",
-			deployed: false,
-			message: "Smoke test failed with 200: primary route must return text/html",
-		}, createIntent)).toBe(
-			"fallback_validation_failed: kubernetes-topology-spread-constraints. Fallback mini app was not activated. Smoke test failed with 200: primary route must return text/html",
-		);
-	});
-
 	it("makes pending dispatch registrations explicit", () => {
 		expect(formatMiniAppResult({
 			status: "deployed_pending",
 			operation: "create",
 			slug: "kubernetes-topology-spread-constraints",
 			deployed: true,
-			fallback: true,
 			routeUrl: "/apps/kubernetes-topology-spread-constraints",
-			message: "LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
+			message: "Worker registered, but dispatch did not become ready during smoke testing: Load failed",
 			validationAttempts: [
 				{ attempt: 1, status: "failed", message: "Load failed" },
 				{ attempt: 4, status: "failed", message: "Load failed" },
 			],
 		}, createIntent, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
-			"deployed_pending: kubernetes-topology-spread-constraints fallback route registered pending dispatch validation. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed Validation attempts: #1 failed Load failed | #4 failed Load failed",
+			"deployed_pending: kubernetes-topology-spread-constraints route registered pending dispatch validation. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints Worker registered, but dispatch did not become ready during smoke testing: Load failed Validation attempts: #1 failed Load failed | #4 failed Load failed",
 		);
 	});
 

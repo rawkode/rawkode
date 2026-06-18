@@ -19,14 +19,7 @@ import {
 	type MiniAppOperation,
 } from "../lib/mini-app-requests";
 import {
-	fallbackMiniAppDescription,
-	fallbackNameFromSlug,
-	fallbackPromptDescription,
-	fallbackSlugFromPrompt,
-	normalizeSlug,
-	renderFallbackMiniAppHtml,
-} from "../lib/fallback-mini-app";
-import {
+	appendMiniAppBuildEvent,
 	createAuditRecord,
 	createExtensionBindingRequest,
 	completeMiniAppBuild,
@@ -209,12 +202,16 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 			phase: "session",
 			message,
 		});
+		await recordMiniAppBuildEvent(env, payload, {
+			type: "generation_failed",
+			message: `Builder session failed: ${message}`,
+			details: { attempt: 1, phase: "session", message },
+		});
 
 		return finishGenerationFailure({
 			env,
 			payload,
 			operation,
-			installedExtensions,
 			targetExtension,
 			slugHint,
 			attempts,
@@ -234,6 +231,11 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				status: "generation_failed",
 				message,
 			});
+			await recordMiniAppBuildEvent(env, payload, {
+				type: "generation_failed",
+				message: `Attempt ${attempt} generation failed: ${message}`,
+				details: { attempt, message },
+			});
 
 			if (attempt < maxGenerationAttempts) {
 				prompt = buildGenerationFailureRetryPrompt(prompt, message);
@@ -244,7 +246,6 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				env,
 				payload,
 				operation,
-				installedExtensions,
 				targetExtension,
 				slugHint,
 				attempts,
@@ -266,6 +267,11 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				attempt,
 				status: "rejected",
 				issues: validation.issues,
+			});
+			await recordMiniAppBuildEvent(env, payload, {
+				type: "candidate_rejected",
+				message: `Attempt ${attempt} candidate rejected: ${validation.issues[0] ?? "manifest validation failed"}`,
+				details: { attempt, issues: validation.issues, status: validation.status },
 			});
 
 			if (validation.status === "requires_binding_provisioning" && validation.manifest) {
@@ -290,22 +296,6 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				continue;
 			}
 
-			if (isFallbackEligibleValidationFailure(validation)) {
-				const fallback = await maybeDeployFallbackMiniApp({
-					env,
-					payload,
-					operation,
-					installedExtensions,
-					slugHint,
-					attempts,
-					failureStatus: validation.status,
-					failureDetails: { issues: validation.issues },
-				});
-				if (fallback) {
-					return fallback;
-				}
-			}
-
 			await createAuditRecord(env, {
 				slug,
 				action: `${operation}-mini-app`,
@@ -324,6 +314,11 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 		}
 
 		const manifest = validation.manifest;
+		await recordMiniAppBuildEvent(env, payload, {
+			type: "candidate_validated",
+			message: `Attempt ${attempt} candidate validated for ${manifest.slug}.`,
+			details: { attempt, slug: manifest.slug },
+		});
 		const deployment = payload.autonomousDeploy === false
 			? {
 				scriptName: scriptNameForManifest(manifest),
@@ -342,6 +337,13 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				scriptName: deployment.scriptName,
 			});
 			const smokeTest = smokeTestRun.result;
+			await recordMiniAppBuildEvent(env, payload, {
+				type: smokeTest.ok ? "smoke_test_passed" : "smoke_test_failed",
+				message: smokeTest.ok
+					? `Smoke test passed for ${manifest.slug}.`
+					: `Smoke test failed for ${manifest.slug}: ${smokeTest.message}`,
+				details: { attempt, smokeTest: smokeTest as unknown as JsonObject, validationAttempts: smokeTestRun.attempts },
+			});
 
 			if (!smokeTest.ok) {
 				const transientSmokeTestRun = isTransientSmokeTestRun(smokeTestRun.attempts);
@@ -405,27 +407,6 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 					continue;
 				}
 
-				const fallback = await maybeDeployFallbackMiniApp({
-					env,
-					payload,
-					operation,
-					installedExtensions,
-					slugHint,
-					attempts,
-					failureStatus: "validation_failed",
-					failureDetails: {
-						scriptName: deployment.scriptName,
-						message: deployment.message,
-						deploymentNotes: generated.deploymentNotes,
-						validation: smokeTest as unknown as JsonObject,
-						validationAttempts: smokeTestRun.attempts,
-						cleanup: cleanup as unknown as JsonObject,
-					},
-				});
-				if (fallback) {
-					return fallback;
-				}
-
 				await createAuditRecord(env, {
 					slug: manifest.slug,
 					action: `${operation}-mini-app`,
@@ -456,6 +437,11 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 
 			const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
 			await saveExtension(env, manifest, deployment.scriptName, "dynamic");
+			await recordMiniAppBuildEvent(env, payload, {
+				type: operation === "update" ? "updated" : "deployed",
+				message: `${operation === "update" ? "Updated" : "Deployed"} ${manifest.slug}.`,
+				details: { attempt, slug: manifest.slug, scriptName: deployment.scriptName, routeUrl: smokeTest.route },
+			});
 			const supersededScriptCleanup = supersededScriptName && supersededScriptName !== deployment.scriptName
 				? await cleanupMiniAppCandidate(env, supersededScriptName)
 				: null;
@@ -498,6 +484,11 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 				scriptName: deployment.scriptName,
 				message: deployment.message,
 			});
+			await recordMiniAppBuildEvent(env, payload, {
+				type: "deploy_failed",
+				message: `Attempt ${attempt} deploy failed: ${deployment.message}`,
+				details: { attempt, scriptName: deployment.scriptName, message: deployment.message },
+			});
 
 			if (attempt < maxGenerationAttempts && isRepairableDeploymentFailure(deployment.message)) {
 				prompt = buildMiniAppRepairPrompt({
@@ -508,26 +499,6 @@ async function runMiniAppGeneration({ init, payload, env }: FlueContext<Generate
 					workerSource: generated.workerSource,
 				});
 				continue;
-			}
-
-			if (isRepairableDeploymentFailure(deployment.message)) {
-				const fallback = await maybeDeployFallbackMiniApp({
-					env,
-					payload,
-					operation,
-					installedExtensions,
-					slugHint,
-					attempts,
-					failureStatus: "deploy_failed",
-					failureDetails: {
-						scriptName: deployment.scriptName,
-						message: deployment.message,
-						deploymentNotes: generated.deploymentNotes,
-					},
-				});
-				if (fallback) {
-					return fallback;
-				}
 			}
 
 			await createAuditRecord(env, {
@@ -596,7 +567,6 @@ export async function deployGeneratedMiniAppCandidate(input: {
 		installedExtensions,
 		input.payload.targetSlug ?? inferred.targetSlug,
 	);
-	const slugHint = input.payload.slugHint ?? inferred.slugHint ?? targetExtension?.slug;
 	const attempt = Math.max(1, Math.trunc(input.payload.buildAttempt ?? 1));
 	const attempts = input.attempts ?? [{
 		attempt,
@@ -640,6 +610,11 @@ export async function deployGeneratedMiniAppCandidate(input: {
 			status: "rejected",
 			issues: validation.issues,
 		});
+		await recordMiniAppBuildEvent(input.env, input.payload, {
+			type: "candidate_rejected",
+			message: `Candidate rejected: ${validation.issues[0] ?? "manifest validation failed"}`,
+			details: { attempt, issues: validation.issues, status: validation.status },
+		});
 
 		if (validation.status === "requires_binding_provisioning" && validation.manifest) {
 			return finishBindingProvisioningRequired({
@@ -650,22 +625,6 @@ export async function deployGeneratedMiniAppCandidate(input: {
 				issues: validation.issues,
 				attempts,
 			}) as Promise<JsonObject>;
-		}
-
-		if (isFallbackEligibleValidationFailure(validation)) {
-			const fallback = await maybeDeployFallbackMiniApp({
-				env: input.env,
-				payload: input.payload,
-				operation,
-				installedExtensions,
-				slugHint,
-				attempts,
-				failureStatus: validation.status,
-				failureDetails: { issues: validation.issues },
-			});
-			if (fallback) {
-				return fallback as JsonObject;
-			}
 		}
 
 		await createAuditRecord(input.env, {
@@ -686,6 +645,11 @@ export async function deployGeneratedMiniAppCandidate(input: {
 	}
 
 	const manifest = validation.manifest;
+	await recordMiniAppBuildEvent(input.env, input.payload, {
+		type: "candidate_validated",
+		message: `Candidate validated for ${manifest.slug}.`,
+		details: { attempt, slug: manifest.slug },
+	});
 	const deployment = input.payload.autonomousDeploy === false
 		? {
 			scriptName: scriptNameForManifest(manifest),
@@ -704,6 +668,13 @@ export async function deployGeneratedMiniAppCandidate(input: {
 			scriptName: deployment.scriptName,
 		});
 		const smokeTest = smokeTestRun.result;
+		await recordMiniAppBuildEvent(input.env, input.payload, {
+			type: smokeTest.ok ? "smoke_test_passed" : "smoke_test_failed",
+			message: smokeTest.ok
+				? `Smoke test passed for ${manifest.slug}.`
+				: `Smoke test failed for ${manifest.slug}: ${smokeTest.message}`,
+			details: { attempt, smokeTest: smokeTest as unknown as JsonObject, validationAttempts: smokeTestRun.attempts },
+		});
 
 		if (!smokeTest.ok) {
 			const transientSmokeTestRun = isTransientSmokeTestRun(smokeTestRun.attempts);
@@ -756,27 +727,6 @@ export async function deployGeneratedMiniAppCandidate(input: {
 				transient: transientSmokeTestRun || undefined,
 			});
 
-			const fallback = await maybeDeployFallbackMiniApp({
-				env: input.env,
-				payload: input.payload,
-				operation,
-				installedExtensions,
-				slugHint,
-				attempts,
-				failureStatus: "validation_failed",
-				failureDetails: {
-					scriptName: deployment.scriptName,
-					message: deployment.message,
-					deploymentNotes: input.generated.deploymentNotes,
-					validation: smokeTest as unknown as JsonObject,
-					validationAttempts: smokeTestRun.attempts,
-					cleanup: cleanup as unknown as JsonObject,
-				},
-			});
-			if (fallback) {
-				return fallback as JsonObject;
-			}
-
 			await createAuditRecord(input.env, {
 				slug: manifest.slug,
 				action: `${operation}-mini-app`,
@@ -807,6 +757,11 @@ export async function deployGeneratedMiniAppCandidate(input: {
 
 		const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
 		await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
+		await recordMiniAppBuildEvent(input.env, input.payload, {
+			type: operation === "update" ? "updated" : "deployed",
+			message: `${operation === "update" ? "Updated" : "Deployed"} ${manifest.slug}.`,
+			details: { attempt, slug: manifest.slug, scriptName: deployment.scriptName, routeUrl: smokeTest.route },
+		});
 		const supersededScriptCleanup = supersededScriptName && supersededScriptName !== deployment.scriptName
 			? await cleanupMiniAppCandidate(input.env, supersededScriptName)
 			: null;
@@ -849,26 +804,11 @@ export async function deployGeneratedMiniAppCandidate(input: {
 			scriptName: deployment.scriptName,
 			message: deployment.message,
 		});
-
-		if (isRepairableDeploymentFailure(deployment.message)) {
-			const fallback = await maybeDeployFallbackMiniApp({
-				env: input.env,
-				payload: input.payload,
-				operation,
-				installedExtensions,
-				slugHint,
-				attempts,
-				failureStatus: "deploy_failed",
-				failureDetails: {
-					scriptName: deployment.scriptName,
-					message: deployment.message,
-					deploymentNotes: input.generated.deploymentNotes,
-				},
-			});
-			if (fallback) {
-				return fallback as JsonObject;
-			}
-		}
+		await recordMiniAppBuildEvent(input.env, input.payload, {
+			type: "deploy_failed",
+			message: `Deploy failed: ${deployment.message}`,
+			details: { attempt, scriptName: deployment.scriptName, message: deployment.message },
+		});
 
 		await createAuditRecord(input.env, {
 			slug: manifest.slug,
@@ -936,32 +876,34 @@ function buildGenerationFailureRetryPrompt(currentPrompt: string, message: strin
 	].join("\n\n");
 }
 
+async function recordMiniAppBuildEvent(
+	env: Env,
+	payload: GenerateMiniAppPayload,
+	input: { type: string; message: string; details?: JsonObject },
+): Promise<void> {
+	if (!payload.buildId) {
+		return;
+	}
+
+	await appendMiniAppBuildEvent(env, {
+		buildId: payload.buildId,
+		type: input.type,
+		message: input.message,
+		details: input.details,
+	});
+}
+
 async function finishGenerationFailure(input: {
 	env: Env;
 	payload: GenerateMiniAppPayload;
 	operation: MiniAppOperation;
-	installedExtensions: RegisteredExtension[];
 	targetExtension?: RegisteredExtension;
 	slugHint?: string;
 	attempts: JsonObject[];
 	message: string;
 }) {
-	const fallback = await maybeDeployFallbackMiniApp({
-		env: input.env,
-		payload: input.payload,
-		operation: input.operation,
-		installedExtensions: input.installedExtensions,
-		slugHint: input.slugHint,
-		attempts: input.attempts,
-		failureStatus: "generation_failed",
-		failureDetails: { message: input.message },
-	});
-	if (fallback) {
-		return fallback;
-	}
-
 	const slug = input.targetExtension?.slug
-		?? normalizeSlug(input.slugHint ?? fallbackSlugFromPrompt(input.payload.prompt));
+		?? normalizeSlug(input.slugHint ?? slugFromPrompt(input.payload.prompt));
 	await createAuditRecord(input.env, {
 		slug,
 		action: `${input.operation}-mini-app`,
@@ -1027,225 +969,6 @@ async function finishBindingProvisioningRequired(input: {
 		bindingRequestId: request.id,
 		bindings,
 		manifest: input.manifest,
-		attempts: input.attempts,
-	};
-}
-
-async function maybeDeployFallbackMiniApp(input: {
-	env: Env;
-	payload: GenerateMiniAppPayload;
-	operation: MiniAppOperation;
-	installedExtensions: RegisteredExtension[];
-	slugHint?: string;
-	attempts: JsonObject[];
-	failureStatus: string;
-	failureDetails: JsonObject;
-}) {
-	if (input.operation !== "create" || input.payload.autonomousDeploy === false) {
-		return null;
-	}
-
-	const generated = createFallbackMiniAppCandidate({
-		userPrompt: input.payload.prompt,
-		installedExtensions: input.installedExtensions,
-		slugHint: input.slugHint,
-	});
-	const validation = validateGeneratedMiniApp({
-		generated,
-		installedExtensions: input.installedExtensions,
-		operation: "create",
-		autonomousDeploy: true,
-	});
-
-	if (!validation.ok || !validation.manifest) {
-		await createAuditRecord(input.env, {
-			slug: generated.manifest.slug,
-			action: "create-mini-app",
-			status: "fallback_rejected",
-			details: {
-				fallback: true,
-				previousFailureStatus: input.failureStatus,
-				previousFailure: input.failureDetails,
-				issues: validation.issues,
-				attempts: input.attempts,
-			},
-		});
-
-		return {
-			status: "fallback_rejected",
-			operation: "create",
-			slug: generated.manifest.slug,
-			issues: validation.issues,
-			deployed: false,
-			attempts: input.attempts,
-		};
-	}
-
-	const manifest = validation.manifest;
-	let deployment: Awaited<ReturnType<typeof deployMiniAppWorker>>;
-	try {
-		deployment = await deployMiniAppWorker(input.env, {
-			manifest,
-			workerSource: generated.workerSource,
-			scriptName: candidateScriptNameForManifest(manifest),
-		});
-	} catch (error) {
-		const message = errorMessage(error);
-		await createAuditRecord(input.env, {
-			slug: manifest.slug,
-			action: "create-mini-app",
-			status: "fallback_deploy_failed",
-			details: {
-				fallback: true,
-				previousFailureStatus: input.failureStatus,
-				previousFailure: input.failureDetails,
-				message,
-				attempts: input.attempts,
-			},
-		});
-
-		return {
-			status: "fallback_deploy_failed",
-			operation: "create",
-			slug: manifest.slug,
-			deployed: false,
-			message,
-			manifest,
-			attempts: input.attempts,
-		};
-	}
-
-	if (!deployment.deployed) {
-		await createAuditRecord(input.env, {
-			slug: manifest.slug,
-			action: "create-mini-app",
-			status: "fallback_deploy_failed",
-			details: {
-				fallback: true,
-				previousFailureStatus: input.failureStatus,
-				previousFailure: input.failureDetails,
-				scriptName: deployment.scriptName,
-				message: deployment.message,
-				attempts: input.attempts,
-			},
-		});
-
-		return {
-			status: "fallback_deploy_failed",
-			operation: "create",
-			slug: manifest.slug,
-			scriptName: deployment.scriptName,
-			deployed: false,
-			message: deployment.message,
-			manifest,
-			attempts: input.attempts,
-		};
-	}
-
-	const smokeTestRun = await smokeTestMiniAppWorkerWithRetries(input.env, {
-		manifest,
-		scriptName: deployment.scriptName,
-	});
-	const smokeTest = smokeTestRun.result;
-
-	if (!smokeTest.ok) {
-		if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
-			await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
-			await createAuditRecord(input.env, {
-				slug: manifest.slug,
-				action: "create-mini-app",
-				status: "deployed_pending",
-				details: {
-					fallback: true,
-					previousFailureStatus: input.failureStatus,
-					previousFailure: input.failureDetails,
-					scriptName: deployment.scriptName,
-					message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
-					deploymentNotes: generated.deploymentNotes,
-					validation: smokeTest as unknown as JsonObject,
-					validationAttempts: smokeTestRun.attempts,
-					attempts: input.attempts,
-				},
-			});
-
-			return {
-				status: "deployed_pending",
-				operation: "create",
-				slug: manifest.slug,
-				scriptName: deployment.scriptName,
-				deployed: true,
-				fallback: true,
-				message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
-				routeUrl: smokeTest.route,
-				validation: smokeTest,
-				validationAttempts: smokeTestRun.attempts,
-				manifest,
-				attempts: input.attempts,
-			};
-		}
-
-		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
-		await createAuditRecord(input.env, {
-			slug: manifest.slug,
-			action: "create-mini-app",
-			status: "fallback_validation_failed",
-			details: {
-				fallback: true,
-				previousFailureStatus: input.failureStatus,
-				previousFailure: input.failureDetails,
-				scriptName: deployment.scriptName,
-				message: deployment.message,
-				deploymentNotes: generated.deploymentNotes,
-				validation: smokeTest as unknown as JsonObject,
-				validationAttempts: smokeTestRun.attempts,
-				cleanup: cleanup as unknown as JsonObject,
-				attempts: input.attempts,
-			},
-		});
-
-		return {
-			status: "fallback_validation_failed",
-			operation: "create",
-			slug: manifest.slug,
-			scriptName: deployment.scriptName,
-			deployed: false,
-			message: smokeTest.message,
-			validation: smokeTest,
-			manifest,
-			attempts: input.attempts,
-		};
-	}
-
-	await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
-	await createAuditRecord(input.env, {
-		slug: manifest.slug,
-		action: "create-mini-app",
-		status: "fallback_deployed",
-		details: {
-			fallback: true,
-			previousFailureStatus: input.failureStatus,
-			previousFailure: input.failureDetails,
-			scriptName: deployment.scriptName,
-			message: deployment.message,
-			deploymentNotes: generated.deploymentNotes,
-			validation: smokeTest as unknown as JsonObject,
-			validationAttempts: smokeTestRun.attempts,
-			attempts: input.attempts,
-		},
-	});
-
-	return {
-		status: "deployed",
-		operation: "create",
-		slug: manifest.slug,
-		scriptName: deployment.scriptName,
-		deployed: true,
-		fallback: true,
-		message: `LLM generation failed; deployed a static fallback mini app. ${deployment.message} ${smokeTest.message}`,
-		routeUrl: smokeTest.route,
-		validation: smokeTest,
-		validationAttempts: smokeTestRun.attempts,
-		manifest,
 		attempts: input.attempts,
 	};
 }
@@ -1344,82 +1067,6 @@ async function cleanupMiniAppCandidate(env: Env, scriptName: string): Promise<Js
 	}
 }
 
-export function createFallbackMiniAppCandidate(input: {
-	userPrompt: string;
-	installedExtensions: Pick<RegisteredExtension, "slug">[];
-	slugHint?: string;
-}): GeneratedMiniApp {
-	const slug = uniqueFallbackSlug(input.slugHint ?? fallbackSlugFromPrompt(input.userPrompt), input.installedExtensions);
-	const name = fallbackNameFromSlug(slug);
-	const routePath = `/apps/${slug}`;
-	const prompt = input.userPrompt.trim() || "Untitled mini app";
-	const html = renderFallbackMiniAppHtml({ name, prompt });
-
-	return {
-		manifest: {
-			slug,
-			name,
-			version: "0.1.0",
-			description: fallbackMiniAppDescription,
-			routes: [{
-				path: routePath,
-				mode: "worker-page",
-				label: name,
-				description: fallbackPromptDescription(prompt),
-			}],
-			commands: [{
-				id: "open",
-				label: `Open ${name}`,
-				description: `Open the ${name} mini app.`,
-				kind: "navigate",
-				scope: "global",
-				app: slug,
-				action: routePath,
-				requiredHostApis: [],
-			}],
-			editorBlocks: [],
-			workflows: [],
-			bindings: [],
-			hostApis: [],
-			indexProjections: [],
-		},
-		workerSource: [
-			`const html = ${JSON.stringify(html)};`,
-			"export default {",
-			"	async fetch(request) {",
-			"		const url = new URL(request.url);",
-			`		if (!url.pathname.startsWith(${JSON.stringify(routePath)})) {`,
-			`			return Response.redirect(new URL(${JSON.stringify(routePath)}, url), 302);`,
-			"		}",
-			"		return new Response(html, {",
-			"			status: 200,",
-			"			headers: { \"content-type\": \"text/html; charset=utf-8\" },",
-			"		});",
-			"	},",
-			"};",
-		].join("\n"),
-		deploymentNotes: "Deployed deterministic static fallback after LLM-generated candidates failed validation, deployment, or smoke testing.",
-	};
-}
-
-function uniqueFallbackSlug(baseSlug: string, installedExtensions: Pick<RegisteredExtension, "slug">[]): string {
-	const normalized = normalizeSlug(baseSlug);
-	const existing = new Set(installedExtensions.map((extension) => extension.slug));
-
-	if (!existing.has(normalized)) {
-		return normalized;
-	}
-
-	for (let suffix = 2; suffix <= 99; suffix += 1) {
-		const candidate = `${normalized}-${suffix}`;
-		if (!existing.has(candidate)) {
-			return candidate;
-		}
-	}
-
-	return `${normalized}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
 function rejectInvalidUpdateTarget(
 	targetExtension: RegisteredExtension | undefined,
 	requestedSlug?: string,
@@ -1452,9 +1099,44 @@ function rejectInvalidUpdateTarget(
 	return null;
 }
 
-function isFallbackEligibleValidationFailure(validation: ValidatedMiniAppCandidate): boolean {
-	return validation.status !== "requires_binding_provisioning"
-		&& !validation.issues.some((issue) => issue.includes("already exists; use update instead"));
+function slugFromPrompt(prompt: string): string {
+	const stopWords = new Set([
+		"a",
+		"all",
+		"an",
+		"and",
+		"app",
+		"create",
+		"for",
+		"how",
+		"make",
+		"mini",
+		"new",
+		"the",
+		"to",
+		"web",
+		"with",
+	]);
+	const words = prompt
+		.toLowerCase()
+		.replace(/https?:\/\/\S+/g, " ")
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.filter((word) => word.length > 2)
+		.filter((word) => !stopWords.has(word))
+		.slice(0, 6);
+	return normalizeSlug(words.join("-") || "mini-app");
+}
+
+function normalizeSlug(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9-]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.replace(/-{2,}/g, "-")
+		.slice(0, 64)
+		|| "mini-app";
 }
 
 interface ValidatedMiniAppCandidate {
@@ -1626,7 +1308,6 @@ export function miniAppBuildSucceeded(result: JsonObject): boolean {
 	const status = typeof result.status === "string" ? result.status : "";
 	return status === "deployed"
 		|| status === "updated"
-		|| status === "deployed_pending"
 		|| status === "registered"
 		|| status === "requires_binding_provisioning"
 		|| status === "update_deferred";

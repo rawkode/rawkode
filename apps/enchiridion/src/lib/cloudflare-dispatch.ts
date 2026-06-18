@@ -618,14 +618,17 @@ const miniAppPermissionsPolicy = [
 ].join(", ");
 
 function bindingsToUploadMetadata(bindings: ExtensionBinding[]): UploadBindingMetadata[] {
-	return bindings.map((binding) => {
+	return bindings.flatMap((binding): UploadBindingMetadata[] => {
 		if (binding.type === "kv_namespace") {
-			return { type: "kv_namespace", name: binding.name, namespace_id: `${binding.name}_ID_REQUIRED` };
+			return [{ type: "kv_namespace", name: binding.name, namespace_id: `${binding.name}_ID_REQUIRED` }];
 		}
 		if (binding.type === "d1_database") {
-			return { type: "d1", name: binding.name, database_id: `${binding.name}_ID_REQUIRED` };
+			return [{ type: "d1", name: binding.name, database_id: `${binding.name}_ID_REQUIRED` }];
 		}
-		return { type: "r2_bucket", name: binding.name, bucket_name: `${binding.name.toLowerCase().replace(/_/g, "-")}-required` };
+		if (binding.type === "r2_bucket") {
+			return [{ type: "r2_bucket", name: binding.name, bucket_name: `${binding.name.toLowerCase().replace(/_/g, "-")}-required` }];
+		}
+		return [];
 	});
 }
 

@@ -17,6 +17,7 @@ import type {
 	KanbanColumn,
 	MiniAppAuditRecord,
 	MiniAppBuild,
+	MiniAppBuildEvent,
 	MiniAppBuildStatus,
 	Principal,
 	Project,
@@ -146,6 +147,16 @@ interface MiniAppBuildRow {
 	completed_at: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+interface MiniAppBuildEventRow {
+	id: string;
+	build_id: string;
+	sequence: number;
+	type: string;
+	message: string;
+	details_json: string;
+	created_at: string;
 }
 
 interface ExtensionBindingRequestRow {
@@ -723,6 +734,19 @@ export async function createMiniAppBuild(env: Env, input: {
 		build.updatedAt,
 	).run();
 
+	await appendMiniAppBuildEvent(env, {
+		buildId: build.id,
+		type: "queued",
+		message: `Queued ${build.operation} build. Deadline ${build.deadlineAt}.`,
+		details: {
+			deadlineAt: build.deadlineAt,
+			maxAttempts: build.maxAttempts,
+			operation: build.operation,
+			slugHint: build.slugHint,
+			targetSlug: build.targetSlug,
+		},
+	});
+
 	return build;
 }
 
@@ -772,6 +796,15 @@ export async function markMiniAppBuildRunning(env: Env, input: {
 			updated_at = ?
 		WHERE id = ?
 	`).bind(input.runId, Math.max(1, Math.trunc(input.attempt)), updatedAt, input.id).run();
+	await appendMiniAppBuildEvent(env, {
+		buildId: input.id,
+		type: "running",
+		message: `Attempt ${Math.max(1, Math.trunc(input.attempt))} dispatched as submission ${input.runId}.`,
+		details: {
+			attempt: Math.max(1, Math.trunc(input.attempt)),
+			submissionId: input.runId,
+		},
+	});
 	return getMiniAppBuild(env, input.id);
 }
 
@@ -798,6 +831,17 @@ export async function completeMiniAppBuild(env: Env, input: {
 		now,
 		input.id,
 	).run();
+	await appendMiniAppBuildEvent(env, {
+		buildId: input.id,
+		type: input.status ?? "completed",
+		message: input.status === "failed"
+			? "Mini app build finished without an activatable app."
+			: "Mini app build completed.",
+		details: {
+			error: input.error ?? null,
+			result: input.result,
+		},
+	});
 	return getMiniAppBuild(env, input.id);
 }
 
@@ -815,6 +859,14 @@ export async function failMiniAppBuild(env: Env, input: {
 			updated_at = ?
 		WHERE id = ?
 	`).bind(input.status ?? "failed", JSON.stringify(input.error), input.status ?? "failed", now, now, input.id).run();
+	await appendMiniAppBuildEvent(env, {
+		buildId: input.id,
+		type: input.status ?? "failed",
+		message: readEventMessage(input.error, "Mini app build failed."),
+		details: {
+			error: input.error,
+		},
+	});
 	return getMiniAppBuild(env, input.id);
 }
 
@@ -828,7 +880,80 @@ export async function expireMiniAppBuild(env: Env, id: string, now = isoNow()): 
 		WHERE id = ?
 			AND status IN ('pending', 'running', 'interrupted')
 	`).bind(JSON.stringify({ message: "Mini app build exceeded its 30 minute deadline." }), now, now, id).run();
+	await appendMiniAppBuildEvent(env, {
+		buildId: id,
+		type: "expired",
+		message: "Mini app build exceeded its 30 minute deadline.",
+		details: {},
+	});
 	return getMiniAppBuild(env, id);
+}
+
+export async function appendMiniAppBuildEvent(env: Env, input: {
+	buildId: string;
+	type: string;
+	message: string;
+	details?: JsonObject;
+}): Promise<MiniAppBuildEvent | null> {
+	try {
+		const sequenceRow = await env.DB.prepare(`
+			SELECT COALESCE(MAX(sequence) + 1, 0) AS next_sequence
+			FROM mini_app_build_events
+			WHERE build_id = ?
+		`).bind(input.buildId).first<{ next_sequence: number }>();
+		const sequence = Number(sequenceRow?.next_sequence ?? 0);
+		const event: MiniAppBuildEvent = {
+			id: crypto.randomUUID(),
+			buildId: input.buildId,
+			sequence,
+			type: input.type,
+			message: input.message,
+			details: input.details ?? {},
+			createdAt: isoNow(),
+		};
+		await env.DB.prepare(`
+			INSERT INTO mini_app_build_events
+				(id, build_id, sequence, type, message, details_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`).bind(
+			event.id,
+			event.buildId,
+			event.sequence,
+			event.type,
+			event.message,
+			JSON.stringify(event.details),
+			event.createdAt,
+		).run();
+		return event;
+	} catch (error) {
+		if (isMissingMiniAppBuildEventStorage(error)) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+export async function listMiniAppBuildEvents(env: Env, buildId: string, options: {
+	afterSequence?: number;
+	limit?: number;
+} = {}): Promise<MiniAppBuildEvent[]> {
+	try {
+		const afterSequence = Number.isFinite(options.afterSequence) ? Number(options.afterSequence) : -1;
+		const limit = Math.max(1, Math.min(100, Math.trunc(options.limit ?? 50)));
+		const result = await env.DB.prepare(`
+			SELECT * FROM mini_app_build_events
+			WHERE build_id = ?
+				AND sequence > ?
+			ORDER BY sequence ASC
+			LIMIT ?
+		`).bind(buildId, afterSequence, limit).all<MiniAppBuildEventRow>();
+		return (result.results ?? []).map(mapMiniAppBuildEvent);
+	} catch (error) {
+		if (isMissingMiniAppBuildEventStorage(error)) {
+			return [];
+		}
+		throw error;
+	}
 }
 
 export async function createExtensionBindingRequest(env: Env, input: {
@@ -1030,6 +1155,18 @@ function mapMiniAppBuild(row: MiniAppBuildRow): MiniAppBuild {
 	};
 }
 
+function mapMiniAppBuildEvent(row: MiniAppBuildEventRow): MiniAppBuildEvent {
+	return {
+		id: row.id,
+		buildId: row.build_id,
+		sequence: row.sequence,
+		type: row.type,
+		message: row.message,
+		details: parseJsonObject(row.details_json),
+		createdAt: row.created_at,
+	};
+}
+
 function mapExtensionBindingRequest(row: ExtensionBindingRequestRow): ExtensionBindingRequest {
 	const manifest = parseJsonObject(row.manifest_json) as unknown as ExtensionManifest;
 	return {
@@ -1146,4 +1283,24 @@ function isMissingExtensionBindingRequestStorage(error: unknown): boolean {
 function isMissingMiniAppBuildStorage(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return message.includes("mini_app_builds") && /no such table|not found|does not exist/i.test(message);
+}
+
+function isMissingMiniAppBuildEventStorage(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("mini_app_build_events") && /no such table|not found|does not exist/i.test(message);
+}
+
+function readEventMessage(details: JsonObject, fallback: string): string {
+	const message = details.message;
+	if (typeof message === "string" && message.trim()) {
+		return message.trim();
+	}
+	const error = details.error;
+	if (error && typeof error === "object" && !Array.isArray(error)) {
+		const errorMessage = (error as JsonObject).message;
+		if (typeof errorMessage === "string" && errorMessage.trim()) {
+			return errorMessage.trim();
+		}
+	}
+	return fallback;
 }

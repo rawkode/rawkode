@@ -37,6 +37,11 @@
 			"namespace": "enchiridion-mini-apps"
 		}
 	],
+	"worker_loaders": [
+		{
+			"binding": "LOADER"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",

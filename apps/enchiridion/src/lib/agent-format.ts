@@ -21,11 +21,6 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 		return `${status}: ${slug}. Candidate Worker failed smoke testing and was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 
-	if (status.startsWith("fallback_")) {
-		const details = message || "Static fallback mini app could not be activated.";
-		return `${status}: ${slug}. Fallback mini app was not activated. ${joinParts([details, attemptSummary])}`.trim();
-	}
-
 	if (status === "update_deferred") {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
 		const details = message || "Update candidate was not activated; the active route was left unchanged.";
@@ -34,18 +29,12 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 
 	if (status.endsWith("_pending")) {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
-		const subject = result.fallback === true ? "fallback route" : "route";
 		const details = message || "Worker uploaded and registered, but dispatch validation has not passed yet.";
-		return `${status}: ${slug} ${subject} registered pending dispatch validation.${route} ${joinParts([details, attemptSummary])}`.trim();
+		return `${status}: ${slug} route registered pending dispatch validation.${route} ${joinParts([details, attemptSummary])}`.trim();
 	}
 
 	if (result.deployed === true) {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
-		if (result.fallback === true) {
-			const details = message || "LLM generation failed; deployed a static fallback mini app.";
-			return `${status}: ${slug} fallback deployed.${route} ${joinParts([details, attemptSummary])}`.trim();
-		}
-
 		return `${status}: ${slug} ${operation === "update" ? "updated" : "deployed"}.${route}`.trim();
 	}
 
