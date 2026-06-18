@@ -51,6 +51,27 @@ describe("mini app audit helpers", () => {
 		}, "fallback_deployed")).toBe("Fallback deployed after Smoke test failed with 500: Load failed");
 	});
 
+	it("surfaces validation retry context for successful deployments", () => {
+		expect(auditDetailSummary({
+			message: "Mini app Worker deployed.",
+			validationAttempts: [
+				{ attempt: 1, status: "failed", message: "Load failed" },
+				{ attempt: 2, status: "passed", message: "Primary mini-app route rendered successfully." },
+			],
+		}, "deployed")).toBe("Mini app Worker deployed. Validation passed after 2 attempts.");
+	});
+
+	it("surfaces superseded Worker cleanup for successful updates", () => {
+		expect(auditDetailSummary({
+			message: "Mini app Worker deployed.",
+			supersededScriptCleanup: {
+				scriptName: "enchiridion-hello-world-old",
+				deleted: true,
+				message: "Mini app Worker candidate removed.",
+			},
+		}, "updated")).toBe("Mini app Worker deployed. Superseded Worker enchiridion-hello-world-old removed.");
+	});
+
 	it("summarizes current and previous failures for failed fallbacks", () => {
 		expect(auditDetailSummary({
 			fallback: true,

@@ -20,45 +20,95 @@ export function auditToneForStatus(status: string): AuditTone {
 }
 
 export function auditDetailSummary(details: JsonObject, status = ""): string {
+	const operationalSummaries = auditOperationalSummaries(details);
+
 	if (status === "fallback_deployed") {
 		const previousFailure = summarizeNestedDetails(details.previousFailure);
 		if (previousFailure) {
-			return `Fallback deployed after ${previousFailure}`;
+			return joinSummaryParts([`Fallback deployed after ${previousFailure}`, ...operationalSummaries]);
 		}
 	}
 
 	if (status.startsWith("fallback_") && status !== "fallback_deployed") {
 		const currentFailure = summarizeNestedDetails(details.validation) || readString(details.message);
 		const previousFailure = summarizeNestedDetails(details.previousFailure);
-		return [currentFailure, previousFailure ? `Previous failure: ${previousFailure}` : ""]
-			.filter(Boolean)
-			.join(" ");
+		return joinSummaryParts([
+			currentFailure,
+			previousFailure ? `Previous failure: ${previousFailure}` : "",
+			...operationalSummaries,
+		]);
 	}
 
 	const message = readString(details.message);
 	if (message) {
-		return message;
+		return joinSummaryParts([message, ...operationalSummaries]);
 	}
 
 	const issues = readStringArray(details.issues);
 	if (issues.length > 0) {
-		return issues.join(" ");
+		return joinSummaryParts([issues.join(" "), ...operationalSummaries]);
 	}
 
 	const validation = readObject(details.validation);
 	const validationMessage = validation ? readString(validation.message) : "";
 	if (validationMessage) {
-		return validationMessage;
+		return joinSummaryParts([validationMessage, ...operationalSummaries]);
 	}
 
 	const attempts = readArray(details.attempts);
 	const lastAttempt = readObject(attempts.at(-1));
 	const attemptMessage = lastAttempt ? readString(lastAttempt.message) : "";
 	if (attemptMessage) {
-		return attemptMessage;
+		return joinSummaryParts([attemptMessage, ...operationalSummaries]);
 	}
 
-	return readString(details.deploymentNotes) || readString(details.scriptName) || "";
+	return joinSummaryParts([readString(details.deploymentNotes) || readString(details.scriptName), ...operationalSummaries]);
+}
+
+function auditOperationalSummaries(details: JsonObject): string[] {
+	return [
+		summarizeValidationAttempts(details.validationAttempts),
+		summarizeSupersededCleanup(details.supersededScriptCleanup),
+	].filter(Boolean);
+}
+
+function summarizeValidationAttempts(value: unknown): string {
+	const attempts = readArray(value).map(readObject).filter((attempt): attempt is JsonObject => Boolean(attempt));
+	if (attempts.length <= 1) {
+		return "";
+	}
+
+	const last = attempts.at(-1);
+	const status = last ? readString(last.status) : "";
+	const message = last ? readString(last.message) : "";
+	if (status === "passed") {
+		return `Validation passed after ${attempts.length} attempts.`;
+	}
+	if (message) {
+		return `Validation ended after ${attempts.length} attempts: ${message}`;
+	}
+	return `Validation ran ${attempts.length} attempts.`;
+}
+
+function summarizeSupersededCleanup(value: unknown): string {
+	const cleanup = readObject(value);
+	if (!cleanup) {
+		return "";
+	}
+
+	const scriptName = readString(cleanup.scriptName);
+	const message = readString(cleanup.message);
+	if (cleanup.deleted === true) {
+		return scriptName ? `Superseded Worker ${scriptName} removed.` : "Superseded Worker removed.";
+	}
+	if (cleanup.deleted === false) {
+		return `Superseded Worker cleanup failed${scriptName ? ` for ${scriptName}` : ""}${message ? `: ${message}` : "."}`;
+	}
+	return message;
+}
+
+function joinSummaryParts(parts: string[]): string {
+	return parts.map((part) => part.trim()).filter(Boolean).join(" ");
 }
 
 function summarizeNestedDetails(value: unknown): string {
