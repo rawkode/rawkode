@@ -557,11 +557,38 @@ async function maybeDeployFallbackMiniApp(input: {
 	}
 
 	const manifest = validation.manifest;
-	const deployment = await deployMiniAppWorker(input.env, {
-		manifest,
-		workerSource: generated.workerSource,
-		scriptName: candidateScriptNameForManifest(manifest),
-	});
+	let deployment: Awaited<ReturnType<typeof deployMiniAppWorker>>;
+	try {
+		deployment = await deployMiniAppWorker(input.env, {
+			manifest,
+			workerSource: generated.workerSource,
+			scriptName: candidateScriptNameForManifest(manifest),
+		});
+	} catch (error) {
+		const message = errorMessage(error);
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: "create-mini-app",
+			status: "fallback_deploy_failed",
+			details: {
+				fallback: true,
+				previousFailureStatus: input.failureStatus,
+				previousFailure: input.failureDetails,
+				message,
+				attempts: input.attempts,
+			},
+		});
+
+		return {
+			status: "fallback_deploy_failed",
+			operation: "create",
+			slug: manifest.slug,
+			deployed: false,
+			message,
+			manifest,
+			attempts: input.attempts,
+		};
+	}
 
 	if (!deployment.deployed) {
 		await createAuditRecord(input.env, {
@@ -590,13 +617,45 @@ async function maybeDeployFallbackMiniApp(input: {
 		};
 	}
 
-	const smokeTest = await smokeTestMiniAppWorker(input.env, {
-		manifest,
-		scriptName: deployment.scriptName,
-	});
+	let smokeTest: Awaited<ReturnType<typeof smokeTestMiniAppWorker>>;
+	try {
+		smokeTest = await smokeTestMiniAppWorker(input.env, {
+			manifest,
+			scriptName: deployment.scriptName,
+		});
+	} catch (error) {
+		const message = errorMessage(error);
+		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: "create-mini-app",
+			status: "fallback_validation_failed",
+			details: {
+				fallback: true,
+				previousFailureStatus: input.failureStatus,
+				previousFailure: input.failureDetails,
+				scriptName: deployment.scriptName,
+				message,
+				deploymentNotes: generated.deploymentNotes,
+				cleanup,
+				attempts: input.attempts,
+			},
+		});
+
+		return {
+			status: "fallback_validation_failed",
+			operation: "create",
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: false,
+			message,
+			manifest,
+			attempts: input.attempts,
+		};
+	}
 
 	if (!smokeTest.ok) {
-		const cleanup = await deleteMiniAppWorker(input.env, deployment.scriptName);
+		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
 		await createAuditRecord(input.env, {
 			slug: manifest.slug,
 			action: "create-mini-app",
@@ -657,6 +716,18 @@ async function maybeDeployFallbackMiniApp(input: {
 		manifest,
 		attempts: input.attempts,
 	};
+}
+
+async function cleanupMiniAppCandidate(env: Env, scriptName: string): Promise<JsonObject> {
+	try {
+		return (await deleteMiniAppWorker(env, scriptName)) as unknown as JsonObject;
+	} catch (error) {
+		return {
+			scriptName,
+			deleted: false,
+			message: errorMessage(error),
+		};
+	}
 }
 
 export function createFallbackMiniAppCandidate(input: {
@@ -1052,6 +1123,7 @@ function validateWorkerRouteOwnership(source: string, manifest?: ExtensionManife
 interface GlobalFetchCall {
 	index: number;
 	argument: string;
+	arguments: string[];
 }
 
 function validateGeneratedFetchUsage(source: string): string[] {
@@ -1121,8 +1193,8 @@ function findGlobalFetchCalls(source: string): GlobalFetchCall[] {
 			continue;
 		}
 
-		const argument = firstCallArgument(source.slice(openParenIndex + 1, closeParenIndex));
-		calls.push({ index: fetchIndex, argument });
+		const args = splitTopLevelArguments(source.slice(openParenIndex + 1, closeParenIndex));
+		calls.push({ index: fetchIndex, argument: args[0] ?? "", arguments: args });
 	}
 
 	return calls;
@@ -1144,10 +1216,12 @@ function isAllowedHostApiFetchTarget(source: string, argument: string): boolean 
 	).test(source);
 }
 
-function firstCallArgument(argumentsSource: string): string {
+function splitTopLevelArguments(argumentsSource: string): string[] {
 	let depth = 0;
 	let quote: string | null = null;
 	let escaped = false;
+	let argumentStart = 0;
+	const args: string[] = [];
 
 	for (let index = 0; index < argumentsSource.length; index += 1) {
 		const char = argumentsSource[index];
@@ -1179,11 +1253,13 @@ function firstCallArgument(argumentsSource: string): string {
 			continue;
 		}
 		if (char === "," && depth === 0) {
-			return argumentsSource.slice(0, index);
+			args.push(argumentsSource.slice(argumentStart, index).trim());
+			argumentStart = index + 1;
 		}
 	}
 
-	return argumentsSource;
+	args.push(argumentsSource.slice(argumentStart).trim());
+	return args.filter((arg) => arg.length > 0);
 }
 
 function escapeRegExp(value: string): string {
@@ -1289,11 +1365,20 @@ function validateHostApiUsage(source: string, manifest?: ExtensionManifest): str
 		issues.push("workerSource: /api/host/resource-index/search requires manifest.hostApis to include resource-index:read");
 	}
 
-	if (!source.includes("x-enchiridion-host-context")) {
+	const hostApiFetchCalls = findGlobalFetchCalls(source)
+		.filter((call) => isAllowedHostApiFetchTarget(source, call.argument));
+	if (hostApiFetchCalls.some((call) => !fetchCallForwardsHostContext(call))) {
 		issues.push("workerSource: host API calls must forward the incoming x-enchiridion-host-context header");
 	}
 
 	return issues;
+}
+
+function fetchCallForwardsHostContext(call: GlobalFetchCall): boolean {
+	return call.arguments
+		.slice(1)
+		.join(",")
+		.includes("x-enchiridion-host-context");
 }
 
 function findHostApiPaths(source: string): string[] {

@@ -153,4 +153,84 @@ describe("generate mini app workflow recovery", () => {
 			},
 		});
 	});
+
+	it("returns a structured fallback failure when fallback deployment throws", async () => {
+		const { deployMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		vi.mocked(deployMiniAppWorker).mockRejectedValueOnce(new Error("Dispatch upload failed"));
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Web app Kubernetes how to for topology spread constraints",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async () => {
+						throw new Error("Load failed");
+					},
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "fallback_deploy_failed",
+			operation: "create",
+			slug: "kubernetes-topology-spread-constraints",
+			deployed: false,
+			message: "Dispatch upload failed",
+		});
+		expect(mockState.savedExtensions).toHaveLength(0);
+		expect(mockState.audits[0]).toMatchObject({
+			slug: "kubernetes-topology-spread-constraints",
+			status: "fallback_deploy_failed",
+			details: {
+				previousFailureStatus: "generation_failed",
+				message: "Dispatch upload failed",
+			},
+		});
+	});
+
+	it("returns a structured fallback failure when fallback smoke testing throws", async () => {
+		const { smokeTestMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		vi.mocked(smokeTestMiniAppWorker).mockRejectedValueOnce(new Error("Load failed"));
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Web app Kubernetes how to for topology spread constraints",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async () => {
+						throw new Error("Load failed");
+					},
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "fallback_validation_failed",
+			operation: "create",
+			slug: "kubernetes-topology-spread-constraints",
+			deployed: false,
+			message: "Load failed",
+		});
+		expect(mockState.savedExtensions).toHaveLength(0);
+		expect(mockState.audits[0]).toMatchObject({
+			slug: "kubernetes-topology-spread-constraints",
+			status: "fallback_validation_failed",
+			details: {
+				previousFailureStatus: "generation_failed",
+				message: "Load failed",
+				cleanup: {
+					deleted: true,
+					message: "Mini app Worker candidate removed.",
+				},
+			},
+		});
+	});
 });

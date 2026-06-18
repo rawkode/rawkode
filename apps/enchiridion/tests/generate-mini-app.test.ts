@@ -595,6 +595,34 @@ export default {
 		expect(result.issues).toContain("workerSource: host API calls must forward the incoming x-enchiridion-host-context header");
 	});
 
+	it("rejects host API reads when the context header appears outside fetch options", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await fetch(url, {
+			headers: { accept: "application/json" },
+		});
+		const marker = "x-enchiridion-host-context";
+		return new Response(\`<html><body>\${marker}<pre>\${await response.text()}</pre></body></html>\`, { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: host API calls must forward the incoming x-enchiridion-host-context header");
+	});
+
 	it("rejects browser-authenticated host routes from generated workers", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(

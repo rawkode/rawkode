@@ -71,6 +71,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
+		expect(prompt).toContain("same fetch options object");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
 	});
 
@@ -92,6 +93,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
+		expect(prompt).toContain("same fetch options object");
 		expect(prompt).toContain("export default");
 	});
 });
