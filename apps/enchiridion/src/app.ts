@@ -8,7 +8,7 @@ import {
 	passwordAuthThrottleResponse,
 	recordPasswordAuthFailure,
 } from "./lib/auth-throttle";
-import { createMiniAppDispatchRequest, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
+import { createMiniAppDispatchRequest, isTransientMiniAppLoadFailure, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { isHostContextPathForApp, requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
@@ -66,6 +66,8 @@ const cardSchema = z.object({
 	title: z.string().min(1),
 	description: z.string().optional(),
 });
+
+const miniAppDispatchRetryDelaysMs = [150, 500, 1_000];
 
 app.onError((error) => {
 	if (error instanceof Response) {
@@ -328,7 +330,7 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 
 	let response: Response;
 	try {
-		response = await c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
+		response = await fetchMiniAppWorkerWithRetries(c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName), request);
 	} catch (error) {
 		return miniAppLoadFailedResponse(c.req.raw, slug, error);
 	}
@@ -339,6 +341,37 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		requestUrl: c.req.raw.url,
 		hostContextToken: token,
 	});
+}
+
+async function fetchMiniAppWorkerWithRetries(fetcher: Fetcher, request: Request): Promise<Response> {
+	const maxAttempts = canRetryMiniAppDispatch(request) ? miniAppDispatchRetryDelaysMs.length + 1 : 1;
+	let lastError: unknown;
+
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			const dispatchRequest = attempt === 1 ? request : request.clone();
+			return await fetcher.fetch(dispatchRequest as unknown as RequestInfo);
+		} catch (error) {
+			lastError = error;
+			const message = error instanceof Error ? error.message : String(error || "Mini app dispatch failed.");
+			if (attempt >= maxAttempts || !isTransientMiniAppLoadFailure(message)) {
+				throw error;
+			}
+
+			await waitForMiniAppDispatchRetry(attempt);
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error("Mini app dispatch failed.");
+}
+
+function canRetryMiniAppDispatch(request: Request): boolean {
+	return request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
+}
+
+function waitForMiniAppDispatchRetry(attempt: number): Promise<void> {
+	const delayMs = miniAppDispatchRetryDelaysMs[Math.min(attempt - 1, miniAppDispatchRetryDelaysMs.length - 1)] ?? 0;
+	return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 app.get("*", async (c) => {

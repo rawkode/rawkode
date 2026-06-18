@@ -156,6 +156,12 @@ export function createMiniAppDispatchRequest(source: Request, hostContextToken: 
 	return new Request(source, { headers });
 }
 
+export function isTransientMiniAppLoadFailure(message: string): boolean {
+	return /\bLoad failed\b/i.test(message)
+		|| /\bscript\b.*\bnot found\b/i.test(message)
+		|| /\bnot found\b.*\bdispatch\b/i.test(message);
+}
+
 export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): Promise<Response> {
 	const redirectBlock = validateMiniAppRedirect(input);
 	if (redirectBlock) {

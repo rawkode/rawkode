@@ -23,6 +23,13 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 		return `${status}: ${slug}. Fallback mini app was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 
+	if (status.endsWith("_pending")) {
+		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
+		const subject = result.fallback === true ? "fallback route" : "route";
+		const details = message || "Worker uploaded and registered, but dispatch validation has not passed yet.";
+		return `${status}: ${slug} ${subject} registered pending dispatch validation.${route} ${joinParts([details, attemptSummary])}`.trim();
+	}
+
 	if (result.deployed === true) {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
 		if (result.fallback === true) {

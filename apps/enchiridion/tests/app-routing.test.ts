@@ -210,8 +210,29 @@ describe("app mini app routing", () => {
 		expect(await response.text()).toBe("mini-app:/apps/hello-world/settings");
 	});
 
+	it("retries transient dynamic mini app load failures before returning the route", async () => {
+		let calls = 0;
+		const { env, dispatchedRequests } = testEnv(helloWorldExtension, () => {
+			calls += 1;
+			if (calls < 3) {
+				throw new Error("Load failed");
+			}
+
+			return new Response("<html><body>Ready</body></html>", {
+				headers: { "content-type": "text/html" },
+			});
+		});
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world", {
+			headers: { accept: "text/html" },
+		}), env);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("<html><body>Ready</body></html>");
+		expect(dispatchedRequests).toHaveLength(3);
+	});
+
 	it("returns a route-scoped failure when a dynamic mini app cannot be loaded", async () => {
-		const { env } = testEnv(helloWorldExtension, () => {
+		const { env, dispatchedRequests } = testEnv(helloWorldExtension, () => {
 			throw new Error("Load failed");
 		});
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world", {
@@ -224,6 +245,7 @@ describe("app mini app routing", () => {
 			slug: "hello-world",
 			message: "Load failed",
 		});
+		expect(dispatchedRequests).toHaveLength(4);
 	});
 
 	it("returns a route-scoped 404 for missing exact mini app routes", async () => {

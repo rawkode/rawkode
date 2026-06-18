@@ -49,6 +49,24 @@ describe("agent result formatting", () => {
 		);
 	});
 
+	it("makes pending dispatch registrations explicit", () => {
+		expect(formatMiniAppResult({
+			status: "deployed_pending",
+			operation: "create",
+			slug: "kubernetes-topology-spread-constraints",
+			deployed: true,
+			fallback: true,
+			routeUrl: "/apps/kubernetes-topology-spread-constraints",
+			message: "LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
+			validationAttempts: [
+				{ attempt: 1, status: "failed", message: "Load failed" },
+				{ attempt: 4, status: "failed", message: "Load failed" },
+			],
+		}, createIntent, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
+			"deployed_pending: kubernetes-topology-spread-constraints fallback route registered pending dispatch validation. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
+		);
+	});
+
 	it("keeps validation failures clear when no candidate was activated", () => {
 		expect(formatMiniAppResult({
 			status: "validation_failed",

@@ -7,6 +7,7 @@ describe("mini app audit helpers", () => {
 		expect(auditToneForStatus("fallback_deployed")).toBe("success");
 		expect(auditToneForStatus("requires_binding_provisioning")).toBe("warning");
 		expect(auditToneForStatus("fallback_rejected")).toBe("warning");
+		expect(auditToneForStatus("fallback_deployed_pending")).toBe("warning");
 		expect(auditToneForStatus("validation_failed")).toBe("danger");
 		expect(auditToneForStatus("fallback_validation_failed")).toBe("danger");
 		expect(auditToneForStatus("queued")).toBe("neutral");
@@ -49,6 +50,20 @@ describe("mini app audit helpers", () => {
 				validation: { message: "Smoke test failed with 500: Load failed" },
 			},
 		}, "fallback_deployed")).toBe("Fallback deployed after Smoke test failed with 500: Load failed");
+
+		expect(auditDetailSummary({
+			fallback: true,
+			message: "Mini app Worker deployed.",
+			previousFailure: {
+				message: "Load failed",
+			},
+			validationAttempts: [
+				{ attempt: 1, status: "failed", message: "Load failed" },
+				{ attempt: 2, status: "failed", message: "Load failed" },
+				{ attempt: 3, status: "failed", message: "Load failed" },
+				{ attempt: 4, status: "failed", message: "Load failed" },
+			],
+		}, "fallback_deployed_pending")).toBe("Fallback deployed after Load failed Validation ended after 4 attempts: Load failed");
 	});
 
 	it("surfaces validation retry context for successful deployments", () => {

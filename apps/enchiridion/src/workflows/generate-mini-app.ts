@@ -4,6 +4,7 @@ import {
 	candidateScriptNameForManifest,
 	deleteMiniAppWorker,
 	deployMiniAppWorker,
+	isTransientMiniAppLoadFailure,
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
 	type SmokeTestMiniAppResult,
@@ -268,6 +269,41 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 			const smokeTest = smokeTestRun.result;
 
 			if (!smokeTest.ok) {
+				if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
+					const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
+					await saveExtension(env, manifest, deployment.scriptName, "dynamic");
+					await createAuditRecord(env, {
+						slug: manifest.slug,
+						action: `${operation}-mini-app`,
+						status: operation === "update" ? "updated_pending" : "deployed_pending",
+						details: {
+							scriptName: deployment.scriptName,
+							pendingSupersededScriptName: supersededScriptName && supersededScriptName !== deployment.scriptName
+								? supersededScriptName
+								: undefined,
+							message: deployment.message,
+							deploymentNotes: generated.deploymentNotes,
+							validation: smokeTest as unknown as JsonObject,
+							validationAttempts: smokeTestRun.attempts,
+							attempts,
+						},
+					});
+
+					return {
+						status: operation === "update" ? "updated_pending" : "deployed_pending",
+						operation,
+						slug: manifest.slug,
+						scriptName: deployment.scriptName,
+						deployed: true,
+						message: `Mini app Worker was uploaded and registered, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+						routeUrl: smokeTest.route,
+						validation: smokeTest,
+						validationAttempts: smokeTestRun.attempts,
+						manifest,
+						attempts,
+					};
+				}
+
 				const cleanup = await deleteMiniAppWorker(env, deployment.scriptName);
 				attempts.push({
 					attempt,
@@ -640,6 +676,41 @@ async function maybeDeployFallbackMiniApp(input: {
 	const smokeTest = smokeTestRun.result;
 
 	if (!smokeTest.ok) {
+		if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
+			await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
+			await createAuditRecord(input.env, {
+				slug: manifest.slug,
+				action: "create-mini-app",
+				status: "fallback_deployed_pending",
+				details: {
+					fallback: true,
+					previousFailureStatus: input.failureStatus,
+					previousFailure: input.failureDetails,
+					scriptName: deployment.scriptName,
+					message: deployment.message,
+					deploymentNotes: generated.deploymentNotes,
+					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
+					attempts: input.attempts,
+				},
+			});
+
+			return {
+				status: "deployed_pending",
+				operation: "create",
+				slug: manifest.slug,
+				scriptName: deployment.scriptName,
+				deployed: true,
+				fallback: true,
+				message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+				routeUrl: smokeTest.route,
+				validation: smokeTest,
+				validationAttempts: smokeTestRun.attempts,
+				manifest,
+				attempts: input.attempts,
+			};
+		}
+
 		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
 		await createAuditRecord(input.env, {
 			slug: manifest.slug,
@@ -767,9 +838,16 @@ function formatSmokeTestAttempt(attempt: number, result: SmokeTestMiniAppResult)
 }
 
 function isTransientSmokeTestFailure(message: string): boolean {
-	return /\bLoad failed\b/i.test(message)
-		|| /\bscript\b.*\bnot found\b/i.test(message)
-		|| /\bnot found\b.*\bdispatch\b/i.test(message);
+	return isTransientMiniAppLoadFailure(message);
+}
+
+function isTransientSmokeTestRun(attempts: JsonObject[]): boolean {
+	return attempts.length > 0
+		&& attempts.every((attempt) => {
+			const status = typeof attempt.status === "string" ? attempt.status : "";
+			const message = typeof attempt.message === "string" ? attempt.message : "";
+			return status === "failed" && isTransientSmokeTestFailure(message);
+		});
 }
 
 function waitForSmokeTestRetry(attempt: number): Promise<void> {
