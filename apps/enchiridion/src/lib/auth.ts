@@ -4,7 +4,7 @@ export function authenticate(request: Request, env: Env): Principal | null {
 	const email = request.headers.get("cf-access-authenticated-user-email");
 	const name = request.headers.get("cf-access-authenticated-user-name") ?? email;
 
-	if (email && isAllowedEmail(email, env.ALLOWED_EMAILS)) {
+	if (email && shouldTrustCloudflareAccessHeaders(env) && isAllowedEmail(email, env.ALLOWED_EMAILS)) {
 		return { email, name: name ?? email, source: "cloudflare-access" };
 	}
 
@@ -45,9 +45,13 @@ export function unauthorizedResponse(): Response {
 	});
 }
 
+function shouldTrustCloudflareAccessHeaders(env: Env): boolean {
+	return env.TRUST_CLOUDFLARE_ACCESS_HEADERS === "true";
+}
+
 function isAllowedEmail(email: string, allowedEmails?: string): boolean {
 	if (!allowedEmails || allowedEmails.trim() === "") {
-		return true;
+		return false;
 	}
 
 	const allowed = allowedEmails.split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean);

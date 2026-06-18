@@ -13,6 +13,7 @@ export interface Env {
 	};
 	DEV_USER_EMAIL?: string;
 	ALLOWED_EMAILS?: string;
+	TRUST_CLOUDFLARE_ACCESS_HEADERS?: string;
 	ENCHIRIDION_PASSWORD?: string;
 	HOST_SIGNING_SECRET?: string;
 	CLOUDFLARE_ACCOUNT_ID?: string;

@@ -7,7 +7,7 @@ function testEnv(overrides: Partial<Env> = {}): Env {
 }
 
 describe("authentication", () => {
-	it("accepts a Cloudflare Access principal when the email is allowed", () => {
+	it("accepts a Cloudflare Access principal only when header trust and an email allowlist are configured", () => {
 		const request = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/bootstrap", {
 			headers: {
 				"cf-access-authenticated-user-email": "rawkode@example.com",
@@ -15,11 +15,25 @@ describe("authentication", () => {
 			},
 		});
 
-		expect(authenticate(request, testEnv({ ALLOWED_EMAILS: "rawkode@example.com" }))).toEqual({
+		expect(authenticate(request, testEnv({
+			ALLOWED_EMAILS: "rawkode@example.com",
+			TRUST_CLOUDFLARE_ACCESS_HEADERS: "true",
+		}))).toEqual({
 			email: "rawkode@example.com",
 			name: "Rawkode",
 			source: "cloudflare-access",
 		});
+	});
+
+	it("ignores Cloudflare Access headers unless explicitly trusted", () => {
+		const request = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/bootstrap", {
+			headers: {
+				"cf-access-authenticated-user-email": "rawkode@example.com",
+			},
+		});
+
+		expect(authenticate(request, testEnv({ ALLOWED_EMAILS: "rawkode@example.com" }))).toBeNull();
+		expect(authenticate(request, testEnv({ TRUST_CLOUDFLARE_ACCESS_HEADERS: "true" }))).toBeNull();
 	});
 
 	it("rejects a Cloudflare Access principal when the email is not allowed", () => {
@@ -29,7 +43,10 @@ describe("authentication", () => {
 			},
 		});
 
-		expect(authenticate(request, testEnv({ ALLOWED_EMAILS: "rawkode@example.com" }))).toBeNull();
+		expect(authenticate(request, testEnv({
+			ALLOWED_EMAILS: "rawkode@example.com",
+			TRUST_CLOUDFLARE_ACCESS_HEADERS: "true",
+		}))).toBeNull();
 	});
 
 	it("accepts the configured app password via Basic auth", () => {
@@ -40,6 +57,24 @@ describe("authentication", () => {
 		});
 
 		expect(authenticate(request, testEnv({ ENCHIRIDION_PASSWORD: "secret-password" }))).toEqual({
+			email: "rawkode@password.enchiridion.local",
+			name: "rawkode",
+			source: "password",
+		});
+	});
+
+	it("uses Basic auth when untrusted Cloudflare Access headers are present", () => {
+		const request = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/bootstrap", {
+			headers: {
+				authorization: `Basic ${btoa("rawkode:secret-password")}`,
+				"cf-access-authenticated-user-email": "attacker@example.com",
+			},
+		});
+
+		expect(authenticate(request, testEnv({
+			ALLOWED_EMAILS: "attacker@example.com",
+			ENCHIRIDION_PASSWORD: "secret-password",
+		}))).toEqual({
 			email: "rawkode@password.enchiridion.local",
 			name: "rawkode",
 			source: "password",
