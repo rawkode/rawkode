@@ -63,7 +63,7 @@ describe("agent result formatting", () => {
 				{ attempt: 4, status: "failed", message: "Load failed" },
 			],
 		}, createIntent, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
-			"deployed_pending: kubernetes-topology-spread-constraints fallback route registered pending dispatch validation. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
+			"deployed_pending: kubernetes-topology-spread-constraints fallback route registered pending dispatch validation. https://enchiridion.rawkodeacademy.workers.dev/apps/kubernetes-topology-spread-constraints LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed Validation attempts: #1 failed Load failed | #4 failed Load failed",
 		);
 	});
 
@@ -76,8 +76,12 @@ describe("agent result formatting", () => {
 			activeRoutePreserved: true,
 			routeUrl: "/apps/hello-world",
 			message: "Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: Load failed",
+			validationAttempts: [
+				{ attempt: 1, status: "failed", message: "Load failed" },
+				{ attempt: 4, status: "failed", message: "Load failed" },
+			],
 		}, { shouldBuild: true, operation: "update", targetSlug: "hello-world" }, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
-			"update_deferred: hello-world update candidate was not activated; active route preserved. https://enchiridion.rawkodeacademy.workers.dev/apps/hello-world Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: Load failed",
+			"update_deferred: hello-world update candidate was not activated; active route preserved. https://enchiridion.rawkodeacademy.workers.dev/apps/hello-world Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: Load failed Validation attempts: #1 failed Load failed | #4 failed Load failed",
 		);
 	});
 
@@ -91,8 +95,11 @@ describe("agent result formatting", () => {
 			attempts: [
 				{ attempt: 1, status: "validation_failed", message: "Smoke test failed with 500: Load failed", cleanup: "Mini app Worker candidate removed." },
 			],
+			validationAttempts: [
+				{ attempt: 1, status: "failed", message: "Load failed" },
+			],
 		}, createIntent)).toBe(
-			"validation_failed: hello-world. Candidate Worker failed smoke testing and was not activated. Smoke test failed with 500: Load failed Attempt: #1 validation_failed Smoke test failed with 500: Load failed cleanup: Mini app Worker candidate removed.",
+			"validation_failed: hello-world. Candidate Worker failed smoke testing and was not activated. Smoke test failed with 500: Load failed Attempt: #1 validation_failed Smoke test failed with 500: Load failed cleanup: Mini app Worker candidate removed. Validation attempt: #1 failed Load failed",
 		);
 	});
 

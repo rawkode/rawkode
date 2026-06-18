@@ -7,7 +7,10 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 	const message = typeof result.message === "string" ? result.message : "";
 	const routeUrl = typeof result.routeUrl === "string" ? result.routeUrl : "";
 	const issues = Array.isArray(result.issues) ? result.issues.map(formatUnknown).filter(Boolean) : [];
-	const attemptSummary = formatAttemptSummary(result.attempts);
+	const attemptSummary = joinParts([
+		formatAttemptSummary(result.attempts, "Attempt"),
+		formatAttemptSummary(result.validationAttempts, "Validation attempt"),
+	]);
 
 	if (issues.length > 0) {
 		return `${status}: ${slug}. ${joinParts([issues.join(" "), attemptSummary])}`.trim();
@@ -114,7 +117,7 @@ function formatRouteUrl(routeUrl: string, origin?: string): string {
 	return routeUrl;
 }
 
-function formatAttemptSummary(value: unknown): string {
+function formatAttemptSummary(value: unknown, singularLabel: string): string {
 	if (!Array.isArray(value) || value.length === 0) {
 		return "";
 	}
@@ -125,7 +128,7 @@ function formatAttemptSummary(value: unknown): string {
 	}
 
 	const visibleAttempts = attempts.slice(-2);
-	const label = attempts.length === 1 ? "Attempt" : "Attempts";
+	const label = attempts.length === 1 ? singularLabel : `${singularLabel}s`;
 	return `${label}: ${visibleAttempts.join(" | ")}`;
 }
 
