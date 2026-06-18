@@ -148,7 +148,13 @@ describe("app mini app routing", () => {
 	});
 
 	it("blocks dynamic mini app non-HTML bodies that expose host-context tokens", async () => {
-		const { env } = testEnv(helloWorldExtension, (request) => Response.json({
+		const { env } = testEnv({
+			...helloWorldExtension,
+			routes: [
+				...helloWorldExtension.routes,
+				{ path: "/apps/hello-world/data", mode: "worker-fragment", label: "Data" },
+			],
+		}, (request) => Response.json({
 			token: request.headers.get("x-enchiridion-host-context"),
 		}));
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world/data"), env);
@@ -252,11 +258,30 @@ describe("app mini app routing", () => {
 	});
 
 	it("dispatches nested dynamic mini app routes", async () => {
-		const { env } = testEnv(helloWorldExtension);
+		const { env } = testEnv({
+			...helloWorldExtension,
+			routes: [
+				...helloWorldExtension.routes,
+				{ path: "/apps/hello-world/settings", mode: "worker-page", label: "Settings" },
+			],
+		});
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world/settings"), env);
 
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("mini-app:/apps/hello-world/settings");
+	});
+
+	it("does not dispatch undeclared dynamic mini app routes", async () => {
+		const { env, dispatchedRequests } = testEnv(helloWorldExtension);
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world/settings"), env);
+
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({
+			error: "Mini app route not declared",
+			slug: "hello-world",
+			path: "/apps/hello-world/settings",
+		});
+		expect(dispatchedRequests).toEqual([]);
 	});
 
 	it("retries transient dynamic mini app load failures before returning the route", async () => {

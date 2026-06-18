@@ -35,7 +35,7 @@ import {
 	renderProjectsFragment,
 	renderProjectsPage,
 } from "./lib/mini-app-pages";
-import type { Env, JsonObject } from "./lib/types";
+import type { Env, JsonObject, RegisteredExtension } from "./lib/types";
 
 type HonoEnv = {
 	Bindings: Env;
@@ -319,6 +319,10 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		return json({ error: "Mini app is disabled", slug }, 403);
 	}
 
+	if (extension && !isDispatchableMiniAppRoute(extension, c.req.path)) {
+		return json({ error: "Mini app route not declared", slug, path: c.req.path }, 404);
+	}
+
 	if (!extension?.deployedScriptName || !c.env.MINI_APP_DISPATCHER) {
 		return json({ error: "Mini app route not found", slug }, 404);
 	}
@@ -347,6 +351,18 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		requestUrl: c.req.raw.url,
 		hostContextToken: token,
 	});
+}
+
+function isDispatchableMiniAppRoute(extension: RegisteredExtension, path: string): boolean {
+	const requestPath = normalizeRoutePath(path);
+	return extension.routes.some((route) =>
+		(route.mode === "worker-page" || route.mode === "worker-fragment")
+		&& normalizeRoutePath(route.path) === requestPath
+	);
+}
+
+function normalizeRoutePath(path: string): string {
+	return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 async function fetchMiniAppWorkerWithRetries(fetcher: Fetcher, request: Request): Promise<Response> {
