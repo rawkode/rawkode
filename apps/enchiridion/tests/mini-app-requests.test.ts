@@ -35,6 +35,34 @@ describe("mini app request helpers", () => {
 		});
 	});
 
+	it("treats forced build prompts that name an existing app as updates", () => {
+		const intent = inferMiniAppIntent("Make hello world app background blue", [helloWorld], true);
+
+		expect(intent).toEqual({
+			shouldBuild: true,
+			operation: "update",
+			targetSlug: "hello-world",
+		});
+	});
+
+	it("keeps explicit new app prompts as creates even when they mention an existing app", () => {
+		const intent = inferMiniAppIntent("Create a new app like hello world", [helloWorld], true);
+
+		expect(intent).toEqual({
+			shouldBuild: true,
+			operation: "create",
+		});
+	});
+
+	it("uses make as a create signal when no existing app is referenced", () => {
+		const intent = inferMiniAppIntent("Make a simple habit tracker app", [helloWorld]);
+
+		expect(intent).toEqual({
+			shouldBuild: true,
+			operation: "create",
+		});
+	});
+
 	it("routes web app prompts to creation even without create wording", () => {
 		const intent = inferMiniAppIntent("Web app Kubernetes how to for topology spread constraints", [helloWorld]);
 

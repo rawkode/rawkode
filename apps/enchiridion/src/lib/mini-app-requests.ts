@@ -21,7 +21,8 @@ export interface MiniAppSummary {
 }
 
 const UPDATE_WORDS = /\b(update|change|modify|edit|rework|restyle|redesign|fix|improve|iterate|replace|add|remove)\b/i;
-const CREATE_WORDS = /\b(create|build|make|generate|scaffold|new)\b/i;
+const CREATE_WORDS = /\b(create|build|generate|scaffold|new)\b/i;
+const MAKE_WORD = /\bmake\b/i;
 const APP_WORDS = /\b(mini[- ]?app|web app|worker app|app|tool|page|dashboard|site)\b/i;
 const APP_PREFIX = /^\s*(web app|mini[- ]?app|worker app|app)\b/i;
 const WEB_ARTIFACT_PREFIX = /^\s*(?:simple\s+)?web\s+(?:tutorial|guide|how[- ]to|page|site|tool)\b/i;
@@ -32,11 +33,17 @@ export function inferMiniAppIntent(
 	forceBuild = false,
 ): MiniAppIntent {
 	const target = findReferencedExtension(prompt, extensions);
-	const updateRequested = UPDATE_WORDS.test(prompt) && (target || APP_WORDS.test(prompt));
+	const explicitCreateRequested = APP_PREFIX.test(prompt)
+		|| WEB_ARTIFACT_PREFIX.test(prompt)
+		|| (CREATE_WORDS.test(prompt) && APP_WORDS.test(prompt));
+	const targetUpdateRequested = Boolean(target)
+		&& !explicitCreateRequested
+		&& (forceBuild || UPDATE_WORDS.test(prompt) || MAKE_WORD.test(prompt));
+	const updateRequested = targetUpdateRequested || (UPDATE_WORDS.test(prompt) && (target || APP_WORDS.test(prompt)));
 	const createRequested = forceBuild
 		|| APP_PREFIX.test(prompt)
 		|| WEB_ARTIFACT_PREFIX.test(prompt)
-		|| (CREATE_WORDS.test(prompt) && APP_WORDS.test(prompt));
+		|| ((CREATE_WORDS.test(prompt) || MAKE_WORD.test(prompt)) && APP_WORDS.test(prompt));
 
 	if (updateRequested) {
 		return {
@@ -50,7 +57,6 @@ export function inferMiniAppIntent(
 		return {
 			shouldBuild: true,
 			operation: "create",
-			slugHint: target?.slug,
 		};
 	}
 
