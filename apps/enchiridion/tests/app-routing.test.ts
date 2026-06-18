@@ -92,6 +92,35 @@ describe("app mini app routing", () => {
 		});
 	});
 
+	it("blocks dynamic mini app HTML bodies that expose host-context tokens", async () => {
+		const { env } = testEnv(helloWorldExtension, (request) => new Response(
+			`<html><body><pre>${request.headers.get("x-enchiridion-host-context")}</pre></body></html>`,
+			{ headers: { "content-type": "text/html" } },
+		));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app response blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app responses cannot expose host context tokens",
+		});
+	});
+
+	it("blocks dynamic mini app non-HTML bodies that expose host-context tokens", async () => {
+		const { env } = testEnv(helloWorldExtension, (request) => Response.json({
+			token: request.headers.get("x-enchiridion-host-context"),
+		}));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world/data"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app response blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app responses cannot expose host context tokens",
+		});
+	});
+
 	it("allows dynamic mini app redirects inside the same app route namespace", async () => {
 		const { env } = testEnv(helloWorldExtension, () => Response.redirect("http://localhost/apps/hello-world/settings", 302));
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
@@ -99,6 +128,22 @@ describe("app mini app routing", () => {
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe("http://localhost/apps/hello-world/settings");
 		expect(response.headers.get("content-security-policy")).toContain("sandbox");
+	});
+
+	it("blocks dynamic mini app redirects that expose host-context tokens", async () => {
+		const { env } = testEnv(helloWorldExtension, (request) => {
+			const token = request.headers.get("x-enchiridion-host-context");
+			return Response.redirect(`http://localhost/apps/hello-world/settings?token=${encodeURIComponent(token ?? "")}`, 302);
+		});
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app redirect blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app redirects cannot expose host context tokens",
+		});
+		expect(response.headers.get("location")).toBeNull();
 	});
 
 	it("blocks dynamic mini app redirects to host APIs", async () => {

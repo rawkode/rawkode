@@ -36,6 +36,7 @@ export interface SecureMiniAppResponseInput {
 	response: Response;
 	slug: string;
 	requestUrl: string;
+	hostContextToken?: string;
 }
 
 const forwardedMiniAppHeaders = new Set([
@@ -174,25 +175,26 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 	headers.set("referrer-policy", "no-referrer");
 	headers.set("x-content-type-options", "nosniff");
 
-	if (contentType?.toLowerCase().includes("text/html")) {
-		const body = await input.response.text();
-		const bodyBlock = validateMiniAppHtmlSafety(body);
-		if (bodyBlock) {
-			return blockedMiniAppResponse({
-				error: "Unsafe mini app response blocked",
-				slug: input.slug,
-				reason: bodyBlock,
-			});
-		}
+	const bodyBytes = await input.response.arrayBuffer();
+	const bodyText = new TextDecoder().decode(bodyBytes);
+	const bodyBlock = validateMiniAppResponseBody(bodyText, contentType, input.hostContextToken);
+	if (bodyBlock) {
+		return blockedMiniAppResponse({
+			error: "Unsafe mini app response blocked",
+			slug: input.slug,
+			reason: bodyBlock,
+		});
+	}
 
-		return new Response(body, {
+	if (contentType?.toLowerCase().includes("text/html")) {
+		return new Response(bodyText, {
 			status: input.response.status,
 			statusText: input.response.statusText,
 			headers,
 		});
 	}
 
-	return new Response(input.response.body, {
+	return new Response(bodyBytes, {
 		status: input.response.status,
 		statusText: input.response.statusText,
 		headers,
@@ -256,7 +258,7 @@ export async function smokeTestMiniAppWorker(
 			};
 		}
 
-		const contractFailure = validateSmokeTestBody(contentType, body);
+		const contractFailure = validateSmokeTestBody(contentType, body, token);
 		if (contractFailure) {
 			return {
 				ok: false,
@@ -283,7 +285,12 @@ export async function smokeTestMiniAppWorker(
 	}
 }
 
-function validateSmokeTestBody(contentType: string | null, body: string): string | null {
+function validateSmokeTestBody(contentType: string | null, body: string, hostContextToken?: string): string | null {
+	const unsafeResponse = validateMiniAppResponseBody(body, contentType, hostContextToken);
+	if (unsafeResponse) {
+		return unsafeResponse;
+	}
+
 	if (!contentType?.toLowerCase().includes("text/html")) {
 		return `primary route must return text/html, got ${contentType ?? "no content-type"}`;
 	}
@@ -291,11 +298,6 @@ function validateSmokeTestBody(contentType: string | null, body: string): string
 	const trimmed = body.trim();
 	if (/Load failed/i.test(trimmed)) {
 		return `primary route returned a generic failure body: ${sampleBody(trimmed)}`;
-	}
-
-	const unsafeHtml = validateMiniAppHtmlSafety(trimmed);
-	if (unsafeHtml) {
-		return unsafeHtml;
 	}
 
 	if (trimmed.length < 20 || !/<(?:!doctype|html|body|main|section|article|h1|h2|div)\b/i.test(trimmed)) {
@@ -330,6 +332,14 @@ function validateMiniAppRedirect(input: SecureMiniAppResponseInput): Response | 
 		});
 	}
 
+	if (input.hostContextToken && location.includes(input.hostContextToken)) {
+		return blockedMiniAppResponse({
+			error: "Unsafe mini app redirect blocked",
+			slug: input.slug,
+			reason: "dynamic mini app redirects cannot expose host context tokens",
+		});
+	}
+
 	const requestUrl = new URL(input.requestUrl);
 	if (target.origin === requestUrl.origin && isMiniAppRouteForSlug(target.pathname, input.slug)) {
 		return null;
@@ -352,6 +362,18 @@ function blockedMiniAppResponse(input: { error: string; slug: string; reason?: s
 			"x-content-type-options": "nosniff",
 		},
 	});
+}
+
+function validateMiniAppResponseBody(body: string, contentType: string | null, hostContextToken?: string): string | null {
+	if (hostContextToken && body.includes(hostContextToken)) {
+		return "dynamic mini app responses cannot expose host context tokens";
+	}
+
+	if (contentType?.toLowerCase().includes("text/html")) {
+		return validateMiniAppHtmlSafety(body);
+	}
+
+	return null;
 }
 
 function validateMiniAppHtmlSafety(body: string): string | null {

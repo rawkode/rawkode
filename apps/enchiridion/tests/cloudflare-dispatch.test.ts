@@ -209,6 +209,32 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.message).toContain("dynamic mini app pages cannot trigger meta refresh navigation");
 	});
 
+	it("rejects smoke tests that expose host-context tokens", async () => {
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch(request: Request) {
+							return new Response(`<html><body>${request.headers.get("x-enchiridion-host-context")}</body></html>`, {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(200);
+		expect(result.message).toContain("dynamic mini app responses cannot expose host context tokens");
+	});
+
 	it("fails smoke tests when production signing material is missing", async () => {
 		const env = {
 			MINI_APP_DISPATCHER: {

@@ -303,6 +303,7 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		response,
 		slug,
 		requestUrl: c.req.raw.url,
+		hostContextToken: token,
 	});
 }
 

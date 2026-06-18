@@ -76,6 +76,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("server-rendered HTML and links");
 		expect(prompt).toContain("Refresh headers");
 		expect(prompt).toContain("meta refresh tags");
+		expect(prompt).toContain("Never render, log, redirect with, or otherwise expose the x-enchiridion-host-context token");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
 	});
 
@@ -102,6 +103,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("server-rendered HTML and links");
 		expect(prompt).toContain("Refresh headers");
 		expect(prompt).toContain("meta refresh tags");
+		expect(prompt).toContain("Never render, log, redirect with, or otherwise expose the x-enchiridion-host-context token");
 		expect(prompt).toContain("export default");
 	});
 });
