@@ -680,6 +680,41 @@ async function maybeDeployFallbackMiniApp(input: {
 	const smokeTest = smokeTestRun.result;
 
 	if (!smokeTest.ok) {
+		if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
+			await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
+			await createAuditRecord(input.env, {
+				slug: manifest.slug,
+				action: "create-mini-app",
+				status: "deployed_pending",
+				details: {
+					fallback: true,
+					previousFailureStatus: input.failureStatus,
+					previousFailure: input.failureDetails,
+					scriptName: deployment.scriptName,
+					message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+					deploymentNotes: generated.deploymentNotes,
+					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
+					attempts: input.attempts,
+				},
+			});
+
+			return {
+				status: "deployed_pending",
+				operation: "create",
+				slug: manifest.slug,
+				scriptName: deployment.scriptName,
+				deployed: true,
+				fallback: true,
+				message: `LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+				routeUrl: smokeTest.route,
+				validation: smokeTest,
+				validationAttempts: smokeTestRun.attempts,
+				manifest,
+				attempts: input.attempts,
+			};
+		}
+
 		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
 		await createAuditRecord(input.env, {
 			slug: manifest.slug,

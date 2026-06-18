@@ -552,7 +552,7 @@ describe("generate mini app workflow recovery", () => {
 		});
 	});
 
-	it("does not activate a deterministic fallback after repeated transient dispatch load failures", async () => {
+	it("keeps a deterministic fallback pending after repeated transient dispatch load failures", async () => {
 		const { smokeTestMiniAppWorker, deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
 		vi.mocked(smokeTestMiniAppWorker)
 			.mockRejectedValueOnce(new Error("Load failed"))
@@ -577,30 +577,76 @@ describe("generate mini app workflow recovery", () => {
 		} as never);
 
 		expect(result).toMatchObject({
-			status: "fallback_validation_failed",
+			status: "deployed_pending",
 			operation: "create",
 			slug: "kubernetes-topology-spread-constraints",
-			deployed: false,
-			message: "Load failed",
+			deployed: true,
+			fallback: true,
+			routeUrl: "/apps/kubernetes-topology-spread-constraints",
+			message: "LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
 		});
 		expect(smokeTestMiniAppWorker).toHaveBeenCalledTimes(4);
-		expect(mockState.savedExtensions).toEqual([]);
-		expect(deleteMiniAppWorker).toHaveBeenCalledTimes(1);
-		expect(deleteMiniAppWorker).toHaveBeenCalledWith(
-			expect.anything(),
-			"enchiridion-kubernetes-topology-spread-constraints-candidate",
-		);
+		expect(mockState.savedExtensions).toHaveLength(1);
+		expect(deleteMiniAppWorker).not.toHaveBeenCalled();
 		expect(mockState.audits[0]).toMatchObject({
 			slug: "kubernetes-topology-spread-constraints",
-			status: "fallback_validation_failed",
+			status: "deployed_pending",
 			details: {
 				previousFailureStatus: "generation_failed",
+				message: "LLM generation failed; registered a static fallback mini app, but dispatch did not become ready during smoke testing: Load failed",
 				validationAttempts: [
 					{ attempt: 1, status: "failed", message: "Load failed" },
 					{ attempt: 2, status: "failed", message: "Load failed" },
 					{ attempt: 3, status: "failed", message: "Load failed" },
 					{ attempt: 4, status: "failed", message: "Load failed" },
 				],
+			},
+		});
+	});
+
+	it("does not activate a deterministic fallback after non-transient validation failure", async () => {
+		const { smokeTestMiniAppWorker, deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		vi.mocked(smokeTestMiniAppWorker).mockResolvedValueOnce({
+			ok: false,
+			route: "/apps/kubernetes-topology-spread-constraints",
+			status: 200,
+			contentType: "application/json",
+			message: "Smoke test failed with 200: primary route must return text/html",
+		});
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Web app Kubernetes how to for topology spread constraints",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async () => {
+						throw new Error("Load failed");
+					},
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "fallback_validation_failed",
+			operation: "create",
+			slug: "kubernetes-topology-spread-constraints",
+			deployed: false,
+			message: "Smoke test failed with 200: primary route must return text/html",
+		});
+		expect(mockState.savedExtensions).toEqual([]);
+		expect(deleteMiniAppWorker).toHaveBeenCalledTimes(1);
+		expect(mockState.audits[0]).toMatchObject({
+			slug: "kubernetes-topology-spread-constraints",
+			status: "fallback_validation_failed",
+			details: {
+				previousFailureStatus: "generation_failed",
+				validation: {
+					message: "Smoke test failed with 200: primary route must return text/html",
+				},
 				cleanup: {
 					scriptName: "enchiridion-kubernetes-topology-spread-constraints-candidate",
 					deleted: true,
