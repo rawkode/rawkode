@@ -298,7 +298,13 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 
 	const request = createMiniAppDispatchRequest(c.req.raw, token);
 
-	const response = await c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
+	let response: Response;
+	try {
+		response = await c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
+	} catch (error) {
+		return miniAppLoadFailedResponse(c.req.raw, slug, error);
+	}
+
 	return secureMiniAppResponse({
 		response,
 		slug,
@@ -316,6 +322,55 @@ function json(payload: unknown, status = 200): Response {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+}
+
+function miniAppLoadFailedResponse(request: Request, slug: string, error: unknown): Response {
+	const message = error instanceof Error ? error.message : "The mini app Worker did not return a response.";
+	if (!request.headers.get("accept")?.toLowerCase().includes("text/html")) {
+		return json({ error: "Mini app failed to load", slug, message }, 502);
+	}
+
+	return new Response(`<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>${escapeHtml(slug)} failed to load</title>
+		<style>
+			:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+			body { margin: 0; background: #f7f8f3; color: #20211d; }
+			main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+			.kicker { color: #6b7f32; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+			.panel { border: 1px solid #d6d9cd; border-radius: 8px; background: #fff; padding: 22px; }
+			code { background: #eef0e6; border-radius: 4px; padding: 2px 5px; }
+		</style>
+	</head>
+	<body>
+		<main>
+			<div class="panel">
+				<div class="kicker">Mini app unavailable</div>
+				<h1>${escapeHtml(slug)} failed to load</h1>
+				<p>The dynamic Worker is registered, but dispatch could not load it for this request.</p>
+				<p><code>${escapeHtml(message)}</code></p>
+			</div>
+		</main>
+	</body>
+</html>`, {
+		status: 502,
+		headers: {
+			"cache-control": "no-store",
+			"content-type": "text/html; charset=utf-8",
+		},
+	});
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
 }
 
 function fetchAsset(env: Env, request: Request, pathOverride?: string): Promise<Response> {

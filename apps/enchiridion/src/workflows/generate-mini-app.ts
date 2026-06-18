@@ -6,6 +6,7 @@ import {
 	deployMiniAppWorker,
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
+	type SmokeTestMiniAppResult,
 } from "../lib/cloudflare-dispatch";
 import { isAppRoutePath, validateExtensionManifest } from "../lib/extension-manifest";
 import { registerRuntimeProviders } from "../lib/flue-providers";
@@ -71,6 +72,8 @@ interface GenerateMiniAppPayload {
 type GeneratedMiniApp = v.InferOutput<typeof generatedMiniAppSchema>;
 
 const maxGenerationAttempts = 3;
+const maxSmokeTestAttempts = 4;
+const smokeTestRetryDelaysMs = [250, 750, 1_500];
 const maxWorkerSourceBytes = 64 * 1024;
 const maxDeploymentNotesLength = 2_000;
 const manifestCollectionLimits: Array<{
@@ -258,10 +261,11 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 			});
 
 		if (deployment.deployed) {
-			const smokeTest = await smokeTestMiniAppWorker(env, {
+			const smokeTestRun = await smokeTestMiniAppWorkerWithRetries(env, {
 				manifest,
 				scriptName: deployment.scriptName,
 			});
+			const smokeTest = smokeTestRun.result;
 
 			if (!smokeTest.ok) {
 				const cleanup = await deleteMiniAppWorker(env, deployment.scriptName);
@@ -271,6 +275,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 					scriptName: deployment.scriptName,
 					message: smokeTest.message,
 					route: smokeTest.route,
+					smokeTestAttempts: smokeTestRun.attempts,
 					cleanup: cleanup.message,
 				});
 
@@ -298,6 +303,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 						message: deployment.message,
 						deploymentNotes: generated.deploymentNotes,
 						validation: smokeTest as unknown as JsonObject,
+						validationAttempts: smokeTestRun.attempts,
 						cleanup: cleanup as unknown as JsonObject,
 					},
 				});
@@ -314,6 +320,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 						message: deployment.message,
 						deploymentNotes: generated.deploymentNotes,
 						validation: smokeTest as unknown as JsonObject,
+						validationAttempts: smokeTestRun.attempts,
 						cleanup: cleanup as unknown as JsonObject,
 						attempts,
 					},
@@ -342,6 +349,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 					message: deployment.message,
 					deploymentNotes: generated.deploymentNotes,
 					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
 					attempts,
 				},
 			});
@@ -355,6 +363,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				message: `${deployment.message} ${smokeTest.message}`,
 				routeUrl: smokeTest.route,
 				validation: smokeTest,
+				validationAttempts: smokeTestRun.attempts,
 				manifest,
 				attempts,
 			};
@@ -617,42 +626,11 @@ async function maybeDeployFallbackMiniApp(input: {
 		};
 	}
 
-	let smokeTest: Awaited<ReturnType<typeof smokeTestMiniAppWorker>>;
-	try {
-		smokeTest = await smokeTestMiniAppWorker(input.env, {
-			manifest,
-			scriptName: deployment.scriptName,
-		});
-	} catch (error) {
-		const message = errorMessage(error);
-		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
-		await createAuditRecord(input.env, {
-			slug: manifest.slug,
-			action: "create-mini-app",
-			status: "fallback_validation_failed",
-			details: {
-				fallback: true,
-				previousFailureStatus: input.failureStatus,
-				previousFailure: input.failureDetails,
-				scriptName: deployment.scriptName,
-				message,
-				deploymentNotes: generated.deploymentNotes,
-				cleanup,
-				attempts: input.attempts,
-			},
-		});
-
-		return {
-			status: "fallback_validation_failed",
-			operation: "create",
-			slug: manifest.slug,
-			scriptName: deployment.scriptName,
-			deployed: false,
-			message,
-			manifest,
-			attempts: input.attempts,
-		};
-	}
+	const smokeTestRun = await smokeTestMiniAppWorkerWithRetries(input.env, {
+		manifest,
+		scriptName: deployment.scriptName,
+	});
+	const smokeTest = smokeTestRun.result;
 
 	if (!smokeTest.ok) {
 		const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
@@ -668,6 +646,7 @@ async function maybeDeployFallbackMiniApp(input: {
 				message: deployment.message,
 				deploymentNotes: generated.deploymentNotes,
 				validation: smokeTest as unknown as JsonObject,
+				validationAttempts: smokeTestRun.attempts,
 				cleanup: cleanup as unknown as JsonObject,
 				attempts: input.attempts,
 			},
@@ -699,6 +678,7 @@ async function maybeDeployFallbackMiniApp(input: {
 			message: deployment.message,
 			deploymentNotes: generated.deploymentNotes,
 			validation: smokeTest as unknown as JsonObject,
+			validationAttempts: smokeTestRun.attempts,
 			attempts: input.attempts,
 		},
 	});
@@ -713,9 +693,85 @@ async function maybeDeployFallbackMiniApp(input: {
 		message: `LLM generation failed; deployed a static fallback mini app. ${deployment.message} ${smokeTest.message}`,
 		routeUrl: smokeTest.route,
 		validation: smokeTest,
+		validationAttempts: smokeTestRun.attempts,
 		manifest,
 		attempts: input.attempts,
 	};
+}
+
+async function smokeTestMiniAppWorkerWithRetries(
+	env: Env,
+	input: { manifest: ExtensionManifest; scriptName: string },
+): Promise<{ result: SmokeTestMiniAppResult; attempts: JsonObject[] }> {
+	let result: SmokeTestMiniAppResult | null = null;
+	const attempts: JsonObject[] = [];
+
+	for (let attempt = 1; attempt <= maxSmokeTestAttempts; attempt += 1) {
+		result = await runSmokeTestMiniAppWorker(env, input);
+		attempts.push(formatSmokeTestAttempt(attempt, result));
+
+		if (result.ok || !isTransientSmokeTestFailure(result.message) || attempt === maxSmokeTestAttempts) {
+			return { result, attempts };
+		}
+
+		await waitForSmokeTestRetry(attempt);
+	}
+
+	return {
+		result: result ?? {
+			ok: false,
+			route: primaryWorkerPageRoute(input.manifest),
+			message: "Smoke test did not run.",
+		},
+		attempts,
+	};
+}
+
+async function runSmokeTestMiniAppWorker(
+	env: Env,
+	input: { manifest: ExtensionManifest; scriptName: string },
+): Promise<SmokeTestMiniAppResult> {
+	try {
+		return await smokeTestMiniAppWorker(env, input);
+	} catch (error) {
+		return {
+			ok: false,
+			route: primaryWorkerPageRoute(input.manifest),
+			message: errorMessage(error),
+		};
+	}
+}
+
+function formatSmokeTestAttempt(attempt: number, result: SmokeTestMiniAppResult): JsonObject {
+	const record: JsonObject = {
+		attempt,
+		status: result.ok ? "passed" : "failed",
+		route: result.route,
+		message: result.message,
+	};
+	if (result.status !== undefined) {
+		record.httpStatus = result.status;
+	}
+	if (result.contentType) {
+		record.contentType = result.contentType;
+	}
+
+	return record;
+}
+
+function isTransientSmokeTestFailure(message: string): boolean {
+	return /\bLoad failed\b/i.test(message)
+		|| /\bscript\b.*\bnot found\b/i.test(message)
+		|| /\bnot found\b.*\bdispatch\b/i.test(message);
+}
+
+function waitForSmokeTestRetry(attempt: number): Promise<void> {
+	const delayMs = smokeTestRetryDelaysMs[Math.min(attempt - 1, smokeTestRetryDelaysMs.length - 1)] ?? 0;
+	return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function primaryWorkerPageRoute(manifest: ExtensionManifest): string {
+	return manifest.routes.find((route) => route.mode === "worker-page")?.path ?? `/apps/${manifest.slug}`;
 }
 
 async function cleanupMiniAppCandidate(env: Env, scriptName: string): Promise<JsonObject> {

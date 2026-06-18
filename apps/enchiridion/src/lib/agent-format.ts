@@ -84,6 +84,15 @@ export function formatAgentError(error: unknown, fallback: string): string {
 	return String(error);
 }
 
+export function formatMiniAppBuildError(error: unknown, fallback: string): string {
+	const message = formatAgentError(error, fallback).trim();
+	if (/^Load failed\.?$/i.test(message)) {
+		return "Mini app build workflow failed before returning a deployment result: Load failed. No mini app was activated.";
+	}
+
+	return message || fallback;
+}
+
 function formatRouteUrl(routeUrl: string, origin?: string): string {
 	if (routeUrl.startsWith("/") && origin) {
 		return `${origin}${routeUrl}`;

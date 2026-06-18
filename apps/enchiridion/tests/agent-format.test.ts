@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAgentError, formatAgentResult, formatMiniAppResult } from "../src/lib/agent-format";
+import { formatAgentError, formatAgentResult, formatMiniAppBuildError, formatMiniAppResult } from "../src/lib/agent-format";
 import type { MiniAppIntent } from "../src/lib/mini-app-requests";
 
 const createIntent: MiniAppIntent = {
@@ -85,5 +85,12 @@ describe("agent result formatting", () => {
 	it("formats structured agent errors", () => {
 		expect(formatAgentError({ error: "Workflow failed" }, "fallback")).toBe("Workflow failed");
 		expect(formatAgentError(null, "fallback")).toBe("fallback");
+	});
+
+	it("adds deployment context to bare mini app build load failures", () => {
+		expect(formatMiniAppBuildError({ message: "Load failed" }, "fallback")).toBe(
+			"Mini app build workflow failed before returning a deployment result: Load failed. No mini app was activated.",
+		);
+		expect(formatMiniAppBuildError({ error: "Dispatch upload failed" }, "fallback")).toBe("Dispatch upload failed");
 	});
 });

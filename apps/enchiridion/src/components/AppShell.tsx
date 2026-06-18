@@ -38,7 +38,7 @@ import type {
 	MiniAppAuditRecord,
 	ResourceIndexRecord,
 } from "../lib/types";
-import { formatAgentError, formatAgentResult, formatMiniAppResult } from "../lib/agent-format";
+import { formatAgentError, formatAgentResult, formatMiniAppBuildError, formatMiniAppResult } from "../lib/agent-format";
 import { auditDetailSummary, auditToneForStatus } from "../lib/audit";
 import { inferMiniAppIntent, summarizeMiniApp } from "../lib/mini-app-requests";
 import { shell } from "../styles/shell.stylex";
@@ -710,7 +710,7 @@ function AgentPanel({ extensions, onRefresh }: { extensions: ExtensionManifest[]
 				});
 				const body = await readJsonBody<{ result?: Record<string, unknown>; error?: unknown }>(response);
 				if (!response.ok) {
-					throw new Error(formatAgentError(body.error, `Workflow failed with ${response.status}`));
+					throw new Error(formatMiniAppBuildError(body.error, `Workflow failed with ${response.status}`));
 				}
 
 				const result = body.result ?? {};
