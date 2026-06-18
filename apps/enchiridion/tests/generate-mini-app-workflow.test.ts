@@ -353,6 +353,64 @@ describe("generate mini app workflow recovery", () => {
 		});
 	});
 
+	it("uses server-side extension inventory to correct stale create requests into updates", async () => {
+		mockState.registeredExtensions.push(helloWorldExtension);
+		const { deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Make hello world app background blue",
+				operation: "create",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async (prompt: string) => {
+						expect(prompt).toContain("Request operation: update");
+						expect(prompt).toContain("Target existing mini app:");
+						return {
+							data: {
+								manifest: {
+									slug: "hello-world",
+									name: "Hello World",
+									version: "0.2.0",
+									description: "A generated hello world app with blue styling.",
+									routes: [{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" }],
+									commands: [],
+									editorBlocks: [],
+									workflows: [],
+									bindings: [],
+									hostApis: [],
+									indexProjections: [],
+								},
+								workerSource: "export default { fetch() { return new Response('<html><body style=\"background:#2563eb\"><h1>Hello</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) } }",
+								deploymentNotes: "Updated app styling.",
+							},
+						};
+					},
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "updated",
+			operation: "update",
+			slug: "hello-world",
+			deployed: true,
+			routeUrl: "/apps/hello-world",
+		});
+		expect(mockState.savedExtensions).toEqual([
+			expect.objectContaining({
+				scriptName: "enchiridion-hello-world-candidate",
+				status: "dynamic",
+				manifest: expect.objectContaining({ slug: "hello-world", version: "0.2.0" }),
+			}),
+		]);
+		expect(deleteMiniAppWorker).toHaveBeenCalledWith(expect.anything(), "enchiridion-hello-world-old");
+	});
+
 	it("preserves the active Worker when an update candidate never passes transient dispatch smoke tests", async () => {
 		mockState.registeredExtensions.push(helloWorldExtension);
 		const { deleteMiniAppWorker, smokeTestMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");

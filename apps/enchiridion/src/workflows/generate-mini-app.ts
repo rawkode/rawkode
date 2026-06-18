@@ -96,7 +96,7 @@ interface MiniAppBuilderSession {
 export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
 	const installedExtensions = await listRegisteredExtensions(env);
 	const inferred = inferMiniAppIntent(payload.prompt, installedExtensions, true);
-	const operation = payload.operation ?? inferred.operation;
+	const operation = resolveMiniAppOperation(payload.operation, inferred.operation);
 	const targetExtension = findReferencedExtension(
 		payload.prompt,
 		installedExtensions,
@@ -505,6 +505,14 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	}
 
 	throw new Error("Mini app generation failed without a terminal result.");
+}
+
+function resolveMiniAppOperation(requested: MiniAppOperation | undefined, inferred: MiniAppOperation): MiniAppOperation {
+	if (requested === "create" && inferred === "update") {
+		return "update";
+	}
+
+	return requested ?? inferred;
 }
 
 function buildGenerationFailureRetryPrompt(currentPrompt: string, message: string): string {
