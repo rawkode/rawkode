@@ -167,6 +167,11 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				message,
 			});
 
+			if (attempt < maxGenerationAttempts) {
+				prompt = buildGenerationFailureRetryPrompt(prompt, message);
+				continue;
+			}
+
 			return finishGenerationFailure({
 				env,
 				payload,
@@ -444,6 +449,15 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	}
 
 	throw new Error("Mini app generation failed without a terminal result.");
+}
+
+function buildGenerationFailureRetryPrompt(currentPrompt: string, message: string): string {
+	return [
+		"The previous mini app generation call failed before returning a structured candidate.",
+		`Failure: ${message}`,
+		"Retry now and return only a complete schema-compliant Enchiridion mini app candidate.",
+		currentPrompt,
+	].join("\n\n");
 }
 
 async function finishGenerationFailure(input: {
