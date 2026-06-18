@@ -1024,6 +1024,7 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 		}
 	}
 
+	issues.push(...validateGeneratedFetchUsage(source));
 	issues.push(...validateHostApiUsage(source, manifest));
 	issues.push(...validateWorkerRouteOwnership(source, manifest));
 
@@ -1047,9 +1048,136 @@ function validateWorkerRouteOwnership(source: string, manifest?: ExtensionManife
 	return [`workerSource: app routes must stay under /apps/${manifest.slug}: ${uniqueRoutes.join(", ")}`];
 }
 
+function validateGeneratedFetchUsage(source: string): string[] {
+	const issues: string[] = [];
+	const fetchCalls = findGlobalFetchCalls(source);
+	if (fetchCalls.length === 0) {
+		return issues;
+	}
+
+	const hostApiPaths = findHostApiPaths(source);
+	if (hostApiPaths.length === 0) {
+		issues.push("workerSource: generated Workers may only call fetch for declared host APIs");
+	}
+
+	if (/\.\s*(?:host|hostname|href|origin|port|protocol)\s*=/.test(source)) {
+		issues.push("workerSource: generated Workers cannot mutate URL origins before fetch");
+	}
+
+	return issues;
+}
+
+function findGlobalFetchCalls(source: string): number[] {
+	const calls: number[] = [];
+	for (const match of source.matchAll(/\bfetch\s*\(/g)) {
+		const fetchIndex = match.index;
+		if (fetchIndex === undefined) {
+			continue;
+		}
+		const before = source.slice(0, fetchIndex).trimEnd();
+		const previousChar = before.at(-1);
+		if (previousChar === ".") {
+			continue;
+		}
+
+		const openParenIndex = source.indexOf("(", fetchIndex);
+		const closeParenIndex = findClosingParen(source, openParenIndex);
+		if (closeParenIndex < 0 || isFetchHandlerDeclaration(source, fetchIndex, closeParenIndex)) {
+			continue;
+		}
+
+		calls.push(fetchIndex);
+	}
+
+	return calls;
+}
+
+function isFetchHandlerDeclaration(source: string, fetchIndex: number, closeParenIndex: number): boolean {
+	const after = source.slice(closeParenIndex + 1).trimStart();
+	if (!after.startsWith("{")) {
+		return false;
+	}
+
+	const before = source.slice(0, fetchIndex).trimEnd();
+	const previousChar = before.at(-1);
+	const previousWord = before.match(/[A-Za-z_$][\w$]*$/)?.[0];
+	return previousWord === "async" || previousChar === "{" || previousChar === ",";
+}
+
+function findClosingParen(source: string, openParenIndex: number): number {
+	if (openParenIndex < 0) {
+		return -1;
+	}
+
+	let depth = 0;
+	let quote: string | null = null;
+	let escaped = false;
+	let lineComment = false;
+	let blockComment = false;
+
+	for (let index = openParenIndex; index < source.length; index += 1) {
+		const char = source[index];
+		const next = source[index + 1];
+
+		if (lineComment) {
+			if (char === "\n") {
+				lineComment = false;
+			}
+			continue;
+		}
+		if (blockComment) {
+			if (char === "*" && next === "/") {
+				blockComment = false;
+				index += 1;
+			}
+			continue;
+		}
+		if (quote) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (char === quote) {
+				quote = null;
+			}
+			continue;
+		}
+		if (char === "/" && next === "/") {
+			lineComment = true;
+			index += 1;
+			continue;
+		}
+		if (char === "/" && next === "*") {
+			blockComment = true;
+			index += 1;
+			continue;
+		}
+		if (char === "\"" || char === "'" || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (char === "(") {
+			depth += 1;
+			continue;
+		}
+		if (char === ")") {
+			depth -= 1;
+			if (depth === 0) {
+				return index;
+			}
+		}
+	}
+
+	return -1;
+}
+
 function validateHostApiUsage(source: string, manifest?: ExtensionManifest): string[] {
 	const issues: string[] = [];
-	const hostApiPaths = Array.from(source.matchAll(/\/api\/host\/[a-z0-9_./-]*/gi)).map((match) => match[0]);
+	const hostApiPaths = findHostApiPaths(source);
 	if (hostApiPaths.length === 0) {
 		return issues;
 	}
@@ -1068,4 +1196,8 @@ function validateHostApiUsage(source: string, manifest?: ExtensionManifest): str
 	}
 
 	return issues;
+}
+
+function findHostApiPaths(source: string): string[] {
+	return Array.from(source.matchAll(/\/api\/host\/[a-z0-9_./-]*/gi)).map((match) => match[0]);
 }

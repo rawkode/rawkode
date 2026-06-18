@@ -268,6 +268,56 @@ export default {
 		expect(result.ok).toBe(true);
 	});
 
+	it("rejects generated workers that call fetch without a host API", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/apps/hello-world/data", request.url);
+		const response = await fetch(url);
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers may only call fetch for declared host APIs");
+	});
+
+	it("rejects generated workers that mutate URL origins before fetching", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		url.hostname = "example.test";
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers cannot mutate URL origins before fetch");
+	});
+
 	it("rejects host API reads that are not declared by the manifest", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(
