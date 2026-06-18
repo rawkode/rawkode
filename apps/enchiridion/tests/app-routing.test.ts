@@ -62,6 +62,29 @@ describe("app mini app routing", () => {
 		expect(response.headers.get("content-security-policy")).toContain("form-action 'none'");
 	});
 
+	it("drops arbitrary dynamic mini app response headers", async () => {
+		const { env } = testEnv(helloWorldExtension, () => new Response("<html><body>Hello</body></html>", {
+			headers: {
+				"content-type": "text/html; charset=utf-8",
+				"access-control-allow-origin": "*",
+				"content-disposition": "attachment; filename=mini-app.html",
+				link: "<https://example.com/style.css>; rel=preload",
+				"report-to": "{\"group\":\"mini-app\"}",
+				"x-powered-by": "generated-worker",
+			},
+		}));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+		expect(response.headers.get("access-control-allow-origin")).toBeNull();
+		expect(response.headers.get("content-disposition")).toBeNull();
+		expect(response.headers.get("link")).toBeNull();
+		expect(response.headers.get("report-to")).toBeNull();
+		expect(response.headers.get("x-powered-by")).toBeNull();
+		expect(response.headers.get("cache-control")).toBe("no-store");
+	});
+
 	it("blocks dynamic mini app HTML bodies with browser execution surfaces", async () => {
 		const { env } = testEnv(helloWorldExtension, () => new Response(
 			'<html><body><script>fetch("/api/bootstrap")</script></body></html>',
@@ -155,11 +178,20 @@ describe("app mini app routing", () => {
 	});
 
 	it("allows dynamic mini app redirects inside the same app route namespace", async () => {
-		const { env } = testEnv(helloWorldExtension, () => Response.redirect("http://localhost/apps/hello-world/settings", 302));
+		const { env } = testEnv(helloWorldExtension, () => new Response(null, {
+			status: 302,
+			headers: {
+				location: "http://localhost/apps/hello-world/settings",
+				"set-cookie": "mini_app_session=secret",
+				link: "<https://example.com/style.css>; rel=preload",
+			},
+		}));
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
 
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe("http://localhost/apps/hello-world/settings");
+		expect(response.headers.get("set-cookie")).toBeNull();
+		expect(response.headers.get("link")).toBeNull();
 		expect(response.headers.get("content-security-policy")).toContain("sandbox");
 	});
 

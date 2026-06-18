@@ -168,9 +168,9 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 		return redirectBlock;
 	}
 
-	const headers = new Headers(input.response.headers);
-	const contentType = headers.get("content-type");
-	const headerBlock = validateMiniAppResponseHeaders(headers);
+	const sourceHeaders = input.response.headers;
+	const contentType = sourceHeaders.get("content-type");
+	const headerBlock = validateMiniAppResponseHeaders(sourceHeaders);
 	if (headerBlock) {
 		return blockedMiniAppResponse({
 			error: "Unsafe mini app response blocked",
@@ -179,18 +179,7 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 		});
 	}
 
-	headers.delete("content-encoding");
-	headers.delete("set-cookie");
-	headers.delete("set-cookie2");
-	headers.delete("refresh");
-	headers.delete("www-authenticate");
-	headers.delete("x-enchiridion-host-context");
-	headers.set("cache-control", "no-store");
-	headers.set("content-security-policy", miniAppContentSecurityPolicy);
-	headers.set("cross-origin-resource-policy", "same-origin");
-	headers.set("permissions-policy", miniAppPermissionsPolicy);
-	headers.set("referrer-policy", "no-referrer");
-	headers.set("x-content-type-options", "nosniff");
+	const headers = createSecureMiniAppResponseHeaders(sourceHeaders, input.response.status);
 
 	const bodyResult = await readMiniAppResponseBody(input.response);
 	if (!bodyResult.ok) {
@@ -364,6 +353,29 @@ function validateMiniAppResponseHeaders(headers: Headers): string | null {
 	}
 
 	return null;
+}
+
+function createSecureMiniAppResponseHeaders(sourceHeaders: Headers, status: number): Headers {
+	const headers = new Headers();
+	const contentType = sourceHeaders.get("content-type");
+	if (contentType) {
+		headers.set("content-type", contentType);
+	}
+	if (status >= 300 && status < 400) {
+		const location = sourceHeaders.get("location");
+		if (location) {
+			headers.set("location", location);
+		}
+	}
+
+	headers.set("cache-control", "no-store");
+	headers.set("content-security-policy", miniAppContentSecurityPolicy);
+	headers.set("cross-origin-resource-policy", "same-origin");
+	headers.set("permissions-policy", miniAppPermissionsPolicy);
+	headers.set("referrer-policy", "no-referrer");
+	headers.set("x-content-type-options", "nosniff");
+
+	return headers;
 }
 
 async function readMiniAppResponseBody(response: Response): Promise<
