@@ -1082,6 +1082,8 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 		[/\b(window|document|localStorage|navigator)\s*\./, "workerSource: Cloudflare Workers cannot use browser globals during request handling"],
 		[/\bprocess\s*\.\s*env\b/, "workerSource: Cloudflare Workers cannot read process.env"],
 		[/\b(React|ReactDOM)\s*\.|jsx\s*\(/, "workerSource: generated Workers cannot depend on React or JSX runtimes"],
+		[/["'`]content-encoding["'`]\s*:/i, "workerSource: dynamic mini app pages cannot include Content-Encoding headers"],
+		[/\bheaders\s*\.\s*set\s*\(\s*["'`]content-encoding["'`]/i, "workerSource: dynamic mini app pages cannot include Content-Encoding headers"],
 		[/["'`]refresh["'`]\s*:/i, "workerSource: dynamic mini app pages cannot include Refresh navigation headers"],
 		[/\bheaders\s*\.\s*set\s*\(\s*["'`]refresh["'`]/i, "workerSource: dynamic mini app pages cannot include Refresh navigation headers"],
 		[/<meta\b[^>]*http-equiv\s*=\s*["']?\s*refresh/i, "workerSource: dynamic mini app pages cannot trigger meta refresh navigation"],

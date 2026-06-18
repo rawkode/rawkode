@@ -164,6 +164,16 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 
 	const headers = new Headers(input.response.headers);
 	const contentType = headers.get("content-type");
+	const headerBlock = validateMiniAppResponseHeaders(headers);
+	if (headerBlock) {
+		return blockedMiniAppResponse({
+			error: "Unsafe mini app response blocked",
+			slug: input.slug,
+			reason: headerBlock,
+		});
+	}
+
+	headers.delete("content-encoding");
 	headers.delete("set-cookie");
 	headers.delete("set-cookie2");
 	headers.delete("refresh");
@@ -254,6 +264,17 @@ export async function smokeTestMiniAppWorker(
 	try {
 		const response = await env.MINI_APP_DISPATCHER.get(input.scriptName).fetch(request);
 		const contentType = response.headers.get("content-type");
+		const headerFailure = validateMiniAppResponseHeaders(response.headers);
+		if (headerFailure) {
+			return {
+				ok: false,
+				route,
+				status: response.status,
+				contentType,
+				message: `Smoke test failed with ${response.status}: ${headerFailure}`,
+			};
+		}
+
 		const bodyResult = await readMiniAppResponseBody(response);
 		if (!bodyResult.ok) {
 			return {
@@ -329,6 +350,14 @@ function validateSmokeTestBody(contentType: string | null, body: string, hostCon
 function sampleBody(body: string): string {
 	const sample = body.replace(/\s+/g, " ").trim().slice(0, 500);
 	return sample || "<empty body>";
+}
+
+function validateMiniAppResponseHeaders(headers: Headers): string | null {
+	if (headers.get("content-encoding")) {
+		return "dynamic mini app responses cannot set content-encoding";
+	}
+
+	return null;
 }
 
 async function readMiniAppResponseBody(response: Response): Promise<

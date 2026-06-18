@@ -290,6 +290,35 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.message).toContain("dynamic mini app responses must be 262144 bytes or smaller");
 	});
 
+	it("rejects smoke tests with content-encoded responses", async () => {
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch() {
+							return new Response("<html><body>Hello</body></html>", {
+								headers: {
+									"content-type": "text/html",
+									"content-encoding": "gzip",
+								},
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(200);
+		expect(result.message).toContain("dynamic mini app responses cannot set content-encoding");
+	});
+
 	it("fails smoke tests when production signing material is missing", async () => {
 		const env = {
 			MINI_APP_DISPATCHER: {

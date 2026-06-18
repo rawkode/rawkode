@@ -246,7 +246,7 @@ export default {
 export default {
 	fetch() {
 		return new Response('<html><head><meta http-equiv="refresh" content="0;url=/api/bootstrap"></head><body><script>fetch("/api/bootstrap")</script><a onclick="run()" href="javascript:run()">Run</a><form action="/api/search"></form></body></html>', {
-			headers: { "content-type": "text/html", "refresh": "0;url=/api/bootstrap" },
+			headers: { "content-type": "text/html", "content-encoding": "gzip", "refresh": "0;url=/api/bootstrap" },
 		});
 	},
 }`,
@@ -257,6 +257,7 @@ export default {
 		});
 
 		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include Content-Encoding headers");
 		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include Refresh navigation headers");
 		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot trigger meta refresh navigation");
 		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include browser scripts; promote trusted UI into the host app instead");

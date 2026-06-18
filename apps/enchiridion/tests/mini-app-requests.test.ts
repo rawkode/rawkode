@@ -75,6 +75,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("same fetch options object");
 		expect(prompt).toContain("CSP sandbox");
 		expect(prompt).toContain("server-rendered HTML and links");
+		expect(prompt).toContain("Content-Encoding headers");
 		expect(prompt).toContain("Refresh headers");
 		expect(prompt).toContain("meta refresh tags");
 		expect(prompt).toContain("Never render, log, redirect with, or otherwise expose the x-enchiridion-host-context token");
@@ -103,6 +104,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("same fetch options object");
 		expect(prompt).toContain("CSP sandbox");
 		expect(prompt).toContain("server-rendered HTML and links");
+		expect(prompt).toContain("Content-Encoding headers");
 		expect(prompt).toContain("Refresh headers");
 		expect(prompt).toContain("meta refresh tags");
 		expect(prompt).toContain("Never render, log, redirect with, or otherwise expose the x-enchiridion-host-context token");
