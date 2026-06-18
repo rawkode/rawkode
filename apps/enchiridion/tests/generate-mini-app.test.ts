@@ -379,6 +379,50 @@ export default {
 		expect(result.ok).toBe(true);
 	});
 
+	it("rejects generated workers that hard-code another mini app route", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`export default { fetch() { return Response.redirect("https://example.local/apps/bookmarks", 302) } }`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: app routes must stay under /apps/hello-world: /apps/bookmarks");
+	});
+
+	it("allows generated workers to reference nested routes under their own app", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`export default { fetch() { return new Response('<html><body><a href="/apps/hello-world/settings">Settings</a></body></html>', { headers: { 'content-type': 'text/html' } }) } }`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects generated workers that only share the app route prefix", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`export default { fetch() { return new Response('<html><body><a href="/apps/hello-worldish">Wrong app</a></body></html>', { headers: { 'content-type': 'text/html' } }) } }`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: app routes must stay under /apps/hello-world: /apps/hello-worldish");
+	});
+
 	it("requires an autonomous mini app route that can be smoke tested", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated({

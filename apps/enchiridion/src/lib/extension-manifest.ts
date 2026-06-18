@@ -99,7 +99,7 @@ export function validateExtensionManifest(input: unknown): ManifestValidationRes
 	const issues: string[] = [];
 
 	for (const route of manifest.routes) {
-		if (!route.path.startsWith(`/apps/${manifest.slug}`)) {
+		if (!isAppRoutePath(route.path, manifest.slug)) {
 			issues.push(`routes.${route.path}: route must stay under /apps/${manifest.slug}`);
 		}
 	}
@@ -151,4 +151,9 @@ export function assertValidManifest(input: unknown): ExtensionManifest {
 	}
 
 	return result.manifest;
+}
+
+export function isAppRoutePath(path: string, slug: string): boolean {
+	const root = `/apps/${slug}`;
+	return path === root || path.startsWith(`${root}/`);
 }

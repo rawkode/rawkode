@@ -7,7 +7,7 @@ import {
 	scriptNameForManifest,
 	smokeTestMiniAppWorker,
 } from "../lib/cloudflare-dispatch";
-import { validateExtensionManifest } from "../lib/extension-manifest";
+import { isAppRoutePath, validateExtensionManifest } from "../lib/extension-manifest";
 import { registerRuntimeProviders } from "../lib/flue-providers";
 import {
 	buildMiniAppGenerationPrompt,
@@ -1025,8 +1025,26 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 	}
 
 	issues.push(...validateHostApiUsage(source, manifest));
+	issues.push(...validateWorkerRouteOwnership(source, manifest));
 
 	return issues;
+}
+
+function validateWorkerRouteOwnership(source: string, manifest?: ExtensionManifest): string[] {
+	if (!manifest) {
+		return [];
+	}
+
+	const appRoutes = Array.from(source.matchAll(/\/apps\/[a-z0-9][a-z0-9-]*(?:\/[a-z0-9._~!$&'()*+,;=:@%/-]*)?/gi))
+		.map((match) => match[0])
+		.filter((path) => !isAppRoutePath(path, manifest.slug));
+	const uniqueRoutes = Array.from(new Set(appRoutes));
+
+	if (uniqueRoutes.length === 0) {
+		return [];
+	}
+
+	return [`workerSource: app routes must stay under /apps/${manifest.slug}: ${uniqueRoutes.join(", ")}`];
 }
 
 function validateHostApiUsage(source: string, manifest?: ExtensionManifest): string[] {

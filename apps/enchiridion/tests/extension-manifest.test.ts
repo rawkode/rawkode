@@ -27,6 +27,37 @@ describe("extension manifest validation", () => {
 		expect(result.issues).toContain("routes./admin: route must stay under /apps/reader");
 	});
 
+	it("rejects routes that only share the app namespace prefix", () => {
+		const result = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader-admin", mode: "worker-page", label: "Reader Admin" }],
+			commands: [],
+			editorBlocks: [],
+			hostApis: [],
+			bindings: [],
+			indexProjections: [],
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("routes./apps/reader-admin: route must stay under /apps/reader");
+	});
+
+	it("accepts nested routes under the app namespace", () => {
+		const result = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader/settings", mode: "worker-page", label: "Reader Settings" }],
+			commands: [],
+			editorBlocks: [],
+			hostApis: [],
+			bindings: [],
+			indexProjections: [],
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
 	it("requires commands and blocks to declare their host APIs", () => {
 		const result = validateExtensionManifest({
 			...builtinExtensionManifests[0],
