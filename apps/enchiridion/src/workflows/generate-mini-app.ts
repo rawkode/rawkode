@@ -1067,6 +1067,7 @@ function validateUpdateCompatibility(targetExtension: RegisteredExtension, manif
 	issues.push(...missingIdIssues("editorBlocks", targetExtension.editorBlocks, manifest.editorBlocks));
 	issues.push(...missingIdIssues("workflows", targetExtension.workflows, manifest.workflows));
 	issues.push(...missingValueIssues("hostApis", targetExtension.hostApis, manifest.hostApis));
+	issues.push(...missingIndexProjectionIssues(targetExtension.indexProjections, manifest.indexProjections));
 
 	return issues;
 }
@@ -1091,6 +1092,16 @@ function missingValueIssues(collection: "hostApis", existing: string[], generate
 	return existing
 		.filter((entry) => !generatedValues.has(entry))
 		.map((entry) => `${collection}.${entry}: update must preserve existing host API declaration`);
+}
+
+function missingIndexProjectionIssues(
+	existing: ExtensionManifest["indexProjections"],
+	generated: ExtensionManifest["indexProjections"],
+): string[] {
+	const generatedSourceTypes = new Set(generated.map((projection) => projection.sourceType));
+	return existing
+		.filter((projection) => !generatedSourceTypes.has(projection.sourceType))
+		.map((projection) => `indexProjections.${projection.sourceType}: update must preserve existing index projection`);
 }
 
 function collectionLabel(collection: "commands" | "editorBlocks" | "workflows"): string {

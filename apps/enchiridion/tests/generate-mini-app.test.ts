@@ -132,6 +132,11 @@ describe("generate mini app candidate validation", () => {
 				requiredHostApis: [],
 			}],
 			hostApis: ["resource-index:read"],
+			indexProjections: [{
+				sourceType: "hello-record",
+				titlePath: "$.title",
+				summaryPath: "$.summary",
+			}],
 		};
 
 		const result = validateGeneratedMiniApp({
@@ -152,6 +157,7 @@ describe("generate mini app candidate validation", () => {
 		expect(result.issues).toContain("editorBlocks.hello-card: update must preserve existing editor block");
 		expect(result.issues).toContain("workflows.refresh: update must preserve existing workflow");
 		expect(result.issues).toContain("hostApis.resource-index:read: update must preserve existing host API declaration");
+		expect(result.issues).toContain("indexProjections.hello-record: update must preserve existing index projection");
 	});
 
 	it("rejects generated workers that render generic load failures", () => {
