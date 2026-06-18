@@ -103,6 +103,42 @@ describe("host context signing secrets", () => {
 		)).rejects.toMatchObject({ status: 403 });
 	});
 
+	it("rejects host API calls whose signed path is outside the app route namespace", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:read"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/other-app" },
+		}, "configured-secret");
+		const request = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/search", {
+			headers: { "x-enchiridion-host-context": token },
+		});
+
+		await expect(requireHostApiContext(
+			{ HOST_SIGNING_SECRET: "configured-secret" } as Env,
+			request,
+			"resource-index:read",
+		)).rejects.toMatchObject({ status: 403 });
+	});
+
+	it("rejects host API calls without a signed app route path", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:read"],
+			expiresAt: Date.now() + 60_000,
+			context: {},
+		}, "configured-secret");
+		const request = new Request("https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/search", {
+			headers: { "x-enchiridion-host-context": token },
+		});
+
+		await expect(requireHostApiContext(
+			{ HOST_SIGNING_SECRET: "configured-secret" } as Env,
+			request,
+			"resource-index:read",
+		)).rejects.toMatchObject({ status: 403 });
+	});
+
 	it("rejects host API calls with invalid or malformed tokens", async () => {
 		const invalidSignature = await signHostContext({
 			app: "search-app",

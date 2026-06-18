@@ -4,7 +4,7 @@ import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
 import { createMiniAppDispatchRequest, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
-import { requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
+import { isHostContextPathForApp, requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
 	createBookmark,
 	createKanbanCard,
@@ -207,6 +207,13 @@ app.post("/api/host-context", async (c) => {
 			error: "Requested host-context scopes are not declared by app",
 			app: payload.app,
 			scopes: undeclaredScopes,
+		}, 403);
+	}
+
+	if (!isHostContextPathForApp(payload.context, payload.app)) {
+		return c.json({
+			error: "Host context path must stay under app route",
+			app: payload.app,
 		}, 403);
 	}
 

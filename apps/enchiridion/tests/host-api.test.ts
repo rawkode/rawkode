@@ -90,6 +90,24 @@ describe("host API routes", () => {
 		expect(body.error).toBe("Missing host context token");
 	});
 
+	it("rejects host API requests whose host context is not scoped to the app route", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:read"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/bookmarks" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [] });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/search?q=topology",
+			{ headers: { "x-enchiridion-host-context": token } },
+		), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "Host context token path is outside app route scope" });
+	});
+
 	it("rejects host API requests when the token app is no longer registered", async () => {
 		const token = await signHostContext({
 			app: "search-app",

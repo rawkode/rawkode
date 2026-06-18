@@ -73,7 +73,21 @@ export async function requireHostApiContext(env: Env, request: Request, required
 		throw hostContextResponse(`Host context token is missing required scope ${requiredScope}`, 403);
 	}
 
+	if (!isHostContextPathForApp(payload.context, payload.app)) {
+		throw hostContextResponse("Host context token path is outside app route scope", 403);
+	}
+
 	return payload;
+}
+
+export function isHostContextPathForApp(context: JsonObject, app: string): boolean {
+	const path = context.path;
+	if (typeof path !== "string") {
+		return false;
+	}
+
+	const base = `/apps/${app}`;
+	return path === base || path.startsWith(`${base}/`);
 }
 
 async function hmacSha256(value: string, secret: string): Promise<string> {
