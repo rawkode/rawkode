@@ -2,6 +2,12 @@ import { flue } from "@flue/runtime/routing";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
+import {
+	checkPasswordAuthThrottle,
+	clearPasswordAuthFailures,
+	passwordAuthThrottleResponse,
+	recordPasswordAuthFailure,
+} from "./lib/auth-throttle";
 import { createMiniAppDispatchRequest, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { isHostContextPathForApp, requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
@@ -83,9 +89,24 @@ app.use("*", async (c, next) => {
 		return;
 	}
 
+	const passwordThrottle = await checkPasswordAuthThrottle(c.env, c.req.raw);
+	if (passwordThrottle.limited) {
+		return passwordAuthThrottleResponse(passwordThrottle.retryAfterSeconds);
+	}
+
 	const principal = authenticate(c.req.raw, c.env);
 	if (!principal) {
+		if (passwordThrottle.keyHash) {
+			const failure = await recordPasswordAuthFailure(c.env, passwordThrottle.keyHash);
+			if (failure.limited) {
+				return passwordAuthThrottleResponse(failure.retryAfterSeconds);
+			}
+		}
 		return unauthorizedResponse();
+	}
+
+	if (principal.source === "password" && passwordThrottle.keyHash) {
+		await clearPasswordAuthFailures(c.env, passwordThrottle.keyHash);
 	}
 
 	await ensureBuiltins(c.env);
