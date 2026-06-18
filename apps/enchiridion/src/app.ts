@@ -128,7 +128,7 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.get("/", async (c) => {
-	return fetchAsset(c.env, c.req.raw, "/index.html");
+	return fetchAsset(c.env, c.req.raw);
 });
 
 app.get("/index.html", async (c) => {
