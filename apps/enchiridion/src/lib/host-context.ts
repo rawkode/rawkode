@@ -7,6 +7,9 @@ export interface HostContextPayload {
 	context: JsonObject;
 }
 
+const schedulerApp = "__scheduler";
+const schedulerHeader = "x-enchiridion-scheduler";
+
 export function requireHostSigningSecret(env: Env, request?: Request): string {
 	if (env.HOST_SIGNING_SECRET) {
 		return env.HOST_SIGNING_SECRET;
@@ -78,6 +81,48 @@ export async function requireHostApiContext(env: Env, request: Request, required
 	}
 
 	return payload;
+}
+
+export async function signSchedulerWorkflowRequest(input: {
+	path: string;
+	scheduledAt: string;
+	secret: string;
+}): Promise<string> {
+	return signHostContext({
+		app: schedulerApp,
+		scopes: ["workflows:run"],
+		expiresAt: Date.now() + 60 * 1000,
+		context: {
+			path: input.path,
+			scheduledAt: input.scheduledAt,
+		},
+	}, input.secret);
+}
+
+export async function isTrustedSchedulerWorkflowRequest(env: Env, request: Request): Promise<boolean> {
+	const token = request.headers.get(schedulerHeader);
+	if (!token) {
+		return false;
+	}
+
+	let secret: string;
+	try {
+		secret = requireHostSigningSecret(env, request);
+	} catch {
+		return false;
+	}
+	const payload = await verifyHostContext(token, secret);
+	if (!payload) {
+		return false;
+	}
+
+	const path = payload.context.path;
+	const requestPath = new URL(request.url).pathname;
+	return payload.app === schedulerApp
+		&& payload.scopes.includes("workflows:run")
+		&& typeof path === "string"
+		&& path === requestPath
+		&& requestPath.startsWith("/api/flue/workflows/");
 }
 
 export function isHostContextPathForApp(context: JsonObject, app: string): boolean {

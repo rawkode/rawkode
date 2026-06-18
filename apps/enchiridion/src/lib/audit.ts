@@ -2,7 +2,7 @@ import type { JsonObject } from "./types";
 
 export type AuditTone = "neutral" | "success" | "warning" | "danger";
 
-const successStatuses = new Set(["deployed", "fallback_deployed", "updated", "registered"]);
+const successStatuses = new Set(["admitted", "completed", "deployed", "enabled", "fallback_deployed", "updated", "registered"]);
 const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "fallback_rejected", "deployed_pending", "updated_pending", "update_deferred", "fallback_deployed_pending"]);
 const dangerStatuses = new Set(["deploy_failed", "fallback_deploy_failed", "fallback_validation_failed", "validation_failed", "error", "failed"]);
 
@@ -44,6 +44,11 @@ export function auditDetailSummary(details: JsonObject, status = ""): string {
 		return joinSummaryParts([message, ...operationalSummaries]);
 	}
 
+	const error = readString(details.error);
+	if (error) {
+		return joinSummaryParts([error, ...operationalSummaries]);
+	}
+
 	const issues = readStringArray(details.issues);
 	if (issues.length > 0) {
 		return joinSummaryParts([issues.join(" "), ...operationalSummaries]);
@@ -67,9 +72,30 @@ export function auditDetailSummary(details: JsonObject, status = ""): string {
 
 function auditOperationalSummaries(details: JsonObject): string[] {
 	return [
+		summarizeWorkflowDetails(details),
 		summarizeValidationAttempts(details.validationAttempts),
 		summarizeSupersededCleanup(details.supersededScriptCleanup),
 	].filter(Boolean);
+}
+
+function summarizeWorkflowDetails(details: JsonObject): string {
+	if (typeof details.enabled === "boolean") {
+		return details.enabled ? "Schedule enabled." : "Schedule disabled.";
+	}
+
+	const runId = readString(details.runId);
+	const scheduledAt = readString(details.scheduledAt);
+	const workflowId = readString(details.workflowId) || readString(details.scheduledWorkflowId);
+	if (runId && scheduledAt) {
+		return `Run ${runId}${workflowId ? ` for ${workflowId}` : ""} admitted at ${scheduledAt}.`;
+	}
+	if (runId) {
+		return `Run ${runId}.`;
+	}
+	if (scheduledAt && workflowId) {
+		return `${workflowId} scheduled at ${scheduledAt}.`;
+	}
+	return "";
 }
 
 function summarizeValidationAttempts(value: unknown): string {

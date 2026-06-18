@@ -62,6 +62,7 @@ tasks: {
 			"bun.lock",
 			"flue.config.ts",
 			"package.json",
+			"scripts/**/*",
 			"src/**/*",
 			"tests/**/*",
 			"tsconfig.json",

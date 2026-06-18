@@ -63,6 +63,130 @@ a {
 	padding-left: 24px;
 }
 
+.editor-prose blockquote {
+	position: relative;
+	max-width: 68ch;
+	margin: 20px 0;
+	border: 0;
+	background: transparent;
+	padding: 4px 0 4px 42px;
+	color: oklch(0.28 0.022 55);
+	font-size: 17px;
+	font-style: italic;
+	line-height: 1.62;
+	text-wrap: pretty;
+}
+
+.editor-prose blockquote::before {
+	content: "\201C";
+	position: absolute;
+	top: -10px;
+	left: 0;
+	color: oklch(0.52 0.09 50);
+	font-family: Georgia, serif;
+	font-size: 54px;
+	line-height: 1;
+}
+
+.editor-prose blockquote p {
+	margin-bottom: 10px;
+}
+
+.editor-prose blockquote p:last-child {
+	margin-bottom: 0;
+}
+
+.editor-prose [data-admonition] {
+	display: grid;
+	gap: 10px;
+	max-width: 72ch;
+	margin: 20px 0;
+	border: 1px solid var(--admonition-border);
+	border-radius: 8px;
+	background: var(--admonition-bg);
+	padding: 14px 16px 16px;
+	color: var(--color-ink);
+}
+
+.editor-prose [data-admonition-heading] {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	width: fit-content;
+	color: var(--admonition-ink);
+	font-size: 13px;
+	font-weight: 750;
+	line-height: 1.2;
+}
+
+.editor-prose [data-admonition-heading]::before {
+	content: var(--admonition-mark);
+	display: inline-grid;
+	width: 20px;
+	height: 20px;
+	place-items: center;
+	border: 1px solid var(--admonition-border);
+	border-radius: 999px;
+	background: var(--admonition-mark-bg);
+	color: var(--admonition-ink);
+	font-size: 12px;
+	font-weight: 800;
+	line-height: 1;
+}
+
+.editor-prose [data-admonition-body] {
+	color: var(--admonition-body);
+}
+
+.editor-prose [data-admonition-body] > :last-child {
+	margin-bottom: 0;
+}
+
+.editor-prose [data-admonition="info"] {
+	--admonition-bg: oklch(0.97 0.022 215);
+	--admonition-border: oklch(0.82 0.06 215);
+	--admonition-ink: oklch(0.31 0.075 215);
+	--admonition-body: oklch(0.26 0.045 215);
+	--admonition-mark: "i";
+	--admonition-mark-bg: oklch(0.94 0.035 215);
+}
+
+.editor-prose [data-admonition="warning"] {
+	--admonition-bg: oklch(0.975 0.034 75);
+	--admonition-border: oklch(0.84 0.09 75);
+	--admonition-ink: oklch(0.36 0.09 75);
+	--admonition-body: oklch(0.29 0.055 75);
+	--admonition-mark: "!";
+	--admonition-mark-bg: oklch(0.94 0.055 75);
+}
+
+.editor-prose [data-admonition="alert"] {
+	--admonition-bg: oklch(0.97 0.035 45);
+	--admonition-border: oklch(0.82 0.1 45);
+	--admonition-ink: oklch(0.34 0.1 45);
+	--admonition-body: oklch(0.28 0.06 45);
+	--admonition-mark: "!";
+	--admonition-mark-bg: oklch(0.935 0.058 45);
+}
+
+.editor-prose [data-admonition="error"] {
+	--admonition-bg: oklch(0.975 0.023 28);
+	--admonition-border: oklch(0.82 0.07 28);
+	--admonition-ink: oklch(0.36 0.12 28);
+	--admonition-body: oklch(0.29 0.07 28);
+	--admonition-mark: "x";
+	--admonition-mark-bg: oklch(0.945 0.044 28);
+}
+
+.editor-prose [data-admonition="success"] {
+	--admonition-bg: oklch(0.965 0.024 150);
+	--admonition-border: oklch(0.82 0.055 150);
+	--admonition-ink: oklch(0.33 0.085 150);
+	--admonition-body: oklch(0.27 0.05 150);
+	--admonition-mark: "\2713";
+	--admonition-mark-bg: oklch(0.93 0.045 150);
+}
+
 .editor-prose code {
 	border: 1px solid var(--color-border);
 	border-radius: 5px;
@@ -70,6 +194,24 @@ a {
 	padding: 1px 5px;
 	font-family: var(--font-mono);
 	font-size: 0.9em;
+}
+
+.editor-prose pre {
+	margin: 18px 0;
+	overflow-x: auto;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: oklch(0.975 0.003 55);
+	padding: 14px 16px;
+}
+
+.editor-prose pre code {
+	border: 0;
+	background: transparent;
+	padding: 0;
+	color: oklch(0.24 0.02 55);
+	font-size: 13px;
+	line-height: 1.55;
 }
 
 .editor-prose .is-editor-empty:first-child::before {

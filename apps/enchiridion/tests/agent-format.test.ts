@@ -132,4 +132,13 @@ describe("agent result formatting", () => {
 		);
 		expect(formatMiniAppBuildError({ error: "Dispatch upload failed" }, "fallback")).toBe("Dispatch upload failed");
 	});
+
+	it("sanitizes local Flue SQLite oversize failures", () => {
+		expect(formatMiniAppBuildError(
+			"FlueError: direct(c311c583-05e3-4c95-9b2a-7898f857d0fc) failed: string or blob too big: SQLITE_TOOBIG at Session.throwIfError (/Users/rawkode/Code/src/github.com/rawkode/rawkode/apps/enchiridion/node_modules/vite/deps_enchiridion/@flue_runtime.js)",
+			"fallback",
+		)).toBe(
+			"Mini app generation produced more data than the local Flue SQLite session store can keep. No mini app was activated. Try a smaller app request, or ask Enchiridion to create a static first version and iterate.",
+		);
+	});
 });

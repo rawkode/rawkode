@@ -79,25 +79,25 @@ export function formatAgentError(error: unknown, fallback: string): string {
 		return fallback;
 	}
 	if (typeof error === "string") {
-		return error;
+		return cleanErrorMessage(error, fallback);
 	}
 	if (error instanceof Error) {
-		return error.message || fallback;
+		return cleanErrorMessage(error.message, fallback);
 	}
 	if (typeof error === "object") {
 		const message = readStringProperty(error, "message") ?? readStringProperty(error, "error");
 		if (message) {
-			return message;
+			return cleanErrorMessage(message, fallback);
 		}
 
 		try {
-			return JSON.stringify(error);
+			return cleanErrorMessage(JSON.stringify(error), fallback);
 		} catch {
 			return fallback;
 		}
 	}
 
-	return String(error);
+	return cleanErrorMessage(String(error), fallback);
 }
 
 export function formatMiniAppBuildError(error: unknown, fallback: string): string {
@@ -107,6 +107,27 @@ export function formatMiniAppBuildError(error: unknown, fallback: string): strin
 	}
 
 	return message || fallback;
+}
+
+function cleanErrorMessage(message: string, fallback: string): string {
+	const collapsed = message.replace(/\s+/g, " ").trim();
+	if (!collapsed) {
+		return fallback;
+	}
+
+	if (/SQLITE_TOOBIG|string or blob too big/i.test(collapsed)) {
+		return "Mini app generation produced more data than the local Flue SQLite session store can keep. No mini app was activated. Try a smaller app request, or ask Enchiridion to create a static first version and iterate.";
+	}
+
+	const withoutFluePrefix = collapsed.replace(/^FlueError:\s*direct\([^)]+\)\s*failed:\s*/i, "");
+	const stackIndex = withoutFluePrefix.search(/\s+at\s+[A-Za-z_$][\w$.[\]<>]*\s*\(/);
+	const visible = stackIndex >= 0 ? withoutFluePrefix.slice(0, stackIndex).trim() : withoutFluePrefix;
+
+	if (!visible) {
+		return fallback;
+	}
+
+	return visible.length > 500 ? `${visible.slice(0, 497)}...` : visible;
 }
 
 function formatRouteUrl(routeUrl: string, origin?: string): string {

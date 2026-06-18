@@ -2,10 +2,12 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { Readable } from "node:stream";
+import { pathToFileURL } from "node:url";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const clientDir = resolve(root, "dist/client");
 const workerOrigin = process.env.ENCHIRIDION_WORKER_ORIGIN ?? "http://127.0.0.1:3583";
+const workerOriginUrl = new URL(workerOrigin);
 const port = Number(process.env.PORT ?? "4321");
 
 const contentTypes = new Map([
@@ -38,13 +40,16 @@ const server = createServer(async (request, response) => {
 	}
 });
 
-server.listen(port, "127.0.0.1", () => {
-	console.log(`Enchiridion UI proxy: http://127.0.0.1:${port}`);
-	console.log(`Forwarding API and mini-app routes to ${workerOrigin}`);
-});
+if (isMainModule()) {
+	server.listen(port, "127.0.0.1", () => {
+		console.log(`Enchiridion UI proxy: http://127.0.0.1:${port}`);
+		console.log(`Forwarding API and mini-app routes to ${workerOrigin}`);
+	});
+}
 
 async function proxyToWorker(incoming, outgoing, url) {
 	const target = new URL(url.pathname + url.search, workerOrigin);
+	const incomingOrigin = `${url.protocol}//${url.host}`;
 	const headers = new Headers();
 
 	for (const [key, value] of Object.entries(incoming.headers)) {
@@ -54,10 +59,10 @@ async function proxyToWorker(incoming, outgoing, url) {
 		}
 		if (Array.isArray(value)) {
 			for (const entry of value) {
-				headers.append(key, entry);
+				headers.append(key, rewriteSameOriginHeader(lowerKey, entry, incomingOrigin));
 			}
 		} else {
-			headers.set(key, value);
+			headers.set(key, rewriteSameOriginHeader(lowerKey, value, incomingOrigin));
 		}
 	}
 
@@ -70,12 +75,40 @@ async function proxyToWorker(incoming, outgoing, url) {
 	};
 	const proxied = await fetch(target, init);
 
-	outgoing.writeHead(proxied.status, Object.fromEntries(proxied.headers));
+	outgoing.writeHead(proxied.status, responseHeadersForBrowser(proxied.headers));
 	if (method === "HEAD" || !proxied.body) {
 		outgoing.end();
 		return;
 	}
 	Readable.fromWeb(proxied.body).pipe(outgoing);
+}
+
+export function rewriteSameOriginHeader(key, value, incomingOrigin) {
+	if (key === "origin") {
+		return value === incomingOrigin ? workerOriginUrl.origin : value;
+	}
+
+	if (key === "referer") {
+		try {
+			const referer = new URL(value);
+			if (referer.origin === incomingOrigin) {
+				referer.protocol = workerOriginUrl.protocol;
+				referer.host = workerOriginUrl.host;
+				return referer.toString();
+			}
+		} catch {
+			return value;
+		}
+	}
+
+	return value;
+}
+
+export function responseHeadersForBrowser(headers) {
+	const nextHeaders = new Headers(headers);
+	nextHeaders.delete("content-encoding");
+	nextHeaders.delete("content-length");
+	return Object.fromEntries(nextHeaders);
 }
 
 function serveStatic(response, method, urlPath) {
@@ -102,4 +135,8 @@ function serveStatic(response, method, urlPath) {
 		return;
 	}
 	createReadStream(filePath).pipe(response);
+}
+
+function isMainModule() {
+	return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }

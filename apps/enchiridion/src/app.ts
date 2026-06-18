@@ -1,4 +1,5 @@
 import { flue } from "@flue/runtime/routing";
+import { observe, type FlueEvent } from "@flue/runtime";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
@@ -15,32 +16,46 @@ import {
 	renderFallbackMiniAppHtml,
 } from "./lib/fallback-mini-app";
 import { registerRuntimeProviders } from "./lib/flue-providers";
-import { isHostContextPathForApp, requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
+import {
+	isHostContextPathForApp,
+	isTrustedSchedulerWorkflowRequest,
+	requireHostApiContext,
+	requireHostSigningSecret,
+	signHostContext,
+} from "./lib/host-context";
 import {
 	createBookmark,
+	createAuditRecord,
 	createKanbanCard,
 	createProject,
+	completeMiniAppBuild,
 	ensureBuiltins,
+	expireMiniAppBuild,
+	failMiniAppBuild,
 	getAppSnapshot,
 	getExtension,
+	getMiniAppBuild,
 	getOrCreateDailyNote,
 	listBoards,
 	listBookmarks,
+	listExtensionBindingRequests,
 	listExtensions,
 	listMiniAppAudit,
 	listProjects,
 	listRecentDailyNotes,
 	listScheduledWorkflows,
+	setScheduledWorkflowEnabled,
 	saveDailyNote,
 	searchResources,
 } from "./lib/repository";
+import { admitMiniAppBuild, miniAppBuildCreateSchema } from "./lib/mini-app-builds";
 import {
 	renderBookmarkFragment,
 	renderBookmarksPage,
 	renderProjectsFragment,
 	renderProjectsPage,
 } from "./lib/mini-app-pages";
-import type { Env, JsonObject, RegisteredExtension } from "./lib/types";
+import type { Env, ExtensionBindingRequestStatus, JsonObject, RegisteredExtension } from "./lib/types";
 
 type HonoEnv = {
 	Bindings: Env;
@@ -72,7 +87,14 @@ const cardSchema = z.object({
 	description: z.string().optional(),
 });
 
+const scheduledWorkflowUpdateSchema = z.object({
+	enabled: z.boolean(),
+});
+
 const miniAppDispatchRetryDelaysMs = [150, 500, 1_000];
+let miniAppBuildObserverInstalled = false;
+
+installMiniAppBuildObserver();
 
 app.onError((error) => {
 	if (error instanceof Response) {
@@ -86,14 +108,14 @@ app.onError((error) => {
 app.use("*", async (c, next) => {
 	if (c.req.path === "/health") {
 		await next();
-		return;
+		return c.res;
 	}
 
 	registerRuntimeProviders(c.env);
 
 	if (c.req.path.startsWith("/api/host/")) {
 		await next();
-		return;
+		return c.res;
 	}
 
 	const unsafeRequestBlock = unsafeCrossOriginResponse(c.req.raw);
@@ -104,6 +126,11 @@ app.use("*", async (c, next) => {
 	const passwordThrottle = await checkPasswordAuthThrottle(c.env, c.req.raw);
 	if (passwordThrottle.limited) {
 		return passwordAuthThrottleResponse(passwordThrottle.retryAfterSeconds);
+	}
+
+	if (c.req.path.startsWith("/api/flue/workflows/") && await isTrustedSchedulerWorkflowRequest(c.env, c.req.raw)) {
+		await next();
+		return c.res;
 	}
 
 	const principal = authenticate(c.req.raw, c.env);
@@ -123,6 +150,7 @@ app.use("*", async (c, next) => {
 
 	await ensureBuiltins(c.env);
 	await next();
+	return c.res;
 });
 
 app.get("/health", (c) => c.json({ ok: true }));
@@ -185,10 +213,59 @@ app.get("/api/scheduled-workflows", async (c) => {
 	return c.json(await listScheduledWorkflows(c.env));
 });
 
+app.patch("/api/scheduled-workflows/:id", async (c) => {
+	const payload = scheduledWorkflowUpdateSchema.parse(await c.req.json());
+	const workflow = await setScheduledWorkflowEnabled(c.env, c.req.param("id"), payload.enabled);
+	if (!workflow) {
+		return c.json({ error: "Scheduled workflow not found" }, 404);
+	}
+
+	await createAuditRecord(c.env, {
+		slug: workflow.extensionSlug ?? "system",
+		action: "scheduled-workflow",
+		status: payload.enabled ? "enabled" : "disabled",
+		details: {
+			enabled: payload.enabled,
+			scheduledWorkflowId: workflow.id,
+			workflowName: workflow.workflowName,
+		},
+	});
+
+	return c.json(workflow);
+});
+
 app.get("/api/mini-app-audit", async (c) => {
 	const limit = Number(c.req.query("limit") ?? "12");
 	const boundedLimit = Number.isFinite(limit) ? limit : 12;
 	return c.json(await listMiniAppAudit(c.env, boundedLimit, c.req.query("slug")));
+});
+
+app.get("/api/extension-binding-requests", async (c) => {
+	const limit = Number(c.req.query("limit") ?? "20");
+	const boundedLimit = Number.isFinite(limit) ? limit : 20;
+	const status = c.req.query("status");
+	if (status && status !== "pending" && status !== "provisioned" && status !== "rejected") {
+		return c.json({ error: "Invalid binding request status" }, 400);
+	}
+	const requestStatus = status as ExtensionBindingRequestStatus | undefined;
+	return c.json(await listExtensionBindingRequests(c.env, {
+		limit: boundedLimit,
+		...(requestStatus ? { status: requestStatus } : {}),
+	}));
+});
+
+app.post("/api/mini-app-builds", async (c) => {
+	const payload = miniAppBuildCreateSchema.parse(await c.req.json());
+	const build = await admitMiniAppBuild(c.env, payload);
+	return c.json(build, 202);
+});
+
+app.get("/api/mini-app-builds/:id", async (c) => {
+	const build = await resolveMiniAppBuildForResponse(c.env, c.req.param("id"));
+	if (!build) {
+		return c.json({ error: "Mini app build not found" }, 404);
+	}
+	return c.json(build);
 });
 
 app.get("/api/apps/bookmarks/bookmarks", async (c) => {
@@ -421,6 +498,110 @@ function waitForMiniAppDispatchRetry(attempt: number): Promise<void> {
 app.get("*", async (c) => {
 	return fetchAsset(c.env, c.req.raw);
 });
+
+function installMiniAppBuildObserver() {
+	if (miniAppBuildObserverInstalled) {
+		return;
+	}
+	miniAppBuildObserverInstalled = true;
+	observe((event, ctx) => {
+		if (event.type !== "run_end") {
+			return;
+		}
+		const payload = asJsonObject(ctx.payload);
+		const buildId = typeof payload.buildId === "string" ? payload.buildId : "";
+		if (!buildId) {
+			return;
+		}
+
+		void syncMiniAppBuildFromRunEnd(ctx.env as Env, event, buildId);
+	});
+}
+
+async function syncMiniAppBuildFromRunEnd(env: Env, event: Extract<FlueEvent, { type: "run_end" }>, buildId: string): Promise<void> {
+	const build = await getMiniAppBuild(env, buildId);
+	if (!build || build.status === "completed" || build.status === "failed" || build.status === "expired") {
+		return;
+	}
+
+	if (event.isError) {
+		const message = errorMessage(event.error);
+		await failMiniAppBuild(env, {
+			id: buildId,
+			status: isWorkflowInterruption(message) ? "interrupted" : "failed",
+			error: {
+				message,
+				runId: event.runId,
+				source: "flue-run-end",
+			},
+		});
+		return;
+	}
+
+	const result = asJsonObject(event.result);
+	await completeMiniAppBuild(env, {
+		id: buildId,
+		result: {
+			...result,
+			runId: event.runId,
+		},
+		status: miniAppBuildSucceeded(result) ? "completed" : "failed",
+		error: miniAppBuildSucceeded(result) ? undefined : {
+			message: readResultMessage(result) ?? "Mini app build finished without an activatable app.",
+			runId: event.runId,
+		},
+	});
+}
+
+async function resolveMiniAppBuildForResponse(env: Env, id: string) {
+	const build = await getMiniAppBuild(env, id);
+	if (!build) {
+		return null;
+	}
+	if (
+		(build.status === "pending" || build.status === "running" || build.status === "interrupted")
+		&& new Date(build.deadlineAt).getTime() <= Date.now()
+	) {
+		return expireMiniAppBuild(env, build.id);
+	}
+	return build;
+}
+
+function miniAppBuildSucceeded(result: JsonObject): boolean {
+	const status = typeof result.status === "string" ? result.status : "";
+	return status === "deployed"
+		|| status === "updated"
+		|| status === "deployed_pending"
+		|| status === "registered"
+		|| status === "requires_binding_provisioning"
+		|| status === "update_deferred";
+}
+
+function readResultMessage(result: JsonObject): string | undefined {
+	const message = result.message;
+	return typeof message === "string" && message.trim() ? message : undefined;
+}
+
+function asJsonObject(value: unknown): JsonObject {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	if (typeof error === "string") {
+		return error;
+	}
+	if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+		return error.message;
+	}
+	return "An internal error occurred.";
+}
+
+function isWorkflowInterruption(message: string): boolean {
+	return /workflow execution was interrupted|interrupted/i.test(message);
+}
 
 function json(payload: unknown, status = 200): Response {
 	return new Response(JSON.stringify(payload), {

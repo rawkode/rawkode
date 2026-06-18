@@ -99,4 +99,72 @@ describe("extension manifest validation", () => {
 		expect(result.issues).toContain("editorBlocks.capture-list: required host API resource-index:read is not declared");
 		expect(result.issues).toContain("workflows.triage-captures: required host API workflows:run is not declared");
 	});
+
+	it("requires cron only for scheduled workflows", () => {
+		const missingCron = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [
+				{ path: "/apps/reader", mode: "worker-page", label: "Reader" },
+				{ path: "/apps/reader/_workflows/refresh-feeds", mode: "worker-fragment", label: "Refresh feeds" },
+			],
+			commands: [],
+			editorBlocks: [],
+			workflows: [{
+				id: "refresh-feeds",
+				label: "Refresh feeds",
+				trigger: "scheduled",
+				workflowName: "run-mini-app-workflow",
+				requiredHostApis: [],
+			}],
+			hostApis: [],
+			bindings: [],
+			indexProjections: [],
+		});
+		const manualWithCron = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader", mode: "worker-page", label: "Reader" }],
+			commands: [],
+			editorBlocks: [],
+			workflows: [{
+				id: "refresh-feeds",
+				label: "Refresh feeds",
+				trigger: "manual",
+				workflowName: "rss-refresh",
+				cron: "*/15 * * * *",
+				requiredHostApis: [],
+			}],
+			hostApis: [],
+			bindings: [],
+			indexProjections: [],
+		});
+
+		expect(missingCron.issues).toContain("workflows.refresh-feeds: scheduled workflow must declare cron");
+		expect(manualWithCron.issues).toContain("workflows.refresh-feeds: only scheduled workflows may declare cron");
+	});
+
+	it("requires scheduled workflows to use the host callback contract", () => {
+		const result = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader", mode: "worker-page", label: "Reader" }],
+			commands: [],
+			editorBlocks: [],
+			workflows: [{
+				id: "refresh-feeds",
+				label: "Refresh feeds",
+				trigger: "scheduled",
+				workflowName: "rss-refresh",
+				cron: "*/15 * * * *",
+				requiredHostApis: [],
+			}],
+			hostApis: [],
+			bindings: [],
+			indexProjections: [],
+		});
+
+		expect(result.issues).toContain("workflows.refresh-feeds: scheduled mini-app workflowName must be run-mini-app-workflow");
+		expect(result.issues).toContain("workflows.refresh-feeds: scheduled workflow must declare worker-fragment route /apps/reader/_workflows/refresh-feeds");
+	});
 });

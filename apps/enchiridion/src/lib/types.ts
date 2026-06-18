@@ -106,6 +106,7 @@ export interface AppSnapshot {
 	extensions: ExtensionManifest[];
 	commands: ExtensionCommand[];
 	editorBlocks: ExtensionEditorBlock[];
+	bindingRequests: ExtensionBindingRequest[];
 	scheduledWorkflows: ScheduledWorkflow[];
 	miniAppAudit: MiniAppAuditRecord[];
 	bookmarks: Bookmark[];
@@ -124,6 +125,27 @@ export interface MiniAppAuditRecord {
 	createdAt: string;
 }
 
+export type MiniAppBuildStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "expired";
+
+export interface MiniAppBuild {
+	id: string;
+	prompt: string;
+	operation: "create" | "update";
+	targetSlug: string | null;
+	slugHint: string | null;
+	autonomousDeploy: boolean;
+	status: MiniAppBuildStatus;
+	attemptCount: number;
+	maxAttempts: number;
+	currentRunId: string | null;
+	result: JsonObject | null;
+	error: JsonObject | null;
+	deadlineAt: string;
+	completedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface ScheduledWorkflow {
 	id: string;
 	extensionSlug: string | null;
@@ -136,6 +158,30 @@ export interface ScheduledWorkflow {
 	createdAt: string;
 	updatedAt: string;
 }
+
+export type ExtensionBindingRequestStatus = "pending" | "provisioned" | "rejected";
+
+export interface ExtensionBindingRequest {
+	id: string;
+	extensionSlug: string;
+	extensionName: string;
+	operation: "create" | "update";
+	manifest: ExtensionManifest;
+	workerSource: string;
+	deploymentNotes: string;
+	bindings: ExtensionBinding[];
+	resolvedBindings: ExtensionResolvedBinding[];
+	issues: string[];
+	status: ExtensionBindingRequestStatus;
+	deployedScriptName?: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type ExtensionResolvedBinding =
+	| { type: "kv_namespace"; name: string; namespaceId: string }
+	| { type: "d1_database"; name: string; databaseId: string }
+	| { type: "r2_bucket"; name: string; bucketName: string };
 
 export type ExtensionRouteMode = "worker-page" | "worker-fragment" | "host-primitive" | "native-promoted";
 

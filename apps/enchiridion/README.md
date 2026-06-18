@@ -50,8 +50,14 @@ D1 migrations are applied only on the production deploy path. PR previews upload
 - Astro renders the static app shell and React/Tiptap islands.
 - `src/app.ts` owns API routes, auth, Flue mounting, and `/apps/:slug/*` dispatch.
 - D1 stores daily notes, extension manifests, resource index records, audit logs, and demo app data.
-- Flue owns the in-app agent and bounded workflows such as mini-app generation.
+- Flue owns the in-app agent, the durable `mini-app-builder` agent, and bounded host workflows.
 - Workers for Platforms dispatches autonomous mini-app Workers.
+
+## Mini-App Builds
+
+Mini-app requests are admitted through `POST /api/mini-app-builds`. The route creates a D1 build ledger row, dispatches the durable Flue `mini-app-builder` agent with that build id, stores the returned submission id, and returns immediately. The browser only embeds the request block and polls the build row, so closing or reloading the tab does not own the work.
+
+Builds have a 30 minute deadline. The builder agent must call its scoped `submit_mini_app_candidate` tool to validate the manifest, upload the Workers for Platforms dispatch Worker, smoke test routes, save the extension, and settle the build. Scheduled mini-app behavior is declared as manifest workflows; the Enchiridion host scheduler owns cron and calls app-owned workflow routes under `/apps/:slug/*`.
 
 ## First Slice
 

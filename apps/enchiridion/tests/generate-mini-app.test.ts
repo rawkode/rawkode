@@ -44,7 +44,7 @@ describe("generate mini app candidate validation", () => {
 			generated: generated({
 				...baseManifest,
 				bindings: [{ type: "kv_namespace", name: "HELLO_CACHE", purpose: "Cache generated pages." }],
-			}),
+			}, "export default { async fetch(request, env) { const cached = await env.HELLO_CACHE.get('page'); return new Response(cached ?? '<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }"),
 			installedExtensions: [],
 			operation: "create",
 			autonomousDeploy: true,
@@ -52,7 +52,9 @@ describe("generate mini app candidate validation", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.status).toBe("requires_binding_provisioning");
-		expect(result.issues[0]).toContain("autonomous deploy cannot provision isolated bindings yet");
+		expect(result.issues).toEqual([
+			"bindings: autonomous deploy requires isolated binding provisioning first (HELLO_CACHE:kv_namespace)",
+		]);
 	});
 
 	it("allows binding requests when autonomous deployment is disabled", () => {
@@ -60,13 +62,45 @@ describe("generate mini app candidate validation", () => {
 			generated: generated({
 				...baseManifest,
 				bindings: [{ type: "kv_namespace", name: "HELLO_CACHE", purpose: "Cache generated pages." }],
-			}),
+			}, "export default { async fetch(request, env) { const cached = await env.HELLO_CACHE.get('page'); return new Response(cached ?? '<h1>Hello</h1>', { headers: { 'content-type': 'text/html' } }) } }"),
 			installedExtensions: [],
 			operation: "create",
 			autonomousDeploy: false,
 		});
 
 		expect(result.ok).toBe(true);
+	});
+
+	it("rejects unused binding declarations", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				bindings: [{ type: "kv_namespace", name: "HELLO_CACHE", purpose: "Cache generated pages." }],
+			}),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe("rejected");
+		expect(result.issues).toContain("bindings.HELLO_CACHE: declared isolated binding is not used by Worker source");
+	});
+
+	it("rejects undeclared env binding access even when isolated bindings exist", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				bindings: [{ type: "kv_namespace", name: "HELLO_CACHE", purpose: "Cache generated pages." }],
+			}, "export default { async fetch(request, env) { const cached = await env.DB.prepare('SELECT 1').first(); return new Response(String(cached), { headers: { 'content-type': 'text/html' } }) } }"),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe("rejected");
+		expect(result.issues).toContain("workerSource: generated Workers can only read declared isolated bindings: DB");
 	});
 
 	it("rejects create operations that collide with an installed mini app", () => {

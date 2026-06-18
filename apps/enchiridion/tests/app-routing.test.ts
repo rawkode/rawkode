@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import app from "../src/app";
 import { fallbackMiniAppDescription } from "../src/lib/fallback-mini-app";
-import { verifyHostContext } from "../src/lib/host-context";
+import { signSchedulerWorkflowRequest, verifyHostContext } from "../src/lib/host-context";
 import type { Env, RegisteredExtension } from "../src/lib/types";
 
 const helloWorldExtension: RegisteredExtension = {
@@ -21,6 +21,170 @@ const helloWorldExtension: RegisteredExtension = {
 };
 
 describe("app mini app routing", () => {
+	it("does not allow unsigned requests to invoke Flue workflow routes", async () => {
+		const { env } = testEnv(null);
+		const response = await app.fetch(new Request("https://enchiridion.example.com/api/flue/workflows/rss-refresh", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{}",
+		}), env);
+
+		expect(response.status).toBe(401);
+	});
+
+	it("allows signed scheduler requests to reach Flue workflow routes", async () => {
+		const { env } = testEnv(null);
+		const path = "/api/flue/workflows/rss-refresh";
+		const token = await signSchedulerWorkflowRequest({
+			path,
+			scheduledAt: "2026-06-18T12:00:00.000Z",
+			secret: "test-secret",
+		});
+		const response = await app.fetch(new Request(`https://enchiridion.example.com${path}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-enchiridion-scheduler": token,
+			},
+			body: "{}",
+		}), env);
+
+		expect(response.status).not.toBe(401);
+	});
+
+	it("updates scheduled workflow enablement through the host API", async () => {
+		const calls: Array<{ sql: string; bindings: unknown[]; method: "run" }> = [];
+		let enabled = 0;
+		const env = {
+			DB: {
+				prepare(sql: string) {
+					let bindings: unknown[] = [];
+					const statement = {
+						bind(...values: unknown[]) {
+							bindings = values;
+							return statement;
+						},
+						async run() {
+							calls.push({ sql, bindings, method: "run" });
+							if (sql.includes("UPDATE scheduled_workflows")) {
+								enabled = Number(bindings[0]);
+							}
+							return { success: true };
+						},
+						async first() {
+							if (/SELECT COUNT\(\*\) AS count FROM (bookmarks|projects)/.test(sql)) {
+								return { count: 1 };
+							}
+							if (/SELECT \* FROM scheduled_workflows WHERE id = \?/.test(sql)) {
+								return scheduledWorkflowRow(enabled);
+							}
+							return null;
+						},
+						async all() {
+							return { results: [] };
+						},
+					};
+					return statement;
+				},
+			},
+			ASSETS: {
+				async fetch() {
+					return new Response("asset-shell", {
+						headers: { "content-type": "text/html" },
+					});
+				},
+			},
+		} as unknown as Env;
+
+		const response = await app.fetch(new Request("http://localhost/api/scheduled-workflows/rss-reader%3Arefresh-feeds", {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ enabled: true }),
+		}), env);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			id: "rss-reader:refresh-feeds",
+			enabled: true,
+		});
+		expect(calls.some((call) =>
+			call.sql.includes("UPDATE scheduled_workflows")
+			&& call.bindings[0] === 1
+			&& call.bindings[2] === "rss-reader:refresh-feeds"
+		)).toBe(true);
+		expect(calls.some((call) =>
+			call.sql.includes("INSERT INTO mini_app_audit")
+			&& call.bindings[1] === "rss-reader"
+			&& call.bindings[2] === "scheduled-workflow"
+			&& call.bindings[3] === "enabled"
+		)).toBe(true);
+	});
+
+	it("lists extension binding requests through the host API", async () => {
+		const env = {
+			DB: {
+				prepare(sql: string) {
+					let bindings: unknown[] = [];
+					const statement = {
+						bind(...values: unknown[]) {
+							bindings = values;
+							return statement;
+						},
+						async run() {
+							return { success: true };
+						},
+						async first() {
+							if (/SELECT COUNT\(\*\) AS count FROM (bookmarks|projects)/.test(sql)) {
+								return { count: 1 };
+							}
+							return null;
+						},
+						async all() {
+							if (sql.includes("extension_binding_requests")) {
+								expect(bindings).toEqual(["pending", 10]);
+								return {
+									results: [{
+										id: "request-1",
+										extension_slug: "rss-reader",
+										extension_name: "RSS Reader",
+										operation: "create",
+										manifest_json: JSON.stringify({ ...helloWorldExtension, slug: "rss-reader", name: "RSS Reader" }),
+										worker_source: "export default {}",
+										deployment_notes: "Needs D1.",
+										bindings_json: JSON.stringify([{ type: "d1_database", name: "RSS_DB", purpose: "Feeds." }]),
+										issues_json: JSON.stringify(["needs provisioning"]),
+										status: "pending",
+										created_at: "2026-06-18T12:00:00.000Z",
+										updated_at: "2026-06-18T12:00:00.000Z",
+									}],
+								};
+							}
+							return { results: [] };
+						},
+					};
+					return statement;
+				},
+			},
+			ASSETS: {
+				async fetch() {
+					return new Response("asset-shell", {
+						headers: { "content-type": "text/html" },
+					});
+				},
+			},
+		} as unknown as Env;
+
+		const response = await app.fetch(new Request("http://localhost/api/extension-binding-requests?status=pending&limit=10"), env);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual([expect.objectContaining({
+			id: "request-1",
+			extensionSlug: "rss-reader",
+			status: "pending",
+			bindings: [{ type: "d1_database", name: "RSS_DB", purpose: "Feeds." }],
+		})]);
+	});
+
 	it("dispatches exact dynamic mini app routes instead of falling through to assets", async () => {
 		const { env, dispatchedRequests } = testEnv(helloWorldExtension);
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world", {
@@ -563,5 +727,24 @@ function extensionRow(extension: RegisteredExtension) {
 		deployed_script_name: extension.deployedScriptName,
 		created_at: "2026-06-18T00:00:00.000Z",
 		updated_at: "2026-06-18T00:00:00.000Z",
+	};
+}
+
+function scheduledWorkflowRow(enabled: number) {
+	return {
+		id: "rss-reader:refresh-feeds",
+		extension_slug: "rss-reader",
+		name: "RSS Reader: Refresh feeds",
+		cron: "*/15 * * * *",
+		workflow_name: "run-mini-app-workflow",
+		payload_json: JSON.stringify({
+			app: "rss-reader",
+			requiredHostApis: ["resource-index:write"],
+			workflowId: "refresh-feeds",
+		}),
+		enabled,
+		last_run_at: null,
+		created_at: "2026-06-18T12:00:00.000Z",
+		updated_at: "2026-06-18T12:05:00.000Z",
 	};
 }

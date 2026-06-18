@@ -1,4 +1,5 @@
 import { addDays, isoNow, titleForDailyNote, todayDateKey } from "./dates";
+import { miniAppWorkflowRoutePath } from "./mini-app-workflows";
 import { builtinExtensionManifests, builtinScheduledWorkflows } from "./seed";
 import { emptyTiptapDocument, extractTextFromTiptap, parseJsonArray, parseJsonObject } from "./text";
 import type {
@@ -7,11 +8,16 @@ import type {
 	DailyNote,
 	Env,
 	ExtensionManifest,
+	ExtensionBindingRequest,
+	ExtensionBindingRequestStatus,
+	ExtensionWorkflow,
 	JsonObject,
 	KanbanBoard,
 	KanbanCard,
 	KanbanColumn,
 	MiniAppAuditRecord,
+	MiniAppBuild,
+	MiniAppBuildStatus,
 	Principal,
 	Project,
 	RegisteredExtension,
@@ -121,6 +127,41 @@ interface MiniAppAuditRow {
 	status: string;
 	details_json: string;
 	created_at: string;
+}
+
+interface MiniAppBuildRow {
+	id: string;
+	prompt: string;
+	operation: "create" | "update";
+	target_slug: string | null;
+	slug_hint: string | null;
+	autonomous_deploy: number;
+	status: MiniAppBuildStatus;
+	attempt_count: number;
+	max_attempts: number;
+	current_run_id: string | null;
+	result_json: string | null;
+	error_json: string | null;
+	deadline_at: string;
+	completed_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+interface ExtensionBindingRequestRow {
+	id: string;
+	extension_slug: string;
+	extension_name: string;
+	operation: "create" | "update";
+	manifest_json: string;
+	worker_source: string;
+	deployment_notes: string;
+	bindings_json: string;
+	resolved_bindings_json: string;
+	issues_json: string;
+	status: ExtensionBindingRequestStatus;
+	created_at: string;
+	updated_at: string;
 }
 
 export async function ensureBuiltins(env: Env): Promise<void> {
@@ -297,6 +338,83 @@ export async function saveExtension(env: Env, manifest: ExtensionManifest, deplo
 			deployed_script_name = excluded.deployed_script_name,
 			updated_at = excluded.updated_at
 	`).bind(manifest.slug, JSON.stringify(manifest), status, deployedScriptName, now, now).run();
+
+	await syncExtensionScheduledWorkflows(env, manifest, now);
+}
+
+export function scheduledWorkflowsForExtension(manifest: ExtensionManifest, now = isoNow()): ScheduledWorkflow[] {
+	return manifest.workflows
+		.filter((workflow) => workflow.trigger === "scheduled" && Boolean(workflow.cron?.trim()))
+		.map((workflow) => ({
+			id: scheduledWorkflowIdForExtension(manifest.slug, workflow.id),
+			extensionSlug: manifest.slug,
+			name: `${manifest.name}: ${workflow.label}`,
+			cron: workflow.cron?.trim() ?? "",
+			workflowName: workflow.workflowName,
+			payload: scheduledWorkflowPayloadForExtension(manifest, workflow),
+			enabled: false,
+			lastRunAt: null,
+			createdAt: now,
+			updatedAt: now,
+		}));
+}
+
+function scheduledWorkflowIdForExtension(slug: string, workflowId: string): string {
+	return `${slug}:${workflowId}`;
+}
+
+function scheduledWorkflowPayloadForExtension(manifest: ExtensionManifest, workflow: ExtensionWorkflow): JsonObject {
+	return {
+		app: manifest.slug,
+		callbackPath: miniAppWorkflowRoutePath(manifest.slug, workflow.id),
+		extensionSlug: manifest.slug,
+		manifestVersion: manifest.version,
+		workflowId: workflow.id,
+		workflowName: workflow.workflowName,
+		requiredHostApis: workflow.requiredHostApis,
+		...(workflow.inputSchema ? { inputSchema: workflow.inputSchema } : {}),
+	};
+}
+
+async function syncExtensionScheduledWorkflows(env: Env, manifest: ExtensionManifest, now: string): Promise<void> {
+	const workflows = scheduledWorkflowsForExtension(manifest, now);
+	const desiredIds = new Set(workflows.map((workflow) => workflow.id));
+	const existing = await env.DB.prepare("SELECT id FROM scheduled_workflows WHERE extension_slug = ?")
+		.bind(manifest.slug)
+		.all<{ id: string }>();
+
+	for (const row of existing.results ?? []) {
+		if (!desiredIds.has(row.id)) {
+			await env.DB.prepare("DELETE FROM scheduled_workflows WHERE extension_slug = ? AND id = ?")
+				.bind(manifest.slug, row.id)
+				.run();
+		}
+	}
+
+	for (const workflow of workflows) {
+		await env.DB.prepare(`
+			INSERT INTO scheduled_workflows (id, extension_slug, name, cron, workflow_name, payload_json, enabled, last_run_at, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				extension_slug = excluded.extension_slug,
+				name = excluded.name,
+				cron = excluded.cron,
+				workflow_name = excluded.workflow_name,
+				payload_json = excluded.payload_json,
+				updated_at = excluded.updated_at
+		`).bind(
+			workflow.id,
+			workflow.extensionSlug,
+			workflow.name,
+			workflow.cron,
+			workflow.workflowName,
+			JSON.stringify(workflow.payload),
+			workflow.enabled ? 1 : 0,
+			workflow.lastRunAt,
+			workflow.createdAt,
+			workflow.updatedAt,
+		).run();
+	}
 }
 
 export async function searchResources(env: Env, query: string, limit = 20): Promise<ResourceIndexRecord[]> {
@@ -509,6 +627,34 @@ export async function listScheduledWorkflows(env: Env): Promise<ScheduledWorkflo
 	return (result.results ?? []).map(mapWorkflow);
 }
 
+export async function listEnabledScheduledWorkflows(env: Env): Promise<ScheduledWorkflow[]> {
+	const result = await env.DB.prepare("SELECT * FROM scheduled_workflows WHERE enabled = 1 ORDER BY name ASC").all<WorkflowRow>();
+	return (result.results ?? []).map(mapWorkflow);
+}
+
+export async function getScheduledWorkflow(env: Env, id: string): Promise<ScheduledWorkflow | null> {
+	const row = await env.DB.prepare("SELECT * FROM scheduled_workflows WHERE id = ?").bind(id).first<WorkflowRow>();
+	return row ? mapWorkflow(row) : null;
+}
+
+export async function setScheduledWorkflowEnabled(env: Env, id: string, enabled: boolean): Promise<ScheduledWorkflow | null> {
+	const updatedAt = isoNow();
+	await env.DB.prepare(`
+		UPDATE scheduled_workflows
+		SET enabled = ?, updated_at = ?
+		WHERE id = ?
+	`).bind(enabled ? 1 : 0, updatedAt, id).run();
+	return getScheduledWorkflow(env, id);
+}
+
+export async function recordScheduledWorkflowAttempt(env: Env, id: string, attemptedAt: string): Promise<void> {
+	await env.DB.prepare(`
+		UPDATE scheduled_workflows
+		SET last_run_at = ?, updated_at = ?
+		WHERE id = ?
+	`).bind(attemptedAt, attemptedAt, id).run();
+}
+
 export async function listMiniAppAudit(env: Env, limit = 12, slug?: string): Promise<MiniAppAuditRecord[]> {
 	const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
 	const query = slug
@@ -525,6 +671,237 @@ export async function createAuditRecord(env: Env, input: { slug: string; action:
 	`).bind(crypto.randomUUID(), input.slug, input.action, input.status, JSON.stringify(input.details), isoNow()).run();
 }
 
+export async function createMiniAppBuild(env: Env, input: {
+	prompt: string;
+	operation: "create" | "update";
+	targetSlug?: string;
+	slugHint?: string;
+	autonomousDeploy?: boolean;
+	maxAttempts?: number;
+	deadlineAt?: string;
+}): Promise<MiniAppBuild> {
+	const now = isoNow();
+	const build: MiniAppBuild = {
+		id: crypto.randomUUID(),
+		prompt: input.prompt,
+		operation: input.operation,
+		targetSlug: input.targetSlug ?? null,
+		slugHint: input.slugHint ?? null,
+		autonomousDeploy: input.autonomousDeploy ?? true,
+		status: "pending",
+		attemptCount: 0,
+		maxAttempts: Math.max(1, Math.trunc(input.maxAttempts ?? 3)),
+		currentRunId: null,
+		result: null,
+		error: null,
+		deadlineAt: input.deadlineAt ?? new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+		completedAt: null,
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	await env.DB.prepare(`
+		INSERT INTO mini_app_builds
+			(id, prompt, operation, target_slug, slug_hint, autonomous_deploy, status, attempt_count, max_attempts, current_run_id, result_json, error_json, deadline_at, completed_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).bind(
+		build.id,
+		build.prompt,
+		build.operation,
+		build.targetSlug,
+		build.slugHint,
+		build.autonomousDeploy ? 1 : 0,
+		build.status,
+		build.attemptCount,
+		build.maxAttempts,
+		build.currentRunId,
+		null,
+		null,
+		build.deadlineAt,
+		build.completedAt,
+		build.createdAt,
+		build.updatedAt,
+	).run();
+
+	return build;
+}
+
+export async function getMiniAppBuild(env: Env, id: string): Promise<MiniAppBuild | null> {
+	try {
+		const row = await env.DB.prepare("SELECT * FROM mini_app_builds WHERE id = ?").bind(id).first<MiniAppBuildRow>();
+		return row ? mapMiniAppBuild(row) : null;
+	} catch (error) {
+		if (isMissingMiniAppBuildStorage(error)) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+export async function listRecoverableMiniAppBuilds(env: Env, now = isoNow()): Promise<MiniAppBuild[]> {
+	try {
+		const result = await env.DB.prepare(`
+			SELECT * FROM mini_app_builds
+			WHERE status IN ('pending', 'interrupted')
+				AND attempt_count < max_attempts
+				AND deadline_at > ?
+			ORDER BY updated_at ASC
+			LIMIT 10
+		`).bind(now).all<MiniAppBuildRow>();
+		return (result.results ?? []).map(mapMiniAppBuild);
+	} catch (error) {
+		if (isMissingMiniAppBuildStorage(error)) {
+			return [];
+		}
+		throw error;
+	}
+}
+
+export async function markMiniAppBuildRunning(env: Env, input: {
+	id: string;
+	runId: string;
+	attempt: number;
+}): Promise<MiniAppBuild | null> {
+	const updatedAt = isoNow();
+	await env.DB.prepare(`
+		UPDATE mini_app_builds
+		SET status = 'running',
+			current_run_id = ?,
+			attempt_count = ?,
+			error_json = NULL,
+			updated_at = ?
+		WHERE id = ?
+	`).bind(input.runId, Math.max(1, Math.trunc(input.attempt)), updatedAt, input.id).run();
+	return getMiniAppBuild(env, input.id);
+}
+
+export async function completeMiniAppBuild(env: Env, input: {
+	id: string;
+	result: JsonObject;
+	status?: "completed" | "failed";
+	error?: JsonObject;
+}): Promise<MiniAppBuild | null> {
+	const now = isoNow();
+	await env.DB.prepare(`
+		UPDATE mini_app_builds
+		SET status = ?,
+			result_json = ?,
+			error_json = ?,
+			completed_at = ?,
+			updated_at = ?
+		WHERE id = ?
+	`).bind(
+		input.status ?? "completed",
+		JSON.stringify(input.result),
+		input.error ? JSON.stringify(input.error) : null,
+		now,
+		now,
+		input.id,
+	).run();
+	return getMiniAppBuild(env, input.id);
+}
+
+export async function failMiniAppBuild(env: Env, input: {
+	id: string;
+	status?: Exclude<MiniAppBuildStatus, "pending" | "running" | "completed">;
+	error: JsonObject;
+}): Promise<MiniAppBuild | null> {
+	const now = isoNow();
+	await env.DB.prepare(`
+		UPDATE mini_app_builds
+		SET status = ?,
+			error_json = ?,
+			completed_at = CASE WHEN ? IN ('failed', 'expired') THEN ? ELSE completed_at END,
+			updated_at = ?
+		WHERE id = ?
+	`).bind(input.status ?? "failed", JSON.stringify(input.error), input.status ?? "failed", now, now, input.id).run();
+	return getMiniAppBuild(env, input.id);
+}
+
+export async function expireMiniAppBuild(env: Env, id: string, now = isoNow()): Promise<MiniAppBuild | null> {
+	await env.DB.prepare(`
+		UPDATE mini_app_builds
+		SET status = 'expired',
+			error_json = ?,
+			completed_at = ?,
+			updated_at = ?
+		WHERE id = ?
+			AND status IN ('pending', 'running', 'interrupted')
+	`).bind(JSON.stringify({ message: "Mini app build exceeded its 30 minute deadline." }), now, now, id).run();
+	return getMiniAppBuild(env, id);
+}
+
+export async function createExtensionBindingRequest(env: Env, input: {
+	operation: "create" | "update";
+	manifest: ExtensionManifest;
+	workerSource: string;
+	deploymentNotes: string;
+	issues: string[];
+	status?: ExtensionBindingRequestStatus;
+}): Promise<ExtensionBindingRequest> {
+	if (input.manifest.bindings.length === 0) {
+		throw new Error("Extension binding request requires at least one manifest binding.");
+	}
+
+	const now = isoNow();
+	const request: ExtensionBindingRequest = {
+		id: crypto.randomUUID(),
+		extensionSlug: input.manifest.slug,
+		extensionName: input.manifest.name,
+		operation: input.operation,
+		manifest: input.manifest,
+		workerSource: input.workerSource,
+		deploymentNotes: input.deploymentNotes,
+		bindings: input.manifest.bindings,
+		resolvedBindings: [],
+		issues: input.issues,
+		status: input.status ?? "pending",
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	await env.DB.prepare(`
+		INSERT INTO extension_binding_requests
+			(id, extension_slug, extension_name, operation, manifest_json, worker_source, deployment_notes, bindings_json, issues_json, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).bind(
+		request.id,
+		request.extensionSlug,
+		request.extensionName,
+		request.operation,
+		JSON.stringify(request.manifest),
+		request.workerSource,
+		request.deploymentNotes,
+		JSON.stringify(request.bindings),
+		JSON.stringify(request.issues),
+		request.status,
+		request.createdAt,
+		request.updatedAt,
+	).run();
+
+	return request;
+}
+
+export async function listExtensionBindingRequests(
+	env: Env,
+	options: { limit?: number; status?: ExtensionBindingRequestStatus } = {},
+): Promise<ExtensionBindingRequest[]> {
+	const boundedLimit = Math.min(Math.max(Math.trunc(options.limit ?? 20), 1), 50);
+	const query = options.status
+		? env.DB.prepare("SELECT * FROM extension_binding_requests WHERE status = ? ORDER BY created_at DESC LIMIT ?").bind(options.status, boundedLimit)
+		: env.DB.prepare("SELECT * FROM extension_binding_requests ORDER BY created_at DESC LIMIT ?").bind(boundedLimit);
+	let result;
+	try {
+		result = await query.all<ExtensionBindingRequestRow>();
+	} catch (error) {
+		if (isMissingExtensionBindingRequestStorage(error)) {
+			return [];
+		}
+		throw error;
+	}
+	return (result.results ?? []).map(mapExtensionBindingRequest);
+}
+
 export async function getAppSnapshot(env: Env, principal: Principal, date = todayDateKey()): Promise<AppSnapshot> {
 	await ensureBuiltins(env);
 
@@ -533,6 +910,7 @@ export async function getAppSnapshot(env: Env, principal: Principal, date = toda
 	const extensions = await listExtensions(env);
 	const commands = extensions.flatMap((extension) => extension.commands);
 	const editorBlocks = extensions.flatMap((extension) => extension.editorBlocks);
+	const bindingRequests = await listExtensionBindingRequests(env, { limit: 20 });
 	const scheduledWorkflows = await listScheduledWorkflows(env);
 	const miniAppAudit = await listMiniAppAudit(env, 8);
 	const bookmarks = await listBookmarks(env);
@@ -546,6 +924,7 @@ export async function getAppSnapshot(env: Env, principal: Principal, date = toda
 		extensions,
 		commands,
 		editorBlocks,
+		bindingRequests,
 		scheduledWorkflows,
 		miniAppAudit,
 		bookmarks,
@@ -601,7 +980,7 @@ function mapDailyNote(row: DailyNoteRow): DailyNote {
 	return {
 		id: row.id,
 		date: row.date,
-		title: row.title,
+		title: titleForDailyNote(row.date),
 		documentJson: parseJsonObject(row.document_json, emptyTiptapDocument()),
 		textContent: row.text_content,
 		version: row.version,
@@ -627,6 +1006,46 @@ function mapMiniAppAudit(row: MiniAppAuditRow): MiniAppAuditRecord {
 		status: row.status,
 		details: parseJsonObject(row.details_json),
 		createdAt: row.created_at,
+	};
+}
+
+function mapMiniAppBuild(row: MiniAppBuildRow): MiniAppBuild {
+	return {
+		id: row.id,
+		prompt: row.prompt,
+		operation: row.operation,
+		targetSlug: row.target_slug,
+		slugHint: row.slug_hint,
+		autonomousDeploy: row.autonomous_deploy === 1,
+		status: row.status,
+		attemptCount: row.attempt_count,
+		maxAttempts: row.max_attempts,
+		currentRunId: row.current_run_id,
+		result: row.result_json ? parseJsonObject(row.result_json) : null,
+		error: row.error_json ? parseJsonObject(row.error_json) : null,
+		deadlineAt: row.deadline_at,
+		completedAt: row.completed_at,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+function mapExtensionBindingRequest(row: ExtensionBindingRequestRow): ExtensionBindingRequest {
+	const manifest = parseJsonObject(row.manifest_json) as unknown as ExtensionManifest;
+	return {
+		id: row.id,
+		extensionSlug: row.extension_slug,
+		extensionName: row.extension_name,
+		operation: row.operation,
+		manifest,
+		workerSource: row.worker_source,
+		deploymentNotes: row.deployment_notes,
+		bindings: parseJsonArray(row.bindings_json),
+		resolvedBindings: parseJsonArray(row.resolved_bindings_json),
+		issues: parseJsonArray<string>(row.issues_json),
+		status: row.status,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
 	};
 }
 
@@ -717,4 +1136,14 @@ function mapWorkflow(row: WorkflowRow): ScheduledWorkflow {
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
+}
+
+function isMissingExtensionBindingRequestStorage(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("extension_binding_requests") && /no such table|not found|does not exist/i.test(message);
+}
+
+function isMissingMiniAppBuildStorage(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes("mini_app_builds") && /no such table|not found|does not exist/i.test(message);
 }

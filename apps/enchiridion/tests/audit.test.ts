@@ -4,6 +4,9 @@ import { auditDetailSummary, auditToneForStatus } from "../src/lib/audit";
 describe("mini app audit helpers", () => {
 	it("maps workflow statuses to semantic tones", () => {
 		expect(auditToneForStatus("deployed")).toBe("success");
+		expect(auditToneForStatus("admitted")).toBe("success");
+		expect(auditToneForStatus("completed")).toBe("success");
+		expect(auditToneForStatus("enabled")).toBe("success");
 		expect(auditToneForStatus("fallback_deployed")).toBe("success");
 		expect(auditToneForStatus("requires_binding_provisioning")).toBe("warning");
 		expect(auditToneForStatus("fallback_rejected")).toBe("warning");
@@ -12,6 +15,7 @@ describe("mini app audit helpers", () => {
 		expect(auditToneForStatus("validation_failed")).toBe("danger");
 		expect(auditToneForStatus("fallback_validation_failed")).toBe("danger");
 		expect(auditToneForStatus("queued")).toBe("neutral");
+		expect(auditToneForStatus("disabled")).toBe("neutral");
 	});
 
 	it("summarizes direct messages first", () => {
@@ -19,6 +23,24 @@ describe("mini app audit helpers", () => {
 			message: "Mini app Worker deployed.",
 			issues: ["ignored"],
 		})).toBe("Mini app Worker deployed.");
+	});
+
+	it("summarizes scheduled workflow details", () => {
+		expect(auditDetailSummary({
+			runId: "run-123",
+			scheduledAt: "2026-06-18T12:10:00.000Z",
+			workflowId: "rss-reader:refresh-feeds",
+		}, "admitted")).toBe("Run run-123 for rss-reader:refresh-feeds admitted at 2026-06-18T12:10:00.000Z.");
+
+		expect(auditDetailSummary({
+			enabled: false,
+		}, "disabled")).toBe("Schedule disabled.");
+
+		expect(auditDetailSummary({
+			error: "Dispatch namespace binding is not configured.",
+			scheduledAt: "2026-06-18T12:10:00.000Z",
+			workflowId: "rss-reader:refresh-feeds",
+		}, "failed")).toBe("Dispatch namespace binding is not configured. rss-reader:refresh-feeds scheduled at 2026-06-18T12:10:00.000Z.");
 	});
 
 	it("summarizes validation and attempt failures", () => {

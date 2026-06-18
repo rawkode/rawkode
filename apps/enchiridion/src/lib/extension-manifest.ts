@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { miniAppScheduledWorkflowName, miniAppWorkflowRoutePath } from "./mini-app-workflows";
 import type { ExtensionManifest } from "./types";
 
 export const allowedHostApis = [
@@ -132,6 +133,18 @@ export function validateExtensionManifest(input: unknown): ManifestValidationRes
 		}
 	}
 	for (const workflow of manifest.workflows) {
+		if (workflow.trigger === "scheduled" && !workflow.cron?.trim()) {
+			issues.push(`workflows.${workflow.id}: scheduled workflow must declare cron`);
+		}
+		if (workflow.trigger === "scheduled" && workflow.workflowName !== miniAppScheduledWorkflowName) {
+			issues.push(`workflows.${workflow.id}: scheduled mini-app workflowName must be ${miniAppScheduledWorkflowName}`);
+		}
+		if (workflow.trigger === "scheduled" && !hasWorkflowCallbackRoute(manifest, workflow.id)) {
+			issues.push(`workflows.${workflow.id}: scheduled workflow must declare worker-fragment route ${miniAppWorkflowRoutePath(manifest.slug, workflow.id)}`);
+		}
+		if (workflow.trigger !== "scheduled" && workflow.cron?.trim()) {
+			issues.push(`workflows.${workflow.id}: only scheduled workflows may declare cron`);
+		}
 		for (const api of workflow.requiredHostApis) {
 			if (!declaredApis.has(api)) {
 				issues.push(`workflows.${workflow.id}: required host API ${api} is not declared`);
@@ -163,4 +176,9 @@ export function assertValidManifest(input: unknown): ExtensionManifest {
 export function isAppRoutePath(path: string, slug: string): boolean {
 	const root = `/apps/${slug}`;
 	return path === root || path.startsWith(`${root}/`);
+}
+
+function hasWorkflowCallbackRoute(manifest: ExtensionManifest, workflowId: string): boolean {
+	const callbackPath = miniAppWorkflowRoutePath(manifest.slug, workflowId);
+	return manifest.routes.some((route) => route.path === callbackPath && route.mode === "worker-fragment");
 }

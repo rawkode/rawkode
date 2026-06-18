@@ -10,6 +10,9 @@
 		"run_worker_first": true
 	},
 	"observability": { "enabled": true },
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	},
 	"ai": {
 		"binding": "AI"
 	},
@@ -38,6 +41,14 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["FlueRegistry", "FlueSecondBrainAgentAgent", "FlueGenerateMiniAppWorkflow"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["FlueRunMiniAppWorkflowWorkflow"]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["FlueMiniAppBuilderAgent"]
 		}
 	]
 }

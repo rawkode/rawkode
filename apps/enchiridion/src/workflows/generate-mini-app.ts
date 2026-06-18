@@ -26,7 +26,15 @@ import {
 	normalizeSlug,
 	renderFallbackMiniAppHtml,
 } from "../lib/fallback-mini-app";
-import { createAuditRecord, listRegisteredExtensions, saveExtension } from "../lib/repository";
+import {
+	createAuditRecord,
+	createExtensionBindingRequest,
+	completeMiniAppBuild,
+	failMiniAppBuild,
+	listRegisteredExtensions,
+	markMiniAppBuildRunning,
+	saveExtension,
+} from "../lib/repository";
 import type { Env, ExtensionManifest, JsonObject, RegisteredExtension } from "../lib/types";
 
 export const route: WorkflowRouteHandler = async (_c, next) => next();
@@ -41,13 +49,13 @@ const miniAppBuilder = createAgent<unknown, Env>(({ env }) => {
 			"Return a strict extension manifest and one JavaScript module worker source.",
 			"Routes must stay under /apps/<slug>.",
 			"Use signed host APIs for host data.",
-			"Set bindings to [] because autonomous isolated binding provisioning is not implemented yet.",
+			"Declare isolated bindings only when the app needs its own KV, D1, or R2 storage.",
 			"Never request direct access to the host DB binding.",
 		].join(" "),
 	};
 });
 
-const generatedMiniAppSchema = v.object({
+export const generatedMiniAppSchema = v.object({
 	manifest: v.object({
 		slug: v.string(),
 		name: v.string(),
@@ -70,15 +78,18 @@ const generatedMiniAppSchema = v.object({
 	deploymentNotes: v.string(),
 });
 
-interface GenerateMiniAppPayload {
+export interface GenerateMiniAppPayload {
 	prompt: string;
 	slugHint?: string;
 	operation?: MiniAppOperation;
 	targetSlug?: string;
 	autonomousDeploy?: boolean;
+	buildId?: string;
+	buildAttempt?: number;
+	buildDeadlineAt?: string;
 }
 
-type GeneratedMiniApp = v.InferOutput<typeof generatedMiniAppSchema>;
+export type GeneratedMiniApp = v.InferOutput<typeof generatedMiniAppSchema>;
 
 const maxGenerationAttempts = 3;
 const maxSmokeTestAttempts = 4;
@@ -101,7 +112,50 @@ interface MiniAppBuilderSession {
 	prompt(prompt: string, options: { result: typeof generatedMiniAppSchema }): Promise<{ data: GeneratedMiniApp }>;
 }
 
-export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
+export async function run(ctx: FlueContext<GenerateMiniAppPayload, Env>) {
+	const { payload, env, id } = ctx;
+	if (payload.buildId) {
+		await markMiniAppBuildRunning(env, {
+			id: payload.buildId,
+			runId: id,
+			attempt: payload.buildAttempt ?? 1,
+		});
+	}
+
+	try {
+		const result = await runMiniAppGeneration(ctx);
+		if (payload.buildId) {
+			const resultObject = result as JsonObject;
+			await completeMiniAppBuild(env, {
+				id: payload.buildId,
+				result: {
+					...resultObject,
+					runId: id,
+				},
+				status: miniAppBuildSucceeded(resultObject) ? "completed" : "failed",
+				error: miniAppBuildSucceeded(resultObject) ? undefined : {
+					message: readResultMessage(resultObject) ?? "Mini app build finished without an activatable app.",
+					runId: id,
+				},
+			});
+		}
+		return result;
+	} catch (error) {
+		if (payload.buildId) {
+			await failMiniAppBuild(env, {
+				id: payload.buildId,
+				status: "failed",
+				error: {
+					message: errorMessage(error),
+					runId: id,
+				},
+			});
+		}
+		throw error;
+	}
+}
+
+async function runMiniAppGeneration({ init, payload, env }: FlueContext<GenerateMiniAppPayload, Env>) {
 	const installedExtensions = await listRegisteredExtensions(env);
 	const inferred = inferMiniAppIntent(payload.prompt, installedExtensions, true);
 	const operation = resolveMiniAppOperation(payload.operation, inferred.operation);
@@ -211,6 +265,17 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				status: "rejected",
 				issues: validation.issues,
 			});
+
+			if (validation.status === "requires_binding_provisioning" && validation.manifest) {
+				return finishBindingProvisioningRequired({
+					env,
+					generated,
+					manifest: validation.manifest,
+					operation,
+					issues: validation.issues,
+					attempts,
+				});
+			}
 
 			if (attempt < maxGenerationAttempts && validation.manifest) {
 				prompt = buildMiniAppRepairPrompt({
@@ -515,6 +580,343 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 	throw new Error("Mini app generation failed without a terminal result.");
 }
 
+export async function deployGeneratedMiniAppCandidate(input: {
+	env: Env;
+	payload: GenerateMiniAppPayload;
+	generated: GeneratedMiniApp;
+	attempts?: JsonObject[];
+}): Promise<JsonObject> {
+	const installedExtensions = await listRegisteredExtensions(input.env);
+	const inferred = inferMiniAppIntent(input.payload.prompt, installedExtensions, true);
+	const operation = resolveMiniAppOperation(input.payload.operation, inferred.operation);
+	const targetExtension = findReferencedExtension(
+		input.payload.prompt,
+		installedExtensions,
+		input.payload.targetSlug ?? inferred.targetSlug,
+	);
+	const slugHint = input.payload.slugHint ?? inferred.slugHint ?? targetExtension?.slug;
+	const attempt = Math.max(1, Math.trunc(input.payload.buildAttempt ?? 1));
+	const attempts = input.attempts ?? [{
+		attempt,
+		status: "candidate_submitted",
+		source: "mini-app-builder-agent",
+	}];
+
+	if (operation === "update") {
+		const rejection = rejectInvalidUpdateTarget(targetExtension, input.payload.targetSlug ?? inferred.targetSlug);
+		if (rejection) {
+			await createAuditRecord(input.env, {
+				slug: rejection.slug,
+				action: "update-mini-app",
+				status: "rejected",
+				details: { issues: rejection.issues, attempts },
+			});
+
+			return {
+				status: "rejected",
+				operation,
+				slug: rejection.slug,
+				issues: rejection.issues,
+				deployed: false,
+				attempts,
+			};
+		}
+	}
+
+	const validation = validateGeneratedMiniApp({
+		generated: input.generated,
+		installedExtensions,
+		operation,
+		targetExtension,
+		autonomousDeploy: input.payload.autonomousDeploy !== false,
+	});
+	const slug = validation.manifest?.slug ?? input.generated.manifest.slug;
+
+	if (!validation.ok || !validation.manifest) {
+		attempts.push({
+			attempt,
+			status: "rejected",
+			issues: validation.issues,
+		});
+
+		if (validation.status === "requires_binding_provisioning" && validation.manifest) {
+			return finishBindingProvisioningRequired({
+				env: input.env,
+				generated: input.generated,
+				manifest: validation.manifest,
+				operation,
+				issues: validation.issues,
+				attempts,
+			}) as Promise<JsonObject>;
+		}
+
+		if (isFallbackEligibleValidationFailure(validation)) {
+			const fallback = await maybeDeployFallbackMiniApp({
+				env: input.env,
+				payload: input.payload,
+				operation,
+				installedExtensions,
+				slugHint,
+				attempts,
+				failureStatus: validation.status,
+				failureDetails: { issues: validation.issues },
+			});
+			if (fallback) {
+				return fallback as JsonObject;
+			}
+		}
+
+		await createAuditRecord(input.env, {
+			slug,
+			action: `${operation}-mini-app`,
+			status: validation.status,
+			details: { issues: validation.issues, attempts },
+		});
+
+		return {
+			status: validation.status,
+			operation,
+			slug,
+			issues: validation.issues,
+			deployed: false,
+			attempts,
+		};
+	}
+
+	const manifest = validation.manifest;
+	const deployment = input.payload.autonomousDeploy === false
+		? {
+			scriptName: scriptNameForManifest(manifest),
+			deployed: false,
+			message: "Autonomous deploy disabled for this run.",
+		}
+		: await deployMiniAppWorker(input.env, {
+			manifest,
+			workerSource: input.generated.workerSource,
+			scriptName: candidateScriptNameForManifest(manifest),
+		});
+
+	if (deployment.deployed) {
+		const smokeTestRun = await smokeTestMiniAppWorkerWithRetries(input.env, {
+			manifest,
+			scriptName: deployment.scriptName,
+		});
+		const smokeTest = smokeTestRun.result;
+
+		if (!smokeTest.ok) {
+			const transientSmokeTestRun = isTransientSmokeTestRun(smokeTestRun.attempts);
+			const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
+			if (transientSmokeTestRun && operation === "update" && supersededScriptName) {
+				const cleanup = await cleanupMiniAppCandidate(input.env, deployment.scriptName);
+				await createAuditRecord(input.env, {
+					slug: manifest.slug,
+					action: "update-mini-app",
+					status: "update_deferred",
+					details: {
+						activeScriptName: supersededScriptName,
+						candidateScriptName: deployment.scriptName,
+						message: deployment.message,
+						deploymentNotes: input.generated.deploymentNotes,
+						validation: smokeTest as unknown as JsonObject,
+						validationAttempts: smokeTestRun.attempts,
+						cleanup: cleanup as unknown as JsonObject,
+						attempts,
+					},
+				});
+
+				return {
+					status: "update_deferred",
+					operation,
+					slug: manifest.slug,
+					scriptName: supersededScriptName,
+					candidateScriptName: deployment.scriptName,
+					deployed: false,
+					activeRoutePreserved: true,
+					message: `Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+					routeUrl: smokeTest.route,
+					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
+					cleanup,
+					manifest,
+					attempts,
+				};
+			}
+
+			const cleanup = await deleteMiniAppWorker(input.env, deployment.scriptName);
+			attempts.push({
+				attempt,
+				status: "validation_failed",
+				scriptName: deployment.scriptName,
+				message: smokeTest.message,
+				route: smokeTest.route,
+				smokeTestAttempts: smokeTestRun.attempts,
+				cleanup: cleanup.message,
+				transient: transientSmokeTestRun || undefined,
+			});
+
+			const fallback = await maybeDeployFallbackMiniApp({
+				env: input.env,
+				payload: input.payload,
+				operation,
+				installedExtensions,
+				slugHint,
+				attempts,
+				failureStatus: "validation_failed",
+				failureDetails: {
+					scriptName: deployment.scriptName,
+					message: deployment.message,
+					deploymentNotes: input.generated.deploymentNotes,
+					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
+					cleanup: cleanup as unknown as JsonObject,
+				},
+			});
+			if (fallback) {
+				return fallback as JsonObject;
+			}
+
+			await createAuditRecord(input.env, {
+				slug: manifest.slug,
+				action: `${operation}-mini-app`,
+				status: "validation_failed",
+				details: {
+					scriptName: deployment.scriptName,
+					message: deployment.message,
+					deploymentNotes: input.generated.deploymentNotes,
+					validation: smokeTest as unknown as JsonObject,
+					validationAttempts: smokeTestRun.attempts,
+					cleanup: cleanup as unknown as JsonObject,
+					attempts,
+				},
+			});
+
+			return {
+				status: "validation_failed",
+				operation,
+				slug: manifest.slug,
+				scriptName: deployment.scriptName,
+				deployed: false,
+				message: smokeTest.message,
+				validation: smokeTest as unknown as JsonObject,
+				manifest,
+				attempts,
+			};
+		}
+
+		const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
+		await saveExtension(input.env, manifest, deployment.scriptName, "dynamic");
+		const supersededScriptCleanup = supersededScriptName && supersededScriptName !== deployment.scriptName
+			? await cleanupMiniAppCandidate(input.env, supersededScriptName)
+			: null;
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: `${operation}-mini-app`,
+			status: operation === "update" ? "updated" : "deployed",
+			details: {
+				scriptName: deployment.scriptName,
+				supersededScriptName: supersededScriptCleanup ? supersededScriptName : undefined,
+				supersededScriptCleanup,
+				message: deployment.message,
+				deploymentNotes: input.generated.deploymentNotes,
+				validation: smokeTest as unknown as JsonObject,
+				validationAttempts: smokeTestRun.attempts,
+				attempts,
+			},
+		});
+
+		return {
+			status: operation === "update" ? "updated" : "deployed",
+			operation,
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: true,
+			message: `${deployment.message} ${smokeTest.message}`,
+			routeUrl: smokeTest.route,
+			validation: smokeTest as unknown as JsonObject,
+			validationAttempts: smokeTestRun.attempts,
+			supersededScriptCleanup,
+			manifest,
+			attempts,
+		};
+	}
+
+	if (input.payload.autonomousDeploy !== false) {
+		attempts.push({
+			attempt,
+			status: "deploy_failed",
+			scriptName: deployment.scriptName,
+			message: deployment.message,
+		});
+
+		if (isRepairableDeploymentFailure(deployment.message)) {
+			const fallback = await maybeDeployFallbackMiniApp({
+				env: input.env,
+				payload: input.payload,
+				operation,
+				installedExtensions,
+				slugHint,
+				attempts,
+				failureStatus: "deploy_failed",
+				failureDetails: {
+					scriptName: deployment.scriptName,
+					message: deployment.message,
+					deploymentNotes: input.generated.deploymentNotes,
+				},
+			});
+			if (fallback) {
+				return fallback as JsonObject;
+			}
+		}
+
+		await createAuditRecord(input.env, {
+			slug: manifest.slug,
+			action: `${operation}-mini-app`,
+			status: "deploy_failed",
+			details: {
+				scriptName: deployment.scriptName,
+				message: deployment.message,
+				deploymentNotes: input.generated.deploymentNotes,
+				attempts,
+			},
+		});
+
+		return {
+			status: "deploy_failed",
+			operation,
+			slug: manifest.slug,
+			scriptName: deployment.scriptName,
+			deployed: false,
+			message: deployment.message,
+			manifest,
+			attempts,
+		};
+	}
+
+	await saveExtension(input.env, manifest, deployment.deployed ? deployment.scriptName : null, "dynamic");
+	await createAuditRecord(input.env, {
+		slug: manifest.slug,
+		action: `${operation}-mini-app`,
+		status: "registered",
+		details: {
+			scriptName: deployment.scriptName,
+			message: deployment.message,
+			deploymentNotes: input.generated.deploymentNotes,
+			attempts,
+		},
+	});
+
+	return {
+		status: "registered",
+		operation,
+		slug: manifest.slug,
+		scriptName: deployment.scriptName,
+		deployed: false,
+		message: deployment.message,
+		manifest,
+		attempts,
+	};
+}
+
 function resolveMiniAppOperation(requested: MiniAppOperation | undefined, inferred: MiniAppOperation): MiniAppOperation {
 	if (requested === "create" && inferred === "update") {
 		return "update";
@@ -574,6 +976,55 @@ async function finishGenerationFailure(input: {
 		slug,
 		deployed: false,
 		message: input.message,
+		attempts: input.attempts,
+	};
+}
+
+async function finishBindingProvisioningRequired(input: {
+	env: Env;
+	generated: GeneratedMiniApp;
+	manifest: ExtensionManifest;
+	operation: MiniAppOperation;
+	issues: string[];
+	attempts: JsonObject[];
+}) {
+	const request = await createExtensionBindingRequest(input.env, {
+		operation: input.operation,
+		manifest: input.manifest,
+		workerSource: input.generated.workerSource,
+		deploymentNotes: input.generated.deploymentNotes,
+		issues: input.issues,
+	});
+	const bindings = input.manifest.bindings.map((binding) => ({
+		name: binding.name,
+		type: binding.type,
+		purpose: binding.purpose,
+	}));
+	const message = `Mini app ${input.manifest.slug} needs isolated Cloudflare bindings before it can be deployed.`;
+
+	await createAuditRecord(input.env, {
+		slug: input.manifest.slug,
+		action: `${input.operation}-mini-app`,
+		status: "requires_binding_provisioning",
+		details: {
+			message,
+			bindingRequestId: request.id,
+			bindings,
+			deploymentNotes: input.generated.deploymentNotes,
+			issues: input.issues,
+			attempts: input.attempts,
+		},
+	});
+
+	return {
+		status: "requires_binding_provisioning",
+		operation: input.operation,
+		slug: input.manifest.slug,
+		deployed: false,
+		message,
+		bindingRequestId: request.id,
+		bindings,
+		manifest: input.manifest,
 		attempts: input.attempts,
 	};
 }
@@ -1022,6 +1473,7 @@ export function validateGeneratedMiniApp(input: {
 	const issues = [...validation.issues];
 	issues.push(...validateGeneratedPayloadBounds(input.generated, validation.manifest));
 	issues.push(...validateWorkerSource(input.generated.workerSource, validation.manifest));
+	issues.push(...validateGeneratedBindingUsage(input.generated.workerSource, validation.manifest));
 
 	if (input.operation === "update" && input.targetExtension && validation.manifest?.slug !== input.targetExtension.slug) {
 		issues.push(`manifest.slug: update must keep target slug ${input.targetExtension.slug}`);
@@ -1035,9 +1487,10 @@ export function validateGeneratedMiniApp(input: {
 		issues.push(`manifest.slug: ${validation.manifest?.slug} already exists; use update instead`);
 	}
 
-	if (input.autonomousDeploy && validation.manifest && validation.manifest.bindings.length > 0) {
+	const autonomousBindingRequest = Boolean(input.autonomousDeploy && validation.manifest && validation.manifest.bindings.length > 0);
+	if (autonomousBindingRequest && validation.manifest) {
 		const requested = validation.manifest.bindings.map((binding) => `${binding.name}:${binding.type}`).join(", ");
-		issues.push(`bindings: autonomous deploy cannot provision isolated bindings yet (${requested}); return bindings: [] or use host APIs`);
+		issues.push(`bindings: autonomous deploy requires isolated binding provisioning first (${requested})`);
 	}
 
 	if (input.autonomousDeploy && validation.manifest && !validation.manifest.routes.some((route) => route.mode === "worker-page")) {
@@ -1046,7 +1499,7 @@ export function validateGeneratedMiniApp(input: {
 
 	return {
 		ok: Boolean(validation.manifest) && issues.length === 0,
-		status: issues.some((issue) => issue.startsWith("bindings: autonomous deploy cannot provision"))
+		status: autonomousBindingRequest && issues.every(isBindingProvisioningIssue)
 			? "requires_binding_provisioning"
 			: "rejected",
 		manifest: validation.manifest,
@@ -1133,6 +1586,10 @@ function validateGeneratedPayloadBounds(generated: GeneratedMiniApp, manifest?: 
 	return issues;
 }
 
+function isBindingProvisioningIssue(issue: string): boolean {
+	return issue.startsWith("bindings: autonomous deploy requires isolated binding provisioning first");
+}
+
 export function isRepairableDeploymentFailure(message: string): boolean {
 	return !message.includes("is not configured");
 }
@@ -1163,6 +1620,21 @@ function errorMessage(error: unknown): string {
 	return String(error || "Mini app generation failed.");
 }
 
+export function miniAppBuildSucceeded(result: JsonObject): boolean {
+	const status = typeof result.status === "string" ? result.status : "";
+	return status === "deployed"
+		|| status === "updated"
+		|| status === "deployed_pending"
+		|| status === "registered"
+		|| status === "requires_binding_provisioning"
+		|| status === "update_deferred";
+}
+
+function readResultMessage(result: JsonObject): string | undefined {
+	const message = result.message;
+	return typeof message === "string" && message.trim() ? message : undefined;
+}
+
 function readStringProperty(source: object, key: string): string | undefined {
 	if (!(key in source)) {
 		return undefined;
@@ -1186,7 +1658,6 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 	const forbiddenPatterns: Array<[RegExp, string]> = [
 		[/\bimport\s+[\s\S]*?\bfrom\b|\bimport\s*\(/, "workerSource: autonomous workers must be self-contained and cannot import modules"],
 		[/\brequire\s*\(/, "workerSource: autonomous workers must be self-contained and cannot require modules"],
-		[/\benv\s*(?:\.|\?\.|\[)/, "workerSource: autonomous workers cannot read env bindings; declare host APIs instead"],
 		[/\bctx\s*(?:\.|\?\.|\[)/, "workerSource: autonomous workers cannot use execution context side effects"],
 		[/\beval\s*\(|\bnew\s+Function\s*\(/, "workerSource: generated Workers cannot evaluate dynamic code"],
 		[/\bset(?:Timeout|Interval)\s*\(/, "workerSource: generated Workers cannot schedule background timers"],
@@ -1217,12 +1688,79 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 		}
 	}
 
+	issues.push(...validateWorkerEnvAccess(source, manifest));
 	issues.push(...validateGeneratedFetchUsage(source));
 	issues.push(...validateHostApiUsage(source, manifest));
 	issues.push(...validateGeneratedHostApiScopes(source, manifest));
 	issues.push(...validateWorkerRouteOwnership(source, manifest));
 
 	return issues;
+}
+
+interface WorkerEnvAccess {
+	name: string;
+	index: number;
+}
+
+function validateWorkerEnvAccess(source: string, manifest?: ExtensionManifest): string[] {
+	const declaredBindings = new Set((manifest?.bindings ?? []).map((binding) => binding.name));
+	const namedAccesses = findWorkerEnvAccesses(source);
+	const dynamicAccesses = findDynamicWorkerEnvAccesses(source);
+	if (namedAccesses.length === 0 && dynamicAccesses.length === 0) {
+		return [];
+	}
+
+	if (declaredBindings.size === 0) {
+		return ["workerSource: autonomous workers cannot read env bindings; declare host APIs instead"];
+	}
+
+	const issues: string[] = [];
+	if (dynamicAccesses.length > 0) {
+		issues.push("workerSource: dynamic env binding lookup is not allowed; use declared binding names directly");
+	}
+
+	const undeclared = Array.from(new Set(namedAccesses.map((access) => access.name).filter((name) => !declaredBindings.has(name))));
+	if (undeclared.length > 0) {
+		issues.push(`workerSource: generated Workers can only read declared isolated bindings: ${undeclared.join(", ")}`);
+	}
+
+	return issues;
+}
+
+function validateGeneratedBindingUsage(source: string, manifest?: ExtensionManifest): string[] {
+	if (!manifest || manifest.bindings.length === 0) {
+		return [];
+	}
+
+	const usedBindings = new Set(findWorkerEnvAccesses(source).map((access) => access.name));
+	const unusedBindings = manifest.bindings
+		.map((binding) => binding.name)
+		.filter((name) => !usedBindings.has(name));
+	if (unusedBindings.length === 0) {
+		return [];
+	}
+
+	return unusedBindings.map((name) => `bindings.${name}: declared isolated binding is not used by Worker source`);
+}
+
+function findWorkerEnvAccesses(source: string): WorkerEnvAccess[] {
+	const accesses: WorkerEnvAccess[] = [];
+	for (const match of source.matchAll(/\benv\s*(?:\?\.|\.)\s*([A-Z][A-Z0-9_]*)/g)) {
+		accesses.push({ name: match[1], index: match.index ?? -1 });
+	}
+	for (const match of source.matchAll(/\benv\s*(?:\?\.)?\s*\[\s*(["'`])([A-Z][A-Z0-9_]*)\1\s*\]/g)) {
+		accesses.push({ name: match[2], index: match.index ?? -1 });
+	}
+	return accesses;
+}
+
+function findDynamicWorkerEnvAccesses(source: string): number[] {
+	const stringLiteralBracketIndexes = new Set(
+		Array.from(source.matchAll(/\benv\s*(?:\?\.)?\s*\[\s*(["'`])([A-Z][A-Z0-9_]*)\1\s*\]/g)).map((match) => match.index ?? -1),
+	);
+	return Array.from(source.matchAll(/\benv\s*(?:\?\.)?\s*\[/g))
+		.map((match) => match.index ?? -1)
+		.filter((index) => !stringLiteralBracketIndexes.has(index));
 }
 
 function validateWorkerRouteOwnership(source: string, manifest?: ExtensionManifest): string[] {
