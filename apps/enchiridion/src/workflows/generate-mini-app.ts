@@ -1055,6 +1055,13 @@ interface GlobalFetchCall {
 
 function validateGeneratedFetchUsage(source: string): string[] {
 	const issues: string[] = [];
+	if (/\b(?:globalThis|self)\s*\.\s*fetch\b/.test(source)
+		|| /\bfetch\s*\.\s*(?:bind|call|apply)\s*\(/.test(source)
+		|| /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:\b(?:globalThis|self)\s*\.\s*)?fetch\b/.test(source)
+		|| /\b(?:const|let|var)\s*\{[^}]*\bfetch\b[^}]*\}\s*=\s*(?:globalThis|self)\b/.test(source)) {
+		issues.push("workerSource: generated Workers must call fetch directly for declared host APIs");
+	}
+
 	const fetchCalls = findGlobalFetchCalls(source);
 	if (fetchCalls.length === 0) {
 		return issues;

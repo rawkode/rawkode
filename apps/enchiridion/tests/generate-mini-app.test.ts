@@ -396,6 +396,88 @@ export default {
 		expect(result.issues).toContain("workerSource: generated Workers may only call fetch for declared host APIs");
 	});
 
+	it("rejects generated workers that call globalThis.fetch", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await globalThis.fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers must call fetch directly for declared host APIs");
+	});
+
+	it("rejects generated workers that alias fetch", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const requestFetch = fetch;
+		const response = await requestFetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers must call fetch directly for declared host APIs");
+	});
+
+	it("rejects generated workers that use fetch.call", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await fetch.call(null, url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers must call fetch directly for declared host APIs");
+	});
+
 	it("rejects generated workers that mutate URL origins before fetching", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(
