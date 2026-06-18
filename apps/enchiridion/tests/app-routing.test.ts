@@ -39,6 +39,23 @@ describe("app mini app routing", () => {
 		expect(dispatchedRequests[0]?.headers.get("x-enchiridion-host-context")).toBeTruthy();
 	});
 
+	it("does not mint host-context tokens for mini apps without host API scopes", async () => {
+		const { env, dispatchedRequests } = testEnv({
+			...helloWorldExtension,
+			hostApis: [],
+		});
+		delete (env as Partial<Env>).HOST_SIGNING_SECRET;
+
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world", {
+			headers: { accept: "text/html" },
+		}), env);
+
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("mini-app:/apps/hello-world");
+		expect(dispatchedRequests).toHaveLength(1);
+		expect(dispatchedRequests[0]?.headers.get("x-enchiridion-host-context")).toBeNull();
+	});
+
 	it("sandboxes dynamic mini app responses and strips response credentials", async () => {
 		const { env } = testEnv(helloWorldExtension, () => new Response("<html><body>Hello</body></html>", {
 			headers: {

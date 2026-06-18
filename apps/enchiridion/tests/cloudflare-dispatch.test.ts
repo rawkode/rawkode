@@ -22,6 +22,10 @@ const manifest: ExtensionManifest = {
 	hostApis: [],
 	indexProjections: [],
 };
+const scopedManifest: ExtensionManifest = {
+	...manifest,
+	hostApis: ["resource-index:read"],
+};
 
 describe("Cloudflare dispatch helpers", () => {
 	afterEach(() => {
@@ -57,6 +61,20 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(request.headers.get("x-forwarded-for")).toBeNull();
 	});
 
+	it("omits host-context forwarding when no token is provided", () => {
+		const source = new Request("https://enchiridion.rawkodeacademy.workers.dev/apps/hello-world", {
+			headers: {
+				accept: "text/html",
+				"x-enchiridion-host-context": "client-forged",
+			},
+		});
+
+		const request = createMiniAppDispatchRequest(source);
+
+		expect(request.headers.get("accept")).toBe("text/html");
+		expect(request.headers.get("x-enchiridion-host-context")).toBeNull();
+	});
+
 	it("deletes failed candidate mini app workers from the dispatch namespace", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
 		const env = {
@@ -80,7 +98,6 @@ describe("Cloudflare dispatch helpers", () => {
 	it("smoke tests the primary worker-page route through the dispatch binding", async () => {
 		let requestedPath = "";
 		const env = {
-			HOST_SIGNING_SECRET: "test-secret",
 			MINI_APP_DISPATCHER: {
 				get(scriptName: string) {
 					expect(scriptName).toBe("enchiridion-hello-world-candidate");
@@ -88,7 +105,7 @@ describe("Cloudflare dispatch helpers", () => {
 						async fetch(request: Request) {
 							const url = new URL(request.url);
 							requestedPath = url.pathname;
-							expect(request.headers.get("x-enchiridion-host-context")).toBeTruthy();
+							expect(request.headers.get("x-enchiridion-host-context")).toBeNull();
 							return new Response("<html><body>Hello</body></html>", {
 								headers: { "content-type": "text/html" },
 							});
@@ -106,6 +123,32 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.ok).toBe(true);
 		expect(result.route).toBe("/apps/hello-world");
 		expect(requestedPath).toBe("/apps/hello-world");
+	});
+
+	it("smoke tests scoped mini apps with a host-context token", async () => {
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get(scriptName: string) {
+					expect(scriptName).toBe("enchiridion-hello-world-candidate");
+					return {
+						async fetch(request: Request) {
+							expect(request.headers.get("x-enchiridion-host-context")).toBeTruthy();
+							return new Response("<html><body>Hello</body></html>", {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest: scopedManifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(true);
 	});
 
 	it("reports smoke test failures without throwing", async () => {
@@ -226,7 +269,7 @@ describe("Cloudflare dispatch helpers", () => {
 		} as unknown as Env;
 
 		const result = await smokeTestMiniAppWorker(env, {
-			manifest,
+			manifest: scopedManifest,
 			scriptName: "enchiridion-hello-world-candidate",
 		});
 
@@ -329,7 +372,7 @@ describe("Cloudflare dispatch helpers", () => {
 		} as unknown as Env;
 
 		const result = await smokeTestMiniAppWorker(env, {
-			manifest,
+			manifest: scopedManifest,
 			scriptName: "enchiridion-hello-world-candidate",
 		});
 

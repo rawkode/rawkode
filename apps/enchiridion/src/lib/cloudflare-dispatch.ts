@@ -142,7 +142,7 @@ export function candidateScriptNameForManifest(manifest: Pick<ExtensionManifest,
 	return `${base.slice(0, 54)}-${suffix}`;
 }
 
-export function createMiniAppDispatchRequest(source: Request, hostContextToken: string): Request {
+export function createMiniAppDispatchRequest(source: Request, hostContextToken?: string): Request {
 	const headers = new Headers();
 
 	for (const [key, value] of source.headers) {
@@ -151,7 +151,9 @@ export function createMiniAppDispatchRequest(source: Request, hostContextToken: 
 			headers.set(normalized, value);
 		}
 	}
-	headers.set("x-enchiridion-host-context", hostContextToken);
+	if (hostContextToken) {
+		headers.set("x-enchiridion-host-context", hostContextToken);
+	}
 
 	return new Request(source, { headers });
 }
@@ -227,33 +229,39 @@ export async function smokeTestMiniAppWorker(
 		};
 	}
 
-	let secret: string;
-	try {
-		secret = requireHostSigningSecret(env);
-	} catch (error) {
-		if (error instanceof Response) {
-			return {
-				ok: false,
-				route,
-				status: error.status,
-				message: "HOST_SIGNING_SECRET is not configured.",
-			};
+	let token: string | undefined;
+	if (input.manifest.hostApis.length > 0) {
+		let secret: string;
+		try {
+			secret = requireHostSigningSecret(env);
+		} catch (error) {
+			if (error instanceof Response) {
+				return {
+					ok: false,
+					route,
+					status: error.status,
+					message: "HOST_SIGNING_SECRET is not configured.",
+				};
+			}
+			throw error;
 		}
-		throw error;
+		token = await signHostContext({
+			app: input.manifest.slug,
+			scopes: input.manifest.hostApis,
+			expiresAt: Date.now() + 5 * 60 * 1000,
+			context: { path: route, smokeTest: true },
+		}, secret);
 	}
-	const token = await signHostContext({
-		app: input.manifest.slug,
-		scopes: input.manifest.hostApis,
-		expiresAt: Date.now() + 5 * 60 * 1000,
-		context: { path: route, smokeTest: true },
-	}, secret);
 
 	const url = new URL(route, "https://enchiridion.local");
+	const headers = new Headers({
+		accept: "text/html,application/xhtml+xml,application/json;q=0.8,*/*;q=0.5",
+	});
+	if (token) {
+		headers.set("x-enchiridion-host-context", token);
+	}
 	const request = new Request(url, {
-		headers: {
-			accept: "text/html,application/xhtml+xml,application/json;q=0.8,*/*;q=0.5",
-			"x-enchiridion-host-context": token,
-		},
+		headers,
 	});
 
 	try {

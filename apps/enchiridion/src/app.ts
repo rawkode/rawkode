@@ -318,13 +318,14 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		return json({ error: "Mini app route not found", slug }, 404);
 	}
 
-	const secret = requireHostSigningSecret(c.env, c.req.raw);
-	const token = await signHostContext({
-		app: slug,
-		scopes: extension.hostApis,
-		expiresAt: Date.now() + 5 * 60 * 1000,
-		context: { path: c.req.path },
-	}, secret);
+	const token = extension.hostApis.length > 0
+		? await signHostContext({
+			app: slug,
+			scopes: extension.hostApis,
+			expiresAt: Date.now() + 5 * 60 * 1000,
+			context: { path: c.req.path },
+		}, requireHostSigningSecret(c.env, c.req.raw))
+		: undefined;
 
 	const request = createMiniAppDispatchRequest(c.req.raw, token);
 
