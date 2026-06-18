@@ -46,6 +46,7 @@ const forwardedMiniAppHeaders = new Set([
 	"content-type",
 	"user-agent",
 ]);
+const maxMiniAppResponseBytes = 256 * 1024;
 
 export async function deployMiniAppWorker(env: Env, input: DeployMiniAppInput): Promise<DeployMiniAppResult> {
 	const accountId = env.CLOUDFLARE_ACCOUNT_ID;
@@ -175,9 +176,16 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 	headers.set("referrer-policy", "no-referrer");
 	headers.set("x-content-type-options", "nosniff");
 
-	const bodyBytes = await input.response.arrayBuffer();
-	const bodyText = new TextDecoder().decode(bodyBytes);
-	const bodyBlock = validateMiniAppResponseBody(bodyText, contentType, input.hostContextToken);
+	const bodyResult = await readMiniAppResponseBody(input.response);
+	if (!bodyResult.ok) {
+		return blockedMiniAppResponse({
+			error: "Unsafe mini app response blocked",
+			slug: input.slug,
+			reason: bodyResult.reason,
+		});
+	}
+
+	const bodyBlock = validateMiniAppResponseBody(bodyResult.text, contentType, input.hostContextToken);
 	if (bodyBlock) {
 		return blockedMiniAppResponse({
 			error: "Unsafe mini app response blocked",
@@ -187,14 +195,14 @@ export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): 
 	}
 
 	if (contentType?.toLowerCase().includes("text/html")) {
-		return new Response(bodyText, {
+		return new Response(bodyResult.text, {
 			status: input.response.status,
 			statusText: input.response.statusText,
 			headers,
 		});
 	}
 
-	return new Response(bodyBytes, {
+	return new Response(bodyResult.body, {
 		status: input.response.status,
 		statusText: input.response.statusText,
 		headers,
@@ -246,7 +254,18 @@ export async function smokeTestMiniAppWorker(
 	try {
 		const response = await env.MINI_APP_DISPATCHER.get(input.scriptName).fetch(request);
 		const contentType = response.headers.get("content-type");
-		const body = await response.text();
+		const bodyResult = await readMiniAppResponseBody(response);
+		if (!bodyResult.ok) {
+			return {
+				ok: false,
+				route,
+				status: response.status,
+				contentType,
+				message: `Smoke test failed with ${response.status}: ${bodyResult.reason}`,
+			};
+		}
+
+		const body = bodyResult.text;
 		const bodySample = sampleBody(body);
 		if (!response.ok) {
 			return {
@@ -310,6 +329,71 @@ function validateSmokeTestBody(contentType: string | null, body: string, hostCon
 function sampleBody(body: string): string {
 	const sample = body.replace(/\s+/g, " ").trim().slice(0, 500);
 	return sample || "<empty body>";
+}
+
+async function readMiniAppResponseBody(response: Response): Promise<
+	| { ok: true; body: ArrayBuffer; text: string }
+	| { ok: false; reason: string }
+> {
+	const contentLength = parseContentLength(response.headers.get("content-length"));
+	if (contentLength !== null && contentLength > maxMiniAppResponseBytes) {
+		return { ok: false, reason: miniAppResponseSizeMessage() };
+	}
+
+	if (!response.body) {
+		return { ok: true, body: new ArrayBuffer(0), text: "" };
+	}
+
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) {
+			break;
+		}
+		if (!value) {
+			continue;
+		}
+
+		total += value.byteLength;
+		if (total > maxMiniAppResponseBytes) {
+			await reader.cancel();
+			return { ok: false, reason: miniAppResponseSizeMessage() };
+		}
+		chunks.push(value);
+	}
+
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+
+	return {
+		ok: true,
+		body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+		text: new TextDecoder().decode(bytes),
+	};
+}
+
+function parseContentLength(value: string | null): number | null {
+	if (!value) {
+		return null;
+	}
+
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		return null;
+	}
+
+	return Math.trunc(parsed);
+}
+
+function miniAppResponseSizeMessage(): string {
+	return `dynamic mini app responses must be ${maxMiniAppResponseBytes} bytes or smaller`;
 }
 
 function validateMiniAppRedirect(input: SecureMiniAppResponseInput): Response | null {

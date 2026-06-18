@@ -66,6 +66,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("keep the target manifest slug exactly the same");
 		expect(prompt).toContain("self-contained JavaScript module");
 		expect(prompt).toContain("Do not return generic fallback bodies");
+		expect(prompt).toContain("Keep each dynamic mini app response at or below 262144 bytes");
 		expect(prompt).toContain("/api/host/resource-index/search");
 		expect(prompt).toContain("x-enchiridion-host-context");
 		expect(prompt).toContain("Declare hostApis only");
@@ -93,6 +94,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Smoke test failed with 500: Load failed");
 		expect(prompt).toContain("Keep the manifest slug exactly as hello-world");
 		expect(prompt).toContain("Do not return generic fallback bodies");
+		expect(prompt).toContain("Keep each dynamic mini app response at or below 262144 bytes");
 		expect(prompt).toContain("hostApis: [\"resource-index:read\"]");
 		expect(prompt).toContain("x-enchiridion-host-context");
 		expect(prompt).toContain("Declare hostApis only");

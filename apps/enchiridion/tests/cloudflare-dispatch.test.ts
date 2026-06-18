@@ -235,6 +235,61 @@ describe("Cloudflare dispatch helpers", () => {
 		expect(result.message).toContain("dynamic mini app responses cannot expose host context tokens");
 	});
 
+	it("rejects smoke tests with oversized response bodies", async () => {
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch() {
+							return new Response(`<html><body>${"x".repeat(256 * 1024)}</body></html>`, {
+								headers: { "content-type": "text/html" },
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(200);
+		expect(result.message).toContain("dynamic mini app responses must be 262144 bytes or smaller");
+	});
+
+	it("rejects smoke tests with oversized content-length before reading the body", async () => {
+		const env = {
+			HOST_SIGNING_SECRET: "test-secret",
+			MINI_APP_DISPATCHER: {
+				get() {
+					return {
+						async fetch() {
+							return new Response("<html><body>Hello</body></html>", {
+								headers: {
+									"content-type": "text/html",
+									"content-length": String(256 * 1024 + 1),
+								},
+							});
+						},
+					};
+				},
+			},
+		} as unknown as Env;
+
+		const result = await smokeTestMiniAppWorker(env, {
+			manifest,
+			scriptName: "enchiridion-hello-world-candidate",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(200);
+		expect(result.message).toContain("dynamic mini app responses must be 262144 bytes or smaller");
+	});
+
 	it("fails smoke tests when production signing material is missing", async () => {
 		const env = {
 			MINI_APP_DISPATCHER: {

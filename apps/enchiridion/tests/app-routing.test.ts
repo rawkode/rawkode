@@ -121,6 +121,21 @@ describe("app mini app routing", () => {
 		});
 	});
 
+	it("blocks oversized dynamic mini app responses", async () => {
+		const { env } = testEnv(helloWorldExtension, () => new Response(
+			`<html><body>${"x".repeat(256 * 1024)}</body></html>`,
+			{ headers: { "content-type": "text/html" } },
+		));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app response blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app responses must be 262144 bytes or smaller",
+		});
+	});
+
 	it("allows dynamic mini app redirects inside the same app route namespace", async () => {
 		const { env } = testEnv(helloWorldExtension, () => Response.redirect("http://localhost/apps/hello-world/settings", 302));
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
