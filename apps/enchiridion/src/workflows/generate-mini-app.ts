@@ -43,7 +43,7 @@ const miniAppBuilder = createAgent<unknown, Env>(({ env }) => {
 	registerRuntimeProviders(env);
 
 	return {
-		model: "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6",
+		model: "cloudflare-workers-ai/@cf/zai-org/glm-5.2",
 		instructions: [
 			"Generate Enchiridion mini apps as Cloudflare module Workers.",
 			"Return a strict extension manifest and one JavaScript module worker source.",
@@ -51,6 +51,8 @@ const miniAppBuilder = createAgent<unknown, Env>(({ env }) => {
 			"Use signed host APIs for host data.",
 			"Declare isolated bindings only when the app needs its own KV, D1, or R2 storage.",
 			"Never request direct access to the host DB binding.",
+			"For scheduled work, manifest workflows must use { id, label, trigger: \"scheduled\", workflowName: \"run-mini-app-workflow\", cron, requiredHostApis } and include a matching worker-fragment POST route at /apps/<slug>/_workflows/<id>.",
+			"Generated dispatch Workers must not use timers, browser globals, Cache API state, script tags, inline event handlers, or browser-authenticated app APIs.",
 		].join(" "),
 	};
 });

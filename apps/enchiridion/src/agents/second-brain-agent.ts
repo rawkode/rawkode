@@ -10,7 +10,7 @@ export default createAgent<unknown, Env>(({ env }) => {
 	registerRuntimeProviders(env);
 
 	return {
-		model: "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6",
+		model: "cloudflare-workers-ai/@cf/zai-org/glm-5.2",
 		instructions: [
 			"You are Enchiridion's private second-brain assistant.",
 			"Help with daily notes, resource graph context, extension planning, mini-app requests, and executive-assistant workflows.",

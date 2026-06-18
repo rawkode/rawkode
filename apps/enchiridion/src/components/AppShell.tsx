@@ -178,6 +178,7 @@ type ExtensionBlockProps = JsonObject & {
 	runOffset?: string;
 	slugHint?: string;
 	streamUrl?: string;
+	streamLines?: string[];
 	status?: string;
 	summary?: string;
 	tagsInput?: string;
@@ -303,9 +304,20 @@ type MiniAppBuildRecord = MiniAppBuildAdmission & {
 type PendingMiniAppBuildRun = {
 	buildId: string;
 	blockId: string;
+	date: string;
 	intent: MiniAppIntent;
 	prompt: string;
 	runId?: string;
+};
+
+type FloatingAgentJob = {
+	id: string;
+	date: string;
+	app: string;
+	block: string;
+	props: ExtensionBlockProps;
+	createdAt: string;
+	updatedAt: string;
 };
 
 type AgentTargetOption = {
@@ -324,6 +336,7 @@ const projectCreateSubmitEvent = "enchiridion:project-create-submit";
 const projectCreateCancelEvent = "enchiridion:project-create-cancel";
 const kanbanCardCreateSubmitEvent = "enchiridion:kanban-card-create-submit";
 const kanbanCardCreateCancelEvent = "enchiridion:kanban-card-create-cancel";
+const floatingAgentJobsStorageKey = "enchiridion:floating-agent-jobs";
 
 const SlashCommandExtension = Extension.create({
 	name: "slashCommand",
@@ -911,7 +924,7 @@ function AgentRequestInputBlock({ props, updateProps }: { props: ExtensionBlockP
 					/>
 				</label>
 				<div {...stylex.props(shell.agentRequestActions)}>
-					<span {...stylex.props(shell.emptyHint)}>{props.summary || "The response will replace this block."}</span>
+					<span {...stylex.props(shell.emptyHint)}>{props.summary || "The request will move to a floating job."}</span>
 					<div {...stylex.props(shell.agentRequestButtons)}>
 						<button
 							{...stylex.props(shell.controlBase, shell.interactiveHover, shell.toolbarButton)}
@@ -1063,6 +1076,7 @@ export default function AppShell() {
 	const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string | null>(null);
 	const [panelTabs, setPanelTabs] = useState<AppPanelTab[]>([]);
 	const [activePanelTabId, setActivePanelTabId] = useState<string | null>(null);
+	const [agentJobs, setAgentJobs] = useState<FloatingAgentJob[]>(() => readFloatingAgentJobs());
 	const [slashState, setSlashState] = useState<SlashMenuState | null>(null);
 	const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
 	const skipNextUpdate = useRef(false);
@@ -1071,6 +1085,8 @@ export default function AppShell() {
 	const pendingSaveRef = useRef<PendingNoteSave | null>(null);
 	const saveInFlightRef = useRef(false);
 	const activeMiniAppRunPollers = useRef(new Set<string>());
+	const dismissedAgentJobIds = useRef(new Set<string>());
+	const detachedDocumentAgentJobIds = useRef(new Set<string>());
 	const unmountedRef = useRef(false);
 	const slashStateRef = useRef<SlashMenuState | null>(null);
 	const slashSelectedIndexRef = useRef(0);
@@ -1183,6 +1199,10 @@ export default function AppShell() {
 	useEffect(() => {
 		writePinnedApps(pinnedAppSlugs);
 	}, [pinnedAppSlugs]);
+
+	useEffect(() => {
+		writeFloatingAgentJobs(agentJobs);
+	}, [agentJobs]);
 
 	useEffect(() => {
 		const onSlashState = (event: Event) => {
@@ -1562,6 +1582,58 @@ export default function AppShell() {
 		});
 	}, [editor]);
 
+	const upsertAgentJob = useCallback((
+		job: Omit<FloatingAgentJob, "createdAt" | "updatedAt"> & { createdAt?: string; updatedAt?: string },
+	) => {
+		if (dismissedAgentJobIds.current.has(job.id)) {
+			return;
+		}
+		const now = new Date().toISOString();
+		setAgentJobs((current) => {
+			const existing = current.find((entry) => entry.id === job.id);
+			const nextJob: FloatingAgentJob = {
+				...job,
+				createdAt: job.createdAt ?? existing?.createdAt ?? now,
+				updatedAt: job.updatedAt ?? now,
+			};
+			return [
+				nextJob,
+				...current.filter((entry) => entry.id !== job.id),
+			].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+		});
+	}, []);
+
+	const dismissAgentJob = useCallback((jobId: string) => {
+		dismissedAgentJobIds.current.add(jobId);
+		setAgentJobs((current) => current.filter((entry) => entry.id !== jobId));
+	}, []);
+
+	const appendAgentJobToDocument = useCallback(async (job: FloatingAgentJob) => {
+		if (!editor || !isTerminalFloatingAgentJob(job)) {
+			return;
+		}
+		const insertAt = editor.state.doc.content.size;
+		if (job.app === "agent" && job.block === "response") {
+			const summary = typeof job.props.summary === "string" ? job.props.summary.trim() : "";
+			if (!summary) {
+				return;
+			}
+			editor.chain().focus().insertContentAt(insertAt, textToTiptapBlocks(summary)).run();
+		} else {
+			editor.chain().focus().insertContentAt(insertAt, {
+				type: "extensionBlock",
+				attrs: {
+					app: job.app,
+					block: job.block,
+					props: job.props,
+					version: "0.1.0",
+				},
+			}).run();
+		}
+		dismissAgentJob(job.id);
+		await persistCurrentDocument();
+	}, [dismissAgentJob, editor, persistCurrentDocument]);
+
 	const pollMiniAppBuildRun = useCallback(async (pending: PendingMiniAppBuildRun) => {
 		if (activeMiniAppRunPollers.current.has(pending.buildId)) {
 			return;
@@ -1570,9 +1642,14 @@ export default function AppShell() {
 		activeMiniAppRunPollers.current.add(pending.buildId);
 		try {
 			while (!unmountedRef.current) {
+				if (dismissedAgentJobIds.current.has(pending.blockId)) {
+					return;
+				}
 				const build = await fetchMiniAppBuild(pending.buildId);
 				if (build.status === "pending" || build.status === "running" || build.status === "interrupted") {
-					updateExtensionBlock(pending.blockId, {
+					upsertAgentJob({
+						id: pending.blockId,
+						date: pending.date,
 						app: "agent",
 						block: "request",
 						props: {
@@ -1584,6 +1661,7 @@ export default function AppShell() {
 							runId: build.currentRunId ?? pending.runId,
 							slugHint: pending.intent.slugHint,
 							status: "running",
+							streamLines: formatMiniAppBuildStream(build),
 							summary: formatMiniAppBuildProgress(build),
 							targetSlug: pending.intent.targetSlug,
 							title: build.status === "interrupted" ? "Mini app build retrying" : "Mini app build running",
@@ -1598,7 +1676,9 @@ export default function AppShell() {
 					const result = asRecord(build.result);
 					const slug = String(result.slug ?? pending.intent.targetSlug ?? "mini-app");
 					const route = typeof result.routeUrl === "string" && result.routeUrl.trim() ? result.routeUrl : `/apps/${slug}`;
-					updateExtensionBlock(pending.blockId, {
+					upsertAgentJob({
+						id: pending.blockId,
+						date: pending.date,
 						app: slug,
 						block: "mini-app-reference",
 						props: {
@@ -1611,17 +1691,19 @@ export default function AppShell() {
 							runId: build.currentRunId ?? pending.runId,
 							slugHint: pending.intent.slugHint,
 							status: "complete",
+							streamLines: formatMiniAppBuildStream(build),
 							summary: formatMiniAppResult(result, pending.intent, typeof window !== "undefined" ? window.location.origin : undefined),
 							title: `${humanizeSlug(slug)} mini app`,
 							workflowName: generateMiniAppWorkflowName,
 						},
 					});
-					await persistCurrentDocument();
 					await loadSnapshot(selectedDate);
 					return;
 				}
 
-				updateExtensionBlock(pending.blockId, {
+				upsertAgentJob({
+					id: pending.blockId,
+					date: pending.date,
 					app: "agent",
 					block: "error",
 					props: {
@@ -1632,17 +1714,19 @@ export default function AppShell() {
 						prompt: pending.prompt,
 						runId: build.currentRunId ?? pending.runId,
 						status: "error",
-						summary: formatMiniAppBuildError(build.error, `Mini app build ${pending.buildId} failed.`),
+						streamLines: formatMiniAppBuildStream(build),
+						summary: formatMiniAppBuildFailure(build, pending.intent),
 						title: build.status === "expired" ? "Mini app build expired" : "Mini app build failed",
 						workflowName: generateMiniAppWorkflowName,
 					},
 				});
-				await persistCurrentDocument();
 				return;
 			}
 		} catch (error) {
 			if (!unmountedRef.current) {
-				updateExtensionBlock(pending.blockId, {
+				upsertAgentJob({
+					id: pending.blockId,
+					date: pending.date,
 					app: "agent",
 					block: "error",
 					props: {
@@ -1652,27 +1736,71 @@ export default function AppShell() {
 						buildId: pending.buildId,
 						runId: pending.runId,
 						status: "error",
+						streamLines: [
+							`Build ${pending.buildId}`,
+							formatMiniAppBuildError(error, `Mini app build ${pending.buildId} could not be checked.`),
+						],
 						summary: formatMiniAppBuildError(error, `Mini app build ${pending.buildId} could not be checked.`),
 						title: "Mini app build failed",
 						workflowName: generateMiniAppWorkflowName,
 					},
 				});
-				await persistCurrentDocument();
 			}
 		} finally {
 			activeMiniAppRunPollers.current.delete(pending.buildId);
 		}
-	}, [loadSnapshot, persistCurrentDocument, selectedDate, updateExtensionBlock]);
+	}, [loadSnapshot, selectedDate, upsertAgentJob]);
 
 	useEffect(() => {
 		if (!note) {
 			return;
 		}
 
-		for (const pending of findPendingMiniAppBuildRuns(note.documentJson)) {
+		let detachedAny = false;
+		for (const pending of findPendingMiniAppBuildRuns(note.documentJson, note.date)) {
+			upsertAgentJob({
+				id: pending.blockId,
+				date: pending.date,
+				app: "agent",
+				block: "request",
+				props: {
+					id: pending.blockId,
+					buildId: pending.buildId,
+					operation: pending.intent.operation,
+					prompt: pending.prompt,
+					runId: pending.runId,
+					slugHint: pending.intent.slugHint,
+					status: "running",
+					streamLines: [
+						`Build ${pending.buildId}`,
+						pending.runId ? `Submission ${pending.runId}` : "Resuming build tracking.",
+					],
+					summary: "Resuming durable mini app build tracking.",
+					targetSlug: pending.intent.targetSlug,
+					title: "Mini app build running",
+					workflowName: generateMiniAppWorkflowName,
+				},
+			});
+			if (!detachedDocumentAgentJobIds.current.has(pending.blockId)) {
+				detachedDocumentAgentJobIds.current.add(pending.blockId);
+				removeExtensionBlock(pending.blockId);
+				detachedAny = true;
+			}
 			void pollMiniAppBuildRun(pending);
 		}
-	}, [note?.id, note?.version, pollMiniAppBuildRun]);
+		if (detachedAny) {
+			void persistCurrentDocument();
+		}
+	}, [note?.date, note?.id, note?.version, persistCurrentDocument, pollMiniAppBuildRun, removeExtensionBlock, upsertAgentJob]);
+
+	useEffect(() => {
+		for (const job of agentJobs) {
+			const pending = floatingAgentJobToPendingMiniAppBuild(job);
+			if (pending) {
+				void pollMiniAppBuildRun(pending);
+			}
+		}
+	}, [agentJobs, pollMiniAppBuildRun]);
 
 	const startAgentRequestInDocument = useCallback((mode: AgentRequestMode, range?: SlashRange) => {
 		if (!editor || !snapshot) {
@@ -1695,7 +1823,7 @@ export default function AppShell() {
 				mode,
 				placeholder,
 				status: "draft",
-				summary: "The response will replace this block.",
+				summary: "The request will move to a floating job.",
 				targetOptions: dynamicExtensions.map((extension) => ({
 					name: extension.name,
 					slug: extension.slug,
@@ -1721,6 +1849,24 @@ export default function AppShell() {
 		if (!message) {
 			return;
 		}
+
+		removeExtensionBlock(blockId);
+		upsertAgentJob({
+			id: blockId,
+			date: selectedDate,
+			app: "agent",
+			block: "request",
+			props: {
+				id: blockId,
+				prompt: message,
+				status: "running",
+				streamLines: ["Request submitted.", "Waiting for Enchiridion to admit work."],
+				title: mode === "build" ? "Mini app build starting" : mode === "update" ? "Mini app update starting" : "Agent request",
+				summary: "Working outside the document.",
+			},
+		});
+		await persistCurrentDocument();
+
 		let operationOverride: MiniAppOperation | undefined;
 		let targetSlug: string | undefined;
 		let promptPrefix = "";
@@ -1731,13 +1877,16 @@ export default function AppShell() {
 			const target = inputTargetSlug ? findReferencedExtension(inputTargetSlug, searchableExtensions) : findReferencedExtension(message, searchableExtensions);
 			targetSlug = target?.slug ?? inputTargetSlug?.trim();
 			if (!targetSlug) {
-				updateExtensionBlock(blockId, {
+				upsertAgentJob({
+					id: blockId,
+					date: selectedDate,
 					app: "agent",
 					block: "error",
 					props: {
 						id: blockId,
 						prompt: message,
 						status: "error",
+						streamLines: ["Target mini app was not provided."],
 						title: "Agent failed",
 						summary: "Choose or type a mini app slug to update.",
 					},
@@ -1754,15 +1903,19 @@ export default function AppShell() {
 			contextResponse,
 			prompt,
 		});
-		updateExtensionBlock(blockId, {
+
+		upsertAgentJob({
+			id: blockId,
+			date: selectedDate,
 			app: "agent",
 			block: "request",
 			props: {
 				id: blockId,
 				prompt,
 				status: "running",
+				streamLines: ["Request prepared.", "Working outside the document."],
 				title: "Agent request",
-				summary: "Working in the document.",
+				summary: "Working outside the document.",
 			},
 		});
 
@@ -1773,7 +1926,9 @@ export default function AppShell() {
 				: inferMiniAppIntent(agentPrompt, snapshot.extensions, mode === "build");
 			if (intent.shouldBuild) {
 				attemptedMiniAppBuild = true;
-				updateExtensionBlock(blockId, {
+				upsertAgentJob({
+					id: blockId,
+					date: selectedDate,
 					app: "agent",
 					block: "request",
 					props: {
@@ -1782,13 +1937,13 @@ export default function AppShell() {
 						prompt,
 						slugHint: intent.slugHint,
 						status: "running",
+						streamLines: ["Mini app intent detected.", "Admitting durable builder run to Flue."],
 						summary: "Admitting the mini app build to Flue.",
 						targetSlug: intent.targetSlug,
 						title: "Mini app build starting",
 						workflowName: generateMiniAppWorkflowName,
 					},
 				});
-				await persistCurrentDocument();
 				const buildResponse = await fetch("/api/mini-app-builds", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
@@ -1804,7 +1959,27 @@ export default function AppShell() {
 				if (!buildResponse.ok || !build.id) {
 					throw new Error(formatMiniAppBuildError(build.error, `Mini app build admission failed with ${buildResponse.status}`));
 				}
-				updateExtensionBlock(blockId, {
+				const buildRecord: MiniAppBuildRecord = {
+					attemptCount: 1,
+					autonomousDeploy: build.autonomousDeploy,
+					completedAt: null,
+					createdAt: "",
+					currentRunId: build.currentRunId,
+					deadlineAt: build.deadlineAt,
+					error: build.error,
+					id: build.id,
+					maxAttempts: build.maxAttempts,
+					operation: build.operation,
+					prompt: build.prompt,
+					result: build.result,
+					status: build.status,
+					targetSlug: build.targetSlug,
+					slugHint: build.slugHint,
+					updatedAt: "",
+				};
+				upsertAgentJob({
+					id: blockId,
+					date: selectedDate,
 					app: "agent",
 					block: "request",
 					props: {
@@ -1816,33 +1991,17 @@ export default function AppShell() {
 						runId: build.currentRunId ?? undefined,
 						slugHint: intent.slugHint,
 						status: "running",
-						summary: formatMiniAppBuildProgress({
-							attemptCount: 1,
-							autonomousDeploy: build.autonomousDeploy,
-							completedAt: null,
-							createdAt: "",
-							currentRunId: build.currentRunId,
-							deadlineAt: build.deadlineAt,
-							error: build.error,
-							id: build.id,
-							maxAttempts: build.maxAttempts,
-							operation: build.operation,
-							prompt: build.prompt,
-							result: build.result,
-							status: build.status,
-							targetSlug: build.targetSlug,
-							slugHint: build.slugHint,
-							updatedAt: "",
-						}),
+						streamLines: formatMiniAppBuildStream(buildRecord),
+						summary: formatMiniAppBuildProgress(buildRecord),
 						targetSlug: intent.targetSlug,
 						title: "Mini app build running",
 						workflowName: generateMiniAppWorkflowName,
 					},
 				});
-				await persistCurrentDocument();
 				void pollMiniAppBuildRun({
 					buildId: build.id,
 					blockId,
+					date: selectedDate,
 					intent,
 					prompt,
 					runId: build.currentRunId ?? undefined,
@@ -1859,13 +2018,16 @@ export default function AppShell() {
 			if (!response.ok) {
 				throw new Error(formatAgentError(body.error, `Agent failed with ${response.status}`));
 			}
-			updateExtensionBlock(blockId, {
+			upsertAgentJob({
+				id: blockId,
+				date: selectedDate,
 				app: "agent",
 				block: "response",
 				props: {
 					id: blockId,
 					prompt,
 					status: "complete",
+					streamLines: ["Agent response completed."],
 					title: "Agent response",
 					summary: formatAgentResult(body.result),
 				},
@@ -1875,19 +2037,22 @@ export default function AppShell() {
 			const summary = buildError
 				? formatMiniAppBuildError(error, "Mini app build failed before returning a deployment result. No mini app was activated.")
 				: formatAgentError(error, "Agent request failed.");
-			updateExtensionBlock(blockId, {
+			upsertAgentJob({
+				id: blockId,
+				date: selectedDate,
 				app: "agent",
 				block: "error",
 				props: {
 					id: blockId,
 					prompt,
 					status: "error",
+					streamLines: ["Request failed.", summary],
 					title: buildError ? "Mini app build failed" : "Agent failed",
 					summary,
 				},
 			});
 		}
-	}, [loadSnapshot, persistCurrentDocument, pollMiniAppBuildRun, selectedDate, snapshot, updateExtensionBlock]);
+	}, [persistCurrentDocument, pollMiniAppBuildRun, removeExtensionBlock, selectedDate, snapshot, upsertAgentJob]);
 
 	useEffect(() => {
 		const onAgentRequestSubmit = (event: Event) => {
@@ -2515,6 +2680,7 @@ export default function AppShell() {
 	const calendarDays = calendarExpanded ? buildMonthCalendarDays(calendarMonth) : buildWeekCalendarDays(selectedDate);
 	const calendarTitle = calendarExpanded ? formatCalendarMonth(calendarMonth) : formatCalendarWeek(selectedDate);
 	const calendarUnit = calendarExpanded ? "month" : "week";
+	const visibleAgentJobs = agentJobs.filter((job) => job.date === selectedDate);
 
 	return (
 		<div {...stylex.props(shell.appShell, activePanelTab ? shell.appShellWithPanel : null)}>
@@ -2746,6 +2912,14 @@ export default function AppShell() {
 					onRun={runCommand}
 				/>
 			)}
+
+			<FloatingAgentJobTray
+				jobs={visibleAgentJobs}
+				onAppend={(job) => {
+					void appendAgentJobToDocument(job);
+				}}
+				onDismiss={dismissAgentJob}
+			/>
 		</div>
 	);
 }
@@ -3410,6 +3584,104 @@ function CommandPalette({
 	);
 }
 
+function FloatingAgentJobTray({
+	jobs,
+	onAppend,
+	onDismiss,
+}: {
+	jobs: FloatingAgentJob[];
+	onAppend: (job: FloatingAgentJob) => void;
+	onDismiss: (jobId: string) => void;
+}) {
+	if (jobs.length === 0) {
+		return null;
+	}
+
+	return (
+		<div {...stylex.props(shell.floatingAgentTray)} aria-live="polite" aria-label="Agent jobs">
+			{jobs.slice(0, 3).map((job) => {
+				const title = typeof job.props.title === "string" && job.props.title.trim() ? job.props.title : "Agent job";
+				const prompt = typeof job.props.prompt === "string" ? job.props.prompt : "";
+				const summary = typeof job.props.summary === "string" ? job.props.summary : "";
+				const route = typeof job.props.route === "string" && job.props.route.trim() ? job.props.route : "";
+				const routeTitle = route ? titleForExtensionRoute(job.app, title) : title;
+				const terminal = isTerminalFloatingAgentJob(job);
+				const failed = job.props.status === "error";
+				const streamLines = readFloatingAgentJobStreamLines(job);
+				const buildMeta = formatAgentBuildMeta({ ...job.props, app: job.app, block: job.block }, formatBuildDeadline);
+
+				return (
+					<section
+						key={job.id}
+						{...stylex.props(shell.floatingAgentTile, failed ? shell.floatingAgentTileError : null)}
+					>
+						<div {...stylex.props(shell.floatingAgentHeader)}>
+							<div {...stylex.props(shell.paletteLabel)}>
+								<span {...stylex.props(shell.extensionBlockHeader)}>
+									<span {...stylex.props(shell.extensionBlockKind)}>{job.app}/{job.block}</span>
+									<span {...stylex.props(shell.extensionBlockStatus)}>{floatingAgentJobStatusLabel(job)}</span>
+								</span>
+								<strong {...stylex.props(shell.extensionBlockTitle)}>{title}</strong>
+							</div>
+							<button
+								{...stylex.props(shell.controlBase, shell.interactiveHover, shell.iconButton)}
+								type="button"
+								onClick={() => onDismiss(job.id)}
+								aria-label={`Dismiss ${title}`}
+								title="Dismiss"
+							>
+								<X size={14} />
+							</button>
+						</div>
+						{prompt ? <span {...stylex.props(shell.extensionBlockPrompt)}>{prompt}</span> : null}
+						{summary ? <span {...stylex.props(shell.extensionBlockSummary)}>{summary}</span> : null}
+						{buildMeta ? <span {...stylex.props(shell.paletteMeta)}>{buildMeta}</span> : null}
+						{streamLines.length > 0 ? (
+							<div {...stylex.props(shell.floatingAgentStream)} aria-label="Build stream">
+								{streamLines.map((line, index) => (
+									<span key={`${job.id}-line-${index}`}>{line}</span>
+								))}
+							</div>
+						) : null}
+						<div {...stylex.props(shell.floatingAgentActions)}>
+							{route ? (
+								<>
+									<button
+										{...stylex.props(shell.controlBase, shell.interactiveHover, shell.toolbarButton)}
+										type="button"
+										onClick={() => openAppInShell({ mode: "panel", route, title: routeTitle })}
+									>
+										<LayoutGrid size={14} />
+										<span>Open side panel</span>
+									</button>
+									<button
+										{...stylex.props(shell.controlBase, shell.interactiveHover, shell.toolbarButton)}
+										type="button"
+										onClick={() => openAppInShell({ mode: "tab", route, title: routeTitle })}
+									>
+										<ExternalLink size={14} />
+										<span>Open workspace tab</span>
+									</button>
+								</>
+							) : null}
+							<button
+								{...stylex.props(shell.controlBase, terminal ? shell.primaryTextButton : shell.toolbarButton)}
+								type="button"
+								disabled={!terminal}
+								onClick={() => onAppend(job)}
+								title={terminal ? "Append to document" : "Waiting for the job to finish"}
+							>
+								<FileText size={14} />
+								<span>Append to document</span>
+							</button>
+						</div>
+					</section>
+				);
+			})}
+		</div>
+	);
+}
+
 async function readJsonBody<T>(response: Response): Promise<T> {
 	const text = await response.text();
 	if (!text) {
@@ -3691,6 +3963,101 @@ function formatMiniAppBuildProgress(build: MiniAppBuildRecord): string {
 	return `Queued for attempt ${attempt}/${build.maxAttempts}. Deadline ${deadline}.`;
 }
 
+function formatMiniAppBuildFailure(build: MiniAppBuildRecord, intent: MiniAppIntent): string {
+	const result = asRecord(build.result);
+	const resultSummary = Object.keys(result).length > 0
+		? formatMiniAppResult(result, intent, typeof window !== "undefined" ? window.location.origin : undefined)
+		: "";
+	const errorSummary = formatMiniAppBuildError(build.error, `Mini app build ${build.id} failed.`);
+	return [errorSummary, resultSummary].filter(Boolean).join(" ");
+}
+
+function formatMiniAppBuildStream(build: MiniAppBuildRecord): string[] {
+	const lines = [
+		`Build ${build.id}`,
+		`Status ${build.status}; attempt ${Math.max(build.attemptCount, 1)}/${build.maxAttempts}`,
+		build.currentRunId ? `Submission ${build.currentRunId}` : "",
+		`Deadline ${formatBuildDeadline(build.deadlineAt)}`,
+	];
+	const result = asRecord(build.result);
+	const resultStatus = typeof result.status === "string" ? result.status : "";
+	const slug = typeof result.slug === "string" ? result.slug : "";
+	if (resultStatus) {
+		lines.push(`Result ${resultStatus}${slug ? ` for ${slug}` : ""}`);
+	}
+	const resultIssues = Array.from(new Set([
+		...readStringArray(result.issues),
+		...readAttemptIssueLines(result.attempts),
+	]));
+	for (const issue of resultIssues.slice(0, 12)) {
+		lines.push(`Issue: ${issue}`);
+	}
+	const error = asRecord(build.error);
+	const errorMessage = typeof error.message === "string" ? error.message.trim() : "";
+	if (errorMessage) {
+		lines.push(`Error: ${errorMessage}`);
+	}
+	return lines.filter((line) => line.trim().length > 0);
+}
+
+function readAttemptIssueLines(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.flatMap((attempt) => {
+		const record = asRecord(attempt);
+		return readStringArray(record.issues);
+	});
+}
+
+function floatingAgentJobToPendingMiniAppBuild(job: FloatingAgentJob): PendingMiniAppBuildRun | null {
+	if (
+		job.props.status !== "running"
+		|| job.props.workflowName !== generateMiniAppWorkflowName
+		|| typeof job.props.buildId !== "string"
+		|| !job.props.buildId.trim()
+	) {
+		return null;
+	}
+
+	return {
+		buildId: job.props.buildId,
+		blockId: job.id,
+		date: job.date,
+		intent: {
+			operation: readMiniAppOperation(job.props.operation),
+			shouldBuild: true,
+			...(typeof job.props.slugHint === "string" && job.props.slugHint.trim() ? { slugHint: job.props.slugHint } : {}),
+			...(typeof job.props.targetSlug === "string" && job.props.targetSlug.trim() ? { targetSlug: job.props.targetSlug } : {}),
+		},
+		prompt: typeof job.props.prompt === "string" ? job.props.prompt : "",
+		runId: typeof job.props.runId === "string" && job.props.runId.trim() ? job.props.runId : undefined,
+	};
+}
+
+function isTerminalFloatingAgentJob(job: FloatingAgentJob): boolean {
+	return job.props.status === "complete" || job.props.status === "error";
+}
+
+function floatingAgentJobStatusLabel(job: FloatingAgentJob): string {
+	if (job.props.status === "running") {
+		return "Working";
+	}
+	if (job.props.status === "complete") {
+		return "Complete";
+	}
+	if (job.props.status === "error") {
+		return "Error";
+	}
+	return typeof job.props.status === "string" && job.props.status.trim() ? job.props.status : "Job";
+}
+
+function readFloatingAgentJobStreamLines(job: FloatingAgentJob): string[] {
+	return Array.isArray(job.props.streamLines)
+		? job.props.streamLines.filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+		: [];
+}
+
 function formatBuildDeadline(value: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) {
@@ -3703,7 +4070,7 @@ function formatBuildDeadline(value: string): string {
 	}).format(date);
 }
 
-function findPendingMiniAppBuildRuns(documentJson: JsonObject): PendingMiniAppBuildRun[] {
+function findPendingMiniAppBuildRuns(documentJson: JsonObject, date: string): PendingMiniAppBuildRun[] {
 	const pending: PendingMiniAppBuildRun[] = [];
 
 	visitTiptapNodes(documentJson, (node) => {
@@ -3726,6 +4093,7 @@ function findPendingMiniAppBuildRuns(documentJson: JsonObject): PendingMiniAppBu
 		pending.push({
 			buildId: props.buildId,
 			blockId: props.id,
+			date,
 			intent: {
 				operation: readMiniAppOperation(props.operation),
 				shouldBuild: true,
@@ -3783,6 +4151,12 @@ function asExtensionBlockProps(value: unknown): ExtensionBlockProps {
 	return value as ExtensionBlockProps;
 }
 
+function readStringArray(value: unknown): string[] {
+	return Array.isArray(value)
+		? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+		: [];
+}
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -3838,4 +4212,49 @@ function writePinnedApps(slugs: string[]) {
 		return;
 	}
 	window.localStorage.setItem("enchiridion:pinned-mini-apps", JSON.stringify(slugs));
+}
+
+function readFloatingAgentJobs(): FloatingAgentJob[] {
+	if (typeof window === "undefined") {
+		return [];
+	}
+	try {
+		const raw = window.localStorage.getItem(floatingAgentJobsStorageKey);
+		const parsed = raw ? JSON.parse(raw) : [];
+		if (!Array.isArray(parsed)) {
+			return [];
+		}
+		return parsed.flatMap((entry): FloatingAgentJob[] => {
+			const record = asRecord(entry);
+			const props = asExtensionBlockProps(record.props);
+			if (
+				typeof record.id !== "string"
+				|| typeof record.date !== "string"
+				|| typeof record.app !== "string"
+				|| typeof record.block !== "string"
+				|| typeof record.createdAt !== "string"
+				|| typeof record.updatedAt !== "string"
+			) {
+				return [];
+			}
+			return [{
+				id: record.id,
+				date: record.date,
+				app: record.app,
+				block: record.block,
+				props,
+				createdAt: record.createdAt,
+				updatedAt: record.updatedAt,
+			}];
+		}).slice(0, 20);
+	} catch {
+		return [];
+	}
+}
+
+function writeFloatingAgentJobs(jobs: FloatingAgentJob[]) {
+	if (typeof window === "undefined") {
+		return;
+	}
+	window.localStorage.setItem(floatingAgentJobsStorageKey, JSON.stringify(jobs.slice(0, 20)));
 }

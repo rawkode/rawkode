@@ -23,7 +23,7 @@ export default createAgent<unknown, Env>(({ env, id }) => {
 	registerRuntimeProviders(env);
 
 	return {
-		model: "cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6",
+		model: "cloudflare-workers-ai/@cf/zai-org/glm-5.2",
 		durability: {
 			maxAttempts: 6,
 			timeoutMs: 30 * 60 * 1000,
@@ -34,7 +34,9 @@ export default createAgent<unknown, Env>(({ env, id }) => {
 			"Generate exactly one complete Enchiridion mini-app candidate and call submit_mini_app_candidate with it.",
 			"Do not claim a mini app is deployed from chat text. The submit_mini_app_candidate tool validates the manifest, uploads the Cloudflare dispatch Worker, smoke tests it, saves the extension, and settles the build ledger.",
 			"If the request needs recurring work, declare scheduled manifest workflows and worker-owned callback routes under /apps/<slug>/_workflows/*. The Enchiridion host owns cron scheduling; generated Workers must not rely on Cloudflare Cron Triggers inside the dispatch namespace.",
+			"Scheduled workflow manifest entries must use this exact shape: { id, label, trigger: \"scheduled\", workflowName: \"run-mini-app-workflow\", cron, requiredHostApis }. The id must be kebab-case and the Worker must provide a matching worker-fragment POST route at /apps/<slug>/_workflows/<id>.",
 			"Routes must stay under /apps/<slug>. Generated Workers must be self-contained module Workers and must not import packages or access the host D1 binding.",
+			"Generated dispatch Workers must not use setInterval, setTimeout, browser globals, Cache API state, service-worker globals, script tags, inline event handlers, or browser-authenticated app APIs.",
 			"Use scoped host APIs only when declared in the manifest. Prefer worker-page routes plus host scheduler workflows for mini apps that need background syncing.",
 			"If you cannot produce a safe candidate, call fail_mini_app_build with the concrete reason.",
 		].join(" "),
