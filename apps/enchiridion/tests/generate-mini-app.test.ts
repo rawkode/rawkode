@@ -268,6 +268,46 @@ export default {
 		expect(result.ok).toBe(true);
 	});
 
+	it("rejects generated workers with unused host API declarations", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				hostApis: ["resource-index:read"],
+			}),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source: resource-index:read");
+	});
+
+	it("rejects generated workers with unavailable extra host API scopes", () => {
+		const workerSource = `
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`;
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				hostApis: ["resource-index:read", "notes:write"],
+			}, workerSource),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source: notes:write");
+	});
+
 	it("allows inline declared host API fetch targets", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated({

@@ -1026,6 +1026,7 @@ function validateWorkerSource(workerSource: string, manifest?: ExtensionManifest
 
 	issues.push(...validateGeneratedFetchUsage(source));
 	issues.push(...validateHostApiUsage(source, manifest));
+	issues.push(...validateGeneratedHostApiScopes(source, manifest));
 	issues.push(...validateWorkerRouteOwnership(source, manifest));
 
 	return issues;
@@ -1081,6 +1082,24 @@ function validateGeneratedFetchUsage(source: string): string[] {
 	}
 
 	return issues;
+}
+
+function validateGeneratedHostApiScopes(source: string, manifest?: ExtensionManifest): string[] {
+	if (!manifest) {
+		return [];
+	}
+
+	const usedHostApis = new Set<string>();
+	if (findHostApiPaths(source).includes("/api/host/resource-index/search")) {
+		usedHostApis.add("resource-index:read");
+	}
+
+	const unusedOrUnavailableApis = manifest.hostApis.filter((api) => !usedHostApis.has(api));
+	if (unusedOrUnavailableApis.length === 0) {
+		return [];
+	}
+
+	return [`hostApis: generated mini apps may only declare host APIs used by Worker source: ${unusedOrUnavailableApis.join(", ")}`];
 }
 
 function findGlobalFetchCalls(source: string): GlobalFetchCall[] {

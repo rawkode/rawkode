@@ -68,6 +68,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(prompt).toContain("/api/host/resource-index/search");
 		expect(prompt).toContain("x-enchiridion-host-context");
+		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
@@ -88,6 +89,7 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(prompt).toContain("hostApis: [\"resource-index:read\"]");
 		expect(prompt).toContain("x-enchiridion-host-context");
+		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
 		expect(prompt).toContain("export default");
