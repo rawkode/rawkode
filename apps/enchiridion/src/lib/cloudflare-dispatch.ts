@@ -154,15 +154,17 @@ export function createMiniAppDispatchRequest(source: Request, hostContextToken: 
 	return new Request(source, { headers });
 }
 
-export function secureMiniAppResponse(input: SecureMiniAppResponseInput): Response {
+export async function secureMiniAppResponse(input: SecureMiniAppResponseInput): Promise<Response> {
 	const redirectBlock = validateMiniAppRedirect(input);
 	if (redirectBlock) {
 		return redirectBlock;
 	}
 
 	const headers = new Headers(input.response.headers);
+	const contentType = headers.get("content-type");
 	headers.delete("set-cookie");
 	headers.delete("set-cookie2");
+	headers.delete("refresh");
 	headers.delete("www-authenticate");
 	headers.delete("x-enchiridion-host-context");
 	headers.set("cache-control", "no-store");
@@ -171,6 +173,24 @@ export function secureMiniAppResponse(input: SecureMiniAppResponseInput): Respon
 	headers.set("permissions-policy", miniAppPermissionsPolicy);
 	headers.set("referrer-policy", "no-referrer");
 	headers.set("x-content-type-options", "nosniff");
+
+	if (contentType?.toLowerCase().includes("text/html")) {
+		const body = await input.response.text();
+		const bodyBlock = validateMiniAppHtmlSafety(body);
+		if (bodyBlock) {
+			return blockedMiniAppResponse({
+				error: "Unsafe mini app response blocked",
+				slug: input.slug,
+				reason: bodyBlock,
+			});
+		}
+
+		return new Response(body, {
+			status: input.response.status,
+			statusText: input.response.statusText,
+			headers,
+		});
+	}
 
 	return new Response(input.response.body, {
 		status: input.response.status,
@@ -273,6 +293,11 @@ function validateSmokeTestBody(contentType: string | null, body: string): string
 		return `primary route returned a generic failure body: ${sampleBody(trimmed)}`;
 	}
 
+	const unsafeHtml = validateMiniAppHtmlSafety(trimmed);
+	if (unsafeHtml) {
+		return unsafeHtml;
+	}
+
 	if (trimmed.length < 20 || !/<(?:!doctype|html|body|main|section|article|h1|h2|div)\b/i.test(trimmed)) {
 		return `primary route returned an empty or non-HTML body: ${sampleBody(trimmed)}`;
 	}
@@ -299,7 +324,10 @@ function validateMiniAppRedirect(input: SecureMiniAppResponseInput): Response | 
 	try {
 		target = new URL(location, input.requestUrl);
 	} catch {
-		return blockedMiniAppRedirect(input.slug);
+		return blockedMiniAppResponse({
+			error: "Unsafe mini app redirect blocked",
+			slug: input.slug,
+		});
 	}
 
 	const requestUrl = new URL(input.requestUrl);
@@ -307,14 +335,14 @@ function validateMiniAppRedirect(input: SecureMiniAppResponseInput): Response | 
 		return null;
 	}
 
-	return blockedMiniAppRedirect(input.slug);
+	return blockedMiniAppResponse({
+		error: "Unsafe mini app redirect blocked",
+		slug: input.slug,
+	});
 }
 
-function blockedMiniAppRedirect(slug: string): Response {
-	return new Response(JSON.stringify({
-		error: "Unsafe mini app redirect blocked",
-		slug,
-	}), {
+function blockedMiniAppResponse(input: { error: string; slug: string; reason?: string }): Response {
+	return new Response(JSON.stringify(input), {
 		status: 502,
 		headers: {
 			"content-type": "application/json",
@@ -324,6 +352,26 @@ function blockedMiniAppRedirect(slug: string): Response {
 			"x-content-type-options": "nosniff",
 		},
 	});
+}
+
+function validateMiniAppHtmlSafety(body: string): string | null {
+	if (/<meta\b[^>]*http-equiv\s*=\s*["']?\s*refresh/i.test(body)) {
+		return "dynamic mini app pages cannot trigger meta refresh navigation";
+	}
+	if (/<script\b/i.test(body)) {
+		return "dynamic mini app pages cannot include browser scripts";
+	}
+	if (/<[^>]+\son[a-z]+\s*=/i.test(body)) {
+		return "dynamic mini app pages cannot include inline browser event handlers";
+	}
+	if (/javascript\s*:/i.test(body)) {
+		return "dynamic mini app pages cannot include javascript: URLs";
+	}
+	if (/<form\b/i.test(body)) {
+		return "dynamic mini app pages cannot include forms";
+	}
+
+	return null;
 }
 
 function isMiniAppRouteForSlug(pathname: string, slug: string): boolean {

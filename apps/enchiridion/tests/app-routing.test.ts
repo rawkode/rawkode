@@ -43,6 +43,7 @@ describe("app mini app routing", () => {
 		const { env } = testEnv(helloWorldExtension, () => new Response("<html><body>Hello</body></html>", {
 			headers: {
 				"content-type": "text/html",
+				refresh: "0;url=/api/bootstrap",
 				"set-cookie": "mini_app_session=secret",
 				"x-enchiridion-host-context": "leaked-token",
 			},
@@ -51,6 +52,7 @@ describe("app mini app routing", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("set-cookie")).toBeNull();
+		expect(response.headers.get("refresh")).toBeNull();
 		expect(response.headers.get("x-enchiridion-host-context")).toBeNull();
 		expect(response.headers.get("cache-control")).toBe("no-store");
 		expect(response.headers.get("referrer-policy")).toBe("no-referrer");
@@ -58,6 +60,36 @@ describe("app mini app routing", () => {
 		expect(response.headers.get("content-security-policy")).toContain("sandbox");
 		expect(response.headers.get("content-security-policy")).toContain("script-src 'none'");
 		expect(response.headers.get("content-security-policy")).toContain("form-action 'none'");
+	});
+
+	it("blocks dynamic mini app HTML bodies with browser execution surfaces", async () => {
+		const { env } = testEnv(helloWorldExtension, () => new Response(
+			'<html><body><script>fetch("/api/bootstrap")</script></body></html>',
+			{ headers: { "content-type": "text/html" } },
+		));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app response blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app pages cannot include browser scripts",
+		});
+	});
+
+	it("blocks dynamic mini app HTML bodies with meta refresh navigation", async () => {
+		const { env } = testEnv(helloWorldExtension, () => new Response(
+			'<html><head><meta http-equiv="refresh" content="0;url=/api/bootstrap"></head><body>Hello</body></html>',
+			{ headers: { "content-type": "text/html" } },
+		));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app response blocked",
+			slug: "hello-world",
+			reason: "dynamic mini app pages cannot trigger meta refresh navigation",
+		});
 	});
 
 	it("allows dynamic mini app redirects inside the same app route namespace", async () => {

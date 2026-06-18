@@ -74,6 +74,8 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("same fetch options object");
 		expect(prompt).toContain("CSP sandbox");
 		expect(prompt).toContain("server-rendered HTML and links");
+		expect(prompt).toContain("Refresh headers");
+		expect(prompt).toContain("meta refresh tags");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
 	});
 
@@ -98,6 +100,8 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("same fetch options object");
 		expect(prompt).toContain("CSP sandbox");
 		expect(prompt).toContain("server-rendered HTML and links");
+		expect(prompt).toContain("Refresh headers");
+		expect(prompt).toContain("meta refresh tags");
 		expect(prompt).toContain("export default");
 	});
 });
