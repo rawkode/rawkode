@@ -91,6 +91,11 @@ app.use("*", async (c, next) => {
 		return;
 	}
 
+	const unsafeRequestBlock = unsafeCrossOriginResponse(c.req.raw);
+	if (unsafeRequestBlock) {
+		return unsafeRequestBlock;
+	}
+
 	const passwordThrottle = await checkPasswordAuthThrottle(c.env, c.req.raw);
 	if (passwordThrottle.limited) {
 		return passwordAuthThrottleResponse(passwordThrottle.retryAfterSeconds);
@@ -384,6 +389,40 @@ function json(payload: unknown, status = 200): Response {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+}
+
+function unsafeCrossOriginResponse(request: Request): Response | null {
+	if (!isUnsafeMethod(request.method)) {
+		return null;
+	}
+
+	const site = request.headers.get("sec-fetch-site")?.toLowerCase();
+	if (site === "cross-site" || site === "same-site") {
+		return json({ error: "Cross-origin write requests are not allowed" }, 403);
+	}
+
+	const origin = request.headers.get("origin");
+	if (!origin) {
+		return null;
+	}
+
+	const requestUrl = new URL(request.url);
+	let originUrl: URL;
+	try {
+		originUrl = new URL(origin);
+	} catch {
+		return json({ error: "Cross-origin write requests are not allowed" }, 403);
+	}
+
+	if (originUrl.origin !== requestUrl.origin) {
+		return json({ error: "Cross-origin write requests are not allowed" }, 403);
+	}
+
+	return null;
+}
+
+function isUnsafeMethod(method: string): boolean {
+	return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
 function miniAppLoadFailedResponse(request: Request, slug: string, error: unknown): Response {
