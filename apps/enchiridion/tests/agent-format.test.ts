@@ -67,6 +67,20 @@ describe("agent result formatting", () => {
 		);
 	});
 
+	it("makes deferred updates explicit in the transcript", () => {
+		expect(formatMiniAppResult({
+			status: "update_deferred",
+			operation: "update",
+			slug: "hello-world",
+			deployed: false,
+			activeRoutePreserved: true,
+			routeUrl: "/apps/hello-world",
+			message: "Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: Load failed",
+		}, { shouldBuild: true, operation: "update", targetSlug: "hello-world" }, "https://enchiridion.rawkodeacademy.workers.dev")).toBe(
+			"update_deferred: hello-world update candidate was not activated; active route preserved. https://enchiridion.rawkodeacademy.workers.dev/apps/hello-world Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: Load failed",
+		);
+	});
+
 	it("keeps validation failures clear when no candidate was activated", () => {
 		expect(formatMiniAppResult({
 			status: "validation_failed",

@@ -8,6 +8,7 @@ describe("mini app audit helpers", () => {
 		expect(auditToneForStatus("requires_binding_provisioning")).toBe("warning");
 		expect(auditToneForStatus("fallback_rejected")).toBe("warning");
 		expect(auditToneForStatus("fallback_deployed_pending")).toBe("warning");
+		expect(auditToneForStatus("update_deferred")).toBe("warning");
 		expect(auditToneForStatus("validation_failed")).toBe("danger");
 		expect(auditToneForStatus("fallback_validation_failed")).toBe("danger");
 		expect(auditToneForStatus("queued")).toBe("neutral");

@@ -271,6 +271,42 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 			if (!smokeTest.ok) {
 				if (isTransientSmokeTestRun(smokeTestRun.attempts)) {
 					const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
+					if (operation === "update" && supersededScriptName) {
+						const cleanup = await cleanupMiniAppCandidate(env, deployment.scriptName);
+						await createAuditRecord(env, {
+							slug: manifest.slug,
+							action: "update-mini-app",
+							status: "update_deferred",
+							details: {
+								activeScriptName: supersededScriptName,
+								candidateScriptName: deployment.scriptName,
+								message: deployment.message,
+								deploymentNotes: generated.deploymentNotes,
+								validation: smokeTest as unknown as JsonObject,
+								validationAttempts: smokeTestRun.attempts,
+								cleanup: cleanup as unknown as JsonObject,
+								attempts,
+							},
+						});
+
+						return {
+							status: "update_deferred",
+							operation,
+							slug: manifest.slug,
+							scriptName: supersededScriptName,
+							candidateScriptName: deployment.scriptName,
+							deployed: false,
+							activeRoutePreserved: true,
+							message: `Update candidate was uploaded but not activated because dispatch did not become ready during smoke testing: ${smokeTest.message}`,
+							routeUrl: smokeTest.route,
+							validation: smokeTest,
+							validationAttempts: smokeTestRun.attempts,
+							cleanup,
+							manifest,
+							attempts,
+						};
+					}
+
 					await saveExtension(env, manifest, deployment.scriptName, "dynamic");
 					await createAuditRecord(env, {
 						slug: manifest.slug,

@@ -3,7 +3,7 @@ import type { JsonObject } from "./types";
 export type AuditTone = "neutral" | "success" | "warning" | "danger";
 
 const successStatuses = new Set(["deployed", "fallback_deployed", "updated", "registered"]);
-const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "fallback_rejected", "deployed_pending", "updated_pending", "fallback_deployed_pending"]);
+const warningStatuses = new Set(["rejected", "requires_binding_provisioning", "fallback_rejected", "deployed_pending", "updated_pending", "update_deferred", "fallback_deployed_pending"]);
 const dangerStatuses = new Set(["deploy_failed", "fallback_deploy_failed", "fallback_validation_failed", "validation_failed", "error", "failed"]);
 
 export function auditToneForStatus(status: string): AuditTone {

@@ -23,6 +23,12 @@ export function formatMiniAppResult(result: Record<string, unknown>, intent: Min
 		return `${status}: ${slug}. Fallback mini app was not activated. ${joinParts([details, attemptSummary])}`.trim();
 	}
 
+	if (status === "update_deferred") {
+		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
+		const details = message || "Update candidate was not activated; the active route was left unchanged.";
+		return `${status}: ${slug} update candidate was not activated; active route preserved.${route} ${joinParts([details, attemptSummary])}`.trim();
+	}
+
 	if (status.endsWith("_pending")) {
 		const route = routeUrl ? ` ${formatRouteUrl(routeUrl, origin)}` : "";
 		const subject = result.fallback === true ? "fallback route" : "route";

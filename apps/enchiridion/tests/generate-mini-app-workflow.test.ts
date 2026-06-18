@@ -333,6 +333,74 @@ describe("generate mini app workflow recovery", () => {
 		});
 	});
 
+	it("preserves the active Worker when an update candidate never passes transient dispatch smoke tests", async () => {
+		mockState.registeredExtensions.push(helloWorldExtension);
+		const { deleteMiniAppWorker, smokeTestMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		vi.mocked(smokeTestMiniAppWorker)
+			.mockRejectedValueOnce(new Error("Load failed"))
+			.mockRejectedValueOnce(new Error("Load failed"))
+			.mockRejectedValueOnce(new Error("Load failed"))
+			.mockRejectedValueOnce(new Error("Load failed"));
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Update hello world app to have blue background",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async () => ({
+						data: {
+							manifest: {
+								slug: "hello-world",
+								name: "Hello World",
+								version: "0.2.0",
+								description: "A generated hello world app with blue styling.",
+								routes: [{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" }],
+								commands: [],
+								editorBlocks: [],
+								workflows: [],
+								bindings: [],
+								hostApis: [],
+								indexProjections: [],
+							},
+							workerSource: "export default { fetch() { return new Response('<html><body style=\"background:#2563eb\"><h1>Hello</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) } }",
+							deploymentNotes: "Updated app styling.",
+						},
+					}),
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "update_deferred",
+			operation: "update",
+			slug: "hello-world",
+			scriptName: "enchiridion-hello-world-old",
+			candidateScriptName: "enchiridion-hello-world-candidate",
+			deployed: false,
+			activeRoutePreserved: true,
+			routeUrl: "/apps/hello-world",
+		});
+		expect(mockState.savedExtensions).toEqual([]);
+		expect(deleteMiniAppWorker).toHaveBeenCalledTimes(1);
+		expect(deleteMiniAppWorker).toHaveBeenCalledWith(expect.anything(), "enchiridion-hello-world-candidate");
+		expect(mockState.audits[0]).toMatchObject({
+			slug: "hello-world",
+			status: "update_deferred",
+			details: {
+				activeScriptName: "enchiridion-hello-world-old",
+				candidateScriptName: "enchiridion-hello-world-candidate",
+				cleanup: {
+					scriptName: "enchiridion-hello-world-candidate",
+					deleted: true,
+				},
+			},
+		});
+	});
+
 	it("deploys a deterministic fallback when model generation fails before a candidate exists", async () => {
 		const { run } = await import("../src/workflows/generate-mini-app");
 		let promptCalls = 0;
