@@ -739,12 +739,37 @@ function miniAppLoadFailedResponse(request: Request, extension: RegisteredExtens
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>${escapeHtml(slug)} failed to load</title>
 		<style>
-			:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-			body { margin: 0; background: #f7f8f3; color: #20211d; }
+			:root {
+				color-scheme: light;
+				--bg: #faf4ed;
+				--chrome: #f2e9e1;
+				--surface: #fffaf3;
+				--ink: #464261;
+				--muted: #6e6a86;
+				--border: #dfdad9;
+				--primary: #286983;
+				--code-bg: #f2e9e1;
+				font-family: "Geist Sans", Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					color-scheme: dark;
+					--bg: #1e1e2e;
+					--chrome: #181825;
+					--surface: #313244;
+					--ink: #cdd6f4;
+					--muted: #bac2de;
+					--border: #45475a;
+					--primary: #89b4fa;
+					--code-bg: #181825;
+				}
+			}
+			body { margin: 0; background: var(--chrome); color: var(--ink); }
 			main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
-			.kicker { color: #6b7f32; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-			.panel { border: 1px solid #d6d9cd; border-radius: 8px; background: #fff; padding: 22px; }
-			code { background: #eef0e6; border-radius: 4px; padding: 2px 5px; }
+			.kicker { color: var(--primary); font-size: 0.88rem; font-weight: 650; }
+			.panel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 24px; }
+			p { color: var(--muted); line-height: 1.55; }
+			code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; color: var(--ink); }
 		</style>
 	</head>
 	<body>

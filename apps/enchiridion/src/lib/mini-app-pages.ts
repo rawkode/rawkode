@@ -114,20 +114,34 @@ function htmlPage(title: string, content: string): Response {
 	<style>
 		:root {
 			color-scheme: light;
-			--bg: oklch(1 0 0);
-			--chrome: oklch(0.965 0.006 50);
-			--surface: oklch(0.985 0.002 50);
-			--ink: oklch(0.18 0.018 55);
-			--muted: oklch(0.46 0.018 55);
-			--border: oklch(0.88 0.012 55);
-			--primary: oklch(0.4 0.103 50);
+			--bg: #faf4ed;
+			--chrome: #f2e9e1;
+			--surface: #fffaf3;
+			--raised: #fffaf3;
+			--ink: #464261;
+			--muted: #6e6a86;
+			--border: #dfdad9;
+			--primary: #286983;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				color-scheme: dark;
+				--bg: #1e1e2e;
+				--chrome: #181825;
+				--surface: #313244;
+				--raised: #1e1e2e;
+				--ink: #cdd6f4;
+				--muted: #bac2de;
+				--border: #45475a;
+				--primary: #89b4fa;
+			}
 		}
 		* { box-sizing: border-box; }
 		body {
 			margin: 0;
 			background: var(--chrome);
 			color: var(--ink);
-			font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			font: 14px/1.5 "Geist Sans", Geist, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 		}
 		header, main {
 			max-width: 1100px;
@@ -146,9 +160,9 @@ function htmlPage(title: string, content: string): Response {
 		}
 		p { color: var(--muted); }
 		.item, .board, .projects {
-			background: var(--bg);
+			background: var(--raised);
 			border: 1px solid var(--border);
-			border-radius: 10px;
+			border-radius: 8px;
 			padding: 16px;
 			margin-bottom: 12px;
 		}
@@ -185,7 +199,7 @@ function htmlPage(title: string, content: string): Response {
 			min-height: 140px;
 		}
 		.card {
-			background: var(--bg);
+			background: var(--raised);
 			border: 1px solid var(--border);
 			border-radius: 8px;
 			padding: 10px;

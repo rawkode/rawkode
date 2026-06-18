@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { colors, fonts, radii, shadows, sizes, space, zIndex } from "./tokens.stylex";
+import { colors, fonts, motion, radii, shadows, sizes, space, zIndex } from "./tokens.stylex";
 
 const spin = stylex.keyframes({
 	to: {
@@ -52,9 +52,9 @@ export const shell = stylex.create({
 		placeItems: "center",
 		borderWidth: "1px",
 		borderStyle: "solid",
-		borderColor: "oklch(0.82 0.07 28)",
+		borderColor: colors.dangerBorder,
 		borderRadius: radii.control,
-		backgroundColor: "oklch(0.98 0.018 28)",
+		backgroundColor: colors.dangerSoft,
 		color: colors.danger,
 	},
 	loadingCopy: {
@@ -169,8 +169,8 @@ export const shell = stylex.create({
 		cursor: "pointer",
 		textDecoration: "none",
 		transitionProperty: "border-color, background-color, color",
-		transitionDuration: "160ms",
-		transitionTimingFunction: "ease",
+		transitionDuration: motion.fast,
+		transitionTimingFunction: motion.ease,
 		":focus-visible": {
 			outline: "none",
 			boxShadow: shadows.focus,
@@ -558,8 +558,8 @@ export const shell = stylex.create({
 		},
 	},
 	extensionBlockError: {
-		borderColor: "oklch(0.82 0.07 28)",
-		backgroundColor: "oklch(0.98 0.018 28)",
+		borderColor: colors.dangerBorder,
+		backgroundColor: colors.dangerSoft,
 	},
 	extensionBlockDraft: {
 		gridTemplateColumns: "1fr",
@@ -725,8 +725,8 @@ export const shell = stylex.create({
 		lineHeight: 1.4,
 	},
 	floatingAgentTileError: {
-		borderColor: "oklch(0.82 0.07 28)",
-		backgroundColor: "oklch(0.99 0.012 28)",
+		borderColor: colors.dangerBorder,
+		backgroundColor: colors.dangerSoft,
 	},
 	floatingAgentHeader: {
 		display: "grid",
@@ -856,18 +856,18 @@ export const shell = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	auditStatusSuccess: {
-		borderColor: "oklch(0.82 0.055 150)",
-		backgroundColor: "oklch(0.96 0.024 150)",
+		borderColor: colors.successBorder,
+		backgroundColor: colors.successSoft,
 		color: colors.success,
 	},
 	auditStatusWarning: {
-		borderColor: "oklch(0.84 0.09 75)",
-		backgroundColor: "oklch(0.97 0.036 75)",
-		color: "oklch(0.43 0.1 75)",
+		borderColor: colors.warningBorder,
+		backgroundColor: colors.warningSoft,
+		color: colors.warningText,
 	},
 	auditStatusDanger: {
-		borderColor: "oklch(0.82 0.07 28)",
-		backgroundColor: "oklch(0.96 0.025 28)",
+		borderColor: colors.dangerBorder,
+		backgroundColor: colors.dangerSoft,
 		color: colors.danger,
 	},
 	auditSummary: {

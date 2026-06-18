@@ -2,46 +2,74 @@
 
 ## Visual System
 
-Enchiridion uses a restrained product interface: quiet white content surfaces, a slightly tinted structural chrome, compact typography, and one warm amber accent for selection and primary actions. The app is designed for long writing and review sessions in normal desk lighting, so the surface stays light and readable rather than dark or theatrical.
+Enchiridion uses a restrained product interface adapted from Vercel's Geist token vocabulary: neutral surfaces, compact typography, tight radii, subtle borders, and explicit focus/state colors. Color comes from Rose Pine Dawn in light mode and Catppuccin Mocha in dark mode. Accent color is reserved for primary actions, current selection, links, focus, and state indicators.
+
+The app is designed for long writing and review sessions. Light mode reads as a warm desk surface; dark mode reads as a quiet operator console without turning every inactive control into saturated color.
 
 ## Color Tokens
 
+Global CSS owns the active theme values. StyleX component tokens point to these custom properties so React surfaces, editor internals, fallback pages, and generated mini-app pages share the same palette.
+
 ```css
 :root {
-	--color-bg: oklch(1 0 0);
-	--color-chrome: oklch(0.965 0.006 50);
-	--color-surface: oklch(0.985 0.002 50);
-	--color-surface-raised: oklch(1 0 0);
-	--color-ink: oklch(0.18 0.018 55);
-	--color-muted: oklch(0.46 0.018 55);
-	--color-subtle: oklch(0.69 0.014 55);
-	--color-border: oklch(0.88 0.012 55);
-	--color-primary: oklch(0.40 0.103 50);
-	--color-primary-hover: oklch(0.34 0.112 50);
-	--color-primary-soft: oklch(0.93 0.038 50);
-	--color-accent: oklch(0.36 0.094 215);
-	--color-success: oklch(0.48 0.11 150);
-	--color-warning: oklch(0.62 0.14 75);
-	--color-danger: oklch(0.52 0.17 28);
+	color-scheme: light;
+	--color-bg: #faf4ed;
+	--color-chrome: #f2e9e1;
+	--color-surface: #fffaf3;
+	--color-surface-raised: #fffaf3;
+	--color-ink: #464261;
+	--color-muted: #6e6a86;
+	--color-subtle: #797593;
+	--color-border: #dfdad9;
+	--color-border-strong: #cecacd;
+	--color-primary: #286983;
+	--color-primary-hover: #1f566c;
+	--color-primary-soft: rgb(40 105 131 / 0.12);
+	--color-accent: #907aa9;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color-scheme: dark;
+		--color-bg: #1e1e2e;
+		--color-chrome: #181825;
+		--color-surface: #313244;
+		--color-surface-raised: #1e1e2e;
+		--color-ink: #cdd6f4;
+		--color-muted: #bac2de;
+		--color-subtle: #9399b2;
+		--color-border: #45475a;
+		--color-border-strong: #585b70;
+		--color-primary: #89b4fa;
+		--color-primary-hover: #b4befe;
+		--color-primary-soft: rgb(137 180 250 / 0.16);
+		--color-accent: #cba6f7;
+	}
 }
 ```
 
+Semantic tokens extend the same palettes for `info`, `success`, `warning`, and `danger`. Text-oriented semantic values are tuned for WCAG AA contrast instead of blindly using the lightest palette chip.
+
 ## Typography
 
-Use the system UI stack for all product surfaces. Use a compact scale with `12px`, `13px`, `14px`, `16px`, `18px`, `24px`, and `30px` sizes. Reserve larger text for page titles only. Use `ui-monospace` for IDs, dates, model names, and command payload previews.
+Prefer Geist Sans and Geist Mono when available, then fall back to the system UI stack. Use the compact product scale already in `src/styles/tokens.stylex.ts`: `11px`, `12px`, `13px`, `14px`, `16px`, and `24px`. Reserve larger text for page titles only. Use the mono stack for IDs, dates, model names, and command payload previews.
 
 ## Layout
 
-Use a three-column product shell on desktop: navigation, writing surface, and context rail. Collapse to a single-column stacked layout on mobile with persistent top navigation. Cards are only used for repeated resources, app records, and small status panels. Page sections remain unframed.
+Use a three-column product shell on desktop: navigation, writing surface, and context rail. Collapse to a single-column stacked layout on mobile with persistent top navigation. Spacing follows a 4px-centered rhythm: tight gaps inside control groups, 16px between related groups, and 32px or more between larger sections. Cards are only used for repeated resources, app records, and small status panels.
 
 ## Components
 
-Primary controls use the amber accent with white text. Secondary controls use borders. Editor blocks use compact headers, clear labels, and stable dimensions so embedded app views do not resize unpredictably. Command palette, slash menu, and scheduled workflow log use the same command-row vocabulary.
+Controls follow Geist's component grammar: 6px everyday radii, 8px compact panels, 12px menus/dialogs, subtle borders first, shadows only for popovers and floating panels. Primary controls use the theme primary color. Secondary controls use raised surfaces and borders. Every interactive control needs hover, focus-visible, disabled, and active/selected states.
+
+Editor blocks, command palette rows, slash menu items, scheduled workflow rows, and mini-app records share the same command-row vocabulary: icon, primary label, muted metadata, and an explicit state chip when needed.
 
 ## Implementation
 
-StyleX owns reusable design-system tokens and React component recipes. Tokens live in `src/styles/tokens.stylex.ts`, and shell-level recipes live in `src/styles/shell.stylex.ts`. Global CSS is limited to reset, document defaults, and Tiptap/ProseMirror internals that are not normal React component markup.
+StyleX owns reusable component recipes. Tokens live in `src/styles/tokens.stylex.ts`; shell-level recipes live in `src/styles/shell.stylex.ts`. Global CSS is limited to reset, theme variables, document defaults, and Tiptap/ProseMirror internals that are not normal React component markup.
+
+Fallback mini-app error pages and static generated mini-app pages define the same light/dark token subset inline so surfaces outside the host shell do not fall back to the old light-only theme.
 
 ## Motion
 
-Keep motion functional and short: state changes, palette open/close, autosave feedback, and row insertion. Respect `prefers-reduced-motion` by disabling transforms and retaining instant state changes.
+Keep motion functional and short: state changes, palette open/close, autosave feedback, and row insertion. Prefer 150ms state transitions, 200ms popovers, and 300ms overlays. Respect `prefers-reduced-motion` by disabling transforms and retaining instant state changes.
