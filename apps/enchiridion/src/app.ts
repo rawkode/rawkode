@@ -9,6 +9,11 @@ import {
 	recordPasswordAuthFailure,
 } from "./lib/auth-throttle";
 import { createMiniAppDispatchRequest, isTransientMiniAppLoadFailure, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
+import {
+	fallbackPromptFromManifest,
+	isFallbackMiniAppManifest,
+	renderFallbackMiniAppHtml,
+} from "./lib/fallback-mini-app";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { isHostContextPathForApp, requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
@@ -354,7 +359,7 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 	try {
 		response = await fetchMiniAppWorkerWithRetries(c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName), request);
 	} catch (error) {
-		return miniAppLoadFailedResponse(c.req.raw, slug, error);
+		return miniAppLoadFailedResponse(c.req.raw, extension, error);
 	}
 
 	return secureMiniAppResponse({
@@ -458,10 +463,15 @@ function isUnsafeMethod(method: string): boolean {
 	return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
-function miniAppLoadFailedResponse(request: Request, slug: string, error: unknown): Response {
+function miniAppLoadFailedResponse(request: Request, extension: RegisteredExtension, error: unknown): Response {
+	const slug = extension.slug;
 	const message = error instanceof Error ? error.message : "The mini app Worker did not return a response.";
 	if (!request.headers.get("accept")?.toLowerCase().includes("text/html")) {
 		return json({ error: "Mini app failed to load", slug, message }, 502);
+	}
+
+	if (isFallbackMiniAppManifest(extension)) {
+		return hostRenderedFallbackMiniAppResponse(extension);
 	}
 
 	return new Response(`<!doctype html>
@@ -494,6 +504,23 @@ function miniAppLoadFailedResponse(request: Request, slug: string, error: unknow
 		headers: {
 			"cache-control": "no-store",
 			"content-type": "text/html; charset=utf-8",
+		},
+	});
+}
+
+function hostRenderedFallbackMiniAppResponse(extension: RegisteredExtension): Response {
+	const html = renderFallbackMiniAppHtml({
+		name: extension.name,
+		prompt: fallbackPromptFromManifest(extension),
+		notice: "Dynamic Worker dispatch is temporarily unavailable. Enchiridion rendered this static fallback page from the host.",
+	});
+
+	return new Response(html, {
+		status: 200,
+		headers: {
+			"cache-control": "no-store",
+			"content-type": "text/html; charset=utf-8",
+			"x-enchiridion-fallback-renderer": "host",
 		},
 	});
 }

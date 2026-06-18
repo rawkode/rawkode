@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import app from "../src/app";
+import { fallbackMiniAppDescription } from "../src/lib/fallback-mini-app";
 import { verifyHostContext } from "../src/lib/host-context";
 import type { Env, RegisteredExtension } from "../src/lib/types";
 
@@ -322,6 +323,42 @@ describe("app mini app routing", () => {
 		expect(dispatchedRequests).toHaveLength(4);
 	});
 
+	it("renders static fallback mini apps from the host when dispatch cannot load the Worker", async () => {
+		const fallbackExtension: RegisteredExtension = {
+			slug: "kubernetes-topology-spread-constraints",
+			name: "Kubernetes Topology Spread Constraints",
+			version: "0.1.0",
+			description: fallbackMiniAppDescription,
+			status: "dynamic",
+			routes: [{
+				path: "/apps/kubernetes-topology-spread-constraints",
+				mode: "worker-page",
+				label: "Kubernetes Topology Spread Constraints",
+			}],
+			commands: [],
+			editorBlocks: [],
+			workflows: [],
+			bindings: [],
+			hostApis: [],
+			indexProjections: [],
+			deployedScriptName: "enchiridion-kubernetes-topology-spread-constraints",
+		};
+		const { env, dispatchedRequests } = testEnv(fallbackExtension, () => {
+			throw new Error("Load failed");
+		});
+		const response = await app.fetch(new Request("http://localhost/apps/kubernetes-topology-spread-constraints", {
+			headers: { accept: "text/html" },
+		}), env);
+		const body = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-enchiridion-fallback-renderer")).toBe("host");
+		expect(body).toContain("Topology spread constraints tell Kubernetes");
+		expect(body).toContain("topologySpreadConstraints");
+		expect(body).toContain("kubectl get pods -o wide");
+		expect(dispatchedRequests).toHaveLength(4);
+	});
+
 	it("returns a route-scoped 404 for missing exact mini app routes", async () => {
 		const { env } = testEnv(null);
 		const response = await app.fetch(new Request("http://localhost/apps/missing"), env);
@@ -472,7 +509,7 @@ function testEnv(
 		},
 		MINI_APP_DISPATCHER: {
 			get(scriptName: string) {
-				expect(scriptName).toBe("enchiridion-hello-world");
+				expect(scriptName).toBe(extension?.deployedScriptName ?? "enchiridion-hello-world");
 				return {
 					async fetch(request: Request) {
 						dispatchedRequests.push(request);
