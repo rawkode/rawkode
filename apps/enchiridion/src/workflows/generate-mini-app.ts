@@ -1069,6 +1069,10 @@ function validateGeneratedFetchUsage(source: string): string[] {
 		issues.push("workerSource: generated Workers cannot mutate URL origins before fetch");
 	}
 
+	if (/\.\s*(?:hash|pathname|search)\s*=/.test(source)) {
+		issues.push("workerSource: generated Workers cannot rewrite host API URL paths before fetch");
+	}
+
 	return issues;
 }
 
@@ -1110,7 +1114,7 @@ function isAllowedHostApiFetchTarget(source: string, argument: string): boolean 
 	}
 
 	return new RegExp(
-		`\\b(?:const|let|var)\\s+${escapeRegExp(identifier)}\\s*=\\s*new\\s+URL\\s*\\(\\s*["'\`]\\/api\\/host\\/resource-index\\/search["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`,
+		`\\bconst\\s+${escapeRegExp(identifier)}\\s*=\\s*new\\s+URL\\s*\\(\\s*["'\`]\\/api\\/host\\/resource-index\\/search["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`,
 	).test(source);
 }
 

@@ -340,6 +340,62 @@ export default {
 		expect(result.issues).toContain("workerSource: generated Workers may only call fetch for declared host APIs");
 	});
 
+	it("rejects generated workers that rewrite host API URL paths before fetching", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/search", request.url);
+		url.pathname = "/apps/hello-world/data";
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers cannot rewrite host API URL paths before fetch");
+	});
+
+	it("rejects generated workers that fetch reassigned host API variables", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		let url = new URL("/api/host/resource-index/search", request.url);
+		url = new URL("/apps/hello-world/data", request.url);
+		const response = await fetch(url, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers may only call fetch for declared host APIs");
+	});
+
 	it("rejects generated workers that mutate URL origins before fetching", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(
