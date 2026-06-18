@@ -131,6 +131,13 @@ export function validateExtensionManifest(input: unknown): ManifestValidationRes
 			}
 		}
 	}
+	for (const workflow of manifest.workflows) {
+		for (const api of workflow.requiredHostApis) {
+			if (!declaredApis.has(api)) {
+				issues.push(`workflows.${workflow.id}: required host API ${api} is not declared`);
+			}
+		}
+	}
 
 	if (manifest.bindings.length > 3) {
 		issues.push("bindings: initial mini apps may request at most three isolated bindings");

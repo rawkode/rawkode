@@ -58,7 +58,7 @@ describe("extension manifest validation", () => {
 		expect(result.ok).toBe(true);
 	});
 
-	it("requires commands and blocks to declare their host APIs", () => {
+	it("requires extension points to declare their host APIs", () => {
 		const result = validateExtensionManifest({
 			...builtinExtensionManifests[0],
 			slug: "capture",
@@ -82,6 +82,13 @@ describe("extension manifest validation", () => {
 				renderer: "host-primitive",
 				requiredHostApis: ["resource-index:read"],
 			}],
+			workflows: [{
+				id: "triage-captures",
+				label: "Triage captures",
+				trigger: "manual",
+				workflowName: "triage-captures",
+				requiredHostApis: ["workflows:run"],
+			}],
 			hostApis: [],
 			bindings: [],
 			indexProjections: [],
@@ -90,5 +97,6 @@ describe("extension manifest validation", () => {
 		expect(result.ok).toBe(false);
 		expect(result.issues).toContain("commands.create-capture: required host API notes:write is not declared");
 		expect(result.issues).toContain("editorBlocks.capture-list: required host API resource-index:read is not declared");
+		expect(result.issues).toContain("workflows.triage-captures: required host API workflows:run is not declared");
 	});
 });
