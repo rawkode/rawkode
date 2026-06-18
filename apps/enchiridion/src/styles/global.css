@@ -196,6 +196,33 @@ a {
 	font-size: 0.9em;
 }
 
+.editor-prose .reference-mention {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	border: 1px solid oklch(0.82 0.055 50);
+	border-radius: 999px;
+	background: var(--color-primary-soft);
+	padding: 0 7px;
+	color: var(--color-primary-hover);
+	font-size: 0.92em;
+	font-weight: 650;
+	line-height: 1.45;
+	vertical-align: baseline;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.editor-prose .reference-mention:hover {
+	border-color: oklch(0.64 0.09 50);
+	background: oklch(0.9 0.048 50);
+}
+
+.editor-prose .reference-mention:focus-visible {
+	outline: 2px solid oklch(0.62 0.12 50);
+	outline-offset: 2px;
+}
+
 .editor-prose pre {
 	margin: 18px 0;
 	overflow-x: auto;

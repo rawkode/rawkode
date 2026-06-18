@@ -6,6 +6,7 @@ import {
 	listRecoverableMiniAppBuilds,
 	saveExtension,
 	scheduledWorkflowsForExtension,
+	searchReferenceTargets,
 	setScheduledWorkflowEnabled,
 } from "../src/lib/repository";
 import type { Env, ExtensionManifest } from "../src/lib/types";
@@ -69,6 +70,89 @@ describe("extension repository scheduling", () => {
 				createdAt: "2026-06-18T12:00:00.000Z",
 				updatedAt: "2026-06-18T12:00:00.000Z",
 			},
+		]);
+	});
+
+	it("aggregates reference targets from indexed resources and enabled app routes", async () => {
+		const env = referenceSearchEnv({
+			resources: [
+				resourceRow({
+					id: "note:daily-1",
+					source_app: "notes",
+					source_type: "daily-note",
+					source_id: "daily-1",
+					title: "Kubernetes review",
+					summary: "Daily note text.",
+					url: "/daily/2026-06-18",
+				}),
+				resourceRow({
+					id: "bookmark:bookmark-1",
+					source_app: "bookmarks",
+					source_type: "bookmark",
+					source_id: "bookmark-1",
+					title: "Topology bookmark",
+					summary: "Reference material.",
+					url: "https://example.com/topology",
+				}),
+			],
+			extensions: [
+				referenceExtension("kube-tools", "Kubernetes tools", "/apps/kube-tools"),
+				{ ...referenceExtension("disabled-tools", "Disabled tools", "/apps/disabled-tools"), status: "disabled" },
+			],
+		});
+
+		const results = await searchReferenceTargets(env, "kube", 10);
+
+		expect(results).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				id: "app-route:/apps/kube-tools",
+				label: "Kubernetes tools",
+				referenceKind: "app-route",
+				href: "/apps/kube-tools",
+			}),
+			expect.objectContaining({
+				id: "note:daily-1",
+				label: "Kubernetes review",
+				referenceKind: "daily-note",
+				href: "/daily/2026-06-18",
+			}),
+		]));
+		expect(results.some((entry) => entry.id === "app-route:/apps/disabled-tools")).toBe(false);
+	});
+
+	it("ranks exact and prefix reference matches before stale route defaults", async () => {
+		const env = referenceSearchEnv({
+			resources: [
+				resourceRow({
+					id: "project:project-1",
+					source_app: "projects",
+					source_type: "project",
+					source_id: "project-1",
+					title: "Atlas",
+					summary: "Exact project.",
+					url: "/apps/projects",
+					updated_at: "2026-06-18T12:00:00.000Z",
+				}),
+				resourceRow({
+					id: "project:project-2",
+					source_app: "projects",
+					source_type: "project",
+					source_id: "project-2",
+					title: "Atlas follow-up",
+					summary: "Prefix project.",
+					url: "/apps/projects",
+					updated_at: "2026-06-18T13:00:00.000Z",
+				}),
+			],
+			extensions: [referenceExtension("atlas", "Atlas app", "/apps/atlas")],
+		});
+
+		const results = await searchReferenceTargets(env, "atlas", 10);
+
+		expect(results.map((entry) => entry.id).slice(0, 3)).toEqual([
+			"project:project-1",
+			"project:project-2",
+			"app-route:/apps/atlas",
 		]);
 	});
 
@@ -394,3 +478,94 @@ describe("extension repository scheduling", () => {
 		});
 	});
 });
+
+function referenceSearchEnv(input: { resources: unknown[]; extensions: ExtensionManifest[] }): Env {
+	return {
+		DB: {
+			prepare(sql: string) {
+				let bindings: unknown[] = [];
+				const statement = {
+					bind(...values: unknown[]) {
+						bindings = values;
+						return statement;
+					},
+					async all() {
+						if (sql.includes("FROM resource_index")) {
+							const query = typeof bindings[0] === "string" ? bindings[0].replaceAll("%", "").toLowerCase() : "";
+							return {
+								results: input.resources.filter((row) => {
+									const record = row as { title: string; summary: string; tags_json: string };
+									return !query
+										|| record.title.toLowerCase().includes(query)
+										|| record.summary.toLowerCase().includes(query)
+										|| record.tags_json.toLowerCase().includes(query);
+								}),
+							};
+						}
+						if (sql.includes("FROM extension_manifests")) {
+							return {
+								results: input.extensions.map((extension) => ({
+									slug: extension.slug,
+									manifest_json: JSON.stringify(extension),
+									status: extension.status ?? "dynamic",
+									deployed_script_name: null,
+									created_at: "2026-06-18T00:00:00.000Z",
+									updated_at: "2026-06-18T00:00:00.000Z",
+								})),
+							};
+						}
+						return { results: [] };
+					},
+				};
+				return statement;
+			},
+		},
+	} as unknown as Env;
+}
+
+function resourceRow(input: Partial<{
+	id: string;
+	source_app: string;
+	source_type: string;
+	source_id: string;
+	title: string;
+	summary: string;
+	url: string | null;
+	tags_json: string;
+	relationships_json: string;
+	occurred_at: string | null;
+	created_at: string;
+	updated_at: string;
+}>): Record<string, unknown> {
+	return {
+		id: input.id ?? "resource:1",
+		source_app: input.source_app ?? "notes",
+		source_type: input.source_type ?? "daily-note",
+		source_id: input.source_id ?? "1",
+		title: input.title ?? "Resource",
+		summary: input.summary ?? "",
+		url: input.url ?? null,
+		tags_json: input.tags_json ?? "[]",
+		relationships_json: input.relationships_json ?? "[]",
+		occurred_at: input.occurred_at ?? null,
+		created_at: input.created_at ?? "2026-06-18T00:00:00.000Z",
+		updated_at: input.updated_at ?? "2026-06-18T00:00:00.000Z",
+	};
+}
+
+function referenceExtension(slug: string, label: string, path: string): ExtensionManifest {
+	return {
+		slug,
+		name: label,
+		version: "0.1.0",
+		description: `${label} description.`,
+		status: "dynamic",
+		routes: [{ path, mode: "worker-page", label }],
+		commands: [],
+		editorBlocks: [],
+		workflows: [],
+		bindings: [],
+		hostApis: [],
+		indexProjections: [],
+	};
+}

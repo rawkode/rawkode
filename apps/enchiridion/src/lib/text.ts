@@ -38,6 +38,13 @@ function visitNode(node: unknown, chunks: string[]): void {
 		chunks.push([attrs.app, attrs.block].filter(Boolean).join(" "));
 	}
 
+	if (record.type === "referenceMention" && record.attrs && typeof record.attrs === "object") {
+		const attrs = record.attrs as Record<string, unknown>;
+		if (typeof attrs.label === "string" && attrs.label.trim()) {
+			chunks.push(attrs.label.trim());
+		}
+	}
+
 	if (record.type === "admonition" && record.attrs && typeof record.attrs === "object") {
 		const attrs = record.attrs as Record<string, unknown>;
 		chunks.push([attrs.kind, attrs.title].filter((value) => typeof value === "string" && value).join(" "));

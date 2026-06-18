@@ -22,6 +22,7 @@ import type {
 	Principal,
 	Project,
 	RegisteredExtension,
+	ReferenceTarget,
 	ResourceIndexRecord,
 	ScheduledWorkflow,
 } from "./types";
@@ -442,6 +443,34 @@ export async function searchResources(env: Env, query: string, limit = 20): Prom
 	return (result.results ?? []).map(mapResource);
 }
 
+export async function searchReferenceTargets(env: Env, query: string, limit = 20): Promise<ReferenceTarget[]> {
+	const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
+	const [resources, extensions] = await Promise.all([
+		searchResources(env, query, boundedLimit),
+		listExtensions(env),
+	]);
+	const normalizedQuery = normalizeReferenceQuery(query);
+	const resourceTargets = resources.map(referenceTargetForResource);
+	const routeTargets = extensions
+		.filter((extension) => extension.status !== "disabled")
+		.flatMap((extension) => extension.routes.map((route) => ({
+			id: `app-route:${route.path}`,
+			label: route.label,
+			description: route.description || extension.description,
+			sourceApp: extension.slug,
+			sourceType: "app-route",
+			sourceId: route.path,
+			href: route.path,
+			referenceKind: "app-route" as const,
+			updatedAt: "1970-01-01T00:00:00.000Z",
+		} satisfies ReferenceTarget)))
+		.filter((target) => referenceTargetMatches(target, normalizedQuery));
+
+	return dedupeReferenceTargets([...routeTargets, ...resourceTargets])
+		.sort((left, right) => compareReferenceTargets(left, right, normalizedQuery))
+		.slice(0, boundedLimit);
+}
+
 export async function upsertResourceIndex(env: Env, record: ResourceIndexRecord): Promise<void> {
 	await env.DB.prepare(`
 		INSERT INTO resource_index
@@ -469,6 +498,66 @@ export async function upsertResourceIndex(env: Env, record: ResourceIndexRecord)
 		record.createdAt,
 		record.updatedAt,
 	).run();
+}
+
+export async function upsertExtensionResourceIndex(env: Env, extension: RegisteredExtension, input: {
+	sourceType: string;
+	sourceId: string;
+	title: string;
+	summary?: string;
+	url?: string | null;
+	tags?: string[];
+	relationships?: JsonObject[];
+	occurredAt?: string | null;
+	now?: string;
+}): Promise<ResourceIndexRecord> {
+	const sourceType = input.sourceType.trim();
+	const sourceId = input.sourceId.trim();
+	const title = input.title.trim();
+	if (!sourceType || !sourceId || !title) {
+		throw new Response(JSON.stringify({ error: "Resource records require sourceType, sourceId, and title." }), {
+			status: 400,
+			headers: { "content-type": "application/json" },
+		});
+	}
+	if (!extension.indexProjections.some((projection) => projection.sourceType === sourceType)) {
+		throw new Response(JSON.stringify({
+			error: "Resource sourceType is not declared by app",
+			app: extension.slug,
+			sourceType,
+		}), {
+			status: 403,
+			headers: { "content-type": "application/json" },
+		});
+	}
+	if (input.url && !isAppScopedUrl(input.url, extension.slug)) {
+		throw new Response(JSON.stringify({
+			error: "Resource URL must stay under app route",
+			app: extension.slug,
+		}), {
+			status: 403,
+			headers: { "content-type": "application/json" },
+		});
+	}
+
+	const now = input.now ?? isoNow();
+	const record: ResourceIndexRecord = {
+		id: `${extension.slug}:${sourceType}:${sourceId}`,
+		sourceApp: extension.slug,
+		sourceType,
+		sourceId,
+		title,
+		summary: input.summary?.trim() ?? "",
+		url: input.url?.trim() || null,
+		tags: normalizeStringList(input.tags ?? []),
+		relationships: input.relationships ?? [],
+		occurredAt: input.occurredAt ?? null,
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	await upsertResourceIndex(env, record);
+	return record;
 }
 
 export async function createBookmark(env: Env, input: { title: string; url: string; description?: string; tags?: string[] }): Promise<Bookmark> {
@@ -1201,6 +1290,98 @@ function mapResource(row: ResourceRow): ResourceIndexRecord {
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
+}
+
+function referenceTargetForResource(record: ResourceIndexRecord): ReferenceTarget {
+	return {
+		id: record.id,
+		label: record.title,
+		description: record.summary || record.tags.join(", ") || humanizeReferenceType(record.sourceType),
+		sourceApp: record.sourceApp,
+		sourceType: record.sourceType,
+		sourceId: record.sourceId,
+		href: record.url,
+		referenceKind: referenceKindForResource(record),
+		updatedAt: record.updatedAt,
+	};
+}
+
+function referenceKindForResource(record: ResourceIndexRecord): ReferenceTarget["referenceKind"] {
+	if (record.sourceApp === "notes" && record.sourceType === "daily-note") {
+		return "daily-note";
+	}
+	if (record.url && /^https?:\/\//i.test(record.url)) {
+		return "external";
+	}
+	return "resource";
+}
+
+function dedupeReferenceTargets(targets: ReferenceTarget[]): ReferenceTarget[] {
+	const seen = new Set<string>();
+	const deduped: ReferenceTarget[] = [];
+	for (const target of targets) {
+		if (seen.has(target.id)) {
+			continue;
+		}
+		seen.add(target.id);
+		deduped.push(target);
+	}
+	return deduped;
+}
+
+function compareReferenceTargets(left: ReferenceTarget, right: ReferenceTarget, query: string): number {
+	const leftScore = referenceTargetScore(left, query);
+	const rightScore = referenceTargetScore(right, query);
+	if (leftScore !== rightScore) {
+		return rightScore - leftScore;
+	}
+	return right.updatedAt.localeCompare(left.updatedAt);
+}
+
+function referenceTargetScore(target: ReferenceTarget, query: string): number {
+	if (!query) {
+		return target.referenceKind === "app-route" ? 1 : 0;
+	}
+	const label = normalizeReferenceQuery(target.label);
+	const source = normalizeReferenceQuery(`${target.sourceApp} ${target.sourceType}`);
+	if (label === query) {
+		return 100;
+	}
+	if (label.startsWith(query)) {
+		return 80;
+	}
+	if (label.includes(query)) {
+		return 60;
+	}
+	if (source.includes(query)) {
+		return 40;
+	}
+	return 0;
+}
+
+function referenceTargetMatches(target: ReferenceTarget, query: string): boolean {
+	if (!query) {
+		return true;
+	}
+	return normalizeReferenceQuery(`${target.label} ${target.description} ${target.sourceApp} ${target.sourceType}`).includes(query);
+}
+
+function normalizeReferenceQuery(value: string): string {
+	return value.trim().toLowerCase();
+}
+
+function humanizeReferenceType(value: string): string {
+	return value.replace(/[-_]/g, " ");
+}
+
+function normalizeStringList(values: string[]): string[] {
+	return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isAppScopedUrl(url: string, slug: string): boolean {
+	const trimmed = url.trim();
+	const root = `/apps/${slug}`;
+	return trimmed === root || trimmed.startsWith(`${root}/`);
 }
 
 function mapBookmark(row: BookmarkRow): Bookmark {

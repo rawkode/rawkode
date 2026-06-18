@@ -1469,6 +1469,11 @@ interface GlobalFetchCall {
 	arguments: string[];
 }
 
+const supportedHostApiScopesByPath = new Map([
+	["/api/host/resource-index/search", "resource-index:read"],
+	["/api/host/resource-index/records", "resource-index:write"],
+]);
+
 function validateGeneratedFetchUsage(source: string): string[] {
 	const issues: string[] = [];
 	if (/\b(?:globalThis|self)\s*\.\s*fetch\b/.test(source)
@@ -1505,8 +1510,11 @@ function validateGeneratedHostApiScopes(source: string, manifest?: ExtensionMani
 	}
 
 	const usedHostApis = new Set<string>();
-	if (findHostApiPaths(source).includes("/api/host/resource-index/search")) {
-		usedHostApis.add("resource-index:read");
+	for (const path of findHostApiPaths(source)) {
+		const scope = supportedHostApiScopesByPath.get(path);
+		if (scope) {
+			usedHostApis.add(scope);
+		}
 	}
 	for (const api of requiredHostApisForExtensionPoints(manifest)) {
 		usedHostApis.add(api);
@@ -1556,7 +1564,8 @@ function findGlobalFetchCalls(source: string): GlobalFetchCall[] {
 
 function isAllowedHostApiFetchTarget(source: string, argument: string): boolean {
 	const trimmed = argument.trim();
-	if (/^new\s+URL\s*\(\s*["'`]\/api\/host\/resource-index\/search["'`]\s*,\s*request\s*\.\s*url\s*\)/.test(trimmed)) {
+	const allowedPathPattern = supportedHostApiPathPattern();
+	if (new RegExp(`^new\\s+URL\\s*\\(\\s*["'\`]${allowedPathPattern}["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`).test(trimmed)) {
 		return true;
 	}
 
@@ -1566,7 +1575,7 @@ function isAllowedHostApiFetchTarget(source: string, argument: string): boolean 
 	}
 
 	return new RegExp(
-		`\\bconst\\s+${escapeRegExp(identifier)}\\s*=\\s*new\\s+URL\\s*\\(\\s*["'\`]\\/api\\/host\\/resource-index\\/search["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`,
+		`\\bconst\\s+${escapeRegExp(identifier)}\\s*=\\s*new\\s+URL\\s*\\(\\s*["'\`]${allowedPathPattern}["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`,
 	).test(source);
 }
 
@@ -1710,13 +1719,18 @@ function validateHostApiUsage(source: string, manifest?: ExtensionManifest): str
 		return issues;
 	}
 
-	const unsupportedHostApiPaths = hostApiPaths.filter((path) => path !== "/api/host/resource-index/search");
+	const unsupportedHostApiPaths = hostApiPaths.filter((path) => !supportedHostApiScopesByPath.has(path));
 	if (unsupportedHostApiPaths.length > 0) {
 		issues.push(`workerSource: unsupported host API path ${Array.from(new Set(unsupportedHostApiPaths)).join(", ")}`);
 	}
 
-	if (!manifest?.hostApis.includes("resource-index:read")) {
-		issues.push("workerSource: /api/host/resource-index/search requires manifest.hostApis to include resource-index:read");
+	const requiredScopes = Array.from(new Map(hostApiPaths
+		.map((path) => [path, supportedHostApiScopesByPath.get(path)] as const)
+		.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))));
+	for (const [path, scope] of requiredScopes) {
+		if (!manifest?.hostApis.includes(scope)) {
+			issues.push(`workerSource: ${path} requires manifest.hostApis to include ${scope}`);
+		}
 	}
 
 	const hostApiFetchCalls = findGlobalFetchCalls(source)
@@ -1737,4 +1751,8 @@ function fetchCallForwardsHostContext(call: GlobalFetchCall): boolean {
 
 function findHostApiPaths(source: string): string[] {
 	return Array.from(source.matchAll(/\/api\/host\/[a-z0-9_./-]*/gi)).map((match) => match[0]);
+}
+
+function supportedHostApiPathPattern(): string {
+	return `(?:${Array.from(supportedHostApiScopesByPath.keys()).map(escapeRegExp).join("|")})`;
 }

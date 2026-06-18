@@ -54,6 +54,20 @@ export interface ResourceIndexRecord {
 	updatedAt: string;
 }
 
+export type ReferenceKind = "app-route" | "daily-note" | "external" | "resource";
+
+export interface ReferenceTarget {
+	id: string;
+	label: string;
+	description: string;
+	sourceApp: string;
+	sourceType: string;
+	sourceId: string;
+	href: string | null;
+	referenceKind: ReferenceKind;
+	updatedAt: string;
+}
+
 export interface Bookmark {
 	id: string;
 	title: string;

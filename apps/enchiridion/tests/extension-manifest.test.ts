@@ -100,6 +100,39 @@ describe("extension manifest validation", () => {
 		expect(result.issues).toContain("workflows.triage-captures: required host API workflows:run is not declared");
 	});
 
+	it("requires resource-index write apps to declare index projections", () => {
+		const result = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader", mode: "worker-page", label: "Reader" }],
+			commands: [],
+			editorBlocks: [],
+			workflows: [],
+			hostApis: ["resource-index:write"],
+			bindings: [],
+			indexProjections: [],
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("indexProjections: apps declaring resource-index:write must declare at least one index projection");
+	});
+
+	it("accepts resource-index write apps with declared index projections", () => {
+		const result = validateExtensionManifest({
+			...builtinExtensionManifests[0],
+			slug: "reader",
+			routes: [{ path: "/apps/reader", mode: "worker-page", label: "Reader" }],
+			commands: [],
+			editorBlocks: [],
+			workflows: [],
+			hostApis: ["resource-index:write"],
+			bindings: [],
+			indexProjections: [{ sourceType: "feed-entry", titlePath: "title" }],
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
 	it("requires cron only for scheduled workflows", () => {
 		const missingCron = validateExtensionManifest({
 			...builtinExtensionManifests[0],

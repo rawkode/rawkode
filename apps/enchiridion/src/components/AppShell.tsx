@@ -7,6 +7,7 @@ import StarterKit from "@tiptap/starter-kit";
 import * as stylex from "@stylexjs/stylex";
 import {
 	Bot,
+	AtSign,
 	CheckCircle2,
 	Check,
 	ChevronDown,
@@ -37,7 +38,7 @@ import {
 	TriangleAlert,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { closeAppPanelTab, openAppPanelTab, type AppPanelTab, type AppPanelMode } from "../lib/app-panel-tabs";
 import { auditDetailSummary, auditToneForStatus } from "../lib/audit";
 import { formatBootstrapLoadError } from "../lib/bootstrap-error";
@@ -57,6 +58,7 @@ import type {
 	KanbanCard,
 	MiniAppAuditRecord,
 	Project,
+	ReferenceTarget,
 	ScheduledWorkflow,
 } from "../lib/types";
 import { formatAgentError, formatAgentResult, formatMiniAppBuildError, formatMiniAppResult } from "../lib/agent-format";
@@ -102,6 +104,58 @@ const ExtensionBlock = Node.create({
 	},
 	addNodeView() {
 		return ReactNodeViewRenderer(ExtensionBlockView);
+	},
+});
+
+type ReferenceMentionAttrs = {
+	targetId: string;
+	label: string;
+	sourceApp: string;
+	sourceType: string;
+	sourceId: string;
+	href: string | null;
+	referenceKind: ReferenceTarget["referenceKind"];
+};
+
+const ReferenceMention = Node.create({
+	name: "referenceMention",
+	group: "inline",
+	inline: true,
+	atom: true,
+	selectable: false,
+	addAttributes() {
+		return {
+			targetId: { default: "" },
+			label: { default: "" },
+			sourceApp: { default: "" },
+			sourceType: { default: "" },
+			sourceId: { default: "" },
+			href: { default: null },
+			referenceKind: { default: "resource" },
+		};
+	},
+	parseHTML() {
+		return [{ tag: "span[data-reference-mention]" }];
+	},
+	renderHTML({ HTMLAttributes }) {
+		const label = String(HTMLAttributes.label ?? "");
+		return [
+			"span",
+			{
+				"data-reference-mention": "",
+				"data-target-id": String(HTMLAttributes.targetId ?? ""),
+				"data-source-app": String(HTMLAttributes.sourceApp ?? ""),
+				"data-source-type": String(HTMLAttributes.sourceType ?? ""),
+				"data-source-id": String(HTMLAttributes.sourceId ?? ""),
+				"data-href": typeof HTMLAttributes.href === "string" ? HTMLAttributes.href : "",
+				"data-reference-kind": String(HTMLAttributes.referenceKind ?? "resource"),
+				class: "reference-mention",
+			},
+			`@${label}`,
+		];
+	},
+	addNodeView() {
+		return ReactNodeViewRenderer(ReferenceMentionView);
 	},
 });
 
@@ -252,10 +306,23 @@ type SlashMenuState = SlashRange & {
 	left: number;
 };
 
+type ReferenceMenuState = SlashRange & {
+	query: string;
+	top: number;
+	left: number;
+};
+
 type SlashCommandKeyEvent = CustomEvent<{
 	key: "ArrowDown" | "ArrowUp" | "Enter" | "Escape";
 	handled: boolean;
 }>;
+
+type ReferenceKeyEvent = CustomEvent<{
+	key: "ArrowDown" | "ArrowUp" | "Enter" | "Escape";
+	handled: boolean;
+}>;
+
+type ReferenceOpenEvent = CustomEvent<ReferenceMentionAttrs>;
 
 type SlashCommandItem = {
 	id: string;
@@ -337,8 +404,12 @@ type AgentTargetOption = {
 };
 
 const slashCommandKey = new PluginKey("enchiridionSlashCommand");
+const referenceMentionKey = new PluginKey("enchiridionReferenceMention");
 const slashStateEvent = "enchiridion:slash-state";
 const slashKeyEvent = "enchiridion:slash-key";
+const referenceStateEvent = "enchiridion:reference-state";
+const referenceKeyEvent = "enchiridion:reference-key";
+const referenceOpenEvent = "enchiridion:open-reference";
 const agentRequestSubmitEvent = "enchiridion:agent-request-submit";
 const agentRequestCancelEvent = "enchiridion:agent-request-cancel";
 const bookmarkCreateSubmitEvent = "enchiridion:bookmark-create-submit";
@@ -384,6 +455,75 @@ const SlashCommandExtension = Extension.create({
 		];
 	},
 });
+
+const ReferenceMentionExtension = Extension.create({
+	name: "referenceMentionTrigger",
+	addProseMirrorPlugins() {
+		return [
+			new Plugin({
+				key: referenceMentionKey,
+				props: {
+					handleKeyDown(view, event) {
+						const referenceState = readReferenceMenuState(view);
+						if (!referenceState || !isReferenceMenuKey(event.key)) {
+							return false;
+						}
+						const detail: ReferenceKeyEvent["detail"] = {
+							key: event.key,
+							handled: false,
+						};
+						window.dispatchEvent(new CustomEvent(referenceKeyEvent, { detail }));
+						if (detail.handled) {
+							event.preventDefault();
+						}
+						return detail.handled;
+					},
+				},
+				view(view) {
+					emitReferenceMenuState(view);
+					return {
+						update(nextView) {
+							emitReferenceMenuState(nextView);
+						},
+					};
+				},
+			}),
+		];
+	},
+});
+
+function ReferenceMentionView({ node }: ReactNodeViewProps) {
+	const attrs = readReferenceMentionAttrs(node.attrs);
+	const openReference = () => {
+		window.dispatchEvent(new CustomEvent(referenceOpenEvent, { detail: attrs }));
+	};
+
+	return (
+		<NodeViewWrapper
+			as="span"
+			className="reference-mention"
+			contentEditable={false}
+			data-reference-mention=""
+			data-target-id={attrs.targetId}
+			data-source-app={attrs.sourceApp}
+			data-source-type={attrs.sourceType}
+			data-source-id={attrs.sourceId}
+			data-href={attrs.href ?? ""}
+			data-reference-kind={attrs.referenceKind}
+			role="button"
+			tabIndex={0}
+			onClick={openReference}
+			onKeyDown={(event: ReactKeyboardEvent) => {
+				if (event.key === "Enter" || event.key === " ") {
+					event.preventDefault();
+					openReference();
+				}
+			}}
+		>
+			@{attrs.label}
+		</NodeViewWrapper>
+	);
+}
 
 function ExtensionBlockView({ editor, getPos, node, updateAttributes }: ReactNodeViewProps) {
 	const app = String(node.attrs.app ?? "");
@@ -1144,6 +1284,11 @@ export default function AppShell() {
 	const [agentJobs, setAgentJobs] = useState<FloatingAgentJob[]>(() => readFloatingAgentJobs());
 	const [slashState, setSlashState] = useState<SlashMenuState | null>(null);
 	const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+	const [referenceState, setReferenceState] = useState<ReferenceMenuState | null>(null);
+	const [referenceTargets, setReferenceTargets] = useState<ReferenceTarget[]>([]);
+	const [referenceLoading, setReferenceLoading] = useState(false);
+	const [referenceError, setReferenceError] = useState<string | null>(null);
+	const [referenceSelectedIndex, setReferenceSelectedIndex] = useState(0);
 	const skipNextUpdate = useRef(false);
 	const saveTimer = useRef<number | null>(null);
 	const latestNoteRef = useRef<DailyNote | null>(null);
@@ -1156,13 +1301,18 @@ export default function AppShell() {
 	const slashStateRef = useRef<SlashMenuState | null>(null);
 	const slashSelectedIndexRef = useRef(0);
 	const slashItemsRef = useRef<SlashCommandItem[]>([]);
+	const referenceStateRef = useRef<ReferenceMenuState | null>(null);
+	const referenceSelectedIndexRef = useRef(0);
+	const referenceTargetsRef = useRef<ReferenceTarget[]>([]);
 
 	const editor = useEditor({
 		extensions: [
 			StarterKit,
 			Admonition,
+			ReferenceMention,
 			ExtensionBlock,
 			SlashCommandExtension,
+			ReferenceMentionExtension,
 			Placeholder.configure({
 				placeholder: "Write the day. Type / for commands.",
 			}),
@@ -1287,6 +1437,60 @@ export default function AppShell() {
 	}, []);
 
 	useEffect(() => {
+		const onReferenceState = (event: Event) => {
+			const nextState = (event as CustomEvent<ReferenceMenuState | null>).detail;
+			setReferenceState((current) => {
+				if (!nextState) {
+					return null;
+				}
+				if (!current || current.from !== nextState.from || current.query !== nextState.query) {
+					setReferenceSelectedIndex(0);
+				}
+				return nextState;
+			});
+		};
+		window.addEventListener(referenceStateEvent, onReferenceState);
+		return () => window.removeEventListener(referenceStateEvent, onReferenceState);
+	}, []);
+
+	useEffect(() => {
+		if (!referenceState) {
+			setReferenceTargets([]);
+			setReferenceLoading(false);
+			setReferenceError(null);
+			return;
+		}
+
+		const abortController = new AbortController();
+		setReferenceLoading(true);
+		setReferenceError(null);
+		fetch(`/api/references/search?q=${encodeURIComponent(referenceState.query)}&limit=12`, {
+			signal: abortController.signal,
+		})
+			.then(async (response) => {
+				const body = await readJsonBody<ReferenceTarget[] | { error?: unknown }>(response);
+				if (!response.ok) {
+					throw new Error(!Array.isArray(body) && typeof body.error === "string" ? body.error : `Reference search failed with ${response.status}`);
+				}
+				setReferenceTargets(Array.isArray(body) ? body : []);
+			})
+			.catch((error) => {
+				if (abortController.signal.aborted) {
+					return;
+				}
+				setReferenceTargets([]);
+				setReferenceError(error instanceof Error ? error.message : "Reference search failed.");
+			})
+			.finally(() => {
+				if (!abortController.signal.aborted) {
+					setReferenceLoading(false);
+				}
+			});
+
+		return () => abortController.abort();
+	}, [referenceState?.query, referenceState?.from]);
+
+	useEffect(() => {
 		const openPanel = (event: Event) => {
 			const detail = (event as OpenAppPanelEvent).detail;
 			if (!detail?.route) {
@@ -1317,6 +1521,21 @@ export default function AppShell() {
 	useEffect(() => {
 		slashSelectedIndexRef.current = slashSelectedIndex;
 	}, [slashSelectedIndex]);
+
+	useEffect(() => {
+		referenceStateRef.current = referenceState;
+	}, [referenceState]);
+
+	useEffect(() => {
+		referenceSelectedIndexRef.current = referenceSelectedIndex;
+	}, [referenceSelectedIndex]);
+
+	useEffect(() => {
+		referenceTargetsRef.current = referenceTargets;
+		if (referenceSelectedIndex >= referenceTargets.length) {
+			setReferenceSelectedIndex(Math.max(0, referenceTargets.length - 1));
+		}
+	}, [referenceTargets, referenceSelectedIndex]);
 
 	const flushQueuedSave = useCallback(async function flushQueuedSave() {
 		if (saveInFlightRef.current) {
@@ -1591,6 +1810,86 @@ export default function AppShell() {
 			version: "0.1.0",
 		}, range);
 	}, [insertExtensionBlockAttrs]);
+
+	const insertReferenceMention = useCallback((target: ReferenceTarget, range: SlashRange) => {
+		if (!editor) {
+			return;
+		}
+		editor.chain()
+			.focus()
+			.deleteRange(range)
+			.insertContent({
+				type: "referenceMention",
+				attrs: referenceMentionAttrsForTarget(target),
+			})
+			.insertContent(" ")
+			.run();
+	}, [editor]);
+
+	const openReferenceMention = useCallback((attrs: ReferenceMentionAttrs) => {
+		const href = attrs.href?.trim() ?? "";
+		if ((attrs.referenceKind === "daily-note" || attrs.sourceType === "daily-note") && href.startsWith("/daily/")) {
+			setSelectedDate(href.slice("/daily/".length));
+			setActiveWorkspaceTabId(null);
+			return;
+		}
+		if (href.startsWith("/apps/")) {
+			openAppInShell({
+				mode: "panel",
+				route: href,
+				title: attrs.label || titleForExtensionRoute(attrs.sourceApp, humanizeSlug(attrs.sourceApp)),
+			});
+			return;
+		}
+		if (/^https?:\/\//i.test(href)) {
+			window.open(href, "_blank", "noopener,noreferrer");
+		}
+	}, []);
+
+	useEffect(() => {
+		const onReferenceOpen = (event: Event) => {
+			openReferenceMention((event as ReferenceOpenEvent).detail);
+		};
+		window.addEventListener(referenceOpenEvent, onReferenceOpen);
+		return () => window.removeEventListener(referenceOpenEvent, onReferenceOpen);
+	}, [openReferenceMention]);
+
+	useEffect(() => {
+		const onReferenceKey = (event: Event) => {
+			const detail = (event as ReferenceKeyEvent).detail;
+			const state = referenceStateRef.current;
+			const items = referenceTargetsRef.current;
+			if (!state) {
+				return;
+			}
+			if (detail.key === "Escape") {
+				setReferenceState(null);
+				detail.handled = true;
+				return;
+			}
+			if (items.length === 0) {
+				return;
+			}
+			if (detail.key === "ArrowDown") {
+				setReferenceSelectedIndex((current) => (current + 1) % items.length);
+				detail.handled = true;
+				return;
+			}
+			if (detail.key === "ArrowUp") {
+				setReferenceSelectedIndex((current) => (current - 1 + items.length) % items.length);
+				detail.handled = true;
+				return;
+			}
+			if (detail.key === "Enter") {
+				const selected = items[Math.min(referenceSelectedIndexRef.current, items.length - 1)];
+				setReferenceState(null);
+				insertReferenceMention(selected, { from: state.from, to: state.to });
+				detail.handled = true;
+			}
+		};
+		window.addEventListener(referenceKeyEvent, onReferenceKey);
+		return () => window.removeEventListener(referenceKeyEvent, onReferenceKey);
+	}, [insertReferenceMention]);
 
 	const updateExtensionBlock = useCallback((blockId: string, attrs: { app?: string; block?: string; props: ExtensionBlockProps }) => {
 		if (!editor) {
@@ -2967,6 +3266,21 @@ export default function AppShell() {
 				/>
 			) : null}
 
+			{referenceState ? (
+				<ReferenceMenu
+					error={referenceError}
+					items={referenceTargets}
+					loading={referenceLoading}
+					selectedIndex={referenceSelectedIndex}
+					state={referenceState}
+					onSelect={(target) => {
+						setReferenceState(null);
+						insertReferenceMention(target, { from: referenceState.from, to: referenceState.to });
+					}}
+					onHover={setReferenceSelectedIndex}
+				/>
+			) : null}
+
 			{paletteOpen && (
 				<CommandPalette
 					commands={filteredCommands}
@@ -3130,6 +3444,88 @@ function SlashItemIcon({ icon }: { icon: SlashCommandItem["icon"] }) {
 		return <FolderKanban size={15} />;
 	}
 	return <Link size={15} />;
+}
+
+function ReferenceMenu({
+	error,
+	items,
+	loading,
+	selectedIndex,
+	state,
+	onSelect,
+	onHover,
+}: {
+	error: string | null;
+	items: ReferenceTarget[];
+	loading: boolean;
+	selectedIndex: number;
+	state: ReferenceMenuState;
+	onSelect: (item: ReferenceTarget) => void;
+	onHover: (index: number) => void;
+}) {
+	const left = typeof window === "undefined" ? state.left : Math.min(state.left, window.innerWidth - 360);
+	const top = typeof window === "undefined" ? state.top : Math.min(state.top, window.innerHeight - 320);
+
+	return (
+		<div
+			{...stylex.props(shell.slashMenu)}
+			style={{ left, top }}
+			role="listbox"
+			aria-label="References"
+		>
+			<div {...stylex.props(shell.slashMenuHeader)}>
+				<span>References</span>
+				{state.query ? <code {...stylex.props(shell.inlineCode)}>@{state.query}</code> : <code {...stylex.props(shell.inlineCode)}>@</code>}
+			</div>
+			{error ? (
+				<div {...stylex.props(shell.slashEmpty)}>{error}</div>
+			) : loading && items.length === 0 ? (
+				<div {...stylex.props(shell.slashEmpty)}>Searching references</div>
+			) : items.length === 0 ? (
+				<div {...stylex.props(shell.slashEmpty)}>No matching references</div>
+			) : items.map((item, index) => (
+				<button
+					key={item.id}
+					{...stylex.props(
+						shell.slashItem,
+						index === selectedIndex ? shell.slashItemActive : null,
+					)}
+					type="button"
+					role="option"
+					aria-selected={index === selectedIndex}
+					onMouseEnter={() => onHover(index)}
+					onPointerDown={(event) => {
+						event.preventDefault();
+					}}
+					onClick={() => {
+						onSelect(item);
+					}}
+				>
+					<span {...stylex.props(shell.slashIcon)}>
+						<ReferenceItemIcon target={item} />
+					</span>
+					<span {...stylex.props(shell.paletteLabel)}>
+						<strong>{item.label}</strong>
+						<small {...stylex.props(shell.paletteMeta)}>{item.description}</small>
+					</span>
+					<em {...stylex.props(shell.paletteMeta)}>{item.sourceApp}</em>
+				</button>
+			))}
+		</div>
+	);
+}
+
+function ReferenceItemIcon({ target }: { target: ReferenceTarget }) {
+	if (target.referenceKind === "daily-note") {
+		return <FileText size={15} />;
+	}
+	if (target.referenceKind === "app-route") {
+		return <LayoutGrid size={15} />;
+	}
+	if (target.referenceKind === "external") {
+		return <ExternalLink size={15} />;
+	}
+	return <AtSign size={15} />;
 }
 
 function PinAppsDialog({
@@ -3778,8 +4174,30 @@ function emitSlashMenuState(view: EditorView) {
 	}));
 }
 
+function emitReferenceMenuState(view: EditorView) {
+	if (typeof window === "undefined") {
+		return;
+	}
+	window.dispatchEvent(new CustomEvent(referenceStateEvent, {
+		detail: readReferenceMenuState(view),
+	}));
+}
+
 function readSlashMenuState(view: EditorView): SlashMenuState | null {
 	const range = findSlashRange(view.state);
+	if (!range) {
+		return null;
+	}
+	const coords = view.coordsAtPos(range.from);
+	return {
+		...range,
+		top: coords.bottom + 6,
+		left: coords.left,
+	};
+}
+
+function readReferenceMenuState(view: EditorView): ReferenceMenuState | null {
+	const range = findReferenceRange(view.state);
 	if (!range) {
 		return null;
 	}
@@ -3816,8 +4234,71 @@ function findSlashRange(state: EditorState): (SlashRange & { query: string }) | 
 	};
 }
 
+function findReferenceRange(state: EditorState): (SlashRange & { query: string }) | null {
+	const { selection } = state;
+	if (!selection.empty) {
+		return null;
+	}
+	const $from = selection.$from;
+	const textBefore = $from.parent.textBetween(0, $from.parentOffset, "\n", "\n");
+	const atIndex = textBefore.lastIndexOf("@");
+	if (atIndex < 0) {
+		return null;
+	}
+	if (atIndex > 0 && !/\s/.test(textBefore.charAt(atIndex - 1))) {
+		return null;
+	}
+	const query = textBefore.slice(atIndex + 1);
+	if (query.includes("\n") || query.length > 80) {
+		return null;
+	}
+	return {
+		from: $from.pos - query.length - 1,
+		to: $from.pos,
+		query,
+	};
+}
+
 function isSlashMenuKey(key: string): key is SlashCommandKeyEvent["detail"]["key"] {
 	return key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "Escape";
+}
+
+function isReferenceMenuKey(key: string): key is ReferenceKeyEvent["detail"]["key"] {
+	return key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "Escape";
+}
+
+function referenceMentionAttrsForTarget(target: ReferenceTarget): ReferenceMentionAttrs {
+	return {
+		targetId: target.id,
+		label: target.label,
+		sourceApp: target.sourceApp,
+		sourceType: target.sourceType,
+		sourceId: target.sourceId,
+		href: target.href,
+		referenceKind: target.referenceKind,
+	};
+}
+
+function readReferenceMentionAttrs(attrs: Record<string, unknown>): ReferenceMentionAttrs {
+	return {
+		targetId: readStringAttr(attrs.targetId),
+		label: readStringAttr(attrs.label),
+		sourceApp: readStringAttr(attrs.sourceApp),
+		sourceType: readStringAttr(attrs.sourceType),
+		sourceId: readStringAttr(attrs.sourceId),
+		href: typeof attrs.href === "string" && attrs.href.trim() ? attrs.href : null,
+		referenceKind: readReferenceKind(attrs.referenceKind),
+	};
+}
+
+function readReferenceKind(value: unknown): ReferenceTarget["referenceKind"] {
+	return value === "app-route" || value === "daily-note" || value === "external" || value === "resource"
+		? value
+		: "resource";
+}
+
+function readStringAttr(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function isAgentRequestMode(value: unknown): value is AgentRequestMode {

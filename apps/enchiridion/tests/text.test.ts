@@ -27,9 +27,24 @@ describe("tiptap text extraction", () => {
 					},
 					content: [{ type: "paragraph", content: [{ type: "text", text: "Check the dispatch namespace." }] }],
 				},
+				{
+					type: "paragraph",
+					content: [{
+						type: "referenceMention",
+						attrs: {
+							targetId: "project:1",
+							label: "Enchiridion platform",
+							sourceApp: "projects",
+							sourceType: "project",
+							sourceId: "1",
+							href: "/apps/projects",
+							referenceKind: "resource",
+						},
+					}],
+				},
 				{ type: "paragraph", content: [{ type: "text", text: "Review links after lunch." }] },
 			],
-		})).toBe("Daily capture bookmarks bookmark-query warning Warning Check the dispatch namespace. Review links after lunch.");
+		})).toBe("Daily capture bookmarks bookmark-query warning Warning Check the dispatch namespace. Enchiridion platform Review links after lunch.");
 	});
 });
 

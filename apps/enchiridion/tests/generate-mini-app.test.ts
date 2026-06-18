@@ -430,6 +430,101 @@ export default {
 		expect(result.ok).toBe(true);
 	});
 
+	it("allows declared host API resource-index writes when the worker forwards host context", () => {
+		const workerSource = `
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/records", request.url);
+		const response = await fetch(url, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "",
+			},
+			body: JSON.stringify({
+				sourceType: "feed-entry",
+				sourceId: "entry-1",
+				title: "Platform update",
+				summary: "Dispatch notes.",
+				url: "/apps/hello-world/entries/entry-1",
+				tags: ["cloudflare"],
+			}),
+		});
+		return new Response(\`<html><body><h1>Saved</h1><pre>\${await response.text()}</pre></body></html>\`, {
+			headers: { "content-type": "text/html; charset=utf-8" },
+		});
+	},
+}`;
+
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				hostApis: ["resource-index:write"],
+				indexProjections: [{ sourceType: "feed-entry", titlePath: "title", summaryPath: "summary", urlPath: "url", tagsPath: "tags" }],
+			}, workerSource),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects host API resource-index writes that are not declared by the manifest", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/records", request.url);
+		const response = await fetch(url, {
+			method: "POST",
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+			body: JSON.stringify({ sourceType: "feed-entry", sourceId: "entry-1", title: "Entry" }),
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: /api/host/resource-index/records requires manifest.hostApis to include resource-index:write");
+	});
+
+	it("rejects resource-index write host APIs without index projections", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:write"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const url = new URL("/api/host/resource-index/records", request.url);
+		const response = await fetch(url, {
+			method: "POST",
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+			body: JSON.stringify({ sourceType: "feed-entry", sourceId: "entry-1", title: "Entry" }),
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("indexProjections: apps declaring resource-index:write must declare at least one index projection");
+	});
+
 	it("rejects generated workers with unused host API declarations", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated({

@@ -19,6 +19,12 @@ const searchExtension: RegisteredExtension = {
 	deployedScriptName: "enchiridion-search-app",
 };
 
+const indexingExtension: RegisteredExtension = {
+	...searchExtension,
+	hostApis: ["resource-index:write"],
+	indexProjections: [{ sourceType: "feed-entry", titlePath: "title", summaryPath: "summary", urlPath: "url", tagsPath: "tags" }],
+};
+
 describe("host API routes", () => {
 	it("allows scoped mini app host-context tokens to search the resource index without browser auth", async () => {
 		const token = await signHostContext({
@@ -192,9 +198,195 @@ describe("host API routes", () => {
 			scope: "resource-index:read",
 		});
 	});
+
+	it("allows scoped mini apps to publish app-owned resource records", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:write"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app" },
+		}, "configured-secret");
+		const writes: unknown[][] = [];
+		const env = hostApiEnv({ rows: [], extension: indexingExtension, writes });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({
+					sourceApp: "other-app",
+					sourceType: "feed-entry",
+					sourceId: "entry-1",
+					title: "Platform update",
+					summary: "Cloudflare dispatch notes.",
+					url: "/apps/search-app/entries/entry-1",
+					tags: ["cloudflare", "dispatch"],
+					relationships: [{ type: "source", id: "feed-1" }],
+				}),
+			},
+		), env);
+		const body = await response.json();
+
+		expect(response.status).toBe(201);
+		expect(body).toMatchObject({
+			id: "search-app:feed-entry:entry-1",
+			sourceApp: "search-app",
+			sourceType: "feed-entry",
+			sourceId: "entry-1",
+			title: "Platform update",
+			url: "/apps/search-app/entries/entry-1",
+		});
+		expect(writes[0]?.[0]).toBe("search-app:feed-entry:entry-1");
+		expect(writes[0]?.[1]).toBe("search-app");
+		expect(writes[0]?.[7]).toBe(JSON.stringify(["cloudflare", "dispatch"]));
+	});
+
+	it("rejects resource record writes without the required signed scope", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:read"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [], extension: indexingExtension });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({ sourceType: "feed-entry", sourceId: "entry-1", title: "Entry" }),
+			},
+		), env);
+
+		expect(response.status).toBe(403);
+		expect((await response.json() as { error: string }).error).toContain("resource-index:write");
+	});
+
+	it("rejects resource record writes for undeclared source types", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:write"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [], extension: indexingExtension });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({ sourceType: "unknown", sourceId: "entry-1", title: "Entry" }),
+			},
+		), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Resource sourceType is not declared by app",
+			app: "search-app",
+			sourceType: "unknown",
+		});
+	});
+
+	it("rejects resource record writes whose host context path is not declared by the app", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:write"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app/settings" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [], extension: indexingExtension });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({ sourceType: "feed-entry", sourceId: "entry-1", title: "Entry" }),
+			},
+		), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Host context token path is not a declared app route",
+			app: "search-app",
+		});
+	});
+
+	it("rejects resource record writes when the token app has been disabled", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:write"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [], extension: { ...indexingExtension, status: "disabled" } });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({ sourceType: "feed-entry", sourceId: "entry-1", title: "Entry" }),
+			},
+		), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "Host context app is disabled", app: "search-app" });
+	});
+
+	it("rejects mini app resource URLs outside the owning app route", async () => {
+		const token = await signHostContext({
+			app: "search-app",
+			scopes: ["resource-index:write"],
+			expiresAt: Date.now() + 60_000,
+			context: { path: "/apps/search-app" },
+		}, "configured-secret");
+		const env = hostApiEnv({ rows: [], extension: indexingExtension });
+
+		const response = await app.fetch(new Request(
+			"https://enchiridion.rawkodeacademy.workers.dev/api/host/resource-index/records",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-enchiridion-host-context": token,
+				},
+				body: JSON.stringify({
+					sourceType: "feed-entry",
+					sourceId: "entry-1",
+					title: "Entry",
+					url: "/apps/other-app/entry-1",
+				}),
+			},
+		), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Resource URL must stay under app route",
+			app: "search-app",
+		});
+	});
 });
 
-function hostApiEnv(input: { rows: unknown[]; extension?: RegisteredExtension | null }): Env {
+function hostApiEnv(input: { rows: unknown[]; extension?: RegisteredExtension | null; writes?: unknown[][] }): Env {
 	const extension = input.extension === undefined ? searchExtension : input.extension;
 	return {
 		HOST_SIGNING_SECRET: "configured-secret",
@@ -215,6 +407,12 @@ function hostApiEnv(input: { rows: unknown[]; extension?: RegisteredExtension | 
 					},
 					async all() {
 						return { results: input.rows };
+					},
+					async run() {
+						if (sql.includes("INSERT INTO resource_index")) {
+							input.writes?.push(params);
+						}
+						return { success: true };
 					},
 				};
 				return statement;

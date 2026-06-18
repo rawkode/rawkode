@@ -42,7 +42,9 @@ import {
 	listScheduledWorkflows,
 	setScheduledWorkflowEnabled,
 	saveDailyNote,
+	searchReferenceTargets,
 	searchResources,
+	upsertExtensionResourceIndex,
 } from "./lib/repository";
 import { admitMiniAppBuild, miniAppBuildCreateSchema } from "./lib/mini-app-builds";
 import {
@@ -94,6 +96,18 @@ const promptRefinementSchema = z.object({
 	contextPrompt: z.string().max(4_000).optional(),
 	contextResponse: z.string().max(8_000).optional(),
 	targetSlug: z.string().max(160).optional(),
+});
+
+const resourceIndexRecordSchema = z.object({
+	sourceApp: z.string().optional(),
+	sourceType: z.string().trim().min(1).max(120),
+	sourceId: z.string().trim().min(1).max(240),
+	title: z.string().trim().min(1).max(500),
+	summary: z.string().max(2_000).optional(),
+	url: z.string().trim().max(1_000).nullable().optional(),
+	tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+	relationships: z.array(z.record(z.string(), z.unknown())).max(50).optional(),
+	occurredAt: z.string().trim().min(1).max(80).nullable().optional(),
 });
 
 const miniAppDispatchRetryDelaysMs = [150, 500, 1_000];
@@ -198,6 +212,12 @@ app.put("/api/daily-notes/:date", async (c) => {
 
 app.get("/api/search", async (c) => {
 	return c.json(await searchResources(c.env, c.req.query("q") ?? "", 30));
+});
+
+app.get("/api/references/search", async (c) => {
+	const limit = Number(c.req.query("limit") ?? "20");
+	const boundedLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 50) : 20;
+	return c.json(await searchReferenceTargets(c.env, c.req.query("q") ?? "", boundedLimit));
 });
 
 app.get("/api/extensions", async (c) => {
@@ -394,6 +414,52 @@ app.get("/api/host/resource-index/search", async (c) => {
 	const limit = Number(c.req.query("limit") ?? "20");
 	const boundedLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 50) : 20;
 	return c.json(await searchResources(c.env, c.req.query("q") ?? "", boundedLimit));
+});
+
+app.post("/api/host/resource-index/records", async (c) => {
+	const requiredScope = "resource-index:write";
+	let hostContext;
+	try {
+		hostContext = await requireHostApiContext(c.env, c.req.raw, requiredScope);
+	} catch (error) {
+		if (error instanceof Response) {
+			return error;
+		}
+		throw error;
+	}
+
+	const extension = await getExtension(c.env, hostContext.app);
+	if (!extension) {
+		return c.json({ error: "Host context app not found", app: hostContext.app }, 403);
+	}
+	if (extension.status === "disabled") {
+		return c.json({ error: "Host context app is disabled", app: hostContext.app }, 403);
+	}
+	if (!isHostContextRouteDeclared(extension, hostContext.context)) {
+		return c.json({
+			error: "Host context token path is not a declared app route",
+			app: hostContext.app,
+		}, 403);
+	}
+	if (!extension.hostApis.includes(requiredScope)) {
+		return c.json({
+			error: "Host context app no longer declares required scope",
+			app: hostContext.app,
+			scope: requiredScope,
+		}, 403);
+	}
+
+	const payload = resourceIndexRecordSchema.parse(await c.req.json());
+	let record;
+	try {
+		record = await upsertExtensionResourceIndex(c.env, extension, payload);
+	} catch (error) {
+		if (error instanceof Response) {
+			return error;
+		}
+		throw error;
+	}
+	return c.json(record, 201);
 });
 
 app.route("/api/flue", flue());

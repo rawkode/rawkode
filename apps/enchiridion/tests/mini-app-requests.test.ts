@@ -103,6 +103,9 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(prompt).toContain("Keep each dynamic mini app response at or below 262144 bytes");
 		expect(prompt).toContain("/api/host/resource-index/search");
+		expect(prompt).toContain("/api/host/resource-index/records");
+		expect(prompt).toContain("hostApis: [\"resource-index:write\"] plus matching indexProjections");
+		expect(prompt).toContain("Enchiridion owns sourceApp");
 		expect(prompt).toContain("x-enchiridion-host-context");
 		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");
@@ -132,6 +135,9 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Do not return generic fallback bodies");
 		expect(prompt).toContain("Keep each dynamic mini app response at or below 262144 bytes");
 		expect(prompt).toContain("hostApis: [\"resource-index:read\"]");
+		expect(prompt).toContain("/api/host/resource-index/records");
+		expect(prompt).toContain("hostApis: [\"resource-index:write\"] plus matching indexProjections");
+		expect(prompt).toContain("Enchiridion owns sourceApp");
 		expect(prompt).toContain("x-enchiridion-host-context");
 		expect(prompt).toContain("Declare hostApis only");
 		expect(prompt).toContain("Only call global fetch");

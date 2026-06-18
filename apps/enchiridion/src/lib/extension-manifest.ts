@@ -156,6 +156,10 @@ export function validateExtensionManifest(input: unknown): ManifestValidationRes
 		issues.push("bindings: initial mini apps may request at most three isolated bindings");
 	}
 
+	if (manifest.hostApis.includes("resource-index:write") && manifest.indexProjections.length === 0) {
+		issues.push("indexProjections: apps declaring resource-index:write must declare at least one index projection");
+	}
+
 	return {
 		ok: issues.length === 0,
 		manifest,
