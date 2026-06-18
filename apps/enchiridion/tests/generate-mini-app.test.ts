@@ -896,6 +896,29 @@ export default {
 		expect(candidate.manifest.hostApis).toEqual([]);
 		expect(candidate.workerSource).toContain("export default");
 		expect(candidate.workerSource).toContain("text/html; charset=utf-8");
+		expect(candidate.workerSource).toContain("topologySpreadConstraints");
+		expect(candidate.workerSource).toContain("whenUnsatisfiable: DoNotSchedule");
+		expect(candidate.workerSource).toContain("kubectl get pods -o wide");
+		expect(result.ok).toBe(true);
+	});
+
+	it("creates useful static tutorial content for generic learning prompts", () => {
+		const candidate = createFallbackMiniAppCandidate({
+			userPrompt: "Simple web tutorial to learn ML rank for training jobs",
+			installedExtensions: [],
+		});
+		const result = validateGeneratedMiniApp({
+			generated: candidate,
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(candidate.manifest.slug).toBe("tutorial-learn-ml-rank-training-jobs");
+		expect(candidate.workerSource).toContain("Generated static tutorial");
+		expect(candidate.workerSource).toContain("Learning Path");
+		expect(candidate.workerSource).toContain("Practice Loop");
+		expect(candidate.workerSource).toContain("ML rank for training jobs");
 		expect(result.ok).toBe(true);
 	});
 

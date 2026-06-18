@@ -881,7 +881,8 @@ export function createFallbackMiniAppCandidate(input: {
 	const routePath = `/apps/${slug}`;
 	const prompt = input.userPrompt.trim() || "Untitled mini app";
 	const description = `Static fallback mini app generated after autonomous app-builder repair attempts failed.`;
-	const html = renderFallbackHtml({ name, prompt });
+	const content = buildFallbackContent(prompt);
+	const html = renderFallbackHtml({ name, prompt, content });
 
 	return {
 		manifest: {
@@ -977,7 +978,149 @@ function fallbackNameFromSlug(slug: string): string {
 		.join(" ");
 }
 
-function renderFallbackHtml(input: { name: string; prompt: string }): string {
+interface FallbackContent {
+	kicker: string;
+	intro: string;
+	sections: FallbackSection[];
+}
+
+interface FallbackSection {
+	title: string;
+	body?: string;
+	bullets?: string[];
+	code?: string;
+}
+
+function buildFallbackContent(prompt: string): FallbackContent {
+	const normalized = prompt.toLowerCase();
+	if (normalized.includes("kubernetes") && normalized.includes("topology") && normalized.includes("spread")) {
+		return kubernetesTopologySpreadFallback();
+	}
+
+	if (/\b(how to|how-to|tutorial|learn|guide)\b/i.test(prompt)) {
+		const topic = promptTopic(prompt);
+		return {
+			kicker: "Generated static tutorial",
+			intro: `A compact starter tutorial for ${topic}. This page is deterministic fallback content, so it favors clear structure over generated interactivity.`,
+			sections: [
+				{
+					title: "Learning Path",
+					bullets: [
+						`Define the goal for ${topic} in one sentence before adding tools or automation.`,
+						"Write the smallest runnable example and keep it visible while expanding the workflow.",
+						"Add one verification step for each concept so the page can become an executable checklist later.",
+					],
+				},
+				{
+					title: "Practice Loop",
+					bullets: [
+						"Read the core concept.",
+						"Apply it to a small sample.",
+						"Record the result, failure mode, and next question.",
+					],
+				},
+				{
+					title: "Next Upgrade",
+					body: "Ask Enchiridion to update this mini app with examples, commands, saved notes, or host-native components once the shape is useful.",
+				},
+			],
+		};
+	}
+
+	return {
+		kicker: "Enchiridion fallback mini app",
+		intro: "This static app was generated because the autonomous Worker candidates did not pass validation or smoke testing.",
+		sections: [
+			{
+				title: "Use It Now",
+				body: "The route is live and can be replaced by asking the agent to update this mini app with more specific behavior.",
+			},
+			{
+				title: "Make It Richer",
+				body: "Add data capture, commands, editor blocks, or host API access once the workflow requirements are clear.",
+			},
+			{
+				title: "Promote Later",
+				body: "If this becomes important, promote it into host-native UI through an explicit rebuild.",
+			},
+		],
+	};
+}
+
+function kubernetesTopologySpreadFallback(): FallbackContent {
+	return {
+		kicker: "Generated static tutorial",
+		intro: "Topology spread constraints tell Kubernetes how to distribute matching Pods across failure domains such as nodes, zones, or regions.",
+		sections: [
+			{
+				title: "Mental Model",
+				bullets: [
+					"Choose a topology key that exists on every eligible node, such as kubernetes.io/hostname for node spread or topology.kubernetes.io/zone for zone spread.",
+					"Use a label selector that matches only the Pods you want balanced together.",
+					"Set maxSkew to the largest acceptable difference between the busiest and emptiest matching domains.",
+					"Pick whenUnsatisfiable: DoNotSchedule for hard placement or ScheduleAnyway for a soft preference.",
+				],
+			},
+			{
+				title: "Minimal Deployment Example",
+				code: [
+					"apiVersion: apps/v1",
+					"kind: Deployment",
+					"metadata:",
+					"  name: web",
+					"spec:",
+					"  replicas: 6",
+					"  selector:",
+					"    matchLabels:",
+					"      app: web",
+					"  template:",
+					"    metadata:",
+					"      labels:",
+					"        app: web",
+					"    spec:",
+					"      topologySpreadConstraints:",
+					"        - maxSkew: 1",
+					"          topologyKey: kubernetes.io/hostname",
+					"          whenUnsatisfiable: DoNotSchedule",
+					"          labelSelector:",
+					"            matchLabels:",
+					"              app: web",
+					"      containers:",
+					"        - name: web",
+					"          image: nginx:1.27",
+				].join("\n"),
+			},
+			{
+				title: "Verification Checklist",
+				bullets: [
+					"Confirm the selected topology label is present on all target nodes.",
+					"Apply the workload and inspect Pod placement with kubectl get pods -o wide.",
+					"Scale replicas up and down to see whether skew remains within the configured bound.",
+					"If Pods stay Pending, check scheduler events for missing labels, too few domains, or an overly strict maxSkew.",
+				],
+			},
+			{
+				title: "Common Failure Modes",
+				bullets: [
+					"The selector is too broad and balances unrelated Pods together.",
+					"DoNotSchedule is used before the cluster has enough labeled domains to satisfy the constraint.",
+					"Zone spread is requested but nodes are missing topology.kubernetes.io/zone labels.",
+				],
+			},
+		],
+	};
+}
+
+function promptTopic(prompt: string): string {
+	const topic = prompt
+		.replace(/\b(web|mini|worker)?\s*app\b/gi, " ")
+		.replace(/\b(how to|how-to|tutorial|learn|guide|create|build|make|simple|new)\b/gi, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return topic || "this topic";
+}
+
+function renderFallbackHtml(input: { name: string; prompt: string; content: FallbackContent }): string {
 	return `<!doctype html>
 <html lang="en">
 	<head>
@@ -991,6 +1134,7 @@ function renderFallbackHtml(input: { name: string; prompt: string }): string {
 			header { border-bottom: 1px solid #d6d9cd; padding-bottom: 24px; margin-bottom: 28px; }
 			p { line-height: 1.65; }
 			.panel { border: 1px solid #d6d9cd; background: #ffffff; border-radius: 8px; padding: 22px; margin: 18px 0; }
+			pre { background: #1f241f; color: #f5f7ef; border-radius: 8px; overflow-x: auto; padding: 18px; line-height: 1.55; }
 			.kicker { color: #5f6b2d; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 			.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 			.item { border-left: 3px solid #6b7f32; padding-left: 14px; }
@@ -1000,31 +1144,29 @@ function renderFallbackHtml(input: { name: string; prompt: string }): string {
 	<body>
 		<main>
 			<header>
-				<div class="kicker">Enchiridion fallback mini app</div>
+				<div class="kicker">${escapeHtml(input.content.kicker)}</div>
 				<h1>${escapeHtml(input.name)}</h1>
-				<p>This static app was generated because the autonomous Worker candidates did not pass validation or smoke testing.</p>
+				<p>${escapeHtml(input.content.intro)}</p>
 			</header>
 			<section class="panel">
 				<h2>Request</h2>
 				<p>${escapeHtml(input.prompt)}</p>
 			</section>
-			<section class="grid" aria-label="Next steps">
-				<div class="item">
-					<h2>Use It Now</h2>
-					<p>The route is live and can be replaced by asking the agent to update this mini app with more specific behavior.</p>
-				</div>
-				<div class="item">
-					<h2>Make It Richer</h2>
-					<p>Add data capture, commands, editor blocks, or host API access once the workflow requirements are clear.</p>
-				</div>
-				<div class="item">
-					<h2>Promote Later</h2>
-					<p>If this becomes important, promote it into host-native UI through an explicit rebuild.</p>
-				</div>
+			<section class="grid" aria-label="Fallback content">
+				${input.content.sections.map(renderFallbackSection).join("")}
 			</section>
 		</main>
 	</body>
 </html>`;
+}
+
+function renderFallbackSection(section: FallbackSection): string {
+	return `<div class="item">
+	<h2>${escapeHtml(section.title)}</h2>
+	${section.body ? `<p>${escapeHtml(section.body)}</p>` : ""}
+	${section.bullets ? `<ul>${section.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+	${section.code ? `<pre><code>${escapeHtml(section.code)}</code></pre>` : ""}
+</div>`;
 }
 
 function escapeHtml(value: string): string {
