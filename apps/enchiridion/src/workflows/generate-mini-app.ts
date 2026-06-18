@@ -339,13 +339,19 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				};
 			}
 
+			const supersededScriptName = operation === "update" ? targetExtension?.deployedScriptName : undefined;
 			await saveExtension(env, manifest, deployment.scriptName, "dynamic");
+			const supersededScriptCleanup = supersededScriptName && supersededScriptName !== deployment.scriptName
+				? await cleanupMiniAppCandidate(env, supersededScriptName)
+				: null;
 			await createAuditRecord(env, {
 				slug: manifest.slug,
 				action: `${operation}-mini-app`,
 				status: operation === "update" ? "updated" : "deployed",
 				details: {
 					scriptName: deployment.scriptName,
+					supersededScriptName: supersededScriptCleanup ? supersededScriptName : undefined,
+					supersededScriptCleanup,
 					message: deployment.message,
 					deploymentNotes: generated.deploymentNotes,
 					validation: smokeTest as unknown as JsonObject,
@@ -364,6 +370,7 @@ export async function run({ init, payload, env }: FlueContext<GenerateMiniAppPay
 				routeUrl: smokeTest.route,
 				validation: smokeTest,
 				validationAttempts: smokeTestRun.attempts,
+				supersededScriptCleanup,
 				manifest,
 				attempts,
 			};

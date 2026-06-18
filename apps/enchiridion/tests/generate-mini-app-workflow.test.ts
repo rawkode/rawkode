@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Env } from "../src/lib/types";
+import type { Env, RegisteredExtension } from "../src/lib/types";
 
 const mockState = vi.hoisted(() => ({
 	audits: [] as Array<Record<string, unknown>>,
 	deployments: [] as Array<Record<string, unknown>>,
+	registeredExtensions: [] as RegisteredExtension[],
 	savedExtensions: [] as Array<Record<string, unknown>>,
 }));
 
@@ -11,7 +12,7 @@ vi.mock("../src/lib/repository", () => ({
 	createAuditRecord: vi.fn(async (_env: Env, record: Record<string, unknown>) => {
 		mockState.audits.push(record);
 	}),
-	listRegisteredExtensions: vi.fn(async () => []),
+	listRegisteredExtensions: vi.fn(async () => mockState.registeredExtensions),
 	saveExtension: vi.fn(async (_env: Env, manifest: Record<string, unknown>, scriptName: string | null, status: string) => {
 		mockState.savedExtensions.push({ manifest, scriptName, status });
 	}),
@@ -42,10 +43,27 @@ vi.mock("../src/lib/cloudflare-dispatch", () => ({
 	})),
 }));
 
+const helloWorldExtension: RegisteredExtension = {
+	slug: "hello-world",
+	name: "Hello World",
+	version: "0.1.0",
+	description: "A generated hello world app.",
+	status: "dynamic",
+	routes: [{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" }],
+	commands: [],
+	editorBlocks: [],
+	workflows: [],
+	bindings: [],
+	hostApis: [],
+	indexProjections: [],
+	deployedScriptName: "enchiridion-hello-world-old",
+};
+
 describe("generate mini app workflow recovery", () => {
 	beforeEach(() => {
 		mockState.audits.length = 0;
 		mockState.deployments.length = 0;
+		mockState.registeredExtensions.length = 0;
 		mockState.savedExtensions.length = 0;
 		vi.clearAllMocks();
 	});
@@ -169,6 +187,76 @@ describe("generate mini app workflow recovery", () => {
 					{ attempt: 1, status: "failed", message: "Load failed" },
 					{ attempt: 2, status: "passed", message: "Primary mini-app route rendered successfully." },
 				],
+			},
+		});
+	});
+
+	it("cleans up the superseded Worker after a successful dynamic mini app update", async () => {
+		mockState.registeredExtensions.push(helloWorldExtension);
+		const { deleteMiniAppWorker } = await import("../src/lib/cloudflare-dispatch");
+		const { run } = await import("../src/workflows/generate-mini-app");
+
+		const result = await run({
+			env: {} as Env,
+			payload: {
+				prompt: "Update hello world app to have blue background",
+				autonomousDeploy: true,
+			},
+			init: async () => ({
+				session: async () => ({
+					prompt: async () => ({
+						data: {
+							manifest: {
+								slug: "hello-world",
+								name: "Hello World",
+								version: "0.2.0",
+								description: "A generated hello world app with blue styling.",
+								routes: [{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" }],
+								commands: [],
+								editorBlocks: [],
+								workflows: [],
+								bindings: [],
+								hostApis: [],
+								indexProjections: [],
+							},
+							workerSource: "export default { fetch() { return new Response('<html><body style=\"background:#2563eb\"><h1>Hello</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) } }",
+							deploymentNotes: "Updated app styling.",
+						},
+					}),
+				}),
+			}),
+		} as never);
+
+		expect(result).toMatchObject({
+			status: "updated",
+			operation: "update",
+			slug: "hello-world",
+			deployed: true,
+			routeUrl: "/apps/hello-world",
+			supersededScriptCleanup: {
+				scriptName: "enchiridion-hello-world-old",
+				deleted: true,
+				message: "Mini app Worker candidate removed.",
+			},
+		});
+		expect(mockState.savedExtensions).toEqual([
+			expect.objectContaining({
+				scriptName: "enchiridion-hello-world-candidate",
+				status: "dynamic",
+				manifest: expect.objectContaining({ slug: "hello-world", version: "0.2.0" }),
+			}),
+		]);
+		expect(deleteMiniAppWorker).toHaveBeenCalledWith(expect.anything(), "enchiridion-hello-world-old");
+		expect(mockState.audits[0]).toMatchObject({
+			slug: "hello-world",
+			status: "updated",
+			details: {
+				scriptName: "enchiridion-hello-world-candidate",
+				supersededScriptName: "enchiridion-hello-world-old",
+				supersededScriptCleanup: {
+					scriptName: "enchiridion-hello-world-old",
+					deleted: true,
+				},
 			},
 		});
 	});
