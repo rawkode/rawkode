@@ -401,6 +401,25 @@ describe("app mini app routing", () => {
 		});
 	});
 
+	it("rejects host-context token minting for undeclared app route paths", async () => {
+		const { env } = testEnv(helloWorldExtension);
+		const response = await app.fetch(new Request("http://localhost/api/host-context", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app: "hello-world",
+				scopes: ["resource-index:read"],
+				context: { path: "/apps/hello-world/settings" },
+			}),
+		}), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "Host context path must match a declared app route",
+			app: "hello-world",
+		});
+	});
+
 	it("rejects host-context token minting for unknown apps", async () => {
 		const { env } = testEnv(null);
 		const response = await app.fetch(new Request("http://localhost/api/host-context", {

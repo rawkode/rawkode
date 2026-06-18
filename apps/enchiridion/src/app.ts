@@ -244,6 +244,12 @@ app.post("/api/host-context", async (c) => {
 			app: payload.app,
 		}, 403);
 	}
+	if (!isHostContextRouteDeclared(extension, payload.context)) {
+		return c.json({
+			error: "Host context path must match a declared app route",
+			app: payload.app,
+		}, 403);
+	}
 
 	const token = await signHostContext({
 		...payload,
@@ -272,6 +278,12 @@ app.get("/api/host/resource-index/search", async (c) => {
 	}
 	if (extension.status === "disabled") {
 		return c.json({ error: "Host context app is disabled", app: hostContext.app }, 403);
+	}
+	if (!isHostContextRouteDeclared(extension, hostContext.context)) {
+		return c.json({
+			error: "Host context token path is not a declared app route",
+			app: hostContext.app,
+		}, 403);
 	}
 	if (!extension.hostApis.includes(requiredScope)) {
 		return c.json({
@@ -351,6 +363,11 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 		requestUrl: c.req.raw.url,
 		hostContextToken: token,
 	});
+}
+
+function isHostContextRouteDeclared(extension: RegisteredExtension, context: JsonObject): boolean {
+	const path = context.path;
+	return typeof path === "string" && isDispatchableMiniAppRoute(extension, path);
 }
 
 function isDispatchableMiniAppRoute(extension: RegisteredExtension, path: string): boolean {
