@@ -1038,6 +1038,10 @@ export function validateGeneratedMiniApp(input: {
 		issues.push(`manifest.slug: update must keep target slug ${input.targetExtension.slug}`);
 	}
 
+	if (input.operation === "update" && input.targetExtension && validation.manifest) {
+		issues.push(...validateUpdateCompatibility(input.targetExtension, validation.manifest));
+	}
+
 	if (input.operation === "create" && input.installedExtensions.some((extension) => extension.slug === validation.manifest?.slug)) {
 		issues.push(`manifest.slug: ${validation.manifest?.slug} already exists; use update instead`);
 	}
@@ -1059,6 +1063,52 @@ export function validateGeneratedMiniApp(input: {
 		manifest: validation.manifest,
 		issues,
 	};
+}
+
+function validateUpdateCompatibility(targetExtension: RegisteredExtension, manifest: ExtensionManifest): string[] {
+	const issues: string[] = [];
+	const routeKeys = new Set(manifest.routes.map((route) => routeCompatibilityKey(route.path, route.mode)));
+	for (const route of targetExtension.routes) {
+		if (!routeKeys.has(routeCompatibilityKey(route.path, route.mode))) {
+			issues.push(`routes.${route.path}: update must preserve existing ${route.mode} route`);
+		}
+	}
+
+	issues.push(...missingIdIssues("commands", targetExtension.commands, manifest.commands));
+	issues.push(...missingIdIssues("editorBlocks", targetExtension.editorBlocks, manifest.editorBlocks));
+	issues.push(...missingIdIssues("workflows", targetExtension.workflows, manifest.workflows));
+	issues.push(...missingValueIssues("hostApis", targetExtension.hostApis, manifest.hostApis));
+
+	return issues;
+}
+
+function routeCompatibilityKey(path: string, mode: string): string {
+	return `${mode}:${path}`;
+}
+
+function missingIdIssues(
+	collection: "commands" | "editorBlocks" | "workflows",
+	existing: Array<{ id: string }>,
+	generated: Array<{ id: string }>,
+): string[] {
+	const generatedIds = new Set(generated.map((entry) => entry.id));
+	return existing
+		.filter((entry) => !generatedIds.has(entry.id))
+		.map((entry) => `${collection}.${entry.id}: update must preserve existing ${collectionLabel(collection)}`);
+}
+
+function missingValueIssues(collection: "hostApis", existing: string[], generated: string[]): string[] {
+	const generatedValues = new Set(generated);
+	return existing
+		.filter((entry) => !generatedValues.has(entry))
+		.map((entry) => `${collection}.${entry}: update must preserve existing host API declaration`);
+}
+
+function collectionLabel(collection: "commands" | "editorBlocks" | "workflows"): string {
+	if (collection === "editorBlocks") {
+		return "editor block";
+	}
+	return collection.slice(0, -1);
 }
 
 function validateGeneratedPayloadBounds(generated: GeneratedMiniApp, manifest?: ExtensionManifest): string[] {
@@ -1237,13 +1287,24 @@ function validateGeneratedHostApiScopes(source: string, manifest?: ExtensionMani
 	if (findHostApiPaths(source).includes("/api/host/resource-index/search")) {
 		usedHostApis.add("resource-index:read");
 	}
+	for (const api of requiredHostApisForExtensionPoints(manifest)) {
+		usedHostApis.add(api);
+	}
 
 	const unusedOrUnavailableApis = manifest.hostApis.filter((api) => !usedHostApis.has(api));
 	if (unusedOrUnavailableApis.length === 0) {
 		return [];
 	}
 
-	return [`hostApis: generated mini apps may only declare host APIs used by Worker source: ${unusedOrUnavailableApis.join(", ")}`];
+	return [`hostApis: generated mini apps may only declare host APIs used by Worker source or extension points: ${unusedOrUnavailableApis.join(", ")}`];
+}
+
+function requiredHostApisForExtensionPoints(manifest: ExtensionManifest): string[] {
+	return [
+		...manifest.commands.flatMap((command) => command.requiredHostApis),
+		...manifest.editorBlocks.flatMap((block) => block.requiredHostApis),
+		...manifest.workflows.flatMap((workflow) => workflow.requiredHostApis),
+	];
 }
 
 function findGlobalFetchCalls(source: string): GlobalFetchCall[] {

@@ -98,6 +98,62 @@ describe("generate mini app candidate validation", () => {
 		expect(result.issues).toContain("manifest.slug: update must keep target slug hello-world");
 	});
 
+	it("rejects update operations that drop existing routes or extension points", () => {
+		const targetExtension: RegisteredExtension = {
+			...registeredHelloWorld,
+			routes: [
+				{ path: "/apps/hello-world", mode: "worker-page", label: "Hello World" },
+				{ path: "/apps/hello-world/query", mode: "worker-fragment", label: "Query" },
+			],
+			commands: [{
+				id: "open",
+				label: "Open Hello World",
+				description: "Open the app.",
+				kind: "navigate",
+				scope: "global",
+				app: "hello-world",
+				action: "/apps/hello-world",
+				requiredHostApis: [],
+			}],
+			editorBlocks: [{
+				id: "hello-card",
+				app: "hello-world",
+				label: "Hello Card",
+				description: "Embed the hello card.",
+				defaultProps: {},
+				renderer: "worker-fragment",
+				requiredHostApis: [],
+			}],
+			workflows: [{
+				id: "refresh",
+				label: "Refresh",
+				trigger: "manual",
+				workflowName: "refresh-hello",
+				requiredHostApis: [],
+			}],
+			hostApis: ["resource-index:read"],
+		};
+
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				routes: [{ path: "/apps/hello-world/v2", mode: "worker-page", label: "Hello World V2" }],
+			}),
+			installedExtensions: [targetExtension],
+			operation: "update",
+			targetExtension,
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("routes./apps/hello-world: update must preserve existing worker-page route");
+		expect(result.issues).toContain("routes./apps/hello-world/query: update must preserve existing worker-fragment route");
+		expect(result.issues).toContain("commands.open: update must preserve existing command");
+		expect(result.issues).toContain("editorBlocks.hello-card: update must preserve existing editor block");
+		expect(result.issues).toContain("workflows.refresh: update must preserve existing workflow");
+		expect(result.issues).toContain("hostApis.resource-index:read: update must preserve existing host API declaration");
+	});
+
 	it("rejects generated workers that render generic load failures", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(
@@ -331,7 +387,31 @@ export default {
 		});
 
 		expect(result.ok).toBe(false);
-		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source: resource-index:read");
+		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source or extension points: resource-index:read");
+	});
+
+	it("allows host API declarations used by extension points", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				commands: [{
+					id: "search",
+					label: "Search",
+					description: "Search host resources.",
+					kind: "workflow",
+					scope: "app",
+					app: "hello-world",
+					action: "search",
+					requiredHostApis: ["resource-index:read"],
+				}],
+				hostApis: ["resource-index:read"],
+			}),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
 	});
 
 	it("rejects generated workers with unavailable extra host API scopes", () => {
@@ -356,7 +436,7 @@ export default {
 		});
 
 		expect(result.ok).toBe(false);
-		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source: notes:write");
+		expect(result.issues).toContain("hostApis: generated mini apps may only declare host APIs used by Worker source or extension points: notes:write");
 	});
 
 	it("allows inline declared host API fetch targets", () => {
