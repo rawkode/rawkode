@@ -1048,6 +1048,11 @@ function validateWorkerRouteOwnership(source: string, manifest?: ExtensionManife
 	return [`workerSource: app routes must stay under /apps/${manifest.slug}: ${uniqueRoutes.join(", ")}`];
 }
 
+interface GlobalFetchCall {
+	index: number;
+	argument: string;
+}
+
 function validateGeneratedFetchUsage(source: string): string[] {
 	const issues: string[] = [];
 	const fetchCalls = findGlobalFetchCalls(source);
@@ -1055,8 +1060,8 @@ function validateGeneratedFetchUsage(source: string): string[] {
 		return issues;
 	}
 
-	const hostApiPaths = findHostApiPaths(source);
-	if (hostApiPaths.length === 0) {
+	const invalidFetchCalls = fetchCalls.filter((call) => !isAllowedHostApiFetchTarget(source, call.argument));
+	if (invalidFetchCalls.length > 0) {
 		issues.push("workerSource: generated Workers may only call fetch for declared host APIs");
 	}
 
@@ -1067,8 +1072,8 @@ function validateGeneratedFetchUsage(source: string): string[] {
 	return issues;
 }
 
-function findGlobalFetchCalls(source: string): number[] {
-	const calls: number[] = [];
+function findGlobalFetchCalls(source: string): GlobalFetchCall[] {
+	const calls: GlobalFetchCall[] = [];
 	for (const match of source.matchAll(/\bfetch\s*\(/g)) {
 		const fetchIndex = match.index;
 		if (fetchIndex === undefined) {
@@ -1086,10 +1091,73 @@ function findGlobalFetchCalls(source: string): number[] {
 			continue;
 		}
 
-		calls.push(fetchIndex);
+		const argument = firstCallArgument(source.slice(openParenIndex + 1, closeParenIndex));
+		calls.push({ index: fetchIndex, argument });
 	}
 
 	return calls;
+}
+
+function isAllowedHostApiFetchTarget(source: string, argument: string): boolean {
+	const trimmed = argument.trim();
+	if (/^new\s+URL\s*\(\s*["'`]\/api\/host\/resource-index\/search["'`]\s*,\s*request\s*\.\s*url\s*\)/.test(trimmed)) {
+		return true;
+	}
+
+	const identifier = /^[A-Za-z_$][\w$]*$/.exec(trimmed)?.[0];
+	if (!identifier) {
+		return false;
+	}
+
+	return new RegExp(
+		`\\b(?:const|let|var)\\s+${escapeRegExp(identifier)}\\s*=\\s*new\\s+URL\\s*\\(\\s*["'\`]\\/api\\/host\\/resource-index\\/search["'\`]\\s*,\\s*request\\s*\\.\\s*url\\s*\\)`,
+	).test(source);
+}
+
+function firstCallArgument(argumentsSource: string): string {
+	let depth = 0;
+	let quote: string | null = null;
+	let escaped = false;
+
+	for (let index = 0; index < argumentsSource.length; index += 1) {
+		const char = argumentsSource[index];
+
+		if (quote) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (char === quote) {
+				quote = null;
+			}
+			continue;
+		}
+		if (char === "\"" || char === "'" || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (char === "(" || char === "[" || char === "{") {
+			depth += 1;
+			continue;
+		}
+		if (char === ")" || char === "]" || char === "}") {
+			depth -= 1;
+			continue;
+		}
+		if (char === "," && depth === 0) {
+			return argumentsSource.slice(0, index);
+		}
+	}
+
+	return argumentsSource;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isFetchHandlerDeclaration(source: string, fetchIndex: number, closeParenIndex: number): boolean {

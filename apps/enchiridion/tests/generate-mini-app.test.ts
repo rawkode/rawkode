@@ -268,6 +268,28 @@ export default {
 		expect(result.ok).toBe(true);
 	});
 
+	it("allows inline declared host API fetch targets", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated({
+				...baseManifest,
+				hostApis: ["resource-index:read"],
+			}, `
+export default {
+	async fetch(request) {
+		const response = await fetch(new URL("/api/host/resource-index/search", request.url), {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
 	it("rejects generated workers that call fetch without a host API", () => {
 		const result = validateGeneratedMiniApp({
 			generated: generated(
@@ -277,6 +299,34 @@ export default {
 	async fetch(request) {
 		const url = new URL("/apps/hello-world/data", request.url);
 		const response = await fetch(url);
+		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: generated Workers may only call fetch for declared host APIs");
+	});
+
+	it("rejects generated workers that fetch a non-host-api variable even when a host API URL exists", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				{
+					...baseManifest,
+					hostApis: ["resource-index:read"],
+				},
+				`
+export default {
+	async fetch(request) {
+		const hostUrl = new URL("/api/host/resource-index/search", request.url);
+		const localUrl = new URL("/apps/hello-world/data", request.url);
+		const response = await fetch(localUrl, {
+			headers: { "x-enchiridion-host-context": request.headers.get("x-enchiridion-host-context") ?? "" },
+		});
 		return new Response(await response.text(), { headers: { "content-type": "text/html" } });
 	},
 }`,
