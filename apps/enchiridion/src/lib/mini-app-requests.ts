@@ -24,6 +24,7 @@ const UPDATE_WORDS = /\b(update|change|modify|edit|rework|restyle|redesign|fix|i
 const CREATE_WORDS = /\b(create|build|make|generate|scaffold|new)\b/i;
 const APP_WORDS = /\b(mini[- ]?app|web app|worker app|app|tool|page|dashboard|site)\b/i;
 const APP_PREFIX = /^\s*(web app|mini[- ]?app|worker app|app)\b/i;
+const WEB_ARTIFACT_PREFIX = /^\s*(?:simple\s+)?web\s+(?:tutorial|guide|how[- ]to|page|site|tool)\b/i;
 
 export function inferMiniAppIntent(
 	prompt: string,
@@ -34,6 +35,7 @@ export function inferMiniAppIntent(
 	const updateRequested = UPDATE_WORDS.test(prompt) && (target || APP_WORDS.test(prompt));
 	const createRequested = forceBuild
 		|| APP_PREFIX.test(prompt)
+		|| WEB_ARTIFACT_PREFIX.test(prompt)
 		|| (CREATE_WORDS.test(prompt) && APP_WORDS.test(prompt));
 
 	if (updateRequested) {

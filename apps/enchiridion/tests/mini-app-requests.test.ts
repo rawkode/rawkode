@@ -42,6 +42,13 @@ describe("mini app request helpers", () => {
 		expect(intent.operation).toBe("create");
 	});
 
+	it("routes web tutorial prompts to creation even without the app noun", () => {
+		const intent = inferMiniAppIntent("Simple web tutorial to learn ML rank for training jobs", [helloWorld]);
+
+		expect(intent.shouldBuild).toBe(true);
+		expect(intent.operation).toBe("create");
+	});
+
 	it("leaves ordinary chat in chat mode", () => {
 		const intent = inferMiniAppIntent("What should I work on today?", [helloWorld]);
 
