@@ -238,6 +238,54 @@ export default {
 		expect(result.issues).toContain("workerSource: generated Workers cannot open network sockets");
 	});
 
+	it("rejects dynamic mini app pages with browser-side execution surfaces", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	fetch() {
+		return new Response('<html><body><script>fetch("/api/bootstrap")</script><a onclick="run()" href="javascript:run()">Run</a><form action="/api/search"></form></body></html>', {
+			headers: { "content-type": "text/html" },
+		});
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include browser scripts; promote trusted UI into the host app instead");
+		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include inline browser event handlers");
+		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include javascript: URLs");
+		expect(result.issues).toContain("workerSource: dynamic mini app pages cannot include forms because dynamic pages run in a sandbox");
+	});
+
+	it("allows ordinary Worker code that contains event-handler-like variable names", () => {
+		const result = validateGeneratedMiniApp({
+			generated: generated(
+				baseManifest,
+				`
+export default {
+	fetch() {
+		const one = 1;
+		const oncall = "support";
+		return new Response(\`<html><body><h1>Hello \${one}</h1><p>\${oncall}</p></body></html>\`, {
+			headers: { "content-type": "text/html" },
+		});
+	},
+}`,
+			),
+			installedExtensions: [],
+			operation: "create",
+			autonomousDeploy: true,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
 	it("allows declared host API reads when the worker forwards host context", () => {
 		const workerSource = `
 export default {

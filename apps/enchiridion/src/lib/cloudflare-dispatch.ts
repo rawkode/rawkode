@@ -32,6 +32,12 @@ export interface SmokeTestMiniAppResult {
 	message: string;
 }
 
+export interface SecureMiniAppResponseInput {
+	response: Response;
+	slug: string;
+	requestUrl: string;
+}
+
 const forwardedMiniAppHeaders = new Set([
 	"accept",
 	"accept-language",
@@ -148,6 +154,31 @@ export function createMiniAppDispatchRequest(source: Request, hostContextToken: 
 	return new Request(source, { headers });
 }
 
+export function secureMiniAppResponse(input: SecureMiniAppResponseInput): Response {
+	const redirectBlock = validateMiniAppRedirect(input);
+	if (redirectBlock) {
+		return redirectBlock;
+	}
+
+	const headers = new Headers(input.response.headers);
+	headers.delete("set-cookie");
+	headers.delete("set-cookie2");
+	headers.delete("www-authenticate");
+	headers.delete("x-enchiridion-host-context");
+	headers.set("cache-control", "no-store");
+	headers.set("content-security-policy", miniAppContentSecurityPolicy);
+	headers.set("cross-origin-resource-policy", "same-origin");
+	headers.set("permissions-policy", miniAppPermissionsPolicy);
+	headers.set("referrer-policy", "no-referrer");
+	headers.set("x-content-type-options", "nosniff");
+
+	return new Response(input.response.body, {
+		status: input.response.status,
+		statusText: input.response.statusText,
+		headers,
+	});
+}
+
 export async function smokeTestMiniAppWorker(
 	env: Env,
 	input: { manifest: ExtensionManifest; scriptName: string },
@@ -253,6 +284,90 @@ function sampleBody(body: string): string {
 	const sample = body.replace(/\s+/g, " ").trim().slice(0, 500);
 	return sample || "<empty body>";
 }
+
+function validateMiniAppRedirect(input: SecureMiniAppResponseInput): Response | null {
+	if (input.response.status < 300 || input.response.status >= 400) {
+		return null;
+	}
+
+	const location = input.response.headers.get("location");
+	if (!location) {
+		return null;
+	}
+
+	let target: URL;
+	try {
+		target = new URL(location, input.requestUrl);
+	} catch {
+		return blockedMiniAppRedirect(input.slug);
+	}
+
+	const requestUrl = new URL(input.requestUrl);
+	if (target.origin === requestUrl.origin && isMiniAppRouteForSlug(target.pathname, input.slug)) {
+		return null;
+	}
+
+	return blockedMiniAppRedirect(input.slug);
+}
+
+function blockedMiniAppRedirect(slug: string): Response {
+	return new Response(JSON.stringify({
+		error: "Unsafe mini app redirect blocked",
+		slug,
+	}), {
+		status: 502,
+		headers: {
+			"content-type": "application/json",
+			"cache-control": "no-store",
+			"content-security-policy": miniAppContentSecurityPolicy,
+			"referrer-policy": "no-referrer",
+			"x-content-type-options": "nosniff",
+		},
+	});
+}
+
+function isMiniAppRouteForSlug(pathname: string, slug: string): boolean {
+	const basePath = `/apps/${slug}`;
+	return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
+
+const miniAppContentSecurityPolicy = [
+	"sandbox",
+	"default-src 'none'",
+	"base-uri 'none'",
+	"connect-src 'none'",
+	"font-src 'self' data:",
+	"form-action 'none'",
+	"frame-ancestors 'self'",
+	"img-src 'self' data: blob:",
+	"manifest-src 'none'",
+	"media-src 'self' data:",
+	"object-src 'none'",
+	"script-src 'none'",
+	"style-src 'unsafe-inline'",
+	"worker-src 'none'",
+].join("; ");
+
+const miniAppPermissionsPolicy = [
+	"accelerometer=()",
+	"ambient-light-sensor=()",
+	"autoplay=()",
+	"camera=()",
+	"display-capture=()",
+	"encrypted-media=()",
+	"fullscreen=()",
+	"geolocation=()",
+	"gyroscope=()",
+	"magnetometer=()",
+	"microphone=()",
+	"midi=()",
+	"payment=()",
+	"picture-in-picture=()",
+	"publickey-credentials-get=()",
+	"screen-wake-lock=()",
+	"usb=()",
+	"xr-spatial-tracking=()",
+].join(", ");
 
 function bindingsToUploadMetadata(bindings: ExtensionBinding[]): UploadBindingMetadata[] {
 	return bindings.map((binding) => {

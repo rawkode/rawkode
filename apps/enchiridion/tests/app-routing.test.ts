@@ -39,6 +39,59 @@ describe("app mini app routing", () => {
 		expect(dispatchedRequests[0]?.headers.get("x-enchiridion-host-context")).toBeTruthy();
 	});
 
+	it("sandboxes dynamic mini app responses and strips response credentials", async () => {
+		const { env } = testEnv(helloWorldExtension, () => new Response("<html><body>Hello</body></html>", {
+			headers: {
+				"content-type": "text/html",
+				"set-cookie": "mini_app_session=secret",
+				"x-enchiridion-host-context": "leaked-token",
+			},
+		}));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("set-cookie")).toBeNull();
+		expect(response.headers.get("x-enchiridion-host-context")).toBeNull();
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(response.headers.get("content-security-policy")).toContain("sandbox");
+		expect(response.headers.get("content-security-policy")).toContain("script-src 'none'");
+		expect(response.headers.get("content-security-policy")).toContain("form-action 'none'");
+	});
+
+	it("allows dynamic mini app redirects inside the same app route namespace", async () => {
+		const { env } = testEnv(helloWorldExtension, () => Response.redirect("http://localhost/apps/hello-world/settings", 302));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("http://localhost/apps/hello-world/settings");
+		expect(response.headers.get("content-security-policy")).toContain("sandbox");
+	});
+
+	it("blocks dynamic mini app redirects to host APIs", async () => {
+		const { env } = testEnv(helloWorldExtension, () => Response.redirect("http://localhost/api/bootstrap", 302));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app redirect blocked",
+			slug: "hello-world",
+		});
+		expect(response.headers.get("location")).toBeNull();
+	});
+
+	it("blocks dynamic mini app redirects to external origins", async () => {
+		const { env } = testEnv(helloWorldExtension, () => Response.redirect("https://example.com/apps/hello-world", 302));
+		const response = await app.fetch(new Request("http://localhost/apps/hello-world"), env);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({
+			error: "Unsafe mini app redirect blocked",
+			slug: "hello-world",
+		});
+	});
+
 	it("dispatches nested dynamic mini app routes", async () => {
 		const { env } = testEnv(helloWorldExtension);
 		const response = await app.fetch(new Request("http://localhost/apps/hello-world/settings"), env);
@@ -124,7 +177,10 @@ describe("app mini app routing", () => {
 	});
 });
 
-function testEnv(extension: RegisteredExtension | null): { env: Env; dispatchedRequests: Request[] } {
+function testEnv(
+	extension: RegisteredExtension | null,
+	miniAppResponse?: (request: Request) => Response | Promise<Response>,
+): { env: Env; dispatchedRequests: Request[] } {
 	const dispatchedRequests: Request[] = [];
 	const env = {
 		DB: createFakeD1(extension),
@@ -142,7 +198,7 @@ function testEnv(extension: RegisteredExtension | null): { env: Env; dispatchedR
 				return {
 					async fetch(request: Request) {
 						dispatchedRequests.push(request);
-						return new Response(`mini-app:${new URL(request.url).pathname}`, {
+						return miniAppResponse?.(request) ?? new Response(`mini-app:${new URL(request.url).pathname}`, {
 							headers: { "content-type": "text/html" },
 						});
 					},

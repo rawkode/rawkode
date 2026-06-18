@@ -72,6 +72,8 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
 		expect(prompt).toContain("same fetch options object");
+		expect(prompt).toContain("CSP sandbox");
+		expect(prompt).toContain("server-rendered HTML and links");
 		expect(summarizeMiniApp(helloWorld).deployedScriptName).toBe("enchiridion-hello-world");
 	});
 
@@ -94,6 +96,8 @@ describe("mini app request helpers", () => {
 		expect(prompt).toContain("Only call global fetch");
 		expect(prompt).toContain("Call fetch directly");
 		expect(prompt).toContain("same fetch options object");
+		expect(prompt).toContain("CSP sandbox");
+		expect(prompt).toContain("server-rendered HTML and links");
 		expect(prompt).toContain("export default");
 	});
 });

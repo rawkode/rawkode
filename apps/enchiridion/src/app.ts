@@ -2,7 +2,7 @@ import { flue } from "@flue/runtime/routing";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { authenticate, requirePrincipal, unauthorizedResponse } from "./lib/auth";
-import { createMiniAppDispatchRequest } from "./lib/cloudflare-dispatch";
+import { createMiniAppDispatchRequest, secureMiniAppResponse } from "./lib/cloudflare-dispatch";
 import { registerRuntimeProviders } from "./lib/flue-providers";
 import { requireHostApiContext, requireHostSigningSecret, signHostContext } from "./lib/host-context";
 import {
@@ -298,7 +298,12 @@ async function dispatchMiniAppRoute(c: Context<HonoEnv>): Promise<Response> {
 
 	const request = createMiniAppDispatchRequest(c.req.raw, token);
 
-	return c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
+	const response = await c.env.MINI_APP_DISPATCHER.get(extension.deployedScriptName).fetch(request);
+	return secureMiniAppResponse({
+		response,
+		slug,
+		requestUrl: c.req.raw.url,
+	});
 }
 
 app.get("*", async (c) => {
