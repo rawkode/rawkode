@@ -201,6 +201,7 @@ in
             wireless.iwd.enable = lib.mkForce false;
           };
           services.resolved.enable = lib.mkForce false;
+          services.chrony.enable = lib.mkForce false;
           environment.etc."resolv.conf".source = "/opt/orbstack-guest/etc/resolv.conf";
 
           systemd.network = {
@@ -221,10 +222,32 @@ in
           services.greetd.enable = lib.mkForce false;
           services.openssh.enable = lib.mkForce false;
 
-          # Join the OrbStack integration group. (We keep the repo's standard
-          # uid 1000 rather than OrbStack's 502 — `isNormalUser` forbids uid
-          # < 1000, and host file-ownership mapping isn't needed for in-VM dev.)
-          users.users.rawkode.extraGroups = [ "orbstack" ];
+          # Match OrbStack's host-owned user mapping. Home Manager validates
+          # the configured UID against the live account before activation.
+          users.groups.rawkode.gid = lib.mkForce 502;
+          users.users.rawkode = {
+            isNormalUser = lib.mkForce false;
+            isSystemUser = lib.mkForce true;
+            uid = lib.mkForce 502;
+            group = "rawkode";
+            home = lib.mkForce "/home/rawkode";
+            extraGroups = [ "orbstack" ];
+          };
+
+          # Containers cannot set the host clock, mount debugfs, or access a
+          # host TPM resource manager.
+          rawkOS.tpm2.enable = false;
+          security.tpm2 = {
+            enable = lib.mkForce false;
+            abrmd.enable = lib.mkForce false;
+            pkcs11.enable = lib.mkForce false;
+            tctiEnvironment.enable = lib.mkForce false;
+          };
+          systemd.suppressedSystemUnits = [
+            "chronyd.service"
+            "sys-kernel-debug.mount"
+            "tpm2-abrmd.service"
+          ];
 
           # OrbStack's lightweight VM has unreliable watchdog timing; disable
           # the systemd watchdog on core services so they aren't killed.
