@@ -6,19 +6,31 @@ mkApp {
   name = "ai";
 
   linux.home =
-    { inputs, pkgs, ... }:
     {
-      home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
-        amp
-        codex
-        cursor-agent
-        gemini-cli
-      ];
+      config,
+      inputs,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      cfg = config.rawkOS.apps.ai;
+    in
+    {
+      config = lib.mkIf cfg.cliPackages.enable {
+        home.packages = with inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system}; [
+          amp
+          codex
+          cursor-agent
+          gemini-cli
+        ];
+      };
     };
 
   common.home =
-    _:
+    { config, lib, ... }:
     let
+      cfg = config.rawkOS.apps.ai;
       skillsDir = ./skills;
       skillNames = builtins.attrNames (
         lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
@@ -40,15 +52,21 @@ mkApp {
       ) skillNames;
     in
     {
-      home.file = builtins.listToAttrs skillFiles // {
-        "AGENTS.md" = {
-          source = ./AGENTS.md;
-          force = true;
-        };
+      options.rawkOS.apps.ai.cliPackages.enable = lib.mkEnableOption "AI CLI packages" // {
+        default = true;
       };
 
-      programs.fish.shellAliases = {
-        codex = ''codex --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
+      config = {
+        home.file = builtins.listToAttrs skillFiles // {
+          "AGENTS.md" = {
+            source = ./AGENTS.md;
+            force = true;
+          };
+        };
+
+        programs.fish.shellAliases = lib.optionalAttrs cfg.cliPackages.enable {
+          codex = ''codex --search --config commit_attribution='"This commit was created with the assistance of a LLM."' '';
+        };
       };
     };
 

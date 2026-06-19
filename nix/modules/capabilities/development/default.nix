@@ -8,7 +8,6 @@ mkCapability {
   home = with inputs.self.appBundles; [
     ai.home
     pi.home
-    zed.home
 
     bun.home
     comma.home
@@ -80,7 +79,6 @@ mkCapability {
   darwin = with inputs.self.appBundles; [
     ai.darwin
     pi.darwin
-    zed.darwin
 
     bun.darwin
     comma.darwin

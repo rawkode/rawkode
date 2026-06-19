@@ -17,7 +17,6 @@
         {
           inputs,
           lib,
-          pkgs,
           ...
         }:
         {
@@ -26,15 +25,25 @@
           # capability. This is a CLI-only machine, so import the (disabled)
           # darkman home module to declare the option without pulling desktop.
           home-manager.users.rawkode.imports = [ inputs.self.homeModules.darkman ];
+          home-manager.users.rawkode.rawkOS.apps.ai.cliPackages.enable = false;
           home-manager.users.rawkode.rawkOS.development.python.extraTools.enable = false;
           home-manager.users.rawkode.rawkOS.apps.misc.ffmpeg.enable = false;
-          home-manager.users.rawkode.rawkOS.apps.zed.enable = false;
+          home-manager.users.rawkode.rawkOS.stylix.enable = false;
 
+          rawkOS.stylix.enable = false;
           rawkOS.development.guiTools.enable = false;
           programs.kdeconnect.enable = lib.mkForce false;
-          stylix.fonts.emoji = {
-            package = lib.mkForce pkgs.dejavu_fonts;
-            name = lib.mkForce "DejaVu Sans";
+          environment.variables = {
+            EDITOR = lib.mkForce "vim";
+            SUDO_EDITOR = lib.mkForce "vim";
+            SYSTEMD_EDITOR = lib.mkForce "vim";
+            VISUAL = lib.mkForce "vim";
+          };
+          home-manager.users.rawkode.home.sessionVariables = {
+            EDITOR = lib.mkForce "vim";
+            SUDO_EDITOR = lib.mkForce "vim";
+            SYSTEMD_EDITOR = lib.mkForce "vim";
+            VISUAL = lib.mkForce "vim";
           };
           services = {
             fwupd.enable = lib.mkForce false;

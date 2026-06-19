@@ -6,11 +6,10 @@ let
   # Helper to disable stylix fish theming (we use our own)
   mkStylixFishDisable =
     {
-      config,
       lib,
-      pkgs,
+      options,
     }:
-    lib.mkIf (pkgs.stdenv.isLinux && lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] config) {
+    lib.optionalAttrs (lib.attrsets.hasAttrByPath [ "stylix" "targets" "fish" ] options) {
       stylix.targets.fish.enable = lib.mkForce false;
     };
 in
@@ -19,13 +18,12 @@ mkApp {
 
   linux.system =
     {
-      config,
       lib,
-      pkgs,
+      options,
       ...
     }:
     lib.mkMerge [
-      (mkStylixFishDisable { inherit config lib pkgs; })
+      (mkStylixFishDisable { inherit lib options; })
       {
         programs.fish.enable = true;
       }
@@ -33,14 +31,14 @@ mkApp {
 
   common.home =
     {
-      config,
       lib,
+      options,
       pkgs,
       rawkOSLib,
       ...
     }:
     lib.mkMerge [
-      (mkStylixFishDisable { inherit config lib pkgs; })
+      (mkStylixFishDisable { inherit lib options; })
       {
         programs.fish = {
           enable = true;

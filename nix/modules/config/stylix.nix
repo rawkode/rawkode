@@ -61,23 +61,36 @@ let
       };
     };
 
-  # Module form of the config (for imports)
-  stylixConfigModule = { lib, pkgs, ... }: mkStylixConfig { inherit lib pkgs; };
 in
 {
   # NixOS module that imports both stylix and our config
-  flake.nixosModules.stylix = {
-    imports = [
-      inputs.stylix.nixosModules.stylix
-      stylixConfigModule
-    ];
-  };
+  flake.nixosModules.stylix =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    {
+      imports = [
+        inputs.stylix.nixosModules.stylix
+      ];
+
+      options.rawkOS.stylix.enable = lib.mkEnableOption "shared Stylix theme configuration" // {
+        default = true;
+      };
+
+      config = lib.mkIf config.rawkOS.stylix.enable (mkStylixConfig {
+        inherit lib pkgs;
+      });
+    };
 
   # Home Manager module for Darwin/standalone use
   # On NixOS, the stylix module is already provided by nixosModules.stylix
   # which propagates to home-manager automatically
   flake.homeModules.stylix =
     {
+      config,
       lib,
       pkgs,
       osClass ? null,
@@ -90,7 +103,15 @@ in
         inputs.stylix.homeModules.stylix
       ];
 
-      # Apply our shared config (this is additive and works on all platforms)
-      config = mkStylixConfig { inherit lib pkgs; };
+      options.rawkOS.stylix.enable = lib.mkEnableOption "shared Stylix theme configuration" // {
+        default = true;
+      };
+
+    }
+    // lib.optionalAttrs (osClass != "nixos") {
+      # Apply our shared config for standalone Home Manager and Darwin.
+      config = lib.mkIf config.rawkOS.stylix.enable (mkStylixConfig {
+        inherit lib pkgs;
+      });
     };
 }

@@ -16,6 +16,7 @@ mkCapability {
           appBundles.forklift.home
           appBundles.onepassword.home
           appBundles.deskflow.home
+          appBundles.zed.home
         ]
         ++ lib.optionals (!isDarwin) [
           inputs.flatpaks.homeManagerModules.nix-flatpak
@@ -66,6 +67,7 @@ mkCapability {
     appBundles.forklift.darwin
     appBundles.onepassword.darwin
     appBundles.deskflow.darwin
+    appBundles.zed.darwin
 
     darwinModules.apps
     darwinModules.kree
