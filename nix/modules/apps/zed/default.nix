@@ -17,13 +17,17 @@ mkApp {
       keymapFile = if isDarwin then "keymap-darwin.json" else "keymap-linux.json";
     in
     {
+      options.rawkOS.apps.zed.enable = lib.mkEnableOption "Zed editor integration" // {
+        default = true;
+      };
+
       options.rawkOS.apps.zed.configDir = lib.mkOption {
         type = lib.types.str;
         default = "${config.home.homeDirectory}/Code/src/github.com/rawkode/rawkode/nix/modules/apps/zed";
         description = "Absolute path to the editable Zed config files in the dotfiles checkout.";
       };
 
-      config = {
+      config = lib.mkIf cfg.enable {
         home.packages = lib.optionals (!isDarwin) [ pkgs.zed-editor ];
 
         home.activation.zedConfigSymlinks = config.lib.dag.entryAfter [ "linkGeneration" ] ''

@@ -26,36 +26,54 @@ mkCapability {
   ];
 
   nixos =
-    { pkgs, ... }:
     {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      cfg = config.rawkOS.development;
+    in
+    {
+      options.rawkOS.development.guiTools.enable = lib.mkEnableOption "GUI development tools" // {
+        default = true;
+      };
+
       imports = [
         inputs.self.nixosModules.ai
         inputs.self.nixosModules.android
         inputs.self.nixosModules.documentation
       ];
 
-      environment.systemPackages = with pkgs; [
-        cmake
-        docker-compose
-        gcc
-        gdb
-        gh
-        git
-        gnumake
-        ltrace
-        neovim
-        nmap
-        pkg-config
-        podman-compose
-        strace
-        tcpdump
-        vim
-        wireshark
-      ];
+      config = {
+        environment.systemPackages =
+          with pkgs;
+          [
+            cmake
+            docker-compose
+            gcc
+            gdb
+            gh
+            git
+            gnumake
+            ltrace
+            neovim
+            nmap
+            pkg-config
+            podman-compose
+            strace
+            tcpdump
+            vim
+          ]
+          ++ lib.optionals cfg.guiTools.enable [
+            pkgs.wireshark
+          ];
 
-      boot.kernel.sysctl = {
-        "fs.inotify.max_user_watches" = 524288;
-        "fs.inotify.max_user_instances" = 1024;
+        boot.kernel.sysctl = {
+          "fs.inotify.max_user_watches" = 524288;
+          "fs.inotify.max_user_instances" = 1024;
+        };
       };
     };
 
