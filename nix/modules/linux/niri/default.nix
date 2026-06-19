@@ -15,6 +15,10 @@ mkApp {
   linux.system =
     { pkgs, ... }:
     {
+      imports = [
+        inputs.niri.nixosModules.niri
+      ];
+
       nix.settings = niriCache;
 
       programs.niri.enable = true;

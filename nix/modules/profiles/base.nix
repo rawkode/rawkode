@@ -12,7 +12,6 @@
         inputs.flatpaks.nixosModules.nix-flatpak
         inputs.home-manager.nixosModules.home-manager
         inputs.lanzaboote.nixosModules.lanzaboote
-        inputs.niri.nixosModules.niri
         inputs.nix-index-database.nixosModules.nix-index
         inputs.nur.modules.nixos.default
 
