@@ -11,10 +11,26 @@ mkUser {
   inherit machineSystems;
 
   homeExtraConfig =
-    { lib, isDarwin, ... }:
-    lib.optionalAttrs (!isDarwin) {
+    {
+      isDarwin,
+      lib,
+      machine ? null,
+      ...
+    }:
+    (lib.optionalAttrs (!isDarwin) {
       rawkOS.desktop.darkman.enable = false;
-    };
+    })
+    // (lib.optionalAttrs (machine == "p4x-orb-nixos") {
+      imports = [
+        (
+          { lib, ... }:
+          {
+            options.rawkOS.desktop.darkman.enable =
+              lib.mkEnableOption "Darkman automatic light/dark theme switching";
+          }
+        )
+      ];
+    });
 
   nixosUserConfig = _: {
     extraGroups = [ "libvirtd" ];

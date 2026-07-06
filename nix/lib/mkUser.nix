@@ -182,8 +182,14 @@ let
               machine
               ;
           };
+          extraConfigImports = extraConfig.imports or [ ];
+          extraConfigBody = builtins.removeAttrs extraConfig [ "imports" ];
         in
-        baseConfig // extraConfig;
+        baseConfig
+        // extraConfigBody
+        // {
+          imports = baseConfig.imports ++ extraConfigImports;
+        };
 
       nixosHomeModule =
         {

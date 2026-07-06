@@ -520,7 +520,9 @@
             };
           };
 
+          documentation.doc.enable = false;
           nix.enable = false; # Determinate packages supplies Nix daemon
+          system.tools.darwin-uninstaller.enable = false;
 
           # User configuration is handled by the users-* module from mkUser
           # which sets users.users.${username} and system.primaryUser

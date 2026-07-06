@@ -33,7 +33,10 @@ mkApp {
             watch
           ]);
 
-        programs.fzf.enable = true;
+        programs.fzf = {
+          enable = true;
+          historyWidget.command = "";
+        };
         programs.skim.enable = true;
       };
     };
