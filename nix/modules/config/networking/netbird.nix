@@ -13,8 +13,8 @@
     homebrew = {
       enable = true;
       taps = [ "netbirdio/tap" ];
-      brews = [ "netbird" ];
-      casks = [ "netbird-ui" ];
+      brews = [ "netbirdio/tap/netbird" ];
+      casks = [ "netbirdio/tap/netbird-ui" ];
     };
   };
 }
