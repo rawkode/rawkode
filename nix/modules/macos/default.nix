@@ -6,7 +6,7 @@
         enable = lib.mkDefault true;
         casks = [
           "finetune"
-          "parallels"
+          "iina"
           "raycast"
         ];
       };
