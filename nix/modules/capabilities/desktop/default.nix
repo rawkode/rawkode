@@ -12,7 +12,7 @@ mkCapability {
         with inputs.self;
         [
           appBundles.ghostty.home
-          appBundles.firefox-developer-edition.home
+          appBundles.google-chrome.home
           appBundles.forklift.home
           appBundles.onepassword.home
           appBundles.deskflow.home
@@ -40,7 +40,7 @@ mkCapability {
     inputs.self.nixosModules.bluetooth
     inputs.self.nixosModules.desktop-common
     inputs.self.nixosModules.flatpak
-    inputs.self.nixosModules.firefox-developer-edition
+    inputs.self.nixosModules.google-chrome
     inputs.self.nixosModules.fonts
     inputs.self.nixosModules.gnome
     inputs.self.nixosModules.location
@@ -63,7 +63,7 @@ mkCapability {
 
   darwin = with inputs.self; [
     appBundles.ghostty.darwin
-    appBundles.firefox-developer-edition.darwin
+    appBundles.google-chrome.darwin
     appBundles.forklift.darwin
     appBundles.onepassword.darwin
     appBundles.deskflow.darwin
