@@ -2,6 +2,7 @@
 .direnv
 
 # Nix
+.cache/
 result*
 result
 .direnv/
