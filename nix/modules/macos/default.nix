@@ -9,6 +9,7 @@
           "bartender"
           "finetune"
           "iina"
+          "mimestream"
           "raycast"
           "Sanyam-G/switch/switch"
         ];
