@@ -135,6 +135,26 @@ public enum PageDocument {
     return (document.save(), heads(document), try projection(document))
   }
 
+  public static func replaceBody(
+    with body: String,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    guard case .Object(let bodyObject, .Text)? = try document.get(obj: .ROOT, key: "body") else {
+      throw PageDocumentError.invalidSchema
+    }
+    let current = try document.text(obj: bodyObject)
+    try document.spliceText(
+      obj: bodyObject,
+      start: 0,
+      delete: Int64(current.unicodeScalars.count),
+      value: body
+    )
+    document.commitWith(message: "Replace page body", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
+  }
+
   public static func addSupertag(
     _ supertagID: SupertagID,
     in snapshot: Data
