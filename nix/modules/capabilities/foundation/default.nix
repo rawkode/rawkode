@@ -80,33 +80,35 @@ mkCapability {
   darwin = [
     inputs.home-manager.darwinModules.home-manager
     inputs.self.darwinModules.nix
-    inputs.self.darwinModules.profiles-base
+    inputs.self.darwinModules.macos-base
     inputs.self.darwinModules.fish
     inputs.self.darwinModules.user
   ];
 
   home = {
-    imports = with inputs.self; [
-      homeModules.profiles-users-common
-      homeModules.stylix
+    imports = [
+      inputs.nix-index-database.homeModules.nix-index
+      inputs.nur.modules.homeManager.default
+      inputs.self.homeModules.nix-home
+      inputs.self.homeModules.stylix
 
-      appBundles.atuin.home
-      appBundles.bat.home
-      appBundles.btop.home
-      appBundles.carapace.home
-      appBundles.eza.home
-      appBundles.fish.home
-      appBundles.git.home
-      appBundles.github.home
-      appBundles.htop.home
-      appBundles.jj.home
-      appBundles.jq.home
-      appBundles.misc.home
-      appBundles.nushell.home
-      appBundles.ouch.home
-      appBundles.ripgrep.home
-      appBundles.starship.home
-      appBundles.zoxide.home
+      inputs.self.appBundles.atuin.home
+      inputs.self.appBundles.bat.home
+      inputs.self.appBundles.btop.home
+      inputs.self.appBundles.carapace.home
+      inputs.self.appBundles.eza.home
+      inputs.self.appBundles.fish.home
+      inputs.self.appBundles.git.home
+      inputs.self.appBundles.github.home
+      inputs.self.appBundles.htop.home
+      inputs.self.appBundles.jj.home
+      inputs.self.appBundles.jq.home
+      inputs.self.appBundles.misc.home
+      inputs.self.appBundles.nushell.home
+      inputs.self.appBundles.ouch.home
+      inputs.self.appBundles.ripgrep.home
+      inputs.self.appBundles.starship.home
+      inputs.self.appBundles.zoxide.home
     ];
   };
 }
