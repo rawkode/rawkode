@@ -104,6 +104,15 @@ final class CloudSyncPolicyTests: XCTestCase {
     )
   }
 
+  func testRecordPreparationFailureWaitsForAnExplicitRecoveryTrigger() {
+    XCTAssertFalse(
+      CloudSyncCoordinator.shouldQueueDirtyRecords(for: .recordPreparationFailure)
+    )
+    XCTAssertTrue(CloudSyncCoordinator.shouldQueueDirtyRecords(for: .manualSync))
+    XCTAssertTrue(CloudSyncCoordinator.shouldQueueDirtyRecords(for: .localMutation))
+    XCTAssertTrue(CloudSyncCoordinator.shouldQueueDirtyRecords(for: .launch))
+  }
+
   func testAccountAndIdentityPoliciesPreventCrossAccountTransferAndEngineChurn() {
     XCTAssertFalse(
       CloudSyncCoordinator.permitsCloudDataTransfer(accountAuthorized: false)
