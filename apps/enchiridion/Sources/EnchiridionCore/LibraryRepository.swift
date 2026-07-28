@@ -86,6 +86,12 @@ public actor LibraryRepository {
   public nonisolated let path: String
   private let database: DatabasePool
 
+  func assistantRead<T: Sendable>(
+    _ access: @Sendable (Database) throws -> T
+  ) throws -> T {
+    try database.read(access)
+  }
+
   public init(path: String) throws {
     self.path = path
     do {
@@ -1710,7 +1716,7 @@ public actor LibraryRepository {
     return try Self.decodePage(row)
   }
 
-  private static func decodePage(_ row: Row) throws -> PageSnapshot {
+  static func decodePage(_ row: Row) throws -> PageSnapshot {
     guard let id: String = row["id"],
       let kindData: Data = row["kind_json"],
       let title: String = row["title"],
