@@ -99,6 +99,19 @@ public final class LibraryStore {
     }
   }
 
+  public func pagesCreatedOrModified(on date: Date) -> [PageSnapshot] {
+    guard let interval = calendar.dateInterval(of: .day, for: date) else { return [] }
+    return pages
+      .filter { page in
+        page.deletedAt == nil
+          && (interval.contains(page.createdAt) || interval.contains(page.modifiedAt))
+      }
+      .sorted { lhs, rhs in
+        if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt < rhs.modifiedAt }
+        return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+      }
+  }
+
   public func start() async {
     guard let repository else {
       isLoading = false

@@ -10,7 +10,7 @@ struct MobileRootView: View {
 
   var body: some View {
     TabView {
-      PageListScreen(store: store, section: .today)
+      TodayWorkspaceView(store: store)
         .tabItem { Label("Today", systemImage: "sun.max") }
 
       MobileLibraryScreen(store: store)
