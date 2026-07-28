@@ -8,7 +8,16 @@ struct EnchiridioniOSApp: App {
 
   var body: some Scene {
     WindowGroup {
-      MobileRootView(store: EnchiridionAppRuntime.shared.store)
+      MobileRootView(
+        store: EnchiridionAppRuntime.shared.store,
+        contactsResolver: EnchiridionAppRuntime.shared.contactsResolver,
+        assistantSession: EnchiridionAppRuntime.shared.assistantSession,
+        assistantUnavailableReason: EnchiridionAppRuntime.shared.assistantUnavailableReason
+      )
+      .managesDeviceContacts(
+        store: EnchiridionAppRuntime.shared.store,
+        resolver: EnchiridionAppRuntime.shared.contactsResolver
+      )
     }
   }
 }
@@ -20,7 +29,12 @@ final class EnchiridionAppRuntime {
   let repository: LibraryRepository?
   let store: LibraryStore
   let assistant: FoundationModelAssistant?
+  lazy var assistantSession = makeAssistantConversationSession(assistant: assistant)
+  var assistantUnavailableReason: String? {
+    assistantUnavailabilityMessage(assistant: assistant, repositoryError: repositoryError)
+  }
   let repositoryError: String?
+  let contactsResolver = DeviceContactsResolver()
   lazy var carPlayVoice = CarPlayVoiceCoordinator(
     assistant: assistant,
     repositoryError: repositoryError
@@ -30,12 +44,12 @@ final class EnchiridionAppRuntime {
     do {
       let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
       self.repository = repository
-      store = LibraryStore(repository: repository)
+      store = LibraryStore(repository: repository, contactResolver: contactsResolver)
       assistant = FoundationModelAssistant(repository: repository)
       repositoryError = nil
     } catch {
       repository = nil
-      store = LibraryStore()
+      store = LibraryStore(contactResolver: contactsResolver)
       assistant = nil
       repositoryError = error.localizedDescription
     }
