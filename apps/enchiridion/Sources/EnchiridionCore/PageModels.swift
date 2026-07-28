@@ -426,6 +426,21 @@ public enum SyncStatus: Codable, Equatable, Sendable {
     case .attentionRequired: "Sync needs attention"
     }
   }
+
+  public var detail: String {
+    switch self {
+    case .localOnly:
+      "Changes are safe on this device. Sign in to iCloud to keep them in sync."
+    case .syncing:
+      "Sending local changes and checking iCloud for updates."
+    case .synced(let date):
+      "All known changes were synced \(date.formatted(date: .abbreviated, time: .shortened))."
+    case .offline:
+      "Changes are safe on this device and will sync automatically when iCloud is reachable."
+    case .iCloudUnavailable(let message), .attentionRequired(let message):
+      message
+    }
+  }
 }
 
 extension Date {

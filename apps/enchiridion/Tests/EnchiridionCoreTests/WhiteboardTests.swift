@@ -132,7 +132,13 @@ final class WhiteboardTests: XCTestCase {
     XCTAssertNotNil(cleanedArrow.start)
     XCTAssertNil(cleanedArrow.end)
 
-    try await fixture.repository.markViewCloudSaved(id: view.id, systemFields: Data([1]))
+    let savedRecord = try await fixture.repository.savedViewCloudRecord(id: view.id)
+    let savedGeneration = try XCTUnwrap(savedRecord?.dirtyGeneration)
+    try await fixture.repository.markViewCloudSaved(
+      id: view.id,
+      sentGeneration: savedGeneration,
+      systemFields: Data([1])
+    )
     let noOp = try await fixture.repository.deleteWhiteboardElements(
       [], in: view.id, expectedRevision: deleted.after.revision)
     XCTAssertEqual(noOp.before.revision, noOp.after.revision)
@@ -269,7 +275,11 @@ final class WhiteboardTests: XCTestCase {
     let receivedDocument = try await targetFixture.repository.whiteboardDocument(for: outbound.id)
     XCTAssertEqual(receivedDocument, outbound.whiteboardDocument)
 
-    try await targetFixture.repository.markViewCloudSaved(id: outbound.id, systemFields: Data([5]))
+    try await targetFixture.repository.markViewCloudSaved(
+      id: outbound.id,
+      sentGeneration: outbound.dirtyGeneration,
+      systemFields: Data([5])
+    )
     let legacyNeedsUpload = try await targetFixture.repository.mergeCloudView(
       id: outbound.id,
       definition: outbound.definition,

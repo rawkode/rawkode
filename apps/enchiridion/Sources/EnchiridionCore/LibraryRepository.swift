@@ -83,6 +83,26 @@ public struct SavedViewCloudRecord: Sendable {
   public var cloudRecord: Data?
 }
 
+public struct SupertagCloudRecord: Sendable {
+  public var id: SupertagID
+  public var definition: SupertagDefinition
+  public var isDeleted: Bool
+  public var sortOrder: Int
+  public var modifiedAt: Date
+  public var dirtyGeneration: Int64
+  public var cloudRecord: Data?
+}
+
+public struct CloudPageMergeResult: Sendable {
+  public var page: PageSnapshot?
+  public var needsUpload: Bool
+
+  public init(page: PageSnapshot?, needsUpload: Bool) {
+    self.page = page
+    self.needsUpload = needsUpload
+  }
+}
+
 public actor LibraryRepository {
   public nonisolated let path: String
   private let database: DatabasePool
@@ -458,7 +478,10 @@ public actor LibraryRepository {
     }
   }
 
-  public func saveSupertag(_ definition: SupertagDefinition) throws {
+  public func saveSupertag(
+    _ definition: SupertagDefinition,
+    now: Date = Date()
+  ) throws {
     guard !definition.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw LibraryRepositoryError.invalidRecord
     }
@@ -482,9 +505,16 @@ public actor LibraryRepository {
       }
       try db.execute(
         sql: """
-          INSERT INTO supertag_schemas (id,name,definition_json,deleted,sort_order)
-          VALUES (?,?,?,?,COALESCE((SELECT sort_order FROM supertag_schemas WHERE id = ?),999))
-          ON CONFLICT(id) DO UPDATE SET name=excluded.name,definition_json=excluded.definition_json,deleted=excluded.deleted
+          INSERT INTO supertag_schemas
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
+          VALUES (?,?,?,?,COALESCE((SELECT sort_order FROM supertag_schemas WHERE id = ?),999),?,1,1)
+          ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            definition_json=excluded.definition_json,
+            deleted=excluded.deleted,
+            modified_at=excluded.modified_at,
+            dirty_generation=supertag_schemas.dirty_generation + 1,
+            cloud_dirty=1
           """,
         arguments: [
           definition.id.rawValue,
@@ -492,7 +522,147 @@ public actor LibraryRepository {
           try JSONEncoder.enchiridion.encode(definition),
           definition.isDeleted,
           definition.id.rawValue,
+          now.timeIntervalSince1970,
         ]
+      )
+    }
+  }
+
+  public func dirtySupertags() throws -> [SupertagCloudRecord] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM supertag_schemas WHERE cloud_dirty = 1 ORDER BY modified_at"
+      ).compactMap(Self.decodeSupertagCloudRecord)
+    }
+  }
+
+  public func supertagCloudRecord(id: SupertagID) throws -> SupertagCloudRecord? {
+    try database.read { db in
+      try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM supertag_schemas WHERE id = ?",
+        arguments: [id.rawValue]
+      ).flatMap(Self.decodeSupertagCloudRecord)
+    }
+  }
+
+  @discardableResult
+  public func markSupertagCloudSaved(
+    id: SupertagID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE supertag_schemas
+          SET cloud_record = ?,
+              cloud_synced_generation = MAX(cloud_synced_generation, ?),
+              cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
+          WHERE id = ?
+          """,
+        arguments: [systemFields, sentGeneration, sentGeneration, id.rawValue]
+      )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM supertag_schemas WHERE id = ?",
+        arguments: [id.rawValue]
+      ) ?? false
+    }
+  }
+
+  @discardableResult
+  public func mergeCloudSupertag(
+    id: SupertagID,
+    definition: SupertagDefinition,
+    isDeleted: Bool,
+    sortOrder: Int,
+    modifiedAt: Date,
+    dirtyGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      var normalized = definition
+      normalized.id = id
+      normalized.isDeleted = isDeleted
+      if let localIsDirty = try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM supertag_schemas WHERE id = ?",
+        arguments: [id.rawValue]
+      ), localIsDirty {
+        try db.execute(
+          sql: "UPDATE supertag_schemas SET cloud_record = ?, cloud_dirty = 1 WHERE id = ?",
+          arguments: [systemFields, id.rawValue]
+        )
+        return true
+      }
+      try db.execute(
+        sql: """
+          INSERT INTO supertag_schemas
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,
+             cloud_dirty,cloud_synced_generation,cloud_record)
+          VALUES (?,?,?,?,?,?,?,0,?,?)
+          ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            definition_json=excluded.definition_json,
+            deleted=excluded.deleted,
+            sort_order=excluded.sort_order,
+            modified_at=excluded.modified_at,
+            dirty_generation=excluded.dirty_generation,
+            cloud_dirty=0,
+            cloud_synced_generation=excluded.cloud_synced_generation,
+            cloud_record=excluded.cloud_record
+          """,
+        arguments: [
+          id.rawValue,
+          normalized.name,
+          try JSONEncoder.enchiridion.encode(normalized),
+          isDeleted,
+          sortOrder,
+          modifiedAt.timeIntervalSince1970,
+          dirtyGeneration,
+          dirtyGeneration,
+          systemFields,
+        ]
+      )
+      return false
+    }
+  }
+
+  @discardableResult
+  public func applyCloudSupertagRecordDeletion(id: SupertagID) throws -> Bool {
+    try database.write { db in
+      guard let localIsDirty = try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM supertag_schemas WHERE id = ?",
+        arguments: [id.rawValue]
+      ) else { return false }
+      if localIsDirty {
+        try db.execute(
+          sql: "UPDATE supertag_schemas SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+          arguments: [id.rawValue]
+        )
+        return true
+      }
+      try db.execute(
+        sql: """
+          UPDATE supertag_schemas
+          SET deleted = 1, cloud_record = NULL, cloud_dirty = 0,
+              cloud_synced_generation = dirty_generation
+          WHERE id = ?
+          """,
+        arguments: [id.rawValue]
+      )
+      return false
+    }
+  }
+
+  public func clearSupertagCloudRecordMetadata(id: SupertagID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE supertag_schemas SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+        arguments: [id.rawValue]
       )
     }
   }
@@ -872,16 +1042,28 @@ public actor LibraryRepository {
     }
   }
 
-  public func markViewCloudSaved(id: LiveQueryID, systemFields: Data) throws {
+  @discardableResult
+  public func markViewCloudSaved(
+    id: LiveQueryID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
     try database.write { db in
       try db.execute(
         sql: """
           UPDATE saved_query_views
-          SET cloud_record = ?, cloud_dirty = 0, cloud_synced_generation = dirty_generation
+          SET cloud_record = ?,
+              cloud_synced_generation = MAX(cloud_synced_generation, ?),
+              cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
           WHERE id = ?
           """,
-        arguments: [systemFields, id.rawValue]
+        arguments: [systemFields, sentGeneration, sentGeneration, id.rawValue]
       )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM saved_query_views WHERE id = ?",
+        arguments: [id.rawValue]
+      ) ?? false
     }
   }
 
@@ -903,14 +1085,17 @@ public actor LibraryRepository {
       var existingLocalGeneration: Int64 = 0
       if let row = try Row.fetchOne(
         db,
-        sql: "SELECT modified_at,dirty_generation,whiteboard_json FROM saved_query_views WHERE id = ?",
+        sql: """
+          SELECT modified_at,dirty_generation,cloud_dirty,whiteboard_json
+          FROM saved_query_views WHERE id = ?
+          """,
         arguments: [id.rawValue]
       ) {
         existingWhiteboardData = row["whiteboard_json"]
-        let localModified = Date(timeIntervalSince1970: row["modified_at"] ?? 0)
         let localGeneration: Int64 = row["dirty_generation"] ?? 0
         existingLocalGeneration = localGeneration
-        if localModified > modifiedAt || (localModified == modifiedAt && localGeneration > dirtyGeneration) {
+        let localIsDirty: Bool = row["cloud_dirty"] ?? false
+        if localIsDirty {
           try db.execute(
             sql: "UPDATE saved_query_views SET cloud_record = ?, cloud_dirty = 1 WHERE id = ?",
             arguments: [systemFields, id.rawValue]
@@ -959,6 +1144,35 @@ public actor LibraryRepository {
         ]
       )
       return preservingLegacyWhiteboard
+    }
+  }
+
+  @discardableResult
+  public func applyCloudViewRecordDeletion(id: LiveQueryID) throws -> Bool {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM saved_query_views WHERE id = ?",
+        arguments: [id.rawValue]
+      ) else { return false }
+      let localIsDirty: Bool = row["cloud_dirty"] ?? false
+      if localIsDirty {
+        try db.execute(
+          sql: "UPDATE saved_query_views SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+          arguments: [id.rawValue]
+        )
+        return true
+      }
+      try db.execute(
+        sql: """
+          UPDATE saved_query_views
+          SET deleted = 1, whiteboard_json = ?, cloud_record = NULL,
+              cloud_dirty = 0, cloud_synced_generation = dirty_generation
+          WHERE id = ?
+          """,
+        arguments: [try Self.encodeWhiteboardDocument(.empty), id.rawValue]
+      )
+      return false
     }
   }
 
@@ -1168,6 +1382,33 @@ public actor LibraryRepository {
     }
   }
 
+  public func clearPageCloudRecordMetadata(pageID: PageID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE pages SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+        arguments: [pageID.rawValue]
+      )
+    }
+  }
+
+  public func clearViewCloudRecordMetadata(id: LiveQueryID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE saved_query_views SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+        arguments: [id.rawValue]
+      )
+    }
+  }
+
+  public func clearPurgeCloudRecordMetadata(pageID: PageID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE purge_markers SET cloud_record = NULL, cloud_dirty = 1 WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      )
+    }
+  }
+
   public func cloudAccountID() throws -> String? {
     try database.read { db in
       guard let data = try Data.fetchOne(db, sql: "SELECT value FROM settings WHERE key = 'cloud.account-id'") else {
@@ -1191,12 +1432,28 @@ public actor LibraryRepository {
     }
   }
 
-  public func markCloudSaved(pageID: PageID, systemFields: Data) throws {
+  @discardableResult
+  public func markCloudSaved(
+    pageID: PageID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
     try database.write { db in
       try db.execute(
-        sql: "UPDATE pages SET cloud_record = ?, cloud_dirty = 0, cloud_synced_generation = dirty_generation WHERE id = ?",
-        arguments: [systemFields, pageID.rawValue]
+        sql: """
+          UPDATE pages
+          SET cloud_record = ?,
+              cloud_synced_generation = MAX(cloud_synced_generation, ?),
+              cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
+          WHERE id = ?
+          """,
+        arguments: [systemFields, sentGeneration, sentGeneration, pageID.rawValue]
       )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM pages WHERE id = ?",
+        arguments: [pageID.rawValue]
+      ) ?? false
     }
   }
 
@@ -1238,33 +1495,117 @@ public actor LibraryRepository {
     }
   }
 
-  public func markPurgeCloudSaved(pageID: PageID, systemFields: Data) throws {
+  @discardableResult
+  public func markPurgeCloudSaved(
+    pageID: PageID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
     try database.write { db in
       try db.execute(
-        sql: "UPDATE purge_markers SET cloud_record = ?, cloud_dirty = 0 WHERE page_id = ?",
-        arguments: [systemFields, pageID.rawValue]
+        sql: """
+          UPDATE purge_markers
+          SET cloud_record = ?,
+              cloud_dirty = CASE WHEN generation <= ? THEN 0 ELSE 1 END
+          WHERE page_id = ?
+          """,
+        arguments: [systemFields, sentGeneration, pageID.rawValue]
       )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM purge_markers WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      ) ?? false
     }
   }
 
+  @discardableResult
+  public func applyCloudPageRecordDeletion(
+    pageID: PageID,
+    deletedAt: Date = Date()
+  ) throws -> Bool {
+    try database.write { db in
+      if let row = try Row.fetchOne(
+        db,
+        sql: "SELECT dirty_generation,cloud_dirty FROM pages WHERE id = ?",
+        arguments: [pageID.rawValue]
+      ) {
+        let localIsDirty: Bool = row["cloud_dirty"] ?? false
+        if localIsDirty {
+          try db.execute(
+            sql: "UPDATE pages SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+            arguments: [pageID.rawValue]
+          )
+          return true
+        }
+        let generation: Int64 = row["dirty_generation"] ?? 0
+        try db.execute(sql: "DELETE FROM pages WHERE id = ?", arguments: [pageID.rawValue])
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO purge_markers
+              (page_id,generation,purged_at,cloud_dirty,cloud_record)
+            VALUES (?,?,?,0,NULL)
+            """,
+          arguments: [pageID.rawValue, generation + 1, deletedAt.timeIntervalSince1970]
+        )
+        return false
+      }
+      try db.execute(
+        sql: """
+          UPDATE purge_markers
+          SET cloud_record = NULL, cloud_dirty = 0
+          WHERE page_id = ?
+          """,
+        arguments: [pageID.rawValue]
+      )
+      return false
+    }
+  }
+
+  @discardableResult
   public func applyCloudPurge(
     pageID: PageID,
     generation: Int64,
     purgedAt: Date,
     systemFields: Data
-  ) throws {
+  ) throws -> Bool {
     try database.write { db in
+      if let row = try Row.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM pages WHERE id = ?",
+        arguments: [pageID.rawValue]
+      ) {
+        let localIsDirty: Bool = row["cloud_dirty"] ?? false
+        if localIsDirty {
+          try db.execute(
+            sql: "UPDATE pages SET cloud_record = ?, cloud_dirty = 1 WHERE id = ?",
+            arguments: [systemFields, pageID.rawValue]
+          )
+          try db.execute(
+            sql: "DELETE FROM purge_markers WHERE page_id = ?",
+            arguments: [pageID.rawValue]
+          )
+          return true
+        }
+      }
       let localGeneration: Int64 = try Int64.fetchOne(
         db,
         sql: "SELECT generation FROM purge_markers WHERE page_id = ?",
         arguments: [pageID.rawValue]
       ) ?? 0
-      guard generation >= localGeneration else { return }
+      if generation < localGeneration {
+        try db.execute(
+          sql: "UPDATE purge_markers SET cloud_record = ?, cloud_dirty = 1 WHERE page_id = ?",
+          arguments: [systemFields, pageID.rawValue]
+        )
+        return true
+      }
       try db.execute(sql: "DELETE FROM pages WHERE id = ?", arguments: [pageID.rawValue])
       try db.execute(
         sql: "INSERT OR REPLACE INTO purge_markers (page_id,generation,purged_at,cloud_dirty,cloud_record) VALUES (?,?,?,0,?)",
         arguments: [pageID.rawValue, generation, purgedAt.timeIntervalSince1970, systemFields]
       )
+      return false
     }
   }
 
@@ -1274,11 +1615,31 @@ public actor LibraryRepository {
     remoteDocument: Data,
     systemFields: Data,
     now: Date = Date()
-  ) throws -> PageSnapshot {
+  ) throws -> CloudPageMergeResult {
     try database.write { db in
+      if let marker = try Row.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM purge_markers WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      ) {
+        let markerIsDirty: Bool = marker["cloud_dirty"] ?? false
+        if markerIsDirty {
+          try db.execute(
+            sql: "UPDATE purge_markers SET cloud_record = ?, cloud_dirty = 1 WHERE page_id = ?",
+            arguments: [systemFields, pageID.rawValue]
+          )
+          return CloudPageMergeResult(page: nil, needsUpload: true)
+        }
+        try db.execute(
+          sql: "DELETE FROM purge_markers WHERE page_id = ?",
+          arguments: [pageID.rawValue]
+        )
+      }
       let page: PageSnapshot
+      let needsUpload: Bool
       if let local = try Self.fetchPage(db, id: pageID) {
         let merged = try PageDocument.merge(local: local.document, remote: remoteDocument, pageID: pageID)
+        needsUpload = merged.document != remoteDocument
         page = PageSnapshot(
           id: pageID,
           kind: local.kind,
@@ -1290,12 +1651,13 @@ public actor LibraryRepository {
           modifiedAt: now,
           deletedAt: merged.projection.deletedAt,
           isPinned: merged.projection.isPinned,
-          dirtyGeneration: local.dirtyGeneration + (merged.document == remoteDocument ? 0 : 1),
+          dirtyGeneration: local.dirtyGeneration + (needsUpload ? 1 : 0),
           objectMetadata: merged.projection.objectMetadata
         )
-        try Self.writePage(db, page: page, cloudDirty: merged.document != remoteDocument, cloudRecord: systemFields)
+        try Self.writePage(db, page: page, cloudDirty: needsUpload, cloudRecord: systemFields)
         try Self.replaceReferences(db, pageID: pageID, references: merged.projection.references)
       } else {
+        needsUpload = false
         let projection = try PageDocument.inspect(remoteDocument, pageID: pageID)
         page = PageSnapshot(
           id: pageID,
@@ -1314,7 +1676,7 @@ public actor LibraryRepository {
         try Self.writePage(db, page: page, cloudDirty: false, cloudRecord: systemFields)
         try Self.replaceReferences(db, pageID: pageID, references: projection.references)
       }
-      return page
+      return CloudPageMergeResult(page: page, needsUpload: needsUpload)
     }
   }
 
@@ -1324,6 +1686,74 @@ public actor LibraryRepository {
 
   public func setCloudState(_ data: Data) throws {
     try setSetting(key: "cloudkit.state", value: data)
+  }
+
+  public func clearCloudState() throws {
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM settings WHERE key = 'cloudkit.state'")
+    }
+  }
+
+  public func markAllCloudDataForZoneRecovery() throws {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE pages
+          SET cloud_dirty = 1, cloud_record = NULL, cloud_synced_generation = 0
+          """
+      )
+      try db.execute(
+        sql: """
+          UPDATE saved_query_views
+          SET cloud_dirty = 1, cloud_record = NULL, cloud_synced_generation = 0
+          """
+      )
+      try db.execute(
+        sql: """
+          UPDATE supertag_schemas
+          SET cloud_dirty = 1, cloud_record = NULL, cloud_synced_generation = 0
+          """
+      )
+      try db.execute(
+        sql: "UPDATE purge_markers SET cloud_dirty = 1, cloud_record = NULL"
+      )
+    }
+  }
+
+  public func unresolvedCloudRecordNames() throws -> Set<String> {
+    try database.read { db in
+      Set(try String.fetchAll(db, sql: "SELECT record_name FROM cloud_unresolved_records"))
+    }
+  }
+
+  public func markCloudRecordUnresolved(
+    recordName: String,
+    detectedAt: Date = Date()
+  ) throws {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          INSERT OR REPLACE INTO cloud_unresolved_records (record_name,detected_at)
+          VALUES (?,?)
+          """,
+        arguments: [recordName, detectedAt.timeIntervalSince1970]
+      )
+    }
+  }
+
+  public func clearUnresolvedCloudRecord(recordName: String) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "DELETE FROM cloud_unresolved_records WHERE record_name = ?",
+        arguments: [recordName]
+      )
+    }
+  }
+
+  public func clearAllUnresolvedCloudRecords() throws {
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM cloud_unresolved_records")
+    }
   }
 
   public func setting(key: String) throws -> Data? {
@@ -2038,6 +2468,24 @@ public actor LibraryRepository {
         arguments: [try LibraryRepository.encodeWhiteboardDocument(.empty)]
       )
     }
+    migrator.registerMigration("v9-synced-supertags") { db in
+      try db.alter(table: "supertag_schemas") { table in
+        table.add(column: "modified_at", .double).notNull().defaults(to: 0)
+        table.add(column: "dirty_generation", .integer).notNull().defaults(to: 1)
+        table.add(column: "cloud_dirty", .boolean).notNull().defaults(to: true).indexed()
+        table.add(column: "cloud_synced_generation", .integer).notNull().defaults(to: 0)
+        table.add(column: "cloud_record", .blob)
+      }
+      try db.execute(
+        sql: "UPDATE supertag_schemas SET modified_at = CAST(strftime('%s','now') AS REAL) WHERE modified_at = 0"
+      )
+    }
+    migrator.registerMigration("v10-unresolved-cloud-records") { db in
+      try db.create(table: "cloud_unresolved_records") { table in
+        table.column("record_name", .text).primaryKey()
+        table.column("detected_at", .double).notNull()
+      }
+    }
     return migrator
   }()
 
@@ -2286,6 +2734,26 @@ public actor LibraryRepository {
       id: .init(rawValue: id),
       definition: definition,
       whiteboardDocument: (try? decodeWhiteboardDocument(row["whiteboard_json"])) ?? .empty,
+      isDeleted: row["deleted"] ?? false,
+      sortOrder: row["sort_order"] ?? 999,
+      modifiedAt: Date(timeIntervalSince1970: modified),
+      dirtyGeneration: row["dirty_generation"] ?? 0,
+      cloudRecord: row["cloud_record"]
+    )
+  }
+
+  private static func decodeSupertagCloudRecord(_ row: Row) -> SupertagCloudRecord? {
+    guard let id: String = row["id"],
+      let definitionData: Data = row["definition_json"],
+      let definition = try? JSONDecoder.enchiridion.decode(
+        SupertagDefinition.self,
+        from: definitionData
+      )
+    else { return nil }
+    let modified: Double = row["modified_at"] ?? 0
+    return SupertagCloudRecord(
+      id: .init(rawValue: id),
+      definition: definition,
       isDeleted: row["deleted"] ?? false,
       sortOrder: row["sort_order"] ?? 999,
       modifiedAt: Date(timeIntervalSince1970: modified),

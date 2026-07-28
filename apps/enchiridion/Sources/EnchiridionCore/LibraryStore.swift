@@ -255,6 +255,7 @@ public final class LibraryStore {
       do {
         try await repository?.saveSupertag(definition)
         await reload()
+        await syncCoordinator?.supertagDidChange(definition.id)
       } catch { startupError = error.localizedDescription }
     }
   }
@@ -619,6 +620,7 @@ public final class LibraryStore {
     let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
     let events = try calendarProvider.events(from: start, through: end)
     try await repository.replaceCalendarProjection(events, provider: "eventkit")
+    await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarPageContexts = try await repository.calendarPageContexts()
     calendarError = nil
@@ -642,6 +644,7 @@ public final class LibraryStore {
       let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
       let events = try await provider.events(from: start, through: end)
       try await repository.replaceCalendarProjection(events, provider: "google")
+      await syncCoordinator?.enqueueDirtyChanges()
       calendarEvents = try await repository.calendarEvents(from: start, through: end)
       calendarPageContexts = try await repository.calendarPageContexts()
       calendarError = nil
