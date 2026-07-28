@@ -201,7 +201,7 @@ public enum AssistantAvailability: Equatable, Sendable {
     case .available:
       "The on-device assistant is available."
     case .unsupportedOperatingSystem:
-      "The on-device assistant requires iOS 26 or later."
+      "The on-device assistant requires iOS 26 or macOS 26, or later."
     case .deviceNotEligible:
       "This device does not support the on-device language model."
     case .appleIntelligenceNotEnabled:

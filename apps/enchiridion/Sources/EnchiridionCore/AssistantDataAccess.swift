@@ -103,6 +103,7 @@ public extension LibraryRepository {
         sql: """
           SELECT * FROM pages
           WHERE deleted_at IS NULL
+            AND COALESCE(person_visibility, 'promoted') <> 'other'
             AND (title LIKE ? ESCAPE '\\' COLLATE NOCASE OR plain_text LIKE ? ESCAPE '\\' COLLATE NOCASE)
           ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 0 ELSE 1 END,
                    modified_at DESC,
