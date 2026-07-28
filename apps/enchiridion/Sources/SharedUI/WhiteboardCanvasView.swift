@@ -17,6 +17,8 @@ struct WhiteboardCanvasView: View {
   @State private var draftPoints: [WhiteboardPoint] = []
   @State private var transientPan: CGSize = .zero
   @State private var gestureMagnification: CGFloat = 1
+  @State private var isMagnifying = false
+  @State private var suppressDragUntil = Date.distantPast
   @State private var moveBaseline: WhiteboardDocument?
   @State private var deferredDocument: WhiteboardDocument?
   @State private var isPersisting = false
@@ -312,7 +314,7 @@ struct WhiteboardCanvasView: View {
     DragGesture(minimumDistance: 0, coordinateSpace: .named("whiteboard-canvas"))
       .onChanged { value in
         canvasIsFocused = true
-        guard !isPersisting else { return }
+        guard !isPersisting, !isMagnifying, Date() >= suppressDragUntil else { return }
         switch activeTool {
         case .select:
           if value.translation == .zero { selection.removeAll() }
@@ -327,7 +329,11 @@ struct WhiteboardCanvasView: View {
         }
       }
       .onEnded { value in
-        guard !isPersisting else { return }
+        let wasSuppressed = isMagnifying || Date() < suppressDragUntil
+        if wasSuppressed || isPersisting {
+          cancelTransientDrag()
+          return
+        }
         switch activeTool {
         case .select:
           selection.removeAll()
@@ -345,13 +351,33 @@ struct WhiteboardCanvasView: View {
     MagnifyGesture()
       .onChanged { value in
         guard !isPersisting else { return }
+        if !isMagnifying {
+          isMagnifying = true
+          suppressDragUntil = .distantFuture
+          cancelTransientDrag()
+        }
         gestureMagnification = value.magnification
       }
       .onEnded { value in
-        guard !isPersisting else { return }
+        let requestedZoom = CGFloat(workingDocument.viewport.zoom) * value.magnification
         gestureMagnification = 1
-        setZoom(CGFloat(workingDocument.viewport.zoom) * value.magnification)
+        isMagnifying = false
+        // DragGesture end delivery can follow MagnifyGesture end delivery. Keep the drag
+        // suppressed briefly so pinch remains the sole owner of an overlapping interaction.
+        suppressDragUntil = Date().addingTimeInterval(0.2)
+        guard !isPersisting else { return }
+        setZoom(requestedZoom)
       }
+  }
+
+  private func cancelTransientDrag() {
+    transientPan = .zero
+    draft = nil
+    draftPoints.removeAll()
+    if let moveBaseline {
+      workingDocument = moveBaseline
+      self.moveBaseline = nil
+    }
   }
 
   private func updateFreehandDraft(at point: WhiteboardPoint) {
@@ -530,7 +556,7 @@ struct WhiteboardCanvasView: View {
   }
 
   private func moveChanged(_ id: WhiteboardElementID, delta: CGSize) {
-    guard !isPersisting else { return }
+    guard !isPersisting, !isMagnifying, Date() >= suppressDragUntil else { return }
     if !selection.contains(id) { selection = [id] }
     if moveBaseline == nil { moveBaseline = workingDocument }
     guard let baseline = moveBaseline else { return }
@@ -545,6 +571,10 @@ struct WhiteboardCanvasView: View {
   private func moveEnded(delta: CGSize) {
     guard let baseline = moveBaseline else { return }
     moveBaseline = nil
+    guard !isMagnifying, Date() >= suppressDragUntil, !isPersisting else {
+      workingDocument = baseline
+      return
+    }
     let moves = selection.map {
       WhiteboardElementMove(elementID: $0, deltaX: Double(delta.width), deltaY: Double(delta.height))
     }
