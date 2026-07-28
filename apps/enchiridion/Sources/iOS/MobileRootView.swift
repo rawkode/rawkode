@@ -2,7 +2,11 @@ import EnchiridionCore
 import SwiftUI
 
 struct MobileRootView: View {
-  @State private var store = LibraryStore()
+  @State private var store: LibraryStore
+
+  init(store: LibraryStore) {
+    _store = State(initialValue: store)
+  }
 
   var body: some View {
     TabView {

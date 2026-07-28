@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>EnchiridionCodeSignEntitlements</key>
-	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -33,16 +31,36 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>EnchiridionCodeSignEntitlements</key>
+	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
 	<key>GoogleOAuthClientID</key>
 	<string>CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>GoogleOAuthRedirectScheme</key>
 	<string>com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Enchiridion shows your local calendar events so you can attach private notes. It never edits events.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Enchiridion uses the microphone only while you ask its on-device CarPlay assistant a question.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Enchiridion transcribes your CarPlay questions on device so it can answer from your private calendar and notes.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay Voice</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>

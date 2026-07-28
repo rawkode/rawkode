@@ -57,3 +57,35 @@ Google Calendar is serverless: the app uses OAuth 2.0 Authorization Code + PKCE,
 - the matching `CFBundleURLSchemes` entry
 
 No OAuth client secret belongs in the app.
+
+## CarPlay voice assistant signing
+
+The iPhone app keeps its iOS 18 deployment target. Its read-only CarPlay voice assistant is availability-gated to iOS 26.4 or later, and `FoundationModels.framework` is weak-linked so the phone app remains launchable on earlier supported releases.
+
+CarPlay voice-based conversation is a managed capability. Before testing on a device or distributing the app, verify that Apple has enabled **Voice-based conversational app** for the exact explicit App ID `dev.rawkode.enchiridion`:
+
+1. In Certificates, Identifiers & Profiles, open **Identifiers**, select `dev.rawkode.enchiridion`, and confirm the approved CarPlay capability is enabled.
+2. Regenerate every profile used by this target after enabling the capability. At minimum, create or refresh an **iOS App Development** profile and the applicable distribution profile (**App Store Connect**, **Ad Hoc**, or both). Select the exact App ID, current certificates, and devices where the profile type requires them, then download and install each profile.
+3. In Xcode, open **Settings → Accounts**, select the team, and download profiles. Alternatively, let Xcode refresh automatic profiles with a signed device build using `-allowProvisioningUpdates`.
+4. Do not clear `CODE_SIGN_ENTITLEMENTS` for CarPlay testing. A local-only build that omits entitlements can exercise the phone UI, but it cannot appear in CarPlay.
+
+After building or archiving, verify both the embedded profile and the final code signature. Replace the example path with the signed device `.app` (for an archive, use `Enchiridion.xcarchive/Products/Applications/Enchiridion.app`):
+
+```sh
+APP_PATH=/path/to/Enchiridion.app
+
+security cms -D -i "$APP_PATH/embedded.mobileprovision" > /tmp/enchiridion-profile.plist
+/usr/libexec/PlistBuddy \
+  -c 'Print :Entitlements:com.apple.developer.carplay-voice-based-conversation' \
+  /tmp/enchiridion-profile.plist
+
+codesign -d --entitlements - --xml "$APP_PATH" \
+  > /tmp/enchiridion-signed-entitlements.plist
+/usr/libexec/PlistBuddy \
+  -c 'Print :com.apple.developer.carplay-voice-based-conversation' \
+  /tmp/enchiridion-signed-entitlements.plist
+
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+```
+
+Both `PlistBuddy` commands must print `true`. If the profile check fails, regenerate the profile after enabling the capability. If only the signed-app check fails, confirm the `EnchiridionMobile` target uses `Configuration/EnchiridionMobile.entitlements`, then rebuild without overriding `CODE_SIGN_ENTITLEMENTS`.
