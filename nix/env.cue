@@ -18,6 +18,21 @@ schema.#Project & {
 	]
 
 	tasks: {
+		check: schema.#Task & {
+			description: "Evaluate all flake outputs and run repository checks"
+			command:     "nix"
+			args: ["flake", "check", "--no-eval-cache"]
+			hermetic: false
+		}
+
+		"check-host": schema.#Task & {
+			description: "Run checks and build the local machine without switching"
+			script:      _ @embed(file=scripts/check-host.nu,type=text)
+			scriptShell: "nu"
+			dependsOn: [check]
+			hermetic: false
+		}
+
 		update: schema.#Task & {
 			description: "Update all flake inputs except excluded ones"
 			script:      _ @embed(file=scripts/update.nu,type=text)
