@@ -23,12 +23,50 @@ struct MobileSettingsView: View {
         }
         Section("Sync") {
           LabeledContent("Status", value: store.syncStatus.title)
-          Button("Sync Now") { Task { await store.syncNow() } }
+          Text(store.syncStatus.detail)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel("Sync details: \(store.syncStatus.detail)")
+          Button {
+            Task { await store.syncNow() }
+          } label: {
+            if isSyncing {
+              HStack(spacing: 8) {
+                ProgressView()
+                Text("Syncing")
+              }
+            } else {
+              Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+            }
+          }
+          .disabled(!canRequestSync)
+          .accessibilityHint(syncActionHint)
           Text("Pages are durable locally first. Private iCloud sync runs when your account is available.")
             .font(.caption).foregroundStyle(.secondary)
         }
       }
       .navigationTitle("Settings")
     }
+  }
+
+  private var isSyncing: Bool {
+    if case .syncing = store.syncStatus { return true }
+    return false
+  }
+
+  private var canRequestSync: Bool {
+    switch store.syncStatus {
+    case .synced, .attentionRequired:
+      true
+    case .localOnly, .syncing, .offline, .iCloudUnavailable:
+      false
+    }
+  }
+
+  private var syncActionHint: String {
+    if isSyncing { return "A sync is already in progress." }
+    if canRequestSync { return "Checks iCloud now for updates." }
+    return store.syncStatus.detail
   }
 }
