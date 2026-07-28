@@ -2,6 +2,7 @@ import AVFoundation
 import CarPlay
 import EnchiridionCore
 import Foundation
+import Observation
 import OSLog
 import UIKit
 
@@ -26,7 +27,7 @@ final class CarPlayVoiceCoordinator: NSObject {
   private let assistant: FoundationModelAssistant?
   private let repositoryError: String?
   private let audioSession = AVAudioSession.sharedInstance()
-  private let synthesizer = AVSpeechSynthesizer()
+  private let speaker = AVSpeechSynthesizerConversationSpeaker()
   private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
     category: "CarPlayVoice"
@@ -34,16 +35,14 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   private weak var interfaceController: CPInterfaceController?
   private var voiceTemplate: CPVoiceControlTemplate?
-  private var operation: Task<Void, Never>?
-  private var operationGeneration: UInt64 = 0
-  private var speechContinuation: CheckedContinuation<Void, Never>?
+  private var conversationSession: AssistantConversationSession?
+  private var observationGeneration: UInt64 = 0
   private var isConnected = false
 
   init(assistant: FoundationModelAssistant?, repositoryError: String?) {
     self.assistant = assistant
     self.repositoryError = repositoryError
     super.init()
-    synthesizer.delegate = self
     observeSafetyEvents()
   }
 
@@ -67,18 +66,14 @@ final class CarPlayVoiceCoordinator: NSObject {
           return
         }
         self.logger.info("carplay_connected")
-        await self.preflightAndListen()
+        self.transition(to: .idle)
       }
     }
   }
 
   func disconnect() {
-    guard isConnected || operation != nil else { return }
-    invalidateOperation()
-    finishSpeechWait()
-    synthesizer.stopSpeaking(at: .immediate)
-    deactivateAudioSession()
-    transition(to: .idle)
+    guard isConnected || conversationSession != nil else { return }
+    stopConversation(transitionToIdle: true)
     isConnected = false
     interfaceController = nil
     voiceTemplate = nil
@@ -87,11 +82,7 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   func pauseForSafety(reason: CarPlaySafetyPauseReason) {
     guard isConnected else { return }
-    invalidateOperation()
-    finishSpeechWait()
-    synthesizer.stopSpeaking(at: .immediate)
-    deactivateAudioSession()
-    transition(to: .idle)
+    stopConversation(transitionToIdle: true)
     logger.notice("safe_idle reason=\(reason.rawValue, privacy: .public)")
   }
 
@@ -136,7 +127,11 @@ final class CarPlayVoiceCoordinator: NSObject {
     let speechAvailability = await transcriber.availability()
     guard case .available = speechAvailability else {
       let message: String
-      if case .unavailable(let reason) = speechAvailability {
+      if case .installationRequired = speechAvailability {
+        message = "Open Enchiridion on your iPhone and install the on-device speech model first."
+      } else if case .downloading = speechAvailability {
+        message = "The on-device speech model is downloading on your iPhone."
+      } else if case .unavailable(let reason) = speechAvailability {
         message = reason
       } else {
         message = "On-device speech transcription is unavailable."
@@ -155,7 +150,7 @@ final class CarPlayVoiceCoordinator: NSObject {
   }
 
   private func startListening() {
-    guard isConnected, operation == nil else { return }
+    guard isConnected, conversationSession == nil else { return }
     guard CarPlayAssistantPrivacySettings.isEnabled() else {
       showAssistantDisabled()
       return
@@ -167,76 +162,33 @@ final class CarPlayVoiceCoordinator: NSObject {
       )
       return
     }
-    operationGeneration &+= 1
-    let generation = operationGeneration
-    operation = Task { [weak self] in
-      guard let self else { return }
-      await self.runTurn(generation: generation)
-    }
-  }
-
-  @available(iOS 26.4, *)
-  private func runTurn(generation: UInt64) async {
-    let startedAt = ContinuousClock.now
-    do {
-      guard CarPlayAssistantPrivacySettings.isEnabled() else {
-        showAssistantDisabled()
-        return
-      }
-      try configureConversationalAudioSession()
-      transition(to: .listening)
-      logger.info("turn_started")
-
-      let request = try await OnDeviceSpeechTranscriber().transcribe()
-      try Task.checkCancellation()
-      guard CarPlayAssistantPrivacySettings.isEnabled() else {
-        showAssistantDisabled()
-        return
-      }
-      transition(to: .thinking)
-
-      guard let assistant else {
-        showUnavailable(
-          reasonCode: "repository_unavailable",
-          message: repositoryError ?? "Your local Enchiridion library is unavailable."
-        )
-        return
-      }
-      let response = await assistant.respond(to: request, locale: .current, now: Date())
-      try Task.checkCancellation()
-      logger.info(
-        "assistant_response status=\(response.status.rawValue, privacy: .public) source_count=\(response.sources.count, privacy: .public)"
+    guard let assistant else {
+      showUnavailable(
+        reasonCode: "repository_unavailable",
+        message: repositoryError ?? "Your local Enchiridion library is unavailable."
       )
-      if response.status == .unavailable || response.status == .ungrounded {
-        showUnavailable(
-          reasonCode: "assistant_\(response.status.rawValue)",
-          message: response.answer
-        )
-        return
-      }
-
-      transition(to: .speaking)
-      try await speak(spokenText(for: response))
-      logger.info("turn_finished elapsed_ms=\(startedAt.duration(to: .now).milliseconds, privacy: .public)")
-
-      if isConnected {
-        try await Task.sleep(for: .milliseconds(500))
-        try Task.checkCancellation()
-        if clearOperation(ifCurrent: generation) {
-          startListening()
-        }
-      } else {
-        _ = clearOperation(ifCurrent: generation)
-      }
-    } catch is CancellationError {
-      logger.info("turn_cancelled")
-      _ = clearOperation(ifCurrent: generation)
-    } catch {
-      guard clearOperation(ifCurrent: generation) else { return }
-      deactivateAudioSession()
-      transition(to: .error)
-      logger.error("turn_failed error_type=\(String(reflecting: type(of: error)), privacy: .public)")
+      return
     }
+
+    let transcriber = CarPlayConversationTranscriber { [weak self] in
+      guard let self else { throw CancellationError() }
+      guard CarPlayAssistantPrivacySettings.isEnabled() else {
+        throw CarPlayConversationError.disabled
+      }
+      try self.configureConversationalAudioSession()
+    }
+    let answerer = CarPlayConversationAnswerer(assistant: assistant)
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      speaker: speaker,
+      locale: .current
+    )
+    observationGeneration &+= 1
+    conversationSession = session
+    observe(session, generation: observationGeneration)
+    session.start()
+    present(session.state)
   }
 
   private func configureConversationalAudioSession() throws {
@@ -252,67 +204,58 @@ final class CarPlayVoiceCoordinator: NSObject {
     try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
   }
 
-  private func speak(_ text: String) async throws {
-    guard !text.isEmpty else { return }
-    let utterance = AVSpeechUtterance(string: text)
-    utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
-    utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+  private func stopConversation(transitionToIdle: Bool) {
+    observationGeneration &+= 1
+    let session = conversationSession
+    conversationSession = nil
+    speaker.stopImmediately()
+    deactivateAudioSession()
+    if let session {
+      Task { @MainActor in await session.stop() }
+    }
+    if transitionToIdle {
+      transition(to: .idle)
+    }
+  }
 
-    await withTaskCancellationHandler {
-      await withCheckedContinuation { continuation in
-        speechContinuation = continuation
-        synthesizer.speak(utterance)
+  private func observe(
+    _ session: AssistantConversationSession,
+    generation: UInt64
+  ) {
+    withObservationTracking {
+      _ = session.state
+    } onChange: { [weak self, weak session] in
+      Task { @MainActor in
+        guard let self, let session,
+          self.conversationSession === session,
+          self.observationGeneration == generation
+        else { return }
+        self.present(session.state)
+        self.observe(session, generation: generation)
       }
-    } onCancel: {
-      Task { @MainActor [weak self] in
-        self?.synthesizer.stopSpeaking(at: .immediate)
-        self?.finishSpeechWait()
-      }
     }
   }
 
-  private func finishSpeechWait() {
-    speechContinuation?.resume()
-    speechContinuation = nil
-  }
-
-  private func invalidateOperation() {
-    operationGeneration &+= 1
-    operation?.cancel()
-    operation = nil
-  }
-
-  @discardableResult
-  private func clearOperation(ifCurrent generation: UInt64) -> Bool {
-    guard generation == operationGeneration else { return false }
-    operation = nil
-    return true
-  }
-
-  private func spokenText(for response: GroundedAssistantResponse) -> String {
-    let caveat: String
-    switch response.status {
-    case .ambiguous:
-      caveat = "I found more than one possible match. "
-    case .stale:
-      caveat = "Your local calendar information may be out of date. "
-    case .conflicting:
-      caveat = "Your local notes contain conflicting information. "
-    default:
-      caveat = ""
+  private func present(_ state: AssistantConversationState) {
+    switch state {
+    case .idle, .stopped:
+      transition(to: .idle)
+    case .listening:
+      transition(to: .listening)
+    case .thinking:
+      transition(to: .thinking)
+    case .speaking:
+      transition(to: .speaking)
+    case .error(let failure):
+      showUnavailable(
+        reasonCode: "session_\(failure.kind.rawValue)",
+        message: failure.message
+      )
     }
-    let titles = response.sources.reduce(into: [String]()) { result, source in
-      if !result.contains(source.title) { result.append(source.title) }
-    }
-    guard !titles.isEmpty else { return caveat + response.answer }
-    return "\(caveat)\(response.answer) Sources: \(titles.joined(separator: ", "))."
   }
 
   private func showUnavailable(reasonCode: String, message: String) {
-    invalidateOperation()
-    finishSpeechWait()
-    synthesizer.stopSpeaking(at: .immediate)
-    deactivateAudioSession()
+    stopConversation(transitionToIdle: false)
     let unavailableTemplate = makeVoiceTemplate(errorMessage: message)
     voiceTemplate = unavailableTemplate
     interfaceController?.setRootTemplate(unavailableTemplate, animated: false) { [weak self] success, _ in
@@ -343,7 +286,7 @@ final class CarPlayVoiceCoordinator: NSObject {
     let states = [
       CPVoiceControlState(
         identifier: VoiceState.idle.rawValue,
-        titleVariants: ["Ready", "Ready when you are. Tap Try Again to ask."],
+        titleVariants: ["Ready", "Ready when you are. Tap Start to ask."],
         image: UIImage(systemName: "mic.circle"),
         repeats: false
       ),
@@ -374,13 +317,17 @@ final class CarPlayVoiceCoordinator: NSObject {
     ]
     let template = CPVoiceControlTemplate(voiceControlStates: states)
     if #available(iOS 26.4, *) {
-      let retry = CPButton(image: UIImage(systemName: "arrow.clockwise")!) { [weak self] _ in
+      let start = CPButton(image: UIImage(systemName: "mic.fill")!) { [weak self] _ in
         Task { @MainActor in await self?.preflightAndListen() }
       }
-      retry.title = "Try Again"
+      start.title = "Start"
+      let stop = CPButton(image: UIImage(systemName: "stop.fill")!) { [weak self] _ in
+        Task { @MainActor in self?.stopConversation(transitionToIdle: true) }
+      }
+      stop.title = "Stop"
       let setter = NSSelectorFromString("setActionButtons:")
       if template.responds(to: setter) {
-        template.setValue([retry], forKey: "actionButtons")
+        template.setValue([start, stop], forKey: "actionButtons")
       }
     }
     return template
@@ -450,19 +397,38 @@ final class CarPlayVoiceCoordinator: NSObject {
   }
 }
 
-extension CarPlayVoiceCoordinator: @preconcurrency AVSpeechSynthesizerDelegate {
-  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    finishSpeechWait()
-  }
+private enum CarPlayConversationError: LocalizedError {
+  case disabled
 
-  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-    finishSpeechWait()
+  var errorDescription: String? {
+    "Enable CarPlay Assistant in Enchiridion Settings on your iPhone."
   }
 }
 
-private extension Duration {
-  var milliseconds: Int64 {
-    let components = self.components
-    return components.seconds * 1_000 + Int64(components.attoseconds / 1_000_000_000_000_000)
+@available(iOS 26.0, *)
+private struct CarPlayConversationTranscriber: AssistantConversationTranscribing {
+  private let prepare: @MainActor @Sendable () throws -> Void
+
+  init(prepare: @escaping @MainActor @Sendable () throws -> Void) {
+    self.prepare = prepare
+  }
+
+  func transcribe() async throws -> String {
+    try await prepare()
+    return try await OnDeviceSpeechTranscriber(managesIOSAudioSession: false).transcribe()
+  }
+}
+
+private struct CarPlayConversationAnswerer: AssistantConversationAnswering {
+  let assistant: FoundationModelAssistant
+
+  func respond(to request: AssistantConversationRequest) async -> GroundedAssistantResponse {
+    guard CarPlayAssistantPrivacySettings.isEnabled() else {
+      return GroundedAssistantResponse(
+        answer: "Enable CarPlay Assistant in Enchiridion Settings on your iPhone.",
+        status: .unavailable
+      )
+    }
+    return await assistant.respond(to: request)
   }
 }

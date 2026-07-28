@@ -1,17 +1,25 @@
+import EnchiridionCore
 import SwiftUI
 
 struct MacSettingsView: View {
+  let store: LibraryStore
+  let contactsResolver: DeviceContactsResolver
+
   var body: some View {
-    Form {
-      Section("Storage") {
-        LabeledContent("Persistence", value: "Local SQLite + Automerge")
-        Text("Calendar permissions and iCloud status are available from the main window.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+    NavigationStack {
+      Form {
+        Section("Storage") {
+          LabeledContent("Persistence", value: "Local SQLite + Automerge")
+          Text("Calendar event filters and contact matches stay on this Mac. Promoted pages can sync through iCloud.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        CalendarEventFilterSettingsSection(store: store)
+        DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
       }
+      .formStyle(.grouped)
+      .navigationTitle("Settings")
     }
-    .formStyle(.grouped)
-    .frame(width: 440, height: 180)
-    .padding()
+    .frame(width: 520, height: 620)
   }
 }

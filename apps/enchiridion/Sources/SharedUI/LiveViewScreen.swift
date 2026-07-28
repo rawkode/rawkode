@@ -293,6 +293,12 @@ struct LiveViewEditor: View {
             }
           }
           Stepper("Limit: \(draft.limit)", value: $draft.limit, in: 1...maximumLimit, step: 25)
+          if canReturnPeople {
+            Toggle("Include Other People", isOn: includeOthersBinding)
+            Text("Other People come from calendar events and stay out of views and mentions until you promote them.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
           if draft.viewKind == .canvas {
             Text("Canvas views place up to \(WhiteboardLimits.maximumPageCards) live-query page cards.")
               .font(.caption)
@@ -379,7 +385,7 @@ struct LiveViewEditor: View {
             Button("Reset from Builder") { sql = draft.domainSQL; error = nil }
             Button("Apply to Builder") { applySQL() }
           }
-          Text("Safe clauses: WHERE, SHOW, GROUP BY, DATES, ORDER BY, LIMIT, and VIEW. This language cannot execute raw SQLite.")
+          Text("Safe clauses: WHERE, SHOW, INCLUDE OTHERS, GROUP BY, DATES, ORDER BY, LIMIT, and VIEW. This language cannot execute raw SQLite.")
             .font(.caption).foregroundStyle(.secondary)
           if let error { Text(error).foregroundStyle(.red) }
         }
@@ -429,6 +435,20 @@ struct LiveViewEditor: View {
 
   private var maximumLimit: Int {
     draft.viewKind == .canvas ? WhiteboardLimits.maximumPageCards : 5_000
+  }
+
+  private var canReturnPeople: Bool {
+    switch draft.source {
+    case .pages, .supertag: true
+    case .calendarEvents, .workCalendar: false
+    }
+  }
+
+  private var includeOthersBinding: Binding<Bool> {
+    Binding(
+      get: { draft.peopleScope == .includeOthers },
+      set: { draft.peopleScope = $0 ? .includeOthers : .promotedOnly }
+    )
   }
 
   private var usesVerticalQueryLayout: Bool {

@@ -3,8 +3,14 @@ import SwiftUI
 
 struct MobileSettingsView: View {
   let store: LibraryStore
+  let contactsResolver: DeviceContactsResolver
   @AppStorage(CarPlayAssistantPrivacySettings.isEnabledKey)
   private var isCarPlayAssistantEnabled = true
+
+  init(store: LibraryStore, contactsResolver: DeviceContactsResolver = DeviceContactsResolver()) {
+    self.store = store
+    self.contactsResolver = contactsResolver
+  }
 
   var body: some View {
     NavigationStack {
@@ -16,6 +22,8 @@ struct MobileSettingsView: View {
           Text("Calendar access is read-only. Local events stay in EventKit; Google connects directly from this device with OAuth and no Enchiridion server.")
             .font(.caption).foregroundStyle(.secondary)
         }
+        CalendarEventFilterSettingsSection(store: store)
+        DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
         Section("CarPlay") {
           Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)
           Text("When enabled, voice transcription, Apple Intelligence, calendar lookup, and note search run only on this iPhone. Diagnostics record operational state only—never transcripts or note content.")

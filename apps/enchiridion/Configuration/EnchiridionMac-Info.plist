@@ -41,5 +41,11 @@
 	<string>com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Enchiridion shows your local calendar events so you can attach private notes. It never edits events.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Enchiridion uses the microphone only while you are talking to its on-device assistant.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.</string>
 </dict>
 </plist>

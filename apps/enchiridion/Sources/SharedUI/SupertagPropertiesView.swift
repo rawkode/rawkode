@@ -34,6 +34,14 @@ struct SupertagPropertiesView: View {
           }
         }
 
+        if page.hasSupertag(BuiltInSupertags.person) {
+          PersonIdentitySection(
+            store: store,
+            page: page,
+            contactLink: store.contactLinks[page.id]
+          )
+        }
+
         ForEach(page.objectMetadata.supertagIDs) { tagID in
           if let definition = store.supertags.first(where: { $0.id == tagID }) {
             Section(definition.name) {
@@ -79,6 +87,118 @@ struct SupertagPropertiesView: View {
   private func fieldName(_ key: SupertagPropertyKey) -> String {
     store.supertags.first(where: { $0.id == key.supertagID })?
       .fields.first(where: { $0.id == key.fieldID })?.name ?? key.fieldID.rawValue
+  }
+}
+
+private struct PersonIdentitySection: View {
+  let store: LibraryStore
+  let page: PageSnapshot
+  let contactLink: PersonContactLink?
+
+  var body: some View {
+    Section("Person") {
+      LabeledContent("Visibility", value: page.isOtherPerson ? "Other" : "Promoted")
+      if page.isOtherPerson {
+        Button("Promote", systemImage: "person.badge.plus") {
+          Task { await store.promotePerson(page.id) }
+        }
+        Text("Promotion makes this person available in views and @ mentions.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else if page.personOrigin == .calendarAttendee {
+        Button("Move to Other", systemImage: "person.crop.circle.badge.minus") {
+          Task { await store.movePersonToOther(page.id) }
+        }
+      }
+
+      if let contact = contactLink?.record {
+        Divider()
+        LabeledContent("Device contact", value: contact.displayName)
+        if let role = contactRole(contact) {
+          LabeledContent("Work", value: role)
+        }
+        if let email = contact.emails.first {
+          LabeledContent("Email", value: email)
+        }
+        if let phone = contact.phoneNumbers.first {
+          LabeledContent("Phone", value: phone)
+        }
+        Button("Copy Contact Details to Person", systemImage: "square.and.arrow.down") {
+          copyContactDetails(contact)
+        }
+        Text("The contact card stays on this device. Copying writes the selected details into this Person page so they can sync.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      if DeviceContactsResolver.authorizationStatus.canReadContacts {
+        DeviceContactPickerButton(
+          page: page,
+          store: store,
+          hasExistingLink: contactLink != nil
+        )
+        if contactLink != nil {
+          Button("Unlink Device Contact", systemImage: "person.crop.circle.badge.xmark") {
+            Task { await store.removeContactLink(for: page.id) }
+          }
+        }
+      }
+    }
+  }
+
+  private func contactRole(_ contact: DeviceContactRecord) -> String? {
+    let values = [contact.jobTitle, contact.organizationName]
+      .compactMap { value -> String? in
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+      }
+    guard !values.isEmpty else { return nil }
+    return values.joined(separator: " at ")
+  }
+
+  private func copyContactDetails(_ contact: DeviceContactRecord) {
+    let existingEmails = page.objectMetadata.properties[
+      SupertagPropertyKey(supertagID: BuiltInSupertags.person, fieldID: .init(rawValue: "email"))
+    ] ?? []
+    let emails = Array(Set(existingEmails + contact.emails.map(SupertagValue.email)))
+    store.setProperty(
+      pageID: page.id,
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "email"),
+      values: emails
+    )
+    store.setProperty(
+      pageID: page.id,
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "phone"),
+      values: contact.phoneNumbers.map(SupertagValue.phone)
+    )
+    if let jobTitle = contact.jobTitle, !jobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      store.setProperty(
+        pageID: page.id,
+        supertagID: BuiltInSupertags.person,
+        fieldID: .init(rawValue: "role"),
+        values: [.text(jobTitle)]
+      )
+    }
+    if let birthday = contact.birthday,
+      let year = birthday.year,
+      let date = Calendar.current.date(
+        from: DateComponents(
+          year: year,
+          month: birthday.month,
+          day: birthday.day
+        )
+      )
+    {
+      store.setProperty(
+        pageID: page.id,
+        supertagID: BuiltInSupertags.person,
+        fieldID: .init(rawValue: "birthday"),
+        values: [.date(date)]
+      )
+    }
   }
 }
 
