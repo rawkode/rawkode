@@ -15,6 +15,7 @@ public extension LibraryRepository {
     from start: Date,
     through end: Date,
     limit requestedLimit: Int = 5,
+    includeOngoing: Bool = false,
     now: Date = Date()
   ) throws -> AssistantCalendarResults {
     guard end > start else { throw AssistantDataAccessError.invalidDateRange }
@@ -28,7 +29,7 @@ public extension LibraryRepository {
       var sql = """
         SELECT e.event_json,e.refreshed_at
         FROM calendar_events e
-        WHERE e.active = 1 AND e.start_at < ? AND e.end_at > ?
+        WHERE e.active = 1 AND e.start_at < ? AND \(includeOngoing ? "e.end_at > ?" : "e.start_at >= ?")
         """
       var arguments: StatementArguments = [end.timeIntervalSince1970, start.timeIntervalSince1970]
       if !normalizedQuery.isEmpty {
@@ -67,6 +68,7 @@ public extension LibraryRepository {
           modifiedAt: refreshedAt,
           isStale: isStale
         )
+        let evidence = Self.assistantEventEvidence(event, source: source)
         return AssistantCalendarEvent(
           source: source,
           startDate: event.startDate,
@@ -74,7 +76,8 @@ public extension LibraryRepository {
           isAllDay: event.isAllDay,
           location: event.location.map { Self.assistantBounded($0, maximum: 160) },
           attendees: attendeeNames.prefix(12).map { Self.assistantBounded($0, maximum: 120) },
-          isRecurring: event.identity.series != nil
+          isRecurring: event.identity.series != nil,
+          evidence: evidence
         )
       }
       return AssistantCalendarResults(
@@ -127,7 +130,121 @@ public extension LibraryRepository {
       return AssistantNoteResults(
         sources: sources,
         truncated: rows.count > limit,
-        ambiguousTitles: ambiguousTitles
+        ambiguousTitles: ambiguousTitles,
+        evidence: sources.flatMap(Self.assistantPageEvidence)
+      )
+    }
+  }
+
+  /// Resolves one previously returned event source to its exact occurrence note,
+  /// recurring-series note, and attendee or referenced Person pages.
+  func meetingBrief(
+    forEventSourceID sourceID: String,
+    peopleLimit requestedPeopleLimit: Int = 6,
+    now: Date = Date()
+  ) throws -> AssistantMeetingBrief {
+    guard let stableKey = Self.assistantStableEventKey(sourceID) else {
+      throw AssistantDataAccessError.invalidSource
+    }
+    let eventKey = Self.assistantStorageKey(stableKey)
+    let peopleLimit = min(max(requestedPeopleLimit, 1), 8)
+
+    return try assistantRead { db in
+      guard let eventRow = try Row.fetchOne(
+        db,
+        sql: "SELECT event_json,refreshed_at FROM calendar_events WHERE event_key = ? AND active = 1",
+        arguments: [eventKey]
+      ), let data: Data = eventRow["event_json"],
+        let event = try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data),
+        let refreshed = (eventRow["refreshed_at"] as Double?).map(Date.init(timeIntervalSince1970:))
+      else { throw AssistantDataAccessError.invalidSource }
+
+      let eventSource = AssistantSource(
+        id: sourceID,
+        kind: .calendarEvent,
+        title: Self.assistantBounded(event.title, maximum: 120),
+        occurredAt: event.startDate,
+        modifiedAt: refreshed,
+        isStale: now.timeIntervalSince(refreshed) > Self.assistantProjectionFreshnessInterval
+      )
+      let eventValue = AssistantCalendarEvent(
+        source: eventSource,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        isAllDay: event.isAllDay,
+        location: event.location.map { Self.assistantBounded($0, maximum: 160) },
+        attendees: (event.attendees ?? []).compactMap { $0.displayName ?? $0.email }.prefix(12).map {
+          Self.assistantBounded($0, maximum: 120)
+        },
+        isRecurring: event.identity.series != nil,
+        evidence: Self.assistantEventEvidence(event, source: eventSource)
+      )
+
+      let occurrencePageID = try String.fetchOne(
+        db,
+        sql: """
+          SELECT page_id FROM event_page_map
+          WHERE event_key = ? OR occurrence_key = ?
+          ORDER BY CASE WHEN event_key = ? THEN 0 ELSE 1 END
+          LIMIT 1
+          """,
+        arguments: [eventKey, Self.assistantStorageKey(event.identity.canonicalOccurrenceKey), eventKey]
+      )
+      let seriesPageID = try event.identity.series.flatMap { series in
+        try String.fetchOne(
+          db,
+          sql: "SELECT page_id FROM series_page_map WHERE series_key = ?",
+          arguments: [Self.assistantStorageKey(series.canonicalKey)]
+        )
+      }
+      let occurrencePage = try occurrencePageID.flatMap { try Self.assistantPage(db, id: $0) }
+      let seriesPage = try seriesPageID.flatMap { try Self.assistantPage(db, id: $0) }
+      let occurrenceSource = occurrencePage.map(Self.assistantPageSource)
+      let seriesSource = seriesPage.map(Self.assistantPageSource)
+
+      var personIDs = try String.fetchAll(
+        db,
+        sql: "SELECT person_page_id FROM calendar_event_attendees WHERE event_key = ? ORDER BY person_page_id",
+        arguments: [eventKey]
+      )
+      let notePageIDs = [occurrencePageID, seriesPageID].compactMap { $0 }
+      if !notePageIDs.isEmpty {
+        let placeholders = Array(repeating: "?", count: notePageIDs.count).joined(separator: ",")
+        let referencedIDs = try String.fetchAll(
+          db,
+          sql: """
+            SELECT person_id FROM (
+              SELECT r.target_page_id AS person_id
+              FROM page_references r
+              WHERE r.source_page_id IN (\(placeholders))
+              UNION
+              SELECT v.entity_page_id AS person_id
+              FROM page_property_values v
+              WHERE v.page_id IN (\(placeholders)) AND v.entity_page_id IS NOT NULL
+            ) references_to_people
+            JOIN page_supertags s ON s.page_id = person_id AND s.supertag_id = 'person'
+            JOIN pages p ON p.id = person_id AND p.deleted_at IS NULL
+            ORDER BY person_id
+            """,
+          arguments: StatementArguments(notePageIDs + notePageIDs)
+        )
+        personIDs.append(contentsOf: referencedIDs)
+      }
+      let uniquePersonIDs = personIDs.reduce(into: [String]()) { result, id in
+        if !result.contains(id) { result.append(id) }
+      }
+      let people = try uniquePersonIDs.prefix(peopleLimit).compactMap {
+        try Self.assistantPage(db, id: $0).map(Self.assistantPageSource)
+      }
+      let pageSources = [occurrenceSource, seriesSource].compactMap { $0 } + people
+      let evidence = eventValue.evidence + pageSources.flatMap(Self.assistantPageEvidence)
+      return AssistantMeetingBrief(
+        event: eventValue,
+        occurrenceNote: occurrenceSource,
+        seriesNote: seriesSource,
+        people: people,
+        evidence: evidence,
+        peopleTruncated: uniquePersonIDs.count > peopleLimit
       )
     }
   }
@@ -150,6 +267,18 @@ public extension LibraryRepository {
     "calendar:\(Data(stableKey.utf8).base64EncodedString())"
   }
 
+  private static func assistantStableEventKey(_ sourceID: String) -> String? {
+    guard sourceID.hasPrefix("calendar:"),
+      let data = Data(base64Encoded: String(sourceID.dropFirst("calendar:".count))),
+      let value = String(data: data, encoding: .utf8)
+    else { return nil }
+    return value
+  }
+
+  private static func assistantStorageKey(_ value: String) -> String {
+    Data(value.utf8).base64EncodedString()
+  }
+
   private static func assistantPageSourceID(_ pageID: PageID) -> String {
     "page:\(pageID.rawValue)"
   }
@@ -157,6 +286,88 @@ public extension LibraryRepository {
   private static func assistantOccurrenceDate(_ kind: PageKind) -> Date? {
     guard case .calendarEvent(let identity) = kind else { return nil }
     return identity.occurrenceStart
+  }
+
+  private static func assistantPage(_ db: Database, id: String) throws -> PageSnapshot? {
+    try Row.fetchOne(
+      db,
+      sql: "SELECT * FROM pages WHERE id = ? AND deleted_at IS NULL",
+      arguments: [id]
+    ).map(decodePage)
+  }
+
+  private static func assistantPageSource(_ page: PageSnapshot) -> AssistantSource {
+    AssistantSource(
+      id: assistantPageSourceID(page.id),
+      kind: .page,
+      title: assistantBounded(page.displayTitle, maximum: 120),
+      excerpt: assistantExcerpt(page.plainText, matching: ""),
+      occurredAt: assistantOccurrenceDate(page.kind),
+      modifiedAt: page.modifiedAt,
+      hasConflicts: !page.objectMetadata.conflicts.isEmpty
+    )
+  }
+
+  private static func assistantPageEvidence(_ source: AssistantSource) -> [AssistantEvidenceFact] {
+    var facts = [
+      AssistantEvidenceFact(
+        id: "\(source.id)#title",
+        sourceID: source.id,
+        kind: .pageTitle,
+        spokenText: "A local page is titled \(source.title)."
+      )
+    ]
+    if let excerpt = source.excerpt, !excerpt.isEmpty {
+      facts.append(
+        AssistantEvidenceFact(
+          id: "\(source.id)#excerpt",
+          sourceID: source.id,
+          kind: .pageExcerpt,
+          spokenText: "\(source.title) says: \(excerpt)"
+        )
+      )
+    }
+    return facts
+  }
+
+  private static func assistantEventEvidence(
+    _ event: CalendarEventSnapshot,
+    source: AssistantSource
+  ) -> [AssistantEvidenceFact] {
+    let date = event.startDate.formatted(
+      date: .abbreviated,
+      time: event.isAllDay ? .omitted : .shortened
+    )
+    var facts = [
+      AssistantEvidenceFact(
+        id: "\(source.id)#schedule",
+        sourceID: source.id,
+        kind: .eventSchedule,
+        spokenText: "\(source.title) is scheduled for \(date)."
+      )
+    ]
+    if let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
+      facts.append(
+        AssistantEvidenceFact(
+          id: "\(source.id)#location",
+          sourceID: source.id,
+          kind: .eventLocation,
+          spokenText: "The location is \(assistantBounded(location, maximum: 160))."
+        )
+      )
+    }
+    let attendees = (event.attendees ?? []).compactMap { $0.displayName ?? $0.email }.prefix(12)
+    if !attendees.isEmpty {
+      facts.append(
+        AssistantEvidenceFact(
+          id: "\(source.id)#attendees",
+          sourceID: source.id,
+          kind: .eventAttendees,
+          spokenText: "Attendees include \(attendees.joined(separator: ", "))."
+        )
+      )
+    }
+    return facts
   }
 
   private static func assistantExcerpt(_ text: String, matching query: String) -> String? {

@@ -5,6 +5,30 @@ public enum AssistantSourceKind: String, Codable, Hashable, Sendable {
   case page
 }
 
+public enum AssistantEvidenceKind: String, Codable, Hashable, Sendable {
+  case eventSchedule
+  case eventLocation
+  case eventAttendees
+  case pageExcerpt
+  case pageTitle
+}
+
+/// A factual sentence rendered by trusted local code. The model may select facts,
+/// but it never authors the factual prose returned to the user.
+public struct AssistantEvidenceFact: Identifiable, Codable, Hashable, Sendable {
+  public var id: String
+  public var sourceID: String
+  public var kind: AssistantEvidenceKind
+  public var spokenText: String
+
+  public init(id: String, sourceID: String, kind: AssistantEvidenceKind, spokenText: String) {
+    self.id = id
+    self.sourceID = sourceID
+    self.kind = kind
+    self.spokenText = spokenText
+  }
+}
+
 /// A compact, local-only citation that can safely accompany a spoken answer.
 /// `excerpt` is deliberately bounded before it leaves the repository.
 public struct AssistantSource: Identifiable, Codable, Hashable, Sendable {
@@ -46,6 +70,7 @@ public struct AssistantCalendarEvent: Identifiable, Codable, Hashable, Sendable 
   public var location: String?
   public var attendees: [String]
   public var isRecurring: Bool
+  public var evidence: [AssistantEvidenceFact]
 
   public var id: String { source.id }
 
@@ -56,7 +81,8 @@ public struct AssistantCalendarEvent: Identifiable, Codable, Hashable, Sendable 
     isAllDay: Bool,
     location: String?,
     attendees: [String],
-    isRecurring: Bool
+    isRecurring: Bool,
+    evidence: [AssistantEvidenceFact]
   ) {
     self.source = source
     self.startDate = startDate
@@ -65,6 +91,7 @@ public struct AssistantCalendarEvent: Identifiable, Codable, Hashable, Sendable 
     self.location = location
     self.attendees = attendees
     self.isRecurring = isRecurring
+    self.evidence = evidence
   }
 }
 
@@ -84,17 +111,58 @@ public struct AssistantCalendarResults: Codable, Hashable, Sendable {
   }
 
   public var sources: [AssistantSource] { events.map(\.source) }
+  public var evidence: [AssistantEvidenceFact] { events.flatMap(\.evidence) }
 }
 
 public struct AssistantNoteResults: Codable, Hashable, Sendable {
   public var sources: [AssistantSource]
   public var truncated: Bool
   public var ambiguousTitles: [String]
+  public var evidence: [AssistantEvidenceFact]
 
-  public init(sources: [AssistantSource], truncated: Bool, ambiguousTitles: [String]) {
+  public init(
+    sources: [AssistantSource],
+    truncated: Bool,
+    ambiguousTitles: [String],
+    evidence: [AssistantEvidenceFact]
+  ) {
     self.sources = sources
     self.truncated = truncated
     self.ambiguousTitles = ambiguousTitles
+    self.evidence = evidence
+  }
+}
+
+public struct AssistantMeetingBrief: Codable, Hashable, Sendable {
+  public var event: AssistantCalendarEvent
+  public var occurrenceNote: AssistantSource?
+  public var seriesNote: AssistantSource?
+  public var people: [AssistantSource]
+  public var evidence: [AssistantEvidenceFact]
+  public var peopleTruncated: Bool
+
+  public init(
+    event: AssistantCalendarEvent,
+    occurrenceNote: AssistantSource?,
+    seriesNote: AssistantSource?,
+    people: [AssistantSource],
+    evidence: [AssistantEvidenceFact],
+    peopleTruncated: Bool
+  ) {
+    self.event = event
+    self.occurrenceNote = occurrenceNote
+    self.seriesNote = seriesNote
+    self.people = people
+    self.evidence = evidence
+    self.peopleTruncated = peopleTruncated
+  }
+
+  public var sources: [AssistantSource] {
+    var values = [event.source]
+    if let occurrenceNote { values.append(occurrenceNote) }
+    if let seriesNote { values.append(seriesNote) }
+    values.append(contentsOf: people)
+    return values
   }
 }
 
@@ -151,6 +219,7 @@ public enum AssistantDataAccessError: Error, LocalizedError, Equatable {
   case queryTooLong
   case invalidDateRange
   case dateRangeTooLarge
+  case invalidSource
 
   public var errorDescription: String? {
     switch self {
@@ -158,6 +227,7 @@ public enum AssistantDataAccessError: Error, LocalizedError, Equatable {
     case .queryTooLong: "The search term is too long."
     case .invalidDateRange: "The calendar search range is invalid."
     case .dateRangeTooLarge: "Calendar searches are limited to 31 days."
+    case .invalidSource: "The selected calendar event is no longer available."
     }
   }
 }
@@ -166,45 +236,62 @@ public enum AssistantGroundingError: Error, LocalizedError, Equatable {
   case emptyAnswer
   case noSources
   case unknownSource(String)
+  case unknownFact(String)
+  case tooManyFacts
 
   public var errorDescription: String? {
     switch self {
     case .emptyAnswer: "The assistant returned an empty answer."
     case .noSources: "The assistant did not cite local sources."
     case .unknownSource(let sourceID): "The assistant cited an unknown source: \(sourceID)."
+    case .unknownFact(let factID): "The assistant selected an unknown fact: \(factID)."
+    case .tooManyFacts: "The assistant selected too many facts for a concise spoken response."
     }
   }
 }
 
 public enum AssistantGroundingPolicy {
-  public static func groundedResponse(
-    answer: String,
-    citedSourceIDs: [String],
-    availableSources: [AssistantSource]
-  ) throws -> GroundedAssistantResponse {
-    let value = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !value.isEmpty else { throw AssistantGroundingError.emptyAnswer }
+  public static let maximumSelectedFacts = 5
+  public static let maximumSpokenWords = 70
+  public static let maximumSpokenCharacters = 600
 
+  public static func groundedResponse(
+    selectedFactIDs: [String],
+    availableFacts: [AssistantEvidenceFact],
+    availableSources: [AssistantSource],
+    ambiguousTitles: [String] = []
+  ) throws -> GroundedAssistantResponse {
     let sourceByID = Dictionary(uniqueKeysWithValues: availableSources.map { ($0.id, $0) })
-    let uniqueIDs = citedSourceIDs.reduce(into: [String]()) { result, id in
+    let factByID = Dictionary(uniqueKeysWithValues: availableFacts.map { ($0.id, $0) })
+    let uniqueFactIDs = selectedFactIDs.reduce(into: [String]()) { result, id in
       if !result.contains(id) { result.append(id) }
     }
-    guard !uniqueIDs.isEmpty else { throw AssistantGroundingError.noSources }
-    for id in uniqueIDs where sourceByID[id] == nil {
+    guard !uniqueFactIDs.isEmpty else { throw AssistantGroundingError.noSources }
+    guard uniqueFactIDs.count <= maximumSelectedFacts else { throw AssistantGroundingError.tooManyFacts }
+    for id in uniqueFactIDs where factByID[id] == nil {
+      throw AssistantGroundingError.unknownFact(id)
+    }
+    let facts = uniqueFactIDs.compactMap { factByID[$0] }
+    let sourceIDs = facts.reduce(into: [String]()) { result, fact in
+      if !result.contains(fact.sourceID) { result.append(fact.sourceID) }
+    }
+    for id in sourceIDs where sourceByID[id] == nil {
       throw AssistantGroundingError.unknownSource(id)
     }
-    let sources = uniqueIDs.compactMap { sourceByID[$0] }
+    let sources = sourceIDs.compactMap { sourceByID[$0] }
+    let answer = boundedSpeech(facts.map(\.spokenText).joined(separator: " "))
+    guard !answer.isEmpty else { throw AssistantGroundingError.emptyAnswer }
     let status: AssistantResponseStatus
     if sources.contains(where: \.hasConflicts) {
       status = .conflicting
     } else if sources.contains(where: \.isStale) {
       status = .stale
-    } else if hasAmbiguousTitles(sources) {
+    } else if !ambiguousTitles.isEmpty || hasAmbiguousTitles(sources) {
       status = .ambiguous
     } else {
       status = .answered
     }
-    return GroundedAssistantResponse(answer: value, status: status, sources: sources)
+    return GroundedAssistantResponse(answer: answer, status: status, sources: sources)
   }
 
   public static func noResults() -> GroundedAssistantResponse {
@@ -221,5 +308,17 @@ public enum AssistantGroundingPolicy {
   private static func hasAmbiguousTitles(_ sources: [AssistantSource]) -> Bool {
     let normalized = sources.map { $0.title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
     return Set(normalized).count < normalized.count
+  }
+
+  private static func boundedSpeech(_ value: String) -> String {
+    let words = value.split(whereSeparator: { $0.isWhitespace })
+    var result = words.prefix(maximumSpokenWords).joined(separator: " ")
+    if result.count > maximumSpokenCharacters {
+      result = String(result.prefix(maximumSpokenCharacters - 1))
+    }
+    if words.count > maximumSpokenWords || result.count < value.count {
+      result += "…"
+    }
+    return result
   }
 }

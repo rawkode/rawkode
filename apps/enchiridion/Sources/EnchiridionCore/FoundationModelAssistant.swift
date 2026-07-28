@@ -51,16 +51,17 @@ public actor FoundationModelAssistant {
         let collector = AssistantSourceCollector()
         let tools: [any Tool] = [
           FindCalendarEventsTool(repository: repository, collector: collector, now: now),
+          BriefCalendarEventTool(repository: repository, collector: collector, now: now),
           SearchNotesTool(repository: repository, collector: collector),
         ]
         let session = LanguageModelSession(
           model: SystemLanguageModel.default,
           tools: tools,
           instructions: """
-            You are Enchiridion's read-only driving assistant. Use a tool before making any factual claim.
-            Calendar and note data exists only behind the tools; never infer missing details.
-            Keep the spoken answer under 70 words. Treat stale data, duplicate names, and conflicts explicitly.
-            Return only source IDs that appeared in tool output. Never claim to create, edit, or upload data.
+            You are Enchiridion's read-only driving assistant. Use a tool before answering.
+            For meeting briefs, find the event then call briefCalendarEvent with its exact source ID.
+            Select only fact IDs that appeared in tool output. Trusted code renders the final spoken answer.
+            Never infer missing details or claim to create, edit, upload, or fetch remote data.
             """
         )
         let prompt = """
@@ -73,13 +74,14 @@ public actor FoundationModelAssistant {
           generating: FoundationGroundedAnswer.self,
           options: GenerationOptions(temperature: 0, maximumResponseTokens: 220)
         )
-        let sources = await collector.sources()
-        guard !sources.isEmpty else { return AssistantGroundingPolicy.noResults() }
+        let collected = await collector.snapshot()
+        guard !collected.facts.isEmpty else { return AssistantGroundingPolicy.noResults() }
         do {
           return try AssistantGroundingPolicy.groundedResponse(
-            answer: result.content.answer,
-            citedSourceIDs: result.content.sourceIDs,
-            availableSources: sources
+            selectedFactIDs: result.content.factIDs,
+            availableFacts: collected.facts,
+            availableSources: collected.sources,
+            ambiguousTitles: collected.ambiguousTitles
           )
         } catch {
           return GroundedAssistantResponse(
@@ -102,39 +104,52 @@ public actor FoundationModelAssistant {
 #if canImport(FoundationModels)
 @available(iOS 26.0, macOS 26.0, *)
 private struct FoundationGroundedAnswer: Generable {
-  var answer: String
-  var sourceIDs: [String]
+  var factIDs: [String]
 
   static var generationSchema: GenerationSchema {
     GenerationSchema(
       type: Self.self,
-      description: "A concise spoken answer and exact supporting local source IDs",
+      description: "The exact local evidence facts that should form the spoken answer",
       properties: [
-        .init(name: "answer", description: "Spoken answer supported only by cited sources", type: String.self),
-        .init(name: "sourceIDs", description: "Exact source IDs copied from tool output", type: [String].self),
+        .init(name: "factIDs", description: "Exact fact IDs copied from tool output, in speaking order", type: [String].self),
       ]
     )
   }
 
   var generatedContent: GeneratedContent {
-    GeneratedContent(properties: ["answer": answer, "sourceIDs": sourceIDs])
+    GeneratedContent(properties: ["factIDs": factIDs])
   }
 
   init(_ content: GeneratedContent) throws {
-    answer = try content.value(String.self, forProperty: "answer")
-    sourceIDs = try content.value([String].self, forProperty: "sourceIDs")
+    factIDs = try content.value([String].self, forProperty: "factIDs")
   }
 }
 
 private actor AssistantSourceCollector {
   private var collected: [String: AssistantSource] = [:]
+  private var factsByID: [String: AssistantEvidenceFact] = [:]
+  private var ambiguous: Set<String> = []
 
-  func record(_ sources: [AssistantSource]) {
+  func record(
+    _ sources: [AssistantSource],
+    facts: [AssistantEvidenceFact],
+    ambiguousTitles: [String] = []
+  ) {
     for source in sources { collected[source.id] = source }
+    for fact in facts { factsByID[fact.id] = fact }
+    ambiguous.formUnion(ambiguousTitles)
   }
 
-  func sources() -> [AssistantSource] {
-    collected.values.sorted { $0.id < $1.id }
+  func snapshot() -> (
+    sources: [AssistantSource],
+    facts: [AssistantEvidenceFact],
+    ambiguousTitles: [String]
+  ) {
+    (
+      collected.values.sorted { $0.id < $1.id },
+      factsByID.values.sorted { $0.id < $1.id },
+      ambiguous.sorted()
+    )
   }
 }
 
@@ -145,6 +160,7 @@ private struct FindCalendarEventsTool: Tool {
     var start: String
     var end: String
     var limit: Int
+    var includeOngoing: Bool
 
     static var generationSchema: GenerationSchema {
       GenerationSchema(
@@ -154,12 +170,19 @@ private struct FindCalendarEventsTool: Tool {
           .init(name: "start", description: "Inclusive ISO 8601 start instant", type: String.self),
           .init(name: "end", description: "Exclusive ISO 8601 end instant no more than 31 days later", type: String.self),
           .init(name: "limit", description: "Maximum results from 1 through 10", type: Int.self),
+          .init(name: "includeOngoing", description: "Whether events already in progress should be included", type: Bool.self),
         ]
       )
     }
 
     var generatedContent: GeneratedContent {
-      GeneratedContent(properties: ["query": query, "start": start, "end": end, "limit": limit])
+      GeneratedContent(properties: [
+        "query": query,
+        "start": start,
+        "end": end,
+        "limit": limit,
+        "includeOngoing": includeOngoing,
+      ])
     }
 
     init(_ content: GeneratedContent) throws {
@@ -167,6 +190,7 @@ private struct FindCalendarEventsTool: Tool {
       start = try content.value(String.self, forProperty: "start")
       end = try content.value(String.self, forProperty: "end")
       limit = try content.value(Int.self, forProperty: "limit")
+      includeOngoing = try content.value(Bool.self, forProperty: "includeOngoing")
     }
   }
 
@@ -185,14 +209,58 @@ private struct FindCalendarEventsTool: Tool {
       from: start,
       through: end,
       limit: arguments.limit,
+      includeOngoing: arguments.includeOngoing,
       now: now
     )
-    await collector.record(results.sources)
+    await collector.record(results.sources, facts: results.evidence)
     return String(decoding: try JSONEncoder.enchiridion.encode(results), as: UTF8.self)
   }
 
   private static func date(_ value: String) -> Date? {
     try? Date(value, strategy: .iso8601)
+  }
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+private struct BriefCalendarEventTool: Tool {
+  struct Arguments: Generable {
+    var eventSourceID: String
+    var peopleLimit: Int
+
+    static var generationSchema: GenerationSchema {
+      GenerationSchema(
+        type: Self.self,
+        properties: [
+          .init(name: "eventSourceID", description: "Exact calendar source ID from findCalendarEvents", type: String.self),
+          .init(name: "peopleLimit", description: "Maximum Person pages from 1 through 8", type: Int.self),
+        ]
+      )
+    }
+
+    var generatedContent: GeneratedContent {
+      GeneratedContent(properties: ["eventSourceID": eventSourceID, "peopleLimit": peopleLimit])
+    }
+
+    init(_ content: GeneratedContent) throws {
+      eventSourceID = try content.value(String.self, forProperty: "eventSourceID")
+      peopleLimit = try content.value(Int.self, forProperty: "peopleLimit")
+    }
+  }
+
+  let name = "briefCalendarEvent"
+  let description = "Get exact occurrence notes, recurring-series notes, and local Person pages for one returned event. Read-only."
+  let repository: LibraryRepository
+  let collector: AssistantSourceCollector
+  let now: Date
+
+  func call(arguments: Arguments) async throws -> String {
+    let result = try await repository.meetingBrief(
+      forEventSourceID: arguments.eventSourceID,
+      peopleLimit: arguments.peopleLimit,
+      now: now
+    )
+    await collector.record(result.sources, facts: result.evidence)
+    return String(decoding: try JSONEncoder.enchiridion.encode(result), as: UTF8.self)
   }
 }
 
@@ -232,7 +300,11 @@ private struct SearchNotesTool: Tool {
       matching: arguments.query,
       limit: arguments.limit
     )
-    await collector.record(results.sources)
+    await collector.record(
+      results.sources,
+      facts: results.evidence,
+      ambiguousTitles: results.ambiguousTitles
+    )
     return String(decoding: try JSONEncoder.enchiridion.encode(results), as: UTF8.self)
   }
 }
