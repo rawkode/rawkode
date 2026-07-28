@@ -262,6 +262,10 @@ struct LiveViewEditor: View {
   @State private var draft: LiveQueryDefinition
   @State private var sql: String
   @State private var error: String?
+  #if os(iOS)
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  #endif
 
   init(store: LibraryStore, definition: LiveQueryDefinition) {
     self.store = store
@@ -299,15 +303,17 @@ struct LiveViewEditor: View {
         if !queryFields.isEmpty {
           Section("Filters") {
             ForEach($draft.filters) { $filter in
-              HStack {
-                LiveQueryFilterRow(filter: $filter, fields: queryFields)
-                Button(role: .destructive) {
-                  draft.filters.removeAll { $0.id == filter.id }
-                } label: {
-                  Label("Remove Filter", systemImage: "minus.circle")
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+              AdaptiveQueryEditorRow(
+                removeLabel: "Remove Filter",
+                usesVerticalLayout: usesVerticalQueryLayout
+              ) {
+                draft.filters.removeAll { $0.id == filter.id }
+              } content: {
+                LiveQueryFilterRow(
+                  filter: $filter,
+                  fields: queryFields,
+                  usesVerticalLayout: usesVerticalQueryLayout
+                )
               }
             }
             .onDelete { draft.filters.remove(atOffsets: $0) }
@@ -318,16 +324,18 @@ struct LiveViewEditor: View {
 
           Section("Sort") {
             ForEach(Array(draft.sorts.indices), id: \.self) { index in
-              HStack {
-                LiveQuerySortRow(sort: $draft.sorts[index], fields: queryFields)
-                Button(role: .destructive) {
-                  guard draft.sorts.indices.contains(index) else { return }
-                  draft.sorts.remove(at: index)
-                } label: {
-                  Label("Remove Sort", systemImage: "minus.circle")
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+              AdaptiveQueryEditorRow(
+                removeLabel: "Remove Sort",
+                usesVerticalLayout: usesVerticalQueryLayout
+              ) {
+                guard draft.sorts.indices.contains(index) else { return }
+                draft.sorts.remove(at: index)
+              } content: {
+                LiveQuerySortRow(
+                  sort: $draft.sorts[index],
+                  fields: queryFields,
+                  usesVerticalLayout: usesVerticalQueryLayout
+                )
               }
             }
             .onDelete { draft.sorts.remove(atOffsets: $0) }
@@ -421,6 +429,14 @@ struct LiveViewEditor: View {
 
   private var maximumLimit: Int {
     draft.viewKind == .canvas ? WhiteboardLimits.maximumPageCards : 5_000
+  }
+
+  private var usesVerticalQueryLayout: Bool {
+    #if os(iOS)
+    horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+    #else
+    false
+    #endif
   }
 
   private var queryFields: [LiveQueryFieldChoice] {
@@ -538,9 +554,51 @@ private struct LiveQueryFieldChoice: Identifiable, Hashable {
   var isSystem = false
 }
 
+private struct AdaptiveQueryEditorRow<Content: View>: View {
+  let removeLabel: String
+  let usesVerticalLayout: Bool
+  let remove: () -> Void
+  let content: Content
+
+  init(
+    removeLabel: String,
+    usesVerticalLayout: Bool,
+    remove: @escaping () -> Void,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.removeLabel = removeLabel
+    self.usesVerticalLayout = usesVerticalLayout
+    self.remove = remove
+    self.content = content()
+  }
+
+  var body: some View {
+    if usesVerticalLayout {
+      VStack(alignment: .leading, spacing: 10) {
+        content
+        removeButton
+          .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      }
+    } else {
+      HStack {
+        content
+        removeButton.labelStyle(.iconOnly)
+      }
+    }
+  }
+
+  private var removeButton: some View {
+    Button(role: .destructive, action: remove) {
+      Label(removeLabel, systemImage: "minus.circle")
+    }
+    .buttonStyle(.borderless)
+  }
+}
+
 private struct LiveQueryFilterRow: View {
   @Binding var filter: LiveQueryFilter
   let fields: [LiveQueryFieldChoice]
+  let usesVerticalLayout: Bool
 
   private var choice: LiveQueryFieldChoice {
     fields.first { $0.id == fieldID.wrappedValue } ?? fields[0]
@@ -563,16 +621,30 @@ private struct LiveQueryFilterRow: View {
   }
 
   var body: some View {
-    HStack {
-      Picker("Field", selection: fieldID) {
-        ForEach(fields) { Text($0.name).tag($0.id) }
+    if usesVerticalLayout {
+      VStack(alignment: .leading, spacing: 8) {
+        fieldPicker
+        operatorPicker
+        if filter.operation.needsValue { valueEditor }
       }
-      .labelsHidden()
-      Picker("Operator", selection: $filter.operation) {
-        ForEach(operators, id: \.self) { Text($0.title).tag($0) }
+    } else {
+      HStack {
+        fieldPicker.labelsHidden()
+        operatorPicker.labelsHidden()
+        if filter.operation.needsValue { valueEditor.labelsHidden() }
       }
-      .labelsHidden()
-      if filter.operation.needsValue { valueEditor }
+    }
+  }
+
+  private var fieldPicker: some View {
+    Picker("Field", selection: fieldID) {
+      ForEach(fields) { Text($0.name).tag($0.id) }
+    }
+  }
+
+  private var operatorPicker: some View {
+    Picker("Operator", selection: $filter.operation) {
+      ForEach(operators, id: \.self) { Text($0.title).tag($0) }
     }
   }
 
@@ -591,16 +663,15 @@ private struct LiveQueryFilterRow: View {
   @ViewBuilder private var valueEditor: some View {
     switch choice.type {
     case .boolean:
-      Toggle("Value", isOn: boolValue).labelsHidden()
+      Toggle("Value", isOn: boolValue)
     case .date:
-      DatePicker("Value", selection: dateValue, displayedComponents: .date).labelsHidden()
+      DatePicker("Value", selection: dateValue, displayedComponents: .date)
     case .dateTime:
-      DatePicker("Value", selection: dateValue, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
+      DatePicker("Value", selection: dateValue, displayedComponents: [.date, .hourAndMinute])
     case .select:
       Picker("Value", selection: stringValue) {
         ForEach(choice.options) { Text($0.name).tag($0.id) }
       }
-      .labelsHidden()
     default:
       TextField("Value", text: stringValue).textFieldStyle(.roundedBorder)
     }
@@ -669,6 +740,7 @@ private struct LiveQueryFilterRow: View {
 private struct LiveQuerySortRow: View {
   @Binding var sort: LiveQuerySort
   let fields: [LiveQueryFieldChoice]
+  let usesVerticalLayout: Bool
 
   private var fieldID: Binding<String> {
     Binding(
@@ -682,21 +754,34 @@ private struct LiveQuerySortRow: View {
   }
 
   var body: some View {
-    HStack {
-      Picker("Field", selection: fieldID) {
-        ForEach(fields) { Text($0.name).tag($0.id) }
+    if usesVerticalLayout {
+      VStack(alignment: .leading, spacing: 8) {
+        fieldPicker
+        directionPicker
       }
-      .labelsHidden()
-      Picker("Direction", selection: $sort.ascending) {
-        #if os(iOS)
-        Text("↑ Asc").accessibilityLabel("Ascending").tag(true)
-        Text("↓ Desc").accessibilityLabel("Descending").tag(false)
-        #else
-        Text("Ascending").tag(true)
-        Text("Descending").tag(false)
-        #endif
+    } else {
+      HStack {
+        fieldPicker.labelsHidden()
+        directionPicker.labelsHidden()
       }
-      .labelsHidden()
+    }
+  }
+
+  private var fieldPicker: some View {
+    Picker("Field", selection: fieldID) {
+      ForEach(fields) { Text($0.name).tag($0.id) }
+    }
+  }
+
+  private var directionPicker: some View {
+    Picker("Direction", selection: $sort.ascending) {
+      #if os(iOS)
+      Text("↑ Asc").accessibilityLabel("Ascending").tag(true)
+      Text("↓ Desc").accessibilityLabel("Descending").tag(false)
+      #else
+      Text("Ascending").tag(true)
+      Text("Descending").tag(false)
+      #endif
     }
   }
 }
