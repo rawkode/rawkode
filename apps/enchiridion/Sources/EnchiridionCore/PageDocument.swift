@@ -204,6 +204,47 @@ public enum PageDocument {
     try setProperty(key: key, values: values, in: snapshot)
   }
 
+  public static func setPersonClassification(
+    visibility: PersonVisibility,
+    origin: PersonOrigin,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    let metadata = try metadataObject(document)
+    try document.put(
+      obj: metadata,
+      key: "personVisibility",
+      value: .String(visibility.rawValue)
+    )
+    try document.put(
+      obj: metadata,
+      key: "personOrigin",
+      value: .String(origin.rawValue)
+    )
+    document.commitWith(
+      message: visibility == .promoted ? "Promote person" : "Move person to Other",
+      timestamp: Date()
+    )
+    return (document.save(), heads(document), try projection(document))
+  }
+
+  public static func clearPersonClassification(
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    let metadata = try metadataObject(document)
+    if try document.get(obj: metadata, key: "personVisibility") != nil {
+      try document.delete(obj: metadata, key: "personVisibility")
+    }
+    if try document.get(obj: metadata, key: "personOrigin") != nil {
+      try document.delete(obj: metadata, key: "personOrigin")
+    }
+    document.commitWith(message: "Remove person classification", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
+  }
+
   public static func inspect(_ snapshot: Data, pageID: PageID) throws -> PageDocumentProjection {
     guard snapshot.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
     let document = try Document(snapshot)
@@ -305,14 +346,17 @@ public enum PageDocument {
     return (document.save(), heads(document), try projection(document))
   }
 
-  private static func metadataObjects(_ document: Document) throws -> (tags: ObjId, values: ObjId) {
-    let metadata: ObjId
+  private static func metadataObject(_ document: Document) throws -> ObjId {
     if case .Object(let object, .Map)? = try document.get(obj: .ROOT, key: "objectMetadata") {
-      metadata = object
-    } else {
-      metadata = try document.putObject(obj: .ROOT, key: "objectMetadata", ty: .Map)
-      try document.put(obj: metadata, key: "version", value: .Int(1))
+      return object
     }
+    let metadata = try document.putObject(obj: .ROOT, key: "objectMetadata", ty: .Map)
+    try document.put(obj: metadata, key: "version", value: .Int(1))
+    return metadata
+  }
+
+  private static func metadataObjects(_ document: Document) throws -> (tags: ObjId, values: ObjId) {
+    let metadata = try metadataObject(document)
     let tags: ObjId
     if case .Object(let object, .Map)? = try document.get(obj: metadata, key: "tags") {
       tags = object
@@ -362,10 +406,30 @@ public enum PageDocument {
         if candidates.count > 1 { conflicts.append(.init(key: key, candidates: candidates)) }
       }
     }
+    let personVisibility: PersonVisibility?
+    if case .Scalar(.String(let value))? = try document.get(
+      obj: metadata,
+      key: "personVisibility"
+    ) {
+      personVisibility = PersonVisibility(rawValue: value)
+    } else {
+      personVisibility = nil
+    }
+    let personOrigin: PersonOrigin?
+    if case .Scalar(.String(let value))? = try document.get(
+      obj: metadata,
+      key: "personOrigin"
+    ) {
+      personOrigin = PersonOrigin(rawValue: value)
+    } else {
+      personOrigin = nil
+    }
     return PageObjectMetadata(
       supertagIDs: tagIDs,
       properties: projected,
-      conflicts: conflicts.sorted { $0.id < $1.id }
+      conflicts: conflicts.sorted { $0.id < $1.id },
+      personVisibility: personVisibility,
+      personOrigin: personOrigin
     )
   }
 

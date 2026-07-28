@@ -173,11 +173,11 @@ public actor LibraryRepository {
       case .calendar:
         predicates.append("0")
       case .allPages:
-        predicates.append("deleted_at IS NULL")
+        predicates.append("deleted_at IS NULL AND COALESCE(person_visibility, 'promoted') <> 'other'")
       case .pinned:
-        predicates.append("is_pinned = 1 AND deleted_at IS NULL")
+        predicates.append("is_pinned = 1 AND deleted_at IS NULL AND COALESCE(person_visibility, 'promoted') <> 'other'")
       case .trash:
-        predicates.append("deleted_at IS NOT NULL")
+        predicates.append("deleted_at IS NOT NULL AND COALESCE(person_visibility, 'promoted') <> 'other'")
       }
 
       let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -368,7 +368,7 @@ public actor LibraryRepository {
       let pattern = "%\(Self.escapeLike(query.trimmingCharacters(in: .whitespacesAndNewlines)))%"
       return try Row.fetchAll(
         db,
-        sql: "SELECT id,title,kind_json FROM pages WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\' ORDER BY modified_at DESC LIMIT ?",
+        sql: "SELECT id,title,kind_json FROM pages WHERE deleted_at IS NULL AND COALESCE(person_visibility, 'promoted') <> 'other' AND title LIKE ? ESCAPE '\\' ORDER BY modified_at DESC LIMIT ?",
         arguments: [pattern, limit]
       ).compactMap { row in
         guard let id: String = row["id"], let title: String = row["title"],
@@ -380,11 +380,17 @@ public actor LibraryRepository {
     }
   }
 
-  public func backlinks(to pageID: PageID) throws -> [PageSnapshot] {
+  public func backlinks(
+    to pageID: PageID,
+    includeOthers: Bool = false
+  ) throws -> [PageSnapshot] {
     try database.read { db in
-      try Row.fetchAll(
+      let peoplePredicate = includeOthers
+        ? ""
+        : " AND COALESCE(p.person_visibility, 'promoted') <> 'other'"
+      return try Row.fetchAll(
         db,
-        sql: "SELECT p.* FROM pages p JOIN page_references r ON r.source_page_id = p.id WHERE r.target_page_id = ? AND p.deleted_at IS NULL ORDER BY p.modified_at DESC",
+        sql: "SELECT p.* FROM pages p JOIN page_references r ON r.source_page_id = p.id WHERE r.target_page_id = ? AND p.deleted_at IS NULL\(peoplePredicate) ORDER BY p.modified_at DESC",
         arguments: [pageID.rawValue]
       ).map(Self.decodePage)
     }
@@ -400,14 +406,20 @@ public actor LibraryRepository {
     }
   }
 
-  public func pages(with supertagID: SupertagID) throws -> [PageSnapshot] {
+  public func pages(
+    with supertagID: SupertagID,
+    includeOthers: Bool = false
+  ) throws -> [PageSnapshot] {
     try database.read { db in
-      try Row.fetchAll(
+      let peoplePredicate = includeOthers
+        ? ""
+        : " AND COALESCE(p.person_visibility, 'promoted') <> 'other'"
+      return try Row.fetchAll(
         db,
         sql: """
           SELECT p.* FROM pages p
           JOIN page_supertags s ON s.page_id = p.id
-          WHERE s.supertag_id = ? AND p.deleted_at IS NULL
+          WHERE s.supertag_id = ? AND p.deleted_at IS NULL\(peoplePredicate)
           ORDER BY p.title COLLATE NOCASE, p.modified_at DESC
           """,
         arguments: [supertagID.rawValue]
@@ -418,20 +430,209 @@ public actor LibraryRepository {
   public func taggedSuggestions(
     matching query: String,
     supertagID: SupertagID,
-    limit: Int = 8
+    limit: Int = 8,
+    includeOthers: Bool = false
   ) throws -> [PageSuggestion] {
     try database.read { db in
       let pattern = "%\(Self.escapeLike(query.trimmingCharacters(in: .whitespacesAndNewlines)))%"
+      let peoplePredicate = includeOthers
+        ? ""
+        : " AND COALESCE(p.person_visibility, 'promoted') <> 'other'"
       return try Row.fetchAll(
         db,
         sql: """
           SELECT p.id,p.title,p.kind_json FROM pages p
           JOIN page_supertags s ON s.page_id = p.id
-          WHERE s.supertag_id = ? AND p.deleted_at IS NULL AND p.title LIKE ? ESCAPE '\\'
+          WHERE s.supertag_id = ? AND p.deleted_at IS NULL\(peoplePredicate) AND p.title LIKE ? ESCAPE '\\'
           ORDER BY p.modified_at DESC LIMIT ?
           """,
         arguments: [supertagID.rawValue, pattern, limit]
       ).compactMap(Self.decodeSuggestion)
+    }
+  }
+
+  public func otherPeople(matching query: String = "") throws -> [PageSnapshot] {
+    try database.read { db in
+      var sql = """
+        SELECT p.* FROM pages p
+        JOIN page_supertags s ON s.page_id = p.id AND s.supertag_id = 'person'
+        WHERE p.deleted_at IS NULL AND p.person_visibility = 'other'
+        """
+      var arguments = StatementArguments()
+      let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !value.isEmpty {
+        sql += " AND p.title LIKE ? ESCAPE '\\'"
+        arguments += ["%\(Self.escapeLike(value))%"]
+      }
+      sql += " ORDER BY p.title COLLATE NOCASE, p.modified_at DESC"
+      return try Row.fetchAll(db, sql: sql, arguments: arguments).map(Self.decodePage)
+    }
+  }
+
+  @discardableResult
+  public func promotePerson(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    try setPersonVisibility(.promoted, pageID: pageID, now: now)
+  }
+
+  @discardableResult
+  public func movePersonToOther(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    try setPersonVisibility(.other, pageID: pageID, now: now)
+  }
+
+  public func calendarEventOmissionPrefixes() throws -> [String] {
+    try database.read { db in
+      guard let data = try Data.fetchOne(
+        db,
+        sql: "SELECT value FROM settings WHERE key = 'calendar.omission-prefixes'"
+      ), let decoded = try? JSONDecoder.enchiridion.decode([String].self, from: data)
+      else { return CalendarEventOmissionRules.defaultPrefixes }
+      return CalendarEventOmissionRules.normalizedPrefixes(decoded)
+    }
+  }
+
+  public func setCalendarEventOmissionPrefixes(_ prefixes: [String]) throws {
+    let normalized = CalendarEventOmissionRules.normalizedPrefixes(prefixes)
+    try database.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO settings (key,value) VALUES ('calendar.omission-prefixes',?)",
+        arguments: [try JSONEncoder.enchiridion.encode(normalized)]
+      )
+      for row in try Row.fetchAll(
+        db,
+        sql: "SELECT event_key,event_json FROM calendar_events WHERE active = 1"
+      ) {
+        guard let eventKey: String = row["event_key"], let data: Data = row["event_json"],
+          let event = try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data),
+          CalendarEventOmissionRules.shouldOmit(title: event.title, prefixes: normalized)
+        else { continue }
+        try db.execute(
+          sql: "UPDATE calendar_events SET active = 0 WHERE event_key = ?",
+          arguments: [eventKey]
+        )
+        try db.execute(
+          sql: "DELETE FROM calendar_event_attendees WHERE event_key = ?",
+          arguments: [eventKey]
+        )
+      }
+      try db.execute(
+        sql: """
+          DELETE FROM calendar_events
+          WHERE active = 0 AND event_key NOT IN (SELECT event_key FROM event_page_map)
+          """
+      )
+      try Self.pruneOrphanedCalendarPeople(db)
+    }
+  }
+
+  public func contactCandidates() throws -> [PersonContactCandidate] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT p.id,p.title,p.person_visibility,v.text_value
+          FROM pages p
+          JOIN page_supertags s
+            ON s.page_id = p.id AND s.supertag_id = 'person'
+          JOIN page_property_values v
+            ON v.page_id = p.id AND v.supertag_id = 'person'
+              AND v.field_id = 'email' AND v.type = 'email'
+          WHERE p.deleted_at IS NULL AND v.text_value IS NOT NULL
+          ORDER BY p.title COLLATE NOCASE,p.id,v.value_index
+          """
+      ).compactMap { row in
+        guard let rawID: String = row["id"], let title: String = row["title"],
+          let email: String = row["text_value"]
+        else { return nil }
+        let visibility = (row["person_visibility"] as String?)
+          .flatMap(PersonVisibility.init(rawValue:)) ?? .promoted
+        let candidate = PersonContactCandidate(
+          pageID: PageID(rawValue: rawID),
+          email: email,
+          displayName: title,
+          visibility: visibility
+        )
+        return candidate.email.contains("@") ? candidate : nil
+      }
+    }
+  }
+
+  public func contactLink(for pageID: PageID) throws -> PersonContactLink? {
+    try database.read { db in try Self.contactLink(db, pageID: pageID) }
+  }
+
+  public func contactLinks() throws -> [PersonContactLink] {
+    try database.read { db in
+      try Row.fetchAll(db, sql: "SELECT * FROM person_contact_links ORDER BY refreshed_at DESC")
+        .compactMap(Self.decodeContactLink)
+    }
+  }
+
+  @discardableResult
+  public func saveContactLink(
+    _ record: DeviceContactRecord,
+    for pageID: PageID,
+    matchedEmail: String,
+    now: Date = Date()
+  ) throws -> PersonContactLink {
+    let normalizedEmail = DeviceContactRecord.normalizedEmail(matchedEmail)
+    guard !record.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      record.normalizedEmails.contains(normalizedEmail)
+    else { throw LibraryRepositoryError.invalidRecord }
+    return try database.write { db in
+      let personEmails = try String.fetchAll(
+        db,
+        sql: """
+          SELECT v.text_value FROM page_supertags s
+          JOIN page_property_values v ON v.page_id = s.page_id
+          WHERE s.page_id = ? AND s.supertag_id = 'person'
+            AND v.supertag_id = 'person' AND v.field_id = 'email'
+            AND v.text_value IS NOT NULL
+          """,
+        arguments: [pageID.rawValue]
+      )
+      guard personEmails.map(DeviceContactRecord.normalizedEmail).contains(normalizedEmail)
+      else { throw LibraryRepositoryError.invalidRecord }
+      try db.execute(
+        sql: """
+          INSERT INTO person_contact_links
+            (person_page_id,contact_identifier,matched_email,contact_json,refreshed_at)
+          VALUES (?,?,?,?,?)
+          ON CONFLICT(person_page_id) DO UPDATE SET
+            contact_identifier=excluded.contact_identifier,
+            matched_email=excluded.matched_email,
+            contact_json=excluded.contact_json,
+            refreshed_at=excluded.refreshed_at
+          """,
+        arguments: [
+          pageID.rawValue,
+          record.identifier,
+          normalizedEmail,
+          try JSONEncoder.enchiridion.encode(record),
+          now.timeIntervalSince1970,
+        ]
+      )
+      return PersonContactLink(
+        pageID: pageID,
+        contactIdentifier: record.identifier,
+        matchedEmail: normalizedEmail,
+        record: record,
+        refreshedAt: now
+      )
+    }
+  }
+
+  public func removeContactLink(for pageID: PageID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "DELETE FROM person_contact_links WHERE person_page_id = ?",
+        arguments: [pageID.rawValue]
+      )
+    }
+  }
+
+  public func removeAllContactLinks() throws {
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM person_contact_links")
     }
   }
 
@@ -453,13 +654,38 @@ public actor LibraryRepository {
       throw LibraryRepositoryError.invalidRecord
     }
     try mutateDocument(pageID: pageID, now: now) { current in
-      try PageDocument.addSupertag(supertagID, in: current.document)
+      let tagged = try PageDocument.addSupertag(supertagID, in: current.document)
+      guard supertagID == BuiltInSupertags.person,
+        tagged.projection.objectMetadata.personVisibility == nil
+      else { return tagged }
+      return try PageDocument.setPersonClassification(
+        visibility: .promoted,
+        origin: .manual,
+        in: tagged.document
+      )
     }
   }
 
   public func removeSupertag(_ supertagID: SupertagID, from pageID: PageID, now: Date = Date()) throws {
     try mutateDocument(pageID: pageID, now: now) { current in
-      try PageDocument.removeSupertag(supertagID, in: current.document)
+      let untagged = try PageDocument.removeSupertag(supertagID, in: current.document)
+      guard supertagID == BuiltInSupertags.person else { return untagged }
+      return try PageDocument.clearPersonClassification(in: untagged.document)
+    }
+    if supertagID == BuiltInSupertags.person {
+      try database.write { db in
+        try db.execute(
+          sql: """
+            UPDATE pages
+            SET person_visibility = NULL,
+                person_origin = NULL,
+                person_cloud_eligible = 1,
+                cloud_dirty = 1
+            WHERE id = ?
+            """,
+          arguments: [pageID.rawValue]
+        )
+      }
     }
   }
 
@@ -1220,6 +1446,12 @@ public actor LibraryRepository {
         ).map { LiveQueryItem.page(try Self.decodePage($0)) }
         items.append(contentsOf: pages)
       }
+      if definition.peopleScope == .promotedOnly {
+        items.removeAll { item in
+          guard case .page(let page) = item else { return false }
+          return page.isOtherPerson
+        }
+      }
       items = items.filter { item in
         definition.filters.allSatisfy { Self.matches($0, item: item, definition: definition) }
       }
@@ -1237,8 +1469,12 @@ public actor LibraryRepository {
     refreshedAt: Date = Date()
   ) throws {
     try database.write { db in
+      let omissionPrefixes = try Self.calendarEventOmissionPrefixes(db)
       try db.execute(sql: "UPDATE calendar_events SET active = 0 WHERE provider = ?", arguments: [provider])
-      for sourceEvent in events {
+      for sourceEvent in events where !CalendarEventOmissionRules.shouldOmit(
+        title: sourceEvent.title,
+        prefixes: omissionPrefixes
+      ) {
         var event = sourceEvent
         if let series = event.identity.series {
           event.identity.series = try Self.resolveSeries(db, event: event, series: series)
@@ -1272,9 +1508,19 @@ public actor LibraryRepository {
         try Self.replaceAttendeeProjection(db, event: event, now: refreshedAt)
       }
       try db.execute(
+        sql: """
+          DELETE FROM calendar_event_attendees
+          WHERE event_key IN (
+            SELECT event_key FROM calendar_events WHERE provider = ? AND active = 0
+          )
+          """,
+        arguments: [provider]
+      )
+      try db.execute(
         sql: "DELETE FROM calendar_events WHERE provider = ? AND active = 0 AND event_key NOT IN (SELECT event_key FROM event_page_map)",
         arguments: [provider]
       )
+      try Self.pruneOrphanedCalendarPeople(db)
     }
   }
 
@@ -1286,7 +1532,7 @@ public actor LibraryRepository {
           SELECT e.event_json,e.active,COALESCE(a.canonical_key,e.series_canonical_key) AS canonical_key
           FROM calendar_events e
           LEFT JOIN calendar_series_aliases a ON a.source_key = e.series_source_key
-          WHERE e.start_at < ? AND e.end_at > ?
+          WHERE e.active = 1 AND e.start_at < ? AND e.end_at > ?
           ORDER BY e.start_at
           """,
         arguments: [end.timeIntervalSince1970, start.timeIntervalSince1970]
@@ -1367,8 +1613,28 @@ public actor LibraryRepository {
 
   public func dirtyPages() throws -> [PageSnapshot] {
     try database.read { db in
-      try Row.fetchAll(db, sql: "SELECT * FROM pages WHERE cloud_dirty = 1 ORDER BY modified_at")
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT * FROM pages
+          WHERE cloud_dirty = 1 AND person_cloud_eligible = 1
+          ORDER BY modified_at
+          """
+      )
         .map(Self.decodePage)
+    }
+  }
+
+  /// Returns a page only when it is currently eligible for CloudKit upload. This check is used
+  /// while preparing a pending record so a queue entry created before a person was classified as
+  /// local-only cannot leak that page later.
+  public func cloudEligiblePage(pageID: PageID) throws -> PageSnapshot? {
+    try database.read { db in
+      try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM pages WHERE id = ? AND person_cloud_eligible = 1",
+        arguments: [pageID.rawValue]
+      ).map(Self.decodePage)
     }
   }
 
@@ -1638,8 +1904,42 @@ public actor LibraryRepository {
       let page: PageSnapshot
       let needsUpload: Bool
       if let local = try Self.fetchPage(db, id: pageID) {
-        let merged = try PageDocument.merge(local: local.document, remote: remoteDocument, pageID: pageID)
-        needsUpload = merged.document != remoteDocument
+        let localProjection = try PageDocument.inspect(local.document, pageID: pageID)
+        let remoteProjection = try PageDocument.inspect(remoteDocument, pageID: pageID)
+        var merged = try PageDocument.merge(
+          local: local.document,
+          remote: remoteDocument,
+          pageID: pageID
+        )
+        let promotedOrigins = [localProjection, remoteProjection].compactMap {
+          Self.promotedPersonOrigin(in: $0)
+        }
+        if !promotedOrigins.isEmpty {
+          let dominantOrigin: PersonOrigin = promotedOrigins.contains(.manual)
+            ? .manual
+            : .calendarAttendee
+          if merged.projection.objectMetadata.personVisibility != .promoted
+            || merged.projection.objectMetadata.personOrigin != dominantOrigin
+          {
+            merged = try PageDocument.setPersonClassification(
+              visibility: .promoted,
+              origin: dominantOrigin,
+              in: merged.document
+            )
+          }
+        }
+        let existingCloudEligibility: Bool = try Bool.fetchOne(
+          db,
+          sql: "SELECT person_cloud_eligible FROM pages WHERE id = ?",
+          arguments: [pageID.rawValue]
+        ) ?? true
+        let finalCloudEligibility = merged.projection.objectMetadata.supertagIDs.contains(
+          BuiltInSupertags.person
+        )
+          ? (merged.projection.objectMetadata.personVisibility != .other
+            || existingCloudEligibility)
+          : true
+        needsUpload = finalCloudEligibility && merged.document != remoteDocument
         page = PageSnapshot(
           id: pageID,
           kind: local.kind,
@@ -1655,10 +1955,17 @@ public actor LibraryRepository {
           objectMetadata: merged.projection.objectMetadata
         )
         try Self.writePage(db, page: page, cloudDirty: needsUpload, cloudRecord: systemFields)
+        try db.execute(
+          sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
+          arguments: [finalCloudEligibility, pageID.rawValue]
+        )
         try Self.replaceReferences(db, pageID: pageID, references: merged.projection.references)
       } else {
-        needsUpload = false
         let projection = try PageDocument.inspect(remoteDocument, pageID: pageID)
+        let finalCloudEligibility = !projection.objectMetadata.supertagIDs.contains(
+          BuiltInSupertags.person
+        ) || projection.objectMetadata.personVisibility != .other
+        needsUpload = false
         page = PageSnapshot(
           id: pageID,
           kind: kind,
@@ -1674,6 +1981,10 @@ public actor LibraryRepository {
           objectMetadata: projection.objectMetadata
         )
         try Self.writePage(db, page: page, cloudDirty: false, cloudRecord: systemFields)
+        try db.execute(
+          sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
+          arguments: [finalCloudEligibility, pageID.rawValue]
+        )
         try Self.replaceReferences(db, pageID: pageID, references: projection.references)
       }
       return CloudPageMergeResult(page: page, needsUpload: needsUpload)
@@ -1699,7 +2010,9 @@ public actor LibraryRepository {
       try db.execute(
         sql: """
           UPDATE pages
-          SET cloud_dirty = 1, cloud_record = NULL, cloud_synced_generation = 0
+          SET cloud_dirty = person_cloud_eligible,
+              cloud_record = NULL,
+              cloud_synced_generation = 0
           """
       )
       try db.execute(
@@ -1846,19 +2159,40 @@ public actor LibraryRepository {
       let displayName = identity.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
       let title = (displayName?.isEmpty == false ? displayName : nil)
         ?? email.split(separator: "@").first.map(String.init) ?? email
-      var page = try createPage(db, id: pageID, kind: .free, title: title, now: now)
+      let existing = try fetchPage(db, id: pageID)
+      var page = try createPage(
+        db,
+        id: pageID,
+        kind: .free,
+        title: title,
+        now: now,
+        cloudDirty: false
+      )
       let emailKey = SupertagPropertyKey(
         supertagID: BuiltInSupertags.person,
         fieldID: .init(rawValue: "email")
       )
       let alreadyTagged = page.objectMetadata.supertagIDs.contains(BuiltInSupertags.person)
       let hasEmail = page.objectMetadata.properties[emailKey]?.contains(.email(email)) == true
-      if !alreadyTagged || !hasEmail {
+      let needsClassification = page.objectMetadata.personVisibility == nil
+      var createdDerivedOther = false
+      if !alreadyTagged || !hasEmail || needsClassification {
         var mutation = try PageDocument.addSupertag(BuiltInSupertags.person, in: page.document)
         if !hasEmail {
           var emails = mutation.projection.objectMetadata.properties[emailKey] ?? []
           emails.append(.email(email))
           mutation = try PageDocument.setProperty(key: emailKey, values: emails, in: mutation.document)
+        }
+        if needsClassification {
+          let visibility: PersonVisibility = existing?.hasSupertag(BuiltInSupertags.person) == true
+            ? .promoted
+            : .other
+          createdDerivedOther = visibility == .other
+          mutation = try PageDocument.setPersonClassification(
+            visibility: visibility,
+            origin: visibility == .promoted ? .manual : .calendarAttendee,
+            in: mutation.document
+          )
         }
         page = PageSnapshot(
           id: page.id,
@@ -1874,7 +2208,17 @@ public actor LibraryRepository {
           dirtyGeneration: page.dirtyGeneration + 1,
           objectMetadata: mutation.projection.objectMetadata
         )
-        try writePage(db, page: page, cloudDirty: true)
+        try writePage(
+          db,
+          page: page,
+          cloudDirty: page.effectivePersonVisibility == .promoted
+        )
+        if createdDerivedOther {
+          try db.execute(
+            sql: "UPDATE pages SET person_cloud_eligible = 0 WHERE id = ?",
+            arguments: [page.id.rawValue]
+          )
+        }
       }
       try db.execute(
         sql: """
@@ -2046,11 +2390,65 @@ public actor LibraryRepository {
     Data(value.utf8).base64EncodedString()
   }
 
+  private static func calendarEventOmissionPrefixes(_ db: Database) throws -> [String] {
+    guard let data = try Data.fetchOne(
+      db,
+      sql: "SELECT value FROM settings WHERE key = 'calendar.omission-prefixes'"
+    ), let prefixes = try? JSONDecoder.enchiridion.decode([String].self, from: data)
+    else { return CalendarEventOmissionRules.defaultPrefixes }
+    return CalendarEventOmissionRules.normalizedPrefixes(prefixes)
+  }
+
   private static func rawKey(_ value: String) -> String {
     guard let data = Data(base64Encoded: value), let decoded = String(data: data, encoding: .utf8) else {
       return value
     }
     return decoded
+  }
+
+  private static func promotedPersonOrigin(
+    in projection: PageDocumentProjection
+  ) -> PersonOrigin? {
+    guard projection.objectMetadata.supertagIDs.contains(BuiltInSupertags.person),
+      projection.objectMetadata.personVisibility != .other
+    else { return nil }
+    return projection.objectMetadata.personOrigin ?? .manual
+  }
+
+  /// Removes only untouched local projections whose final calendar edge disappeared. Previously
+  /// promoted/demoted people remain cloud eligible and are therefore retained; authored content,
+  /// references, pins, extra tags/properties, and contact links are also explicit retention signals.
+  private static func pruneOrphanedCalendarPeople(_ db: Database) throws {
+    try db.execute(
+      sql: """
+        DELETE FROM pages
+        WHERE person_visibility = 'other'
+          AND person_origin = 'calendarAttendee'
+          AND person_cloud_eligible = 0
+          AND cloud_dirty = 0
+          AND is_pinned = 0
+          AND TRIM(plain_text) = ''
+          AND NOT EXISTS (
+            SELECT 1 FROM calendar_event_attendees a WHERE a.person_page_id = pages.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM page_references r
+            WHERE r.source_page_id = pages.id OR r.target_page_id = pages.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM person_contact_links c WHERE c.person_page_id = pages.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM page_supertags s
+            WHERE s.page_id = pages.id AND s.supertag_id <> 'person'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM page_property_values v
+            WHERE v.page_id = pages.id
+              AND NOT (v.supertag_id = 'person' AND v.field_id = 'email')
+          )
+        """
+    )
   }
 
   private func createPage(
@@ -2064,12 +2462,53 @@ public actor LibraryRepository {
     }
   }
 
+  private func setPersonVisibility(
+    _ visibility: PersonVisibility,
+    pageID: PageID,
+    now: Date
+  ) throws -> PageSnapshot {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID),
+        current.hasSupertag(BuiltInSupertags.person)
+      else { throw LibraryRepositoryError.invalidRecord }
+      if current.effectivePersonVisibility == visibility { return current }
+      let result = try PageDocument.setPersonClassification(
+        visibility: visibility,
+        origin: current.personOrigin ?? .manual,
+        in: current.document
+      )
+      let updated = PageSnapshot(
+        id: current.id,
+        kind: current.kind,
+        title: result.projection.title,
+        plainText: result.projection.plainText,
+        document: result.document,
+        heads: result.heads,
+        createdAt: current.createdAt,
+        modifiedAt: now,
+        deletedAt: result.projection.deletedAt,
+        isPinned: result.projection.isPinned,
+        dirtyGeneration: current.dirtyGeneration + 1,
+        objectMetadata: result.projection.objectMetadata
+      )
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      if visibility == .promoted {
+        try db.execute(
+          sql: "UPDATE pages SET person_cloud_eligible = 1 WHERE id = ?",
+          arguments: [pageID.rawValue]
+        )
+      }
+      return updated
+    }
+  }
+
   private static func createPage(
     _ db: Database,
     id: PageID,
     kind: PageKind,
     title: String,
-    now: Date
+    now: Date,
+    cloudDirty: Bool = true
   ) throws -> PageSnapshot {
     if try Bool.fetchOne(
       db,
@@ -2092,7 +2531,7 @@ public actor LibraryRepository {
       dirtyGeneration: 1,
       objectMetadata: .init()
     )
-    try writePage(db, page: page, cloudDirty: true)
+    try writePage(db, page: page, cloudDirty: cloudDirty)
     return page
   }
 
@@ -2486,6 +2925,58 @@ public actor LibraryRepository {
         table.column("detected_at", .double).notNull()
       }
     }
+    migrator.registerMigration("v11-calendar-filters-and-people") { db in
+      try db.alter(table: "pages") { table in
+        table.add(column: "person_visibility", .text)
+        table.add(column: "person_origin", .text)
+      }
+      try db.create(
+        index: "pages_on_person_visibility",
+        on: "pages",
+        columns: ["person_visibility"]
+      )
+      try db.execute(
+        sql: """
+          UPDATE pages
+          SET person_visibility = 'promoted', person_origin = 'manual'
+          WHERE id IN (
+            SELECT page_id FROM page_supertags WHERE supertag_id = 'person'
+          )
+          """
+      )
+      try db.execute(
+        sql: """
+          UPDATE pages
+          SET person_visibility = 'other', person_origin = 'calendarAttendee'
+          WHERE id IN (SELECT person_page_id FROM calendar_event_attendees)
+          """
+      )
+      try db.create(table: "person_contact_links") { table in
+        table.column("person_page_id", .text).primaryKey()
+          .references("pages", onDelete: .cascade)
+        table.column("contact_identifier", .text).notNull().indexed()
+        table.column("matched_email", .text).notNull().indexed()
+        table.column("contact_json", .blob).notNull()
+        table.column("refreshed_at", .double).notNull()
+      }
+      try db.execute(
+        sql: "INSERT OR IGNORE INTO settings (key,value) VALUES ('calendar.omission-prefixes',?)",
+        arguments: [try JSONEncoder.enchiridion.encode(CalendarEventOmissionRules.defaultPrefixes)]
+      )
+    }
+    migrator.registerMigration("v12-person-cloud-eligibility") { db in
+      try db.alter(table: "pages") { table in
+        table.add(column: "person_cloud_eligible", .boolean).notNull().defaults(to: true)
+      }
+      try db.execute(
+        sql: """
+          UPDATE pages
+          SET person_cloud_eligible = 0
+          WHERE person_visibility = 'other'
+            AND id IN (SELECT person_page_id FROM calendar_event_attendees)
+          """
+      )
+    }
     return migrator
   }()
 
@@ -2515,8 +3006,9 @@ public actor LibraryRepository {
       sql: """
         INSERT INTO pages
           (id,kind_tag,kind_json,day_key,title,plain_text,document,heads_json,
-           created_at,modified_at,deleted_at,is_pinned,dirty_generation,cloud_dirty,cloud_record)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           created_at,modified_at,deleted_at,is_pinned,dirty_generation,cloud_dirty,cloud_record,
+           person_visibility,person_origin)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
           kind_tag=excluded.kind_tag,
           kind_json=excluded.kind_json,
@@ -2530,7 +3022,9 @@ public actor LibraryRepository {
           is_pinned=excluded.is_pinned,
           dirty_generation=excluded.dirty_generation,
           cloud_dirty=excluded.cloud_dirty,
-          cloud_record=COALESCE(excluded.cloud_record,pages.cloud_record)
+          cloud_record=COALESCE(excluded.cloud_record,pages.cloud_record),
+          person_visibility=COALESCE(excluded.person_visibility,pages.person_visibility),
+          person_origin=COALESCE(excluded.person_origin,pages.person_origin)
         """,
       arguments: [
         page.id.rawValue,
@@ -2548,6 +3042,8 @@ public actor LibraryRepository {
         page.dirtyGeneration,
         cloudDirty,
         cloudRecord,
+        page.objectMetadata.personVisibility?.rawValue,
+        page.objectMetadata.personOrigin?.rawValue,
       ]
     )
     try replaceObjectProjection(db, pageID: page.id, metadata: page.objectMetadata)
@@ -2606,7 +3102,13 @@ public actor LibraryRepository {
       let dirtyGeneration: Int64 = row["dirty_generation"]
     else { throw LibraryRepositoryError.invalidRecord }
     let idValue = PageID(rawValue: id)
-    let metadata = (try? PageDocument.inspect(document, pageID: idValue).objectMetadata) ?? .init()
+    var metadata = (try? PageDocument.inspect(document, pageID: idValue).objectMetadata) ?? .init()
+    if metadata.personVisibility == nil, let value: String = row["person_visibility"] {
+      metadata.personVisibility = PersonVisibility(rawValue: value)
+    }
+    if metadata.personOrigin == nil, let value: String = row["person_origin"] {
+      metadata.personOrigin = PersonOrigin(rawValue: value)
+    }
     return PageSnapshot(
       id: idValue,
       kind: try JSONDecoder.enchiridion.decode(PageKind.self, from: kindData),
@@ -2629,6 +3131,31 @@ public actor LibraryRepository {
       let kind = try? JSONDecoder.enchiridion.decode(PageKind.self, from: kindData)
     else { return nil }
     return PageSuggestion(id: PageID(rawValue: id), title: title, kind: kind)
+  }
+
+  private static func contactLink(_ db: Database, pageID: PageID) throws -> PersonContactLink? {
+    try Row.fetchOne(
+      db,
+      sql: "SELECT * FROM person_contact_links WHERE person_page_id = ?",
+      arguments: [pageID.rawValue]
+    ).flatMap(decodeContactLink)
+  }
+
+  private static func decodeContactLink(_ row: Row) -> PersonContactLink? {
+    guard let rawPageID: String = row["person_page_id"],
+      let identifier: String = row["contact_identifier"],
+      let matchedEmail: String = row["matched_email"],
+      let recordData: Data = row["contact_json"],
+      let refreshedAt: Double = row["refreshed_at"],
+      let record = try? JSONDecoder.enchiridion.decode(DeviceContactRecord.self, from: recordData)
+    else { return nil }
+    return PersonContactLink(
+      pageID: PageID(rawValue: rawPageID),
+      contactIdentifier: identifier,
+      matchedEmail: matchedEmail,
+      record: record,
+      refreshedAt: Date(timeIntervalSince1970: refreshedAt)
+    )
   }
 
   private static func validate(values: [SupertagValue], for field: SupertagFieldDefinition) throws {

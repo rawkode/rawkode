@@ -174,15 +174,21 @@ public struct PageObjectMetadata: Codable, Hashable, Sendable {
   public var supertagIDs: [SupertagID]
   public var properties: [SupertagPropertyKey: [SupertagValue]]
   public var conflicts: [SupertagConflict]
+  public var personVisibility: PersonVisibility?
+  public var personOrigin: PersonOrigin?
 
   public init(
     supertagIDs: [SupertagID] = [],
     properties: [SupertagPropertyKey: [SupertagValue]] = [:],
-    conflicts: [SupertagConflict] = []
+    conflicts: [SupertagConflict] = [],
+    personVisibility: PersonVisibility? = nil,
+    personOrigin: PersonOrigin? = nil
   ) {
     self.supertagIDs = supertagIDs
     self.properties = properties
     self.conflicts = conflicts
+    self.personVisibility = personVisibility
+    self.personOrigin = personOrigin
   }
 }
 

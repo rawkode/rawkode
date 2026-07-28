@@ -11,6 +11,9 @@ public final class LibraryStore {
   public private(set) var savedViews: [LiveQueryDefinition] = []
   public private(set) var liveViewItems: [LiveQueryID: [LiveQueryItem]] = [:]
   public private(set) var whiteboardDocuments: [LiveQueryID: WhiteboardDocument] = [:]
+  public private(set) var omissionPrefixes: [String] = CalendarEventOmissionRules.defaultPrefixes
+  public private(set) var otherPeople: [PageSnapshot] = []
+  public private(set) var contactLinks: [PageID: PersonContactLink] = [:]
   public private(set) var syncStatus: SyncStatus = .localOnly
   public private(set) var isLoading = true
   public private(set) var startupError: String?
@@ -22,14 +25,17 @@ public final class LibraryStore {
   @ObservationIgnored private var syncCoordinator: CloudSyncCoordinator?
   @ObservationIgnored private var calendarProvider: EventKitCalendarProvider?
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
+  @ObservationIgnored private var contactResolver: (any DeviceContactResolving)?
   @ObservationIgnored private let calendar: Calendar
 
   public init(
     repository: LibraryRepository? = nil,
     calendar: Calendar = .current,
+    contactResolver: (any DeviceContactResolving)? = nil,
     startImmediately: Bool = true
   ) {
     self.calendar = calendar
+    self.contactResolver = contactResolver
     if let repository {
       self.repository = repository
     } else {
@@ -51,7 +57,7 @@ public final class LibraryStore {
   }
 
   public func page(id: PageID) -> PageSnapshot? {
-    pages.first { $0.id == id }
+    pages.first { $0.id == id } ?? otherPeople.first { $0.id == id }
   }
 
   public func calendarPageContext(for pageID: PageID) -> CalendarPageContext? {
@@ -161,6 +167,18 @@ public final class LibraryStore {
       liveViewItems = viewItems
       whiteboardDocuments = loadedWhiteboards
       calendarPageContexts = try await repository.calendarPageContexts()
+      omissionPrefixes = try await repository.calendarEventOmissionPrefixes()
+      let now = Date()
+      let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+      let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+      calendarEvents = try await repository.calendarEvents(
+        from: calendarStart,
+        through: calendarEnd
+      )
+      otherPeople = try await repository.otherPeople()
+      contactLinks = Dictionary(
+        uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
+      )
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id
       }
@@ -222,6 +240,172 @@ public final class LibraryStore {
   public func pages(with supertagID: SupertagID) -> [PageSnapshot] {
     pages.filter { $0.deletedAt == nil && $0.hasSupertag(supertagID) }
       .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+  }
+
+  public func setCalendarEventOmissionPrefixes(_ prefixes: [String]) async {
+    guard let repository else { return }
+    do {
+      try await repository.setCalendarEventOmissionPrefixes(prefixes)
+      omissionPrefixes = try await repository.calendarEventOmissionPrefixes()
+      try await refreshEnabledCalendarProviders()
+      await reload()
+      calendarError = nil
+    } catch {
+      calendarError = error.localizedDescription
+    }
+  }
+
+  public func addCalendarEventOmissionPrefix(_ prefix: String) async {
+    await setCalendarEventOmissionPrefixes(omissionPrefixes + [prefix])
+  }
+
+  public func updateCalendarEventOmissionPrefix(at index: Int, to prefix: String) async {
+    guard omissionPrefixes.indices.contains(index) else { return }
+    var updated = omissionPrefixes
+    updated[index] = prefix
+    await setCalendarEventOmissionPrefixes(updated)
+  }
+
+  public func removeCalendarEventOmissionPrefixes(at offsets: IndexSet) async {
+    let updated = omissionPrefixes.enumerated().compactMap { index, prefix in
+      offsets.contains(index) ? nil : prefix
+    }
+    await setCalendarEventOmissionPrefixes(updated)
+  }
+
+  public func promotePerson(_ pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.promotePerson(pageID: pageID)
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func movePersonToOther(_ pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.movePersonToOther(pageID: pageID)
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func configureDeviceContactResolver(_ resolver: (any DeviceContactResolving)?) {
+    contactResolver = resolver
+  }
+
+  /// Applies a platform authorization transition while retaining the configured resolver for
+  /// subsequent foreground and authorization-change refreshes.
+  public func deviceContactsAuthorizationDidChange(
+    _ authorization: DeviceContactsAuthorization
+  ) async {
+    guard let repository else { return }
+    guard authorization.permitsEnrichment else {
+      do {
+        try await repository.removeAllContactLinks()
+        contactLinks.removeAll()
+        startupError = nil
+      } catch {
+        startupError = error.localizedDescription
+      }
+      return
+    }
+    await refreshContactEnrichments()
+  }
+
+  public func refreshContactEnrichments() async {
+    guard let contactResolver else { return }
+    await refreshContactEnrichment(using: contactResolver)
+  }
+
+  public func refreshContactEnrichment(using resolver: any DeviceContactResolving) async {
+    guard let repository else { return }
+    do {
+      let candidates = try await repository.contactCandidates()
+      let candidatesByPage = Dictionary(grouping: candidates, by: \.pageID)
+      let existingLinks = try await repository.contactLinks()
+      for link in existingLinks where candidatesByPage[link.pageID] == nil {
+        try await repository.removeContactLink(for: link.pageID)
+      }
+      for (pageID, pageCandidates) in candidatesByPage {
+        if let existingLink = existingLinks.first(where: { $0.pageID == pageID }) {
+          if pageCandidates.contains(where: { $0.email == existingLink.matchedEmail }),
+            let selectedContact = try await resolver.contact(
+              identifier: existingLink.contactIdentifier
+            ),
+            selectedContact.identifier == existingLink.contactIdentifier,
+            selectedContact.normalizedEmails.contains(existingLink.matchedEmail)
+          {
+            _ = try await repository.saveContactLink(
+              selectedContact,
+              for: pageID,
+              matchedEmail: existingLink.matchedEmail
+            )
+          } else {
+            try await repository.removeContactLink(for: pageID)
+          }
+          continue
+        }
+        var exactMatches: [(record: DeviceContactRecord, email: String)] = []
+        for candidate in pageCandidates {
+          guard let contact = try await resolver.contact(matchingEmail: candidate.email),
+            contact.normalizedEmails.contains(candidate.email)
+          else { continue }
+          exactMatches.append((contact, candidate.email))
+        }
+        let identifiers = Set(exactMatches.map(\.record.identifier))
+        guard identifiers.count == 1, let match = exactMatches.first else {
+          try await repository.removeContactLink(for: pageID)
+          continue
+        }
+        _ = try await repository.saveContactLink(
+          match.record,
+          for: pageID,
+          matchedEmail: match.email
+        )
+      }
+      contactLinks = Dictionary(
+        uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
+      )
+      startupError = nil
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func saveContactLink(
+    _ record: DeviceContactRecord,
+    for pageID: PageID,
+    matchedEmail: String
+  ) async {
+    guard let repository else { return }
+    do {
+      let link = try await repository.saveContactLink(
+        record,
+        for: pageID,
+        matchedEmail: matchedEmail
+      )
+      contactLinks[pageID] = link
+      startupError = nil
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func removeContactLink(for pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      try await repository.removeContactLink(for: pageID)
+      contactLinks.removeValue(forKey: pageID)
+      startupError = nil
+    } catch {
+      startupError = error.localizedDescription
+    }
   }
 
   public func addSupertag(_ supertagID: SupertagID, to pageID: PageID) {
@@ -552,9 +736,12 @@ public final class LibraryStore {
     return (try? await repository.suggestions(matching: query)) ?? []
   }
 
-  public func backlinks(to pageID: PageID) async -> [PageSnapshot] {
+  public func backlinks(
+    to pageID: PageID,
+    includeOthers: Bool = false
+  ) async -> [PageSnapshot] {
     guard let repository else { return [] }
-    return (try? await repository.backlinks(to: pageID)) ?? []
+    return (try? await repository.backlinks(to: pageID, includeOthers: includeOthers)) ?? []
   }
 
   public func togglePinned(pageID: PageID) {
@@ -636,6 +823,7 @@ public final class LibraryStore {
     await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarPageContexts = try await repository.calendarPageContexts()
+    if contactResolver != nil { await refreshContactEnrichments() }
     calendarError = nil
   }
 
@@ -652,18 +840,33 @@ public final class LibraryStore {
       let provider = try googleCalendarProvider ?? GoogleCalendarProvider.fromBundle()
       googleCalendarProvider = provider
       try await provider.authorize()
-      let now = Date()
-      let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
-      let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
-      let events = try await provider.events(from: start, through: end)
-      try await repository.replaceCalendarProjection(events, provider: "google")
-      await syncCoordinator?.enqueueDirtyChanges()
-      calendarEvents = try await repository.calendarEvents(from: start, through: end)
-      calendarPageContexts = try await repository.calendarPageContexts()
+      try await refreshGoogleCalendar(using: provider, repository: repository)
       calendarError = nil
     } catch {
       calendarError = error.localizedDescription
     }
+  }
+
+  private func refreshEnabledCalendarProviders() async throws {
+    if calendarProvider != nil { try await refreshCalendar() }
+    if let repository, let googleCalendarProvider {
+      try await refreshGoogleCalendar(using: googleCalendarProvider, repository: repository)
+    }
+  }
+
+  private func refreshGoogleCalendar(
+    using provider: GoogleCalendarProvider,
+    repository: LibraryRepository
+  ) async throws {
+    let now = Date()
+    let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+    let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+    let events = try await provider.events(from: start, through: end)
+    try await repository.replaceCalendarProjection(events, provider: "google")
+    await syncCoordinator?.enqueueDirtyChanges()
+    calendarEvents = try await repository.calendarEvents(from: start, through: end)
+    calendarPageContexts = try await repository.calendarPageContexts()
+    if contactResolver != nil { await refreshContactEnrichments() }
   }
 
   public func syncNow() async {

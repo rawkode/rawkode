@@ -224,6 +224,15 @@ public struct PageSnapshot: Identifiable, Codable, Hashable, Sendable {
   public func hasSupertag(_ id: SupertagID) -> Bool {
     objectMetadata.supertagIDs.contains(id)
   }
+
+  public var effectivePersonVisibility: PersonVisibility? {
+    guard hasSupertag(BuiltInSupertags.person) else { return nil }
+    return objectMetadata.personVisibility ?? .promoted
+  }
+
+  public var personOrigin: PersonOrigin? { objectMetadata.personOrigin }
+
+  public var isOtherPerson: Bool { effectivePersonVisibility == .other }
 }
 
 public struct PageReference: Codable, Hashable, Sendable {

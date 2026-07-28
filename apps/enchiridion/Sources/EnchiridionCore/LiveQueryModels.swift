@@ -38,6 +38,11 @@ public enum LiveViewKind: String, Codable, CaseIterable, Hashable, Sendable {
   }
 }
 
+public enum LiveQueryPeopleScope: String, Codable, CaseIterable, Hashable, Sendable {
+  case promotedOnly
+  case includeOthers
+}
+
 public enum LiveQueryOperator: String, Codable, CaseIterable, Hashable, Sendable {
   case equals, notEquals, contains, isEmpty, isNotEmpty, before, after
 
@@ -102,6 +107,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
   public var startFieldID: SupertagFieldID?
   public var endFieldID: SupertagFieldID?
   public var limit: Int
+  public var peopleScope: LiveQueryPeopleScope
 
   public init(
     id: LiveQueryID = .random(),
@@ -114,7 +120,8 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     groupFieldID: SupertagFieldID? = nil,
     startFieldID: SupertagFieldID? = nil,
     endFieldID: SupertagFieldID? = nil,
-    limit: Int = 500
+    limit: Int = 500,
+    peopleScope: LiveQueryPeopleScope = .promotedOnly
   ) {
     self.id = id
     self.name = name
@@ -128,9 +135,54 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     self.endFieldID = endFieldID
     let maximumLimit = viewKind == .canvas ? WhiteboardLimits.maximumPageCards : 5_000
     self.limit = min(max(limit, 1), maximumLimit)
+    self.peopleScope = peopleScope
   }
 
   public var domainSQL: String { DomainQueryCodec.serialize(self) }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, source, filters, sorts, viewKind, visibleFieldIDs, groupFieldID
+    case startFieldID, endFieldID, limit, peopleScope
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      id: try values.decode(LiveQueryID.self, forKey: .id),
+      name: try values.decode(String.self, forKey: .name),
+      source: try values.decode(LiveQuerySource.self, forKey: .source),
+      filters: try values.decodeIfPresent([LiveQueryFilter].self, forKey: .filters) ?? [],
+      sorts: try values.decodeIfPresent([LiveQuerySort].self, forKey: .sorts)
+        ?? [.init(systemField: "title")],
+      viewKind: try values.decodeIfPresent(LiveViewKind.self, forKey: .viewKind) ?? .list,
+      visibleFieldIDs: try values.decodeIfPresent(
+        [SupertagFieldID].self,
+        forKey: .visibleFieldIDs
+      ) ?? [],
+      groupFieldID: try values.decodeIfPresent(SupertagFieldID.self, forKey: .groupFieldID),
+      startFieldID: try values.decodeIfPresent(SupertagFieldID.self, forKey: .startFieldID),
+      endFieldID: try values.decodeIfPresent(SupertagFieldID.self, forKey: .endFieldID),
+      limit: try values.decodeIfPresent(Int.self, forKey: .limit) ?? 500,
+      peopleScope: try values.decodeIfPresent(LiveQueryPeopleScope.self, forKey: .peopleScope)
+        ?? .promotedOnly
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(id, forKey: .id)
+    try values.encode(name, forKey: .name)
+    try values.encode(source, forKey: .source)
+    try values.encode(filters, forKey: .filters)
+    try values.encode(sorts, forKey: .sorts)
+    try values.encode(viewKind, forKey: .viewKind)
+    try values.encode(visibleFieldIDs, forKey: .visibleFieldIDs)
+    try values.encodeIfPresent(groupFieldID, forKey: .groupFieldID)
+    try values.encodeIfPresent(startFieldID, forKey: .startFieldID)
+    try values.encodeIfPresent(endFieldID, forKey: .endFieldID)
+    try values.encode(limit, forKey: .limit)
+    try values.encode(peopleScope, forKey: .peopleScope)
+  }
 }
 
 public enum LiveQueryItem: Identifiable, Hashable, Sendable {
@@ -245,6 +297,12 @@ public enum DomainQueryCodec {
           if !field.isEmpty { definition.visibleFieldIDs.append(.init(rawValue: field)) }
           index += 1
         }
+      case "INCLUDE":
+        guard index + 1 < tokens.count, tokens[index + 1].uppercased() == "OTHERS" else {
+          throw DomainQueryError.unsupported("INCLUDE must be followed by OTHERS.")
+        }
+        definition.peopleScope = .includeOthers
+        index += 2
       case "GROUP":
         guard index + 2 < tokens.count, tokens[index + 1].uppercased() == "BY" else {
           throw DomainQueryError.unsupported("GROUP must be followed by BY and a field.")
@@ -326,6 +384,7 @@ public enum DomainQueryCodec {
     if !definition.visibleFieldIDs.isEmpty {
       parts.append("SHOW \(definition.visibleFieldIDs.map(\.rawValue).joined(separator: ", "))")
     }
+    if definition.peopleScope == .includeOthers { parts.append("INCLUDE OTHERS") }
     if let group = definition.groupFieldID { parts.append("GROUP BY \(group.rawValue)") }
     if let start = definition.startFieldID {
       let end = definition.endFieldID.map { " TO \($0.rawValue)" } ?? ""
@@ -343,7 +402,9 @@ public enum DomainQueryCodec {
     return parts.joined(separator: " ")
   }
 
-  private static let clauseWords: Set<String> = ["WHERE", "SHOW", "GROUP", "DATES", "ORDER", "LIMIT", "VIEW"]
+  private static let clauseWords: Set<String> = [
+    "WHERE", "SHOW", "INCLUDE", "GROUP", "DATES", "ORDER", "LIMIT", "VIEW",
+  ]
   private static let systemFields: Set<String> = ["title", "created", "modified", "kind", "start", "end", "calendar", "source"]
 
   private static func isClause(_ token: String) -> Bool { clauseWords.contains(token.uppercased()) }

@@ -441,6 +441,90 @@ final class CloudSyncRepositoryTests: XCTestCase {
     XCTAssertTrue(dirtySupertags.contains { $0.id == tag.id })
     XCTAssertNil(pageMetadata)
   }
+
+  func testStalePendingSaveCannotPrepareLocalOnlyOtherPersonRecord() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let event = cloudPersonEvent(email: "local-only@example.com")
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+    let pageID = PageID.person(email: "local-only@example.com")
+    let eligiblePage = try await fixture.repository.cloudEligiblePage(pageID: pageID)
+    XCTAssertNil(eligiblePage)
+    let preparedPage = try await CloudSyncCoordinator.pageForPendingSave(
+      pageID,
+      repository: fixture.repository
+    )
+    XCTAssertNil(preparedPage)
+  }
+
+  func testPromotedClassificationDominatesStaleOtherAcrossRepositories() async throws {
+    let source = try CloudRepositoryFixture()
+    let target = try CloudRepositoryFixture()
+    let email = "cross-device@example.com"
+    let pageID = PageID.person(email: email)
+    let event = cloudPersonEvent(email: email)
+    try await source.repository.replaceCalendarProjection([event], provider: "eventkit")
+    let loadedStaleOther = try await source.repository.page(id: pageID)
+    let staleOther = try XCTUnwrap(loadedStaleOther)
+
+    let initialTargetMerge = try await target.repository.mergeCloudPage(
+      pageID: pageID,
+      kind: staleOther.kind,
+      remoteDocument: staleOther.document,
+      systemFields: Data([1])
+    )
+    XCTAssertEqual(initialTargetMerge.page?.effectivePersonVisibility, .other)
+    let initiallyEligibleTarget = try await target.repository.cloudEligiblePage(pageID: pageID)
+    XCTAssertNil(initiallyEligibleTarget)
+
+    let promotedSource = try await source.repository.promotePerson(pageID: pageID)
+    let targetMerge = try await target.repository.mergeCloudPage(
+      pageID: pageID,
+      kind: promotedSource.kind,
+      remoteDocument: promotedSource.document,
+      systemFields: Data([2])
+    )
+    XCTAssertEqual(targetMerge.page?.effectivePersonVisibility, .promoted)
+    let eligibleTarget = try await target.repository.cloudEligiblePage(pageID: pageID)
+    XCTAssertNotNil(eligibleTarget)
+
+    let sourceMerge = try await source.repository.mergeCloudPage(
+      pageID: pageID,
+      kind: staleOther.kind,
+      remoteDocument: staleOther.document,
+      systemFields: Data([3])
+    )
+    XCTAssertEqual(sourceMerge.page?.effectivePersonVisibility, .promoted)
+    let eligibleSource = try await source.repository.cloudEligiblePage(pageID: pageID)
+    XCTAssertNotNil(eligibleSource)
+  }
+
+  private func cloudPersonEvent(email: String) -> CalendarEventSnapshot {
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    return CalendarEventSnapshot(
+      identity: .init(
+        provider: "eventkit",
+        externalIdentifier: "person-\(email)",
+        occurrenceStart: start
+      ),
+      title: "Meeting",
+      startDate: start,
+      endDate: start.addingTimeInterval(3_600),
+      isAllDay: false,
+      location: nil,
+      notes: nil,
+      url: nil,
+      calendarTitle: "Calendar",
+      attendees: [
+        .init(
+          email: email,
+          displayName: "Person",
+          role: "attendee",
+          responseStatus: "accepted",
+          isCurrentUser: false
+        )
+      ]
+    )
+  }
 }
 
 private final class CloudRepositoryFixture {

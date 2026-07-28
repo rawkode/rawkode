@@ -1,3 +1,4 @@
+import Automerge
 import Foundation
 import XCTest
 @testable import EnchiridionCore
@@ -217,7 +218,8 @@ final class LibraryRepositoryTests: XCTestCase {
       groupFieldID: .init(rawValue: "status"),
       startFieldID: .init(rawValue: "start-date"),
       endFieldID: .init(rawValue: "due-date"),
-      limit: 275
+      limit: 275,
+      peopleScope: .includeOthers
     )
 
     let parsed = try DomainQueryCodec.parse(original.domainSQL, id: original.id, name: original.name)
@@ -234,6 +236,22 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(parsed.startFieldID, original.startFieldID)
     XCTAssertEqual(parsed.endFieldID, original.endFieldID)
     XCTAssertEqual(parsed.limit, original.limit)
+    XCTAssertEqual(parsed.peopleScope, .includeOthers)
+  }
+
+  func testLegacySavedViewDefaultsToPromotedPeopleOnly() throws {
+    let view = LiveQueryDefinition(name: "Legacy", source: .pages)
+    let encoded = try JSONEncoder.enchiridion.encode(view)
+    var object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object.removeValue(forKey: "peopleScope")
+    let legacy = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder.enchiridion.decode(LiveQueryDefinition.self, from: legacy)
+
+    XCTAssertEqual(decoded.peopleScope, .promotedOnly)
+    XCTAssertFalse(decoded.domainSQL.contains("INCLUDE OTHERS"))
   }
 
   func testLiveQueryExecutesTypedFiltersAndAllSortKeysBeforeLimit() async throws {
@@ -422,11 +440,474 @@ final class LibraryRepositoryTests: XCTestCase {
 
     try await fixture.repository.replaceCalendarProjection([event], provider: "google")
     try await fixture.repository.replaceCalendarProjection([event], provider: "google")
-    let people = try await fixture.repository.pages(with: BuiltInSupertags.person)
+    let visiblePeople = try await fixture.repository.pages(with: BuiltInSupertags.person)
+    let allPeople = try await fixture.repository.pages(
+      with: BuiltInSupertags.person,
+      includeOthers: true
+    )
+    let person = try XCTUnwrap(allPeople.first)
 
-    XCTAssertEqual(people.count, 1)
-    XCTAssertEqual(people[0].id, .person(email: "alice@example.com"))
-    XCTAssertEqual(people[0].displayTitle, "Alice Smith")
+    XCTAssertTrue(visiblePeople.isEmpty)
+    XCTAssertEqual(allPeople.count, 1)
+    XCTAssertEqual(person.id, .person(email: "alice@example.com"))
+    XCTAssertEqual(person.displayTitle, "Alice Smith")
+    XCTAssertEqual(person.effectivePersonVisibility, .other)
+    XCTAssertEqual(person.personOrigin, .calendarAttendee)
+    try await fixture.repository.markAllCloudDataForZoneRecovery()
+    let dirtyBeforePromotion = try await fixture.repository.dirtyPages()
+    let libraryPages = try await fixture.repository.pages(in: .allPages)
+    let suggestions = try await fixture.repository.suggestions(matching: "Alice")
+    let taggedSuggestions = try await fixture.repository.taggedSuggestions(
+      matching: "Alice",
+      supertagID: BuiltInSupertags.person
+    )
+    XCTAssertFalse(dirtyBeforePromotion.contains { $0.id == person.id })
+    XCTAssertFalse(libraryPages.contains { $0.id == person.id })
+    XCTAssertTrue(suggestions.isEmpty)
+    XCTAssertTrue(taggedSuggestions.isEmpty)
+
+    let defaultView = LiveQueryDefinition(
+      name: "People",
+      source: .supertag(BuiltInSupertags.person)
+    )
+    var inclusiveView = defaultView
+    inclusiveView.peopleScope = .includeOthers
+    let defaultItems = try await fixture.repository.run(defaultView)
+    let inclusiveItems = try await fixture.repository.run(inclusiveView)
+    XCTAssertTrue(defaultItems.isEmpty)
+    XCTAssertEqual(inclusiveItems.map(\.id), ["page:\(person.id.rawValue)"])
+
+    let promoted = try await fixture.repository.promotePerson(pageID: person.id)
+    let promotedPeople = try await fixture.repository.pages(with: BuiltInSupertags.person)
+    let dirtyAfterPromotion = try await fixture.repository.dirtyPages()
+    XCTAssertEqual(promoted.effectivePersonVisibility, .promoted)
+    XCTAssertEqual(promotedPeople.map(\.id), [person.id])
+    XCTAssertTrue(dirtyAfterPromotion.contains { $0.id == person.id })
+
+    try await fixture.repository.replaceCalendarProjection([event], provider: "google")
+    let refreshedPerson = try await fixture.repository.page(id: person.id)
+    XCTAssertEqual(refreshedPerson?.effectivePersonVisibility, .promoted)
+  }
+
+  func testManualPeopleArePromotedByDefault() async throws {
+    let fixture = try RepositoryFixture()
+
+    let person = try await fixture.repository.createTaggedPage(
+      title: "Ada Lovelace",
+      supertagID: BuiltInSupertags.person
+    )
+    let visiblePeople = try await fixture.repository.pages(with: BuiltInSupertags.person)
+
+    XCTAssertEqual(person.effectivePersonVisibility, .promoted)
+    XCTAssertEqual(person.personOrigin, .manual)
+    XCTAssertEqual(visiblePeople.map(\.id), [person.id])
+  }
+
+  func testCalendarOmissionRulesDefaultNormalizeAndFilterBeforeAttendees() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var blocked = calendarEvent(
+      provider: "eventkit",
+      id: "blocked",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    blocked.title = "Blöcked planning"
+    blocked.attendees = [
+      CalendarAttendeeIdentity(
+        email: "noise@example.com",
+        displayName: "Noise",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    var allowed = calendarEvent(
+      provider: "eventkit",
+      id: "allowed",
+      start: start.addingTimeInterval(7_200),
+      end: start.addingTimeInterval(10_800)
+    )
+    allowed.attendees = [
+      CalendarAttendeeIdentity(
+        email: "kept@example.com",
+        displayName: "Kept",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+
+    let defaultPrefixes = try await fixture.repository.calendarEventOmissionPrefixes()
+    XCTAssertEqual(defaultPrefixes, ["Blocked"])
+    try await fixture.repository.setCalendarEventOmissionPrefixes([
+      "  BLOCKED ", "blöcked", "", "Private",
+    ])
+    let normalizedPrefixes = try await fixture.repository.calendarEventOmissionPrefixes()
+    XCTAssertEqual(normalizedPrefixes, ["BLOCKED", "Private"])
+    try await fixture.repository.replaceCalendarProjection(
+      [blocked, allowed],
+      provider: "eventkit"
+    )
+
+    let events = try await fixture.repository.calendarEvents(
+      from: start.addingTimeInterval(-1),
+      through: start.addingTimeInterval(12_000)
+    )
+    let people = try await fixture.repository.pages(
+      with: BuiltInSupertags.person,
+      includeOthers: true
+    )
+    XCTAssertEqual(events.map(\.id), [allowed.id])
+    XCTAssertEqual(people.map(\.id), [.person(email: "kept@example.com")])
+  }
+
+  func testChangingOmissionRulesDetachesMappedNoteButHidesEvent() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "focus",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.title = "Focus block"
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+    let note = try await fixture.repository.calendarEventPage(for: event)
+
+    try await fixture.repository.setCalendarEventOmissionPrefixes(["Focus"])
+    let preservedNote = try await fixture.repository.page(id: note.id)
+    let visibleEvents = try await fixture.repository.calendarEvents(
+      from: start.addingTimeInterval(-1),
+      through: start.addingTimeInterval(3_601)
+    )
+    let contexts = try await fixture.repository.calendarPageContexts()
+
+    XCTAssertNotNil(preservedNote)
+    XCTAssertTrue(visibleEvents.isEmpty)
+    XCTAssertEqual(contexts[note.id]?.sourceUnavailable, true)
+  }
+
+  @MainActor
+  func testStoreFilterMutationReloadsCachedEventsWithoutConfiguredProviders() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date().addingTimeInterval(3_600)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "store-filter",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.title = "Private appointment"
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+
+    await store.reload()
+    XCTAssertEqual(store.calendarEvents.map(\.identity.externalIdentifier), ["store-filter"])
+
+    await store.setCalendarEventOmissionPrefixes(["Private"])
+    XCTAssertTrue(store.calendarEvents.isEmpty)
+  }
+
+  func testProjectionCleanupPrunesOnlyUntouchedOrphansAndBacklinksHideOtherSources() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "people-cleanup",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.title = "Focus session"
+    event.attendees = [
+      .init(
+        email: "orphan@example.com",
+        displayName: "Orphan",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      ),
+      .init(
+        email: "author@example.com",
+        displayName: "Author",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      ),
+      .init(
+        email: "referenced@example.com",
+        displayName: "Referenced",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      ),
+      .init(
+        email: "retained@example.com",
+        displayName: "Retained",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      ),
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let orphanID = PageID.person(email: "orphan@example.com")
+    let authorID = PageID.person(email: "author@example.com")
+    let referencedID = PageID.person(email: "referenced@example.com")
+    let retainedID = PageID.person(email: "retained@example.com")
+    let backlinkTarget = try await fixture.repository.createFreePage(title: "Backlink target")
+    let loadedAuthor = try await fixture.repository.page(id: authorID)
+    let author = try XCTUnwrap(loadedAuthor)
+    _ = try await fixture.repository.persistEditorCommit(
+      try referenceCommit(from: author, to: backlinkTarget.id, label: "Target")
+    )
+    let referencingPage = try await fixture.repository.createFreePage(title: "Referencing page")
+    _ = try await fixture.repository.persistEditorCommit(
+      try referenceCommit(from: referencingPage, to: referencedID, label: "Referenced")
+    )
+    _ = try await fixture.repository.promotePerson(pageID: retainedID)
+    _ = try await fixture.repository.movePersonToOther(pageID: retainedID)
+
+    try await fixture.repository.setCalendarEventOmissionPrefixes(["Focus"])
+
+    let orphan = try await fixture.repository.page(id: orphanID)
+    let retainedAuthor = try await fixture.repository.page(id: authorID)
+    let retainedReference = try await fixture.repository.page(id: referencedID)
+    let retainedExplicitly = try await fixture.repository.page(id: retainedID)
+    let defaultBacklinks = try await fixture.repository.backlinks(to: backlinkTarget.id)
+    let inclusiveBacklinks = try await fixture.repository.backlinks(
+      to: backlinkTarget.id,
+      includeOthers: true
+    )
+    XCTAssertNil(orphan)
+    XCTAssertNotNil(retainedAuthor)
+    XCTAssertNotNil(retainedReference)
+    XCTAssertNotNil(retainedExplicitly)
+    XCTAssertTrue(defaultBacklinks.isEmpty)
+    XCTAssertEqual(
+      inclusiveBacklinks.map(\.id),
+      [authorID]
+    )
+  }
+
+  func testContactLinksRequireExactPersonEmailAndStayLocal() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "google",
+      id: "contact",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      CalendarAttendeeIdentity(
+        email: "alice@example.com",
+        displayName: "Alice",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "google")
+    let personID = PageID.person(email: "alice@example.com")
+    let record = DeviceContactRecord(
+      identifier: "device-contact-1",
+      displayName: "Alice Example",
+      organizationName: "Example Ltd",
+      jobTitle: "Engineer",
+      emails: [" Alice@Example.com "],
+      phoneNumbers: ["+44 20 0000 0000"],
+      birthday: .init(month: 7, day: 28)
+    )
+
+    let link = try await fixture.repository.saveContactLink(
+      record,
+      for: personID,
+      matchedEmail: "ALICE@example.com"
+    )
+    let storedLink = try await fixture.repository.contactLink(for: personID)
+    let candidates = try await fixture.repository.contactCandidates()
+    let dirtyPages = try await fixture.repository.dirtyPages()
+
+    XCTAssertEqual(link.matchedEmail, "alice@example.com")
+    XCTAssertEqual(storedLink?.pageID, link.pageID)
+    XCTAssertEqual(storedLink?.contactIdentifier, link.contactIdentifier)
+    XCTAssertEqual(storedLink?.matchedEmail, link.matchedEmail)
+    XCTAssertEqual(storedLink?.record, link.record)
+    XCTAssertEqual(
+      storedLink?.refreshedAt.timeIntervalSince1970 ?? 0,
+      link.refreshedAt.timeIntervalSince1970,
+      accuracy: 0.001
+    )
+    XCTAssertEqual(candidates.first?.pageID, personID)
+    XCTAssertFalse(dirtyPages.contains { $0.id == personID })
+    await XCTAssertThrowsErrorAsync {
+      _ = try await fixture.repository.saveContactLink(
+        record,
+        for: personID,
+        matchedEmail: "somebody-else@example.com"
+      )
+    }
+  }
+
+  @MainActor
+  func testStoreContactRefreshEnrichesExactMatchesRemovesStaleLinksAndNeverPromotes() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "store-contact",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      CalendarAttendeeIdentity(
+        email: "person@example.com",
+        displayName: "Event Person",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+    let personID = PageID.person(email: "person@example.com")
+    let resolver = StubContactResolver(contacts: [
+      "person@example.com": DeviceContactRecord(
+        identifier: "device-person",
+        displayName: "Device Person",
+        emails: ["person@example.com"]
+      )
+    ])
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    await store.refreshContactEnrichment(using: resolver)
+
+    XCTAssertEqual(store.contactLinks[personID]?.record.displayName, "Device Person")
+    XCTAssertEqual(store.otherPeople.first { $0.id == personID }?.effectivePersonVisibility, .other)
+    XCTAssertFalse(store.pages.contains { $0.id == personID })
+
+    let emptyResolver = StubContactResolver(contacts: [:])
+    await store.refreshContactEnrichment(using: emptyResolver)
+    XCTAssertNil(store.contactLinks[personID])
+  }
+
+  @MainActor
+  func testContactAuthorizationRevocationPurgesPersistedAndInMemoryPII() async throws {
+    let fixture = try RepositoryFixture()
+    let personID = try await projectContactPerson(
+      email: "revoked@example.com",
+      eventID: "contact-revoke",
+      repository: fixture.repository
+    )
+    let record = DeviceContactRecord(
+      identifier: "revoked-contact",
+      displayName: "Revoked Person",
+      emails: ["revoked@example.com"],
+      phoneNumbers: ["+44 20 0000 0000"]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      record,
+      for: personID,
+      matchedEmail: "revoked@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+    XCTAssertNotNil(store.contactLinks[personID])
+
+    await store.deviceContactsAuthorizationDidChange(.denied)
+
+    XCTAssertTrue(store.contactLinks.isEmpty)
+    let persistedLinks = try await fixture.repository.contactLinks()
+    XCTAssertTrue(persistedLinks.isEmpty)
+  }
+
+  @MainActor
+  func testLimitedContactRefreshRemovesRecordsNoLongerAvailable() async throws {
+    let fixture = try RepositoryFixture()
+    let retainedID = try await projectContactPerson(
+      email: "visible@example.com",
+      eventID: "contact-limited-visible",
+      repository: fixture.repository
+    )
+    let removedID = try await projectContactPerson(
+      email: "hidden@example.com",
+      eventID: "contact-limited-hidden",
+      repository: fixture.repository
+    )
+    let fullResolver = StubContactResolver(contacts: [
+      "visible@example.com": .init(
+        identifier: "visible-contact",
+        displayName: "Visible",
+        emails: ["visible@example.com"]
+      ),
+      "hidden@example.com": .init(
+        identifier: "hidden-contact",
+        displayName: "Hidden",
+        emails: ["hidden@example.com"]
+      ),
+    ])
+    let store = LibraryStore(
+      repository: fixture.repository,
+      contactResolver: fullResolver,
+      startImmediately: false
+    )
+    await store.reload()
+    await store.deviceContactsAuthorizationDidChange(.authorized)
+    XCTAssertEqual(Set(store.contactLinks.keys), [retainedID, removedID])
+
+    store.configureDeviceContactResolver(
+      StubContactResolver(contacts: [
+        "visible@example.com": .init(
+          identifier: "visible-contact",
+          displayName: "Visible",
+          emails: ["visible@example.com"]
+        )
+      ])
+    )
+    await store.deviceContactsAuthorizationDidChange(.limited)
+
+    XCTAssertEqual(Set(store.contactLinks.keys), [retainedID])
+    let persistedLinks = try await fixture.repository.contactLinks()
+    XCTAssertEqual(persistedLinks.map(\.pageID), [retainedID])
+  }
+
+  @MainActor
+  func testManualContactSelectionRefreshesByIdentifierDespiteAmbiguousEmail() async throws {
+    let fixture = try RepositoryFixture()
+    let personID = try await projectContactPerson(
+      email: "shared@example.com",
+      eventID: "contact-manual-selection",
+      repository: fixture.repository
+    )
+    let selected = DeviceContactRecord(
+      identifier: "selected-contact",
+      displayName: "Selected",
+      emails: ["shared@example.com"]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      selected,
+      for: personID,
+      matchedEmail: "shared@example.com"
+    )
+    let refreshed = DeviceContactRecord(
+      identifier: "selected-contact",
+      displayName: "Selected Updated",
+      emails: ["shared@example.com"]
+    )
+    let store = LibraryStore(
+      repository: fixture.repository,
+      contactResolver: IdentifierOnlyContactResolver(contacts: [refreshed]),
+      startImmediately: false
+    )
+    await store.reload()
+
+    await store.deviceContactsAuthorizationDidChange(.limited)
+    XCTAssertEqual(store.contactLinks[personID]?.record.displayName, "Selected Updated")
+
+    store.configureDeviceContactResolver(IdentifierOnlyContactResolver(contacts: []))
+    await store.deviceContactsAuthorizationDidChange(.limited)
+    XCTAssertNil(store.contactLinks[personID])
   }
 
   func testCalendarProvidersRefreshIndependently() async throws {
@@ -584,6 +1065,73 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertNotNil(marker)
   }
 
+  private func referenceCommit(
+    from page: PageSnapshot,
+    to targetPageID: PageID,
+    label: String
+  ) throws -> EditorCommit {
+    let document = try Document(page.document)
+    guard case .Object(let body, .Text)? = try document.get(obj: .ROOT, key: "body") else {
+      throw PageDocumentError.invalidSchema
+    }
+    let current = try document.text(obj: body)
+    try document.spliceText(
+      obj: body,
+      start: 0,
+      delete: Int64(current.unicodeScalars.count),
+      value: label
+    )
+    let payload = try JSONEncoder().encode(
+      ReferenceMarkPayload(pageID: targetPageID.rawValue, label: label)
+    )
+    try document.mark(
+      obj: body,
+      start: 0,
+      end: UInt64(label.unicodeScalars.count),
+      expand: .none,
+      name: PageDocument.pageReferenceMark,
+      value: .String(String(decoding: payload, as: UTF8.self))
+    )
+    document.commitWith(message: "Reference page", timestamp: Date())
+    let updatedDocument = document.save()
+    return EditorCommit(
+      pageID: page.id,
+      loadGeneration: 1,
+      journalID: "reference-\(UUID().uuidString)",
+      encodedChanges: try PageDocument.encodedChanges(
+        from: updatedDocument,
+        since: page.heads
+      ),
+      advertisedHeads: .empty
+    )
+  }
+
+  @MainActor
+  private func projectContactPerson(
+    email: String,
+    eventID: String,
+    repository: LibraryRepository
+  ) async throws -> PageID {
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: eventID,
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: email,
+        displayName: email,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await repository.replaceCalendarProjection([event], provider: eventID)
+    return .person(email: email)
+  }
+
   private func calendarEvent(
     provider: String, id: String, start: Date, end: Date
   ) -> CalendarEventSnapshot {
@@ -626,6 +1174,11 @@ final class LibraryRepositoryTests: XCTestCase {
   }
 }
 
+private struct ReferenceMarkPayload: Codable {
+  var pageID: String
+  var label: String
+}
+
 private extension Array {
   func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
     var values: [T] = []
@@ -649,4 +1202,47 @@ private final class RepositoryFixture {
   deinit {
     try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent())
   }
+}
+
+private actor StubContactResolver: DeviceContactResolving {
+  private let contacts: [String: DeviceContactRecord]
+
+  init(contacts: [String: DeviceContactRecord]) {
+    self.contacts = contacts
+  }
+
+  func contact(matchingEmail normalizedEmail: String) async throws -> DeviceContactRecord? {
+    contacts[normalizedEmail]
+  }
+
+  func contact(identifier: String) async throws -> DeviceContactRecord? {
+    contacts.values.first { $0.identifier == identifier }
+  }
+}
+
+private actor IdentifierOnlyContactResolver: DeviceContactResolving {
+  private let contacts: [String: DeviceContactRecord]
+
+  init(contacts: [DeviceContactRecord]) {
+    self.contacts = Dictionary(uniqueKeysWithValues: contacts.map { ($0.identifier, $0) })
+  }
+
+  func contact(matchingEmail normalizedEmail: String) async throws -> DeviceContactRecord? {
+    nil
+  }
+
+  func contact(identifier: String) async throws -> DeviceContactRecord? {
+    contacts[identifier]
+  }
+}
+
+private func XCTAssertThrowsErrorAsync<T>(
+  _ expression: () async throws -> T,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) async {
+  do {
+    _ = try await expression()
+    XCTFail("Expected expression to throw", file: file, line: line)
+  } catch {}
 }

@@ -927,7 +927,9 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         record[Field.kind] = nil
         return record
       }
-      guard let page = try await repository.page(id: pageID) else { return nil }
+      guard let page = try await Self.pageForPendingSave(pageID, repository: repository) else {
+        return nil
+      }
       let metadata = try await repository.cloudRecordMetadata(pageID: pageID)
       let record = try Self.record(from: metadata, recordType: RecordType.page, recordID: recordID)
       let assetURL = try Self.writeAsset(page.document, pageID: pageID)
@@ -949,6 +951,13 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       )
       return nil
     }
+  }
+
+  static func pageForPendingSave(
+    _ pageID: PageID,
+    repository: LibraryRepository
+  ) async throws -> PageSnapshot? {
+    try await repository.cloudEligiblePage(pageID: pageID)
   }
 
   private func queueRecord(_ recordID: CKRecord.ID, trigger: CloudSyncQueueTrigger) {
