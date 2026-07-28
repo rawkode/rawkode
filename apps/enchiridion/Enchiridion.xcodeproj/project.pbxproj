@@ -55,6 +55,7 @@
 		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		EA952B441700350945E191DD /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
+		EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */; };
 		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
 		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 /* End PBXBuildFile section */
@@ -79,6 +80,7 @@
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceView.swift; sourceTree = "<group>"; };
 		9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardElementOverlay.swift; sourceTree = "<group>"; };
 		A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryEditorView.swift; sourceTree = "<group>"; };
 		A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 				2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */,
 				F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */,
 				25381A06840A2134349900C7 /* OnDeviceSpeechTranscriber.swift */,
+				9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
@@ -380,6 +383,7 @@
 				2C89C98162B290B37591C933 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
+				EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */,
 				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
 				5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */,
 				D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */,

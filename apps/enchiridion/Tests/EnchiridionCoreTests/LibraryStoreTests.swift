@@ -42,6 +42,54 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(persisted?.heads, first.heads)
   }
 
+  @MainActor
+  func testPagesCreatedOrModifiedOnDayAreOrderedByActivityAscending() async throws {
+    let fixture = try RepositoryFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    func date(day: Int, hour: Int) -> Date {
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: day, hour: hour))!
+    }
+
+    let edited = try await fixture.repository.createFreePage(
+      title: "Edited today",
+      now: date(day: 27, hour: 14)
+    )
+    let created = try await fixture.repository.createFreePage(
+      title: "Created today",
+      now: date(day: 28, hour: 9)
+    )
+    try await fixture.repository.togglePinned(
+      pageID: edited.id,
+      now: date(day: 28, hour: 10)
+    )
+    _ = try await fixture.repository.createFreePage(
+      title: "Tomorrow",
+      now: date(day: 29, hour: 8)
+    )
+    let deleted = try await fixture.repository.createFreePage(
+      title: "Deleted today",
+      now: date(day: 28, hour: 8)
+    )
+    try await fixture.repository.moveToTrash(
+      pageID: deleted.id,
+      now: date(day: 28, hour: 11)
+    )
+
+    let store = LibraryStore(
+      repository: fixture.repository,
+      calendar: calendar,
+      startImmediately: false
+    )
+    await store.reload()
+
+    XCTAssertEqual(
+      store.pagesCreatedOrModified(on: date(day: 28, hour: 12)).map(\.id),
+      [created.id, edited.id]
+    )
+  }
+
   func testEditorCommitIsAtomicAndIdempotent() async throws {
     let fixture = try RepositoryFixture()
     let page = try await fixture.repository.createFreePage(title: "Atomic")

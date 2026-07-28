@@ -7,6 +7,7 @@ struct MacRootView: View {
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
+  @State private var todayPresentedPageID: PageID?
 
   var body: some View {
     NavigationSplitView {
@@ -85,11 +86,22 @@ struct MacRootView: View {
         }
       }
     } content: {
-      pageList
-        .navigationTitle(selection.title(in: store))
-        .searchable(text: $query, prompt: "Search pages")
+      if isTodaySelection {
+        MacTodayEventsSidebar(store: store) { pageID in
+          todayPresentedPageID = pageID
+        }
+        .navigationTitle("Events")
+      } else {
+        pageList
+          .navigationTitle(selection.title(in: store))
+          .searchable(text: $query, prompt: "Search pages")
+      }
     } detail: {
-      if let selectedPageID = store.selectedPageID {
+      if isTodaySelection {
+        MacTodayWorkspace(store: store) { pageID in
+          todayPresentedPageID = pageID
+        }
+      } else if let selectedPageID = store.selectedPageID {
         PageEditorView(store: store, pageID: selectedPageID)
       } else {
         ContentUnavailableView(
@@ -142,11 +154,26 @@ struct MacRootView: View {
     .sheet(item: $editingView) { view in
       LiveViewEditor(store: store, definition: view)
     }
+    .sheet(item: $todayPresentedPageID) { pageID in
+      NavigationStack {
+        PageEditorView(store: store, pageID: pageID)
+          .frame(minWidth: 720, minHeight: 560)
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Done") { todayPresentedPageID = nil }
+            }
+          }
+      }
+    }
     .onChange(of: store.savedViews) { _, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
         selection = .section(.allPages)
       }
     }
+  }
+
+  private var isTodaySelection: Bool {
+    selection == .section(.today)
   }
 
   @ViewBuilder
@@ -314,6 +341,124 @@ struct MacRootView: View {
     case .view:
       Task { await store.createFreePage() }
     }
+  }
+}
+
+private struct MacTodayEventsSidebar: View {
+  let store: LibraryStore
+  let openPage: (PageID) -> Void
+
+  private let day = Date()
+
+  var body: some View {
+    let events = store.events(on: day)
+    List {
+      Section(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
+        if events.isEmpty {
+          ContentUnavailableView(
+            "No events",
+            systemImage: "calendar",
+            description: Text("Your calendar is clear for this day.")
+          )
+        } else {
+          ForEach(events) { event in
+            Button {
+              Task {
+                if let pageID = await store.openCalendarEventPage(event) { openPage(pageID) }
+              }
+            } label: {
+              CalendarEventRow(event: event)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+    .listStyle(.sidebar)
+    .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 360)
+  }
+}
+
+private struct MacTodayWorkspace: View {
+  let store: LibraryStore
+  let openPage: (PageID) -> Void
+
+  private let day = Date()
+
+  var body: some View {
+    HSplitView {
+      Group {
+        if store.page(id: dailyPageID) != nil {
+          PageEditorView(store: store, pageID: dailyPageID)
+            .navigationTitle("Today")
+        } else if store.isLoading {
+          ProgressView("Opening today’s note")
+        } else {
+          ContentUnavailableView(
+            "Today’s note is unavailable",
+            systemImage: "doc.badge.exclamationmark",
+            description: Text(store.startupError ?? "Try reopening Enchiridion.")
+          )
+        }
+      }
+      .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+
+      MacTodayChangedPagesSidebar(
+        store: store,
+        day: day,
+        excluding: dailyPageID,
+        openPage: openPage
+      )
+      .frame(minWidth: 240, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
+    }
+  }
+
+  private var dailyPageID: PageID {
+    .daily(DayKey(date: day))
+  }
+}
+
+private struct MacTodayChangedPagesSidebar: View {
+  let store: LibraryStore
+  let day: Date
+  let excluding: PageID
+  let openPage: (PageID) -> Void
+
+  var body: some View {
+    let pages = store.pagesCreatedOrModified(on: day).filter { $0.id != excluding }
+    List {
+      Section("Changed Pages") {
+        if pages.isEmpty {
+          ContentUnavailableView(
+            "No changed pages",
+            systemImage: "clock.arrow.circlepath",
+            description: Text("Pages you create or edit today appear here, earliest first.")
+          )
+        } else {
+          ForEach(pages) { page in
+            Button { openPage(page.id) } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(page.displayTitle)
+                  .lineLimit(2)
+                Text(activityLabel(for: page))
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+    .listStyle(.sidebar)
+  }
+
+  private func activityLabel(for page: PageSnapshot) -> String {
+    let action = abs(page.modifiedAt.timeIntervalSince(page.createdAt)) < 1 ? "Created" : "Edited"
+    return "\(action) \(page.modifiedAt.formatted(date: .omitted, time: .shortened))"
   }
 }
 
