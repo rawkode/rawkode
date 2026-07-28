@@ -15,6 +15,14 @@ enum CloudSyncFailureDisposition: Equatable {
   case requiresAttention
 }
 
+enum CloudSyncQueueTrigger: Equatable {
+  case launch
+  case manualSync
+  case localMutation
+  case automaticRecovery
+  case recordPreparationFailure
+}
+
 struct CloudAssetRegistry {
   private(set) var urls: [CKRecord.ID: [URL]] = [:]
 
@@ -124,6 +132,10 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
 
   nonisolated static func shouldReplaceEngineOnSignIn(accountAuthorized: Bool) -> Bool {
     !accountAuthorized
+  }
+
+  nonisolated static func shouldQueueDirtyRecords(for trigger: CloudSyncQueueTrigger) -> Bool {
+    trigger != .recordPreparationFailure
   }
 
   nonisolated static func revalidationDelay(forAttempt attempt: Int) -> TimeInterval {
@@ -245,7 +257,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       )
 
       if isAccountAuthorized {
-        try await enqueueRepositoryChanges(on: engine)
+        try await enqueueRepositoryChanges(on: engine, trigger: .launch)
         await syncNow()
       }
     } catch {
@@ -257,29 +269,29 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
   }
 
   public func pageDidChange(_ pageID: PageID) async {
-    guard isAccountAuthorized, let engine else { return }
-    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: pageID))])
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: pageID), trigger: .localMutation)
   }
 
   public func pageWasPurged(_ pageID: PageID) async {
-    guard isAccountAuthorized, let engine else { return }
-    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: pageID))])
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: pageID), trigger: .localMutation)
   }
 
   public func viewDidChange(_ viewID: LiveQueryID) async {
-    guard isAccountAuthorized, let engine else { return }
-    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: viewID))])
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: viewID), trigger: .localMutation)
   }
 
   public func supertagDidChange(_ supertagID: SupertagID) async {
-    guard isAccountAuthorized, let engine else { return }
-    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: supertagID))])
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: supertagID), trigger: .localMutation)
   }
 
   public func enqueueDirtyChanges() async {
     guard isAccountAuthorized, let engine else { return }
     do {
-      try await enqueueRepositoryChanges(on: engine)
+      try await enqueueRepositoryChanges(on: engine, trigger: .localMutation)
     } catch {
       operationHasIssue = true
       statusHandler(.attentionRequired(error.localizedDescription))
@@ -310,7 +322,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       Self.logger.info("Manual fetch and send started")
       do {
         await retryUnresolvedRecords(on: engine)
-        try await enqueueRepositoryChanges(on: engine)
+        try await enqueueRepositoryChanges(on: engine, trigger: .manualSync)
         try await engine.fetchChanges()
         try await engine.sendChanges()
         await publishSyncedIfIdle(engine)
@@ -351,7 +363,11 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     return CKSyncEngine(configuration)
   }
 
-  private func enqueueRepositoryChanges(on engine: CKSyncEngine) async throws {
+  private func enqueueRepositoryChanges(
+    on engine: CKSyncEngine,
+    trigger: CloudSyncQueueTrigger
+  ) async throws {
+    guard Self.shouldQueueDirtyRecords(for: trigger) else { return }
     engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     let pages = try await repository.dirtyPages()
     let purges = try await repository.dirtyPurgeMarkers()
@@ -399,7 +415,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
           let wasAuthorized = isAccountAuthorized
           do {
             if !Self.shouldReplaceEngineOnSignIn(accountAuthorized: isAccountAuthorized) {
-              try await enqueueRepositoryChanges(on: syncEngine)
+              try await enqueueRepositoryChanges(on: syncEngine, trigger: .automaticRecovery)
               statusHandler(.syncing)
               Self.logger.info("The active iCloud account was confirmed; local changes were requeued")
             } else {
@@ -540,7 +556,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
             try await repository.markAllCloudDataForZoneRecovery()
             try await repository.clearAllUnresolvedCloudRecords()
             hasUnresolvedRecords = false
-            try await enqueueRepositoryChanges(on: syncEngine)
+            try await enqueueRepositoryChanges(on: syncEngine, trigger: .automaticRecovery)
             statusHandler(.syncing)
             Self.logger.error("The private sync zone disappeared; local data was requeued for recovery")
           }
@@ -718,7 +734,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       automaticallySync: true
     )
     engine = activeEngine
-    try await enqueueRepositoryChanges(on: activeEngine)
+    try await enqueueRepositoryChanges(on: activeEngine, trigger: .automaticRecovery)
     statusHandler(.syncing)
   }
 
@@ -926,13 +942,18 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       return record
     } catch {
       operationHasIssue = true
-      engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+      queueRecord(recordID, trigger: .recordPreparationFailure)
       statusHandler(.attentionRequired(error.localizedDescription))
       Self.logger.error(
-        "A local record could not be prepared for upload; it remains queued"
+        "A local record could not be prepared for upload; its dirty state was preserved and automatic retry was suppressed"
       )
       return nil
     }
+  }
+
+  private func queueRecord(_ recordID: CKRecord.ID, trigger: CloudSyncQueueTrigger) {
+    guard Self.shouldQueueDirtyRecords(for: trigger), let engine else { return }
+    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
   }
 
   private func receive(_ record: CKRecord) async throws {
