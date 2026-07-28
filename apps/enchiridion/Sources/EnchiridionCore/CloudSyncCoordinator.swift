@@ -255,8 +255,9 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         let record = try Self.record(
           from: view.cloudRecord, recordType: RecordType.savedView, recordID: recordID
         )
-        record[Field.schemaVersion] = NSNumber(value: 1)
+        record[Field.schemaVersion] = NSNumber(value: 2)
         record[Field.definition] = try JSONEncoder.enchiridion.encode(view.definition) as NSData
+        record[Field.whiteboardDocument] = try JSONEncoder.enchiridion.encode(view.whiteboardDocument) as NSData
         record[Field.deleted] = NSNumber(value: view.isDeleted)
         record[Field.sortOrder] = NSNumber(value: view.sortOrder)
         record[Field.modifiedAt] = view.modifiedAt as NSDate
@@ -297,6 +298,9 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     if record.recordType == RecordType.savedView {
       guard let definitionData = record[Field.definition] as? Data else { return }
       let definition = try JSONDecoder.enchiridion.decode(LiveQueryDefinition.self, from: definitionData)
+      let whiteboardDocument = try (record[Field.whiteboardDocument] as? Data).map {
+        try JSONDecoder.enchiridion.decode(WhiteboardDocument.self, from: $0)
+      }
       let needsUpload = try await repository.mergeCloudView(
         id: viewID(for: record.recordID),
         definition: definition,
@@ -304,7 +308,8 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         sortOrder: (record[Field.sortOrder] as? NSNumber)?.intValue ?? 999,
         modifiedAt: record[Field.modifiedAt] as? Date ?? record.modificationDate ?? Date(),
         dirtyGeneration: (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0,
-        systemFields: try Self.systemFields(for: record)
+        systemFields: try Self.systemFields(for: record),
+        whiteboardDocument: whiteboardDocument
       )
       if needsUpload {
         engine?.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
@@ -425,6 +430,7 @@ private enum Field {
   static let purgeGeneration = "purgeGeneration"
   static let purgedAt = "purgedAt"
   static let definition = "definition"
+  static let whiteboardDocument = "whiteboardDocument"
   static let deleted = "deleted"
   static let sortOrder = "sortOrder"
   static let dirtyGeneration = "dirtyGeneration"
