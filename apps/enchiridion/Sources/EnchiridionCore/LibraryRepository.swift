@@ -75,6 +75,7 @@ public struct PurgeMarker: Codable, Hashable, Sendable {
 public struct SavedViewCloudRecord: Sendable {
   public var id: LiveQueryID
   public var definition: LiveQueryDefinition
+  public var whiteboardDocument: WhiteboardDocument
   public var isDeleted: Bool
   public var sortOrder: Int
   public var modifiedAt: Date
@@ -506,14 +507,39 @@ public actor LibraryRepository {
     }
   }
 
+  public func whiteboardDocuments() throws -> [LiveQueryID: WhiteboardDocument] {
+    try database.read { db in
+      var documents: [LiveQueryID: WhiteboardDocument] = [:]
+      for row in try Row.fetchAll(
+        db,
+        sql: "SELECT id,whiteboard_json FROM saved_query_views WHERE deleted = 0"
+      ) {
+        guard let rawID: String = row["id"] else { continue }
+        documents[.init(rawValue: rawID)] = try Self.decodeWhiteboardDocument(row["whiteboard_json"])
+      }
+      return documents
+    }
+  }
+
+  public func whiteboardDocument(for viewID: LiveQueryID) throws -> WhiteboardDocument? {
+    try database.read { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT whiteboard_json FROM saved_query_views WHERE id = ? AND deleted = 0",
+        arguments: [viewID.rawValue]
+      ) else { return nil }
+      return try Self.decodeWhiteboardDocument(row["whiteboard_json"])
+    }
+  }
+
   public func saveView(_ definition: LiveQueryDefinition, now: Date = Date()) throws {
     _ = try DomainQueryCodec.parse(definition.domainSQL, id: definition.id, name: definition.name)
     try database.write { db in
       try db.execute(
         sql: """
           INSERT INTO saved_query_views
-            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
-          VALUES (?,?,?,?,COALESCE((SELECT sort_order FROM saved_query_views WHERE id = ?),999),?,1,1)
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,whiteboard_json)
+          VALUES (?,?,?,?,COALESCE((SELECT sort_order FROM saved_query_views WHERE id = ?),999),?,1,1,?)
           ON CONFLICT(id) DO UPDATE SET
             name=excluded.name,
             definition_json=excluded.definition_json,
@@ -529,6 +555,40 @@ public actor LibraryRepository {
           false,
           definition.id.rawValue,
           now.timeIntervalSince1970,
+          try Self.encodeWhiteboardDocument(.empty),
+        ]
+      )
+    }
+  }
+
+  public func duplicateView(
+    _ definition: LiveQueryDefinition,
+    from sourceID: LiveQueryID,
+    now: Date = Date()
+  ) throws {
+    guard definition.id != sourceID else { throw LibraryRepositoryError.invalidRecord }
+    _ = try DomainQueryCodec.parse(definition.domainSQL, id: definition.id, name: definition.name)
+    try database.write { db in
+      guard let source = try Row.fetchOne(
+        db,
+        sql: "SELECT whiteboard_json FROM saved_query_views WHERE id = ? AND deleted = 0",
+        arguments: [sourceID.rawValue]
+      ) else { throw WhiteboardError.viewNotFound }
+      var whiteboard = try Self.decodeWhiteboardDocument(source["whiteboard_json"])
+      whiteboard.revision = 0
+      try db.execute(
+        sql: """
+          INSERT INTO saved_query_views
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,whiteboard_json)
+          VALUES (?,?,?,?,999,?,1,1,?)
+          """,
+        arguments: [
+          definition.id.rawValue,
+          definition.name,
+          try JSONEncoder.enchiridion.encode(definition),
+          false,
+          now.timeIntervalSince1970,
+          try Self.encodeWhiteboardDocument(whiteboard),
         ]
       )
     }
@@ -539,12 +599,261 @@ public actor LibraryRepository {
       try db.execute(
         sql: """
           UPDATE saved_query_views
-          SET deleted = 1, modified_at = ?, dirty_generation = dirty_generation + 1, cloud_dirty = 1
+          SET deleted = 1, whiteboard_json = ?, modified_at = ?,
+              dirty_generation = dirty_generation + 1, cloud_dirty = 1
           WHERE id = ?
           """,
-        arguments: [now.timeIntervalSince1970, id.rawValue]
+        arguments: [try Self.encodeWhiteboardDocument(.empty), now.timeIntervalSince1970, id.rawValue]
       )
     }
+  }
+
+  @discardableResult
+  public func replaceWhiteboardDocument(
+    _ document: WhiteboardDocument,
+    for viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) {
+      $0 = document
+    }
+  }
+
+  @discardableResult
+  public func upsertWhiteboardElements(
+    _ elements: [WhiteboardElement],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    guard elements.count <= WhiteboardLimits.maximumElementsPerMutation else {
+      throw WhiteboardError.limitExceeded(
+        "A single canvas edit can change at most \(WhiteboardLimits.maximumElementsPerMutation) elements."
+      )
+    }
+    guard Set(elements.map(\.id)).count == elements.count else {
+      throw WhiteboardError.invalid("A canvas edit cannot contain duplicate element identifiers.")
+    }
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      for element in elements {
+        if let index = document.elements.firstIndex(where: { $0.id == element.id }) {
+          var replacement = element
+          replacement.zIndex = document.elements[index].zIndex
+          document.elements[index] = replacement
+        } else {
+          document.elements.append(element)
+        }
+      }
+    }
+  }
+
+  @discardableResult
+  public func moveWhiteboardElements(
+    _ moves: [WhiteboardElementMove],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    guard moves.count <= WhiteboardLimits.maximumElementsPerMutation else {
+      throw WhiteboardError.limitExceeded(
+        "A single canvas edit can move at most \(WhiteboardLimits.maximumElementsPerMutation) elements."
+      )
+    }
+    guard Set(moves.map(\.elementID)).count == moves.count else {
+      throw WhiteboardError.invalid("A canvas edit cannot move the same element twice.")
+    }
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      for move in moves {
+        guard move.deltaX.isFinite, move.deltaY.isFinite,
+          let index = document.elements.firstIndex(where: { $0.id == move.elementID })
+        else { throw WhiteboardError.elementNotFound(move.elementID) }
+        document.elements[index] = document.elements[index].translated(
+          x: move.deltaX,
+          y: move.deltaY
+        )
+      }
+    }
+  }
+
+  @discardableResult
+  public func deleteWhiteboardElements(
+    _ elementIDs: Set<WhiteboardElementID>,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    guard elementIDs.count <= WhiteboardLimits.maximumElementsPerMutation else {
+      throw WhiteboardError.limitExceeded(
+        "A single canvas edit can delete at most \(WhiteboardLimits.maximumElementsPerMutation) elements."
+      )
+    }
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      document.elements.removeAll { elementIDs.contains($0.id) }
+      document.elements = document.elements.map { element in
+        guard case .arrow(var arrow) = element.kind else { return element }
+        if let start = arrow.start, elementIDs.contains(start.elementID) { arrow.start = nil }
+        if let end = arrow.end, elementIDs.contains(end.elementID) { arrow.end = nil }
+        var copy = element
+        copy.kind = .arrow(arrow)
+        return copy
+      }
+    }
+  }
+
+  @discardableResult
+  public func connectWhiteboardArrow(
+    _ arrowID: WhiteboardElementID,
+    start: WhiteboardConnectionEndpoint?,
+    end: WhiteboardConnectionEndpoint?,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      guard let index = document.elements.firstIndex(where: { $0.id == arrowID }) else {
+        throw WhiteboardError.elementNotFound(arrowID)
+      }
+      guard case .arrow(var arrow) = document.elements[index].kind else {
+        throw WhiteboardError.elementIsNotArrow(arrowID)
+      }
+      arrow.start = start
+      arrow.end = end
+      document.elements[index].kind = .arrow(arrow)
+    }
+  }
+
+  @discardableResult
+  public func disconnectWhiteboardArrow(
+    _ arrowID: WhiteboardElementID,
+    endpoint: WhiteboardArrowEndpoint,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      guard let index = document.elements.firstIndex(where: { $0.id == arrowID }) else {
+        throw WhiteboardError.elementNotFound(arrowID)
+      }
+      guard case .arrow(var arrow) = document.elements[index].kind else {
+        throw WhiteboardError.elementIsNotArrow(arrowID)
+      }
+      switch endpoint {
+      case .start: arrow.start = nil
+      case .end: arrow.end = nil
+      }
+      document.elements[index].kind = .arrow(arrow)
+    }
+  }
+
+  @discardableResult
+  public func ensureWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try validatePageCardMutation(pageIDs)
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      let existingPages = Set(document.elements.compactMap { element -> PageID? in
+        guard case .page(let pageID) = element.kind else { return nil }
+        return pageID
+      })
+      let missing = Set(pageIDs).subtracting(existingPages).sorted { $0.rawValue < $1.rawValue }
+      let startIndex = existingPages.count
+      for (offset, pageID) in missing.enumerated() {
+        document.elements.append(Self.pageCard(pageID, layoutIndex: startIndex + offset))
+      }
+    }
+  }
+
+  /// Ensures cards for the current query result without deleting inactive cards. Retaining inactive
+  /// placements lets filtering hide and later restore a card at the user's chosen position.
+  @discardableResult
+  public func reconcileWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try ensureWhiteboardPageCards(
+      pageIDs,
+      in: viewID,
+      expectedRevision: expectedRevision,
+      now: now
+    )
+  }
+
+  @discardableResult
+  public func resetWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try validatePageCardMutation(pageIDs)
+    let orderedPageIDs = Array(Set(pageIDs)).sorted { $0.rawValue < $1.rawValue }
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) { document in
+      for (layoutIndex, pageID) in orderedPageIDs.enumerated() {
+        let card = Self.pageCard(pageID, layoutIndex: layoutIndex)
+        if let index = document.elements.firstIndex(where: {
+          guard case .page(let currentPageID) = $0.kind else { return false }
+          return currentPageID == pageID
+        }) {
+          document.elements[index].bounds = card.bounds
+        } else {
+          document.elements.append(card)
+        }
+      }
+    }
+  }
+
+  @discardableResult
+  public func updateWhiteboardViewport(
+    _ viewport: WhiteboardViewport,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil,
+    now: Date = Date()
+  ) throws -> WhiteboardMutationReceipt {
+    try WhiteboardDocumentValidator.validate(viewport: viewport)
+    return try mutateWhiteboard(viewID: viewID, expectedRevision: expectedRevision, now: now) {
+      $0.viewport = viewport
+    }
+  }
+
+  public func whiteboardFitMetadata(
+    for viewID: LiveQueryID,
+    viewportSize: WhiteboardSize,
+    padding: Double = 48
+  ) throws -> WhiteboardFitMetadata {
+    try WhiteboardDocumentValidator.validate(size: viewportSize)
+    guard padding.isFinite, (0...10_000).contains(padding) else {
+      throw WhiteboardError.invalid("Canvas fit padding is outside the supported range.")
+    }
+    guard let document = try whiteboardDocument(for: viewID) else {
+      throw WhiteboardError.viewNotFound
+    }
+    guard let contentBounds = document.elements.map(\.bounds).reduce(nil, { partial, bounds in
+      partial.map { $0.union(bounds) } ?? bounds
+    }) else {
+      return .init(contentBounds: nil, viewport: .init())
+    }
+    let paddedWidth = max(contentBounds.width + padding * 2, 1)
+    let paddedHeight = max(contentBounds.height + padding * 2, 1)
+    let zoom = min(
+      WhiteboardLimits.maximumZoom,
+      max(
+        WhiteboardLimits.minimumZoom,
+        min(viewportSize.width / paddedWidth, viewportSize.height / paddedHeight)
+      )
+    )
+    return .init(
+      contentBounds: contentBounds,
+      viewport: .init(
+        center: .init(x: contentBounds.midX, y: contentBounds.midY),
+        zoom: zoom
+      )
+    )
   }
 
   public func dirtyViews() throws -> [SavedViewCloudRecord] {
@@ -584,17 +893,23 @@ public actor LibraryRepository {
     sortOrder: Int,
     modifiedAt: Date,
     dirtyGeneration: Int64,
-    systemFields: Data
+    systemFields: Data,
+    whiteboardDocument: WhiteboardDocument? = nil
   ) throws -> Bool {
     try database.write { db in
       var normalizedDefinition = definition
       normalizedDefinition.id = id
+      var existingWhiteboardData: Data?
+      var existingLocalGeneration: Int64 = 0
       if let row = try Row.fetchOne(
-        db, sql: "SELECT modified_at,dirty_generation FROM saved_query_views WHERE id = ?",
+        db,
+        sql: "SELECT modified_at,dirty_generation,whiteboard_json FROM saved_query_views WHERE id = ?",
         arguments: [id.rawValue]
       ) {
+        existingWhiteboardData = row["whiteboard_json"]
         let localModified = Date(timeIntervalSince1970: row["modified_at"] ?? 0)
         let localGeneration: Int64 = row["dirty_generation"] ?? 0
+        existingLocalGeneration = localGeneration
         if localModified > modifiedAt || (localModified == modifiedAt && localGeneration > dirtyGeneration) {
           try db.execute(
             sql: "UPDATE saved_query_views SET cloud_record = ?, cloud_dirty = 1 WHERE id = ?",
@@ -603,11 +918,28 @@ public actor LibraryRepository {
           return true
         }
       }
+      let whiteboardData: Data
+      if isDeleted {
+        whiteboardData = try Self.encodeWhiteboardDocument(.empty)
+      } else if let whiteboardDocument {
+        whiteboardData = try Self.encodeWhiteboardDocument(whiteboardDocument)
+      } else {
+        // Records created by older clients have no whiteboard field. Never let one erase local work.
+        whiteboardData = try existingWhiteboardData ?? Self.encodeWhiteboardDocument(.empty)
+      }
+      let existingWhiteboardIsEmpty = try Self.decodeWhiteboardDocument(existingWhiteboardData) == .empty
+      let preservingLegacyWhiteboard = !isDeleted
+        && whiteboardDocument == nil
+        && !existingWhiteboardIsEmpty
+      let mergedGeneration = preservingLegacyWhiteboard
+        ? max(dirtyGeneration, existingLocalGeneration) + 1
+        : dirtyGeneration
+      let syncedGeneration = preservingLegacyWhiteboard ? 0 : mergedGeneration
       try db.execute(
         sql: """
           INSERT INTO saved_query_views
-            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,cloud_synced_generation,cloud_record)
-          VALUES (?,?,?,?,?,?,?,0,?,?)
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,cloud_synced_generation,cloud_record,whiteboard_json)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(id) DO UPDATE SET
             name=excluded.name,
             definition_json=excluded.definition_json,
@@ -615,17 +947,18 @@ public actor LibraryRepository {
             sort_order=excluded.sort_order,
             modified_at=excluded.modified_at,
             dirty_generation=excluded.dirty_generation,
-            cloud_dirty=0,
-            cloud_synced_generation=excluded.dirty_generation,
-            cloud_record=excluded.cloud_record
+            cloud_dirty=excluded.cloud_dirty,
+            cloud_synced_generation=excluded.cloud_synced_generation,
+            cloud_record=excluded.cloud_record,
+            whiteboard_json=excluded.whiteboard_json
           """,
         arguments: [
           id.rawValue, normalizedDefinition.name, try JSONEncoder.enchiridion.encode(normalizedDefinition),
-          isDeleted, sortOrder, modifiedAt.timeIntervalSince1970, dirtyGeneration,
-          dirtyGeneration, systemFields,
+          isDeleted, sortOrder, modifiedAt.timeIntervalSince1970, mergedGeneration,
+          preservingLegacyWhiteboard, syncedGeneration, systemFields, whiteboardData,
         ]
       )
-      return false
+      return preservingLegacyWhiteboard
     }
   }
 
@@ -677,7 +1010,10 @@ public actor LibraryRepository {
         definition.filters.allSatisfy { Self.matches($0, item: item, definition: definition) }
       }
       items.sort { Self.isOrderedBefore($0, $1, definition: definition) }
-      return Array(items.prefix(definition.limit))
+      let effectiveLimit = definition.viewKind == .canvas
+        ? min(definition.limit, WhiteboardLimits.maximumPageCards)
+        : definition.limit
+      return Array(items.prefix(effectiveLimit))
     }
   }
 
@@ -1363,6 +1699,91 @@ public actor LibraryRepository {
     }
   }
 
+  private func mutateWhiteboard(
+    viewID: LiveQueryID,
+    expectedRevision: Int64?,
+    now: Date,
+    mutation: (inout WhiteboardDocument) throws -> Void
+  ) throws -> WhiteboardMutationReceipt {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT deleted,whiteboard_json FROM saved_query_views WHERE id = ?",
+        arguments: [viewID.rawValue]
+      ) else { throw WhiteboardError.viewNotFound }
+      let deleted: Bool = row["deleted"] ?? false
+      guard !deleted else { throw WhiteboardError.viewDeleted }
+
+      let before = try Self.decodeWhiteboardDocument(row["whiteboard_json"])
+      if let expectedRevision, expectedRevision != before.revision {
+        throw WhiteboardError.staleRevision(expected: expectedRevision, actual: before.revision)
+      }
+      var after = before
+      try mutation(&after)
+      after.version = WhiteboardDocument.currentVersion
+      after.revision = before.revision
+      after.normalizeElementOrder()
+      try WhiteboardDocumentValidator.validate(after)
+      guard after != before else { return .init(before: before, after: before) }
+      after.revision = before.revision + 1
+      let encoded = try Self.encodeWhiteboardDocument(after)
+      try db.execute(
+        sql: """
+          UPDATE saved_query_views
+          SET whiteboard_json = ?, modified_at = ?,
+              dirty_generation = dirty_generation + 1, cloud_dirty = 1
+          WHERE id = ?
+          """,
+        arguments: [encoded, now.timeIntervalSince1970, viewID.rawValue]
+      )
+      return .init(before: before, after: after)
+    }
+  }
+
+  private func validatePageCardMutation(_ pageIDs: [PageID]) throws {
+    guard Set(pageIDs).count <= WhiteboardLimits.maximumPageCards else {
+      throw WhiteboardError.limitExceeded(
+        "A canvas can contain at most \(WhiteboardLimits.maximumPageCards) live-query page cards."
+      )
+    }
+  }
+
+  private static func pageCard(_ pageID: PageID, layoutIndex: Int) -> WhiteboardElement {
+    let column = layoutIndex % 5
+    let row = layoutIndex / 5
+    return .init(
+      id: .pageCard(pageID),
+      kind: .page(pageID),
+      bounds: .init(
+        x: Double(64 + column * 288),
+        y: Double(64 + row * 180),
+        width: 240,
+        height: 132
+      )
+    )
+  }
+
+  private static func decodeWhiteboardDocument(_ data: Data?) throws -> WhiteboardDocument {
+    guard let data, !data.isEmpty else { return .empty }
+    var document = try JSONDecoder.enchiridion.decode(WhiteboardDocument.self, from: data)
+    document.normalizeElementOrder()
+    try WhiteboardDocumentValidator.validate(document)
+    return document
+  }
+
+  private static func encodeWhiteboardDocument(_ document: WhiteboardDocument) throws -> Data {
+    var normalized = document
+    normalized.normalizeElementOrder()
+    try WhiteboardDocumentValidator.validate(normalized)
+    let data = try JSONEncoder.enchiridion.encode(normalized)
+    guard data.count <= WhiteboardLimits.maximumEncodedBytes else {
+      throw WhiteboardError.limitExceeded(
+        "The canvas exceeds its \(WhiteboardLimits.maximumEncodedBytes)-byte storage limit."
+      )
+    }
+    return data
+  }
+
   private static let migrator: DatabaseMigrator = {
     var migrator = DatabaseMigrator()
     migrator.registerMigration("v1-local-authority") { db in
@@ -1606,6 +2027,15 @@ public actor LibraryRepository {
           WHERE id = 'view_work_calendar'
           """,
         arguments: [try JSONEncoder.enchiridion.encode(replacement), Date().timeIntervalSince1970]
+      )
+    }
+    migrator.registerMigration("v8-whiteboard-documents") { db in
+      try db.alter(table: "saved_query_views") { table in
+        table.add(column: "whiteboard_json", .blob)
+      }
+      try db.execute(
+        sql: "UPDATE saved_query_views SET whiteboard_json = ? WHERE whiteboard_json IS NULL",
+        arguments: [try LibraryRepository.encodeWhiteboardDocument(.empty)]
       )
     }
     return migrator
@@ -1855,6 +2285,7 @@ public actor LibraryRepository {
     return SavedViewCloudRecord(
       id: .init(rawValue: id),
       definition: definition,
+      whiteboardDocument: (try? decodeWhiteboardDocument(row["whiteboard_json"])) ?? .empty,
       isDeleted: row["deleted"] ?? false,
       sortOrder: row["sort_order"] ?? 999,
       modifiedAt: Date(timeIntervalSince1970: modified),

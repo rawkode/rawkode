@@ -24,7 +24,7 @@ public enum LiveQuerySource: Codable, Hashable, Sendable {
 }
 
 public enum LiveViewKind: String, Codable, CaseIterable, Hashable, Sendable {
-  case list, table, board, calendar
+  case list, table, board, calendar, canvas
 
   public var title: String { rawValue.capitalized }
   public var systemImage: String {
@@ -33,6 +33,7 @@ public enum LiveViewKind: String, Codable, CaseIterable, Hashable, Sendable {
     case .table: "tablecells"
     case .board: "rectangle.split.3x1"
     case .calendar: "calendar"
+    case .canvas: "scribble.variable"
     }
   }
 }
@@ -125,7 +126,8 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     self.groupFieldID = groupFieldID
     self.startFieldID = startFieldID
     self.endFieldID = endFieldID
-    self.limit = min(max(limit, 1), 5_000)
+    let maximumLimit = viewKind == .canvas ? WhiteboardLimits.maximumPageCards : 5_000
+    self.limit = min(max(limit, 1), maximumLimit)
   }
 
   public var domainSQL: String { DomainQueryCodec.serialize(self) }
@@ -288,13 +290,18 @@ public enum DomainQueryCodec {
         index += 2
       case "VIEW":
         guard index + 1 < tokens.count, let kind = LiveViewKind(rawValue: tokens[index + 1].lowercased()) else {
-          throw DomainQueryError.unsupported("VIEW must be LIST, TABLE, BOARD, or CALENDAR.")
+          throw DomainQueryError.unsupported("VIEW must be LIST, TABLE, BOARD, CALENDAR, or CANVAS.")
         }
         definition.viewKind = kind
         index += 2
       default:
         throw DomainQueryError.unsupported("Unsupported clause \(tokens[index]).")
       }
+    }
+    guard definition.viewKind != .canvas || definition.limit <= WhiteboardLimits.maximumPageCards else {
+      throw DomainQueryError.unsupported(
+        "Canvas views are limited to \(WhiteboardLimits.maximumPageCards) query results."
+      )
     }
     return definition
   }

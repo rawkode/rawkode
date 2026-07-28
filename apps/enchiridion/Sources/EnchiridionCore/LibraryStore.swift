@@ -10,10 +10,12 @@ public final class LibraryStore {
   public private(set) var supertags: [SupertagDefinition] = []
   public private(set) var savedViews: [LiveQueryDefinition] = []
   public private(set) var liveViewItems: [LiveQueryID: [LiveQueryItem]] = [:]
+  public private(set) var whiteboardDocuments: [LiveQueryID: WhiteboardDocument] = [:]
   public private(set) var syncStatus: SyncStatus = .localOnly
   public private(set) var isLoading = true
   public private(set) var startupError: String?
   public private(set) var calendarError: String?
+  public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
 
   @ObservationIgnored private let repository: LibraryRepository?
@@ -138,10 +140,13 @@ public final class LibraryStore {
       let trash = try await repository.pages(in: .trash)
       pages = (live + trash).sorted { $0.modifiedAt > $1.modifiedAt }
       supertags = try await repository.supertags()
-      savedViews = try await repository.savedViews()
+      let loadedSavedViews = try await repository.savedViews()
       var viewItems: [LiveQueryID: [LiveQueryItem]] = [:]
-      for view in savedViews { viewItems[view.id] = try await repository.run(view) }
+      for view in loadedSavedViews { viewItems[view.id] = try await repository.run(view) }
+      let loadedWhiteboards = try await repository.whiteboardDocuments()
+      savedViews = loadedSavedViews
       liveViewItems = viewItems
+      whiteboardDocuments = loadedWhiteboards
       calendarPageContexts = try await repository.calendarPageContexts()
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id
@@ -268,7 +273,13 @@ public final class LibraryStore {
     var copy = definition
     copy.id = .random()
     copy.name = "\(definition.name) Copy"
-    saveView(copy)
+    Task {
+      do {
+        try await repository?.duplicateView(copy, from: definition.id)
+        await reload()
+        await syncCoordinator?.viewDidChange(copy.id)
+      } catch { startupError = error.localizedDescription }
+    }
   }
 
   public func deleteView(_ id: LiveQueryID) {
@@ -278,6 +289,190 @@ public final class LibraryStore {
         await reload()
         await syncCoordinator?.viewDidChange(id)
       } catch { startupError = error.localizedDescription }
+    }
+  }
+
+  public func replaceWhiteboardDocument(
+    _ document: WhiteboardDocument,
+    for viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.replaceWhiteboardDocument(
+        document,
+        for: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func upsertWhiteboardElements(
+    _ elements: [WhiteboardElement],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.upsertWhiteboardElements(
+        elements,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func moveWhiteboardElements(
+    _ moves: [WhiteboardElementMove],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.moveWhiteboardElements(
+        moves,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func deleteWhiteboardElements(
+    _ elementIDs: Set<WhiteboardElementID>,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.deleteWhiteboardElements(
+        elementIDs,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func connectWhiteboardArrow(
+    _ arrowID: WhiteboardElementID,
+    start: WhiteboardConnectionEndpoint?,
+    end: WhiteboardConnectionEndpoint?,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.connectWhiteboardArrow(
+        arrowID,
+        start: start,
+        end: end,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func disconnectWhiteboardArrow(
+    _ arrowID: WhiteboardElementID,
+    endpoint: WhiteboardArrowEndpoint,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.disconnectWhiteboardArrow(
+        arrowID,
+        endpoint: endpoint,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func ensureWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.ensureWhiteboardPageCards(
+        pageIDs,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func resetWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.resetWhiteboardPageCards(
+        pageIDs,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func reconcileWhiteboardPageCards(
+    _ pageIDs: [PageID],
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.reconcileWhiteboardPageCards(
+        pageIDs,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func updateWhiteboardViewport(
+    _ viewport: WhiteboardViewport,
+    in viewID: LiveQueryID,
+    expectedRevision: Int64? = nil
+  ) async -> WhiteboardMutationReceipt? {
+    await commitWhiteboardMutation(viewID: viewID) { repository in
+      try await repository.updateWhiteboardViewport(
+        viewport,
+        in: viewID,
+        expectedRevision: expectedRevision
+      )
+    }
+  }
+
+  public func whiteboardFitMetadata(
+    for viewID: LiveQueryID,
+    viewportSize: WhiteboardSize,
+    padding: Double = 48
+  ) async -> WhiteboardFitMetadata? {
+    do {
+      let metadata = try await repository?.whiteboardFitMetadata(
+        for: viewID,
+        viewportSize: viewportSize,
+        padding: padding
+      )
+      whiteboardError = nil
+      return metadata
+    } catch {
+      whiteboardError = error.localizedDescription
+      return nil
+    }
+  }
+
+  private func commitWhiteboardMutation(
+    viewID: LiveQueryID,
+    operation: @escaping @Sendable (LibraryRepository) async throws -> WhiteboardMutationReceipt
+  ) async -> WhiteboardMutationReceipt? {
+    guard let repository else { return nil }
+    do {
+      let receipt = try await operation(repository)
+      whiteboardDocuments[viewID] = receipt.after
+      whiteboardError = nil
+      if receipt.after.revision != receipt.before.revision {
+        await syncCoordinator?.viewDidChange(viewID)
+      }
+      return receipt
+    } catch {
+      whiteboardError = error.localizedDescription
+      return nil
     }
   }
 
