@@ -7,11 +7,11 @@ import { history, redo, undo } from "prosemirror-history"
 import { inputRules, smartQuotes, textblockTypeInputRule, wrappingInputRule, type InputRule } from "prosemirror-inputrules"
 import { keymap } from "prosemirror-keymap"
 import type { DOMOutputSpec, Node as PMNode, Schema } from "prosemirror-model"
-import { wrapInList } from "prosemirror-schema-list"
-import { EditorState, Plugin, TextSelection } from "prosemirror-state"
+import { liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list"
+import { EditorState, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { exitCodeBlockOnEmptyLine, moveBelowCodeBlock, persistSelectedMark } from "./editorCommands"
-import { createSerializedPageLoader } from "./editorLifecycle"
+import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
 import "./style.css"
 
 const PROTOCOL_VERSION = 2
@@ -45,12 +45,16 @@ type EditorPageContext = {
 }
 
 type PageSuggestion = { pageID: string; title: string; subtitle?: string }
+type DateSuggestion = { dateISO: string; title: string; subtitle?: string }
+type ReferenceSuggestion = PageSuggestion | DateSuggestion
 type SupertagSuggestion = { id: string; name: string; symbol?: string }
 type PageReferenceTarget =
-  | { kind: "insert"; position: number }
+  | { kind: "insert"; position: number; trigger?: "[[" | "@" }
   | { kind: "selection"; from: number; to: number; query: string }
 type CommitReply = { ok: boolean; journalID?: string; message?: string }
 type MetadataReply = { ok: boolean; title?: string; summary?: string; imageURL?: string }
+type PaletteItem = { label: string; detail?: string; action: () => void }
+type PaletteGroup = { label: string; items: PaletteItem[] }
 
 declare global {
   interface Window {
@@ -74,6 +78,7 @@ const contextElement = requiredElement<HTMLElement>("page-context")
 const slashMenu = requiredElement<HTMLDivElement>("slash-menu")
 const pageMenu = requiredElement<HTMLDivElement>("page-menu")
 const selectionToolbar = requiredElement<HTMLDivElement>("selection-toolbar")
+const mobileCommandBar = requiredElement<HTMLDivElement>("mobile-command-bar")
 
 let handle: DocHandle<PageDoc> | undefined
 let view: EditorView | undefined
@@ -262,6 +267,8 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       "Mod-k": openLinkEditor,
       "Mod-Shift-7": wrapInList(binding.schema.nodes.ordered_list!),
       "Mod-Shift-8": wrapInList(binding.schema.nodes.bullet_list!),
+      "Tab": sinkListItem(binding.schema.nodes.list_item!),
+      "Shift-Tab": liftListItem(binding.schema.nodes.list_item!),
     }),
     keymap(baseKeymap),
     interactionPlugin(),
@@ -275,6 +282,8 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       updateSelectionToolbar()
     },
   })
+  view.dom.addEventListener("focusin", updateMobileCommandBar)
+  view.dom.addEventListener("focusout", () => window.setTimeout(updateMobileCommandBar, 0))
   titleInput.disabled = false
   titleInput.value = A.toJS(handle.doc()).title.toString()
   resizeTitle()
@@ -343,7 +352,7 @@ function pageActionButton(action: EditorPageAction): HTMLButtonElement {
   label.textContent = action.label
   button.append(label)
   button.addEventListener("click", () => {
-    void notifyNative({ type: "openPage", pageID: action.pageID })
+    void openNativePage(action.pageID)
   })
   return button
 }
@@ -360,6 +369,40 @@ titleInput.addEventListener("keydown", event => {
 })
 
 window.addEventListener("resize", resizeTitle)
+
+for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
+  commandButton.addEventListener("pointerdown", event => event.preventDefault())
+  commandButton.addEventListener("click", () => runMobileCommand(commandButton.dataset.command ?? ""))
+}
+
+function runMobileCommand(command: string): void {
+  if (!view) return
+  switch (command) {
+  case "blocks":
+    showSlashMenu(view)
+    break
+  case "reference":
+    void showPageMenu(view, { kind: "insert", position: view.state.selection.from })
+    break
+  case "bold":
+    toggleMark(view.state.schema.marks.strong!)(view.state, view.dispatch, view)
+    view.focus()
+    break
+  case "bullet-list":
+    wrapInList(view.state.schema.nodes.bullet_list!)(view.state, view.dispatch, view)
+    view.focus()
+    break
+  case "dismiss-keyboard":
+    view.dom.blur()
+    mobileCommandBar.hidden = true
+    break
+  }
+}
+
+function updateMobileCommandBar(): void {
+  const usesCompactLayout = window.matchMedia("(max-width: 640px)").matches
+  mobileCommandBar.hidden = !usesCompactLayout || !view?.hasFocus()
+}
 
 function onDocumentChange(): void {
   if (!handle || loading) return
@@ -408,6 +451,17 @@ async function flushPendingChanges(): Promise<void> {
     const saved = await flushCommit()
     if (!saved) return
     if (!commitCompletion && A.getChanges(durableDoc, handle.doc()).length === 0) return
+  }
+}
+
+async function openNativePage(destinationPageID: string): Promise<void> {
+  try {
+    await navigateAfterFlush(
+      flushPendingChanges,
+      async () => { await notifyNative({ type: "openPage", pageID: destinationPageID }) },
+    )
+  } catch (error) {
+    showError(error)
   }
 }
 
@@ -472,7 +526,19 @@ function interactionPlugin(): Plugin {
           window.setTimeout(() => showSlashMenu(editorView), 0)
         }
         if (text === "[" && editorView.state.doc.textBetween(Math.max(0, from - 1), from) === "[") {
-          window.setTimeout(() => void showPageMenu(editorView, { kind: "insert", position: from + 1 }), 0)
+          window.setTimeout(() => void showPageMenu(editorView, {
+            kind: "insert",
+            position: from + 1,
+            trigger: "[[",
+          }), 0)
+        }
+        const precedingCharacter = editorView.state.doc.textBetween(Math.max(0, from - 1), from)
+        if (text === "@" && (from <= 1 || /\s/.test(precedingCharacter))) {
+          window.setTimeout(() => void showPageMenu(editorView, {
+            kind: "insert",
+            position: from + 1,
+            trigger: "@",
+          }), 0)
         }
         return false
       },
@@ -489,7 +555,7 @@ function interactionPlugin(): Plugin {
         const target = event.target as HTMLElement
         const reference = target.closest<HTMLElement>("[data-page-id]")
         if (reference?.dataset.pageId) {
-          void notifyNative({ type: "openPage", pageID: reference.dataset.pageId })
+          void openNativePage(reference.dataset.pageId)
           return true
         }
         return false
@@ -499,29 +565,62 @@ function interactionPlugin(): Plugin {
 }
 
 function showSlashMenu(editorView: EditorView): void {
-  const commands = [
-    ["Text", () => setBlockType(editorView.state.schema.nodes.paragraph!)],
-    ["Heading 1", () => setBlockType(editorView.state.schema.nodes.heading!, { level: 1 })],
-    ["Heading 2", () => setBlockType(editorView.state.schema.nodes.heading!, { level: 2 })],
-    ["Bulleted list", () => wrapInList(editorView.state.schema.nodes.bullet_list!)],
-    ["Numbered list", () => wrapInList(editorView.state.schema.nodes.ordered_list!)],
-    ["Quote", () => wrapIn(editorView.state.schema.nodes.blockquote!)],
-    ["Code", () => setBlockType(editorView.state.schema.nodes.code_block!)],
-    ["Reference page", () => () => {
-      void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
-      return true
-    }],
-  ] as const
-  renderPalette(slashMenu, commands.map(([label, makeCommand]) => ({
-    label,
-    action: () => {
-      const { from } = editorView.state.selection
-      const before = editorView.state.doc.textBetween(Math.max(0, from - 1), from)
-      if (before === "/") editorView.dispatch(editorView.state.tr.delete(from - 1, from))
-      makeCommand()(editorView.state, editorView.dispatch, editorView)
-      editorView.focus()
+  const run = (command: ReturnType<typeof setBlockType>): (() => void) => () => {
+    removeSlashTrigger(editorView)
+    command(editorView.state, editorView.dispatch, editorView)
+    editorView.focus()
+  }
+  const insertDivider = () => {
+    removeSlashTrigger(editorView)
+    const divider = editorView.state.schema.nodes.horizontal_rule!.create()
+    editorView.dispatch(editorView.state.tr.replaceSelectionWith(divider).scrollIntoView())
+    editorView.focus()
+  }
+  const mention = () => {
+    removeSlashTrigger(editorView)
+    void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
+  }
+  const groups: PaletteGroup[] = [
+    {
+      label: "Text Style",
+      items: [
+        { label: "Text", detail: "Plain paragraph", action: run(setBlockType(editorView.state.schema.nodes.paragraph!)) },
+        { label: "Heading 1", detail: "Page section", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 1 })) },
+        { label: "Heading 2", detail: "Subsection", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 2 })) },
+        { label: "Heading 3", detail: "Small heading", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 3 })) },
+        { label: "Quote", detail: "Quoted passage", action: run(wrapIn(editorView.state.schema.nodes.blockquote!)) },
+        { label: "Code", detail: "Code block", action: run(setBlockType(editorView.state.schema.nodes.code_block!)) },
+      ],
     },
-  })))
+    {
+      label: "List",
+      items: [
+        { label: "Bulleted list", detail: "Unordered items", action: run(wrapInList(editorView.state.schema.nodes.bullet_list!)) },
+        { label: "Numbered list", detail: "Ordered items", action: run(wrapInList(editorView.state.schema.nodes.ordered_list!)) },
+      ],
+    },
+    {
+      label: "Indentation",
+      items: [
+        { label: "Indent", detail: "Move list item inward", action: run(sinkListItem(editorView.state.schema.nodes.list_item!)) },
+        { label: "Outdent", detail: "Move list item outward", action: run(liftListItem(editorView.state.schema.nodes.list_item!)) },
+      ],
+    },
+    {
+      label: "Insert",
+      items: [
+        { label: "Page or date", detail: "Create a native reference", action: mention },
+        { label: "Divider", detail: "Separate sections", action: insertDivider },
+      ],
+    },
+  ]
+  renderGroupedPalette(slashMenu, groups)
+}
+
+function removeSlashTrigger(editorView: EditorView): void {
+  const { from } = editorView.state.selection
+  const before = editorView.state.doc.textBetween(Math.max(0, from - 1), from)
+  if (before === "/") editorView.dispatch(editorView.state.tr.delete(from - 1, from))
 }
 
 async function showPageMenu(editorView: EditorView, target: PageReferenceTarget): Promise<void> {
@@ -529,19 +628,25 @@ async function showPageMenu(editorView: EditorView, target: PageReferenceTarget)
   pageMenu.hidden = false
   pageMenu.replaceChildren()
   const input = document.createElement("input")
-  input.placeholder = "Find a page…"
-  input.setAttribute("aria-label", "Find a page")
+  input.placeholder = "Find a page or date…"
+  input.setAttribute("aria-label", "Find a page or date")
   input.value = target.kind === "selection" ? target.query : ""
   pageMenu.append(input)
   const results = document.createElement("div")
   pageMenu.append(results)
   const update = async () => {
-    const reply = await notifyNative({ type: "suggestPages", query: input.value }) as { suggestions?: PageSuggestion[] }
+    const reply = await notifyNative({ type: "suggestPages", query: input.value }) as { suggestions?: ReferenceSuggestion[] }
     const suggestions = reply.suggestions ?? []
     const choices = suggestions.map(suggestion => ({
       label: suggestion.title || "Untitled",
       detail: suggestion.subtitle ?? "",
-      action: () => insertPageReference(editorView, target, suggestion),
+      action: () => {
+        if ("dateISO" in suggestion) {
+          void resolveAndInsertDateReference(editorView, target, suggestion)
+        } else {
+          insertPageReference(editorView, target, suggestion)
+        }
+      },
     }))
     const title = input.value.trim()
     const exactMatch = suggestions.some(suggestion => suggestion.title.localeCompare(title, undefined, { sensitivity: "accent" }) === 0)
@@ -682,12 +787,35 @@ function insertPageReference(editorView: EditorView, target: PageReferenceTarget
       { from: target.from, to: target.to },
     )
   } else {
-    const current = state.doc.textBetween(Math.max(0, target.position - 2), target.position)
-    const from = current === "[[" ? target.position - 2 : target.position
+    const triggerLength = target.trigger?.length ?? 0
+    const candidateFrom = Math.max(0, target.position - triggerLength)
+    const current = state.doc.textBetween(candidateFrom, target.position)
+    const from = target.trigger && current === target.trigger ? candidateFrom : target.position
     editorView.dispatch(state.tr.replaceWith(from, target.position, state.schema.text(suggestion.title, [mark])))
   }
   pageMenu.hidden = true
   editorView.focus()
+}
+
+async function resolveAndInsertDateReference(
+  editorView: EditorView,
+  target: PageReferenceTarget,
+  suggestion: DateSuggestion,
+): Promise<void> {
+  const reply = await notifyNative({ type: "resolveDailyPage", dateISO: suggestion.dateISO }) as {
+    ok?: boolean
+    pageID?: string
+    title?: string
+    message?: string
+  }
+  if (!reply.ok || !reply.pageID) {
+    setStatus(reply.message ?? "Could not open that daily note")
+    return
+  }
+  insertPageReference(editorView, target, {
+    pageID: reply.pageID,
+    title: reply.title ?? suggestion.title,
+  })
 }
 
 function showURLChoices(editorView: EditorView, url: string): void {
@@ -769,11 +897,27 @@ function editorInputRules(schema: Schema): InputRule[] {
     ...smartQuotes,
     textblockTypeInputRule(/^#\s$/, schema.nodes.heading!, { level: 1 }),
     textblockTypeInputRule(/^##\s$/, schema.nodes.heading!, { level: 2 }),
+    textblockTypeInputRule(/^###\s$/, schema.nodes.heading!, { level: 3 }),
     textblockTypeInputRule(/^```$/, schema.nodes.code_block!),
     wrappingInputRule(/^>\s$/, schema.nodes.blockquote!),
     wrappingInputRule(/^\s*([-+*])\s$/, schema.nodes.bullet_list!),
     wrappingInputRule(/^\s*(\d+)\.\s$/, schema.nodes.ordered_list!, match => ({ order: Number(match[1]) })),
   ]
+}
+
+function renderGroupedPalette(container: HTMLElement, groups: PaletteGroup[]): void {
+  container.replaceChildren(...groups.map(group => {
+    const section = document.createElement("section")
+    section.className = "palette-group"
+    const heading = document.createElement("div")
+    heading.className = "palette-group-label"
+    heading.textContent = group.label
+    const items = document.createElement("div")
+    items.replaceChildren(...group.items.map(item => button(item.label, item.action, item.detail)))
+    section.append(heading, items)
+    return section
+  }))
+  container.hidden = false
 }
 
 function mappedTextBlock(block: string, tag: string): MappedNodeSpec {
@@ -825,7 +969,7 @@ function parseJSONAttributes(value: unknown, fallback: Record<string, unknown>):
   try { return { ...fallback, ...JSON.parse(value) } } catch { return fallback }
 }
 
-function renderPalette(container: HTMLElement, items: Array<{ label: string; detail?: string; action: () => void }>, reveal = true): void {
+function renderPalette(container: HTMLElement, items: PaletteItem[], reveal = true): void {
   const nodes = items.map(item => button(item.label, item.action, item.detail))
   container.replaceChildren(...nodes)
   if (reveal) container.hidden = false

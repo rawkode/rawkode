@@ -11,26 +11,48 @@ import UIKit
 struct PageEditorView: View {
   let store: LibraryStore
   let pageID: PageID
+  private let onOpenPage: ((PageID) -> Void)?
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
+  #if !os(macOS)
+  @State private var pushedPageID: PageID?
+  #endif
+
+  init(
+    store: LibraryStore,
+    pageID: PageID,
+    onOpenPage: ((PageID) -> Void)? = nil
+  ) {
+    self.store = store
+    self.pageID = pageID
+    self.onOpenPage = onOpenPage
+  }
 
   var body: some View {
-    if let page = store.page(id: pageID) {
-      editor(page)
-    } else {
-      ContentUnavailableView(
-        "Page unavailable",
-        systemImage: "doc.questionmark",
-        description: Text("Choose another page from the library.")
-      )
+    Group {
+      if let page = store.page(id: pageID) {
+        editor(page)
+      } else {
+        ContentUnavailableView(
+          "Page unavailable",
+          systemImage: "doc.questionmark",
+          description: Text("Choose another page from the library.")
+        )
+      }
     }
+    #if !os(macOS)
+    .navigationDestination(item: $pushedPageID) { pageID in
+      PageEditorView(store: store, pageID: pageID)
+    }
+    #endif
   }
 
   private func editor(_ page: PageSnapshot) -> some View {
     RichPageEditor(
         page: page,
         calendarContext: store.calendarPageContext(for: pageID),
-        store: store
+        store: store,
+        openPage: openPage
       )
         .navigationTitle(page.displayTitle)
         .toolbar {
@@ -88,6 +110,18 @@ struct PageEditorView: View {
         }
         #endif
   }
+
+  private func openPage(_ destination: PageID) {
+    if let onOpenPage {
+      onOpenPage(destination)
+      return
+    }
+    #if os(macOS)
+    store.selectedPageID = destination
+    #else
+    pushedPageID = destination
+    #endif
+  }
 }
 
 #if os(macOS)
@@ -95,8 +129,9 @@ private struct RichPageEditor: NSViewRepresentable {
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
+  let openPage: (PageID) -> Void
 
-  func makeCoordinator() -> EditorBridge { EditorBridge(store: store) }
+  func makeCoordinator() -> EditorBridge { EditorBridge(store: store, openPage: openPage) }
 
   func makeNSView(context: Context) -> WKWebView {
     context.coordinator.makeWebView(page: page, calendarContext: calendarContext)
@@ -115,8 +150,9 @@ private struct RichPageEditor: UIViewRepresentable {
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
+  let openPage: (PageID) -> Void
 
-  func makeCoordinator() -> EditorBridge { EditorBridge(store: store) }
+  func makeCoordinator() -> EditorBridge { EditorBridge(store: store, openPage: openPage) }
 
   func makeUIView(context: Context) -> WKWebView {
     context.coordinator.makeWebView(page: page, calendarContext: calendarContext)
@@ -137,6 +173,7 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   WKUIDelegate
 {
   private let store: LibraryStore
+  private let openPageHandler: (PageID) -> Void
   private weak var webView: WKWebView?
   private var page: PageSnapshot?
   private var calendarContext: CalendarPageContext?
@@ -145,8 +182,9 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   private var isEditorReady = false
   private var loadGeneration = 0
 
-  init(store: LibraryStore) {
+  init(store: LibraryStore, openPage: @escaping (PageID) -> Void) {
     self.store = store
+    openPageHandler = openPage
   }
 
   func makeWebView(page: PageSnapshot, calendarContext: CalendarPageContext?) -> WKWebView {
@@ -305,10 +343,9 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     case "createTaggedPage":
       createTaggedPage(body, replyHandler: replyHandler)
     case "openPage":
-      if let rawPageID = body["pageID"] as? String {
-        store.selectedPageID = PageID(rawValue: rawPageID)
-      }
-      replyHandler(["ok": true], nil)
+      openPage(body, replyHandler: replyHandler)
+    case "resolveDailyPage":
+      resolveDailyPage(body, replyHandler: replyHandler)
     case "fetchLinkMetadata":
       fetchLinkMetadata(body, replyHandler: replyHandler)
     default:
@@ -391,15 +428,125 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   ) {
     let query = body["query"] as? String ?? ""
     Task { @MainActor in
-      let suggestions = await store.suggestions(matching: query).map { suggestion in
+      var suggestions = await store.suggestions(matching: query).map { suggestion in
         [
           "pageID": suggestion.id.rawValue,
           "title": suggestion.title.isEmpty ? "Untitled" : suggestion.title,
           "subtitle": suggestion.displaySubtitle ?? "",
         ]
       }
+      let existingPageIDs = Set(suggestions.compactMap { $0["pageID"] })
+      suggestions.append(
+        contentsOf: Self.dateSuggestions(matching: query).filter { suggestion in
+          guard let dateISO = suggestion["dateISO"] else { return false }
+          return !existingPageIDs.contains(PageID.daily(DayKey(rawValue: dateISO)).rawValue)
+        }
+      )
       replyHandler(["ok": true, "suggestions": suggestions], nil)
     }
+  }
+
+  private func openPage(
+    _ body: [String: Any],
+    replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void
+  ) {
+    guard let rawPageID = body["pageID"] as? String else {
+      replyHandler(["ok": false, "message": "A destination page is required"], nil)
+      return
+    }
+    let destination = PageID(rawValue: rawPageID)
+    Task { @MainActor in
+      if store.page(id: destination) == nil,
+        let date = Self.date(fromDailyPageID: destination),
+        await store.openDailyPage(for: date) == nil
+      {
+        replyHandler(["ok": false, "message": "Could not open that daily note"], nil)
+        return
+      }
+      openPageHandler(destination)
+      replyHandler(["ok": true], nil)
+    }
+  }
+
+  private func resolveDailyPage(
+    _ body: [String: Any],
+    replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void
+  ) {
+    guard let dateISO = body["dateISO"] as? String,
+      let date = Self.date(fromDayKey: dateISO)
+    else {
+      replyHandler(["ok": false, "message": "That date is not valid"], nil)
+      return
+    }
+    replyHandler([
+      "ok": true,
+      "pageID": PageID.daily(DayKey(rawValue: dateISO)).rawValue,
+      "title": Self.dailyPageTitle(for: date),
+    ], nil)
+  }
+
+  private static func dateSuggestions(matching query: String, now: Date = Date()) -> [[String: String]] {
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: now)
+    var dates = (-1...7).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
+    let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let explicitDate = date(fromDayKey: trimmedQuery),
+      !dates.contains(where: { calendar.isDate($0, inSameDayAs: explicitDate) })
+    {
+      dates.insert(explicitDate, at: 0)
+    }
+
+    return dates.compactMap { date in
+      let relative: String
+      if calendar.isDateInToday(date) {
+        relative = "Today"
+      } else if calendar.isDateInTomorrow(date) {
+        relative = "Tomorrow"
+      } else if calendar.isDateInYesterday(date) {
+        relative = "Yesterday"
+      } else {
+        relative = date.formatted(.dateTime.weekday(.wide))
+      }
+      let title = dailyPageTitle(for: date)
+      let dateISO = DayKey(date: date, calendar: calendar).rawValue
+      let subtitle = "\(relative) · Daily note"
+      let haystack = "\(title) \(subtitle) \(dateISO)"
+      guard trimmedQuery.isEmpty || haystack.localizedStandardContains(trimmedQuery) else { return nil }
+      return ["dateISO": dateISO, "title": title, "subtitle": subtitle]
+    }
+  }
+
+  private static func date(fromDailyPageID pageID: PageID) -> Date? {
+    guard pageID.rawValue.hasPrefix("daily_") else { return nil }
+    return date(fromDayKey: String(pageID.rawValue.dropFirst("daily_".count)))
+  }
+
+  private static func date(fromDayKey value: String) -> Date? {
+    let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+    guard parts.count == 3,
+      let year = Int(parts[0]),
+      let month = Int(parts[1]),
+      let day = Int(parts[2]),
+      (1...12).contains(month),
+      (1...31).contains(day)
+    else { return nil }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .current
+    let components = DateComponents(
+      calendar: calendar,
+      timeZone: calendar.timeZone,
+      year: year,
+      month: month,
+      day: day
+    )
+    guard let date = calendar.date(from: components) else { return nil }
+    let verified = calendar.dateComponents([.year, .month, .day], from: date)
+    guard verified.year == year, verified.month == month, verified.day == day else { return nil }
+    return date
+  }
+
+  private static func dailyPageTitle(for date: Date) -> String {
+    date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
   }
 
   private func createPage(

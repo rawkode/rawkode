@@ -8,6 +8,7 @@ struct MacRootView: View {
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
   @State private var todayPresentedPageID: PageID?
+  @State private var selectedDay = Calendar.current.startOfDay(for: Date())
 
   var body: some View {
     NavigationSplitView {
@@ -87,7 +88,7 @@ struct MacRootView: View {
       }
     } content: {
       if isTodaySelection {
-        MacTodayEventsSidebar(store: store) { pageID in
+        MacTodayEventsSidebar(store: store, day: selectedDay) { pageID in
           todayPresentedPageID = pageID
         }
         .navigationTitle("Events")
@@ -98,7 +99,7 @@ struct MacRootView: View {
       }
     } detail: {
       if isTodaySelection {
-        MacTodayWorkspace(store: store) { pageID in
+        MacTodayWorkspace(store: store, day: selectedDay) { pageID in
           todayPresentedPageID = pageID
         }
       } else if let selectedPageID = store.selectedPageID {
@@ -112,6 +113,35 @@ struct MacRootView: View {
       }
     }
     .toolbar {
+      if isTodaySelection {
+        ToolbarItemGroup {
+          Button {
+            moveSelectedDay(by: -1)
+          } label: {
+            Label("Previous Day", systemImage: "chevron.left")
+          }
+          .help("Previous day")
+
+          DatePicker("Date", selection: $selectedDay, displayedComponents: .date)
+            .labelsHidden()
+            .frame(maxWidth: 130)
+            .accessibilityLabel("Daily note date")
+
+          Button {
+            moveSelectedDay(by: 1)
+          } label: {
+            Label("Next Day", systemImage: "chevron.right")
+          }
+          .help("Next day")
+
+          if !Calendar.current.isDateInToday(selectedDay) {
+            Button("Today") {
+              selectedDay = Calendar.current.startOfDay(for: Date())
+            }
+            .help("Return to today's daily note")
+          }
+        }
+      }
       if case .supertag(let tagID) = selection,
         let tag = store.supertags.first(where: { $0.id == tagID })
       {
@@ -169,6 +199,10 @@ struct MacRootView: View {
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
         selection = .section(.allPages)
       }
+    }
+    .task(id: selectedDay) {
+      guard isTodaySelection else { return }
+      _ = await store.openDailyPage(for: selectedDay)
     }
   }
 
@@ -342,13 +376,17 @@ struct MacRootView: View {
       Task { await store.createFreePage() }
     }
   }
+
+  private func moveSelectedDay(by value: Int) {
+    guard let day = Calendar.current.date(byAdding: .day, value: value, to: selectedDay) else { return }
+    selectedDay = Calendar.current.startOfDay(for: day)
+  }
 }
 
 private struct MacTodayEventsSidebar: View {
   let store: LibraryStore
+  let day: Date
   let openPage: (PageID) -> Void
-
-  private let day = Date()
 
   var body: some View {
     let events = store.events(on: day)
@@ -382,16 +420,15 @@ private struct MacTodayEventsSidebar: View {
 
 private struct MacTodayWorkspace: View {
   let store: LibraryStore
+  let day: Date
   let openPage: (PageID) -> Void
-
-  private let day = Date()
 
   var body: some View {
     HSplitView {
       Group {
         if store.page(id: dailyPageID) != nil {
           PageEditorView(store: store, pageID: dailyPageID)
-            .navigationTitle("Today")
+            .navigationTitle(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
         } else if store.isLoading {
           ProgressView("Opening today’s note")
         } else {

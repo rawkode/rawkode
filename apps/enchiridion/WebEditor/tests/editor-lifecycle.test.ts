@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createSerializedPageLoader } from "../src/editorLifecycle"
+import { createSerializedPageLoader, navigateAfterFlush } from "../src/editorLifecycle"
 
 describe("editor page lifecycle", () => {
   test("flushes pending edits before each serialized page load", async () => {
@@ -39,5 +39,29 @@ describe("editor page lifecycle", () => {
     await expect(loadPage("broken")).rejects.toThrow("broken")
     await expect(loadPage("healthy")).resolves.toBeUndefined()
     expect(loaded).toEqual(["healthy"])
+  })
+})
+
+describe("internal navigation", () => {
+  test("waits for pending edits before opening a native destination", async () => {
+    const events: string[] = []
+
+    await navigateAfterFlush(
+      async () => { events.push("flush") },
+      async () => { events.push("navigate") },
+    )
+
+    expect(events).toEqual(["flush", "navigate"])
+  })
+
+  test("does not navigate when flushing fails", async () => {
+    let didNavigate = false
+
+    await expect(navigateAfterFlush(
+      async () => { throw new Error("commit failed") },
+      async () => { didNavigate = true },
+    )).rejects.toThrow("commit failed")
+
+    expect(didNavigate).toBeFalse()
   })
 })

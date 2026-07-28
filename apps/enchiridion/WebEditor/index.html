@@ -20,12 +20,19 @@
   <body>
     <main id="app">
       <div id="status" role="status" aria-live="polite">Loading editor…</div>
-      <textarea id="title" aria-label="Page title" placeholder="Untitled" rows="1" disabled></textarea>
+      <textarea id="title" aria-hidden="true" tabindex="-1" rows="1" disabled hidden></textarea>
       <section id="page-context" class="page-context" aria-label="Calendar context" hidden></section>
       <div id="editor" aria-label="Page body"></div>
       <div id="slash-menu" class="palette" hidden></div>
       <div id="page-menu" class="palette" hidden></div>
       <div id="selection-toolbar" class="selection-toolbar" hidden></div>
+      <div id="mobile-command-bar" class="mobile-command-bar" aria-label="Editor commands" hidden>
+        <button type="button" data-command="blocks" aria-label="Block commands">Aa</button>
+        <button type="button" data-command="reference" aria-label="Mention a page or date">@</button>
+        <button type="button" data-command="bold" aria-label="Bold selected text"><strong>B</strong></button>
+        <button type="button" data-command="bullet-list" aria-label="Bulleted list">•≡</button>
+        <button type="button" data-command="dismiss-keyboard" aria-label="Dismiss keyboard">⌄</button>
+      </div>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

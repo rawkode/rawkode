@@ -13,3 +13,11 @@ export function createSerializedPageLoader<Request>(
     return operation
   }
 }
+
+export async function navigateAfterFlush(
+  flush: () => Promise<void>,
+  navigate: () => Promise<void>,
+): Promise<void> {
+  await flush()
+  await navigate()
+}

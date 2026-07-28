@@ -31,4 +31,15 @@ describe("packaged editor", () => {
     expect(html).toContain("Find a page");
     expect(html).toContain("New page");
   });
+
+  test("leaves the native navigation title as the only visible page title", () => {
+    expect(html).toMatch(/<textarea id="title"[^>]*hidden/);
+  });
+
+  test("packages compact Craft-style block and mention controls", () => {
+    expect(html).toContain('id="mobile-command-bar"');
+    expect(html).toContain("Text Style");
+    expect(html).toContain("Indentation");
+    expect(html).toContain("Find a page or date");
+  });
 });

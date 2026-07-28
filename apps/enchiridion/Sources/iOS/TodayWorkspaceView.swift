@@ -6,22 +6,25 @@ struct TodayWorkspaceView: View {
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var drawer: TodayDrawer?
-  @State private var presentedPageID: PageID?
+  @State private var path: [PageID] = []
+  @State private var day = Calendar.current.startOfDay(for: Date())
+  @State private var datePicker: TodayDatePickerSelection?
+  @State private var isOpeningDay = false
+  @State private var openDayTask: Task<Void, Never>?
 
-  private let day = Date()
+  private let calendar = Calendar.current
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       Group {
         if store.page(id: dailyPageID) != nil {
-          PageEditorView(store: store, pageID: dailyPageID)
-            .navigationTitle("Today")
+          PageEditorView(store: store, pageID: dailyPageID, onOpenPage: navigate)
             .navigationBarTitleDisplayMode(.large)
-        } else if store.isLoading {
-          ProgressView("Opening today’s note")
+        } else if store.isLoading || isOpeningDay {
+          ProgressView("Opening daily note")
         } else {
           ContentUnavailableView(
-            "Today’s note is unavailable",
+            "Daily note unavailable",
             systemImage: "doc.badge.exclamationmark",
             description: Text(store.startupError ?? "Try reopening Enchiridion.")
           )
@@ -32,16 +35,50 @@ struct TodayWorkspaceView: View {
           Button {
             show(.events)
           } label: {
-            Label("Show today’s events", systemImage: "calendar")
+            Label("Show events for this day", systemImage: "calendar")
           }
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
             show(.pages)
           } label: {
-            Label("Show changed pages", systemImage: "clock.arrow.circlepath")
+            Label("Show changed pages for this day", systemImage: "clock.arrow.circlepath")
           }
         }
+        ToolbarItemGroup(placement: .bottomBar) {
+          Button {
+            moveDay(by: -1)
+          } label: {
+            Label("Previous day", systemImage: "chevron.left")
+          }
+
+          Spacer()
+
+          Button {
+            datePicker = TodayDatePickerSelection(date: day)
+          } label: {
+            Label("Choose date", systemImage: "calendar.badge.clock")
+          }
+          .accessibilityLabel("Choose date, currently \(day.formatted(date: .long, time: .omitted))")
+
+          if !calendar.isDateInToday(day) {
+            Button("Today") {
+              selectDay(Date())
+            }
+            .accessibilityHint("Open today’s daily note")
+          }
+
+          Spacer()
+
+          Button {
+            moveDay(by: 1)
+          } label: {
+            Label("Next day", systemImage: "chevron.right")
+          }
+        }
+      }
+      .navigationDestination(for: PageID.self) { pageID in
+        PageEditorView(store: store, pageID: pageID, onOpenPage: navigate)
       }
     }
     .overlay {
@@ -71,16 +108,10 @@ struct TodayWorkspaceView: View {
         }
       }
     }
-    .sheet(item: $presentedPageID) { pageID in
-      NavigationStack {
-        PageEditorView(store: store, pageID: pageID)
-          .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-              Button("Done") { presentedPageID = nil }
-            }
-          }
-      }
+    .sheet(item: $datePicker) { selection in
+      TodayDatePicker(initialDate: selection.date, selectDate: selectDay)
     }
+    .onDisappear { openDayTask?.cancel() }
   }
 
   private var dailyPageID: PageID {
@@ -169,7 +200,71 @@ struct TodayWorkspaceView: View {
 
   private func openPage(_ pageID: PageID) {
     dismissDrawer()
-    presentedPageID = pageID
+    navigate(pageID)
+  }
+
+  private func navigate(_ pageID: PageID) {
+    guard path.last != pageID else { return }
+    path.append(pageID)
+  }
+
+  private func moveDay(by value: Int) {
+    guard let destination = calendar.date(byAdding: .day, value: value, to: day) else { return }
+    selectDay(destination)
+  }
+
+  private func selectDay(_ date: Date) {
+    let destination = calendar.startOfDay(for: date)
+    datePicker = nil
+    guard !calendar.isDate(destination, inSameDayAs: day) else { return }
+    openDayTask?.cancel()
+    path.removeAll()
+    day = destination
+    isOpeningDay = true
+    openDayTask = Task { @MainActor in
+      _ = await store.openDailyPage(for: destination)
+      guard !Task.isCancelled else { return }
+      isOpeningDay = false
+    }
+  }
+}
+
+private struct TodayDatePickerSelection: Identifiable {
+  let id = UUID()
+  let date: Date
+}
+
+private struct TodayDatePicker: View {
+  @Environment(\.dismiss) private var dismiss
+  @State private var date: Date
+  let selectDate: (Date) -> Void
+
+  init(initialDate: Date, selectDate: @escaping (Date) -> Void) {
+    _date = State(initialValue: initialDate)
+    self.selectDate = selectDate
+  }
+
+  var body: some View {
+    NavigationStack {
+      DatePicker("Daily note date", selection: $date, displayedComponents: .date)
+        .datePickerStyle(.graphical)
+        .labelsHidden()
+        .padding()
+        .navigationTitle("Choose Date")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { dismiss() }
+          }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Open Date") {
+              selectDate(date)
+              dismiss()
+            }
+          }
+        }
+    }
+    .presentationDetents([.medium])
   }
 }
 
