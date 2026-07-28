@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
+		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */; };
 		292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43B5F7FE8066B45C8D015097 /* MacRootView.swift */; };
 		2B4BA7A86289FDE6C71A5AC4 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7505584F1FCE5E2E0ACE89DD /* Speech.framework */; };
@@ -17,30 +18,41 @@
 		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
 		32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
 		3BC0CC9DEC7D6BBF99C1B95E /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */; };
+		3EBB8BE2893AB23F1D3CE0A2 /* WhiteboardElementOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */; };
 		3FCA54B2BD75D331E1C7DCB1 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
 		47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */; };
 		527C8CD9E0DE98C102E13A3A /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
+		5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98257A715412A302965BE5CE /* EnchiridionCore */; };
+		8B9B161C2F9F6A5C5A8F0C63 /* WhiteboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */; };
 		8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */; };
 		8ED761D9FB82EF9B4DBE8776 /* CarPlayAssistantPrivacySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */; };
 		929E1941060850FB6F278874 /* MobileLibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */; };
 		94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
+		9537B1D11AA0918C106D2C1D /* WhiteboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */; };
 		9BDA6E300E9631938293318F /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
 		A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */; };
 		A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
 		AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3E539EB8451EC283BFE5CA0D /* EnchiridionCore */; };
 		B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
+		B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
 		C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */; };
+		C2E6F4E0C28B6135A015984F /* WhiteboardElementOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */; };
 		C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
 		C8C6F37DE6DE094440175D44 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8E348F8C323D6A9956945CF /* AVFoundation.framework */; };
 		C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
+		D23352015992D41FF8882FF2 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
+		D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
 		DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
 		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
+		DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
+		E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
 		E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
+		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		EA952B441700350945E191DD /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
 		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
@@ -48,6 +60,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardTool.swift; sourceTree = "<group>"; };
 		25381A06840A2134349900C7 /* OnDeviceSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceSpeechTranscriber.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
@@ -59,16 +72,21 @@
 		720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayVoiceCoordinator.swift; sourceTree = "<group>"; };
 		7505584F1FCE5E2E0ACE89DD /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
 		785C87A8657C874FF5403E84 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
+		7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasGeometry.swift; sourceTree = "<group>"; };
 		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
+		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardElementOverlay.swift; sourceTree = "<group>"; };
 		A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryEditorView.swift; sourceTree = "<group>"; };
 		A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
 		D01C78BB8752D4959D32D9E9 /* Enchiridion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibrarySection+Presentation.swift"; sourceTree = "<group>"; };
+		D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasView.swift; sourceTree = "<group>"; };
+		D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardDrawingLayer.swift; sourceTree = "<group>"; };
 		D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryScreen.swift; sourceTree = "<group>"; };
 		DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayAssistantPrivacySettings.swift; sourceTree = "<group>"; };
 		DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryListScreen.swift; sourceTree = "<group>"; };
@@ -151,6 +169,12 @@
 				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
 				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
 				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
+				7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */,
+				D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */,
+				89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */,
+				D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */,
+				9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */,
+				040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */,
 				61ADCFF913B18B90A8574F77 /* Resources */,
 			);
 			path = SharedUI;
@@ -323,6 +347,12 @@
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
 				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
 				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
+				E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */,
+				1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */,
+				DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */,
+				E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */,
+				C2E6F4E0C28B6135A015984F /* WhiteboardElementOverlay.swift in Sources */,
+				8B9B161C2F9F6A5C5A8F0C63 /* WhiteboardTool.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,6 +378,12 @@
 				2C89C98162B290B37591C933 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
+				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
+				5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */,
+				D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */,
+				D23352015992D41FF8882FF2 /* WhiteboardDrawingLayer.swift in Sources */,
+				3EBB8BE2893AB23F1D3CE0A2 /* WhiteboardElementOverlay.swift in Sources */,
+				9537B1D11AA0918C106D2C1D /* WhiteboardTool.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
