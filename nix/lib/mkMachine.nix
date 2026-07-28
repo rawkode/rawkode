@@ -1,6 +1,7 @@
 { inputs, lib }:
 let
   capabilityResolver = import ./capabilityResolver.nix { inherit inputs lib; };
+  machineManifest = import ./machineManifest.nix { inherit lib; };
 
   normalizeTrait =
     trait:
@@ -227,16 +228,26 @@ in
       traits ? { },
     }:
     let
+      validatedManifests = lib.mapAttrs (
+        machine: manifest:
+        machineManifest.validate {
+          capabilityBundles = inputs.self.capabilityBundles;
+          inherit machine manifest traits;
+        }
+      ) manifests;
       nixosConfigurations = configsForPlatform {
         platform = "nixos";
-        inherit manifests traits;
+        manifests = validatedManifests;
+        inherit traits;
       };
       darwinConfigurations = configsForPlatform {
         platform = "darwin";
-        inherit manifests traits;
+        manifests = validatedManifests;
+        inherit traits;
       };
       darwinPackages = darwinPackageAliases {
-        inherit darwinConfigurations manifests;
+        inherit darwinConfigurations;
+        manifests = validatedManifests;
       };
     in
     {

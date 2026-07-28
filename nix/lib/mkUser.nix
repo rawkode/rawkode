@@ -1,6 +1,7 @@
 { inputs, lib }:
 let
   capabilityResolver = import ./capabilityResolver.nix { inherit inputs lib; };
+  machineManifest = import ./machineManifest.nix { inherit lib; };
 
   # Library functions available to all modules via extraSpecialArgs
   rawkOSLib = {
@@ -40,23 +41,19 @@ let
       identity,
       preferences,
       homeModule,
-      machinesDir,
-      machineSystems,
     }:
     let
-      machines = builtins.attrNames (
-        lib.filterAttrs (_name: type: type == "directory") (builtins.readDir machinesDir)
-      );
+      manifests = machineManifest.machinesForUser {
+        manifests = inputs.self.machineManifests;
+        inherit username;
+      };
+      machines = builtins.attrNames manifests;
     in
     builtins.listToAttrs (
       map (
         machine:
         let
-          system =
-            if machineSystems != null && builtins.hasAttr machine machineSystems then
-              machineSystems.${machine}
-            else
-              throw "No system mapping found for ${machine} in machineSystems";
+          system = manifests.${machine}.system;
 
           pkgs = inputs.nixpkgs.legacyPackages.${system};
         in
@@ -105,8 +102,6 @@ let
       darwinBackupExtension ? "hm-backup",
       darwinSystem ? "aarch64-darwin",
       enableHomeConfigurations ? false,
-      machinesDir ? null,
-      machineSystems ? null,
       preferences ? {
         editor = "zed --wait";
       },
@@ -270,15 +265,13 @@ let
       };
 
       homeConfigurations =
-        if enableHomeConfigurations && machinesDir != null then
+        if enableHomeConfigurations then
           mkHomeConfigurations {
             inherit
               username
               identity
               preferences
               homeModule
-              machinesDir
-              machineSystems
               ;
           }
         else
