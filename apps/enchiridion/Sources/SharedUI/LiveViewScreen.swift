@@ -17,6 +17,7 @@ struct LiveViewScreen: View {
       case .table: table
       case .board: board
       case .calendar: calendar
+      case .canvas: canvas
       }
     }
     .navigationTitle(definition.name)
@@ -147,6 +148,25 @@ struct LiveViewScreen: View {
   }
 
   @ViewBuilder
+  private var canvas: some View {
+    switch definition.source {
+    case .pages, .supertag:
+      WhiteboardCanvasView(
+        store: store,
+        definition: definition,
+        items: items,
+        openPage: openPage
+      )
+    case .calendarEvents, .workCalendar:
+      ContentUnavailableView(
+        "Canvas Unavailable",
+        systemImage: "calendar.badge.exclamationmark",
+        description: Text("Calendar events are read-only. Choose Pages or a Supertag as this view’s source.")
+      )
+    }
+  }
+
+  @ViewBuilder
   private func itemButton(_ item: LiveQueryItem) -> some View {
     switch item {
     case .page(let page):
@@ -268,7 +288,12 @@ struct LiveViewEditor: View {
               Label(kind.title, systemImage: kind.systemImage).tag(kind)
             }
           }
-          Stepper("Limit: \(draft.limit)", value: $draft.limit, in: 1...5_000, step: 25)
+          Stepper("Limit: \(draft.limit)", value: $draft.limit, in: 1...maximumLimit, step: 25)
+          if draft.viewKind == .canvas {
+            Text("Canvas views place up to \(WhiteboardLimits.maximumPageCards) live-query page cards.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
 
         if !queryFields.isEmpty {
@@ -382,16 +407,20 @@ struct LiveViewEditor: View {
 
   private var availableViewKinds: [LiveViewKind] {
     switch draft.source {
-    case .pages: return [.list, .table]
+    case .pages: return [.list, .table, .canvas]
     case .calendarEvents, .workCalendar: return [.list, .calendar]
     case .supertag:
-      var kinds: [LiveViewKind] = [.list, .table]
+      var kinds: [LiveViewKind] = [.list, .table, .canvas]
       if sourceTag?.fields.contains(where: { !$0.isDeleted && $0.type == .select }) == true {
         kinds.append(.board)
       }
       if !dateFields.isEmpty { kinds.append(.calendar) }
       return kinds
     }
+  }
+
+  private var maximumLimit: Int {
+    draft.viewKind == .canvas ? WhiteboardLimits.maximumPageCards : 5_000
   }
 
   private var queryFields: [LiveQueryFieldChoice] {
@@ -449,6 +478,9 @@ struct LiveViewEditor: View {
       let field = (draft.source == .calendarEvents || draft.source == .workCalendar) ? "start" : "title"
       draft.sorts = [.init(systemField: field)]
     }
+    if draft.viewKind == .canvas {
+      draft.limit = min(draft.limit, WhiteboardLimits.maximumPageCards)
+    }
     guard let sourceTag else {
       draft.visibleFieldIDs = []
       draft.groupFieldID = nil
@@ -482,6 +514,9 @@ struct LiveViewEditor: View {
   private func save() {
     do {
       draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      if draft.viewKind == .canvas {
+        draft.limit = min(draft.limit, WhiteboardLimits.maximumPageCards)
+      }
       if draft.viewKind == .board && draft.groupFieldID == nil {
         throw DomainQueryError.unsupported("A board needs a Select field to group by.")
       }
