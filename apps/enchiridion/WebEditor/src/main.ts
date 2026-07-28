@@ -66,6 +66,7 @@ declare global {
     EnchiridionEditor: {
       load: (request: LoadRequest) => Promise<void>
       focus: () => void
+      flush: () => Promise<void>
     }
   }
 }
@@ -219,6 +220,7 @@ const loadPage = createSerializedPageLoader(flushPendingChanges, loadDocument)
 window.EnchiridionEditor = {
   load: loadPage,
   focus: () => view?.focus(),
+  flush: flushPendingChanges,
 }
 
 void notifyNative({ type: "ready", protocolVersion: PROTOCOL_VERSION }).catch(showError)

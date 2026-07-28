@@ -3,23 +3,41 @@ import SwiftUI
 
 struct TodayWorkspaceView: View {
   let store: LibraryStore
+  let assistantSession: AssistantConversationSession?
+  let assistantUnavailableReason: String?
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var drawer: TodayDrawer?
   @State private var path: [PageID] = []
+  @State private var flushController = EditorFlushController()
   @State private var day = Calendar.current.startOfDay(for: Date())
   @State private var datePicker: TodayDatePickerSelection?
   @State private var isOpeningDay = false
   @State private var openDayTask: Task<Void, Never>?
+  @State private var isAssistantPresented = false
 
   private let calendar = Calendar.current
+
+  init(
+    store: LibraryStore,
+    assistantSession: AssistantConversationSession? = nil,
+    assistantUnavailableReason: String? = nil
+  ) {
+    self.store = store
+    self.assistantSession = assistantSession
+    self.assistantUnavailableReason = assistantUnavailableReason
+  }
 
   var body: some View {
     NavigationStack(path: $path) {
       Group {
         if store.page(id: dailyPageID) != nil {
-          PageEditorView(store: store, pageID: dailyPageID, onOpenPage: navigate)
-            .navigationBarTitleDisplayMode(.large)
+          PageEditorView(
+            store: store,
+            pageID: dailyPageID,
+            flushController: flushController,
+            onOpenPage: navigate
+          )
         } else if store.isLoading || isOpeningDay {
           ProgressView("Opening daily note")
         } else {
@@ -38,7 +56,13 @@ struct TodayWorkspaceView: View {
             Label("Show events for this day", systemImage: "calendar")
           }
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+          Button {
+            showAssistant()
+          } label: {
+            Label("Assistant", systemImage: "waveform.circle")
+          }
+
           Button {
             show(.pages)
           } label: {
@@ -55,7 +79,7 @@ struct TodayWorkspaceView: View {
           Spacer()
 
           Button {
-            datePicker = TodayDatePickerSelection(date: day)
+            showDatePicker()
           } label: {
             Label("Choose date", systemImage: "calendar.badge.clock")
           }
@@ -78,7 +102,12 @@ struct TodayWorkspaceView: View {
         }
       }
       .navigationDestination(for: PageID.self) { pageID in
-        PageEditorView(store: store, pageID: pageID, onOpenPage: navigate)
+        PageEditorView(
+          store: store,
+          pageID: pageID,
+          flushController: flushController,
+          onOpenPage: navigate
+        )
       }
     }
     .overlay {
@@ -111,11 +140,24 @@ struct TodayWorkspaceView: View {
     .sheet(item: $datePicker) { selection in
       TodayDatePicker(initialDate: selection.date, selectDate: selectDay)
     }
+    .sheet(isPresented: $isAssistantPresented) {
+      AssistantConversationView(
+        session: assistantSession,
+        unavailableReason: assistantUnavailableReason
+      )
+    }
     .onDisappear { openDayTask?.cancel() }
   }
 
   private var dailyPageID: PageID {
     .daily(DayKey(date: day))
+  }
+
+  private func showAssistant() {
+    Task { @MainActor in
+      guard await flushController.flush() else { return }
+      isAssistantPresented = true
+    }
   }
 
   @ViewBuilder
@@ -140,7 +182,12 @@ struct TodayWorkspaceView: View {
 
       switch drawer {
       case .events:
-        TodayEventsList(store: store, day: day, openPage: openPage)
+        TodayEventsList(
+          store: store,
+          day: day,
+          flushBeforeOpening: flushController.flush,
+          openPage: openPageAfterFlush
+        )
       case .pages:
         TodayChangedPagesList(
           store: store,
@@ -199,6 +246,13 @@ struct TodayWorkspaceView: View {
   }
 
   private func openPage(_ pageID: PageID) {
+    Task { @MainActor in
+      guard await flushController.flush() else { return }
+      openPageAfterFlush(pageID)
+    }
+  }
+
+  private func openPageAfterFlush(_ pageID: PageID) {
     dismissDrawer()
     navigate(pageID)
   }
@@ -215,16 +269,24 @@ struct TodayWorkspaceView: View {
 
   private func selectDay(_ date: Date) {
     let destination = calendar.startOfDay(for: date)
-    datePicker = nil
     guard !calendar.isDate(destination, inSameDayAs: day) else { return }
     openDayTask?.cancel()
-    path.removeAll()
-    day = destination
-    isOpeningDay = true
     openDayTask = Task { @MainActor in
+      guard await flushController.flush(), !Task.isCancelled else { return }
+      datePicker = nil
+      path.removeAll()
+      day = destination
+      isOpeningDay = true
       _ = await store.openDailyPage(for: destination)
       guard !Task.isCancelled else { return }
       isOpeningDay = false
+    }
+  }
+
+  private func showDatePicker() {
+    Task { @MainActor in
+      guard await flushController.flush() else { return }
+      datePicker = TodayDatePickerSelection(date: day)
     }
   }
 }
@@ -290,6 +352,7 @@ private enum TodayDrawer: Equatable {
 private struct TodayEventsList: View {
   let store: LibraryStore
   let day: Date
+  let flushBeforeOpening: @MainActor () async -> Bool
   let openPage: (PageID) -> Void
 
   var body: some View {
@@ -305,6 +368,7 @@ private struct TodayEventsList: View {
         List(events) { event in
           Button {
             Task {
+              guard await flushBeforeOpening() else { return }
               if let pageID = await store.openCalendarEventPage(event) { openPage(pageID) }
             }
           } label: {

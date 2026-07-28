@@ -8,10 +8,34 @@ import AppKit
 import UIKit
 #endif
 
+@MainActor
+final class EditorFlushController {
+  typealias Flusher = @MainActor () async -> Bool
+
+  private var flushers: [UUID: Flusher] = [:]
+
+  func register(_ id: UUID, flusher: @escaping Flusher) {
+    flushers[id] = flusher
+  }
+
+  func unregister(_ id: UUID) {
+    flushers[id] = nil
+  }
+
+  @discardableResult
+  func flush() async -> Bool {
+    for flusher in Array(flushers.values) {
+      guard await flusher() else { return false }
+    }
+    return true
+  }
+}
+
 struct PageEditorView: View {
   let store: LibraryStore
   let pageID: PageID
   private let onOpenPage: ((PageID) -> Void)?
+  @State private var flushController: EditorFlushController
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
   #if !os(macOS)
@@ -21,17 +45,24 @@ struct PageEditorView: View {
   init(
     store: LibraryStore,
     pageID: PageID,
+    flushController: EditorFlushController? = nil,
     onOpenPage: ((PageID) -> Void)? = nil
   ) {
     self.store = store
     self.pageID = pageID
     self.onOpenPage = onOpenPage
+    _flushController = State(initialValue: flushController ?? EditorFlushController())
   }
 
   var body: some View {
     Group {
       if let page = store.page(id: pageID) {
-        editor(page)
+        if page.isOtherPerson {
+          OtherPersonPromotionGate(store: store, page: page)
+            .navigationTitle("")
+        } else {
+          editor(page)
+        }
       } else {
         ContentUnavailableView(
           "Page unavailable",
@@ -42,7 +73,7 @@ struct PageEditorView: View {
     }
     #if !os(macOS)
     .navigationDestination(item: $pushedPageID) { pageID in
-      PageEditorView(store: store, pageID: pageID)
+      PageEditorView(store: store, pageID: pageID, flushController: flushController)
     }
     #endif
   }
@@ -52,9 +83,10 @@ struct PageEditorView: View {
         page: page,
         calendarContext: store.calendarPageContext(for: pageID),
         store: store,
+        flushController: flushController,
         openPage: openPage
       )
-        .navigationTitle(page.displayTitle)
+        .navigationTitle("")
         .toolbar {
           ToolbarItemGroup {
             Menu {
@@ -68,11 +100,14 @@ struct PageEditorView: View {
             }
 
             Button {
-              #if os(macOS)
-              showsProperties.toggle()
-              #else
-              propertiesSheetPage = page.id
-              #endif
+              Task { @MainActor in
+                guard await flushController.flush() else { return }
+                #if os(macOS)
+                showsProperties.toggle()
+                #else
+                propertiesSheetPage = page.id
+                #endif
+              }
             } label: {
               Label("Properties", systemImage: "slider.horizontal.3")
             }
@@ -124,14 +159,47 @@ struct PageEditorView: View {
   }
 }
 
+private struct OtherPersonPromotionGate: View {
+  let store: LibraryStore
+  let page: PageSnapshot
+  @State private var isPromoting = false
+
+  var body: some View {
+    ContentUnavailableView {
+      Label("Other Person", systemImage: "person.crop.circle.badge.questionmark")
+    } description: {
+      Text("Promote \(page.displayTitle) to edit their page and include them in mentions and normal views.")
+    } actions: {
+      Button {
+        isPromoting = true
+        Task { @MainActor in
+          await store.promotePerson(page.id)
+          isPromoting = false
+        }
+      } label: {
+        if isPromoting {
+          ProgressView()
+        } else {
+          Label("Promote Person", systemImage: "person.badge.plus")
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(isPromoting)
+    }
+  }
+}
+
 #if os(macOS)
 private struct RichPageEditor: NSViewRepresentable {
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
+  let flushController: EditorFlushController
   let openPage: (PageID) -> Void
 
-  func makeCoordinator() -> EditorBridge { EditorBridge(store: store, openPage: openPage) }
+  func makeCoordinator() -> EditorBridge {
+    EditorBridge(store: store, flushController: flushController, openPage: openPage)
+  }
 
   func makeNSView(context: Context) -> WKWebView {
     context.coordinator.makeWebView(page: page, calendarContext: calendarContext)
@@ -142,7 +210,7 @@ private struct RichPageEditor: NSViewRepresentable {
   }
 
   static func dismantleNSView(_ webView: WKWebView, coordinator: EditorBridge) {
-    coordinator.stop()
+    coordinator.stopAfterFlushing(webView)
   }
 }
 #else
@@ -150,9 +218,12 @@ private struct RichPageEditor: UIViewRepresentable {
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
+  let flushController: EditorFlushController
   let openPage: (PageID) -> Void
 
-  func makeCoordinator() -> EditorBridge { EditorBridge(store: store, openPage: openPage) }
+  func makeCoordinator() -> EditorBridge {
+    EditorBridge(store: store, flushController: flushController, openPage: openPage)
+  }
 
   func makeUIView(context: Context) -> WKWebView {
     context.coordinator.makeWebView(page: page, calendarContext: calendarContext)
@@ -163,7 +234,7 @@ private struct RichPageEditor: UIViewRepresentable {
   }
 
   static func dismantleUIView(_ webView: WKWebView, coordinator: EditorBridge) {
-    coordinator.stop()
+    coordinator.stopAfterFlushing(webView)
   }
 }
 #endif
@@ -173,7 +244,9 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   WKUIDelegate
 {
   private let store: LibraryStore
+  private let flushController: EditorFlushController
   private let openPageHandler: (PageID) -> Void
+  private let flushRegistrationID = UUID()
   private weak var webView: WKWebView?
   private var page: PageSnapshot?
   private var calendarContext: CalendarPageContext?
@@ -182,8 +255,13 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   private var isEditorReady = false
   private var loadGeneration = 0
 
-  init(store: LibraryStore, openPage: @escaping (PageID) -> Void) {
+  init(
+    store: LibraryStore,
+    flushController: EditorFlushController,
+    openPage: @escaping (PageID) -> Void
+  ) {
     self.store = store
+    self.flushController = flushController
     openPageHandler = openPage
   }
 
@@ -198,6 +276,10 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
 
     let webView = WKWebView(frame: .zero, configuration: configuration)
     self.webView = webView
+    flushController.register(flushRegistrationID) { [weak self] in
+      guard let self else { return true }
+      return await self.flush()
+    }
     webView.navigationDelegate = self
     webView.uiDelegate = self
     #if os(macOS)
@@ -220,10 +302,34 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     load(page: page)
   }
 
-  func stop() {
+  func stopAfterFlushing(_ webView: WKWebView) {
+    Task { @MainActor [self, webView] in
+      _ = await flush(webView)
+      stop()
+    }
+  }
+
+  private func stop() {
+    flushController.unregister(flushRegistrationID)
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "enchiridion", contentWorld: .page)
     webView?.navigationDelegate = nil
     webView?.uiDelegate = nil
+  }
+
+  private func flush(_ explicitWebView: WKWebView? = nil) async -> Bool {
+    guard isEditorReady, let webView = explicitWebView ?? webView else { return true }
+    do {
+      _ = try await webView.callAsyncJavaScript(
+        "return await window.EnchiridionEditor.flush()",
+        arguments: [:],
+        in: nil,
+        contentWorld: .page
+      )
+      return true
+    } catch {
+      print("[Enchiridion editor] flush failed: \(error)")
+      return false
+    }
   }
 
   private func loadEditor(in webView: WKWebView) {

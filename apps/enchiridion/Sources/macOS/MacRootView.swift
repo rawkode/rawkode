@@ -2,17 +2,24 @@ import EnchiridionCore
 import SwiftUI
 
 struct MacRootView: View {
-  @State private var store = LibraryStore()
+  @Environment(\.openWindow) private var openWindow
+
+  @State private var store: LibraryStore
   @State private var selection: MacSidebarSelection = .section(.today)
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
   @State private var todayPresentedPageID: PageID?
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
+  @State private var editorFlushController = EditorFlushController()
+
+  init(store: LibraryStore = LibraryStore()) {
+    _store = State(initialValue: store)
+  }
 
   var body: some View {
     NavigationSplitView {
-      List(selection: $selection) {
+      List(selection: sidebarSelectionBinding) {
         Section {
           ForEach(LibrarySection.allCases) { item in
             Label(item.title, systemImage: item.systemImage)
@@ -25,7 +32,7 @@ struct MacRootView: View {
               Label(tag.name, systemImage: tag.symbol)
                 .tag(MacSidebarSelection.supertag(tag.id))
             }
-            Button { editingTag = .draft() } label: {
+            Button { presentTagEditor(.draft()) } label: {
               Label("New Supertag", systemImage: "plus")
             }
             .buttonStyle(.plain)
@@ -36,7 +43,7 @@ struct MacRootView: View {
             Label(view.name, systemImage: view.viewKind.systemImage)
               .tag(MacSidebarSelection.view(view.id))
           }
-          Button { editingView = .init(name: "New View", source: .pages) } label: {
+          Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
             Label("New View", systemImage: "plus")
           }
           .buttonStyle(.plain)
@@ -88,9 +95,12 @@ struct MacRootView: View {
       }
     } content: {
       if isTodaySelection {
-        MacTodayEventsSidebar(store: store, day: selectedDay) { pageID in
-          todayPresentedPageID = pageID
-        }
+        MacTodayEventsSidebar(
+          store: store,
+          day: selectedDay,
+          flushController: editorFlushController,
+          openPage: presentTodayPageAfterFlush
+        )
         .navigationTitle("Events")
       } else {
         pageList
@@ -99,11 +109,18 @@ struct MacRootView: View {
       }
     } detail: {
       if isTodaySelection {
-        MacTodayWorkspace(store: store, day: selectedDay) { pageID in
-          todayPresentedPageID = pageID
-        }
+        MacTodayWorkspace(
+          store: store,
+          day: selectedDay,
+          flushController: editorFlushController,
+          openPage: presentTodayPage
+        )
       } else if let selectedPageID = store.selectedPageID {
-        PageEditorView(store: store, pageID: selectedPageID)
+        PageEditorView(
+          store: store,
+          pageID: selectedPageID,
+          flushController: editorFlushController
+        )
       } else {
         ContentUnavailableView(
           "Choose a page",
@@ -113,6 +130,17 @@ struct MacRootView: View {
       }
     }
     .toolbar {
+      ToolbarItem {
+        Button {
+          Task { @MainActor in
+            guard await editorFlushController.flush() else { return }
+            openWindow(id: "assistant")
+          }
+        } label: {
+          Label("Assistant", systemImage: "waveform.circle")
+        }
+        .help("Open Assistant")
+      }
       if isTodaySelection {
         ToolbarItemGroup {
           Button {
@@ -122,7 +150,7 @@ struct MacRootView: View {
           }
           .help("Previous day")
 
-          DatePicker("Date", selection: $selectedDay, displayedComponents: .date)
+          DatePicker("Date", selection: selectedDayBinding, displayedComponents: .date)
             .labelsHidden()
             .frame(maxWidth: 130)
             .accessibilityLabel("Daily note date")
@@ -136,7 +164,7 @@ struct MacRootView: View {
 
           if !Calendar.current.isDateInToday(selectedDay) {
             Button("Today") {
-              selectedDay = Calendar.current.startOfDay(for: Date())
+              selectDay(Date())
             }
             .help("Return to today's daily note")
           }
@@ -146,7 +174,7 @@ struct MacRootView: View {
         let tag = store.supertags.first(where: { $0.id == tagID })
       {
         ToolbarItem {
-          Button { editingTag = tag } label: {
+          Button { presentTagEditor(tag) } label: {
             Label("Edit Schema", systemImage: "slider.horizontal.3")
           }
         }
@@ -165,7 +193,7 @@ struct MacRootView: View {
         .help("Connect read-only calendars")
       }
       ToolbarItem(placement: .primaryAction) {
-        Button { editingView = .init(name: "New View", source: .pages) } label: {
+        Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
           Label("New View", systemImage: "rectangle.stack.badge.plus")
         }
         .help("New saved view")
@@ -186,18 +214,23 @@ struct MacRootView: View {
     }
     .sheet(item: $todayPresentedPageID) { pageID in
       NavigationStack {
-        PageEditorView(store: store, pageID: pageID)
+        PageEditorView(
+          store: store,
+          pageID: pageID,
+          flushController: editorFlushController,
+          onOpenPage: presentTodayPage
+        )
           .frame(minWidth: 720, minHeight: 560)
           .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-              Button("Done") { todayPresentedPageID = nil }
+              Button("Done") { dismissTodayPage() }
             }
           }
       }
     }
     .onChange(of: store.savedViews) { _, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
-        selection = .section(.allPages)
+        selectSidebar(.section(.allPages))
       }
     }
     .task(id: selectedDay) {
@@ -216,13 +249,13 @@ struct MacRootView: View {
       let view = store.savedViews.first(where: { $0.id == viewID })
     {
       LiveViewScreen(store: store, definition: view) { pageID in
-        store.selectedPageID = pageID
+        selectPage(pageID)
       }
     } else {
       let section = selection.librarySection
       let pages = section.map { store.pages(in: $0, matching: query) } ?? []
       let todaysEvents = store.events(on: Date())
-      List(selection: $store.selectedPageID) {
+      List(selection: pageSelectionBinding) {
         if case .supertag(let tagID) = selection {
           let taggedPages = store.pages(with: tagID).filter {
             query.isEmpty || $0.title.localizedStandardContains(query) || $0.plainText.localizedStandardContains(query)
@@ -258,7 +291,7 @@ struct MacRootView: View {
                   }
                 } header: {
                   Button {
-                    Task { await store.openCalendarSeriesPage(first) }
+                    openCalendarSeries(first)
                   } label: {
                     HStack {
                       Text(group.title)
@@ -283,7 +316,7 @@ struct MacRootView: View {
           Section("Agenda") {
             ForEach(todaysEvents) { event in
               Button {
-                Task { await store.openCalendarEventPage(event) }
+                openCalendarEvent(event)
               } label: {
                 CalendarEventRow(event: event)
               }
@@ -313,7 +346,7 @@ struct MacRootView: View {
 
   private func calendarEventButton(_ event: CalendarEventSnapshot, showsDate: Bool) -> some View {
     Button {
-      Task { await store.openCalendarEventPage(event) }
+      openCalendarEvent(event)
     } label: {
       CalendarEventRow(event: event, showsDate: showsDate)
     }
@@ -364,28 +397,127 @@ struct MacRootView: View {
   }
 
   private func createPage() {
-    query = ""
-    switch selection {
-    case .supertag(let tagID):
-      let name = store.supertags.first(where: { $0.id == tagID })?.name ?? "Page"
-      Task { await store.createTaggedPage(title: "Untitled \(name)", supertagID: tagID) }
-    case .section:
-      selection = .section(.allPages)
-      Task { await store.createFreePage() }
-    case .view:
-      Task { await store.createFreePage() }
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      query = ""
+      switch selection {
+      case .supertag(let tagID):
+        let name = store.supertags.first(where: { $0.id == tagID })?.name ?? "Page"
+        await store.createTaggedPage(title: "Untitled \(name)", supertagID: tagID)
+      case .section:
+        selection = .section(.allPages)
+        await store.createFreePage()
+      case .view:
+        await store.createFreePage()
+      }
     }
   }
 
   private func moveSelectedDay(by value: Int) {
     guard let day = Calendar.current.date(byAdding: .day, value: value, to: selectedDay) else { return }
-    selectedDay = Calendar.current.startOfDay(for: day)
+    selectDay(day)
+  }
+
+  private var sidebarSelectionBinding: Binding<MacSidebarSelection> {
+    Binding(
+      get: { selection },
+      set: { selectSidebar($0) }
+    )
+  }
+
+  private var pageSelectionBinding: Binding<PageID?> {
+    Binding(
+      get: { store.selectedPageID },
+      set: { destination in
+        Task { @MainActor in
+          guard await editorFlushController.flush() else { return }
+          store.selectedPageID = destination
+        }
+      }
+    )
+  }
+
+  private var selectedDayBinding: Binding<Date> {
+    Binding(
+      get: { selectedDay },
+      set: { selectDay($0) }
+    )
+  }
+
+  private func selectSidebar(_ destination: MacSidebarSelection) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      selection = destination
+    }
+  }
+
+  private func selectPage(_ pageID: PageID) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      store.selectedPageID = pageID
+    }
+  }
+
+  private func selectDay(_ date: Date) {
+    let destination = Calendar.current.startOfDay(for: date)
+    guard !Calendar.current.isDate(destination, inSameDayAs: selectedDay) else { return }
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      selectedDay = destination
+    }
+  }
+
+  private func presentTodayPage(_ pageID: PageID) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      presentTodayPageAfterFlush(pageID)
+    }
+  }
+
+  private func presentTodayPageAfterFlush(_ pageID: PageID) {
+    todayPresentedPageID = pageID
+  }
+
+  private func dismissTodayPage() {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      todayPresentedPageID = nil
+    }
+  }
+
+  private func presentTagEditor(_ definition: SupertagDefinition) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      editingTag = definition
+    }
+  }
+
+  private func presentViewEditor(_ definition: LiveQueryDefinition) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      editingView = definition
+    }
+  }
+
+  private func openCalendarEvent(_ event: CalendarEventSnapshot) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      await store.openCalendarEventPage(event)
+    }
+  }
+
+  private func openCalendarSeries(_ event: CalendarEventSnapshot) {
+    Task { @MainActor in
+      guard await editorFlushController.flush() else { return }
+      await store.openCalendarSeriesPage(event)
+    }
   }
 }
 
 private struct MacTodayEventsSidebar: View {
   let store: LibraryStore
   let day: Date
+  let flushController: EditorFlushController
   let openPage: (PageID) -> Void
 
   var body: some View {
@@ -402,6 +534,7 @@ private struct MacTodayEventsSidebar: View {
           ForEach(events) { event in
             Button {
               Task {
+                guard await flushController.flush() else { return }
                 if let pageID = await store.openCalendarEventPage(event) { openPage(pageID) }
               }
             } label: {
@@ -421,14 +554,19 @@ private struct MacTodayEventsSidebar: View {
 private struct MacTodayWorkspace: View {
   let store: LibraryStore
   let day: Date
+  let flushController: EditorFlushController
   let openPage: (PageID) -> Void
 
   var body: some View {
     HSplitView {
       Group {
         if store.page(id: dailyPageID) != nil {
-          PageEditorView(store: store, pageID: dailyPageID)
-            .navigationTitle(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
+          PageEditorView(
+            store: store,
+            pageID: dailyPageID,
+            flushController: flushController,
+            onOpenPage: openPage
+          )
         } else if store.isLoading {
           ProgressView("Opening today’s note")
         } else {

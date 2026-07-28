@@ -32,8 +32,10 @@ describe("packaged editor", () => {
     expect(html).toContain("New page");
   });
 
-  test("leaves the native navigation title as the only visible page title", () => {
-    expect(html).toMatch(/<textarea id="title"[^>]*hidden/);
+  test("packages exactly one editable inline page title", () => {
+    expect(html.match(/id="title"/g)).toHaveLength(1);
+    expect(html).toMatch(/<textarea id="title"[^>]*aria-label="Page title"/);
+    expect(html).not.toMatch(/<textarea id="title"[^>]*hidden/);
   });
 
   test("packages compact Craft-style block and mention controls", () => {

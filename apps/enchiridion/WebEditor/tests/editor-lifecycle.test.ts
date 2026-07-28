@@ -54,6 +54,23 @@ describe("internal navigation", () => {
     expect(events).toEqual(["flush", "navigate"])
   })
 
+  test("does not route while a debounced commit is still being persisted", async () => {
+    let releaseCommit: (() => void) | undefined
+    const commit = new Promise<void>(resolve => { releaseCommit = resolve })
+    let didNavigate = false
+
+    const navigation = navigateAfterFlush(
+      async () => { await commit },
+      async () => { didNavigate = true },
+    )
+
+    await Promise.resolve()
+    expect(didNavigate).toBeFalse()
+    releaseCommit?.()
+    await navigation
+    expect(didNavigate).toBeTrue()
+  })
+
   test("does not navigate when flushing fails", async () => {
     let didNavigate = false
 
