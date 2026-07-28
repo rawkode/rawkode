@@ -102,7 +102,9 @@ struct SupertagSchemaEditor: View {
         }
       }
     }
+    #if os(macOS)
     .frame(minWidth: 480, minHeight: 560)
+    #endif
   }
 
   private var taggedPages: [PageSnapshot] { store.pages(with: definition.id) }
