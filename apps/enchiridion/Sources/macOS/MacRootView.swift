@@ -43,10 +43,30 @@ struct MacRootView: View {
       .listStyle(.sidebar)
       .navigationTitle("Enchiridion")
       .safeAreaInset(edge: .bottom) {
-        HStack {
-          Image(systemName: syncSymbol)
-          Text(store.syncStatus.title)
-          Spacer()
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 6) {
+            Image(systemName: syncSymbol)
+              .accessibilityHidden(true)
+            Text(store.syncStatus.title)
+            Spacer()
+            Button {
+              Task { await store.syncNow() }
+            } label: {
+              if isSyncing {
+                ProgressView()
+                  .controlSize(.small)
+              } else {
+                Image(systemName: "arrow.triangle.2.circlepath")
+              }
+            }
+            .buttonStyle(.borderless)
+            .disabled(!canRequestSync)
+            .help(syncActionHint)
+            .accessibilityLabel(isSyncing ? "Syncing" : "Sync now")
+            .accessibilityHint(syncActionHint)
+          }
+          Text(store.syncStatus.detail)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -257,6 +277,26 @@ struct MacRootView: View {
     case .localOnly: "internaldrive"
     case .iCloudUnavailable, .attentionRequired: "exclamationmark.icloud"
     }
+  }
+
+  private var isSyncing: Bool {
+    if case .syncing = store.syncStatus { return true }
+    return false
+  }
+
+  private var canRequestSync: Bool {
+    switch store.syncStatus {
+    case .synced, .attentionRequired:
+      true
+    case .localOnly, .syncing, .offline, .iCloudUnavailable:
+      false
+    }
+  }
+
+  private var syncActionHint: String {
+    if isSyncing { return "A sync is already in progress." }
+    if canRequestSync { return "Checks iCloud now for updates." }
+    return store.syncStatus.detail
   }
 
   private func createPage() {
