@@ -57,7 +57,7 @@ One-time Apple Developer setup:
 3. Enable **Push Notifications**. For the iOS target, also keep the approved **Voice-based conversational app** capability enabled.
 4. Regenerate the iOS App Development and Mac App Development profiles after changing any capability. Each profile must include the iCloud container, the applicable APNs entitlement, and (for iOS) the approved CarPlay entitlement.
 5. In Xcode **Settings → Accounts**, sign in to the P4X-639 Ltd team, create or import an Apple Development certificate whose private key is present in Keychain, and download the refreshed profiles.
-6. Sign in to an iCloud account on every test Mac, iPhone, or Simulator and enable iCloud Drive.
+6. Sign in to the same iCloud account on the signed test Mac and a physical iPhone, then enable iCloud Drive on both. Simulator remains useful for builds, UI checks, and manually triggered iCloud fetches, but it does not receive the notifications that trigger automatic synchronization and is not a CKSyncEngine push-acceptance device.
 
 The launcher now attempts a signed build by default so the resulting app can sync:
 
@@ -94,7 +94,7 @@ security find-identity -p codesigning -v
 
 The final signature must contain `iCloud.dev.rawkode.enchiridion`, `CloudKit`, and the platform APNs entitlement (`aps-environment` on iOS or `com.apple.developer.aps-environment` on macOS). Development profiles select the development CloudKit/APNs environments; distribution profiles select production.
 
-Run the signed app once against the development environment, then verify the container, private custom zone, record types, and records in CloudKit Console. Before TestFlight or App Store distribution, deploy the development schema to production in CloudKit Console. Finally, edit on one signed device and confirm the change arrives on a second device logged into the same iCloud account; repeat in both directions and after an offline edit.
+Run the signed app once against the development environment, then verify the container, private custom zone, record types, and records in CloudKit Console. Before TestFlight or App Store distribution, deploy the development schema to production in CloudKit Console. Final acceptance requires a signed Mac and a signed physical iPhone logged into the same iCloud account: edit on one device and confirm the change arrives automatically on the other, then repeat in the opposite direction and after an offline edit. An iOS Simulator build does not satisfy this acceptance check.
 
 ## Google Calendar configuration
 
