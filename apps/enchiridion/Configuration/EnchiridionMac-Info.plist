@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>EnchiridionCodeSignEntitlements</key>
-	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -33,6 +31,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>EnchiridionCodeSignEntitlements</key>
+	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
+	<key>EnchiridionCodeSigningAllowed</key>
+	<string>$(CODE_SIGNING_ALLOWED)</string>
 	<key>GoogleOAuthClientID</key>
 	<string>CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>GoogleOAuthRedirectScheme</key>

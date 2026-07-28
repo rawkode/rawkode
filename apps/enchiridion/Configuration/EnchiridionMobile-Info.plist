@@ -33,6 +33,8 @@
 	<string>1</string>
 	<key>EnchiridionCodeSignEntitlements</key>
 	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
+	<key>EnchiridionCodeSigningAllowed</key>
+	<string>$(CODE_SIGNING_ALLOWED)</string>
 	<key>GoogleOAuthClientID</key>
 	<string>CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>GoogleOAuthRedirectScheme</key>

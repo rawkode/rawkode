@@ -14,6 +14,7 @@ packages:
 
 settings:
   base:
+    DEVELOPMENT_TEAM: 6KXCJGJ45W
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: true
@@ -31,6 +32,7 @@ targets:
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
+        EnchiridionCodeSigningAllowed: $(CODE_SIGNING_ALLOWED)
         CFBundleURLTypes:
           - CFBundleURLName: Google Calendar OAuth
             CFBundleURLSchemes:
@@ -78,6 +80,7 @@ targets:
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
+        EnchiridionCodeSigningAllowed: $(CODE_SIGNING_ALLOWED)
         CFBundleURLTypes:
           - CFBundleURLName: Google Calendar OAuth
             CFBundleURLSchemes:
