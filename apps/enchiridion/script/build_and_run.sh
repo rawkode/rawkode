@@ -6,9 +6,14 @@ APP_NAME="Enchiridion"
 BUNDLE_ID="dev.rawkode.enchiridion"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_PATH="$ROOT_DIR/Enchiridion.xcodeproj"
 DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
+if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
 
 case "$MODE" in
   run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
@@ -30,15 +35,28 @@ elif [[ ! -d "$ROOT_DIR/Enchiridion.xcodeproj" ]]; then
 else
   echo "warning: xcodegen not found; using the existing Enchiridion.xcodeproj" >&2
 fi
-xcodebuild \
+
+SIGNING_ARGS=(-allowProvisioningUpdates)
+if [[ "${ENCHIRIDION_LOCAL_ONLY:-0}" == "1" ]]; then
+  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS=)
+fi
+
+if ! xcodebuild \
   -quiet \
-  -project Enchiridion.xcodeproj \
+  -project "$PROJECT_PATH" \
   -scheme "Enchiridion macOS" \
   -configuration Debug \
   -derivedDataPath "$DERIVED_DATA" \
   -destination "platform=macOS" \
-  CODE_SIGNING_ALLOWED=NO \
+  "${SIGNING_ARGS[@]}" \
   build
+then
+  if [[ "${ENCHIRIDION_LOCAL_ONLY:-0}" != "1" ]]; then
+    echo "Signed build failed. Fix the P4X-639 Ltd certificate/profile to enable iCloud sync." >&2
+    echo "For an explicit unsigned local-only build, run: ENCHIRIDION_LOCAL_ONLY=1 $0 $MODE" >&2
+  fi
+  exit 1
+fi
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

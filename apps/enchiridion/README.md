@@ -46,9 +46,57 @@ xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion iOS" -destination
 
 Use the Codex `Run` action or `./script/build_and_run.sh` to build and launch the macOS app.
 
-## Service configuration
+## iCloud and CloudKit setup
 
-CloudKit uses the private container `iCloud.dev.rawkode.enchiridion`. Add that container to the Apple Developer team used for signing.
+Enchiridion syncs the local SQLite authority through the private CloudKit container `iCloud.dev.rawkode.enchiridion`. Both app targets use the explicit App ID `dev.rawkode.enchiridion` and the P4X-639 Ltd development team (`6KXCJGJ45W`). `CKSyncEngine` requires both CloudKit and Remote Notifications; the iOS target also enables the remote-notification background mode.
+
+One-time Apple Developer setup:
+
+1. Register or open the explicit App ID `dev.rawkode.enchiridion` under team `6KXCJGJ45W`.
+2. Enable **iCloud**, choose **Include CloudKit support**, and assign `iCloud.dev.rawkode.enchiridion` to the App ID. An iCloud container cannot be renamed later, so do not substitute the older `iCloud.com.rawkode.enchiridion` identifier.
+3. Enable **Push Notifications**. For the iOS target, also keep the approved **Voice-based conversational app** capability enabled.
+4. Regenerate the iOS App Development and Mac App Development profiles after changing any capability. Each profile must include the iCloud container, the applicable APNs entitlement, and (for iOS) the approved CarPlay entitlement.
+5. In Xcode **Settings → Accounts**, sign in to the P4X-639 Ltd team, create or import an Apple Development certificate whose private key is present in Keychain, and download the refreshed profiles.
+6. Sign in to an iCloud account on every test Mac, iPhone, or Simulator and enable iCloud Drive.
+
+The launcher now attempts a signed build by default so the resulting app can sync:
+
+```sh
+./script/build_and_run.sh --verify
+```
+
+If signing is intentionally unavailable, the explicit local-only escape hatch remains:
+
+```sh
+ENCHIRIDION_LOCAL_ONLY=1 ./script/build_and_run.sh --verify
+```
+
+That fallback is unsigned and cannot exercise iCloud. It must not be used for sync acceptance.
+
+To refresh automatic signing and build both platform products directly:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion macOS" \
+  -destination "platform=macOS" -allowProvisioningUpdates build
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion iOS" \
+  -destination "generic/platform=iOS" -allowProvisioningUpdates build
+```
+
+After a signed build, inspect the app signature rather than trusting only the source entitlements:
+
+```sh
+codesign -dvvv --entitlements :- /path/to/Enchiridion.app
+security find-identity -p codesigning -v
+```
+
+The final signature must contain `iCloud.dev.rawkode.enchiridion`, `CloudKit`, and the platform APNs entitlement (`aps-environment` on iOS or `com.apple.developer.aps-environment` on macOS). Development profiles select the development CloudKit/APNs environments; distribution profiles select production.
+
+Run the signed app once against the development environment, then verify the container, private custom zone, record types, and records in CloudKit Console. Before TestFlight or App Store distribution, deploy the development schema to production in CloudKit Console. Finally, edit on one signed device and confirm the change arrives on a second device logged into the same iCloud account; repeat in both directions and after an offline edit.
+
+## Google Calendar configuration
 
 Google Calendar is serverless: the app uses OAuth 2.0 Authorization Code + PKCE, stores the refresh token in Keychain, and calls the read-only Calendar REST API directly. Create an iOS/macOS OAuth client in Google Cloud, then replace these placeholder values in `project.yml` before regenerating the project:
 
