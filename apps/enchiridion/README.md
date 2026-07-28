@@ -1,75 +1,59 @@
 # Enchiridion
 
-Private second brain on Cloudflare, Astro, Flue, D1, and Workers for Platforms.
-
-## Development
-
-```sh
-npm install
-npm run dev
-```
-
-The app builds in two stages:
-
-- `npm run build:client` builds the Astro app shell to `dist/client`.
-- `npm run build:worker` builds the Flue/Hono Cloudflare Worker.
-- `npm run preview` serves the built Worker and app shell locally through Wrangler.
-- `npm run deploy:preview -- --preview-alias pr-123` uploads a Cloudflare Worker preview version.
-- `npm run deploy` builds the app, applies production D1 migrations, and deploys the Worker.
-
-`env.cue` mirrors the rawkode cuenv Cloudflare production environment shape. Use `cuenv exec -e production -- ...` for commands that need the Cloudflare account and API token.
-
-Production deploys use `op://sa.rawkode.academy/cloudflare/api-tokens/workers` as Wrangler's `CLOUDFLARE_API_TOKEN`. The deployed Worker also receives that token for dynamic mini-app uploads.
-
-Worker runtime secrets are synced during production deploy with `npm run sync:secrets`. `ENCHIRIDION_PASSWORD` comes from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion`. `HOST_SIGNING_SECRET` is a domain-separated hash derived from the same 1Password-backed Enchiridion secret unless an explicit `HOST_SIGNING_SECRET` is provided in the cuenv environment.
-
-## Auth
-
-Production requests must be authenticated. Enchiridion accepts either Cloudflare Access headers or HTTP Basic auth. The Basic auth password is loaded from `op://sa.rawkode.academy/cloudflare/api-tokens/enchiridion` and synced into the Worker as `ENCHIRIDION_PASSWORD`.
-
-Cloudflare Access mode accepts the `cf-access-authenticated-user-email` and `cf-access-authenticated-user-name` headers and can restrict accepted identities with `ALLOWED_EMAILS`.
-
-The dev identity fallback is local-only. Requests to `localhost`, `127.0.0.1`, or `[::1]` use `DEV_USER_EMAIL` when set, otherwise `rawkode.local`. The fallback is ignored on deployed hosts.
-
-Host-context signing also has a local-only fallback. Production dispatch and host-context token issuance require `HOST_SIGNING_SECRET`; missing production signing material returns a server error instead of using a hardcoded secret.
-
-## Pull Request Previews
-
-Opening, reopening, or updating a PR that touches `apps/enchiridion/**` runs the cuenv-generated `.github/workflows/enchiridion-pullrequest.yml` workflow. The workflow runs `cuenv ci --pipeline pullRequest --path apps/enchiridion`; `env.cue` defines the check and preview upload tasks, and the `deploy.preview` task captures Wrangler's `Version Preview URL`.
-
-Cloudflare credentials are not duplicated into GitHub repository secrets. They are declared as 1Password references in `env.cue`, and the generated cuenv workflow resolves them through the same provider flow used by the other rawkode projects.
-
-D1 migrations are applied only on the production deploy path. PR previews upload a Worker preview version and do not mutate the production database schema.
-
-## Cloudflare Resources
-
-- D1 database: `enchiridion` (`0b7c04ac-8fdc-4941-a9cf-36757c24efa7`)
-- Workers for Platforms dispatch namespace: `enchiridion-mini-apps`
-- Dynamic Worker loader binding: `LOADER`
+A local-first, native SwiftUI knowledge journal for macOS and iOS.
 
 ## Architecture
 
-- Astro renders the static app shell and React/Tiptap islands.
-- `src/app.ts` owns API routes, auth, Flue mounting, and `/apps/:slug/*` dispatch.
-- D1 stores daily notes, extension manifests, resource index records, audit logs, and demo app data.
-- Flue owns the in-app agent, the durable `mini-app-builder` agent, and bounded host workflows.
-- Workers for Platforms dispatches autonomous mini-app Workers.
-- Dynamic Workers custom bindings are the target primitive for stateful mini apps. The host should expose scoped RPC stubs for D1/KV/R2/AI and app capabilities rather than passing raw resource bindings to generated code.
+- `EnchiridionCore`: Automerge page documents, GRDB/SQLite local authority, EventKit and direct Google Calendar adapters, and private CloudKit sync.
+- `SharedUI`: native navigation around a narrowly bridged `WKWebView` editor.
+- `WebEditor`: ProseMirror bound directly to each Automerge document, with links, page references, bookmark cards, YouTube embeds, slash commands, and an IndexedDB recovery journal.
+- `Sources/macOS` and `Sources/iOS`: platform-native window, sidebar, tab, navigation, settings, and command surfaces.
 
-## Mini-App Builds
+Edits are journaled in the editor before Swift receives them, committed atomically to SQLite, and only then acknowledged. CloudKit is a transport; the local database remains authoritative offline.
 
-Mini-app requests are admitted through `POST /api/mini-app-builds`. The route creates a D1 build ledger row, dispatches the durable Flue `mini-app-builder` agent with that build id, stores the returned submission id, and returns immediately. The browser only embeds the request block and polls the build row, so closing or reloading the tab does not own the work.
+## Supertags
 
-Builds have a 30 minute deadline. The builder agent must call its scoped `submit_mini_app_candidate` tool to validate the manifest, upload the Workers for Platforms dispatch Worker, smoke test routes, save the extension, and settle the build. Scheduled mini-app behavior is declared as manifest workflows; the Enchiridion host scheduler owns cron and calls app-owned workflow routes under `/apps/:slug/*`.
+Supertags turn ordinary pages into typed objects while keeping the page editable and linkable:
 
-Stateful mini apps are first-class platform work, not a fallback path. A generated app may declare D1/KV/R2/AI-style binding needs and scheduled workflows, but autonomous activation stops at `requires_binding_provisioning` until Enchiridion provisions scoped Dynamic Worker custom bindings and records app-owned migrations. The next platform slice is a capability broker that wraps host resources as narrow WorkerEntrypoint stubs, passes those stubs through `LOADER.load({ env })`, and exposes TypeScript capability declarations to the builder agent.
+- Use **Add Supertag** in a page toolbar to tag the current page as a Person, Organization, Project, Task, Place, or custom type.
+- Select text in the editor and choose **Supertag** to find a page of that type or create one while preserving the selected text as the visible reference.
+- Use **Properties** to edit typed fields and resolve any concurrent-value conflicts explicitly.
+- Use **Library → New Supertag** to define a custom type, fields, select options, and reference constraints.
+- Open a Supertag collection for every page of one type, or use the built-in People, Projects, Tasks, and Work Calendar live views.
 
-Mini apps should get real D1, R2, KV, AI, scheduled workflow, and future connector access through those scoped stubs. They should not receive raw host bindings or account-wide credentials. Each capability must be declared in the manifest, resolved by the host, passed to the Dynamic Worker explicitly, and audited when used.
+Calendar attendees are imported as deterministic Person pages. Repeated refreshes reuse the same Person by normalized email and never overwrite an existing title.
 
-## First Slice
+## Requirements
 
-- Daily notes with autosaved Tiptap JSON.
-- Extension manifest registry.
-- CmdK-style command palette.
-- Tiptap extension blocks.
-- Bookmarks and Projects/Kanban demo mini apps.
+- Xcode 16 or newer
+- XcodeGen 2.46 or newer
+- Bun 1.2 or newer for rebuilding the bundled editor
+
+## Build and test
+
+```sh
+cd WebEditor
+bun install
+bun run check
+bun run build
+cd ..
+
+swift test
+xcodegen generate
+xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion macOS" -destination "platform=macOS" build
+xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion iOS" -destination "generic/platform=iOS Simulator" build
+```
+
+Use the Codex `Run` action or `./script/build_and_run.sh` to build and launch the macOS app.
+
+## Service configuration
+
+CloudKit uses the private container `iCloud.dev.rawkode.enchiridion`. Add that container to the Apple Developer team used for signing.
+
+Google Calendar is serverless: the app uses OAuth 2.0 Authorization Code + PKCE, stores the refresh token in Keychain, and calls the read-only Calendar REST API directly. Create an iOS/macOS OAuth client in Google Cloud, then replace these placeholder values in `project.yml` before regenerating the project:
+
+- `GoogleOAuthClientID`
+- `GoogleOAuthRedirectScheme`
+- the matching `CFBundleURLSchemes` entry
+
+No OAuth client secret belongs in the app.

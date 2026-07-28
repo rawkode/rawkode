@@ -1,9 +1,6 @@
-node_modules
-dist
-.astro
-.flue-vite
-.flue-vite.wrangler.jsonc
-.wrangler
-.dev.vars*
-.env*
-coverage
+.build/
+.DS_Store
+WebEditor/node_modules/
+DerivedData/
+*.xcuserstate
+xcuserdata/

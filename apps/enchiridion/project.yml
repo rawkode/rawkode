@@ -1,0 +1,111 @@
+name: Enchiridion
+
+options:
+  bundleIdPrefix: dev.rawkode
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  generateEmptyDirectories: true
+
+packages:
+  EnchiridionCore:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+
+targets:
+  EnchiridionMac:
+    type: application
+    platform: macOS
+    productName: Enchiridion
+    info:
+      path: Configuration/EnchiridionMac-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion
+        NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
+        GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
+        CFBundleURLTypes:
+          - CFBundleURLName: Google Calendar OAuth
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+    sources:
+      - path: Sources/SharedUI
+        excludes:
+          - Resources
+      - Sources/macOS
+      - path: Sources/SharedUI/Resources/Editor
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: EnchiridionCore
+        product: EnchiridionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion
+        PRODUCT_NAME: Enchiridion
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMac.entitlements
+        CODE_SIGN_STYLE: Automatic
+
+  EnchiridionMobile:
+    type: application
+    platform: iOS
+    productName: Enchiridion
+    info:
+      path: Configuration/EnchiridionMobile-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIBackgroundModes:
+          - remote-notification
+        NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
+        GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
+        CFBundleURLTypes:
+          - CFBundleURLName: Google Calendar OAuth
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+    sources:
+      - path: Sources/SharedUI
+        excludes:
+          - Resources
+      - Sources/iOS
+      - path: Sources/SharedUI/Resources/Editor
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: EnchiridionCore
+        product: EnchiridionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion
+        PRODUCT_NAME: Enchiridion
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: false
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMobile.entitlements
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  Enchiridion macOS:
+    build:
+      targets:
+        EnchiridionMac: all
+    run:
+      config: Debug
+
+  Enchiridion iOS:
+    build:
+      targets:
+        EnchiridionMobile: all
+    run:
+      config: Debug

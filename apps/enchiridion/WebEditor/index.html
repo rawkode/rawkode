@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'nonce-enchiridion-bootstrap'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src https://www.youtube-nocookie.com; connect-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Enchiridion Editor</title>
+    <script nonce="enchiridion-bootstrap">
+      const showBootstrapError = (reason) => {
+        const status = document.getElementById("status")
+        if (status) status.textContent = `Editor failed to load: ${reason?.message ?? reason}`
+      }
+      window.addEventListener("error", event => showBootstrapError(event.error ?? event.message))
+      window.addEventListener("unhandledrejection", event => showBootstrapError(event.reason))
+    </script>
+  </head>
+  <body>
+    <main id="app">
+      <div id="status" role="status" aria-live="polite">Loading editor…</div>
+      <textarea id="title" aria-label="Page title" placeholder="Untitled" rows="1" disabled></textarea>
+      <section id="page-context" class="page-context" aria-label="Calendar context" hidden></section>
+      <div id="editor" aria-label="Page body"></div>
+      <div id="slash-menu" class="palette" hidden></div>
+      <div id="page-menu" class="palette" hidden></div>
+      <div id="selection-toolbar" class="selection-toolbar" hidden></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
