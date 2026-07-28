@@ -272,7 +272,11 @@ final class LibraryRepositoryTests: XCTestCase {
     let dirty = try await fixture.repository.dirtyViews().first { $0.id == view.id }
     XCTAssertEqual(dirty?.definition, view)
     XCTAssertEqual(dirty?.isDeleted, false)
-    try await fixture.repository.markViewCloudSaved(id: view.id, systemFields: Data([1, 2, 3]))
+    try await fixture.repository.markViewCloudSaved(
+      id: view.id,
+      sentGeneration: try XCTUnwrap(dirty?.dirtyGeneration),
+      systemFields: Data([1, 2, 3])
+    )
     let cleanViews = try await fixture.repository.dirtyViews()
     XCTAssertFalse(cleanViews.contains { $0.id == view.id })
 
@@ -305,6 +309,11 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertTrue(needsUpload)
     let keptLocal = try await fixture.repository.savedViewCloudRecord(id: local.id)
     XCTAssertEqual(keptLocal?.definition.name, "Local")
+    try await fixture.repository.markViewCloudSaved(
+      id: local.id,
+      sentGeneration: try XCTUnwrap(keptLocal?.dirtyGeneration),
+      systemFields: Data([4])
+    )
 
     let accepted = try await fixture.repository.mergeCloudView(
       id: local.id,
