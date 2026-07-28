@@ -1,0 +1,569 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
+		2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */; };
+		292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43B5F7FE8066B45C8D015097 /* MacRootView.swift */; };
+		2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785C87A8657C874FF5403E84 /* MacSettingsView.swift */; };
+		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
+		32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
+		3FCA54B2BD75D331E1C7DCB1 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
+		47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */; };
+		527C8CD9E0DE98C102E13A3A /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
+		5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
+		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
+		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
+		8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98257A715412A302965BE5CE /* EnchiridionCore */; };
+		8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */; };
+		929E1941060850FB6F278874 /* MobileLibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */; };
+		94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
+		9BDA6E300E9631938293318F /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
+		A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */; };
+		A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
+		AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3E539EB8451EC283BFE5CA0D /* EnchiridionCore */; };
+		B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
+		C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
+		C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
+		DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
+		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
+		E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
+		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
+		EA952B441700350945E191DD /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
+		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
+		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
+		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
+		594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScreen.swift; sourceTree = "<group>"; };
+		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
+		6CF6E8BE5BBC7FC34821F6AB /* Editor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Editor; path = Sources/SharedUI/Resources/Editor; sourceTree = SOURCE_ROOT; };
+		6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		785C87A8657C874FF5403E84 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
+		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
+		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
+		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
+		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryEditorView.swift; sourceTree = "<group>"; };
+		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
+		D01C78BB8752D4959D32D9E9 /* Enchiridion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibrarySection+Presentation.swift"; sourceTree = "<group>"; };
+		D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryScreen.swift; sourceTree = "<group>"; };
+		DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryListScreen.swift; sourceTree = "<group>"; };
+		E7D6C466615598D4AB32237B /* enchiridion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = enchiridion; path = .; sourceTree = SOURCE_ROOT; };
+		F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
+		F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryRowView.swift; sourceTree = "<group>"; };
+		FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagSchemaEditor.swift; sourceTree = "<group>"; };
+		FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagPropertiesView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		48C94F2B8BEE805222E82ACA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82BEC5343B5EDD2F6E5D3F58 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5823A6251A1ED541F1642242 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */,
+				5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */,
+				DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */,
+				D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */,
+				2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */,
+				F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		61ADCFF913B18B90A8574F77 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6CF6E8BE5BBC7FC34821F6AB /* Editor */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		6E9B1C9034899059B91D3C80 /* SharedUI */ = {
+			isa = PBXGroup;
+			children = (
+				8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */,
+				AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */,
+				A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */,
+				F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */,
+				D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */,
+				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
+				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
+				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
+				61ADCFF913B18B90A8574F77 /* Resources */,
+			);
+			path = SharedUI;
+			sourceTree = "<group>";
+		};
+		82C246F1A3B6A035FB7477CE /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				E7D6C466615598D4AB32237B /* enchiridion */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		9D532DBFAABBD84E17504C05 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D01C78BB8752D4959D32D9E9 /* Enchiridion.app */,
+				6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BA15B80C838FD6B1234574DA /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				5823A6251A1ED541F1642242 /* iOS */,
+				C47C1110E2B03124AEB6B5A2 /* macOS */,
+				6E9B1C9034899059B91D3C80 /* SharedUI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		C47C1110E2B03124AEB6B5A2 /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */,
+				43B5F7FE8066B45C8D015097 /* MacRootView.swift */,
+				785C87A8657C874FF5403E84 /* MacSettingsView.swift */,
+				8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */,
+			);
+			path = macOS;
+			sourceTree = "<group>";
+		};
+		F4288FD3331F5FFD9DA8FEF0 = {
+			isa = PBXGroup;
+			children = (
+				82C246F1A3B6A035FB7477CE /* Packages */,
+				BA15B80C838FD6B1234574DA /* Sources */,
+				9D532DBFAABBD84E17504C05 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7437ED510D55094607A6D7EE /* EnchiridionMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B5F4357527F7DFAD88E92FFC /* Build configuration list for PBXNativeTarget "EnchiridionMobile" */;
+			buildPhases = (
+				6E3636601CBF4FF83D740975 /* Sources */,
+				794E59A2D2ABA3F8FF9BC218 /* Resources */,
+				82BEC5343B5EDD2F6E5D3F58 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnchiridionMobile;
+			packageProductDependencies = (
+				3E539EB8451EC283BFE5CA0D /* EnchiridionCore */,
+			);
+			productName = EnchiridionMobile;
+			productReference = 6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F5C3C0B3B8897EE3525603E3 /* EnchiridionMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DAA52144007B722AB3EDACA8 /* Build configuration list for PBXNativeTarget "EnchiridionMac" */;
+			buildPhases = (
+				20D764491DE1F680F44347F7 /* Sources */,
+				93AE161991D15B58F465BFB0 /* Resources */,
+				48C94F2B8BEE805222E82ACA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnchiridionMac;
+			packageProductDependencies = (
+				98257A715412A302965BE5CE /* EnchiridionCore */,
+			);
+			productName = EnchiridionMac;
+			productReference = D01C78BB8752D4959D32D9E9 /* Enchiridion.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CB3C241C71123388FD6B0E38 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					7437ED510D55094607A6D7EE = {
+						ProvisioningStyle = Automatic;
+					};
+					F5C3C0B3B8897EE3525603E3 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 6598C0901AC395B03B92DFBB /* Build configuration list for PBXProject "Enchiridion" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F4288FD3331F5FFD9DA8FEF0;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				90E6540D178D4DC182233438 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F5C3C0B3B8897EE3525603E3 /* EnchiridionMac */,
+				7437ED510D55094607A6D7EE /* EnchiridionMobile */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		794E59A2D2ABA3F8FF9BC218 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				527C8CD9E0DE98C102E13A3A /* Editor in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		93AE161991D15B58F465BFB0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EA952B441700350945E191DD /* Editor in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		20D764491DE1F680F44347F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */,
+				DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */,
+				3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */,
+				5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */,
+				105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */,
+				C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */,
+				B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */,
+				292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */,
+				2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */,
+				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
+				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
+				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6E3636601CBF4FF83D740975 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */,
+				F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */,
+				3FCA54B2BD75D331E1C7DCB1 /* EmptyLibraryView.swift in Sources */,
+				A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */,
+				32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */,
+				47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */,
+				C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */,
+				DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */,
+				9BDA6E300E9631938293318F /* LiveViewScreen.swift in Sources */,
+				929E1941060850FB6F278874 /* MobileLibraryScreen.swift in Sources */,
+				8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */,
+				6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */,
+				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
+				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		22B9C78C96890DE4BEE3CDC3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		7C9065C1899F9F28E0D52DC9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMobile.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionMobile-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion;
+				PRODUCT_NAME = Enchiridion;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C4D26EFB3A0B471E62A01EE2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion;
+				PRODUCT_NAME = Enchiridion;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		D929C074B15D71E10DF15DD5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/EnchiridionMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion;
+				PRODUCT_NAME = Enchiridion;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		DF8C738C0577896E57CF2D47 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionMobile.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionMobile-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion;
+				PRODUCT_NAME = Enchiridion;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F4AC56E92DE6E8F813C765DF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6598C0901AC395B03B92DFBB /* Build configuration list for PBXProject "Enchiridion" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F4AC56E92DE6E8F813C765DF /* Debug */,
+				22B9C78C96890DE4BEE3CDC3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B5F4357527F7DFAD88E92FFC /* Build configuration list for PBXNativeTarget "EnchiridionMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DF8C738C0577896E57CF2D47 /* Debug */,
+				7C9065C1899F9F28E0D52DC9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DAA52144007B722AB3EDACA8 /* Build configuration list for PBXNativeTarget "EnchiridionMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D929C074B15D71E10DF15DD5 /* Debug */,
+				C4D26EFB3A0B471E62A01EE2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		90E6540D178D4DC182233438 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3E539EB8451EC283BFE5CA0D /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+		98257A715412A302965BE5CE /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = CB3C241C71123388FD6B0E38 /* Project object */;
+}
