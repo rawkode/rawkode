@@ -426,6 +426,8 @@
       config = lib.mkMerge [
         {
           # Common apps for all darwin machines
+          homebrew.onActivation.cleanup = "zap";
+
           programs.zsh.enable = true;
           environment.shells = [
             pkgs.zsh

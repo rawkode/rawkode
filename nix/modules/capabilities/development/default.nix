@@ -91,6 +91,7 @@ mkCapability {
     just.darwin
     nh.darwin
     nix-dev.darwin
+    orbstack.darwin
     python.darwin
     rust.darwin
   ];

@@ -23,6 +23,7 @@ mkApp {
     in
     {
       home.packages = with pkgs; [
+        kind
         kubectl
         kubectlKrew
         kubernetes-helm

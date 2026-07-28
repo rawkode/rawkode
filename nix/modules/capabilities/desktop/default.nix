@@ -62,6 +62,8 @@ mkCapability {
   ];
 
   darwin = with inputs.self; [
+    appBundles.bloom.darwin
+    appBundles.firefox-nightly.darwin
     appBundles.ghostty.darwin
     appBundles.google-chrome.darwin
     appBundles.forklift.darwin

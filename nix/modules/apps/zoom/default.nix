@@ -12,4 +12,13 @@ mkApp {
         pkgs.zoom-us
       ];
     };
+
+  darwin.system =
+    { lib, ... }:
+    {
+      homebrew = {
+        enable = lib.mkDefault true;
+        casks = [ "zoom" ];
+      };
+    };
 }
