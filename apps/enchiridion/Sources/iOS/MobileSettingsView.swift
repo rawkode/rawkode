@@ -57,16 +57,16 @@ struct MobileSettingsView: View {
 
   private var canRequestSync: Bool {
     switch store.syncStatus {
-    case .synced, .attentionRequired:
+    case .synced, .offline, .attentionRequired:
       true
-    case .localOnly, .syncing, .offline, .iCloudUnavailable:
+    case .localOnly, .syncing, .iCloudUnavailable:
       false
     }
   }
 
   private var syncActionHint: String {
     if isSyncing { return "A sync is already in progress." }
-    if canRequestSync { return "Checks iCloud now for updates." }
+    if canRequestSync { return "Checks iCloud now for updates and retries any pending work." }
     return store.syncStatus.detail
   }
 }
