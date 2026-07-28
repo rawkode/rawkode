@@ -64,10 +64,17 @@ targets:
         CFBundleDisplayName: Enchiridion
         UILaunchScreen: {}
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneClassName: CPTemplateApplicationScene
+                UISceneConfigurationName: CarPlay Voice
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
         UIBackgroundModes:
           - remote-notification
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone only while you ask its on-device CarPlay assistant a question.
+        NSSpeechRecognitionUsageDescription: Enchiridion transcribes your CarPlay questions on device so it can answer from your private calendar and notes.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
@@ -84,6 +91,11 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - sdk: CarPlay.framework
+      - sdk: AVFoundation.framework
+      - sdk: Speech.framework
+      - sdk: FoundationModels.framework
+        weak: true
       - package: EnchiridionCore
         product: EnchiridionCore
     settings:
