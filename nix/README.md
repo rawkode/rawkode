@@ -61,8 +61,6 @@ nix build .#nixosConfigurations.p4x-framework-nixos.config.system.build.toplevel
 # Build and switch (on target machine)
 sudo nixos-rebuild switch --flake .#p4x-framework-nixos
 
-# Build installation ISO
-nix build .#nixosConfigurations.installer.config.system.build.isoImage
 ```
 
 ### Using with cuenv (Development Workflow)
@@ -84,9 +82,16 @@ cuenv task bootstrap-cache
 # See available development tasks
 cuenv task
 
-# Execute specific development tasks
-cuenv task <task-name>
+# Format, lint, evaluate, and validate the manifest/output contract
+cuenv task check
+
+# Run all checks, then build this host without activating it
+cuenv task check-host
 ```
+
+`check-host` requires the local hostname to have a machine manifest. It builds the matching NixOS or nix-darwin system closure with `--no-link`; it does not switch or activate the configuration.
+
+The `kree` flake input uses `path:../apps/kree`, so evaluation expects this repository to remain inside the containing `rawkode` monorepo checkout.
 
 ### Home Manager Integration
 
@@ -138,7 +143,7 @@ The development capability includes:
 
 1. Create `modules/machines/<machine-name>/manifest.nix`
 2. Set `platform`, `system`, `primaryUser`, `users`, `capabilities`, and `traits`
-3. Put host-local settings such as disk paths, swap, firmware, and one-off hardware overrides in `modules`
+3. Add host-local settings such as disk paths, swap, firmware, and one-off hardware overrides to the manifest's `modules` list
 
 ### Creating Custom Capabilities
 

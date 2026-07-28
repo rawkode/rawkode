@@ -4,16 +4,19 @@
 
 - Root flake (`flake.nix`) drives everything via flake-parts; inputs are pinned in `flake.lock`.
 - Core code lives under `modules/` and is grouped by area:
-  - `modules/machines/<name>/default.nix` — machine definitions.
-  - `modules/profiles/*.nix` — reusable high-level profiles (base, desktop, development, hardware).
+  - `modules/machines/<name>/manifest.nix` — typed machine composition and host-local overrides.
+  - `modules/capabilities/*` — reusable high-level behavior bundles.
   - `modules/nixos/*` and `modules/home/*` — system and Home Manager modules.
+  - `modules/macos/*` — focused nix-darwin modules.
   - Assets: `modules/packages/wallpapers/`.
 
 ## Build, Test, and Development Commands
 
 - Enter dev shell (linters/formatters available): `nix develop`.
 - Format all files (treefmt-nix): `nix fmt`.
-- Run checks (format, deadnix, statix, etc.): `nix flake check`.
+- Run the canonical local validation: `cuenv task check`.
+- Build and validate the current host without activating it: `cuenv task check-host`.
+- Run the underlying flake checks directly: `nix flake check --no-eval-cache`.
 - Build a NixOS system: `nix build .#nixosConfigurations.<machine>.config.system.build.toplevel`.
 - Switch this repo on macOS/nix-darwin hosts: `nh darwin switch .`.
 - Switch a NixOS target machine: `sudo nixos-rebuild switch --flake .#<machine>`.
@@ -29,7 +32,7 @@
 
 ## Testing Guidelines
 
-- Primary validation is declarative: `nix flake check` and successful builds of affected `nixosConfigurations`.
+- Primary validation is declarative: `cuenv task check` and successful builds of affected system configurations.
 - For system changes, prefer a safe trial: `sudo nixos-rebuild test --flake .#<machine>` before `switch`.
 - No unit-test suite is maintained; add lightweight evaluation checks if introducing complex logic.
 
@@ -37,10 +40,10 @@
 
 - Use Conventional Commits: `feat:`, `fix:`, `chore:`, `refactor:` (see git history).
 - PRs should include: clear description, affected machines/profiles, rationale, and sample commands/logs (e.g., build or `rebuild test`).
-- Require clean `nix fmt` and `nix flake check` before review.
+- Require clean `nix fmt` and `cuenv task check` before review.
 
 ## Security & Configuration Tips
 
 - Do not commit secrets or machine-specific credentials.
-- Hardware changes belong under `modules/nixos/hardware/…`; prefer opt-in via profiles.
-- When unsure, add a new profile or module rather than baking settings into machines.
+- Hardware changes belong under `modules/nixos/hardware/…`; prefer opt-in via traits or capabilities.
+- When unsure, add a focused module or capability rather than baking reusable settings into machines.

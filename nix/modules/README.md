@@ -15,7 +15,6 @@ modules/
 ├── config/         # System configuration modules
 ├── machines/       # Machine manifests and generated configurations
 ├── capabilities/   # Shared behavior bundles selected by machines
-├── profiles/       # Legacy compatibility modules; prefer capabilities
 └── users/          # User-specific configurations
 ```
 
