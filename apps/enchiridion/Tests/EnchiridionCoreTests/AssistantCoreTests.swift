@@ -8,7 +8,8 @@ final class AssistantCoreTests: XCTestCase {
     let now = Date(timeIntervalSince1970: 1_900_000_000)
     let later = event(id: "later", title: "Later review", start: now.addingTimeInterval(7_200))
     let next = event(id: "next", title: "Design review", start: now.addingTimeInterval(1_800))
-    try await fixture.repository.replaceCalendarProjection([later, next], provider: "eventkit", refreshedAt: now)
+    let ongoing = event(id: "ongoing", title: "Already underway", start: now.addingTimeInterval(-1_800))
+    try await fixture.repository.replaceCalendarProjection([later, ongoing, next], provider: "eventkit", refreshedAt: now)
 
     let result = try await fixture.repository.findCalendarEvents(
       from: now,
@@ -99,9 +100,10 @@ final class AssistantCoreTests: XCTestCase {
 
     let results = try await fixture.repository.searchNotes(matching: "Gavin")
     let response = try AssistantGroundingPolicy.groundedResponse(
-      answer: "I found two local pages named Gavin.",
-      citedSourceIDs: results.sources.map(\.id),
-      availableSources: results.sources
+      selectedFactIDs: [try XCTUnwrap(results.evidence.first?.id)],
+      availableFacts: results.evidence,
+      availableSources: results.sources,
+      ambiguousTitles: results.ambiguousTitles
     )
 
     XCTAssertEqual(results.ambiguousTitles, ["Gavin"])
@@ -116,10 +118,16 @@ final class AssistantCoreTests: XCTestCase {
       excerpt: "Ship Tuesday; another value says Thursday.",
       hasConflicts: true
     )
+    let fact = AssistantEvidenceFact(
+      id: "page:decision#excerpt",
+      sourceID: source.id,
+      kind: .pageExcerpt,
+      spokenText: "Launch decision contains conflicting dates."
+    )
 
     let response = try AssistantGroundingPolicy.groundedResponse(
-      answer: "Your local note contains conflicting launch dates.",
-      citedSourceIDs: [source.id],
+      selectedFactIDs: [fact.id],
+      availableFacts: [fact],
       availableSources: [source]
     )
 
@@ -140,8 +148,8 @@ final class AssistantCoreTests: XCTestCase {
       now: now
     )
     let response = try AssistantGroundingPolicy.groundedResponse(
-      answer: "The projection lists Old projection, but the projection is stale.",
-      citedSourceIDs: results.sources.map(\.id),
+      selectedFactIDs: results.evidence.map(\.id),
+      availableFacts: results.evidence,
       availableSources: results.sources
     )
 
@@ -186,17 +194,118 @@ final class AssistantCoreTests: XCTestCase {
     XCTAssertEqual(results.events.first?.isRecurring, true)
   }
 
-  func testHallucinatedSourceIDIsRejected() {
+  func testMeetingBriefBindsExactOccurrenceSeriesAttendeeAndReferencedPeople() async throws {
+    let fixture = try AssistantRepositoryFixture()
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let start = now.addingTimeInterval(3_600)
+    let series = CalendarSeriesIdentity(
+      provider: "eventkit",
+      externalIdentifier: "brief-series",
+      crossProviderIdentifier: "brief-series"
+    )
+    var meeting = CalendarEventSnapshot(
+      identity: CalendarEventIdentity(
+        externalIdentifier: "brief-instance",
+        occurrenceStart: start,
+        series: series
+      ),
+      title: "Planning with Alice",
+      startDate: start,
+      endDate: start.addingTimeInterval(3_600),
+      isAllDay: false,
+      location: "Studio",
+      notes: "Calendar notes must not be bulk-prompted.",
+      url: nil,
+      calendarTitle: "Work"
+    )
+    meeting.attendees = [
+      CalendarAttendeeIdentity(
+        email: "alice@example.com",
+        displayName: "Alice",
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([meeting], provider: "eventkit", refreshedAt: now)
+    let pages = try await fixture.repository.calendarEventPages(for: meeting, now: now)
+    try await fixture.setBody("Occurrence decision: demo the prototype.", on: pages.occurrence)
+    try await fixture.setBody("Series context: focus on launch readiness.", on: pages.series!)
+
+    let gavin = try await fixture.repository.createTaggedPage(
+      title: "Gavin",
+      supertagID: BuiltInSupertags.person,
+      now: now
+    )
+    try await fixture.repository.addSupertag(BuiltInSupertags.project, to: pages.occurrence.id, now: now)
+    try await fixture.repository.setProperty(
+      pageID: pages.occurrence.id,
+      key: SupertagPropertyKey(
+        supertagID: BuiltInSupertags.project,
+        fieldID: .init(rawValue: "owner")
+      ),
+      values: [.page(gavin.id)],
+      now: now
+    )
+
+    let found = try await fixture.repository.findCalendarEvents(
+      matching: "Planning",
+      from: now,
+      through: now.addingTimeInterval(24 * 60 * 60),
+      now: now
+    )
+    let brief = try await fixture.repository.meetingBrief(
+      forEventSourceID: try XCTUnwrap(found.events.first?.source.id),
+      now: now
+    )
+
+    XCTAssertEqual(brief.occurrenceNote?.excerpt, "Occurrence decision: demo the prototype.")
+    XCTAssertEqual(brief.seriesNote?.excerpt, "Series context: focus on launch readiness.")
+    XCTAssertEqual(Set(brief.people.map(\.title)), ["Alice", "Gavin"])
+    XCTAssertTrue(brief.evidence.contains { $0.spokenText.contains("demo the prototype") })
+    XCTAssertTrue(brief.evidence.contains { $0.spokenText.contains("launch readiness") })
+    XCTAssertFalse(brief.evidence.contains { $0.spokenText.contains("bulk-prompted") })
+  }
+
+  func testInventedFactIsRejectedEvenWhenItUsesAValidSource() {
     let source = AssistantSource(id: "page:known", kind: .page, title: "Known")
+    let fact = AssistantEvidenceFact(
+      id: "page:known#title",
+      sourceID: source.id,
+      kind: .pageTitle,
+      spokenText: "A local page is titled Known."
+    )
 
     XCTAssertThrowsError(
       try AssistantGroundingPolicy.groundedResponse(
-        answer: "Invented claim",
-        citedSourceIDs: ["page:invented"],
+        selectedFactIDs: ["page:known#invented-date"],
+        availableFacts: [fact],
         availableSources: [source]
       )
     ) { error in
-      XCTAssertEqual(error as? AssistantGroundingError, .unknownSource("page:invented"))
+      XCTAssertEqual(error as? AssistantGroundingError, .unknownFact("page:known#invented-date"))
+    }
+  }
+
+  func testGroundedSpeechRejectsTooManySelectedFacts() {
+    let source = AssistantSource(id: "page:bounded", kind: .page, title: "Bounded")
+    let facts = (0..<6).map {
+      AssistantEvidenceFact(
+        id: "page:bounded#\($0)",
+        sourceID: source.id,
+        kind: .pageExcerpt,
+        spokenText: "Fact \($0)."
+      )
+    }
+
+    XCTAssertThrowsError(
+      try AssistantGroundingPolicy.groundedResponse(
+        selectedFactIDs: facts.map(\.id),
+        availableFacts: facts,
+        availableSources: [source]
+      )
+    ) { error in
+      XCTAssertEqual(error as? AssistantGroundingError, .tooManyFacts)
     }
   }
 
