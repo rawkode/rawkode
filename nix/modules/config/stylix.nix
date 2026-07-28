@@ -93,6 +93,7 @@ in
       config,
       lib,
       pkgs,
+      isDarwin ? false,
       osClass ? null,
       ...
     }:
@@ -107,11 +108,13 @@ in
         default = true;
       };
 
-    }
-    // lib.optionalAttrs (osClass != "nixos") {
-      # Apply our shared config for standalone Home Manager and Darwin.
-      config = lib.mkIf config.rawkOS.stylix.enable (mkStylixConfig {
-        inherit lib pkgs;
-      });
+      config = lib.mkMerge [
+        (lib.mkIf (config.rawkOS.stylix.enable && !isDarwin) {
+          home.pointerCursor.enable = true;
+        })
+        (lib.mkIf (osClass != "nixos" && config.rawkOS.stylix.enable) (mkStylixConfig {
+          inherit lib pkgs;
+        }))
+      ];
     };
 }
