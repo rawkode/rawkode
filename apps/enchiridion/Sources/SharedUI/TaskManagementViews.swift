@@ -394,7 +394,6 @@ struct TaskDetailScreen: View {
   let store: LibraryStore
   let pageID: PageID
 
-  @Environment(\.dismiss) private var dismiss
   @State private var showsDetails = false
 
   var body: some View {
@@ -457,11 +456,6 @@ private struct TaskMetadataEditor: View {
     NavigationStack {
       Form {
         Section {
-          Picker("Status", selection: $data.state) {
-            Text("Open").tag(TaskState.active)
-            Text("Completed").tag(TaskState.completed)
-            Text("Canceled").tag(TaskState.canceled)
-          }
           Picker("List", selection: $data.placement) {
             ForEach(TaskPlacement.allCases, id: \.self) { placement in
               Text(placement.title).tag(placement)
@@ -574,11 +568,6 @@ private struct TaskMetadataEditor: View {
     if !hasRecurrence { data.recurrence = nil }
     data.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
     data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
-    if data.state == .active {
-      data.completedAt = nil
-    } else if data.completedAt == nil {
-      data.completedAt = Date()
-    }
     Task {
       await store.updateTask(pageID: page.id, data: data)
       isSaving = false

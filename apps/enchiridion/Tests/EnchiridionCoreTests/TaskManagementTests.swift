@@ -58,6 +58,7 @@ final class TaskManagementTests: XCTestCase {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
     let scheduled = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 9))!
+    let reminder = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 8))!
     let completedAt = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 11))!
     let task = try await fixture.repository.createTask(
       TaskDraft(
@@ -66,6 +67,7 @@ final class TaskManagementTests: XCTestCase {
         data: TaskData(
           placement: .anytime,
           scheduledAt: scheduled,
+          reminder: reminder,
           recurrence: .init(mode: .fixedSchedule, unit: .day)
         )
       ),
@@ -84,6 +86,10 @@ final class TaskManagementTests: XCTestCase {
     XCTAssertEqual(
       result.successor?.taskData?.scheduledAt,
       calendar.date(from: DateComponents(year: 2026, month: 7, day: 30, hour: 9))
+    )
+    XCTAssertEqual(
+      result.successor?.taskData?.reminder,
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: 30, hour: 8))
     )
     XCTAssertEqual(result.successor?.plainText, task.plainText)
     XCTAssertNotEqual(result.successor?.id, result.completed.id)

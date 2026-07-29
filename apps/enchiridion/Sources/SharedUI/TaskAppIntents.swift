@@ -126,6 +126,9 @@ struct AddEnchiridionTaskIntent: AppIntent {
   @Parameter(title: "Deadline")
   var deadline: Date?
 
+  @Parameter(title: "Reminder")
+  var reminder: Date?
+
   @Parameter(title: "Priority", default: EnchiridionIntentTaskPriority.none)
   var priority: EnchiridionIntentTaskPriority
 
@@ -139,6 +142,7 @@ struct AddEnchiridionTaskIntent: AppIntent {
     Summary("Add \(\.$taskTitle)") {
       \.$scheduledAt
       \.$deadline
+      \.$reminder
       \.$priority
       \.$tags
       \.$notes
@@ -159,12 +163,16 @@ struct AddEnchiridionTaskIntent: AppIntent {
           placement: scheduledAt == nil ? .inbox : .anytime,
           scheduledAt: scheduledAt,
           deadline: deadline,
+          reminder: reminder,
           priority: priority.taskPriority,
           tags: tags ?? []
         )
       )
     )
-    await TaskReminderScheduler.shared.schedule(page)
+    await TaskReminderScheduler.shared.schedule(
+      page,
+      requestingAuthorization: reminder != nil
+    )
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Added \(page.displayTitle) to Enchiridion."

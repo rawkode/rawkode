@@ -758,6 +758,11 @@ public actor LibraryRepository {
         let offset = deadline.timeIntervalSince(source)
         successorData.deadline = nextDate.addingTimeInterval(offset)
       }
+      if let reminder = data.reminder {
+        let source = data.scheduledAt ?? data.deadline ?? baseline
+        let offset = reminder.timeIntervalSince(source)
+        successorData.reminder = nextDate.addingTimeInterval(offset)
+      }
       if data.scheduledAt == nil, data.deadline == nil {
         successorData.scheduledAt = nextDate
       }
