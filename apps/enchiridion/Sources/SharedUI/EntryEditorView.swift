@@ -8,6 +8,12 @@ import AppKit
 import UIKit
 #endif
 
+extension Notification.Name {
+  static let enchiridionEditorFocusDidChange = Notification.Name(
+    "dev.rawkode.enchiridion.editorFocusDidChange"
+  )
+}
+
 @MainActor
 final class EditorFlushController {
   typealias Flusher = @MainActor () async -> Bool
@@ -495,6 +501,12 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     webView.isOpaque = false
     webView.backgroundColor = .clear
     webView.scrollView.backgroundColor = .clear
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(keyboardDidHide(_:)),
+      name: UIResponder.keyboardDidHideNotification,
+      object: nil
+    )
     #endif
     loadEditor(in: webView)
     return webView
@@ -518,10 +530,32 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
 
   private func stop() {
     flushController.unregister(flushRegistrationID)
+    #if !os(macOS)
+    NotificationCenter.default.removeObserver(
+      self,
+      name: UIResponder.keyboardDidHideNotification,
+      object: nil
+    )
+    publishEditorFocus(false)
+    #endif
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "enchiridion", contentWorld: .page)
     webView?.navigationDelegate = nil
     webView?.uiDelegate = nil
   }
+
+  #if !os(macOS)
+  @objc private func keyboardDidHide(_ notification: Notification) {
+    webView?.evaluateJavaScript("window.EnchiridionEditor?.dismissKeyboard()")
+  }
+
+  private func publishEditorFocus(_ isFocused: Bool) {
+    NotificationCenter.default.post(
+      name: .enchiridionEditorFocusDidChange,
+      object: nil,
+      userInfo: ["isFocused": isFocused]
+    )
+  }
+  #endif
 
   private func flush(_ explicitWebView: WKWebView? = nil) async -> Bool {
     guard isEditorReady, let webView = explicitWebView ?? webView else { return true }
@@ -640,6 +674,12 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
       replyHandler(["ok": true], nil)
     case "commit":
       persistCommit(body, replyHandler: replyHandler)
+    case "editorFocusChanged":
+      #if !os(macOS)
+      let isFocused = body["isFocused"] as? Bool ?? false
+      publishEditorFocus(isFocused)
+      #endif
+      replyHandler(["ok": true], nil)
     case "suggestPages":
       suggestPages(body, replyHandler: replyHandler)
     case "listSupertags":

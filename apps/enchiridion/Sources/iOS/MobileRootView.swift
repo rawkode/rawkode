@@ -1,5 +1,7 @@
+import Combine
 import EnchiridionCore
 import SwiftUI
+import UIKit
 
 struct MobileRootView: View {
   @Environment(\.scenePhase) private var scenePhase
@@ -11,6 +13,8 @@ struct MobileRootView: View {
   @State private var showsQuickTaskCapture = false
   @State private var quickTaskSelection: TaskListSelection = .smart(.inbox)
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
+  @State private var isEditorFocused = false
+  @State private var isKeyboardVisible = false
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
   private let assistantUnavailableReason: String?
@@ -32,10 +36,12 @@ struct MobileRootView: View {
       TodayWorkspaceView(store: store)
         .tabItem { Label("Today", systemImage: "sun.max") }
         .tag(MobileTab.today)
+        .toolbar(tabBarVisibility, for: .tabBar)
 
       MobileTaskHomeScreen(store: store, requestedSelection: $requestedTaskSelection)
         .tabItem { Label("Tasks", systemImage: "checkmark.circle") }
         .tag(MobileTab.tasks)
+        .toolbar(tabBarVisibility, for: .tabBar)
 
       AssistantConversationView(
         session: assistantSession,
@@ -44,14 +50,17 @@ struct MobileRootView: View {
       )
       .tabItem { Label("Assistant", systemImage: "waveform") }
         .tag(MobileTab.assistant)
+        .toolbar(tabBarVisibility, for: .tabBar)
 
       CalendarScreen(store: store)
         .tabItem { Label("Calendar", systemImage: "calendar") }
         .tag(MobileTab.calendar)
+        .toolbar(tabBarVisibility, for: .tabBar)
 
       MobileLibraryScreen(store: store, contactsResolver: contactsResolver)
         .tabItem { Label("Library", systemImage: "books.vertical") }
         .tag(MobileTab.library)
+        .toolbar(tabBarVisibility, for: .tabBar)
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
       TaskQuickCaptureSheet(store: store, selection: quickTaskSelection)
@@ -72,6 +81,19 @@ struct MobileRootView: View {
     .task { await refreshForActivation() }
     .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
+    .onReceive(NotificationCenter.default.publisher(for: .enchiridionEditorFocusDidChange)) { notification in
+      isEditorFocused = notification.userInfo?["isFocused"] as? Bool ?? false
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+      isKeyboardVisible = true
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+      isKeyboardVisible = false
+    }
+  }
+
+  private var tabBarVisibility: Visibility {
+    isEditorFocused || isKeyboardVisible ? .hidden : .visible
   }
 
   private func receive(_ route: TaskDeepLinkRoute) async {

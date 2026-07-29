@@ -36,6 +36,8 @@ describe("packaged editor", () => {
   test("packages one unified editor command bar", () => {
     expect(html.match(/id="mobile-command-bar"/g)).toHaveLength(1);
     expect(html).not.toContain('id="selection-toolbar"');
+    expect(html).toContain("dismissKeyboard");
+    expect(html).toMatch(/type:\s*"editorFocusChanged"/);
   });
 
   test("packages exactly one editable inline page title", () => {

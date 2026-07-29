@@ -72,6 +72,7 @@ declare global {
       load: (request: LoadRequest) => Promise<void>
       focus: () => void
       flush: () => Promise<void>
+      dismissKeyboard: () => void
     }
   }
 }
@@ -84,7 +85,6 @@ const contextElement = requiredElement<HTMLElement>("page-context")
 const slashMenu = requiredElement<HTMLDivElement>("slash-menu")
 const pageMenu = requiredElement<HTMLDivElement>("page-menu")
 const mobileCommandBar = requiredElement<HTMLDivElement>("mobile-command-bar")
-const supertagCommandButton = requiredElement<HTMLButtonElement>("supertag-command")
 
 let handle: DocHandle<PageDoc> | undefined
 let view: EditorView | undefined
@@ -95,6 +95,7 @@ let commitCompletion: Promise<boolean> | undefined
 let loading = false
 let commitTimer: number | undefined
 let recoveredJournalIDs: string[] = []
+let reportedEditorFocus = false
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -226,6 +227,7 @@ window.EnchiridionEditor = {
   load: loadPage,
   focus: () => view?.focus(),
   flush: flushPendingChanges,
+  dismissKeyboard,
 }
 
 void notifyNative({ type: "ready", protocolVersion: PROTOCOL_VERSION }).catch(showError)
@@ -289,8 +291,8 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       updateMobileCommandBar()
     },
   })
-  view.dom.addEventListener("focusin", updateMobileCommandBar)
-  view.dom.addEventListener("focusout", () => window.setTimeout(updateMobileCommandBar, 0))
+  view.dom.addEventListener("focusin", updateEditorFocus)
+  view.dom.addEventListener("focusout", () => window.setTimeout(updateEditorFocus, 0))
   titleInput.disabled = false
   titleInput.value = A.toJS(handle.doc()).title.toString()
   resizeTitle()
@@ -374,6 +376,8 @@ titleInput.addEventListener("keydown", event => {
   event.preventDefault()
   view?.focus()
 })
+titleInput.addEventListener("focusin", updateEditorFocus)
+titleInput.addEventListener("focusout", () => window.setTimeout(updateEditorFocus, 0))
 
 window.addEventListener("resize", resizeTitle)
 
@@ -413,15 +417,38 @@ function runMobileCommand(command: string): void {
     view.focus()
     break
   case "dismiss-keyboard":
-    view.dom.blur()
-    mobileCommandBar.hidden = true
+    dismissKeyboard()
     break
   }
 }
 
+function dismissKeyboard(): void {
+  titleInput.blur()
+  view?.dom.blur()
+  mobileCommandBar.hidden = true
+  reportEditorFocus(false)
+}
+
+function updateEditorFocus(): void {
+  updateMobileCommandBar()
+  reportEditorFocus(document.activeElement === titleInput || view?.hasFocus() == true)
+}
+
+function reportEditorFocus(isFocused: boolean): void {
+  if (reportedEditorFocus === isFocused) return
+  reportedEditorFocus = isFocused
+  void notifyNative({ type: "editorFocusChanged", isFocused }).catch(showError)
+}
+
 function updateMobileCommandBar(): void {
-  supertagCommandButton.disabled = view?.state.selection.empty ?? true
-  mobileCommandBar.hidden = !showsEditorCommandBar(view?.hasFocus() == true)
+  const titleHasFocus = document.activeElement === titleInput
+  const bodyHasFocus = view?.hasFocus() == true
+  for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
+    const command = commandButton.dataset.command
+    commandButton.disabled = command !== "dismiss-keyboard"
+      && (titleHasFocus || (command === "supertag" && (view?.state.selection.empty ?? true)))
+  }
+  mobileCommandBar.hidden = !showsEditorCommandBar(titleHasFocus || bodyHasFocus)
 }
 
 function onDocumentChange(): void {
