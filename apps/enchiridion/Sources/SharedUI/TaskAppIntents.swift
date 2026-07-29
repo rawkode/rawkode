@@ -219,7 +219,9 @@ struct AddEnchiridionTaskIntent: AppIntent {
     }
   }
 
-  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
     let normalizedTitle = taskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedTitle.isEmpty else {
       throw EnchiridionTaskIntentError.invalidTitle
@@ -265,7 +267,9 @@ struct QuickAddEnchiridionTaskIntent: AppIntent {
     Summary("Quick add \(\.$capture)")
   }
 
-  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
     let normalizedCapture = capture.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedCapture.isEmpty else { throw EnchiridionTaskIntentError.invalidTitle }
     let mutations = try intentTaskMutations()
@@ -280,7 +284,8 @@ struct QuickAddEnchiridionTaskIntent: AppIntent {
 
 struct CompleteEnchiridionTaskIntent: AppIntent {
   static let title: LocalizedStringResource = "Complete Task"
-  static let description = IntentDescription("Completes a task and creates its next occurrence if it repeats.")
+  static let description = IntentDescription(
+    "Completes a task and creates its next occurrence if it repeats.")
 
   @Parameter(title: "Task")
   var task: EnchiridionTaskEntity
@@ -289,7 +294,9 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
     Summary("Complete \(\.$task)")
   }
 
-  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
     let mutations = try intentTaskMutations()
     let result = try intentMutationValue(
       await mutations.complete(PageID(rawValue: task.id))
@@ -303,7 +310,8 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
 
 struct ReopenEnchiridionTaskIntent: AppIntent {
   static let title: LocalizedStringResource = "Reopen Task"
-  static let description = IntentDescription("Returns a completed or canceled task to its active list.")
+  static let description = IntentDescription(
+    "Returns a completed or canceled task to its active list.")
 
   @Parameter(title: "Task")
   var task: ClosedEnchiridionTaskEntity
@@ -312,7 +320,9 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
     Summary("Reopen \(\.$task)")
   }
 
-  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
     let mutations = try intentTaskMutations()
     let page = try intentMutationValue(
       await mutations.reopen(PageID(rawValue: task.id))
@@ -320,6 +330,114 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Reopened \(page.displayTitle)."
+    )
+  }
+}
+
+struct ScheduleEnchiridionTaskIntent: AppIntent {
+  static let title: LocalizedStringResource = "Schedule Task"
+  static let description = IntentDescription(
+    "Schedules an active Enchiridion task for a day, with an optional exact time."
+  )
+
+  @Parameter(title: "Task")
+  var task: EnchiridionTaskEntity
+
+  @Parameter(title: "When")
+  var scheduledAt: Date
+
+  @Parameter(title: "Include Time", default: false)
+  var includesTime: Bool
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Schedule \(\.$task) for \(\.$scheduledAt)") {
+      \.$includesTime
+    }
+  }
+
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
+    let schedule: TaskSchedulePatch =
+      includesTime
+      ? .dateTime(scheduledAt) : .dateOnly(Calendar.current.startOfDay(for: scheduledAt))
+    let mutations = try intentTaskMutations()
+    let result = try intentMutationValue(
+      await mutations.patchTasks(
+        [PageID(rawValue: task.id)],
+        patch: TaskMetadataPatch(schedule: schedule, placement: .anytime)
+      )
+    )
+    guard let page = result.tasks.first else { throw EnchiridionTaskIntentError.taskNotActive }
+    let spokenDate = scheduledAt.formatted(
+      date: .abbreviated,
+      time: includesTime ? .shortened : .omitted
+    )
+    return .result(
+      value: EnchiridionTaskEntity(page: page),
+      dialog: "Scheduled \(page.displayTitle) for \(spokenDate)."
+    )
+  }
+}
+
+struct SetEnchiridionTaskDeadlineIntent: AppIntent {
+  static let title: LocalizedStringResource = "Set Task Deadline"
+  static let description = IntentDescription(
+    "Sets a date-only deadline on an active Enchiridion task.")
+
+  @Parameter(title: "Task")
+  var task: EnchiridionTaskEntity
+
+  @Parameter(title: "Deadline")
+  var deadline: Date
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Set the deadline for \(\.$task) to \(\.$deadline)")
+  }
+
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
+    & ProvidesDialog
+  {
+    let normalizedDeadline = Calendar.current.startOfDay(for: deadline)
+    let mutations = try intentTaskMutations()
+    let result = try intentMutationValue(
+      await mutations.patchTasks(
+        [PageID(rawValue: task.id)],
+        patch: TaskMetadataPatch(deadline: .set(normalizedDeadline))
+      )
+    )
+    guard let page = result.tasks.first else { throw EnchiridionTaskIntentError.taskNotActive }
+    return .result(
+      value: EnchiridionTaskEntity(page: page),
+      dialog:
+        "Set the deadline for \(page.displayTitle) to \(deadline.formatted(date: .abbreviated, time: .omitted))."
+    )
+  }
+}
+
+struct CancelEnchiridionTaskIntent: AppIntent {
+  static let title: LocalizedStringResource = "Cancel Task"
+  static let description = IntentDescription(
+    "Cancels an active Enchiridion task without marking it complete."
+  )
+
+  @Parameter(title: "Task")
+  var task: EnchiridionTaskEntity
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Cancel \(\.$task)")
+  }
+
+  func perform() async throws -> some IntentResult & ReturnsValue<ClosedEnchiridionTaskEntity>
+    & ProvidesDialog
+  {
+    let mutations = try intentTaskMutations()
+    let page = try intentMutationValue(
+      await mutations.cancel(PageID(rawValue: task.id))
+    )
+    return .result(
+      value: ClosedEnchiridionTaskEntity(page: page),
+      dialog: "Canceled \(page.displayTitle)."
     )
   }
 }
@@ -335,7 +453,9 @@ struct FindEnchiridionTasksIntent: AppIntent {
     Summary("Find tasks in \(\.$list)")
   }
 
-  func perform() async throws -> some IntentResult & ReturnsValue<[EnchiridionTaskEntity]> & ProvidesDialog {
+  func perform() async throws -> some IntentResult & ReturnsValue<[EnchiridionTaskEntity]>
+    & ProvidesDialog
+  {
     let repository = try intentRepository()
     let pages = try await repository.pages(with: BuiltInSupertags.task)
     let tasks = TaskQuery.items(from: pages, selection: .smart(list.smartList))
@@ -343,7 +463,8 @@ struct FindEnchiridionTasksIntent: AppIntent {
     await TaskSpotlightIndex.index(tasks)
     return .result(
       value: tasks,
-      dialog: tasks.isEmpty ? "There are no tasks in \(list.rawValue)." : "Found \(tasks.count) tasks."
+      dialog: tasks.isEmpty
+        ? "There are no tasks in \(list.rawValue)." : "Found \(tasks.count) tasks."
     )
   }
 }
@@ -370,7 +491,7 @@ struct EnchiridionTaskShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: AskEnchiridionIntent(),
       phrases: [
-        "Ask \(.applicationName)",
+        "Ask \(.applicationName)"
       ],
       shortTitle: "Ask Enchiridion",
       systemImageName: "sparkles"
@@ -420,6 +541,31 @@ struct EnchiridionTaskShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Complete Task",
       systemImageName: "checkmark.circle.fill"
+    )
+    AppShortcut(
+      intent: ScheduleEnchiridionTaskIntent(),
+      phrases: [
+        "Schedule \(\.$task) in \(.applicationName)",
+        "Plan \(\.$task) in \(.applicationName)",
+      ],
+      shortTitle: "Schedule Task",
+      systemImageName: "calendar"
+    )
+    AppShortcut(
+      intent: SetEnchiridionTaskDeadlineIntent(),
+      phrases: [
+        "Set the deadline for \(\.$task) in \(.applicationName)"
+      ],
+      shortTitle: "Set Deadline",
+      systemImageName: "flag"
+    )
+    AppShortcut(
+      intent: CancelEnchiridionTaskIntent(),
+      phrases: [
+        "Cancel \(\.$task) in \(.applicationName)"
+      ],
+      shortTitle: "Cancel Task",
+      systemImageName: "xmark.circle"
     )
   }
 }
