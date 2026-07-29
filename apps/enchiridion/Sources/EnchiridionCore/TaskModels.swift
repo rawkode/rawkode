@@ -128,35 +128,97 @@ public struct TaskRecurrenceRule: Codable, Hashable, Sendable {
     after date: Date,
     calendar: Calendar = .current
   ) -> Date? {
-    let candidate: Date?
-    if !weekdays.isEmpty {
-      candidate = nextSelectedWeekday(after: date, calendar: calendar)
-    } else {
-      let component: Calendar.Component = switch unit {
-      case .day: .day
-      case .week: .weekOfYear
-      case .month: .month
-      case .year: .year
-      }
-      candidate = calendar.date(byAdding: component, value: interval, to: date)
-    }
-    guard let candidate, endDate.map({ candidate <= $0 }) ?? true else { return nil }
-    return candidate
+    TaskTemporalPolicy.nextDate(for: self, after: date, calendar: calendar)
+  }
+}
+
+public struct TaskRecurrenceTiming: Codable, Hashable, Sendable {
+  public var scheduledAt: Date?
+  public var scheduleGranularity: TaskScheduleGranularity
+  public var deadline: Date?
+  public var reminder: Date?
+
+  public init(
+    scheduledAt: Date?,
+    scheduleGranularity: TaskScheduleGranularity,
+    deadline: Date?,
+    reminder: Date?
+  ) {
+    self.scheduledAt = scheduledAt
+    self.scheduleGranularity = scheduleGranularity
+    self.deadline = deadline
+    self.reminder = reminder
   }
 
-  private func nextSelectedWeekday(after date: Date, calendar: Calendar) -> Date? {
-    let start = calendar.startOfDay(for: date)
-    let currentWeek = calendar.dateInterval(of: .weekOfYear, for: start)?.start ?? start
-    let allowed = Set(weekdays.map(\.rawValue))
-    let maximumDays = max(14, interval * 7 + 7)
-    for offset in 1...maximumDays {
-      guard let candidate = calendar.date(byAdding: .day, value: offset, to: start) else { continue }
-      guard allowed.contains(calendar.component(.weekday, from: candidate)) else { continue }
-      let candidateWeek = calendar.dateInterval(of: .weekOfYear, for: candidate)?.start ?? candidate
-      let weeks = calendar.dateComponents([.weekOfYear], from: currentWeek, to: candidateWeek).weekOfYear ?? 0
-      if weeks % interval == 0 { return candidate }
-    }
-    return nil
+  public init(data: TaskData) {
+    self.init(
+      scheduledAt: data.scheduledAt,
+      scheduleGranularity: data.scheduleGranularity,
+      deadline: data.deadline,
+      reminder: data.reminder
+    )
+  }
+}
+
+/// Provenance shared by an occurrence completed with an after-completion recurrence and the
+/// successor generated from that completion. Sync uses this atomic bundle to distinguish
+/// completion-derived timing conflicts from ordinary concurrent edits.
+public struct TaskCompletionSuccessorGeneration: Codable, Hashable, Sendable {
+  public enum Trigger: String, Codable, Hashable, Sendable {
+    case afterCompletion = "after-completion"
+  }
+
+  public var trigger: Trigger
+  public var seriesID: TaskRecurrenceSeriesID
+  public var sourceSequence: Int
+  public var successorSequence: Int
+  public var recurrence: TaskRecurrenceRule
+  public var sourceTiming: TaskRecurrenceTiming
+  public var completedAt: Date
+  public var successorTiming: TaskRecurrenceTiming
+
+  public init(
+    trigger: Trigger = .afterCompletion,
+    seriesID: TaskRecurrenceSeriesID,
+    sourceSequence: Int,
+    successorSequence: Int,
+    recurrence: TaskRecurrenceRule,
+    sourceTiming: TaskRecurrenceTiming,
+    completedAt: Date,
+    successorTiming: TaskRecurrenceTiming
+  ) {
+    self.trigger = trigger
+    self.seriesID = seriesID
+    self.sourceSequence = sourceSequence
+    self.successorSequence = successorSequence
+    self.recurrence = recurrence
+    self.sourceTiming = sourceTiming
+    self.completedAt = completedAt
+    self.successorTiming = successorTiming
+  }
+}
+
+public struct TaskTemporalProvenance: Codable, Hashable, Sendable {
+  public enum Kind: String, Codable, Hashable, Sendable {
+    case completionSuccessor = "completion-successor"
+    case manualMutation = "manual-mutation"
+  }
+
+  public var kind: Kind
+  public var generation: TaskCompletionSuccessorGeneration?
+
+  public init(completionSuccessorGeneration generation: TaskCompletionSuccessorGeneration) {
+    kind = .completionSuccessor
+    self.generation = generation
+  }
+
+  public static var manualMutation: Self {
+    Self(kind: .manualMutation, generation: nil)
+  }
+
+  private init(kind: Kind, generation: TaskCompletionSuccessorGeneration?) {
+    self.kind = kind
+    self.generation = generation
   }
 }
 
@@ -177,7 +239,20 @@ public struct TaskData: Codable, Hashable, Sendable {
   public var recurrenceSeriesID: TaskRecurrenceSeriesID?
   public var recurrenceSequence: Int?
   public var completedAt: Date?
+  public var temporalProvenance: TaskTemporalProvenance?
   public var estimatedMinutes: Int?
+
+  public var completionSuccessorGeneration: TaskCompletionSuccessorGeneration? {
+    get {
+      guard temporalProvenance?.kind == .completionSuccessor else { return nil }
+      return temporalProvenance?.generation
+    }
+    set {
+      temporalProvenance = newValue.map(
+        TaskTemporalProvenance.init(completionSuccessorGeneration:)
+      )
+    }
+  }
 
   public init(
     state: TaskState = .active,
@@ -196,6 +271,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     recurrenceSeriesID: TaskRecurrenceSeriesID? = nil,
     recurrenceSequence: Int? = nil,
     completedAt: Date? = nil,
+    temporalProvenance: TaskTemporalProvenance? = nil,
     estimatedMinutes: Int? = nil
   ) {
     self.state = state
@@ -214,6 +290,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     self.recurrenceSeriesID = recurrenceSeriesID
     self.recurrenceSequence = recurrenceSequence.map { max(0, $0) }
     self.completedAt = completedAt
+    self.temporalProvenance = temporalProvenance
     self.estimatedMinutes = estimatedMinutes
   }
 
@@ -234,6 +311,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     case recurrenceSeriesID
     case recurrenceSequence
     case completedAt
+    case temporalProvenance
     case estimatedMinutes
   }
 
@@ -262,6 +340,10 @@ public struct TaskData: Codable, Hashable, Sendable {
       ),
       recurrenceSequence: try values.decodeIfPresent(Int.self, forKey: .recurrenceSequence),
       completedAt: try values.decodeIfPresent(Date.self, forKey: .completedAt),
+      temporalProvenance: try values.decodeIfPresent(
+        TaskTemporalProvenance.self,
+        forKey: .temporalProvenance
+      ),
       estimatedMinutes: try values.decodeIfPresent(Int.self, forKey: .estimatedMinutes)
     )
   }
@@ -284,6 +366,31 @@ public struct TaskData: Codable, Hashable, Sendable {
   public static func normalizedPageIDs(_ pageIDs: [PageID]) -> [PageID] {
     var seen: Set<PageID> = []
     return pageIDs.filter { seen.insert($0).inserted }
+  }
+
+  public mutating func setScheduleEnabled(
+    _ isEnabled: Bool,
+    defaultDate: Date = Date()
+  ) {
+    scheduledAt = isEnabled ? scheduledAt ?? defaultDate : nil
+  }
+
+  public mutating func setDeadlineEnabled(
+    _ isEnabled: Bool,
+    defaultDate: Date = Date()
+  ) {
+    deadline = isEnabled ? deadline ?? defaultDate : nil
+  }
+
+  public mutating func setReminderEnabled(
+    _ isEnabled: Bool,
+    defaultDate: Date = Date()
+  ) {
+    reminder = isEnabled ? reminder ?? defaultDate : nil
+  }
+
+  public mutating func setRecurrenceEnabled(_ isEnabled: Bool) {
+    recurrence = isEnabled ? recurrence ?? TaskRecurrenceRule() : nil
   }
 }
 
@@ -404,7 +511,8 @@ public enum TaskQuery {
         isMatch = task.data.isActive && task.data.tags.contains(value.lowercased())
       case .search(let query):
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        isMatch = task.page.displayTitle.localizedStandardContains(value)
+        isMatch =
+          task.page.displayTitle.localizedStandardContains(value)
           || task.page.plainText.localizedStandardContains(value)
           || task.data.tags.contains { $0.localizedStandardContains(value) }
       }
@@ -489,14 +597,16 @@ public enum TaskQuery {
     selection: TaskListSelection
   ) -> Bool {
     if case .smart(.logbook) = selection {
-      return (lhs.data.completedAt ?? lhs.page.modifiedAt) > (rhs.data.completedAt ?? rhs.page.modifiedAt)
+      return (lhs.data.completedAt ?? lhs.page.modifiedAt)
+        > (rhs.data.completedAt ?? rhs.page.modifiedAt)
     }
     if lhs.data.priority != rhs.data.priority { return lhs.data.priority > rhs.data.priority }
     let lhsDate = lhs.data.scheduledAt ?? lhs.data.deadline ?? .distantFuture
     let rhsDate = rhs.data.scheduledAt ?? rhs.data.deadline ?? .distantFuture
     if lhsDate != rhsDate { return lhsDate < rhsDate }
     if lhs.page.createdAt != rhs.page.createdAt { return lhs.page.createdAt < rhs.page.createdAt }
-    return lhs.page.displayTitle.localizedStandardCompare(rhs.page.displayTitle) == .orderedAscending
+    return lhs.page.displayTitle.localizedStandardCompare(rhs.page.displayTitle)
+      == .orderedAscending
   }
 }
 
@@ -517,6 +627,7 @@ public enum TaskFields {
   public static let recurrenceSeriesID = key("recurrence-series-id")
   public static let recurrenceSequence = key("recurrence-sequence")
   public static let completedAt = key("completed-at")
+  public static let temporalProvenance = key("temporal-provenance")
   public static let estimatedMinutes = key("estimated-minutes")
   public static let legacyDue = key("due")
 
@@ -536,6 +647,15 @@ public enum TaskFields {
     values[parent] = data.parentTaskID.map { [.page($0)] } ?? []
     values[assignee] = data.assigneeIDs.map(SupertagValue.page)
     values[completedAt] = data.completedAt.map { [.dateTime($0)] } ?? []
+    if let provenance = data.temporalProvenance,
+      let encoded = try? JSONEncoder.enchiridion.encode(provenance)
+    {
+      values[temporalProvenance] = [
+        .text(String(decoding: encoded, as: UTF8.self))
+      ]
+    } else {
+      values[temporalProvenance] = []
+    }
     values[estimatedMinutes] = data.estimatedMinutes.map { [.number(Double($0))] } ?? []
     values[recurrenceSeriesID] = data.recurrenceSeriesID.map { [.text($0.rawValue)] } ?? []
     values[recurrenceSequence] = data.recurrenceSequence.map { [.number(Double($0))] } ?? []
@@ -567,20 +687,25 @@ extension PageSnapshot {
     guard hasSupertag(BuiltInSupertags.task) else { return nil }
     let values = objectMetadata.properties
     let rawStatus = values[TaskFields.status]?.first.flatMap(\.selectValue) ?? "to-do"
-    let state: TaskState = switch rawStatus {
-    case "done", "completed": .completed
-    case "cancelled", "canceled": .canceled
-    default: .active
-    }
+    let state: TaskState =
+      switch rawStatus {
+      case "done", "completed": .completed
+      case "cancelled", "canceled": .canceled
+      default: .active
+      }
     let rawPlacement = values[TaskFields.placement]?.first.flatMap(\.selectValue)
     let placement = rawPlacement.flatMap(TaskPlacement.init(rawValue:)) ?? .inbox
-    let rawScheduleGranularity = values[TaskFields.scheduleGranularity]?.first.flatMap(\.selectValue)
-    let scheduleGranularity = rawScheduleGranularity.flatMap(TaskScheduleGranularity.init(rawValue:))
+    let rawScheduleGranularity = values[TaskFields.scheduleGranularity]?.first.flatMap(
+      \.selectValue)
+    let scheduleGranularity =
+      rawScheduleGranularity.flatMap(TaskScheduleGranularity.init(rawValue:))
       ?? .dateTime
     let rawPriority = values[TaskFields.priority]?.first.flatMap(\.selectValue)
     let priority = rawPriority.flatMap(TaskPriority.init(rawValue:)) ?? .none
     let recurrence = values[TaskFields.recurrence]?.first.flatMap(\.textValue).flatMap { value in
-      value.data(using: .utf8).flatMap { try? JSONDecoder.enchiridion.decode(TaskRecurrenceRule.self, from: $0) }
+      value.data(using: .utf8).flatMap {
+        try? JSONDecoder.enchiridion.decode(TaskRecurrenceRule.self, from: $0)
+      }
     }
     return TaskData(
       state: state,
@@ -602,35 +727,46 @@ extension PageSnapshot {
       recurrenceSequence: values[TaskFields.recurrenceSequence]?.first.flatMap(\.numberValue)
         .flatMap(Int.init(exactly:)),
       completedAt: values[TaskFields.completedAt]?.first.flatMap(\.dateValue),
-      estimatedMinutes: values[TaskFields.estimatedMinutes]?.first.flatMap(\.numberValue).map(Int.init)
+      temporalProvenance: values[TaskFields.temporalProvenance]?.first
+        .flatMap(\.textValue)
+        .flatMap { encoded in
+          encoded.data(using: .utf8).flatMap {
+            try? JSONDecoder.enchiridion.decode(
+              TaskTemporalProvenance.self,
+              from: $0
+            )
+          }
+        },
+      estimatedMinutes: values[TaskFields.estimatedMinutes]?.first.flatMap(\.numberValue).map(
+        Int.init)
     )
   }
 }
 
-private extension SupertagValue {
-  var selectValue: String? {
+extension SupertagValue {
+  fileprivate var selectValue: String? {
     guard case .select(let value) = self else { return nil }
     return value
   }
 
-  var textValue: String? {
+  fileprivate var textValue: String? {
     guard case .text(let value) = self else { return nil }
     return value
   }
 
-  var dateValue: Date? {
+  fileprivate var dateValue: Date? {
     switch self {
     case .date(let value), .dateTime(let value): value
     default: nil
     }
   }
 
-  var pageValue: PageID? {
+  fileprivate var pageValue: PageID? {
     guard case .page(let value) = self else { return nil }
     return value
   }
 
-  var numberValue: Double? {
+  fileprivate var numberValue: Double? {
     guard case .number(let value) = self else { return nil }
     return value
   }

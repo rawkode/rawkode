@@ -27,6 +27,8 @@ public final class LibraryStore {
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
   @ObservationIgnored private var contactResolver: (any DeviceContactResolving)?
   @ObservationIgnored private let calendar: Calendar
+  @ObservationIgnored private var reloadGeneration: UInt64 = 0
+  @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
 
   public init(
     repository: LibraryRepository? = nil,
@@ -45,6 +47,32 @@ public final class LibraryStore {
         self.repository = nil
         startupError = error.localizedDescription
       }
+    }
+    if let repository = self.repository {
+      taskMutationCoordinator = TaskMutationCoordinator(
+        repository: repository,
+        calendar: calendar,
+        effects: .live(
+          surface: .application,
+          reload: { [weak self] in
+            guard let self else { return .failed("The library is unavailable.") }
+            guard await self.reload() != nil else {
+              return .failed(self.startupError ?? "The library could not be refreshed.")
+            }
+            return .applied
+          },
+          sync: { [weak self] pageID in
+            guard let coordinator = self?.syncCoordinator else { return .notNeeded }
+            await coordinator.pageDidChange(pageID)
+            return .applied
+          },
+          purgeSync: { [weak self] pageID in
+            guard let coordinator = self?.syncCoordinator else { return .notNeeded }
+            await coordinator.pageWasPurged(pageID)
+            return .applied
+          }
+        )
+      )
     }
     if startImmediately {
       Task { await start() }
@@ -77,7 +105,8 @@ public final class LibraryStore {
         events: ordered
       )
     }.sorted {
-      ($0.events.first?.startDate ?? .distantFuture) < ($1.events.first?.startDate ?? .distantFuture)
+      ($0.events.first?.startDate ?? .distantFuture)
+        < ($1.events.first?.startDate ?? .distantFuture)
     }
   }
 
@@ -107,7 +136,8 @@ public final class LibraryStore {
 
   public func pagesCreatedOrModified(on date: Date) -> [PageSnapshot] {
     guard let interval = calendar.dateInterval(of: .day, for: date) else { return [] }
-    return pages
+    return
+      pages
       .filter { page in
         page.deletedAt == nil
           && (interval.contains(page.createdAt) || interval.contains(page.modifiedAt))
@@ -126,11 +156,13 @@ public final class LibraryStore {
     do {
       let today = try await repository.dailyPage(for: DayKey(date: Date(), calendar: calendar))
       selectedPageID = selectedPageID ?? today.id
+      _ = await taskMutationCoordinator?.drainPendingEffects()
       await reload()
       let now = Date()
       let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
       let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
-      calendarEvents = try await repository.calendarEvents(from: calendarStart, through: calendarEnd)
+      calendarEvents = try await repository.calendarEvents(
+        from: calendarStart, through: calendarEnd)
       if CloudSyncCoordinator.hasRequiredEntitlement {
         let coordinator = CloudSyncCoordinator(
           repository: repository,
@@ -152,47 +184,58 @@ public final class LibraryStore {
     }
   }
 
-  public func reload() async {
-    guard let repository else { return }
+  @discardableResult
+  public func reload() async -> [PageSnapshot]? {
+    guard let repository else { return nil }
+    reloadGeneration &+= 1
+    let generation = reloadGeneration
     do {
       let live = try await repository.pages(in: .allPages)
       let trash = try await repository.pages(in: .trash)
-      pages = (live + trash).sorted { $0.modifiedAt > $1.modifiedAt }
-      supertags = try await repository.supertags()
+      let loadedPages = (live + trash).sorted { $0.modifiedAt > $1.modifiedAt }
+      let loadedSupertags = try await repository.supertags()
       let loadedSavedViews = try await repository.savedViews()
       var viewItems: [LiveQueryID: [LiveQueryItem]] = [:]
       for view in loadedSavedViews { viewItems[view.id] = try await repository.run(view) }
       let loadedWhiteboards = try await repository.whiteboardDocuments()
-      savedViews = loadedSavedViews
-      liveViewItems = viewItems
-      whiteboardDocuments = loadedWhiteboards
-      calendarPageContexts = try await repository.calendarPageContexts()
-      omissionPrefixes = try await repository.calendarEventOmissionPrefixes()
+      let loadedCalendarPageContexts = try await repository.calendarPageContexts()
+      let loadedOmissionPrefixes = try await repository.calendarEventOmissionPrefixes()
       let now = Date()
       let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
       let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
-      calendarEvents = try await repository.calendarEvents(
+      let loadedCalendarEvents = try await repository.calendarEvents(
         from: calendarStart,
         through: calendarEnd
       )
-      otherPeople = try await repository.otherPeople()
-      contactLinks = Dictionary(
+      let loadedOtherPeople = try await repository.otherPeople()
+      let loadedContactLinks = Dictionary(
         uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
       )
-      Task {
-        await TaskSystemSpotlight.reconcile(live)
-        await TaskReminderScheduler.shared.reconcile(
-          live.filter { $0.hasSupertag(BuiltInSupertags.task) }
-        )
-      }
+
+      guard generation == reloadGeneration else { return nil }
+      pages = loadedPages
+      supertags = loadedSupertags
+      savedViews = loadedSavedViews
+      liveViewItems = viewItems
+      whiteboardDocuments = loadedWhiteboards
+      calendarPageContexts = loadedCalendarPageContexts
+      omissionPrefixes = loadedOmissionPrefixes
+      calendarEvents = loadedCalendarEvents
+      otherPeople = loadedOtherPeople
+      contactLinks = loadedContactLinks
+      await TaskSystemReconciliationCoordinator.shared.submit(live)
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id
       }
       startupError = nil
+      isLoading = false
+      return loadedPages
     } catch {
+      guard generation == reloadGeneration else { return nil }
       startupError = error.localizedDescription
+      isLoading = false
+      return nil
     }
-    isLoading = false
   }
 
   @discardableResult
@@ -238,7 +281,9 @@ public final class LibraryStore {
     }
   }
 
-  public func taggedSuggestions(matching query: String, supertagID: SupertagID) async -> [PageSuggestion] {
+  public func taggedSuggestions(matching query: String, supertagID: SupertagID) async
+    -> [PageSuggestion]
+  {
     guard let repository else { return [] }
     return (try? await repository.taggedSuggestions(matching: query, supertagID: supertagID)) ?? []
   }
@@ -253,7 +298,8 @@ public final class LibraryStore {
   public var taskPeople: [PageSnapshot] { taskPeople(includingOtherPeople: false) }
 
   public func taskPeople(includingOtherPeople: Bool) -> [PageSnapshot] {
-    let candidates = pages(with: BuiltInSupertags.person)
+    let candidates =
+      pages(with: BuiltInSupertags.person)
       + (includingOtherPeople ? otherPeople : [])
     return candidates.sorted {
       personDisplayName(for: $0).localizedStandardCompare(personDisplayName(for: $1))
@@ -327,17 +373,8 @@ public final class LibraryStore {
 
   @discardableResult
   public func createTask(_ draft: TaskDraft) async -> PageID? {
-    guard let repository else { return nil }
-    do {
-      let page = try await repository.createTask(draft)
-      await reload()
-      await TaskReminderScheduler.shared.schedule(page, requestingAuthorization: draft.data.reminder != nil)
-      await syncCoordinator?.pageDidChange(page.id)
-      return page.id
-    } catch {
-      startupError = error.localizedDescription
-      return nil
-    }
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.create(draft))?.id
   }
 
   @discardableResult
@@ -345,66 +382,52 @@ public final class LibraryStore {
     await createTask(QuickTaskParser.parse(quickEntry, calendar: calendar).draft)
   }
 
+  @discardableResult
   public func updateTask(
     pageID: PageID,
     data: TaskData,
     title: String? = nil,
     notes: String? = nil
-  ) async {
-    guard let repository else { return }
-    do {
-      let page = try await repository.updateTask(
+  ) async -> PageSnapshot? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(
+      from: await taskMutationCoordinator.update(
         pageID: pageID,
         data: data,
         title: title,
         notes: notes
       )
-      await reload()
-      await TaskReminderScheduler.shared.schedule(page, requestingAuthorization: data.reminder != nil)
-      await syncCoordinator?.pageDidChange(pageID)
-    } catch {
-      startupError = error.localizedDescription
-    }
+    )
   }
 
-  public func completeTask(_ pageID: PageID) async {
-    guard let repository else { return }
-    do {
-      let result = try await repository.completeTask(pageID: pageID, calendar: calendar)
-      await reload()
-      await TaskReminderScheduler.shared.cancel(result.completed.id)
-      if let successor = result.successor {
-        await TaskReminderScheduler.shared.schedule(successor)
-      }
-      for changedPageID in result.changedPageIDs {
-        await syncCoordinator?.pageDidChange(changedPageID)
-      }
-    } catch {
-      startupError = error.localizedDescription
-    }
+  @discardableResult
+  public func completeTask(_ pageID: PageID) async -> TaskCompletionResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.complete(pageID))
   }
 
-  public func reopenTask(_ pageID: PageID) async {
-    guard let repository else { return }
-    do {
-      let page = try await repository.reopenTask(pageID: pageID)
-      await reload()
-      await TaskReminderScheduler.shared.schedule(page)
-      await syncCoordinator?.pageDidChange(pageID)
-    } catch {
-      startupError = error.localizedDescription
-    }
+  @discardableResult
+  public func reopenTask(_ pageID: PageID) async -> PageSnapshot? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.reopen(pageID))
   }
 
-  public func cancelTask(_ pageID: PageID) async {
-    guard let repository else { return }
-    do {
-      _ = try await repository.cancelTask(pageID: pageID)
-      await reload()
-      await TaskReminderScheduler.shared.cancel(pageID)
-      await syncCoordinator?.pageDidChange(pageID)
-    } catch {
-      startupError = error.localizedDescription
+  @discardableResult
+  public func cancelTask(_ pageID: PageID) async -> PageSnapshot? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.cancel(pageID))
+  }
+
+  private func taskMutationValue<Value: Sendable>(
+    from result: TaskMutationResult<Value>
+  ) -> Value? {
+    switch result {
+    case .success(let success):
+      startupError = nil
+      return success.value
+    case .failure(let failure):
+      startupError = failure.localizedDescription
+      return nil
     }
   }
 
@@ -923,7 +946,19 @@ public final class LibraryStore {
   }
 
   public func moveToTrash(pageID: PageID) {
+    let isTask = page(id: pageID)?.hasSupertag(BuiltInSupertags.task) == true
     Task {
+      if isTask, let taskMutationCoordinator {
+        guard
+          taskMutationValue(
+            from: await taskMutationCoordinator.moveToTrash(pageID)
+          ) != nil
+        else { return }
+        if selectedPageID == pageID {
+          selectedPageID = pages.first { $0.id != pageID && $0.deletedAt == nil }?.id
+        }
+        return
+      }
       do {
         try await repository?.moveToTrash(pageID: pageID)
         if selectedPageID == pageID {
@@ -938,7 +973,17 @@ public final class LibraryStore {
   }
 
   public func restore(pageID: PageID) {
+    let isTask = page(id: pageID)?.hasSupertag(BuiltInSupertags.task) == true
     Task {
+      if isTask, let taskMutationCoordinator {
+        guard
+          taskMutationValue(
+            from: await taskMutationCoordinator.restore(pageID)
+          ) != nil
+        else { return }
+        selectedPageID = pageID
+        return
+      }
       do {
         try await repository?.restore(pageID: pageID)
         selectedPageID = pageID
@@ -951,7 +996,17 @@ public final class LibraryStore {
   }
 
   public func purge(pageID: PageID) {
+    let isTask = page(id: pageID)?.hasSupertag(BuiltInSupertags.task) == true
     Task {
+      if isTask, let taskMutationCoordinator {
+        guard
+          taskMutationValue(
+            from: await taskMutationCoordinator.purge(pageID)
+          ) != nil
+        else { return }
+        if selectedPageID == pageID { selectedPageID = nil }
+        return
+      }
       do {
         try await repository?.purge(pageID: pageID)
         if selectedPageID == pageID { selectedPageID = nil }

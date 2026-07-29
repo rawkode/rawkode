@@ -11,6 +11,7 @@ struct MobileRootView: View {
   @State private var showsQuickTaskCapture = false
   @State private var quickTaskSelection: TaskListSelection = .smart(.inbox)
   @State private var assistantPresentation: MobileAssistantPresentation?
+  @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
   private let assistantUnavailableReason: String?
@@ -79,12 +80,13 @@ struct MobileRootView: View {
     }
     .onOpenURL { url in
       guard let route = TaskDeepLinkRoute(url: url) else { return }
-      Task { await open(route) }
+      Task { await receive(route) }
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
-      Task { await store.reload() }
+      Task { await refreshForActivation() }
     }
+    .task { await refreshForActivation() }
   }
 
   private func assistantPresentationBinding(
@@ -100,9 +102,23 @@ struct MobileRootView: View {
     )
   }
 
-  private func open(_ route: TaskDeepLinkRoute) async {
-    await store.reload()
-    let route = route.validated(against: store.pages)
+  private func receive(_ route: TaskDeepLinkRoute) async {
+    let outcome = await systemHandoffCoordinator.open(route) {
+      await store.reload()
+    }
+    guard let route = outcome?.route else { return }
+    apply(route)
+  }
+
+  private func refreshForActivation() async {
+    let outcome = await systemHandoffCoordinator.activate {
+      await store.reload()
+    }
+    guard let route = outcome?.route else { return }
+    apply(route)
+  }
+
+  private func apply(_ route: TaskDeepLinkRoute) {
     selectedTab = .tasks
     requestedTaskSelection = .smart(route.list)
 

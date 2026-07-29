@@ -26,9 +26,16 @@ final class ShareViewController: SLComposeServiceViewController {
     Task { @MainActor in
       do {
         let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
-        let page = try await repository.createTask(draft)
-        await TaskSystemSpotlight.index(page)
-        extensionContext?.completeRequest(returningItems: nil)
+        let mutations = TaskMutationCoordinator(
+          repository: repository,
+          effects: .live(surface: .shareExtension)
+        )
+        switch await mutations.create(draft) {
+        case .success:
+          extensionContext?.completeRequest(returningItems: nil)
+        case .failure(let failure):
+          throw failure
+        }
       } catch {
         validationAlert("Enchiridion couldn’t save this task. Open the app once, then try again.")
       }

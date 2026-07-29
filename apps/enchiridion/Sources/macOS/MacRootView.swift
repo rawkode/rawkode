@@ -15,6 +15,7 @@ struct MacRootView: View {
   @State private var todayPresentedPageID: PageID?
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
   @State private var editorFlushController = EditorFlushController()
+  @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
 
   init(store: LibraryStore = LibraryStore()) {
     _store = State(initialValue: store)
@@ -39,7 +40,9 @@ struct MacRootView: View {
             }
             .tag(MacSidebarSelection.task(.smart(list)))
           }
-          Button { showsQuickTaskCapture = true } label: {
+          Button {
+            showsQuickTaskCapture = true
+          } label: {
             Label("New Task", systemImage: "plus")
           }
           .buttonStyle(.plain)
@@ -49,7 +52,9 @@ struct MacRootView: View {
             Label(project.displayTitle, systemImage: "folder")
               .tag(MacSidebarSelection.task(.project(project.id)))
           }
-          Button { taskCollectionDraft = .init(kind: .project) } label: {
+          Button {
+            taskCollectionDraft = .init(kind: .project)
+          } label: {
             Label("New Project", systemImage: "plus")
           }
           .buttonStyle(.plain)
@@ -59,7 +64,9 @@ struct MacRootView: View {
             Label(area.displayTitle, systemImage: "square.grid.2x2")
               .tag(MacSidebarSelection.task(.area(area.id)))
           }
-          Button { taskCollectionDraft = .init(kind: .area) } label: {
+          Button {
+            taskCollectionDraft = .init(kind: .area)
+          } label: {
             Label("New Area", systemImage: "plus")
           }
           .buttonStyle(.plain)
@@ -98,7 +105,9 @@ struct MacRootView: View {
               Label(tag.name, systemImage: tag.symbol)
                 .tag(MacSidebarSelection.supertag(tag.id))
             }
-            Button { presentTagEditor(.draft()) } label: {
+            Button {
+              presentTagEditor(.draft())
+            } label: {
               Label("New Supertag", systemImage: "plus")
             }
             .buttonStyle(.plain)
@@ -109,7 +118,9 @@ struct MacRootView: View {
             Label(view.name, systemImage: view.viewKind.systemImage)
               .tag(MacSidebarSelection.view(view.id))
           }
-          Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
+          Button {
+            presentViewEditor(.init(name: "New View", source: .pages))
+          } label: {
             Label("New View", systemImage: "plus")
           }
           .buttonStyle(.plain)
@@ -256,7 +267,9 @@ struct MacRootView: View {
         let tag = store.supertags.first(where: { $0.id == tagID })
       {
         ToolbarItem {
-          Button { presentTagEditor(tag) } label: {
+          Button {
+            presentTagEditor(tag)
+          } label: {
             Label("Edit Schema", systemImage: "slider.horizontal.3")
           }
         }
@@ -276,14 +289,18 @@ struct MacRootView: View {
       }
       if case .task = selection {
         ToolbarItem(placement: .primaryAction) {
-          Button { showsQuickTaskCapture = true } label: {
+          Button {
+            showsQuickTaskCapture = true
+          } label: {
             Label("New Task", systemImage: "plus")
           }
           .help("New Task (Command-Shift-N)")
         }
       } else {
         ToolbarItem(placement: .primaryAction) {
-          Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
+          Button {
+            presentViewEditor(.init(name: "New View", source: .pages))
+          } label: {
             Label("New View", systemImage: "rectangle.stack.badge.plus")
           }
           .help("New saved view")
@@ -313,12 +330,12 @@ struct MacRootView: View {
           flushController: editorFlushController,
           onOpenPage: presentTodayPage
         )
-          .frame(minWidth: 720, minHeight: 560)
-          .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-              Button("Done") { dismissTodayPage() }
-            }
+        .frame(minWidth: 720, minHeight: 560)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismissTodayPage() }
           }
+        }
       }
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
@@ -338,15 +355,13 @@ struct MacRootView: View {
     }
     .onOpenURL { url in
       guard let route = TaskDeepLinkRoute(url: url) else { return }
-      Task { await open(route) }
+      Task { await receive(route) }
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
-      Task { @MainActor in
-        guard await editorFlushController.flush() else { return }
-        await store.reload()
-      }
+      Task { await refreshForActivation() }
     }
+    .task { await refreshForActivation() }
   }
 
   private var isTodaySelection: Bool {
@@ -368,7 +383,8 @@ struct MacRootView: View {
       List(selection: pageSelectionBinding) {
         if case .supertag(let tagID) = selection {
           let taggedPages = store.pages(with: tagID).filter {
-            query.isEmpty || $0.title.localizedStandardContains(query) || $0.plainText.localizedStandardContains(query)
+            query.isEmpty || $0.title.localizedStandardContains(query)
+              || $0.plainText.localizedStandardContains(query)
           }
           if taggedPages.isEmpty {
             ContentUnavailableView(
@@ -389,7 +405,8 @@ struct MacRootView: View {
               ContentUnavailableView(
                 "No Calendar Events",
                 systemImage: "calendar.badge.exclamationmark",
-                description: Text(store.calendarError ?? "Connect a calendar or refresh its events.")
+                description: Text(
+                  store.calendarError ?? "Connect a calendar or refresh its events.")
               )
             }
           } else {
@@ -438,7 +455,9 @@ struct MacRootView: View {
           Section(section == .today ? "Notes" : section.title) {
             if pages.isEmpty {
               Button(action: createPage) {
-                Label(section == .trash ? "Trash is empty" : "Create a page", systemImage: "doc.badge.plus")
+                Label(
+                  section == .trash ? "Trash is empty" : "Create a page",
+                  systemImage: "doc.badge.plus")
               }
               .disabled(section == .trash)
             } else {
@@ -526,7 +545,9 @@ struct MacRootView: View {
   }
 
   private func moveSelectedDay(by value: Int) {
-    guard let day = Calendar.current.date(byAdding: .day, value: value, to: selectedDay) else { return }
+    guard let day = Calendar.current.date(byAdding: .day, value: value, to: selectedDay) else {
+      return
+    }
     selectDay(day)
   }
 
@@ -568,10 +589,25 @@ struct MacRootView: View {
     selectSidebar(.task(.smart(list)))
   }
 
-  private func open(_ route: TaskDeepLinkRoute) async {
-    guard await editorFlushController.flush() else { return }
-    await store.reload()
-    let route = route.validated(against: store.pages)
+  private func receive(_ route: TaskDeepLinkRoute) async {
+    let outcome = await systemHandoffCoordinator.open(route) {
+      guard await editorFlushController.flush() else { return nil }
+      return await store.reload()
+    }
+    guard let route = outcome?.route else { return }
+    apply(route)
+  }
+
+  private func refreshForActivation() async {
+    let outcome = await systemHandoffCoordinator.activate {
+      guard await editorFlushController.flush() else { return nil }
+      return await store.reload()
+    }
+    guard let route = outcome?.route else { return }
+    apply(route)
+  }
+
+  private func apply(_ route: TaskDeepLinkRoute) {
     query = ""
     selection = .task(.smart(route.list))
 
@@ -758,7 +794,9 @@ private struct MacTodayChangedPagesSidebar: View {
           )
         } else {
           ForEach(pages) { page in
-            Button { openPage(page.id) } label: {
+            Button {
+              openPage(page.id)
+            } label: {
               VStack(alignment: .leading, spacing: 3) {
                 Text(page.displayTitle)
                   .lineLimit(2)

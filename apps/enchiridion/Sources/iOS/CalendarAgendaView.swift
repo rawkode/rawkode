@@ -8,6 +8,8 @@ struct CalendarAgendaView: View {
   let error: String?
   let isSearching: Bool
   let calendar: Calendar
+  let capacityPlan: DayCapacityPlan
+  let scheduleTask: (TaskItem, Date) -> Void
   let openOccurrenceNote: (CalendarEventSnapshot) -> Void
   let openSeriesNote: (CalendarEventSnapshot) -> Void
 
@@ -17,6 +19,7 @@ struct CalendarAgendaView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       CalendarAgendaTitle(selectedDay: selectedDay, error: error, calendar: calendar)
+      if !isLoading { CalendarCapacitySummary(plan: capacityPlan) }
       CalendarAgendaContent(
         selectedDay: selectedDay,
         allDayItems: allDayItems,
@@ -24,10 +27,53 @@ struct CalendarAgendaView: View {
         isLoading: isLoading,
         error: error,
         isSearching: isSearching,
+        capacityPlan: capacityPlan,
+        scheduleTask: scheduleTask,
         openOccurrenceNote: openOccurrenceNote,
         openSeriesNote: openSeriesNote
       )
     }
+  }
+}
+
+private struct CalendarCapacitySummary: View {
+  let plan: DayCapacityPlan
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Label("Day capacity", systemImage: "clock.badge.checkmark")
+          .font(.subheadline.weight(.semibold))
+        Spacer(minLength: 12)
+        Text(plan.overCapacityMinutes > 0
+          ? "\(duration(plan.overCapacityMinutes)) over"
+          : "\(duration(plan.availableMinutes)) open")
+          .font(.subheadline.monospacedDigit().weight(.medium))
+          .foregroundStyle(plan.overCapacityMinutes > 0 ? Color.orange : Color.secondary)
+      }
+      Text("\(duration(plan.plannedMinutes)) planned · \(duration(plan.unscheduledMinutes)) to place")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      if plan.tasksWithoutEstimates > 0 {
+        Text("\(plan.tasksWithoutEstimates) \(plan.tasksWithoutEstimates == 1 ? "task" : "tasks") without estimates")
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+      }
+    }
+    .padding(12)
+    .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(.separator.opacity(0.55))
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private func duration(_ minutes: Int) -> String {
+    if minutes < 60 { return "\(minutes)m" }
+    let hours = minutes / 60
+    let remainder = minutes % 60
+    return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
   }
 }
 
@@ -62,6 +108,8 @@ private struct CalendarAgendaContent: View {
   let isLoading: Bool
   let error: String?
   let isSearching: Bool
+  let capacityPlan: DayCapacityPlan
+  let scheduleTask: (TaskItem, Date) -> Void
   let openOccurrenceNote: (CalendarEventSnapshot) -> Void
   let openSeriesNote: (CalendarEventSnapshot) -> Void
 
@@ -83,6 +131,8 @@ private struct CalendarAgendaContent: View {
             CalendarAgendaRow(
               item: item,
               selectedDay: selectedDay,
+              suggestion: suggestion(for: item),
+              scheduleTask: scheduleTask,
               openOccurrenceNote: openOccurrenceNote,
               openSeriesNote: openSeriesNote
             )
@@ -95,6 +145,8 @@ private struct CalendarAgendaContent: View {
             CalendarAgendaRow(
               item: item,
               selectedDay: selectedDay,
+              suggestion: suggestion(for: item),
+              scheduleTask: scheduleTask,
               openOccurrenceNote: openOccurrenceNote,
               openSeriesNote: openSeriesNote
             )
@@ -112,5 +164,10 @@ private struct CalendarAgendaContent: View {
   private var emptyDescription: String {
     if isSearching { return "Try a different search or calendar filter." }
     return error ?? "Events and scheduled tasks for this day will appear here."
+  }
+
+  private func suggestion(for item: CalendarAgendaItem) -> DayCapacitySuggestion? {
+    guard case .task(let task, _) = item else { return nil }
+    return capacityPlan.suggestion(for: task.id)
   }
 }

@@ -13,24 +13,54 @@ struct CalendarScreen: View {
 
   private let calendar = Calendar.current
 
-  private var filteredCalendarEvents: [CalendarEventSnapshot] {
+  private var calendarEventsInSelectedCalendars: [CalendarEventSnapshot] {
     store.calendarEvents.filter { event in
-      (selectedCalendarTitles.isEmpty || selectedCalendarTitles.contains(event.calendarTitle))
-        && eventMatchesSearch(event)
+      selectedCalendarTitles.isEmpty || selectedCalendarTitles.contains(event.calendarTitle)
     }
+  }
+
+  private var filteredCalendarEvents: [CalendarEventSnapshot] {
+    calendarEventsInSelectedCalendars.filter(eventMatchesSearch)
   }
 
   private var selectedDayEvents: [CalendarEventSnapshot] {
     CalendarAgendaDate.events(on: selectedDay, in: filteredCalendarEvents, calendar: calendar)
   }
 
-  private var selectedDayTasks: [(task: TaskItem, placement: CalendarTaskPlacement)] {
+  private var capacityDayEvents: [CalendarEventSnapshot] {
+    CalendarAgendaDate.events(
+      on: selectedDay, in: calendarEventsInSelectedCalendars, calendar: calendar)
+  }
+
+  private var capacityDayTasks: [(task: TaskItem, placement: CalendarTaskPlacement)] {
     CalendarAgendaDate.tasks(on: selectedDay, from: store.pages, calendar: calendar)
-      .filter { taskMatchesSearch($0.task) }
+  }
+
+  private var selectedDayTasks: [(task: TaskItem, placement: CalendarTaskPlacement)] {
+    capacityDayTasks.filter { taskMatchesSearch($0.task) }
   }
 
   private var agendaItems: [CalendarAgendaItem] {
     CalendarAgendaDate.items(events: selectedDayEvents, tasks: selectedDayTasks)
+  }
+
+  private var capacityPlan: DayCapacityPlan {
+    DayCapacityPlanner.plan(
+      day: selectedDay,
+      events: capacityDayEvents.map {
+        DayCapacityEvent(start: $0.startDate, end: $0.endDate, isAllDay: $0.isAllDay)
+      },
+      tasks: capacityDayTasks.map {
+        DayCapacityTask(
+          id: $0.task.id,
+          scheduledAt: $0.placement.scheduledAt,
+          scheduleGranularity: $0.placement.scheduleGranularity ?? .dateOnly,
+          estimatedMinutes: $0.placement.estimatedMinutes
+        )
+      },
+      calendar: calendar,
+      now: Date()
+    )
   }
 
   private var calendarTitles: [String] {
@@ -55,6 +85,8 @@ struct CalendarScreen: View {
             error: store.calendarError,
             isSearching: !searchText.isEmpty,
             calendar: calendar,
+            capacityPlan: capacityPlan,
+            scheduleTask: scheduleTask,
             openOccurrenceNote: openOccurrenceNote,
             openSeriesNote: openSeriesNote
           )
@@ -118,6 +150,13 @@ struct CalendarScreen: View {
     } else {
       withAnimation(.easeInOut(duration: 0.2)) { selectedDay = nextDay }
     }
+  }
+
+  private func scheduleTask(_ task: TaskItem, at date: Date) {
+    var data = task.data
+    data.scheduledAt = date
+    data.scheduleGranularity = .dateTime
+    Task { await store.updateTask(pageID: task.id, data: data) }
   }
 
   private func openOccurrenceNote(for event: CalendarEventSnapshot) {

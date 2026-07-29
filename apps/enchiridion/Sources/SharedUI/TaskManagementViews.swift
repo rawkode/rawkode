@@ -93,7 +93,9 @@ struct MobileTaskHomeScreen: View {
       }
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
-          Button { showsQuickCapture = true } label: {
+          Button {
+            showsQuickCapture = true
+          } label: {
             Label("New Task", systemImage: "plus")
           }
           .accessibilityHint("Opens on-device task interpretation with a confirmation preview.")
@@ -156,7 +158,9 @@ struct TaskListScreen: View {
     .toolbar {
       if selection != .smart(.review) {
         ToolbarItem(placement: .primaryAction) {
-          Button { showsQuickCapture = true } label: {
+          Button {
+            showsQuickCapture = true
+          } label: {
             Label("New Task", systemImage: "plus")
           }
         }
@@ -295,7 +299,9 @@ struct TaskListContent: View {
   }
 
   private var emptyDescription: String {
-    if case .smart(.inbox) = selection { return "Capture something as soon as it crosses your mind." }
+    if case .smart(.inbox) = selection {
+      return "Capture something as soon as it crosses your mind."
+    }
     if case .smart(.today) = selection { return "Nothing is scheduled or due today." }
     return "No tasks match this list."
   }
@@ -323,7 +329,9 @@ struct TaskRow: View {
           .contentTransition(.symbolEffect(.replace))
       }
       .buttonStyle(.plain)
-      .accessibilityLabel(task.data.state == .active ? "Complete \(task.page.displayTitle)" : "Reopen \(task.page.displayTitle)")
+      .accessibilityLabel(
+        task.data.state == .active
+          ? "Complete \(task.page.displayTitle)" : "Reopen \(task.page.displayTitle)")
 
       Button(action: open) {
         VStack(alignment: .leading, spacing: 5) {
@@ -438,7 +446,9 @@ struct TaskDetailScreen: View {
     PageEditorView(store: store, pageID: pageID)
       .toolbar {
         ToolbarItemGroup(placement: .primaryAction) {
-          Button { showsDetails = true } label: {
+          Button {
+            showsDetails = true
+          } label: {
             Label("Task Details", systemImage: "checklist")
           }
           if let data = store.page(id: pageID)?.taskData {
@@ -451,7 +461,9 @@ struct TaskDetailScreen: View {
                 }
               }
             } label: {
-              Label(data.state == .active ? "Complete" : "Reopen", systemImage: data.state == .active ? "checkmark.circle" : "arrow.uturn.backward")
+              Label(
+                data.state == .active ? "Complete" : "Reopen",
+                systemImage: data.state == .active ? "checkmark.circle" : "arrow.uturn.backward")
             }
           }
         }
@@ -470,22 +482,15 @@ private struct TaskMetadataEditor: View {
 
   @Environment(\.dismiss) private var dismiss
   @State private var data: TaskData
-  @State private var hasScheduledDate: Bool
-  @State private var hasDeadline: Bool
-  @State private var hasReminder: Bool
-  @State private var hasRecurrence: Bool
   @State private var tags: String
   @State private var estimate: String
   @State private var isSaving = false
+  @State private var saveError: String?
 
   init(store: LibraryStore, page: PageSnapshot, initialData: TaskData) {
     self.store = store
     self.page = page
     _data = State(initialValue: initialData)
-    _hasScheduledDate = State(initialValue: initialData.scheduledAt != nil)
-    _hasDeadline = State(initialValue: initialData.deadline != nil)
-    _hasReminder = State(initialValue: initialData.reminder != nil)
-    _hasRecurrence = State(initialValue: initialData.recurrence != nil)
     _tags = State(initialValue: initialData.tags.joined(separator: ", "))
     _estimate = State(initialValue: initialData.estimatedMinutes.map(String.init) ?? "")
   }
@@ -507,20 +512,26 @@ private struct TaskMetadataEditor: View {
         }
 
         Section("Dates") {
-          Toggle("Schedule", isOn: $hasScheduledDate)
-          if hasScheduledDate {
+          Toggle("Schedule", isOn: hasScheduledDateBinding)
+          if data.scheduledAt != nil {
+            Picker("Schedule precision", selection: $data.scheduleGranularity) {
+              Text("Date only").tag(TaskScheduleGranularity.dateOnly)
+              Text("Date and time").tag(TaskScheduleGranularity.dateTime)
+            }
             DatePicker(
               "When",
               selection: scheduledBinding,
-              displayedComponents: [.date, .hourAndMinute]
+              displayedComponents: data.scheduleGranularity == .dateOnly
+                ? [.date]
+                : [.date, .hourAndMinute]
             )
           }
-          Toggle("Deadline", isOn: $hasDeadline)
-          if hasDeadline {
+          Toggle("Deadline", isOn: hasDeadlineBinding)
+          if data.deadline != nil {
             DatePicker("Deadline", selection: deadlineBinding, displayedComponents: .date)
           }
-          Toggle("Reminder", isOn: $hasReminder)
-          if hasReminder {
+          Toggle("Reminder", isOn: hasReminderBinding)
+          if data.reminder != nil {
             DatePicker(
               "Remind me",
               selection: reminderBinding,
@@ -555,9 +566,16 @@ private struct TaskMetadataEditor: View {
         TaskAssigneesSection(store: store, assigneeIDs: $data.assigneeIDs)
 
         Section("Repeat") {
-          Toggle("Repeats", isOn: $hasRecurrence)
-          if hasRecurrence {
+          Toggle("Repeats", isOn: hasRecurrenceBinding)
+          if data.recurrence != nil {
             TaskRecurrenceEditor(rule: recurrenceBinding)
+          }
+        }
+
+        if let saveError {
+          Section {
+            Label(saveError, systemImage: "exclamationmark.triangle")
+              .foregroundStyle(.red)
           }
         }
       }
@@ -579,18 +597,46 @@ private struct TaskMetadataEditor: View {
     Binding(get: { data.scheduledAt ?? Date() }, set: { data.scheduledAt = $0 })
   }
 
+  private var hasScheduledDateBinding: Binding<Bool> {
+    Binding(
+      get: { data.scheduledAt != nil },
+      set: { data.setScheduleEnabled($0) }
+    )
+  }
+
   private var deadlineBinding: Binding<Date> {
     Binding(get: { data.deadline ?? Date() }, set: { data.deadline = $0 })
+  }
+
+  private var hasDeadlineBinding: Binding<Bool> {
+    Binding(
+      get: { data.deadline != nil },
+      set: { data.setDeadlineEnabled($0) }
+    )
   }
 
   private var reminderBinding: Binding<Date> {
     Binding(get: { data.reminder ?? Date() }, set: { data.reminder = $0 })
   }
 
+  private var hasReminderBinding: Binding<Bool> {
+    Binding(
+      get: { data.reminder != nil },
+      set: { data.setReminderEnabled($0) }
+    )
+  }
+
   private var recurrenceBinding: Binding<TaskRecurrenceRule> {
     Binding(
       get: { data.recurrence ?? TaskRecurrenceRule() },
-      set: { data.recurrence = $0 }
+      set: { data.recurrence = TaskTemporalPolicy.normalized($0) }
+    )
+  }
+
+  private var hasRecurrenceBinding: Binding<Bool> {
+    Binding(
+      get: { data.recurrence != nil },
+      set: { data.setRecurrenceEnabled($0) }
     )
   }
 
@@ -602,14 +648,15 @@ private struct TaskMetadataEditor: View {
 
   private func save() {
     isSaving = true
-    if !hasScheduledDate { data.scheduledAt = nil }
-    if !hasDeadline { data.deadline = nil }
-    if !hasReminder { data.reminder = nil }
-    if !hasRecurrence { data.recurrence = nil }
+    saveError = nil
     data.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
     data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
     Task {
-      await store.updateTask(pageID: page.id, data: data)
+      guard await store.updateTask(pageID: page.id, data: data) != nil else {
+        saveError = store.startupError ?? "The task could not be saved."
+        isSaving = false
+        return
+      }
       isSaving = false
       dismiss()
     }
@@ -648,7 +695,8 @@ private struct TaskAssigneesSection: View {
 
       if !store.otherPeople.isEmpty {
         Toggle("Include Other People", isOn: $includesOtherPeople)
-          .accessibilityHint("Shows people discovered from calendar events who have not been promoted.")
+          .accessibilityHint(
+            "Shows people discovered from calendar events who have not been promoted.")
 
         if includesOtherPeople {
           ForEach(store.otherPeople) { person in
@@ -713,7 +761,7 @@ private struct TaskRecurrenceEditor: View {
       }
     }
     Stepper("Every \(rule.interval) \(unitLabel)", value: $rule.interval, in: 1...99)
-    Picker("Unit", selection: $rule.unit) {
+    Picker("Unit", selection: unitBinding) {
       ForEach(TaskRecurrenceUnit.allCases, id: \.self) { unit in
         Text(unit.title).tag(unit)
       }
@@ -742,6 +790,16 @@ private struct TaskRecurrenceEditor: View {
   private var unitLabel: String {
     rule.interval == 1 ? rule.unit.rawValue : "\(rule.unit.rawValue)s"
   }
+
+  private var unitBinding: Binding<TaskRecurrenceUnit> {
+    Binding(
+      get: { rule.unit },
+      set: { unit in
+        rule.unit = unit
+        rule = TaskTemporalPolicy.normalized(rule)
+      }
+    )
+  }
 }
 
 struct TaskQuickEntryBar: View {
@@ -751,6 +809,8 @@ struct TaskQuickEntryBar: View {
   @State private var entry = ""
   @FocusState private var isFocused: Bool
   @State private var captureRequest: TaskQuickCaptureRequest?
+  @State private var isSavingLiteral = false
+  @State private var saveError: String?
 
   var body: some View {
     if selection != .smart(.review) {
@@ -761,18 +821,33 @@ struct TaskQuickEntryBar: View {
         TextField("New task", text: $entry)
           .textFieldStyle(.plain)
           .focused($isFocused)
-          .submitLabel(.next)
-          .onSubmit(review)
-          .accessibilityHint("Review an on-device interpretation before saving.")
-        Button("Review", systemImage: "arrow.right.circle.fill", action: review)
-          .labelStyle(.iconOnly)
+          .submitLabel(.done)
+          .onSubmit(saveLiteral)
+          .disabled(isSavingLiteral)
+          .accessibilityHint(
+            "Press Return to save literally to Inbox, or choose Interpret to review on-device suggestions."
+          )
+        if isSavingLiteral {
+          ProgressView()
+            .controlSize(.small)
+            .accessibilityLabel("Saving task")
+        }
+        Button("Interpret", systemImage: "sparkles", action: reviewInterpretation)
           .buttonStyle(.plain)
           .foregroundStyle(.tint)
-          .disabled(entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(
+            isSavingLiteral
+              || TaskQuickEntryPolicy.command(for: entry, trigger: .interpret) == nil
+          )
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
       .background(.bar)
+      .alert("Couldn’t Save Task", isPresented: saveErrorBinding) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(saveError ?? "Try again.")
+      }
       .sheet(item: $captureRequest) { request in
         TaskQuickCaptureSheet(
           store: store,
@@ -787,9 +862,42 @@ struct TaskQuickEntryBar: View {
     }
   }
 
-  private func review() {
-    guard !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-    captureRequest = TaskQuickCaptureRequest(entry: entry)
+  private var saveErrorBinding: Binding<Bool> {
+    Binding(
+      get: { saveError != nil },
+      set: { if !$0 { saveError = nil } }
+    )
+  }
+
+  private func saveLiteral() {
+    guard !isSavingLiteral,
+      case .saveLiteral(let draft) = TaskQuickEntryPolicy.command(
+        for: entry,
+        trigger: .submit
+      )
+    else { return }
+
+    isSavingLiteral = true
+    saveError = nil
+    Task {
+      if await store.createTask(draft) != nil {
+        entry = ""
+        isFocused = true
+      } else {
+        saveError = "Enchiridion couldn’t save this task. Your text is still here."
+      }
+      isSavingLiteral = false
+    }
+  }
+
+  private func reviewInterpretation() {
+    guard
+      case .reviewInterpretation(let normalized) = TaskQuickEntryPolicy.command(
+        for: entry,
+        trigger: .interpret
+      )
+    else { return }
+    captureRequest = TaskQuickCaptureRequest(entry: normalized)
   }
 }
 
@@ -956,7 +1064,8 @@ struct TaskQuickCaptureSheet: View {
 
   private func resolvingLocalAssociations(in result: TaskInterpretation) -> TaskInterpretation {
     var resolved = result
-    for index in resolved.suggestions.indices where resolved.suggestions[index].state == .unresolved {
+    for index in resolved.suggestions.indices where resolved.suggestions[index].state == .unresolved
+    {
       let suggestion = resolved.suggestions[index]
       let match: PageSnapshot?
       switch suggestion.field {
@@ -967,8 +1076,10 @@ struct TaskQuickCaptureSheet: View {
         match = exactMatch(suggestion.value, in: store.taskAreas)
         if let match { resolved.draft.data.areaID = match.id }
       case .parentTask:
-        let candidates = store.pages.compactMap(TaskItem.init(page:)).filter { $0.data.state == .active }
-          .map(\.page)
+        let candidates = store.pages.compactMap(TaskItem.init(page:)).filter {
+          $0.data.state == .active
+        }
+        .map(\.page)
         match = exactMatch(suggestion.value, in: candidates)
         if let match { resolved.draft.data.parentTaskID = match.id }
       case .person:
@@ -984,14 +1095,18 @@ struct TaskQuickCaptureSheet: View {
       }
       if let match {
         resolved.suggestions[index].state = .applied
-        resolved.suggestions[index].explanation = "Matched local \(suggestion.field.title.lowercased()) “\(match.displayTitle)”."
+        resolved.suggestions[index].explanation =
+          "Matched local \(suggestion.field.title.lowercased()) “\(match.displayTitle)”."
       }
     }
     return resolved
   }
 
   private func exactMatch(_ value: String, in candidates: [PageSnapshot]) -> PageSnapshot? {
-    candidates.first { $0.displayTitle.compare(value, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+    candidates.first {
+      $0.displayTitle.compare(value, options: [.caseInsensitive, .diacriticInsensitive])
+        == .orderedSame
+    }
   }
 
   private func exactPersonMatch(_ value: String) -> PageSnapshot? {
@@ -1153,10 +1268,6 @@ private struct TaskDraftMetadataEditor: View {
 
   @Environment(\.dismiss) private var dismiss
   @State private var draft: TaskDraft
-  @State private var hasScheduledDate: Bool
-  @State private var hasDeadline: Bool
-  @State private var hasReminder: Bool
-  @State private var hasRecurrence: Bool
   @State private var tags: String
   @State private var estimate: String
 
@@ -1164,10 +1275,6 @@ private struct TaskDraftMetadataEditor: View {
     self.store = store
     self.onSave = onSave
     _draft = State(initialValue: initialDraft)
-    _hasScheduledDate = State(initialValue: initialDraft.data.scheduledAt != nil)
-    _hasDeadline = State(initialValue: initialDraft.data.deadline != nil)
-    _hasReminder = State(initialValue: initialDraft.data.reminder != nil)
-    _hasRecurrence = State(initialValue: initialDraft.data.recurrence != nil)
     _tags = State(initialValue: initialDraft.data.tags.joined(separator: ", "))
     _estimate = State(initialValue: initialDraft.data.estimatedMinutes.map(String.init) ?? "")
   }
@@ -1187,8 +1294,8 @@ private struct TaskDraftMetadataEditor: View {
         }
 
         Section("Dates") {
-          Toggle("Schedule", isOn: $hasScheduledDate)
-          if hasScheduledDate {
+          Toggle("Schedule", isOn: hasScheduledDateBinding)
+          if draft.data.scheduledAt != nil {
             Picker("Schedule precision", selection: $draft.data.scheduleGranularity) {
               Text("Date only").tag(TaskScheduleGranularity.dateOnly)
               Text("Date and time").tag(TaskScheduleGranularity.dateTime)
@@ -1196,16 +1303,18 @@ private struct TaskDraftMetadataEditor: View {
             DatePicker(
               "When",
               selection: scheduledBinding,
-              displayedComponents: draft.data.scheduleGranularity == .dateOnly ? [.date] : [.date, .hourAndMinute]
+              displayedComponents: draft.data.scheduleGranularity == .dateOnly
+                ? [.date] : [.date, .hourAndMinute]
             )
           }
-          Toggle("Deadline", isOn: $hasDeadline)
-          if hasDeadline {
+          Toggle("Deadline", isOn: hasDeadlineBinding)
+          if draft.data.deadline != nil {
             DatePicker("Deadline", selection: deadlineBinding, displayedComponents: .date)
           }
-          Toggle("Reminder", isOn: $hasReminder)
-          if hasReminder {
-            DatePicker("Remind me", selection: reminderBinding, displayedComponents: [.date, .hourAndMinute])
+          Toggle("Reminder", isOn: hasReminderBinding)
+          if draft.data.reminder != nil {
+            DatePicker(
+              "Remind me", selection: reminderBinding, displayedComponents: [.date, .hourAndMinute])
           }
         }
 
@@ -1229,8 +1338,8 @@ private struct TaskDraftMetadataEditor: View {
         TaskAssigneesSection(store: store, assigneeIDs: $draft.data.assigneeIDs)
 
         Section("Repeat") {
-          Toggle("Repeats", isOn: $hasRecurrence)
-          if hasRecurrence { TaskRecurrenceEditor(rule: recurrenceBinding) }
+          Toggle("Repeats", isOn: hasRecurrenceBinding)
+          if draft.data.recurrence != nil { TaskRecurrenceEditor(rule: recurrenceBinding) }
         }
       }
       .navigationTitle("Review Task")
@@ -1249,18 +1358,46 @@ private struct TaskDraftMetadataEditor: View {
     Binding(get: { draft.data.scheduledAt ?? Date() }, set: { draft.data.scheduledAt = $0 })
   }
 
+  private var hasScheduledDateBinding: Binding<Bool> {
+    Binding(
+      get: { draft.data.scheduledAt != nil },
+      set: { draft.data.setScheduleEnabled($0) }
+    )
+  }
+
   private var deadlineBinding: Binding<Date> {
     Binding(get: { draft.data.deadline ?? Date() }, set: { draft.data.deadline = $0 })
+  }
+
+  private var hasDeadlineBinding: Binding<Bool> {
+    Binding(
+      get: { draft.data.deadline != nil },
+      set: { draft.data.setDeadlineEnabled($0) }
+    )
   }
 
   private var reminderBinding: Binding<Date> {
     Binding(get: { draft.data.reminder ?? Date() }, set: { draft.data.reminder = $0 })
   }
 
+  private var hasReminderBinding: Binding<Bool> {
+    Binding(
+      get: { draft.data.reminder != nil },
+      set: { draft.data.setReminderEnabled($0) }
+    )
+  }
+
   private var recurrenceBinding: Binding<TaskRecurrenceRule> {
     Binding(
       get: { draft.data.recurrence ?? TaskRecurrenceRule() },
-      set: { draft.data.recurrence = $0 }
+      set: { draft.data.recurrence = TaskTemporalPolicy.normalized($0) }
+    )
+  }
+
+  private var hasRecurrenceBinding: Binding<Bool> {
+    Binding(
+      get: { draft.data.recurrence != nil },
+      set: { draft.data.setRecurrenceEnabled($0) }
     )
   }
 
@@ -1269,17 +1406,7 @@ private struct TaskDraftMetadataEditor: View {
   }
 
   private func finish() {
-    if !hasScheduledDate { draft.data.scheduledAt = nil }
-    if draft.data.scheduleGranularity == .dateOnly, let scheduledAt = draft.data.scheduledAt {
-      draft.data.scheduledAt = Calendar.current.startOfDay(for: scheduledAt)
-    }
-    if !hasDeadline {
-      draft.data.deadline = nil
-    } else if let deadline = draft.data.deadline {
-      draft.data.deadline = Calendar.current.startOfDay(for: deadline)
-    }
-    if !hasReminder { draft.data.reminder = nil }
-    if !hasRecurrence { draft.data.recurrence = nil }
+    draft.data = TaskTemporalPolicy.normalized(draft.data)
     draft.data.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
     draft.data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
     onSave(draft)
@@ -1332,7 +1459,9 @@ struct TaskCollectionDraft: Identifiable {
     case area
 
     var title: String { self == .project ? "Project" : "Area" }
-    var supertagID: SupertagID { self == .project ? BuiltInSupertags.project : BuiltInSupertags.area }
+    var supertagID: SupertagID {
+      self == .project ? BuiltInSupertags.project : BuiltInSupertags.area
+    }
   }
 
   var id = UUID()

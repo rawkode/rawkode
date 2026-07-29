@@ -84,6 +84,107 @@ final class TaskSystemCaptureTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: destination), Data("current".utf8))
   }
 
+  func testSQLiteMigrationRecoversOrphanSidecarsAndInterruptedStaging() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let source = directory.appendingPathComponent("legacy.sqlite")
+    let destination = directory.appendingPathComponent("shared.sqlite")
+    let interruptedStaging =
+      directory
+      .appendingPathComponent(".library-migration-interrupted", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: interruptedStaging,
+      withIntermediateDirectories: false
+    )
+    try Data("stale".utf8).write(
+      to: interruptedStaging.appendingPathComponent("library.sqlite")
+    )
+    try Data("stale-wal".utf8).write(
+      to: URL(fileURLWithPath: destination.path + "-wal")
+    )
+    try Data("stale-shm".utf8).write(
+      to: URL(fileURLWithPath: destination.path + "-shm")
+    )
+    try Data("current-main".utf8).write(to: source)
+    try Data("current-wal".utf8).write(
+      to: URL(fileURLWithPath: source.path + "-wal")
+    )
+
+    try LibraryRepository.migrateSQLiteDatabaseIfNeeded(from: source, to: destination)
+
+    XCTAssertEqual(try Data(contentsOf: destination), Data("current-main".utf8))
+    XCTAssertEqual(
+      try Data(contentsOf: URL(fileURLWithPath: destination.path + "-wal")),
+      Data("current-wal".utf8)
+    )
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path + "-shm"))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: interruptedStaging.path))
+  }
+
+  func testConcurrentMigrationAndRepositoryOpenPreserveLegacyRows() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let source = directory.appendingPathComponent("legacy.sqlite")
+    let destination = directory.appendingPathComponent("shared.sqlite")
+    let sourceRepository = try LibraryRepository(path: source.path)
+    let legacyTask = try await sourceRepository.createTask(
+      TaskDraft(title: "Preserved across first open")
+    )
+
+    async let firstMigration: Void = Task.detached {
+      try LibraryRepository.migrateSQLiteDatabaseIfNeeded(
+        from: source,
+        to: destination
+      )
+    }.value
+    async let secondMigration: Void = Task.detached {
+      try LibraryRepository.migrateSQLiteDatabaseIfNeeded(
+        from: source,
+        to: destination
+      )
+    }.value
+    try await firstMigration
+    try await secondMigration
+
+    async let firstOpen = Task.detached {
+      try LibraryRepository(path: destination.path)
+    }.value
+    async let secondOpen = Task.detached {
+      try LibraryRepository(path: destination.path)
+    }.value
+    let (firstRepository, secondRepository) = try await (firstOpen, secondOpen)
+    let firstTitle = try await firstRepository.page(id: legacyTask.id)?.title
+    let secondTitle = try await secondRepository.page(id: legacyTask.id)?.title
+
+    XCTAssertEqual(firstTitle, legacyTask.title)
+    XCTAssertEqual(secondTitle, legacyTask.title)
+  }
+
+  func testConcurrentRepositoryInitializationAndWritesWaitForContention() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let path = directory.appendingPathComponent("library.sqlite").path
+
+    async let firstOpen = Task.detached { try LibraryRepository(path: path) }.value
+    async let secondOpen = Task.detached { try LibraryRepository(path: path) }.value
+    let (firstRepository, secondRepository) = try await (firstOpen, secondOpen)
+
+    async let firstWrite = firstRepository.createTask(TaskDraft(title: "First process"))
+    async let secondWrite = secondRepository.createTask(TaskDraft(title: "Second process"))
+    let (firstTask, secondTask) = try await (firstWrite, secondWrite)
+    let visibleIDs = Set(
+      try await firstRepository.pages(with: BuiltInSupertags.task).map(\.id)
+    )
+
+    XCTAssertEqual(visibleIDs, Set([firstTask.id, secondTask.id]))
+  }
+
   func testSelectedTextUsesFirstLineAsTitleAndPreservesContext() throws {
     let draft = try XCTUnwrap(
       TaskSystemCapture.draft(text: "Review proposal\nThe decision is due next week.")

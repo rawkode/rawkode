@@ -169,26 +169,23 @@ struct AddEnchiridionTaskIntent: AppIntent {
     guard !normalizedTitle.isEmpty else {
       throw EnchiridionTaskIntentError.invalidTitle
     }
-    let repository = try intentRepository()
-    let page = try await repository.createTask(
-      TaskDraft(
-        title: normalizedTitle,
-        notes: notes ?? "",
-        data: TaskData(
-          placement: scheduledAt == nil ? .inbox : .anytime,
-          scheduledAt: scheduledAt,
-          deadline: deadline,
-          reminder: reminder,
-          priority: priority.taskPriority,
-          tags: tags ?? []
+    let mutations = try intentTaskMutations()
+    let page = try intentMutationValue(
+      await mutations.create(
+        TaskDraft(
+          title: normalizedTitle,
+          notes: notes ?? "",
+          data: TaskData(
+            placement: scheduledAt == nil ? .inbox : .anytime,
+            scheduledAt: scheduledAt,
+            deadline: deadline,
+            reminder: reminder,
+            priority: priority.taskPriority,
+            tags: tags ?? []
+          )
         )
       )
     )
-    await TaskReminderScheduler.shared.schedule(
-      page,
-      requestingAuthorization: reminder != nil
-    )
-    await TaskSpotlightIndex.index(page)
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Added \(page.displayTitle) to Enchiridion."
@@ -216,14 +213,9 @@ struct QuickAddEnchiridionTaskIntent: AppIntent {
   func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
     let normalizedCapture = capture.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedCapture.isEmpty else { throw EnchiridionTaskIntentError.invalidTitle }
-    let repository = try intentRepository()
+    let mutations = try intentTaskMutations()
     let parsed = QuickTaskParser.parse(normalizedCapture)
-    let page = try await repository.createTask(parsed.draft)
-    await TaskReminderScheduler.shared.schedule(
-      page,
-      requestingAuthorization: parsed.draft.data.reminder != nil
-    )
-    await TaskSpotlightIndex.index(page)
+    let page = try intentMutationValue(await mutations.create(parsed.draft))
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Captured \(page.displayTitle)."
@@ -243,14 +235,10 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
-    let repository = try intentRepository()
-    let result = try await repository.completeTask(pageID: PageID(rawValue: task.id))
-    await TaskReminderScheduler.shared.cancel(result.completed.id)
-    if let successor = result.successor {
-      await TaskReminderScheduler.shared.schedule(successor)
-      await TaskSpotlightIndex.index(successor)
-    }
-    await TaskSpotlightIndex.remove(result.completed.id)
+    let mutations = try intentTaskMutations()
+    let result = try intentMutationValue(
+      await mutations.complete(PageID(rawValue: task.id))
+    )
     return .result(
       value: EnchiridionTaskEntity(page: result.completed),
       dialog: "Completed \(result.completed.displayTitle)."
@@ -270,10 +258,10 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
-    let repository = try intentRepository()
-    let page = try await repository.reopenTask(pageID: PageID(rawValue: task.id))
-    await TaskReminderScheduler.shared.schedule(page)
-    await TaskSpotlightIndex.index(page)
+    let mutations = try intentTaskMutations()
+    let page = try intentMutationValue(
+      await mutations.reopen(PageID(rawValue: task.id))
+    )
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Reopened \(page.displayTitle)."
@@ -395,11 +383,23 @@ private func intentRepository() throws -> LibraryRepository {
   try LibraryRepository(path: LibraryRepository.defaultLocalPath())
 }
 
-private enum TaskSpotlightIndex {
-  static func index(_ page: PageSnapshot) async {
-    await TaskSystemSpotlight.index(page)
-  }
+private func intentTaskMutations() throws -> TaskMutationCoordinator {
+  TaskMutationCoordinator(
+    repository: try intentRepository(),
+    effects: .live(surface: .appIntent)
+  )
+}
 
+private func intentMutationValue<Value: Sendable>(
+  _ result: TaskMutationResult<Value>
+) throws -> Value {
+  switch result {
+  case .success(let success): success.value
+  case .failure(let failure): throw failure
+  }
+}
+
+private enum TaskSpotlightIndex {
   static func index(_ entities: [EnchiridionTaskEntity]) async {
     guard !entities.isEmpty else { return }
     let repository = try? intentRepository()
@@ -408,9 +408,5 @@ private enum TaskSpotlightIndex {
       guard let page = try? await repository.page(id: PageID(rawValue: entity.id)) else { continue }
       await TaskSystemSpotlight.index(page)
     }
-  }
-
-  static func remove(_ pageID: PageID) async {
-    await TaskSystemSpotlight.remove(pageID)
   }
 }

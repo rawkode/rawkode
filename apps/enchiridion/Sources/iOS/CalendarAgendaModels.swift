@@ -4,22 +4,35 @@ import Foundation
 struct CalendarTaskPlacement: Hashable {
   let scheduledAt: Date?
   let scheduleGranularity: TaskScheduleGranularity?
+  let isScheduledOnDisplayedDay: Bool
   let deadline: Date?
+  let estimatedMinutes: Int?
 
   var isAllDay: Bool {
-    scheduledAt == nil || scheduleGranularity == .dateOnly
+    !isScheduledOnDisplayedDay || scheduleGranularity == .dateOnly
   }
 
-  var sortDate: Date { scheduledAt ?? deadline ?? .distantFuture }
+  var sortDate: Date {
+    isScheduledOnDisplayedDay
+      ? scheduledAt ?? deadline ?? .distantFuture : deadline ?? .distantFuture
+  }
 
   var accessibilitySummary: String {
     var values: [String] = []
     if let scheduledAt {
-      values.append(scheduleGranularity == .dateOnly
-        ? "Scheduled, date only"
-        : "Scheduled, \(scheduledAt.formatted(date: .omitted, time: .shortened))")
+      if isScheduledOnDisplayedDay {
+        values.append(
+          scheduleGranularity == .dateOnly
+            ? "Scheduled, date only"
+            : "Scheduled, \(scheduledAt.formatted(date: .omitted, time: .shortened))")
+      } else {
+        values.append("Scheduled, \(scheduledAt.formatted(date: .abbreviated, time: .shortened))")
+      }
     }
     if deadline != nil { values.append("Deadline") }
+    if let estimatedMinutes, estimatedMinutes > 0 {
+      values.append("Estimated, \(estimatedMinutes) minutes")
+    }
     return values.joined(separator: ", ")
   }
 }
@@ -84,19 +97,23 @@ enum CalendarAgendaDate {
     pages.compactMap(TaskItem.init)
       .filter { $0.data.isActive }
       .compactMap { task in
-        let scheduledAt = task.data.scheduledAt.flatMap {
-          calendar.isDate($0, inSameDayAs: day) ? $0 : nil
-        }
+        let scheduledAt = task.data.scheduledAt
+        let isScheduledOnDisplayedDay =
+          scheduledAt.map {
+            calendar.isDate($0, inSameDayAs: day)
+          } ?? false
         let deadline = task.data.deadline.flatMap {
           calendar.isDate($0, inSameDayAs: day) ? $0 : nil
         }
-        guard scheduledAt != nil || deadline != nil else { return nil }
+        guard isScheduledOnDisplayedDay || deadline != nil else { return nil }
         return (
           task,
           CalendarTaskPlacement(
             scheduledAt: scheduledAt,
             scheduleGranularity: scheduledAt == nil ? nil : task.data.scheduleGranularity,
-            deadline: deadline
+            isScheduledOnDisplayedDay: isScheduledOnDisplayedDay,
+            deadline: deadline,
+            estimatedMinutes: task.data.estimatedMinutes
           )
         )
       }
@@ -105,7 +122,8 @@ enum CalendarAgendaDate {
         if lhs.placement.sortDate != rhs.placement.sortDate {
           return lhs.placement.sortDate < rhs.placement.sortDate
         }
-        return lhs.task.page.displayTitle.localizedStandardCompare(rhs.task.page.displayTitle) == .orderedAscending
+        return lhs.task.page.displayTitle.localizedStandardCompare(rhs.task.page.displayTitle)
+          == .orderedAscending
       }
   }
 

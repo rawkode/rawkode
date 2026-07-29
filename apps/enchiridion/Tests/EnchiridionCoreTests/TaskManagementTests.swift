@@ -1,8 +1,42 @@
 import Foundation
 import XCTest
+
 @testable import EnchiridionCore
 
 final class TaskManagementTests: XCTestCase {
+  func testEnablingOptionalTaskMetadataPersistsTheDisplayedDefaults() {
+    let scheduled = Date(timeIntervalSince1970: 1_817_000_000)
+    let deadline = Date(timeIntervalSince1970: 1_817_086_400)
+    let reminder = Date(timeIntervalSince1970: 1_816_996_400)
+    var data = TaskData()
+
+    data.setScheduleEnabled(true, defaultDate: scheduled)
+    data.setDeadlineEnabled(true, defaultDate: deadline)
+    data.setReminderEnabled(true, defaultDate: reminder)
+    data.setRecurrenceEnabled(true)
+
+    XCTAssertEqual(data.scheduledAt, scheduled)
+    XCTAssertEqual(data.deadline, deadline)
+    XCTAssertEqual(data.reminder, reminder)
+    XCTAssertEqual(data.recurrence, TaskRecurrenceRule())
+
+    data.setScheduleEnabled(true, defaultDate: .distantFuture)
+    data.setDeadlineEnabled(true, defaultDate: .distantFuture)
+    data.setReminderEnabled(true, defaultDate: .distantFuture)
+    XCTAssertEqual(data.scheduledAt, scheduled)
+    XCTAssertEqual(data.deadline, deadline)
+    XCTAssertEqual(data.reminder, reminder)
+
+    data.setScheduleEnabled(false)
+    data.setDeadlineEnabled(false)
+    data.setReminderEnabled(false)
+    data.setRecurrenceEnabled(false)
+    XCTAssertNil(data.scheduledAt)
+    XCTAssertNil(data.deadline)
+    XCTAssertNil(data.reminder)
+    XCTAssertNil(data.recurrence)
+  }
+
   func testCompatibilityQuickCapturePreservesLiteralInput() {
     let input = "Prepare board pack tomorrow #work #Finance !high every weekday"
     let result = QuickTaskParser.parse(input)
@@ -40,9 +74,9 @@ final class TaskManagementTests: XCTestCase {
     XCTAssertEqual(reopened?.title, "Ship task system")
     XCTAssertEqual(reopened?.plainText, "Keep the editor calm.")
     XCTAssertEqual(reopened?.taskData?.placement, .anytime)
-    XCTAssertEqual(reopened?.taskData?.scheduledAt, scheduled)
+    XCTAssertEqual(reopened?.taskData?.scheduledAt, Calendar.current.startOfDay(for: scheduled))
     XCTAssertEqual(reopened?.taskData?.scheduleGranularity, .dateOnly)
-    XCTAssertEqual(reopened?.taskData?.deadline, deadline)
+    XCTAssertEqual(reopened?.taskData?.deadline, Calendar.current.startOfDay(for: deadline))
     XCTAssertEqual(reopened?.taskData?.priority, .urgent)
     XCTAssertEqual(reopened?.taskData?.assigneeIDs, assignees)
     XCTAssertEqual(reopened?.taskData?.tags, ["deep work", "launch"])
@@ -92,6 +126,65 @@ final class TaskManagementTests: XCTestCase {
     let decoded = try JSONDecoder.enchiridion.decode(TaskData.self, from: legacyData)
 
     XCTAssertEqual(decoded.assigneeIDs, [])
+  }
+
+  func testRepositoryNormalizesDateOnlyTaskValuesFromDirectWrites() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let calendar = Calendar.current
+    let scheduled = Date(timeIntervalSince1970: 1_817_061_234)
+    let deadline = Date(timeIntervalSince1970: 1_817_151_234)
+
+    let created = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Normalize task dates",
+        data: TaskData(
+          scheduledAt: scheduled,
+          scheduleGranularity: .dateOnly,
+          deadline: deadline
+        )
+      )
+    )
+
+    XCTAssertEqual(created.taskData?.scheduledAt, calendar.startOfDay(for: scheduled))
+    XCTAssertEqual(created.taskData?.deadline, calendar.startOfDay(for: deadline))
+  }
+
+  func testUnrelatedEditInAnotherTimeZonePreservesDateOnlyTaskValues() async throws {
+    let fixture = try TaskRepositoryFixture()
+    var london = Calendar(identifier: .gregorian)
+    london.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
+    var losAngeles = Calendar(identifier: .gregorian)
+    losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+    let scheduledInput = try XCTUnwrap(
+      london.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 14))
+    )
+    let deadlineInput = try XCTUnwrap(
+      london.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 14))
+    )
+
+    let created = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Keep civil dates stable",
+        data: TaskData(
+          scheduledAt: scheduledInput,
+          scheduleGranularity: .dateOnly,
+          deadline: deadlineInput
+        )
+      ),
+      calendar: london
+    )
+    var editedData = try XCTUnwrap(created.taskData)
+    editedData.priority = .urgent
+
+    let updated = try await fixture.repository.updateTask(
+      pageID: created.id,
+      data: editedData,
+      calendar: losAngeles
+    )
+
+    XCTAssertEqual(updated.taskData?.scheduledAt, created.taskData?.scheduledAt)
+    XCTAssertEqual(updated.taskData?.deadline, created.taskData?.deadline)
+    XCTAssertEqual(updated.taskData?.priority, .urgent)
   }
 
   func testBuiltInTaskAssigneeFieldAllowsMultiplePeople() throws {
@@ -178,7 +271,8 @@ final class TaskManagementTests: XCTestCase {
           recurrence: .init(mode: .fixedSchedule, unit: .day)
         )
       ),
-      now: scheduled
+      now: scheduled,
+      calendar: calendar
     )
 
     let result = try await fixture.repository.completeTask(
@@ -250,7 +344,8 @@ final class TaskManagementTests: XCTestCase {
           recurrence: .init(mode: .fixedSchedule, unit: .day)
         )
       ),
-      now: scheduled
+      now: scheduled,
+      calendar: calendar
     )
     _ = try await second.repository.mergeCloudPage(
       pageID: task.id,
@@ -292,6 +387,331 @@ final class TaskManagementTests: XCTestCase {
     XCTAssertEqual(successorCount, 1)
   }
 
+  func testConcurrentAfterCompletionUsesEarliestCompletionForCanonicalTiming() async throws {
+    let first = try TaskRepositoryFixture()
+    let second = try TaskRepositoryFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let scheduled = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 9))!
+    let firstCompletion = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 29, hour: 11)
+    )!
+    let secondCompletion = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 31, hour: 13)
+    )!
+    let expectedSchedule = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 30, hour: 11)
+    )!
+    let expectedDeadline = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 31)
+    )!
+    let expectedReminder = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 30, hour: 10)
+    )!
+    let task = try await first.repository.createTask(
+      TaskDraft(
+        title: "Shared after-completion task",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: scheduled,
+          deadline: calendar.date(
+            from: DateComponents(year: 2026, month: 7, day: 30)
+          ),
+          reminder: calendar.date(
+            from: DateComponents(year: 2026, month: 7, day: 29, hour: 8)
+          ),
+          recurrence: .init(mode: .afterCompletion, unit: .day)
+        )
+      ),
+      now: scheduled,
+      calendar: calendar
+    )
+    _ = try await second.repository.mergeCloudPage(
+      pageID: task.id,
+      kind: task.kind,
+      remoteDocument: task.document,
+      systemFields: Data([1]),
+      now: scheduled
+    )
+
+    let firstResult = try await first.repository.completeTask(
+      pageID: task.id,
+      now: firstCompletion,
+      calendar: calendar
+    )
+    let secondResult = try await second.repository.completeTask(
+      pageID: task.id,
+      now: secondCompletion,
+      calendar: calendar
+    )
+    let firstSuccessor = try XCTUnwrap(firstResult.successor)
+    let secondSuccessor = try XCTUnwrap(secondResult.successor)
+    let firstGeneration = try XCTUnwrap(
+      firstSuccessor.taskData?.completionSuccessorGeneration
+    )
+    XCTAssertEqual(firstResult.completed.taskData?.completionSuccessorGeneration, firstGeneration)
+    XCTAssertEqual(firstGeneration.trigger, .afterCompletion)
+    XCTAssertEqual(firstGeneration.completedAt, firstCompletion)
+    XCTAssertEqual(firstGeneration.sourceSequence, 0)
+    XCTAssertEqual(firstGeneration.successorSequence, 1)
+    XCTAssertEqual(firstSuccessor.taskData?.scheduledAt, expectedSchedule)
+    XCTAssertEqual(firstSuccessor.taskData?.deadline, expectedDeadline)
+    XCTAssertEqual(firstSuccessor.taskData?.reminder, expectedReminder)
+    let canonicalParentMerge = try await first.repository.mergeCloudPage(
+      pageID: secondResult.completed.id,
+      kind: secondResult.completed.kind,
+      remoteDocument: secondResult.completed.document,
+      systemFields: Data([2]),
+      now: secondCompletion
+    )
+    let canonicalParent = try XCTUnwrap(canonicalParentMerge.page)
+    let canonicalSuccessorMerge = try await first.repository.mergeCloudPage(
+      pageID: secondSuccessor.id,
+      kind: secondSuccessor.kind,
+      remoteDocument: secondSuccessor.document,
+      systemFields: Data([3]),
+      now: secondCompletion
+    )
+    let canonicalSuccessor = try XCTUnwrap(canonicalSuccessorMerge.page)
+
+    XCTAssertEqual(canonicalParent.taskData?.completedAt, firstCompletion)
+    XCTAssertEqual(canonicalSuccessor.taskData?.scheduledAt, expectedSchedule)
+    XCTAssertEqual(canonicalSuccessor.taskData?.deadline, expectedDeadline)
+    XCTAssertEqual(canonicalSuccessor.taskData?.reminder, expectedReminder)
+    XCTAssertEqual(
+      canonicalParent.taskData?.completionSuccessorGeneration,
+      firstGeneration
+    )
+    XCTAssertEqual(
+      canonicalSuccessor.taskData?.completionSuccessorGeneration,
+      firstGeneration
+    )
+    XCTAssertEqual(canonicalSuccessor.id, firstResult.successor?.id)
+
+    let convergedParentMerge = try await second.repository.mergeCloudPage(
+      pageID: canonicalParent.id,
+      kind: canonicalParent.kind,
+      remoteDocument: canonicalParent.document,
+      systemFields: Data([4]),
+      now: secondCompletion
+    )
+    let convergedParent = try XCTUnwrap(convergedParentMerge.page)
+    let convergedSuccessorMerge = try await second.repository.mergeCloudPage(
+      pageID: canonicalSuccessor.id,
+      kind: canonicalSuccessor.kind,
+      remoteDocument: canonicalSuccessor.document,
+      systemFields: Data([5]),
+      now: secondCompletion
+    )
+    let convergedSuccessor = try XCTUnwrap(convergedSuccessorMerge.page)
+
+    XCTAssertEqual(convergedParent.taskData?.completedAt, firstCompletion)
+    XCTAssertEqual(convergedSuccessor.taskData?.scheduledAt, expectedSchedule)
+    XCTAssertEqual(convergedSuccessor.taskData?.deadline, expectedDeadline)
+    XCTAssertEqual(convergedSuccessor.taskData?.reminder, expectedReminder)
+    XCTAssertEqual(
+      convergedParent.taskData?.completionSuccessorGeneration,
+      firstGeneration
+    )
+    XCTAssertEqual(
+      convergedSuccessor.taskData?.completionSuccessorGeneration,
+      firstGeneration
+    )
+  }
+
+  func testConcurrentManualPostponementsRemainExplicitConflicts() async throws {
+    let first = try TaskRepositoryFixture()
+    let second = try TaskRepositoryFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let scheduled = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 29, hour: 9)
+    )!
+    let task = try await first.repository.createTask(
+      TaskDraft(
+        title: "Postpone independently",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: scheduled,
+          recurrence: .init(mode: .afterCompletion, unit: .day)
+        )
+      ),
+      now: scheduled,
+      calendar: calendar
+    )
+    _ = try await second.repository.mergeCloudPage(
+      pageID: task.id,
+      kind: task.kind,
+      remoteDocument: task.document,
+      systemFields: Data([1]),
+      now: scheduled
+    )
+    let completion = try await first.repository.completeTask(
+      pageID: task.id,
+      now: scheduled.addingTimeInterval(3_600),
+      calendar: calendar
+    )
+    let successor = try XCTUnwrap(completion.successor)
+    let firstGeneration = try XCTUnwrap(
+      successor.taskData?.completionSuccessorGeneration
+    )
+    let importMerge = try await second.repository.mergeCloudPage(
+      pageID: successor.id,
+      kind: successor.kind,
+      remoteDocument: successor.document,
+      systemFields: Data([2]),
+      now: scheduled.addingTimeInterval(3_600)
+    )
+    let importedSuccessor = try XCTUnwrap(importMerge.page)
+    XCTAssertEqual(
+      importedSuccessor.taskData?.completionSuccessorGeneration,
+      firstGeneration
+    )
+
+    let firstPostponement = calendar.date(
+      from: DateComponents(year: 2026, month: 8, day: 2, hour: 9)
+    )!
+    let secondPostponement = calendar.date(
+      from: DateComponents(year: 2026, month: 8, day: 4, hour: 9)
+    )!
+    var firstData = try XCTUnwrap(successor.taskData)
+    firstData.scheduledAt = firstPostponement
+    let firstUpdate = try await first.repository.updateTask(
+      pageID: successor.id,
+      data: firstData,
+      calendar: calendar
+    )
+    var secondData = try XCTUnwrap(importedSuccessor.taskData)
+    secondData.scheduledAt = secondPostponement
+    let secondUpdate = try await second.repository.updateTask(
+      pageID: successor.id,
+      data: secondData,
+      calendar: calendar
+    )
+
+    let merge = try await first.repository.mergeCloudPage(
+      pageID: successor.id,
+      kind: successor.kind,
+      remoteDocument: secondUpdate.document,
+      systemFields: Data([3]),
+      now: secondPostponement
+    )
+    let merged = try XCTUnwrap(merge.page)
+    let scheduledConflict = try XCTUnwrap(
+      merged.objectMetadata.conflicts.first { $0.key == TaskFields.scheduled }
+    )
+    XCTAssertEqual(
+      Set(scheduledConflict.candidates.compactMap(singleDateTime)),
+      [firstPostponement, secondPostponement]
+    )
+    XCTAssertFalse(
+      merged.objectMetadata.conflicts.contains {
+        $0.key == TaskFields.temporalProvenance
+      }
+    )
+
+    let convergenceMerge = try await second.repository.mergeCloudPage(
+      pageID: successor.id,
+      kind: successor.kind,
+      remoteDocument: merged.document,
+      systemFields: Data([4]),
+      now: secondPostponement
+    )
+    let converged = try XCTUnwrap(convergenceMerge.page)
+    XCTAssertEqual(
+      Set(
+        try XCTUnwrap(
+          converged.objectMetadata.conflicts.first { $0.key == TaskFields.scheduled }
+        ).candidates.compactMap(singleDateTime)
+      ),
+      [firstPostponement, secondPostponement]
+    )
+    XCTAssertEqual(firstUpdate.taskData?.temporalProvenance?.kind, .manualMutation)
+  }
+
+  func testCompletionRacingRecurrenceRemovalLeavesMixedConflictsUnresolved() async throws {
+    let first = try TaskRepositoryFixture()
+    let second = try TaskRepositoryFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let scheduled = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 29, hour: 9)
+    )!
+    let task = try await first.repository.createTask(
+      TaskDraft(
+        title: "Remove recurrence while completing",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: scheduled,
+          recurrence: .init(mode: .afterCompletion, unit: .day)
+        )
+      ),
+      now: scheduled,
+      calendar: calendar
+    )
+    _ = try await second.repository.mergeCloudPage(
+      pageID: task.id,
+      kind: task.kind,
+      remoteDocument: task.document,
+      systemFields: Data([1]),
+      now: scheduled
+    )
+
+    let completion = try await first.repository.completeTask(
+      pageID: task.id,
+      now: scheduled.addingTimeInterval(3_600),
+      calendar: calendar
+    )
+    let removalTime = scheduled.addingTimeInterval(7_200)
+    var removedData = try XCTUnwrap(task.taskData)
+    removedData.recurrence = nil
+    let removal = try await second.repository.updateTask(
+      pageID: task.id,
+      data: removedData,
+      now: removalTime,
+      calendar: calendar
+    )
+
+    let merge = try await first.repository.mergeCloudPage(
+      pageID: task.id,
+      kind: task.kind,
+      remoteDocument: removal.document,
+      systemFields: Data([2]),
+      now: removalTime
+    )
+    let merged = try XCTUnwrap(merge.page)
+    let conflictKeys = Set(merged.objectMetadata.conflicts.map(\.key))
+    XCTAssertTrue(conflictKeys.contains(TaskFields.temporalProvenance))
+    XCTAssertEqual(merged.taskData?.scheduledAt, scheduled)
+    XCTAssertNil(merged.taskData?.recurrence)
+    let generationConflict = try XCTUnwrap(
+      merged.objectMetadata.conflicts.first {
+        $0.key == TaskFields.temporalProvenance
+      }
+    )
+    XCTAssertEqual(generationConflict.candidates.count, 2)
+    XCTAssertEqual(
+      Set(generationConflict.candidates.compactMap(temporalProvenanceKind)),
+      [.completionSuccessor, .manualMutation]
+    )
+    XCTAssertNotNil(completion.completed.taskData?.completionSuccessorGeneration)
+
+    let convergenceMerge = try await second.repository.mergeCloudPage(
+      pageID: task.id,
+      kind: task.kind,
+      remoteDocument: merged.document,
+      systemFields: Data([3]),
+      now: removalTime
+    )
+    let converged = try XCTUnwrap(convergenceMerge.page)
+    let convergedConflictKeys = Set(converged.objectMetadata.conflicts.map(\.key))
+    XCTAssertTrue(
+      convergedConflictKeys.contains(TaskFields.temporalProvenance)
+    )
+    XCTAssertEqual(converged.taskData?.scheduledAt, scheduled)
+    XCTAssertNil(converged.taskData?.recurrence)
+  }
+
   func testSmartListsKeepStartDatesDeadlinesAndSomedayDistinct() throws {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -321,15 +741,19 @@ final class TaskManagementTests: XCTestCase {
 
     let pages = [future, someday, overdue, today]
     XCTAssertEqual(
-      Set(TaskQuery.items(from: pages, selection: .smart(.today), now: now, calendar: calendar).map(\.id)),
+      Set(
+        TaskQuery.items(from: pages, selection: .smart(.today), now: now, calendar: calendar).map(
+          \.id)),
       [today.id, overdue.id]
     )
     XCTAssertEqual(
-      TaskQuery.items(from: pages, selection: .smart(.upcoming), now: now, calendar: calendar).map(\.id),
+      TaskQuery.items(from: pages, selection: .smart(.upcoming), now: now, calendar: calendar).map(
+        \.id),
       [future.id]
     )
     XCTAssertEqual(
-      TaskQuery.items(from: pages, selection: .smart(.someday), now: now, calendar: calendar).map(\.id),
+      TaskQuery.items(from: pages, selection: .smart(.someday), now: now, calendar: calendar).map(
+        \.id),
       [someday.id]
     )
   }
@@ -456,6 +880,20 @@ final class TaskManagementTests: XCTestCase {
       objectMetadata: task.projection.objectMetadata
     )
   }
+
+  private func singleDateTime(_ values: [SupertagValue]) -> Date? {
+    guard values.count == 1, case .dateTime(let date) = values[0] else { return nil }
+    return date
+  }
+
+  private func temporalProvenanceKind(
+    _ values: [SupertagValue]
+  ) -> TaskTemporalProvenance.Kind? {
+    guard values.count == 1, case .text(let encoded) = values[0],
+      let data = encoded.data(using: .utf8)
+    else { return nil }
+    return try? JSONDecoder.enchiridion.decode(TaskTemporalProvenance.self, from: data).kind
+  }
 }
 
 private final class TaskRepositoryFixture {
@@ -466,7 +904,8 @@ private final class TaskRepositoryFixture {
     directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("enchiridion-task-tests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    repository = try LibraryRepository(path: directory.appendingPathComponent("library.sqlite").path)
+    repository = try LibraryRepository(
+      path: directory.appendingPathComponent("library.sqlite").path)
   }
 
   deinit {

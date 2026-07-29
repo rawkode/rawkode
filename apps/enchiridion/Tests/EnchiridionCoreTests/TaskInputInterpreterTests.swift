@@ -149,4 +149,31 @@ final class TaskInputInterpreterTests: XCTestCase {
     XCTAssertEqual(dateTime.draft.data.scheduledAt, date)
     XCTAssertEqual(dateTime.draft.data.scheduleGranularity, .dateTime)
   }
+
+  func testNormalizerRejectsWeekdaysForNonWeeklyRecurrence() {
+    let input = "Review metrics every month on Monday"
+    let result = TaskInterpretationNormalizer.normalize(
+      TaskModelOutput(
+        title: "Review metrics",
+        recurrenceUnit: "month",
+        recurrenceInterval: 1,
+        recurrenceMode: "fixed schedule",
+        recurrenceWeekdays: ["Mon"],
+        recurrenceSourceText: "every month on Monday"
+      ),
+      input: input,
+      now: Date(timeIntervalSince1970: 0),
+      calendar: calendar
+    )
+
+    XCTAssertNil(result.draft.data.recurrence)
+    XCTAssertTrue(
+      result.suggestions.contains {
+        $0.field == .recurrence
+          && $0.state == .invalid
+          && $0.explanation == "Repeat weekdays are valid only with a weekly recurrence."
+      }
+    )
+    XCTAssertEqual(result.draft.title, input)
+  }
 }

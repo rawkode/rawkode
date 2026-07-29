@@ -417,7 +417,8 @@ enum TaskInterpretationNormalizer {
       output,
       data: &data,
       append: append,
-      input: input
+      input: input,
+      calendar: calendar
     )
 
     var validTags: [String] = []
@@ -532,7 +533,8 @@ enum TaskInterpretationNormalizer {
     _ output: TaskModelOutput,
     data: inout TaskData,
     append: (TaskInterpretationField, String, String, TaskInterpretationSuggestionState, String?, Bool) -> Void,
-    input: String
+    input: String,
+    calendar: Calendar
   ) {
     let unitValue = clean(output.recurrenceUnit).lowercased()
     let hasRecurrence = !unitValue.isEmpty || !clean(output.recurrenceSourceText).isEmpty
@@ -582,11 +584,25 @@ enum TaskInterpretationNormalizer {
       )
       return
     }
-    data.recurrence = TaskRecurrenceRule(
-      mode: mode,
-      interval: output.recurrenceInterval,
-      unit: unit,
-      weekdays: weekdays
+    guard unit == .week || weekdays.isEmpty else {
+      append(
+        .recurrence,
+        output.recurrenceWeekdays.joined(separator: ", "),
+        output.recurrenceSourceText,
+        .invalid,
+        "Repeat weekdays are valid only with a weekly recurrence.",
+        false
+      )
+      return
+    }
+    data.recurrence = TaskTemporalPolicy.normalized(
+      TaskRecurrenceRule(
+        mode: mode,
+        interval: output.recurrenceInterval,
+        unit: unit,
+        weekdays: weekdays
+      ),
+      calendar: calendar
     )
     let days = weekdays.sorted().map(\.shortTitle).joined(separator: ", ")
     let value = "Every \(output.recurrenceInterval) \(unit.rawValue)" + (days.isEmpty ? "" : " on \(days)")

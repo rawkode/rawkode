@@ -1,4 +1,5 @@
 import Automerge
+import Darwin
 import Foundation
 import GRDB
 
@@ -105,6 +106,8 @@ public struct CloudPageMergeResult: Sendable {
 
 public actor LibraryRepository {
   public static let applicationGroupIdentifier = "group.dev.rawkode.enchiridion"
+  private static let databaseBusyTimeout: TimeInterval = 5
+  private static let migrationLockTimeout: TimeInterval = 5
 
   public nonisolated let path: String
   private let database: DatabasePool
@@ -118,12 +121,21 @@ public actor LibraryRepository {
   public init(path: String) throws {
     self.path = path
     do {
-      database = try DatabasePool(path: path)
-      try Self.migrator.migrate(database)
-      try database.writeWithoutTransaction { db in
-        try db.execute(sql: "PRAGMA journal_mode = WAL")
-        try db.execute(sql: "PRAGMA synchronous = FULL")
-        try db.execute(sql: "PRAGMA foreign_keys = ON")
+      database = try Self.withDatabaseOpenLock(path: path) {
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(Self.databaseBusyTimeout)
+        configuration.journalMode = .wal
+        configuration.prepareDatabase { db in
+          try db.execute(sql: "PRAGMA foreign_keys = ON")
+          try db.execute(sql: "PRAGMA synchronous = FULL")
+        }
+        let database = try DatabasePool(path: path, configuration: configuration)
+        try database.writeWithoutTransaction { db in
+          try db.execute(sql: "PRAGMA synchronous = FULL")
+          try db.execute(sql: "PRAGMA foreign_keys = ON")
+        }
+        try Self.migrator.migrate(database)
+        return database
       }
     } catch {
       throw LibraryRepositoryError.databaseUnavailable(error.localizedDescription)
@@ -150,6 +162,194 @@ public actor LibraryRepository {
     }
 #endif
     return try legacyLocalPath(manager: manager)
+  }
+
+  func pendingTaskEffectOutboxIdentities() throws -> [TaskEffectOutboxIdentity] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT page_id,effect_kind
+          FROM task_effect_outbox
+          ORDER BY enqueued_at,page_id,effect_kind
+          """
+      ).compactMap { row in
+        guard let rawPageID: String = row["page_id"],
+          let rawKind: String = row["effect_kind"],
+          let kind = TaskEffectOutboxKind(rawValue: rawKind)
+        else { return nil }
+        return TaskEffectOutboxIdentity(
+          pageID: PageID(rawValue: rawPageID),
+          kind: kind
+        )
+      }
+    }
+  }
+
+  func claimTaskEffectOutbox(
+    _ identity: TaskEffectOutboxIdentity,
+    now: Date = Date(),
+    leaseDuration: TimeInterval
+  ) throws -> TaskEffectOutboxClaimResult {
+    try database.write { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+            SELECT generation,request_authorization,lease_expires_at
+            FROM task_effect_outbox
+            WHERE page_id = ? AND effect_kind = ?
+            """,
+          arguments: [identity.pageID.rawValue, identity.kind.rawValue]
+        ), let generation: Int64 = row["generation"]
+      else { return .noPendingEffect }
+
+      if let leaseExpiresAt: Double = row["lease_expires_at"],
+        leaseExpiresAt > now.timeIntervalSince1970
+      {
+        return .busy
+      }
+
+      let leaseID = UUID().uuidString.lowercased()
+      try db.execute(
+        sql: """
+          UPDATE task_effect_outbox
+          SET lease_id = ?, lease_generation = generation, lease_expires_at = ?,
+              attempt_count = attempt_count + 1
+          WHERE page_id = ? AND effect_kind = ?
+            AND (lease_id IS NULL OR lease_expires_at <= ?)
+          """,
+        arguments: [
+          leaseID,
+          now.addingTimeInterval(leaseDuration).timeIntervalSince1970,
+          identity.pageID.rawValue,
+          identity.kind.rawValue,
+          now.timeIntervalSince1970,
+        ]
+      )
+      guard db.changesCount == 1 else { return .busy }
+
+      let requestingAuthorization: Bool = row["request_authorization"] ?? false
+      let page = try Self.fetchPage(db, id: identity.pageID)
+      let isActiveTask = page?.deletedAt == nil && page?.taskData?.state == .active
+      let effect: TaskMutationEffect
+      switch identity.kind {
+      case .reminder:
+        if isActiveTask, let page {
+          effect = .scheduleReminder(
+            page,
+            requestingAuthorization: requestingAuthorization
+          )
+        } else {
+          effect = .cancelReminder(identity.pageID)
+        }
+      case .spotlight:
+        if isActiveTask, let page {
+          effect = .indexSpotlight(page)
+        } else {
+          effect = .removeSpotlight(identity.pageID)
+        }
+      }
+      return .claimed(
+        TaskEffectOutboxClaim(
+          identity: identity,
+          generation: generation,
+          leaseID: leaseID,
+          effect: effect
+        )
+      )
+    }
+  }
+
+  func finishTaskEffectOutbox(
+    _ claim: TaskEffectOutboxClaim,
+    disposition: TaskMutationEffectDisposition
+  ) throws -> TaskEffectOutboxCompletion {
+    try database.write { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+            SELECT generation
+            FROM task_effect_outbox
+            WHERE page_id = ? AND effect_kind = ? AND lease_id = ?
+            """,
+          arguments: [
+            claim.identity.pageID.rawValue,
+            claim.identity.kind.rawValue,
+            claim.leaseID,
+          ]
+        ), let currentGeneration: Int64 = row["generation"]
+      else { return .completed }
+
+      let succeeded = disposition == .applied || disposition == .notNeeded
+      if currentGeneration == claim.generation, succeeded {
+        try db.execute(
+          sql: """
+            DELETE FROM task_effect_outbox
+            WHERE page_id = ? AND effect_kind = ? AND lease_id = ? AND generation = ?
+            """,
+          arguments: [
+            claim.identity.pageID.rawValue,
+            claim.identity.kind.rawValue,
+            claim.leaseID,
+            claim.generation,
+          ]
+        )
+        return .completed
+      }
+
+      let error: String?
+      switch disposition {
+      case .failed(let message): error = message
+      case .deferred(let reason): error = String(describing: reason)
+      case .applied, .notNeeded: error = nil
+      }
+      try db.execute(
+        sql: """
+          UPDATE task_effect_outbox
+          SET lease_id = NULL, lease_generation = NULL, lease_expires_at = NULL,
+              last_error = ?
+          WHERE page_id = ? AND effect_kind = ? AND lease_id = ?
+          """,
+        arguments: [
+          error,
+          claim.identity.pageID.rawValue,
+          claim.identity.kind.rawValue,
+          claim.leaseID,
+        ]
+      )
+      return currentGeneration == claim.generation ? .completed : .superseded
+    }
+  }
+
+  func renewTaskEffectOutboxLease(
+    _ claim: TaskEffectOutboxClaim,
+    now: Date = Date(),
+    leaseDuration: TimeInterval
+  ) throws -> Bool {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE task_effect_outbox
+          SET lease_expires_at = ?
+          WHERE page_id = ? AND effect_kind = ? AND lease_id = ?
+          """,
+        arguments: [
+          now.addingTimeInterval(leaseDuration).timeIntervalSince1970,
+          claim.identity.pageID.rawValue,
+          claim.identity.kind.rawValue,
+          claim.leaseID,
+        ]
+      )
+      return db.changesCount == 1
+    }
+  }
+
+  func pendingTaskEffectOutboxCount() throws -> Int {
+    try database.read { db in
+      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM task_effect_outbox") ?? 0
+    }
   }
 
   private static func legacyLocalPath(manager: FileManager) throws -> String {
@@ -194,43 +394,118 @@ public actor LibraryRepository {
     to destinationDatabase: URL,
     manager: FileManager = .default
   ) throws {
-    guard !manager.fileExists(atPath: destinationDatabase.path) else { return }
-    guard manager.fileExists(atPath: sourceDatabase.path) else { return }
+    try withMigrationLock(for: destinationDatabase) {
+      guard !manager.fileExists(atPath: destinationDatabase.path) else { return }
 
-    let stagingDirectory = destinationDatabase.deletingLastPathComponent()
-      .appendingPathComponent(".library-migration-\(UUID().uuidString)", isDirectory: true)
-    try manager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
-
-    let suffixes = ["", "-wal", "-shm"]
-    let stagedMain = stagingDirectory.appendingPathComponent("library.sqlite")
-    var publishedURLs: [URL] = []
-    defer { try? manager.removeItem(at: stagingDirectory) }
-
-    do {
-      for suffix in suffixes {
-        let source = URL(fileURLWithPath: sourceDatabase.path + suffix)
-        guard manager.fileExists(atPath: source.path) else { continue }
-        let staged = suffix.isEmpty
-          ? stagedMain
-          : stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
-        try manager.copyItem(at: source, to: staged)
+      let destinationDirectory = destinationDatabase.deletingLastPathComponent()
+      let stagingPrefix = ".library-migration-"
+      for entry in try manager.contentsOfDirectory(
+        at: destinationDirectory,
+        includingPropertiesForKeys: nil
+      ) where entry.lastPathComponent.hasPrefix(stagingPrefix) {
+        try? manager.removeItem(at: entry)
       }
-
       for suffix in ["-wal", "-shm"] {
-        let staged = stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
-        guard manager.fileExists(atPath: staged.path) else { continue }
-        let destination = URL(fileURLWithPath: destinationDatabase.path + suffix)
-        try manager.moveItem(at: staged, to: destination)
-        publishedURLs.append(destination)
+        let orphan = URL(fileURLWithPath: destinationDatabase.path + suffix)
+        if manager.fileExists(atPath: orphan.path) {
+          try manager.removeItem(at: orphan)
+        }
       }
 
-      try manager.moveItem(at: stagedMain, to: destinationDatabase)
-    } catch {
-      for publishedURL in publishedURLs {
-        try? manager.removeItem(at: publishedURL)
+      guard manager.fileExists(atPath: sourceDatabase.path) else { return }
+
+      let stagingDirectory =
+        destinationDirectory
+        .appendingPathComponent("\(stagingPrefix)\(UUID().uuidString)", isDirectory: true)
+      try manager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+
+      let suffixes = ["", "-wal", "-shm"]
+      let stagedMain = stagingDirectory.appendingPathComponent("library.sqlite")
+      var publishedURLs: [URL] = []
+      defer { try? manager.removeItem(at: stagingDirectory) }
+
+      do {
+        for suffix in suffixes {
+          let source = URL(fileURLWithPath: sourceDatabase.path + suffix)
+          guard manager.fileExists(atPath: source.path) else { continue }
+          let staged =
+            suffix.isEmpty
+            ? stagedMain
+            : stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
+          try manager.copyItem(at: source, to: staged)
+        }
+
+        for suffix in ["-wal", "-shm"] {
+          let staged = stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
+          guard manager.fileExists(atPath: staged.path) else { continue }
+          let destination = URL(fileURLWithPath: destinationDatabase.path + suffix)
+          try manager.moveItem(at: staged, to: destination)
+          publishedURLs.append(destination)
+        }
+
+        try manager.moveItem(at: stagedMain, to: destinationDatabase)
+      } catch {
+        for publishedURL in publishedURLs {
+          try? manager.removeItem(at: publishedURL)
+        }
+        throw error
       }
-      throw error
     }
+  }
+
+  private static func withMigrationLock<T>(
+    for destinationDatabase: URL,
+    operation: () throws -> T
+  ) throws -> T {
+    let lockURL = destinationDatabase.deletingLastPathComponent()
+      .appendingPathComponent(".library-migration.lock")
+    return try withFileLock(
+      at: lockURL,
+      timeout: migrationLockTimeout,
+      timeoutMessage: "Timed out waiting for the shared-library migration lock.",
+      operation: operation
+    )
+  }
+
+  private static func withDatabaseOpenLock<T>(
+    path: String,
+    operation: () throws -> T
+  ) throws -> T {
+    let databaseURL = URL(fileURLWithPath: path)
+    let lockURL = databaseURL.deletingLastPathComponent()
+      .appendingPathComponent(".library-open.lock")
+    return try withFileLock(
+      at: lockURL,
+      timeout: databaseBusyTimeout,
+      timeoutMessage: "Timed out waiting to open the shared library.",
+      operation: operation
+    )
+  }
+
+  private static func withFileLock<T>(
+    at lockURL: URL,
+    timeout: TimeInterval,
+    timeoutMessage: String,
+    operation: () throws -> T
+  ) throws -> T {
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { close(descriptor) }
+
+    let deadline = Date().addingTimeInterval(timeout)
+    while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+      guard errno == EWOULDBLOCK || errno == EAGAIN else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+      guard Date() < deadline else {
+        throw LibraryRepositoryError.databaseUnavailable(timeoutMessage)
+      }
+      usleep(50_000)
+    }
+    defer { _ = flock(descriptor, LOCK_UN) }
+    return try operation()
   }
 
   public func page(id: PageID) throws -> PageSnapshot? {
@@ -421,27 +696,94 @@ public actor LibraryRepository {
   }
 
   public func moveToTrash(pageID: PageID, now: Date = Date()) throws {
-    try mutateDocument(pageID: pageID, now: now) { current in
-      try PageDocument.setDeleted(now, in: current.document)
-    }
+    _ = try setDeleted(now, pageID: pageID, now: now, requiringTask: false)
   }
 
   public func restore(pageID: PageID, now: Date = Date()) throws {
-    try mutateDocument(pageID: pageID, now: now) { current in
-      try PageDocument.setDeleted(nil, in: current.document)
-    }
+    _ = try setDeleted(nil, pageID: pageID, now: now, requiringTask: false)
+  }
+
+  func moveTaskToTrash(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    try setDeleted(now, pageID: pageID, now: now, requiringTask: true)
+  }
+
+  func restoreTask(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    try setDeleted(nil, pageID: pageID, now: now, requiringTask: true)
   }
 
   public func purge(pageID: PageID, now: Date = Date()) throws {
+    try purgePage(pageID: pageID, now: now, requiringTask: false)
+  }
+
+  func purgeTask(pageID: PageID, now: Date = Date()) throws {
+    try purgePage(pageID: pageID, now: now, requiringTask: true)
+  }
+
+  private func setDeleted(
+    _ deletedAt: Date?,
+    pageID: PageID,
+    now: Date,
+    requiringTask: Bool
+  ) throws -> PageSnapshot {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      if requiringTask, !current.hasSupertag(BuiltInSupertags.task) {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      let result = try PageDocument.setDeleted(deletedAt, in: current.document)
+      let updated = Self.updatedPage(current, with: result, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: pageID,
+        references: result.projection.references
+      )
+      if current.hasSupertag(BuiltInSupertags.task) {
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: pageID,
+          generation: updated.dirtyGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
+      }
+      return updated
+    }
+  }
+
+  private func purgePage(
+    pageID: PageID,
+    now: Date,
+    requiringTask: Bool
+  ) throws {
     try database.write { db in
       guard let page = try Self.fetchPage(db, id: pageID) else {
         throw LibraryRepositoryError.pageNotFound
       }
+      if requiringTask, !page.hasSupertag(BuiltInSupertags.task) {
+        throw LibraryRepositoryError.invalidRecord
+      }
       guard page.deletedAt != nil else { return }
+      let purgeGeneration = page.dirtyGeneration + 1
       try db.execute(
-        sql: "INSERT OR REPLACE INTO purge_markers (page_id,generation,purged_at,cloud_dirty) VALUES (?,?,?,1)",
-        arguments: [pageID.rawValue, page.dirtyGeneration + 1, now.timeIntervalSince1970]
+        sql: """
+          INSERT OR REPLACE INTO purge_markers
+            (page_id,generation,purged_at,cloud_dirty)
+          VALUES (?,?,?,1)
+          """,
+        arguments: [pageID.rawValue, purgeGeneration, now.timeIntervalSince1970]
       )
+      if page.hasSupertag(BuiltInSupertags.task) {
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: pageID,
+          generation: purgeGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
+      }
       try db.execute(sql: "DELETE FROM pages WHERE id = ?", arguments: [pageID.rawValue])
     }
   }
@@ -807,13 +1149,14 @@ public actor LibraryRepository {
   @discardableResult
   public func createTask(
     _ draft: TaskDraft,
-    now: Date = Date()
+    now: Date = Date(),
+    calendar: Calendar = .current
   ) throws -> PageSnapshot {
     let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { throw LibraryRepositoryError.invalidRecord }
     return try database.write { db in
       let page = try Self.createPage(db, id: .free(), kind: .free, title: title, now: now)
-      let data = Self.normalizedTaskData(draft.data, pageID: page.id)
+      let data = Self.normalizedTaskData(draft.data, pageID: page.id, calendar: calendar)
       try Self.validateTaskParent(
         db,
         pageID: page.id,
@@ -831,6 +1174,13 @@ public actor LibraryRepository {
       let updated = Self.updatedPage(page, with: result, now: now)
       try Self.writePage(db, page: updated, cloudDirty: true)
       try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+      try Self.enqueueTaskEffectOutbox(
+        db,
+        pageID: updated.id,
+        generation: updated.dirtyGeneration,
+        requestingAuthorization: draft.data.reminder != nil,
+        now: now
+      )
       return updated
     }
   }
@@ -841,24 +1191,24 @@ public actor LibraryRepository {
     data: TaskData,
     title: String? = nil,
     notes: String? = nil,
-    now: Date = Date()
+    now: Date = Date(),
+    calendar: Calendar = .current,
+    requestingReminderAuthorization: Bool? = nil
   ) throws -> PageSnapshot {
-    try database.read { db in
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID),
+        current.hasSupertag(BuiltInSupertags.task)
+      else { throw LibraryRepositoryError.invalidRecord }
       try Self.validateTaskParent(
         db,
         pageID: pageID,
         parentTaskID: data.parentTaskID
       )
-    }
-    var updatedPage: PageSnapshot?
-    try mutateDocument(pageID: pageID, now: now) { current in
-      guard current.hasSupertag(BuiltInSupertags.task) else {
-        throw LibraryRepositoryError.invalidRecord
-      }
       let normalizedData = Self.normalizedTaskData(
         data,
         pageID: pageID,
-        previous: current.taskData
+        previous: current.taskData,
+        calendar: calendar
       )
       var result = try PageDocument.setProperties(
         TaskFields.properties(for: normalizedData),
@@ -874,11 +1224,22 @@ public actor LibraryRepository {
       if let notes {
         result = try PageDocument.replaceBody(with: notes, in: result.document)
       }
-      updatedPage = Self.updatedPage(current, with: result, now: now)
-      return result
+      let updatedPage = Self.updatedPage(current, with: result, now: now)
+      try Self.writePage(db, page: updatedPage, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: updatedPage.id,
+        references: result.projection.references
+      )
+      try Self.enqueueTaskEffectOutbox(
+        db,
+        pageID: updatedPage.id,
+        generation: updatedPage.dirtyGeneration,
+        requestingAuthorization: requestingReminderAuthorization ?? (data.reminder != nil),
+        now: now
+      )
+      return updatedPage
     }
-    guard let updatedPage else { throw LibraryRepositoryError.pageNotFound }
-    return updatedPage
   }
 
   @discardableResult
@@ -892,13 +1253,66 @@ public actor LibraryRepository {
         throw LibraryRepositoryError.invalidRecord
       }
       guard data.state == .active else {
-        let successor = data.state == .completed
+        let successor =
+          data.state == .completed
           ? try Self.existingRecurrenceSuccessor(db, data: data)
           : nil
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: current.id,
+          generation: current.dirtyGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
+        if let successor {
+          try Self.enqueueTaskEffectOutbox(
+            db,
+            pageID: successor.id,
+            generation: successor.dirtyGeneration,
+            requestingAuthorization: false,
+            now: now
+          )
+        }
         return TaskCompletionResult(completed: current, successor: successor)
       }
 
-      data = Self.normalizedTaskData(data, pageID: pageID, previous: data)
+      data = Self.normalizedTaskData(
+        data,
+        pageID: pageID,
+        previous: data,
+        calendar: calendar,
+        normalizingTemporalValues: false
+      )
+      var preparedSuccessor: (data: TaskData, id: PageID)?
+      if data.recurrence != nil,
+        var successorData = TaskTemporalPolicy.successorData(
+          from: data,
+          createdAt: current.createdAt,
+          completedAt: now,
+          calendar: calendar
+        )
+      {
+        guard let seriesID = data.recurrenceSeriesID,
+          let sequence = data.recurrenceSequence
+        else { throw LibraryRepositoryError.invalidRecord }
+        let (nextSequence, overflow) = sequence.addingReportingOverflow(1)
+        guard !overflow else { throw LibraryRepositoryError.invalidRecord }
+        successorData.recurrenceSeriesID = seriesID
+        successorData.recurrenceSequence = nextSequence
+        if let generation = TaskTemporalPolicy.completionSuccessorGeneration(
+          from: data,
+          successor: successorData,
+          completedAt: now
+        ) {
+          data.completionSuccessorGeneration = generation
+          successorData.completionSuccessorGeneration = generation
+        }
+        preparedSuccessor = (
+          successorData,
+          PageID.taskOccurrence(seriesID: seriesID, sequence: nextSequence)
+        )
+      }
+
       data.state = .completed
       data.completedAt = now
       let completedResult = try PageDocument.setProperties(
@@ -909,56 +1323,32 @@ public actor LibraryRepository {
       )
       let completed = Self.updatedPage(current, with: completedResult, now: now)
       try Self.writePage(db, page: completed, cloudDirty: true)
+      try Self.enqueueTaskEffectOutbox(
+        db,
+        pageID: completed.id,
+        generation: completed.dirtyGeneration,
+        requestingAuthorization: false,
+        now: now
+      )
 
-      guard let recurrence = data.recurrence else {
+      guard let preparedSuccessor else {
         return TaskCompletionResult(completed: completed, successor: nil)
       }
-      let baseline: Date
-      switch recurrence.mode {
-      case .fixedSchedule:
-        baseline = data.scheduledAt ?? data.deadline ?? current.createdAt
-      case .afterCompletion:
-        baseline = now
-      }
-      guard let nextDate = recurrence.nextDate(after: baseline, calendar: calendar) else {
-        return TaskCompletionResult(completed: completed, successor: nil)
-      }
-
-      var successorData = data
-      successorData.state = .active
-      successorData.completedAt = nil
-      if data.scheduledAt != nil {
-        successorData.scheduledAt = nextDate
-      }
-      if let deadline = data.deadline {
-        let source = data.scheduledAt ?? baseline
-        let offset = deadline.timeIntervalSince(source)
-        successorData.deadline = nextDate.addingTimeInterval(offset)
-      }
-      if let reminder = data.reminder {
-        let source = data.scheduledAt ?? data.deadline ?? baseline
-        let offset = reminder.timeIntervalSince(source)
-        successorData.reminder = nextDate.addingTimeInterval(offset)
-      }
-      if data.scheduledAt == nil, data.deadline == nil {
-        successorData.scheduledAt = nextDate
-      }
-      if successorData.placement == .inbox { successorData.placement = .anytime }
-
-      guard let seriesID = data.recurrenceSeriesID,
-        let sequence = data.recurrenceSequence
-      else { throw LibraryRepositoryError.invalidRecord }
-      let (nextSequence, overflow) = sequence.addingReportingOverflow(1)
-      guard !overflow else { throw LibraryRepositoryError.invalidRecord }
-      successorData.recurrenceSeriesID = seriesID
-      successorData.recurrenceSequence = nextSequence
-      let successorID = PageID.taskOccurrence(seriesID: seriesID, sequence: nextSequence)
+      let successorData = preparedSuccessor.data
+      let successorID = preparedSuccessor.id
 
       if let existing = try Self.fetchPage(db, id: successorID) {
         guard let existingData = existing.taskData,
-          existingData.recurrenceSeriesID == seriesID,
-          existingData.recurrenceSequence == nextSequence
+          existingData.recurrenceSeriesID == successorData.recurrenceSeriesID,
+          existingData.recurrenceSequence == successorData.recurrenceSequence
         else { throw LibraryRepositoryError.invalidRecord }
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: existing.id,
+          generation: existing.dirtyGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
         return TaskCompletionResult(completed: completed, successor: existing)
       }
 
@@ -994,6 +1384,13 @@ public actor LibraryRepository {
         pageID: successor.id,
         references: successorResult.projection.references
       )
+      try Self.enqueueTaskEffectOutbox(
+        db,
+        pageID: successor.id,
+        generation: successor.dirtyGeneration,
+        requestingAuthorization: false,
+        now: now
+      )
       return TaskCompletionResult(completed: completed, successor: successor)
     }
   }
@@ -1001,9 +1398,38 @@ public actor LibraryRepository {
   private static func normalizedTaskData(
     _ data: TaskData,
     pageID: PageID,
-    previous: TaskData? = nil
+    previous: TaskData? = nil,
+    calendar: Calendar = .current,
+    normalizingTemporalValues: Bool = true
   ) -> TaskData {
-    var normalized = data
+    var normalized: TaskData
+    if normalizingTemporalValues {
+      normalized = TaskTemporalPolicy.normalized(data, calendar: calendar)
+    } else {
+      normalized = data
+    }
+    if let recurrence = normalized.recurrence {
+      normalized.recurrence = TaskTemporalPolicy.normalized(recurrence, calendar: calendar)
+    }
+    if normalizingTemporalValues, let previous {
+      if data.scheduleGranularity == previous.scheduleGranularity,
+        data.scheduledAt == previous.scheduledAt
+      {
+        normalized.scheduledAt = previous.scheduledAt
+      }
+      if data.deadline == previous.deadline {
+        normalized.deadline = previous.deadline
+      }
+    }
+    if let previous {
+      if hasManualTemporalMutation(data, comparedWith: previous) {
+        normalized.temporalProvenance = .manualMutation
+      } else {
+        normalized.temporalProvenance = previous.temporalProvenance
+      }
+    } else {
+      normalized.temporalProvenance = nil
+    }
 
     // Once established, a page's series cannot be reassigned and its sequence cannot move
     // backwards through an ordinary task edit.
@@ -1027,6 +1453,17 @@ public actor LibraryRepository {
       normalized.recurrenceSequence = 0
     }
     return normalized
+  }
+
+  private static func hasManualTemporalMutation(
+    _ data: TaskData,
+    comparedWith previous: TaskData
+  ) -> Bool {
+    data.scheduledAt != previous.scheduledAt
+      || data.scheduleGranularity != previous.scheduleGranularity
+      || data.deadline != previous.deadline
+      || data.reminder != previous.reminder
+      || data.recurrence != previous.recurrence
   }
 
   private static func validateTaskParent(
@@ -1074,7 +1511,12 @@ public actor LibraryRepository {
     }
     data.state = .active
     data.completedAt = nil
-    return try updateTask(pageID: pageID, data: data, now: now)
+    return try updateTask(
+      pageID: pageID,
+      data: data,
+      now: now,
+      requestingReminderAuthorization: false
+    )
   }
 
   @discardableResult
@@ -1084,7 +1526,12 @@ public actor LibraryRepository {
     }
     data.state = .canceled
     data.completedAt = now
-    return try updateTask(pageID: pageID, data: data, now: now)
+    return try updateTask(
+      pageID: pageID,
+      data: data,
+      now: now,
+      requestingReminderAuthorization: false
+    )
   }
 
   public func addSupertag(_ supertagID: SupertagID, to pageID: PageID, now: Date = Date()) throws {
@@ -2349,6 +2796,17 @@ public actor LibraryRepository {
           remote: remoteDocument,
           pageID: pageID
         )
+        let temporalResolutions = TaskTemporalPolicy.canonicalAfterCompletionConflictValues(
+          in: merged.projection.objectMetadata
+        )
+        if !temporalResolutions.isEmpty {
+          merged = try PageDocument.setProperties(
+            temporalResolutions,
+            ensuring: BuiltInSupertags.task,
+            message: "Resolve recurring task timing",
+            in: merged.document
+          )
+        }
         let promotedOrigins = [localProjection, remoteProjection].compactMap {
           Self.promotedPersonOrigin(in: $0)
         }
@@ -3521,8 +3979,59 @@ public actor LibraryRepository {
         ]
       )
     }
+    migrator.registerMigration("v17-task-effect-outbox") { db in
+      try db.create(table: "task_effect_outbox") { table in
+        table.column("page_id", .text).notNull()
+        table.column("effect_kind", .text).notNull()
+        table.column("generation", .integer).notNull()
+        table.column("request_authorization", .boolean).notNull().defaults(to: false)
+        table.column("enqueued_at", .double).notNull()
+        table.column("lease_id", .text)
+        table.column("lease_generation", .integer)
+        table.column("lease_expires_at", .double)
+        table.column("attempt_count", .integer).notNull().defaults(to: 0)
+        table.column("last_error", .text)
+        table.primaryKey(["page_id", "effect_kind"])
+      }
+      try db.create(
+        index: "task_effect_outbox_on_enqueued_at",
+        on: "task_effect_outbox",
+        columns: ["enqueued_at"]
+      )
+    }
     return migrator
   }()
+
+  private static func enqueueTaskEffectOutbox(
+    _ db: Database,
+    pageID: PageID,
+    generation: Int64,
+    requestingAuthorization: Bool,
+    now: Date
+  ) throws {
+    for kind in TaskEffectOutboxKind.allCases {
+      try db.execute(
+        sql: """
+          INSERT INTO task_effect_outbox
+            (page_id,effect_kind,generation,request_authorization,enqueued_at)
+          VALUES (?,?,?,?,?)
+          ON CONFLICT(page_id,effect_kind) DO UPDATE SET
+            generation=excluded.generation,
+            request_authorization=excluded.request_authorization,
+            enqueued_at=excluded.enqueued_at,
+            last_error=NULL
+          WHERE excluded.generation >= task_effect_outbox.generation
+          """,
+        arguments: [
+          pageID.rawValue,
+          kind.rawValue,
+          generation,
+          requestingAuthorization,
+          now.timeIntervalSince1970,
+        ]
+      )
+    }
+  }
 
   private static func writePage(
     _ db: Database,

@@ -84,15 +84,16 @@ struct CompleteTodayTaskWidgetIntent: AppIntent {
 
   func perform() async throws -> some IntentResult {
     let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
-    let result = try await repository.completeTask(pageID: PageID(rawValue: taskID))
-    await TaskReminderScheduler.shared.cancel(result.completed.id)
-    await TaskSystemSpotlight.remove(result.completed.id)
-    if let successor = result.successor {
-      await TaskReminderScheduler.shared.schedule(successor)
-      await TaskSystemSpotlight.index(successor)
+    let mutations = TaskMutationCoordinator(
+      repository: repository,
+      effects: .live(surface: .widgetExtension)
+    )
+    switch await mutations.complete(PageID(rawValue: taskID)) {
+    case .success:
+      return .result()
+    case .failure(let failure):
+      throw failure
     }
-    WidgetCenter.shared.reloadAllTimelines()
-    return .result()
   }
 }
 
@@ -157,7 +158,7 @@ private struct TodayTasksWidgetView: View {
 }
 
 struct EnchiridionTodayTasksWidget: Widget {
-  let kind = "EnchiridionTodayTasksWidget"
+  let kind = TaskWidgetIdentifiers.todayTasks
 
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: kind, provider: TodayTasksProvider()) { entry in
