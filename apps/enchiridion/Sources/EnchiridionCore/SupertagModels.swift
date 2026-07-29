@@ -89,6 +89,9 @@ public struct SupertagDefinition: Identifiable, Codable, Hashable, Sendable {
   public var name: String
   public var symbol: String
   public var fields: [SupertagFieldDefinition]
+  public var parentIDs: [SupertagID]
+  public var relationIDs: [RelationID]
+  public var presentationOrder: [PredicateID]
   public var isBuiltIn: Bool
   public var isDeleted: Bool
 
@@ -97,6 +100,9 @@ public struct SupertagDefinition: Identifiable, Codable, Hashable, Sendable {
     name: String,
     symbol: String,
     fields: [SupertagFieldDefinition],
+    parentIDs: [SupertagID] = [],
+    relationIDs: [RelationID] = [],
+    presentationOrder: [PredicateID] = [],
     isBuiltIn: Bool = false,
     isDeleted: Bool = false
   ) {
@@ -104,6 +110,9 @@ public struct SupertagDefinition: Identifiable, Codable, Hashable, Sendable {
     self.name = name
     self.symbol = symbol
     self.fields = fields
+    self.parentIDs = parentIDs
+    self.relationIDs = relationIDs
+    self.presentationOrder = presentationOrder
     self.isBuiltIn = isBuiltIn
     self.isDeleted = isDeleted
   }
@@ -195,6 +204,8 @@ public struct PageObjectMetadata: Codable, Hashable, Sendable {
 public enum BuiltInSupertags {
   public static let person = SupertagID(rawValue: "person")
   public static let organization = SupertagID(rawValue: "organization")
+  public static let company = SupertagID(rawValue: "company")
+  public static let event = SupertagID(rawValue: "event")
   public static let area = SupertagID(rawValue: "area")
   public static let project = SupertagID(rawValue: "project")
   public static let task = SupertagID(rawValue: "task")
@@ -214,6 +225,21 @@ public enum BuiltInSupertags {
       field("domain", "Domain", .text),
       selectField("relationship", "Relationship", ["Prospect", "Active", "Partner", "Former"]),
       field("notes", "Notes", .text, multiline: true),
+    ]),
+    definition(company, "Company", "building.2.crop.circle", [
+      field("registration-number", "Registration number", .text),
+      field("industry", "Industry", .text),
+    ], parents: [organization]),
+    definition(event, "Event", "calendar", [
+      field("start", "Starts", .dateTime),
+      field("end", "Ends", .dateTime),
+      field("all-day", "All day", .boolean),
+      field("calendar", "Calendar", .text),
+      field("source", "Source", .text),
+      field("location", "Location", .text),
+      field("organizer", "Organizer", .entityReference, allowed: [person]),
+      field("attendees", "Attendees", .entityReference, many: true, allowed: [person]),
+      field("place", "Place", .entityReference, allowed: [place]),
     ]),
     definition(area, "Area", "square.grid.2x2", [
       selectField("status", "Status", ["Active", "On Hold", "Archived"]),
@@ -260,9 +286,22 @@ public enum BuiltInSupertags {
   ]
 
   private static func definition(
-    _ id: SupertagID, _ name: String, _ symbol: String, _ fields: [SupertagFieldDefinition]
+    _ id: SupertagID,
+    _ name: String,
+    _ symbol: String,
+    _ fields: [SupertagFieldDefinition],
+    parents: [SupertagID] = []
   ) -> SupertagDefinition {
-    SupertagDefinition(id: id, name: name, symbol: symbol, fields: fields, isBuiltIn: true)
+    SupertagDefinition(
+      id: id,
+      name: name,
+      symbol: symbol,
+      fields: fields,
+      parentIDs: parents,
+      relationIDs: [],
+      presentationOrder: fields.map { PredicateID.property(tagID: id, fieldID: $0.id) },
+      isBuiltIn: true
+    )
   }
 
   private static func field(
