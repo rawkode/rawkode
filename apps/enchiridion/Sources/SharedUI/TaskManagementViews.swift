@@ -698,6 +698,7 @@ struct TaskPropertiesView: View {
   @State private var tags: String
   @State private var estimate: String
   @State private var isSaving = false
+  @State private var isChangingState = false
   @State private var saveError: String?
 
   init(store: LibraryStore, page: PageSnapshot, initialData: TaskData) {
@@ -710,7 +711,23 @@ struct TaskPropertiesView: View {
 
   var body: some View {
     Form {
-      Section {
+      Section("Execution") {
+        Picker("State", selection: stateBinding) {
+          ForEach(TaskState.allCases, id: \.self) { state in
+            Text(stateTitle(state)).tag(state)
+          }
+        }
+        .disabled(isWorking)
+        if isChangingState {
+          HStack(spacing: 10) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Updating task state…")
+              .foregroundStyle(.secondary)
+          }
+          .accessibilityElement(children: .combine)
+        }
+
         Picker("List", selection: $data.placement) {
           ForEach(TaskPlacement.allCases, id: \.self) { placement in
             Text(placement.title).tag(placement)
@@ -723,7 +740,7 @@ struct TaskPropertiesView: View {
         }
       }
 
-      Section("Dates") {
+      Section("Planning") {
         Toggle("Schedule", isOn: hasScheduledDateBinding)
         if data.scheduledAt != nil {
           Picker("Schedule precision", selection: $data.scheduleGranularity) {
@@ -752,7 +769,7 @@ struct TaskPropertiesView: View {
         }
       }
 
-      Section("Organize") {
+      Section("Organization") {
         Picker("Project", selection: $data.projectID) {
           Text("None").tag(PageID?.none)
           ForEach(store.taskProjects) { project in
@@ -772,33 +789,78 @@ struct TaskPropertiesView: View {
           }
         }
         TextField("Tags, separated by commas", text: $tags)
-        TextField("Estimate in minutes", text: $estimate)
       }
 
       TaskAssigneesSection(store: store, assigneeIDs: $data.assigneeIDs)
 
-      Section("Repeat") {
+      Section("Repeat & Estimate") {
         Toggle("Repeats", isOn: hasRecurrenceBinding)
         if data.recurrence != nil {
           TaskRecurrenceEditor(rule: recurrenceBinding)
         }
+        TextField("Estimate in minutes", text: $estimate)
       }
 
-      if let saveError {
-        Section {
+      Section {
+        if let saveError {
           Label(saveError, systemImage: "exclamationmark.triangle")
             .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
         }
-      }
-      }
-      .formStyle(.grouped)
-      .toolbar {
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Save") { save() }
-          .disabled(isSaving)
+
+        Button {
+          Task { await save() }
+        } label: {
+          HStack(spacing: 10) {
+            Label("Save Changes", systemImage: "checkmark")
+            Spacer()
+            if isSaving {
+              ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Saving task properties")
+            }
+          }
+          .frame(minHeight: 44)
+          .contentShape(.rect)
+        }
+        .disabled(!hasUnsavedChanges || isWorking)
+      } footer: {
+        Text(
+          hasUnsavedChanges
+            ? "Save to apply these task properties."
+            : "All task properties are saved."
+        )
       }
     }
+    .formStyle(.grouped)
+    .disabled(isChangingState)
+    #if os(macOS)
     .frame(minWidth: 340, minHeight: 480)
+    #endif
+  }
+
+  private var isWorking: Bool { isSaving || isChangingState }
+
+  private var currentData: TaskData? {
+    store.page(id: page.id)?.taskData
+  }
+
+  private var hasUnsavedChanges: Bool {
+    guard let currentData else { return false }
+    return !isEstimateValid || preparedData(preservingLifecycleFrom: currentData) != currentData
+  }
+
+  private var isEstimateValid: Bool {
+    let value = estimate.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return true }
+    return Int(value).map { $0 > 0 } ?? false
+  }
+
+  private var stateBinding: Binding<TaskState> {
+    Binding(
+      get: { currentData?.state ?? data.state },
+      set: { changeState(to: $0) }
+    )
   }
 
   private var scheduledBinding: Binding<Date> {
@@ -854,19 +916,95 @@ struct TaskPropertiesView: View {
     }
   }
 
-  private func save() {
+  private func stateTitle(_ state: TaskState) -> String {
+    switch state {
+    case .active: "Active"
+    case .completed: "Completed"
+    case .canceled: "Canceled"
+    }
+  }
+
+  private func preparedData(preservingLifecycleFrom current: TaskData) -> TaskData {
+    var prepared = data
+    prepared.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
+    prepared.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
+    prepared.state = current.state
+    prepared.completedAt = current.completedAt
+    prepared.recurrenceSeriesID = current.recurrenceSeriesID
+    prepared.recurrenceSequence = current.recurrenceSequence
+    prepared.temporalProvenance = current.temporalProvenance
+    return prepared
+  }
+
+  @discardableResult
+  private func save() async -> Bool {
+    guard !isSaving, let currentData else { return false }
+    guard isEstimateValid else {
+      saveError = "Estimate must be a whole number of minutes greater than zero."
+      return false
+    }
+    let prepared = preparedData(preservingLifecycleFrom: currentData)
+    guard prepared != currentData else {
+      saveError = nil
+      return true
+    }
+
     isSaving = true
     saveError = nil
-    data.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
-    data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
-    Task {
-      guard await store.updateTask(pageID: page.id, data: data) != nil else {
-        saveError = store.startupError ?? "The task could not be saved."
-        isSaving = false
+    defer { isSaving = false }
+
+    guard let updatedPage = await store.updateTask(pageID: page.id, data: prepared),
+      let updatedData = updatedPage.taskData
+    else {
+      saveError = store.startupError ?? "The task could not be saved."
+      return false
+    }
+
+    hydrate(from: updatedData)
+    return true
+  }
+
+  private func changeState(to targetState: TaskState) {
+    guard let sourceState = currentData?.state,
+      targetState != sourceState,
+      !isWorking
+    else { return }
+
+    isChangingState = true
+    saveError = nil
+    Task { @MainActor in
+      if hasUnsavedChanges, !(await save()) {
+        isChangingState = false
         return
       }
-      isSaving = false
+
+      let didChange: Bool
+      switch targetState {
+      case .active:
+        didChange = await store.reopenTask(page.id) != nil
+      case .completed:
+        if sourceState == .canceled, await store.reopenTask(page.id) == nil {
+          didChange = false
+        } else {
+          didChange = await store.completeTaskOfferingUndo(page.id) != nil
+        }
+      case .canceled:
+        didChange = await store.cancelTask(page.id) != nil
+      }
+
+      if didChange, let updatedData = currentData {
+        hydrate(from: updatedData)
+      } else if !didChange {
+        saveError = store.startupError ?? "The task state could not be changed."
+      }
+      isChangingState = false
     }
+  }
+
+  private func hydrate(from updatedData: TaskData) {
+    data = updatedData
+    tags = updatedData.tags.joined(separator: ", ")
+    estimate = updatedData.estimatedMinutes.map(String.init) ?? ""
   }
 }
 

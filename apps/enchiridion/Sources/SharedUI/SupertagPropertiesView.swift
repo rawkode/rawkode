@@ -21,9 +21,36 @@ struct SupertagPropertiesView: View {
   var body: some View {
     Form {
       if let page {
-        Section("Supertags") {
+        conflictsSection(for: page)
+
+        if page.hasSupertag(BuiltInSupertags.person) {
+          PersonIdentitySection(
+            store: store,
+            page: page,
+            contactLink: store.contactLinks[page.id]
+          )
+        }
+
+        ForEach(page.objectMetadata.supertagIDs) { tagID in
+          if let definition = store.supertags.first(where: { $0.id == tagID }),
+            !visibleFields(in: definition, on: page).isEmpty
+          {
+            Section(definition.name) {
+              ForEach(visibleFields(in: definition, on: page)) { field in
+                SupertagFieldEditor(
+                  store: store,
+                  page: page,
+                  tag: definition,
+                  field: field
+                )
+              }
+            }
+          }
+        }
+
+        Section("Types") {
           if page.objectMetadata.supertagIDs.isEmpty {
-            Text("Add a Supertag to turn this page into a typed object.")
+            Text("Add a type to define properties for this page.")
               .foregroundStyle(.secondary)
           }
           ForEach(page.objectMetadata.supertagIDs) { tagID in
@@ -36,55 +63,10 @@ struct SupertagPropertiesView: View {
                 }
             }
           }
-          Menu("Add Supertag", systemImage: "number") {
+          Menu("Add Type", systemImage: "number") {
             ForEach(store.supertags.filter { !page.objectMetadata.supertagIDs.contains($0.id) }) { tag in
               Button { store.addSupertag(tag.id, to: pageID) } label: {
                 Label(tag.name, systemImage: tag.symbol)
-              }
-            }
-          }
-        }
-
-        if page.hasSupertag(BuiltInSupertags.person) {
-          PersonIdentitySection(
-            store: store,
-            page: page,
-            contactLink: store.contactLinks[page.id]
-          )
-        }
-
-        ForEach(page.objectMetadata.supertagIDs) { tagID in
-          if let definition = store.supertags.first(where: { $0.id == tagID }) {
-            Section(definition.name) {
-              ForEach(visibleFields(in: definition)) { field in
-                SupertagFieldEditor(
-                  store: store,
-                  page: page,
-                  tag: definition,
-                  field: field
-                )
-              }
-            }
-          }
-        }
-
-        if !page.objectMetadata.conflicts.isEmpty {
-          Section("Needs attention") {
-            ForEach(page.objectMetadata.conflicts) { conflict in
-              Label(
-                "Conflicting values for \(fieldName(conflict.key))",
-                systemImage: "exclamationmark.triangle"
-              )
-              .foregroundStyle(.orange)
-              ForEach(Array(conflict.candidates.enumerated()), id: \.offset) { _, candidate in
-                Button(candidate.map(\.displayValue).joined(separator: ", ")) {
-                  store.setProperty(
-                    pageID: pageID,
-                    supertagID: conflict.key.supertagID,
-                    fieldID: conflict.key.fieldID,
-                    values: candidate
-                  )
-                }
               }
             }
           }
@@ -95,10 +77,58 @@ struct SupertagPropertiesView: View {
     .navigationTitle(navigationTitle)
   }
 
-  private func visibleFields(in definition: SupertagDefinition) -> [SupertagFieldDefinition] {
-    definition.fields.filter { field in
-      !field.isDeleted && !(definition.isBuiltIn && field.id.rawValue == "notes")
+  @ViewBuilder
+  private func conflictsSection(for page: PageSnapshot) -> some View {
+    if !page.objectMetadata.conflicts.isEmpty {
+      Section("Needs Attention") {
+        ForEach(page.objectMetadata.conflicts) { conflict in
+          Label(
+            "Conflicting values for \(fieldName(conflict.key))",
+            systemImage: "exclamationmark.triangle"
+          )
+          .foregroundStyle(.orange)
+          ForEach(Array(conflict.candidates.enumerated()), id: \.offset) { _, candidate in
+            Button(candidate.map(\.displayValue).joined(separator: ", ")) {
+              store.setProperty(
+                pageID: pageID,
+                supertagID: conflict.key.supertagID,
+                fieldID: conflict.key.fieldID,
+                values: candidate
+              )
+            }
+          }
+        }
+      }
     }
+  }
+
+  private func visibleFields(
+    in definition: SupertagDefinition,
+    on page: PageSnapshot
+  ) -> [SupertagFieldDefinition] {
+    definition.fields.enumerated()
+      .filter { _, field in
+        !field.isDeleted && !(definition.isBuiltIn && field.id.rawValue == "notes")
+      }
+      .sorted { lhs, rhs in
+        let lhsRank = fieldRank(lhs.element, in: definition, on: page)
+        let rhsRank = fieldRank(rhs.element, in: definition, on: page)
+        return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
+      }
+      .map(\.element)
+  }
+
+  private func fieldRank(
+    _ field: SupertagFieldDefinition,
+    in definition: SupertagDefinition,
+    on page: PageSnapshot
+  ) -> Int {
+    let key = SupertagPropertyKey(supertagID: definition.id, fieldID: field.id)
+    let isPopulated = !(page.objectMetadata.properties[key] ?? []).isEmpty
+    if field.isRequired && isPopulated { return 0 }
+    if field.isRequired { return 1 }
+    if isPopulated { return 2 }
+    return 3
   }
 
   private func fieldName(_ key: SupertagPropertyKey) -> String {
@@ -231,6 +261,7 @@ private struct SupertagFieldEditor: View {
   @State private var date = Date()
   @State private var selectedOption = ""
   @State private var selectedPages: Set<PageID> = []
+  @FocusState private var isTextFieldFocused: Bool
 
   private var key: SupertagPropertyKey {
     .init(supertagID: tag.id, fieldID: field.id)
@@ -242,21 +273,25 @@ private struct SupertagFieldEditor: View {
     Group {
       switch field.type {
       case .text, .url, .email, .phone:
-        TextField(field.name, text: $text, axis: field.isMultiline ? .vertical : .horizontal)
+        TextField(fieldLabel, text: $text, axis: field.isMultiline ? .vertical : .horizontal)
           .lineLimit(field.isMultiline ? 2...8 : 1...1)
+          .focused($isTextFieldFocused)
           .onSubmit(saveText)
+          .onChange(of: isTextFieldFocused) { wasFocused, isFocused in
+            if wasFocused && !isFocused { saveText() }
+          }
       case .number:
-        LabeledContent(field.name) {
+        LabeledContent(fieldLabel) {
           TextField("0", value: $number, format: .number)
             .multilineTextAlignment(.trailing)
             .onSubmit { save([.number(number)]) }
         }
       case .boolean:
-        Toggle(field.name, isOn: $boolean)
+        Toggle(fieldLabel, isOn: $boolean)
           .onChange(of: boolean) { _, value in save([.boolean(value)]) }
       case .date, .dateTime:
         DatePicker(
-          field.name,
+          fieldLabel,
           selection: $date,
           displayedComponents: field.type == .date ? .date : [.date, .hourAndMinute]
         )
@@ -264,7 +299,7 @@ private struct SupertagFieldEditor: View {
           save(field.type == .date ? [.date(value)] : [.dateTime(value)])
         }
       case .select:
-        Picker(field.name, selection: $selectedOption) {
+        Picker(fieldLabel, selection: $selectedOption) {
           Text("None").tag("")
           ForEach(field.options) { option in Text(option.name).tag(option.id) }
         }
@@ -289,7 +324,7 @@ private struct SupertagFieldEditor: View {
             }
           }
         } label: {
-          LabeledContent(field.name) {
+          LabeledContent(fieldLabel) {
             Text(selectedPageNames.isEmpty ? "None" : selectedPageNames)
               .foregroundStyle(selectedPageNames.isEmpty ? .secondary : .primary)
           }
@@ -297,6 +332,17 @@ private struct SupertagFieldEditor: View {
       }
     }
     .task(id: values) { hydrate() }
+    .onDisappear {
+      if field.type == .text || field.type == .url || field.type == .email
+        || field.type == .phone
+      {
+        saveText()
+      }
+    }
+  }
+
+  private var fieldLabel: String {
+    field.isRequired ? "\(field.name) (Required)" : field.name
   }
 
   private var referenceCandidates: [PageSnapshot] {
@@ -340,6 +386,7 @@ private struct SupertagFieldEditor: View {
   }
 
   private func save(_ values: [SupertagValue]) {
+    guard values != self.values else { return }
     store.setProperty(pageID: page.id, supertagID: tag.id, fieldID: field.id, values: values)
   }
 }

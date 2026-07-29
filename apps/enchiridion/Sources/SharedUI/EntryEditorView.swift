@@ -95,15 +95,19 @@ struct EntityDetailView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: selectedSection == .properties ? 10 : 0) {
+      VStack(alignment: .leading, spacing: selectedSection == .properties ? 14 : 0) {
         if selectedSection == .properties {
-          Text(page.displayTitle)
-            .font(.largeTitle.bold())
-            .frame(maxWidth: .infinity, alignment: .leading)
+          VStack(alignment: .leading, spacing: 6) {
+            Text(page.displayTitle)
+              .font(.largeTitle.weight(.semibold))
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .fixedSize(horizontal: false, vertical: true)
 
-          Label(typeNames, systemImage: primaryTypeSymbol)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
+            Label(typeNames, systemImage: primaryTypeSymbol)
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
 
         Picker("Page section", selection: $selectedSection) {
@@ -112,11 +116,12 @@ struct EntityDetailView: View {
           }
         }
         .pickerStyle(.segmented)
+        .frame(maxWidth: 360, minHeight: 44, alignment: .leading)
         .accessibilityIdentifier("page-detail-section")
       }
-      .padding(.horizontal)
-      .padding(.top, 12)
-      .padding(.bottom)
+      .padding(.horizontal, 20)
+      .padding(.top, selectedSection == .properties ? 20 : 12)
+      .padding(.bottom, 14)
 
       Divider()
 
@@ -136,27 +141,6 @@ struct EntityDetailView: View {
     }
     .navigationTitle("")
     .toolbar {
-      if let taskData = page.taskData {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            Task {
-              if taskData.state == .active {
-                await store.completeTaskOfferingUndo(page.id)
-              } else {
-                await store.reopenTask(page.id)
-              }
-            }
-          } label: {
-            Label(
-              taskData.state == .active ? "Complete" : "Reopen",
-              systemImage: taskData.state == .active
-                ? "checkmark.circle"
-                : "arrow.uturn.backward"
-            )
-          }
-        }
-      }
-
       ToolbarItem(placement: .secondaryAction) {
         Menu {
           if page.deletedAt == nil {
@@ -196,12 +180,13 @@ struct EntityDetailView: View {
   private var typeNames: String {
     let resolvedNames = typeDefinitions.map(\.name)
     if !resolvedNames.isEmpty { return resolvedNames.joined(separator: " · ") }
-    return page.objectMetadata.supertagIDs.map(\.rawValue).joined(separator: " · ")
+    let storedNames = page.objectMetadata.supertagIDs.map(\.rawValue)
+    return storedNames.isEmpty ? "Page" : storedNames.joined(separator: " · ")
   }
 
   private var primaryTypeSymbol: String {
     typeDefinitions.first?.symbol
-      ?? (page.hasSupertag(BuiltInSupertags.task) ? "checkmark.circle" : "number")
+      ?? (page.hasSupertag(BuiltInSupertags.task) ? "checkmark.circle" : "doc.text")
   }
 }
 
