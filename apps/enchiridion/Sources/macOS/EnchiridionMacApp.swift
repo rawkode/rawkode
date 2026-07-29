@@ -4,6 +4,8 @@ import SwiftUI
 @main
 struct EnchiridionMacApp: App {
   @FocusedValue(\.newPageAction) private var newPageAction
+  @FocusedValue(\.newTaskAction) private var newTaskAction
+  @FocusedValue(\.openTaskListAction) private var openTaskListAction
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
@@ -23,12 +25,31 @@ struct EnchiridionMacApp: App {
         .keyboardShortcut("n", modifiers: .command)
         .disabled(newPageAction == nil)
 
+        Button("New Task") {
+          newTaskAction?()
+        }
+        .keyboardShortcut("n", modifiers: [.command, .shift])
+        .disabled(newTaskAction == nil)
+
         Divider()
 
         Button("Open Assistant") {
           openWindow(id: "assistant")
         }
         .keyboardShortcut("a", modifiers: [.command, .shift])
+      }
+
+      CommandMenu("Tasks") {
+        Button("Inbox") { openTaskListAction?(.inbox) }
+          .keyboardShortcut("1", modifiers: [.command, .option])
+        Button("Today") { openTaskListAction?(.today) }
+          .keyboardShortcut("2", modifiers: [.command, .option])
+        Button("Upcoming") { openTaskListAction?(.upcoming) }
+          .keyboardShortcut("3", modifiers: [.command, .option])
+        Divider()
+        Button("Anytime") { openTaskListAction?(.anytime) }
+        Button("Someday") { openTaskListAction?(.someday) }
+        Button("Logbook") { openTaskListAction?(.logbook) }
       }
     }
 

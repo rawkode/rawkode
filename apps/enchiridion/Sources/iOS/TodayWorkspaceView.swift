@@ -15,6 +15,7 @@ struct TodayWorkspaceView: View {
   @State private var isOpeningDay = false
   @State private var openDayTask: Task<Void, Never>?
   @State private var isAssistantPresented = false
+  @State private var isTodayTasksPresented = false
 
   private let calendar = Calendar.current
 
@@ -49,11 +50,17 @@ struct TodayWorkspaceView: View {
         }
       }
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: .topBarLeading) {
           Button {
             show(.events)
           } label: {
             Label("Show events for this day", systemImage: "calendar")
+          }
+
+          Button {
+            showTodayTasks()
+          } label: {
+            Label("Show tasks for this day", systemImage: "checkmark.circle")
           }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -146,6 +153,16 @@ struct TodayWorkspaceView: View {
         unavailableReason: assistantUnavailableReason
       )
     }
+    .sheet(isPresented: $isTodayTasksPresented) {
+      NavigationStack {
+        TaskListScreen(store: store, selection: .smart(.today))
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Done") { isTodayTasksPresented = false }
+            }
+          }
+      }
+    }
     .onDisappear { openDayTask?.cancel() }
   }
 
@@ -157,6 +174,13 @@ struct TodayWorkspaceView: View {
     Task { @MainActor in
       guard await flushController.flush() else { return }
       isAssistantPresented = true
+    }
+  }
+
+  private func showTodayTasks() {
+    Task { @MainActor in
+      guard await flushController.flush() else { return }
+      isTodayTasksPresented = true
     }
   }
 

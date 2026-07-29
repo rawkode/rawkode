@@ -179,6 +179,11 @@ public final class LibraryStore {
       contactLinks = Dictionary(
         uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
       )
+      Task {
+        await TaskReminderScheduler.shared.reconcile(
+          live.filter { $0.hasSupertag(BuiltInSupertags.task) }
+        )
+      }
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id
       }
@@ -266,6 +271,7 @@ public final class LibraryStore {
     do {
       let page = try await repository.createTask(draft)
       await reload()
+      await TaskReminderScheduler.shared.schedule(page, requestingAuthorization: draft.data.reminder != nil)
       await syncCoordinator?.pageDidChange(page.id)
       return page.id
     } catch {
@@ -287,13 +293,14 @@ public final class LibraryStore {
   ) async {
     guard let repository else { return }
     do {
-      _ = try await repository.updateTask(
+      let page = try await repository.updateTask(
         pageID: pageID,
         data: data,
         title: title,
         notes: notes
       )
       await reload()
+      await TaskReminderScheduler.shared.schedule(page, requestingAuthorization: data.reminder != nil)
       await syncCoordinator?.pageDidChange(pageID)
     } catch {
       startupError = error.localizedDescription
@@ -305,6 +312,10 @@ public final class LibraryStore {
     do {
       let result = try await repository.completeTask(pageID: pageID, calendar: calendar)
       await reload()
+      await TaskReminderScheduler.shared.cancel(result.completed.id)
+      if let successor = result.successor {
+        await TaskReminderScheduler.shared.schedule(successor)
+      }
       for changedPageID in result.changedPageIDs {
         await syncCoordinator?.pageDidChange(changedPageID)
       }
@@ -316,8 +327,9 @@ public final class LibraryStore {
   public func reopenTask(_ pageID: PageID) async {
     guard let repository else { return }
     do {
-      _ = try await repository.reopenTask(pageID: pageID)
+      let page = try await repository.reopenTask(pageID: pageID)
       await reload()
+      await TaskReminderScheduler.shared.schedule(page)
       await syncCoordinator?.pageDidChange(pageID)
     } catch {
       startupError = error.localizedDescription
@@ -329,6 +341,7 @@ public final class LibraryStore {
     do {
       _ = try await repository.cancelTask(pageID: pageID)
       await reload()
+      await TaskReminderScheduler.shared.cancel(pageID)
       await syncCoordinator?.pageDidChange(pageID)
     } catch {
       startupError = error.localizedDescription

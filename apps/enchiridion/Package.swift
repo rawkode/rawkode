@@ -33,6 +33,7 @@ let package = Package(
         .linkedFramework("EventKit"),
         .linkedFramework("AuthenticationServices"),
         .linkedFramework("Security"),
+        .linkedFramework("UserNotifications"),
       ]
     ),
     .testTarget(

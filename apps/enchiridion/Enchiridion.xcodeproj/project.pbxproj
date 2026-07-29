@@ -27,6 +27,7 @@
 		47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */; };
 		480093EC2D69E369EB3393B3 /* CalendarEventFilterSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */; };
 		4D30CAB0FFC6C0FA2DEF9FB7 /* DeviceContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */; };
+		4D9ECB3247D1E94F2F5BCE1E /* TaskManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */; };
 		51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */; };
 		527C8CD9E0DE98C102E13A3A /* Editor in Resources */ = {isa = PBXBuildFile; fileRef = 6CF6E8BE5BBC7FC34821F6AB /* Editor */; };
 		5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
@@ -74,6 +75,7 @@
 		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
 		DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
 		E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
+		E1933CD85E9587F250228CFE /* TaskManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */; };
 		E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
@@ -94,6 +96,7 @@
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScreen.swift; sourceTree = "<group>"; };
 		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
+		5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagementViews.swift; sourceTree = "<group>"; };
 		61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
 		6CF6E8BE5BBC7FC34821F6AB /* Editor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Editor; path = Sources/SharedUI/Resources/Editor; sourceTree = SOURCE_ROOT; };
 		6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -227,6 +230,7 @@
 				E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */,
 				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
 				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
+				5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */,
 				7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */,
 				D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */,
 				89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */,
@@ -417,6 +421,7 @@
 				F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */,
 				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
 				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
+				E1933CD85E9587F250228CFE /* TaskManagementViews.swift in Sources */,
 				E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */,
 				1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */,
 				DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */,
@@ -457,6 +462,7 @@
 				3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
+				4D9ECB3247D1E94F2F5BCE1E /* TaskManagementViews.swift in Sources */,
 				EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */,
 				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
 				5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */,

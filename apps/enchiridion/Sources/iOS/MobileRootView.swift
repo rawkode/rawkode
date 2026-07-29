@@ -28,6 +28,9 @@ struct MobileRootView: View {
       )
         .tabItem { Label("Today", systemImage: "sun.max") }
 
+      MobileTaskHomeScreen(store: store)
+        .tabItem { Label("Tasks", systemImage: "checkmark.circle") }
+
       MobileLibraryScreen(store: store)
         .tabItem { Label("Library", systemImage: "books.vertical") }
 

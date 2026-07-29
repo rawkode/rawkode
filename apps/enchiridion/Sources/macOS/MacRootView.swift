@@ -9,6 +9,7 @@ struct MacRootView: View {
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
+  @State private var showsQuickTaskCapture = false
   @State private var todayPresentedPageID: PageID?
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
   @State private var editorFlushController = EditorFlushController()
@@ -20,15 +21,57 @@ struct MacRootView: View {
   var body: some View {
     NavigationSplitView {
       List(selection: sidebarSelectionBinding) {
+        Section("Tasks") {
+          ForEach(TaskSmartList.allCases) { list in
+            HStack {
+              Label(list.title, systemImage: list.systemImage)
+              Spacer()
+              if list == .inbox || list == .today || list == .upcoming {
+                let count = store.taskCount(list)
+                if count > 0 {
+                  Text(count, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+              }
+            }
+            .tag(MacSidebarSelection.task(.smart(list)))
+          }
+          Button { showsQuickTaskCapture = true } label: {
+            Label("New Task", systemImage: "plus")
+          }
+          .buttonStyle(.plain)
+        }
+        if !store.taskProjects.isEmpty {
+          Section("Projects") {
+            ForEach(store.taskProjects) { project in
+              Label(project.displayTitle, systemImage: "folder")
+                .tag(MacSidebarSelection.task(.project(project.id)))
+            }
+          }
+        }
+        if !store.taskAreas.isEmpty {
+          Section("Areas") {
+            ForEach(store.taskAreas) { area in
+              Label(area.displayTitle, systemImage: "square.grid.2x2")
+                .tag(MacSidebarSelection.task(.area(area.id)))
+            }
+          }
+        }
         Section {
           ForEach(LibrarySection.allCases) { item in
             Label(item.title, systemImage: item.systemImage)
               .tag(MacSidebarSelection.section(item))
           }
         }
-        if !store.supertags.isEmpty {
+        let librarySupertags = store.supertags.filter {
+          $0.id != BuiltInSupertags.task
+            && $0.id != BuiltInSupertags.project
+            && $0.id != BuiltInSupertags.area
+        }
+        if !librarySupertags.isEmpty {
           Section("Supertags") {
-            ForEach(store.supertags) { tag in
+            ForEach(librarySupertags) { tag in
               Label(tag.name, systemImage: tag.symbol)
                 .tag(MacSidebarSelection.supertag(tag.id))
             }
@@ -102,6 +145,18 @@ struct MacRootView: View {
           openPage: presentTodayPageAfterFlush
         )
         .navigationTitle("Events")
+      } else if case .task(let taskSelection) = selection {
+        TaskListContent(
+          store: store,
+          selection: taskSelection,
+          query: query,
+          openTask: selectPage
+        )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+          TaskQuickEntryBar(store: store, selection: taskSelection)
+        }
+        .navigationTitle(selection.title(in: store))
+        .searchable(text: $query, prompt: "Search tasks")
       } else {
         pageList
           .navigationTitle(selection.title(in: store))
@@ -116,11 +171,15 @@ struct MacRootView: View {
           openPage: presentTodayPage
         )
       } else if let selectedPageID = store.selectedPageID {
-        PageEditorView(
-          store: store,
-          pageID: selectedPageID,
-          flushController: editorFlushController
-        )
+        if case .task = selection, store.page(id: selectedPageID)?.taskData != nil {
+          TaskDetailScreen(store: store, pageID: selectedPageID)
+        } else {
+          PageEditorView(
+            store: store,
+            pageID: selectedPageID,
+            flushController: editorFlushController
+          )
+        }
       } else {
         ContentUnavailableView(
           "Choose a page",
@@ -192,20 +251,31 @@ struct MacRootView: View {
         }
         .help("Connect read-only calendars")
       }
-      ToolbarItem(placement: .primaryAction) {
-        Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
-          Label("New View", systemImage: "rectangle.stack.badge.plus")
+      if case .task = selection {
+        ToolbarItem(placement: .primaryAction) {
+          Button { showsQuickTaskCapture = true } label: {
+            Label("New Task", systemImage: "plus")
+          }
+          .help("New Task (Command-Shift-N)")
         }
-        .help("New saved view")
-      }
-      ToolbarItem(placement: .primaryAction) {
-        Button(action: createPage) {
-          Label("New Page", systemImage: "square.and.pencil")
+      } else {
+        ToolbarItem(placement: .primaryAction) {
+          Button { presentViewEditor(.init(name: "New View", source: .pages)) } label: {
+            Label("New View", systemImage: "rectangle.stack.badge.plus")
+          }
+          .help("New saved view")
         }
-        .help("New Page")
+        ToolbarItem(placement: .primaryAction) {
+          Button(action: createPage) {
+            Label("New Page", systemImage: "square.and.pencil")
+          }
+          .help("New Page")
+        }
       }
     }
     .focusedSceneValue(\.newPageAction, createPage)
+    .focusedSceneValue(\.newTaskAction, { showsQuickTaskCapture = true })
+    .focusedSceneValue(\.openTaskListAction, openTaskList)
     .sheet(item: $editingTag) { tag in
       SupertagSchemaEditor(store: store, definition: tag)
     }
@@ -227,6 +297,9 @@ struct MacRootView: View {
             }
           }
       }
+    }
+    .sheet(isPresented: $showsQuickTaskCapture) {
+      TaskQuickCaptureSheet(store: store, selection: selection.taskSelection ?? .smart(.inbox))
     }
     .onChange(of: store.savedViews) { _, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
@@ -409,6 +482,8 @@ struct MacRootView: View {
         await store.createFreePage()
       case .view:
         await store.createFreePage()
+      case .task:
+        showsQuickTaskCapture = true
       }
     }
   }
@@ -449,6 +524,11 @@ struct MacRootView: View {
       guard await editorFlushController.flush() else { return }
       selection = destination
     }
+  }
+
+  private func openTaskList(_ list: TaskSmartList) {
+    query = ""
+    selectSidebar(.task(.smart(list)))
   }
 
   private func selectPage(_ pageID: PageID) {
@@ -640,6 +720,7 @@ private struct MacTodayChangedPagesSidebar: View {
 @MainActor
 private enum MacSidebarSelection: Hashable {
   case section(LibrarySection)
+  case task(TaskListSelection)
   case supertag(SupertagID)
   case view(LiveQueryID)
 
@@ -648,9 +729,19 @@ private enum MacSidebarSelection: Hashable {
     return section
   }
 
+  var taskSelection: TaskListSelection? {
+    guard case .task(let selection) = self else { return nil }
+    return selection
+  }
+
   func title(in store: LibraryStore) -> String {
     switch self {
     case .section(let section): section.title
+    case .task(.smart(let list)): list.title
+    case .task(.project(let id)): store.page(id: id)?.displayTitle ?? "Project"
+    case .task(.area(let id)): store.page(id: id)?.displayTitle ?? "Area"
+    case .task(.tag(let value)): value
+    case .task(.search): "Search"
     case .supertag(let id): store.supertags.first(where: { $0.id == id })?.name ?? "Supertag"
     case .view(let id): store.savedViews.first(where: { $0.id == id })?.name ?? "View"
     }
