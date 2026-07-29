@@ -21,6 +21,21 @@ public struct TaskCompletionUndoOffer: Equatable, Sendable {
   }
 }
 
+public struct ProjectClosureUndoOffer: Equatable, Sendable {
+  public let projectTitle: String
+  public let resolution: ProjectClosureResolution
+  public let affectedTaskCount: Int
+  public let receipt: ProjectClosureUndoReceipt
+
+  public init?(_ outcome: ProjectClosureOutcome) {
+    guard let receipt = outcome.undoReceipt else { return nil }
+    projectTitle = outcome.project.displayTitle
+    resolution = receipt.resolution
+    affectedTaskCount = outcome.affectedTasks.count
+    self.receipt = receipt
+  }
+}
+
 @MainActor
 @Observable
 public final class LibraryStore {
@@ -40,6 +55,8 @@ public final class LibraryStore {
   public private(set) var taskMutationWarnings: [TaskMutationWarning] = []
   public private(set) var latestTaskCompletionUndoOffer: TaskCompletionUndoOffer?
   public private(set) var taskCompletionUndoFailure: String?
+  public private(set) var latestProjectClosureUndoOffer: ProjectClosureUndoOffer?
+  public private(set) var projectClosureUndoFailure: String?
   public private(set) var calendarError: String?
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
@@ -54,7 +71,7 @@ public final class LibraryStore {
     TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
-  @ObservationIgnored private var taskCompletionOfferGeneration: UInt64 = 0
+  @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
 
   public init(
     repository: LibraryRepository? = nil,
@@ -414,21 +431,68 @@ public final class LibraryStore {
   }
 
   @discardableResult
-  public func closeProject(pageID: PageID) async -> ProjectCloseResult {
-    guard let repository else {
+  public func closeProject(
+    pageID: PageID,
+    resolution: ProjectClosureResolution = .strict
+  ) async -> ProjectCloseResult {
+    undoOfferGeneration &+= 1
+    let offerGeneration = undoOfferGeneration
+    guard let taskMutationCoordinator else {
       return .failed(message: startupError ?? "The library is unavailable.")
     }
-    do {
-      let result = try await repository.closeProject(pageID: pageID)
-      guard case .closed(let project) = result else { return result }
-      await reload()
-      await syncCoordinator?.pageDidChange(project.id)
-      return .closed(project)
-    } catch {
-      let message = error.localizedDescription
+    switch await taskMutationCoordinator.closeProject(
+      pageID: pageID,
+      resolution: resolution
+    ) {
+    case .success(let success):
+      startupError = nil
+      taskMutationWarnings = success.warnings
+      let result = success.value
+      guard offerGeneration == undoOfferGeneration,
+        case .closed(let outcome) = result,
+        let offer = ProjectClosureUndoOffer(outcome)
+      else { return result }
+      latestProjectClosureUndoOffer = offer
+      projectClosureUndoFailure = nil
+      latestTaskCompletionUndoOffer = nil
+      taskCompletionUndoFailure = nil
+      return result
+    case .failure(let failure):
+      let message = failure.localizedDescription
       startupError = message
+      taskMutationWarnings = []
       return .failed(message: message)
     }
+  }
+
+  @discardableResult
+  public func undoProjectClosure(
+    _ receipt: ProjectClosureUndoReceipt
+  ) async -> ProjectClosureUndoResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(
+      from: await taskMutationCoordinator.undoProjectClosure(receipt)
+    )
+  }
+
+  @discardableResult
+  public func undoLatestProjectClosure() async -> ProjectClosureUndoResult? {
+    guard let offer = latestProjectClosureUndoOffer else { return nil }
+    let result = await undoProjectClosure(offer.receipt)
+    guard latestProjectClosureUndoOffer?.receipt == offer.receipt else { return result }
+    if result != nil {
+      dismissLatestProjectClosureUndo()
+    } else {
+      projectClosureUndoFailure =
+        startupError ?? "The project or one of its tasks changed, so Undo was not applied."
+    }
+    return result
+  }
+
+  public func dismissLatestProjectClosureUndo() {
+    undoOfferGeneration &+= 1
+    latestProjectClosureUndoOffer = nil
+    projectClosureUndoFailure = nil
   }
 
   @discardableResult
@@ -491,12 +555,14 @@ public final class LibraryStore {
 
   @discardableResult
   public func completeTaskOfferingUndo(_ pageID: PageID) async -> TaskCompletionResult? {
-    taskCompletionOfferGeneration &+= 1
-    let offerGeneration = taskCompletionOfferGeneration
+    undoOfferGeneration &+= 1
+    let offerGeneration = undoOfferGeneration
     guard let result = await completeTask(pageID) else { return nil }
-    guard offerGeneration == taskCompletionOfferGeneration else { return result }
+    guard offerGeneration == undoOfferGeneration else { return result }
     latestTaskCompletionUndoOffer = TaskCompletionUndoOffer(completion: result)
     taskCompletionUndoFailure = nil
+    latestProjectClosureUndoOffer = nil
+    projectClosureUndoFailure = nil
     return result
   }
 
@@ -523,6 +589,7 @@ public final class LibraryStore {
   }
 
   public func dismissLatestTaskCompletionUndo() {
+    undoOfferGeneration &+= 1
     latestTaskCompletionUndoOffer = nil
     taskCompletionUndoFailure = nil
   }

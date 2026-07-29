@@ -2,6 +2,8 @@ import EnchiridionCore
 import SwiftUI
 
 struct ProjectTaskListContent: View {
+  @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
   let store: LibraryStore
   let projectID: PageID
   var query = ""
@@ -12,119 +14,132 @@ struct ProjectTaskListContent: View {
   @State private var subtaskParent: TaskItem?
   @State private var lifecycleFeedback: ProjectLifecycleFeedback?
   @State private var isChangingLifecycle = false
+  @State private var closeResolutionPrompt: ProjectCloseResolutionPrompt?
+  @State private var reviewUnfinishedTasksRequest = 0
+  @AccessibilityFocusState private var tasksHeaderIsFocused: Bool
 
   var body: some View {
-    TaskWorkbenchList(selection: $workbench) {
-      if let project, let data = project.projectData {
+    ScrollViewReader { proxy in
+      TaskWorkbenchList(selection: $workbench) {
+        if let project, let data = project.projectData {
+          Section {
+            Button {
+              planningDraft = .init(project: project, data: data)
+            } label: {
+              VStack(alignment: .leading, spacing: 8) {
+                if data.outcome.isEmpty {
+                  Label("Define the result this project should produce", systemImage: "scope")
+                    .foregroundStyle(.secondary)
+                } else {
+                  Text(data.outcome)
+                    .foregroundStyle(.primary)
+                }
+                ProjectPlanMetadata(data: data)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Edits this project's outcome, status, and dates")
+
+            Button {
+              changeLifecycle(for: data)
+            } label: {
+              HStack(spacing: 10) {
+                Label(
+                  data.status.isOpen ? "Close Project" : "Reopen Project",
+                  systemImage: data.status.isOpen ? "archivebox" : "arrow.uturn.backward"
+                )
+                Spacer()
+                if isChangingLifecycle {
+                  ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                      data.status.isOpen ? "Closing project" : "Reopening project"
+                    )
+                }
+              }
+              .frame(minHeight: 44)
+              .contentShape(.rect)
+            }
+            .disabled(isChangingLifecycle)
+            .accessibilityHint(
+              data.status.isOpen
+                ? "Closes the project or offers ways to resolve unfinished tasks"
+                : "Returns only the project to Open Projects; its tasks stay as they are"
+            )
+
+            if let lifecycleFeedback {
+              ProjectLifecycleFeedbackView(feedback: lifecycleFeedback)
+            }
+          } header: {
+            Text("Project")
+          } footer: {
+            Text(
+              data.status.isOpen
+                ? "Close this project now, or choose what happens to its unfinished tasks."
+                : "Reopening makes only the project active. Its tasks stay as they are."
+            )
+          }
+        }
+
         Section {
-          Button {
-            planningDraft = .init(project: project, data: data)
-          } label: {
-            VStack(alignment: .leading, spacing: 8) {
-              if data.outcome.isEmpty {
-                Label("Define the result this project should produce", systemImage: "scope")
-                  .foregroundStyle(.secondary)
-              } else {
-                Text(data.outcome)
-                  .foregroundStyle(.primary)
-              }
-              ProjectPlanMetadata(data: data)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(.rect)
-          }
-          .buttonStyle(.plain)
-          .accessibilityHint("Edits this project's outcome, status, and dates")
-
-          Button {
-            changeLifecycle(for: data)
-          } label: {
-            HStack(spacing: 10) {
-              Label(
-                data.status.isOpen ? "Close Project" : "Reopen Project",
-                systemImage: data.status.isOpen ? "archivebox" : "arrow.uturn.backward"
+          if rows.isEmpty {
+            ContentUnavailableView(
+              emptyTaskTitle(for: project?.projectData),
+              systemImage: project?.projectData?.status.isOpen == false
+                ? "archivebox" : "checklist",
+              description: Text(
+                emptyTaskDescription(for: project?.projectData)
               )
-              Spacer()
-              if isChangingLifecycle {
-                ProgressView()
-                  .controlSize(.small)
-                  .accessibilityLabel(
-                    data.status.isOpen ? "Closing project" : "Reopening project"
-                  )
+            )
+            .listRowSeparator(.hidden)
+          } else {
+            ForEach(rows) { row in
+              TaskRow(
+                store: store,
+                task: row.task,
+                open: { openTask(row.id) },
+                usesListSelection: usesNativeTaskSelection
+              )
+              .tag(row.id)
+              .padding(.leading, CGFloat(row.depth) * 18)
+              .accessibilityValue(
+                row.depth == 0 ? "Top-level task" : "Subtask level \(row.depth)"
+              )
+              .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                if !workbench.isSelecting {
+                  Button {
+                    Task { await store.completeTaskOfferingUndo(row.id) }
+                  } label: {
+                    Label("Complete", systemImage: "checkmark")
+                  }
+                  .tint(.green)
+                }
+              }
+              .contextMenu {
+                if !workbench.isSelecting, project?.projectData?.status.isOpen == true {
+                  Button("Add Subtask", systemImage: "arrow.turn.down.right") {
+                    subtaskParent = row.task
+                  }
+                  Button("Complete", systemImage: "checkmark.circle") {
+                    Task { await store.completeTaskOfferingUndo(row.id) }
+                  }
+                  Button("Cancel", systemImage: "xmark.circle", role: .destructive) {
+                    Task { await store.cancelTask(row.id) }
+                  }
+                }
               }
             }
-            .frame(minHeight: 44)
-            .contentShape(.rect)
-          }
-          .disabled(isChangingLifecycle)
-          .accessibilityHint(
-            data.status.isOpen
-              ? "Closes the project when it has no unfinished tasks"
-              : "Returns the project to Open Projects"
-          )
-
-          if let lifecycleFeedback {
-            ProjectLifecycleFeedbackView(feedback: lifecycleFeedback)
           }
         } header: {
-          Text("Project")
-        } footer: {
-          Text(
-            data.status.isOpen
-              ? "Close this project after every unfinished task is completed or moved."
-              : "Closed projects appear in Logbook."
-          )
+          Text("Tasks")
+            .id(ProjectTaskListAnchor.tasks)
+            .accessibilityFocused($tasksHeaderIsFocused)
         }
       }
-
-      Section("Tasks") {
-        if rows.isEmpty {
-          ContentUnavailableView(
-            emptyTaskTitle(for: project?.projectData),
-            systemImage: project?.projectData?.status.isOpen == false ? "archivebox" : "checklist",
-            description: Text(
-              emptyTaskDescription(for: project?.projectData)
-            )
-          )
-          .listRowSeparator(.hidden)
-        } else {
-          ForEach(rows) { row in
-            TaskRow(
-              store: store,
-              task: row.task,
-              open: { openTask(row.id) },
-              usesListSelection: usesNativeTaskSelection
-            )
-            .tag(row.id)
-            .padding(.leading, CGFloat(row.depth) * 18)
-            .accessibilityValue(
-              row.depth == 0 ? "Top-level task" : "Subtask level \(row.depth)"
-            )
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-              if !workbench.isSelecting {
-                Button {
-                  Task { await store.completeTaskOfferingUndo(row.id) }
-                } label: {
-                  Label("Complete", systemImage: "checkmark")
-                }
-                .tint(.green)
-              }
-            }
-            .contextMenu {
-              if !workbench.isSelecting, project?.projectData?.status.isOpen == true {
-                Button("Add Subtask", systemImage: "arrow.turn.down.right") {
-                  subtaskParent = row.task
-                }
-                Button("Complete", systemImage: "checkmark.circle") {
-                  Task { await store.completeTaskOfferingUndo(row.id) }
-                }
-                Button("Cancel", systemImage: "xmark.circle", role: .destructive) {
-                  Task { await store.cancelTask(row.id) }
-                }
-              }
-            }
-          }
-        }
+      .onChange(of: reviewUnfinishedTasksRequest) { _, _ in
+        revealUnfinishedTasks(using: proxy)
       }
     }
     .listStyle(.inset)
@@ -133,6 +148,35 @@ struct ProjectTaskListContent: View {
     }
     .sheet(item: $subtaskParent) { parent in
       ProjectSubtaskCreator(store: store, projectID: projectID, parent: parent)
+    }
+    .confirmationDialog(
+      "Close Project?",
+      isPresented: closeResolutionPromptBinding,
+      titleVisibility: .visible
+    ) {
+      let activeTaskCount = closeResolutionPrompt?.activeTaskCount ?? 0
+      Button("Review Unfinished Tasks") {
+        reviewUnfinishedTasks(activeTaskCount: activeTaskCount)
+      }
+      .accessibilityHint(
+        "Returns to the \(taskCountLabel(activeTaskCount)) that need a decision"
+      )
+      Button("Keep Tasks and Complete Project") {
+        closeProject(resolution: .detachActiveTasks)
+      }
+      .accessibilityHint(
+        "Keeps \(taskCountLabel(activeTaskCount)) active in their current lists and removes the project"
+      )
+      Button("Cancel Tasks and Project", role: .destructive) {
+        closeProject(resolution: .cancelActiveTasks)
+      }
+      .accessibilityHint(
+        "Cancels \(taskCountLabel(activeTaskCount)) and the project, moving them to Logbook"
+      )
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      let activeTaskCount = closeResolutionPrompt?.activeTaskCount ?? 0
+      Text(closeResolutionMessage(activeTaskCount: activeTaskCount))
     }
   }
 
@@ -153,27 +197,80 @@ struct ProjectTaskListContent: View {
 
   private func changeLifecycle(for data: ProjectData) {
     guard !isChangingLifecycle else { return }
+    if data.status.isOpen {
+      closeProject(resolution: .strict)
+    } else {
+      lifecycleFeedback = nil
+      isChangingLifecycle = true
+      Task {
+        if await store.reopenProject(pageID: projectID) == nil {
+          lifecycleFeedback = .failed(
+            message: store.startupError ?? "The project could not be reopened."
+          )
+        }
+        isChangingLifecycle = false
+      }
+    }
+  }
+
+  private func closeProject(resolution: ProjectClosureResolution) {
+    guard !isChangingLifecycle else { return }
+    closeResolutionPrompt = nil
     lifecycleFeedback = nil
     isChangingLifecycle = true
 
     Task {
-      if data.status.isOpen {
-        let result = await store.closeProject(pageID: projectID)
-        switch result {
-        case .closed:
-          lifecycleFeedback = nil
-        case .blocked(let activeTaskCount):
-          lifecycleFeedback = .blocked(activeTaskCount: activeTaskCount)
-        case .failed(let message):
-          lifecycleFeedback = .failed(message: message)
-        }
-      } else if await store.reopenProject(pageID: projectID) == nil {
-        lifecycleFeedback = .failed(
-          message: store.startupError ?? "The project could not be reopened."
-        )
+      let result = await store.closeProject(pageID: projectID, resolution: resolution)
+      switch result {
+      case .closed:
+        lifecycleFeedback = nil
+      case .blocked(let activeTaskCount):
+        lifecycleFeedback = .blocked(activeTaskCount: activeTaskCount)
+        closeResolutionPrompt = .init(activeTaskCount: activeTaskCount)
+      case .failed(let message):
+        lifecycleFeedback = .failed(message: message)
       }
       isChangingLifecycle = false
     }
+  }
+
+  private var closeResolutionPromptBinding: Binding<Bool> {
+    Binding(
+      get: { closeResolutionPrompt != nil },
+      set: { isPresented in
+        if !isPresented { closeResolutionPrompt = nil }
+      }
+    )
+  }
+
+  private func reviewUnfinishedTasks(activeTaskCount: Int) {
+    lifecycleFeedback = .blocked(activeTaskCount: activeTaskCount)
+    tasksHeaderIsFocused = false
+    reviewUnfinishedTasksRequest &+= 1
+  }
+
+  private func revealUnfinishedTasks(using proxy: ScrollViewProxy) {
+    if accessibilityReduceMotion {
+      proxy.scrollTo(ProjectTaskListAnchor.tasks, anchor: .top)
+    } else {
+      withAnimation(.easeInOut(duration: 0.18)) {
+        proxy.scrollTo(ProjectTaskListAnchor.tasks, anchor: .top)
+      }
+    }
+    Task { @MainActor in
+      await Task.yield()
+      tasksHeaderIsFocused = true
+    }
+  }
+
+  private func closeResolutionMessage(activeTaskCount: Int) -> String {
+    let unfinished = taskCountLabel(activeTaskCount)
+    return
+      "\(unfinished) still \(activeTaskCount == 1 ? "belongs" : "belong") to this project. Keep Tasks leaves \(activeTaskCount == 1 ? "it" : "them") active in \(activeTaskCount == 1 ? "its" : "their") current lists without the project. Cancel Tasks and Project moves \(activeTaskCount == 1 ? "it" : "them") to Logbook with the cancelled project."
+  }
+
+  private func taskCountLabel(_ count: Int) -> String {
+    "\(count) unfinished \(count == 1 ? "task" : "tasks")"
   }
 
   private var rows: [TaskHierarchyRow] {
@@ -197,6 +294,14 @@ struct ProjectTaskListContent: View {
       true
     #endif
   }
+}
+
+private enum ProjectTaskListAnchor: Hashable {
+  case tasks
+}
+
+private struct ProjectCloseResolutionPrompt: Equatable {
+  let activeTaskCount: Int
 }
 
 private enum ProjectLifecycleFeedback: Equatable {
@@ -225,7 +330,7 @@ private struct ProjectLifecycleFeedbackView: View {
     case .blocked(let activeTaskCount):
       let noun = activeTaskCount == 1 ? "task" : "tasks"
       return
-        "\(activeTaskCount) unfinished \(noun) still belong to this project. Complete or move \(activeTaskCount == 1 ? "it" : "them") before closing."
+        "\(activeTaskCount) unfinished \(noun) still \(activeTaskCount == 1 ? "belongs" : "belong") to this project. Complete or move \(activeTaskCount == 1 ? "it" : "them") before closing."
     case .failed(let message):
       return message
     }
@@ -586,6 +691,12 @@ private struct ProjectPlanningEditor: View {
               Text(data.status.title).tag(data.status)
             }
           }
+          .disabled(!draft.data.status.isOpen)
+          .accessibilityHint(
+            draft.data.status.isOpen
+              ? "Complete or cancel this project from its task list"
+              : "Reopen this project from its task list; its tasks stay as they are"
+          )
           Picker("Area", selection: $data.areaID) {
             Text("None").tag(PageID?.none)
             ForEach(store.taskAreas) { area in
@@ -595,7 +706,11 @@ private struct ProjectPlanningEditor: View {
         } header: {
           Text("Plan")
         } footer: {
-          Text("Close or reopen this project from its task list.")
+          Text(
+            draft.data.status.isOpen
+              ? "Complete or cancel this project from its task list so unfinished tasks can be resolved safely."
+              : "Reopen this project from its task list. Reopening does not change its tasks."
+          )
         }
 
         Section("Dates") {

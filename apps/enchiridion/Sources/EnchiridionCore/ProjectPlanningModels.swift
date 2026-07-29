@@ -25,8 +25,67 @@ public enum ProjectStatus: String, Codable, CaseIterable, Hashable, Sendable {
   }
 }
 
+public enum ProjectClosureResolution: String, Codable, CaseIterable, Hashable, Sendable {
+  case strict
+  case detachActiveTasks
+  case cancelActiveTasks
+}
+
+public struct ProjectClosureUndoReceipt: Codable, Hashable, Sendable {
+  public var resolution: ProjectClosureResolution
+  public var projectAfterClosure: TaskPageVersion
+  public var projectBeforeData: ProjectData
+  public var taskReceipt: TaskBatchUndoReceipt
+
+  public init(
+    resolution: ProjectClosureResolution,
+    projectAfterClosure: TaskPageVersion,
+    projectBeforeData: ProjectData,
+    taskReceipt: TaskBatchUndoReceipt
+  ) {
+    self.resolution = resolution
+    self.projectAfterClosure = projectAfterClosure
+    self.projectBeforeData = projectBeforeData
+    self.taskReceipt = taskReceipt
+  }
+}
+
+public struct ProjectClosureOutcome: Hashable, Sendable {
+  public var project: PageSnapshot
+  public var affectedTasks: [PageSnapshot]
+  public var undoReceipt: ProjectClosureUndoReceipt?
+
+  public init(
+    project: PageSnapshot,
+    affectedTasks: [PageSnapshot],
+    undoReceipt: ProjectClosureUndoReceipt?
+  ) {
+    self.project = project
+    self.affectedTasks = affectedTasks
+    self.undoReceipt = undoReceipt
+  }
+
+  public var changedPageIDs: [PageID] {
+    [project.id] + affectedTasks.map(\.id)
+  }
+}
+
+public struct ProjectClosureUndoResult: Hashable, Sendable {
+  public var project: PageSnapshot
+  public var restoredTasks: [PageSnapshot]
+
+  public init(project: PageSnapshot, restoredTasks: [PageSnapshot]) {
+    self.project = project
+    self.restoredTasks = restoredTasks
+  }
+
+  public var changedPageIDs: [PageID] {
+    [project.id] + restoredTasks.map(\.id)
+  }
+}
+
 public enum ProjectCloseResult: Hashable, Sendable {
-  case closed(PageSnapshot)
+  case closed(ProjectClosureOutcome)
   case blocked(activeTaskCount: Int)
   case failed(message: String)
 }
@@ -38,6 +97,7 @@ public struct ProjectData: Codable, Hashable, Sendable {
   public var startDate: Date?
   public var dueDate: Date?
   public var lastReviewedAt: Date?
+  public var closedAt: Date?
 
   public init(
     status: ProjectStatus = .active,
@@ -45,7 +105,8 @@ public struct ProjectData: Codable, Hashable, Sendable {
     areaID: PageID? = nil,
     startDate: Date? = nil,
     dueDate: Date? = nil,
-    lastReviewedAt: Date? = nil
+    lastReviewedAt: Date? = nil,
+    closedAt: Date? = nil
   ) {
     self.status = status
     self.outcome = outcome.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -53,6 +114,7 @@ public struct ProjectData: Codable, Hashable, Sendable {
     self.startDate = startDate
     self.dueDate = dueDate
     self.lastReviewedAt = lastReviewedAt
+    self.closedAt = closedAt
   }
 }
 
@@ -63,6 +125,7 @@ public enum ProjectFields {
   public static let startDate = key("start-date")
   public static let dueDate = key("due-date")
   public static let lastReviewedAt = key("last-reviewed-at")
+  public static let closedAt = key("closed-at")
 
   public static func properties(for data: ProjectData) -> [SupertagPropertyKey: [SupertagValue]] {
     [
@@ -72,6 +135,7 @@ public enum ProjectFields {
       startDate: data.startDate.map { [.date($0)] } ?? [],
       dueDate: data.dueDate.map { [.date($0)] } ?? [],
       lastReviewedAt: data.lastReviewedAt.map { [.dateTime($0)] } ?? [],
+      closedAt: data.closedAt.map { [.dateTime($0)] } ?? [],
     ]
   }
 
@@ -93,7 +157,8 @@ extension PageSnapshot {
       areaID: values[ProjectFields.area]?.first?.projectPageValue,
       startDate: values[ProjectFields.startDate]?.first?.projectDateValue,
       dueDate: values[ProjectFields.dueDate]?.first?.projectDateValue,
-      lastReviewedAt: values[ProjectFields.lastReviewedAt]?.first?.projectDateValue
+      lastReviewedAt: values[ProjectFields.lastReviewedAt]?.first?.projectDateValue,
+      closedAt: values[ProjectFields.closedAt]?.first?.projectDateValue
     )
   }
 }

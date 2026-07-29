@@ -17,6 +17,8 @@ public enum TaskMutationOperation: String, Equatable, Sendable {
   case patchTasks
   case trashTasks
   case undoTaskBatch
+  case closeProject
+  case undoProjectClosure
   case moveToTrash
   case restore
   case purge
@@ -29,6 +31,7 @@ public enum TaskMutationFailureReason: Equatable, Sendable {
   case taskNotActive
   case taskNotClosed
   case completionUndoUnavailable
+  case projectClosureUndoUnavailable
   case databaseUnavailable(String)
   case unexpected(String)
 }
@@ -60,6 +63,8 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
       operation == .undoTaskBatch
         ? "One or more tasks changed after the batch action, so it was not undone."
         : "The task or its recurring successor changed after completion, so the completion was not undone."
+    case .projectClosureUndoUnavailable:
+      "The project or one of its tasks changed after closure, so Undo was not applied."
     case .databaseUnavailable(let message):
       "The local library could not be opened: \(message)"
     case .unexpected(let message):
@@ -83,6 +88,8 @@ extension TaskMutationOperation {
     case .patchTasks: "updated"
     case .trashTasks: "moved to the trash"
     case .undoTaskBatch: "restored"
+    case .closeProject: "closed"
+    case .undoProjectClosure: "restored"
     case .moveToTrash: "moved to the trash"
     case .restore: "restored"
     case .purge: "permanently deleted"
@@ -713,6 +720,57 @@ public actor TaskMutationCoordinator {
     }
   }
 
+  public func closeProject(
+    pageID: PageID,
+    resolution: ProjectClosureResolution,
+    now: Date = Date()
+  ) async -> TaskMutationResult<ProjectCloseResult> {
+    do {
+      let result = try await repository.closeProject(
+        pageID: pageID,
+        resolution: resolution,
+        now: now
+      )
+      guard case .closed(let outcome) = result,
+        outcome.undoReceipt != nil
+      else {
+        return .success(
+          TaskMutationSuccess(
+            operation: .closeProject,
+            value: result,
+            changedPageIDs: [],
+            sideEffects: []
+          )
+        )
+      }
+      return await success(
+        operation: .closeProject,
+        value: result,
+        changedPageIDs: outcome.changedPageIDs,
+        mutationEffects: outcome.affectedTasks.flatMap(Self.effectsForCurrentState)
+      )
+    } catch {
+      return .failure(failure(operation: .closeProject, error: error))
+    }
+  }
+
+  public func undoProjectClosure(
+    _ receipt: ProjectClosureUndoReceipt,
+    now: Date = Date()
+  ) async -> TaskMutationResult<ProjectClosureUndoResult> {
+    do {
+      let result = try await repository.undoProjectClosure(receipt, now: now)
+      return await success(
+        operation: .undoProjectClosure,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: result.restoredTasks.flatMap(Self.activeTaskEffects)
+      )
+    } catch {
+      return .failure(failure(operation: .undoProjectClosure, error: error))
+    }
+  }
+
   public func moveToTrash(
     _ pageID: PageID,
     now: Date = Date()
@@ -951,6 +1009,8 @@ public actor TaskMutationCoordinator {
       reason = .taskNotClosed
     case LibraryRepositoryError.taskCompletionUndoUnavailable:
       reason = .completionUndoUnavailable
+    case LibraryRepositoryError.projectClosureUndoUnavailable:
+      reason = .projectClosureUndoUnavailable
     case LibraryRepositoryError.databaseUnavailable(let message):
       reason = .databaseUnavailable(message)
     default:

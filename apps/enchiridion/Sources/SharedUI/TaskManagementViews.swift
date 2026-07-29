@@ -395,10 +395,16 @@ struct TaskListContent: View {
       let tasks = visibleTasks
       TaskWorkbenchList(selection: $workbench) {
         if isLogbook, !closedProjects.isEmpty {
-          Section("Closed Projects") {
+          Section {
             ForEach(closedProjects) { project in
               ClosedProjectRow(store: store, project: project)
             }
+          } header: {
+            Text("Closed Projects")
+          } footer: {
+            Text(
+              "Reopening makes only the project active. Detached tasks stay in their current lists, and cancelled tasks stay in Logbook."
+            )
           }
         }
 
@@ -589,7 +595,7 @@ private struct ClosedProjectRow: View {
             .font(.body.weight(.medium))
             .lineLimit(2)
 
-          Label(status.title, systemImage: statusSystemImage)
+          Label(closureLabel, systemImage: statusSystemImage)
             .font(.caption)
             .foregroundStyle(.secondary)
 
@@ -617,7 +623,9 @@ private struct ClosedProjectRow: View {
         .frame(minHeight: 44)
         .disabled(isReopening)
         .accessibilityLabel("Reopen \(project.displayTitle)")
-        .accessibilityHint("Returns this project to Open Projects")
+        .accessibilityHint(
+          "Returns only this project to Open Projects; its tasks stay as they are"
+        )
       }
 
       if let failureMessage {
@@ -636,6 +644,12 @@ private struct ClosedProjectRow: View {
 
   private var statusSystemImage: String {
     status == .cancelled ? "xmark.circle" : "checkmark.circle"
+  }
+
+  private var closureLabel: String {
+    guard let closedAt = project.projectData?.closedAt else { return status.title }
+    let action = status == .cancelled ? "Cancelled" : "Completed"
+    return "\(action) \(closedAt.formatted(date: .abbreviated, time: .omitted))"
   }
 
   private func reopen() {

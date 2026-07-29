@@ -590,6 +590,86 @@ final class TaskMutationCoordinatorTests: XCTestCase {
     XCTAssertNotNil(purgeMarker)
   }
 
+  func testProjectClosureAndUndoRunEffectsForProjectAndEveryChangedTask() async throws {
+    let fixture = try TaskMutationFixture()
+    let recorder = TaskMutationEffectRecorder()
+    let coordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: TaskMutationEffectExecutor { effect in await recorder.apply(effect) }
+    )
+    let cancelProject = try await fixture.repository.createProject(title: "Cancel project")
+    let canceledTask = try await fixture.repository.createTask(
+      TaskDraft(title: "Cancel me", data: TaskData(projectID: cancelProject.id))
+    )
+
+    let canceled = try success(
+      await coordinator.closeProject(
+        pageID: cancelProject.id,
+        resolution: .cancelActiveTasks
+      )
+    )
+    guard case .closed(let canceledOutcome) = canceled.value,
+      let canceledReceipt = canceledOutcome.undoReceipt
+    else { return XCTFail("Expected cancel closure") }
+    try await assertEffects(
+      of: canceled,
+      equal: [
+        .reloadLibrary,
+        .cancelReminder(canceledTask.id),
+        .removeSpotlight(canceledTask.id),
+        .sync(cancelProject.id),
+        .sync(canceledTask.id),
+        .reloadWidgets,
+      ],
+      recorder: recorder
+    )
+
+    let undone = try success(await coordinator.undoProjectClosure(canceledReceipt))
+    let restoredTask = try XCTUnwrap(undone.value.restoredTasks.first)
+    try await assertEffects(
+      of: undone,
+      equal: [
+        .reloadLibrary,
+        .scheduleReminder(restoredTask, requestingAuthorization: false),
+        .indexSpotlight(restoredTask),
+        .sync(cancelProject.id),
+        .sync(canceledTask.id),
+        .reloadWidgets,
+      ],
+      recorder: recorder
+    )
+
+    let detachProject = try await fixture.repository.createProject(title: "Detach project")
+    let detachedTask = try await fixture.repository.createTask(
+      TaskDraft(title: "Detach me", data: TaskData(projectID: detachProject.id))
+    )
+    let detached = try success(
+      await coordinator.closeProject(
+        pageID: detachProject.id,
+        resolution: .detachActiveTasks
+      )
+    )
+    let detachedOutcome: ProjectClosureOutcome?
+    if case .closed(let outcome) = detached.value {
+      detachedOutcome = outcome
+    } else {
+      detachedOutcome = nil
+    }
+    let detachedPage = try XCTUnwrap(detachedOutcome?.affectedTasks.first)
+    try await assertEffects(
+      of: detached,
+      equal: [
+        .reloadLibrary,
+        .scheduleReminder(detachedPage, requestingAuthorization: false),
+        .indexSpotlight(detachedPage),
+        .sync(detachProject.id),
+        .sync(detachedTask.id),
+        .reloadWidgets,
+      ],
+      recorder: recorder
+    )
+  }
+
   private func success<Value: Sendable>(
     _ result: TaskMutationResult<Value>,
     file: StaticString = #filePath,

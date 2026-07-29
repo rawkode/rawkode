@@ -108,7 +108,12 @@ struct SupertagPropertiesView: View {
   ) -> [SupertagFieldDefinition] {
     definition.fields.enumerated()
       .filter { _, field in
-        !field.isDeleted && !(definition.isBuiltIn && field.id.rawValue == "notes")
+        !field.isDeleted
+          && !(definition.isBuiltIn && field.id.rawValue == "notes")
+          && !(
+            definition.id == BuiltInSupertags.project
+              && field.id == ProjectFields.closedAt.fieldID
+          )
       }
       .sorted { lhs, rhs in
         let lhsRank = fieldRank(lhs.element, in: definition, on: page)
@@ -299,11 +304,23 @@ private struct SupertagFieldEditor: View {
           save(field.type == .date ? [.date(value)] : [.dateTime(value)])
         }
       case .select:
-        Picker(fieldLabel, selection: $selectedOption) {
-          Text("None").tag("")
-          ForEach(field.options) { option in Text(option.name).tag(option.id) }
+        VStack(alignment: .leading, spacing: 5) {
+          Picker(fieldLabel, selection: $selectedOption) {
+            Text("None").tag("")
+            ForEach(selectableOptions) { option in Text(option.name).tag(option.id) }
+          }
+          .disabled(isClosedProjectStatus)
+          .onChange(of: selectedOption) { _, value in
+            save(value.isEmpty ? [] : [.select(value)])
+          }
+
+          if isBuiltInProjectStatus {
+            Text(projectStatusGuidance)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
-        .onChange(of: selectedOption) { _, value in save(value.isEmpty ? [] : [.select(value)]) }
       case .entityReference:
         Menu {
           ForEach(referenceCandidates) { candidate in
@@ -343,6 +360,36 @@ private struct SupertagFieldEditor: View {
 
   private var fieldLabel: String {
     field.isRequired ? "\(field.name) (Required)" : field.name
+  }
+
+  private var isBuiltInProjectStatus: Bool {
+    tag.id == BuiltInSupertags.project && field.id == ProjectFields.status.fieldID
+  }
+
+  private var isClosedProjectStatus: Bool {
+    currentProjectStatus?.isOpen == false
+  }
+
+  private var selectableOptions: [SupertagSelectOption] {
+    guard isBuiltInProjectStatus else { return field.options }
+    let currentOptionID = currentProjectStatus?.rawValue ?? selectedOption
+    return field.options.filter { option in
+      guard let status = ProjectStatus(rawValue: option.id) else { return false }
+      return status.isOpen || option.id == currentOptionID
+    }
+  }
+
+  private var currentProjectStatus: ProjectStatus? {
+    guard isBuiltInProjectStatus else { return nil }
+    if let status = page.projectData?.status { return status }
+    guard case .select(let value)? = values.first else { return nil }
+    return ProjectStatus(rawValue: value)
+  }
+
+  private var projectStatusGuidance: String {
+    isClosedProjectStatus
+      ? "Reopen this project from its task list. Its tasks stay as they are."
+      : "Complete or cancel this project from its task list so unfinished tasks can be resolved safely."
   }
 
   private var referenceCandidates: [PageSnapshot] {

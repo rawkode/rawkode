@@ -8,6 +8,7 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case pagePurged
   case invalidRecord
   case projectHasActiveTasks(count: Int)
+  case projectClosureUndoUnavailable
   case taskProjectClosed(projectID: PageID)
   case taskNotActive
   case taskNotClosed
@@ -21,6 +22,8 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .invalidRecord: "The local page record is invalid."
     case .projectHasActiveTasks(let count):
       "Complete or move the project's \(count) active task\(count == 1 ? "" : "s") before closing it."
+    case .projectClosureUndoUnavailable:
+      "The project or one of its tasks changed after closure, so Undo was not applied."
     case .taskProjectClosed:
       "Active tasks cannot be assigned to a closed project. Reopen the project or choose another project."
     case .taskNotActive: "Only active tasks can be completed."
@@ -1108,7 +1111,8 @@ public actor LibraryRepository {
       areaID: data.areaID,
       startDate: data.startDate,
       dueDate: data.dueDate,
-      lastReviewedAt: data.lastReviewedAt
+      lastReviewedAt: data.lastReviewedAt,
+      closedAt: data.status.isOpen ? nil : (data.closedAt ?? now)
     )
     return try database.write { db in
       let page = try Self.createPage(
@@ -1141,13 +1145,14 @@ public actor LibraryRepository {
     data: ProjectData,
     now: Date = Date()
   ) throws -> PageSnapshot {
-    let normalized = ProjectData(
+    let requested = ProjectData(
       status: data.status,
       outcome: data.outcome,
       areaID: data.areaID,
       startDate: data.startDate,
       dueDate: data.dueDate,
-      lastReviewedAt: data.lastReviewedAt
+      lastReviewedAt: data.lastReviewedAt,
+      closedAt: data.closedAt
     )
     return try database.write { db in
       guard let current = try Self.fetchPage(db, id: pageID) else {
@@ -1156,6 +1161,10 @@ public actor LibraryRepository {
       guard let currentData = current.projectData else {
         throw LibraryRepositoryError.invalidRecord
       }
+      var normalized = requested
+      normalized.closedAt = normalized.status.isOpen
+        ? nil
+        : (normalized.closedAt ?? currentData.closedAt ?? now)
       if currentData.status.isOpen, !normalized.status.isOpen {
         let activeTaskCount = try Self.activeTaskCount(db, projectID: pageID)
         guard activeTaskCount == 0 else {
@@ -1178,31 +1187,202 @@ public actor LibraryRepository {
   /// partially changes the project or its cloud-dirty generation.
   public func closeProject(
     pageID: PageID,
+    resolution: ProjectClosureResolution = .strict,
     now: Date = Date()
   ) throws -> ProjectCloseResult {
     try database.write { db in
       guard let current = try Self.fetchPage(db, id: pageID) else {
         throw LibraryRepositoryError.pageNotFound
       }
-      guard var data = current.projectData else {
+      guard let projectBeforeData = current.projectData else {
         throw LibraryRepositoryError.invalidRecord
       }
-      guard data.status.isOpen else { return .closed(current) }
-
-      let activeTaskCount = try Self.activeTaskCount(db, projectID: pageID)
-      guard activeTaskCount == 0 else {
-        return .blocked(activeTaskCount: activeTaskCount)
+      guard projectBeforeData.status.isOpen else {
+        return .closed(
+          ProjectClosureOutcome(project: current, affectedTasks: [], undoReceipt: nil)
+        )
       }
 
-      data.status = .completed
-      let closed = try Self.writeProjectUpdate(
-        db,
-        current: current,
-        data: data,
-        message: "Close project",
-        now: now
+      let activeTasks = try Self.activeProjectTasks(db, projectID: pageID)
+      if resolution == .strict, !activeTasks.isEmpty {
+        return .blocked(activeTaskCount: activeTasks.count)
+      }
+
+      let affectedTaskIDs = Set(activeTasks.map(\.id))
+      var preparedTasks: [PreparedTaskPageWrite] = []
+      var taskUndoEntries: [TaskBatchUndoEntry] = []
+      for task in activeTasks {
+        guard var data = task.taskData, data.state == .active, data.projectID == pageID else {
+          throw LibraryRepositoryError.invalidRecord
+        }
+        let before = data
+        let operation: TaskBatchOperation
+        switch resolution {
+        case .strict:
+          throw LibraryRepositoryError.invalidRecord
+        case .detachActiveTasks:
+          operation = .patch
+          data.projectID = nil
+          if data.parentTaskID.map(affectedTaskIDs.contains) != true {
+            data.parentTaskID = nil
+          }
+        case .cancelActiveTasks:
+          operation = .cancel
+          data.state = .canceled
+          data.completedAt = now
+        }
+        let result = try PageDocument.setProperties(
+          TaskFields.properties(for: data),
+          ensuring: BuiltInSupertags.task,
+          message: resolution == .detachActiveTasks
+            ? "Detach task while closing project"
+            : "Cancel task while closing project",
+          in: task.document
+        )
+        let updated = Self.updatedPage(task, with: result, now: now)
+        preparedTasks.append(
+          PreparedTaskPageWrite(page: updated, references: result.projection.references)
+        )
+        taskUndoEntries.append(
+          TaskBatchUndoEntry(
+            operation: operation,
+            sourceAfterMutation: TaskPageVersion(updated),
+            sourceBeforeTaskData: before
+          )
+        )
+      }
+
+      var projectAfterData = projectBeforeData
+      projectAfterData.status = resolution == .cancelActiveTasks ? .cancelled : .completed
+      projectAfterData.closedAt = now
+      let projectResult = try PageDocument.setProperties(
+        ProjectFields.properties(for: projectAfterData),
+        ensuring: BuiltInSupertags.project,
+        message: resolution == .cancelActiveTasks ? "Cancel project" : "Complete project",
+        in: current.document
       )
-      return .closed(closed)
+      let closed = Self.updatedPage(current, with: projectResult, now: now)
+      let undoReceipt = ProjectClosureUndoReceipt(
+        resolution: resolution,
+        projectAfterClosure: TaskPageVersion(closed),
+        projectBeforeData: projectBeforeData,
+        taskReceipt: TaskBatchUndoReceipt(entries: taskUndoEntries)
+      )
+
+      for prepared in preparedTasks {
+        try Self.writePreparedTaskPage(db, prepared: prepared, now: now)
+      }
+      try Self.writePage(db, page: closed, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: closed.id,
+        references: projectResult.projection.references
+      )
+      return .closed(
+        ProjectClosureOutcome(
+          project: closed,
+          affectedTasks: preparedTasks.map(\.page),
+          undoReceipt: undoReceipt
+        )
+      )
+    }
+  }
+
+  @discardableResult
+  public func undoProjectClosure(
+    _ receipt: ProjectClosureUndoReceipt,
+    now: Date = Date()
+  ) throws -> ProjectClosureUndoResult {
+    let entries = receipt.taskReceipt.entries
+    let taskIDs = Set(entries.map(\.sourceAfterMutation.id))
+    guard taskIDs.count == entries.count,
+      receipt.projectBeforeData.status.isOpen,
+      !taskIDs.contains(receipt.projectAfterClosure.id),
+      receipt.resolution != .strict || entries.isEmpty
+    else { throw LibraryRepositoryError.projectClosureUndoUnavailable }
+
+    return try database.write { db in
+      guard let project = try Self.fetchPage(db, id: receipt.projectAfterClosure.id),
+        project.deletedAt == nil,
+        project.heads == receipt.projectAfterClosure.heads,
+        project.dirtyGeneration == receipt.projectAfterClosure.dirtyGeneration,
+        let currentProjectData = project.projectData,
+        currentProjectData.status
+          == (receipt.resolution == .cancelActiveTasks ? .cancelled : .completed),
+        currentProjectData.closedAt != nil
+      else { throw LibraryRepositoryError.projectClosureUndoUnavailable }
+
+      var restoredTasks: [PreparedTaskPageWrite] = []
+      for entry in entries {
+        guard entry.createdSuccessor == nil,
+          let source = try Self.fetchPage(db, id: entry.sourceAfterMutation.id),
+          source.deletedAt == nil,
+          source.heads == entry.sourceAfterMutation.heads,
+          source.dirtyGeneration == entry.sourceAfterMutation.dirtyGeneration,
+          var expectedCurrentData = Optional(entry.sourceBeforeTaskData),
+          expectedCurrentData.state == .active,
+          expectedCurrentData.projectID == project.id
+        else { throw LibraryRepositoryError.projectClosureUndoUnavailable }
+
+        switch receipt.resolution {
+        case .strict:
+          throw LibraryRepositoryError.projectClosureUndoUnavailable
+        case .detachActiveTasks:
+          guard entry.operation == .patch else {
+            throw LibraryRepositoryError.projectClosureUndoUnavailable
+          }
+          expectedCurrentData.projectID = nil
+          if expectedCurrentData.parentTaskID.map(taskIDs.contains) != true {
+            expectedCurrentData.parentTaskID = nil
+          }
+        case .cancelActiveTasks:
+          guard entry.operation == .cancel else {
+            throw LibraryRepositoryError.projectClosureUndoUnavailable
+          }
+          expectedCurrentData.state = .canceled
+          expectedCurrentData.completedAt = currentProjectData.closedAt
+        }
+        guard source.taskData == expectedCurrentData else {
+          throw LibraryRepositoryError.projectClosureUndoUnavailable
+        }
+
+        let taskResult = try PageDocument.setProperties(
+          TaskFields.properties(for: entry.sourceBeforeTaskData),
+          ensuring: BuiltInSupertags.task,
+          message: "Undo project closure",
+          in: source.document
+        )
+        restoredTasks.append(
+          PreparedTaskPageWrite(
+            page: Self.updatedPage(source, with: taskResult, now: now),
+            references: taskResult.projection.references
+          )
+        )
+      }
+
+      var restoredProjectData = receipt.projectBeforeData
+      restoredProjectData.closedAt = nil
+      let projectResult = try PageDocument.setProperties(
+        ProjectFields.properties(for: restoredProjectData),
+        ensuring: BuiltInSupertags.project,
+        message: "Undo project closure",
+        in: project.document
+      )
+      let restoredProject = Self.updatedPage(project, with: projectResult, now: now)
+
+      for prepared in restoredTasks {
+        try Self.writePreparedTaskPage(db, prepared: prepared, now: now)
+      }
+      try Self.writePage(db, page: restoredProject, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: restoredProject.id,
+        references: projectResult.projection.references
+      )
+      return ProjectClosureUndoResult(
+        project: restoredProject,
+        restoredTasks: restoredTasks.map(\.page)
+      )
     }
   }
 
@@ -1222,6 +1402,7 @@ public actor LibraryRepository {
       guard !data.status.isOpen else { return current }
 
       data.status = .active
+      data.closedAt = nil
       return try Self.writeProjectUpdate(
         db,
         current: current,
@@ -2028,6 +2209,13 @@ public actor LibraryRepository {
     _ db: Database,
     projectID: PageID
   ) throws -> Int {
+    try activeProjectTasks(db, projectID: projectID).count
+  }
+
+  private static func activeProjectTasks(
+    _ db: Database,
+    projectID: PageID
+  ) throws -> [PageSnapshot] {
     let rows = try Row.fetchAll(
       db,
       sql: """
@@ -2052,7 +2240,10 @@ public actor LibraryRepository {
     return try rows
       .map(Self.decodePage)
       .filter { $0.taskData?.isActive == true }
-      .count
+      .sorted { lhs, rhs in
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+        return lhs.id.rawValue < rhs.id.rawValue
+      }
   }
 
   private static func writeProjectUpdate(
@@ -2393,7 +2584,32 @@ public actor LibraryRepository {
         }
       },
       mutation: { current in
-        try PageDocument.setProperty(key: key, values: values, in: current.document)
+        if let requestedProjectStatus, var data = current.projectData {
+          data.status = requestedProjectStatus
+          data.closedAt = requestedProjectStatus.isOpen ? nil : (data.closedAt ?? now)
+          return try PageDocument.setProperties(
+            ProjectFields.properties(for: data),
+            ensuring: BuiltInSupertags.project,
+            message: "Update project status",
+            in: current.document
+          )
+        }
+        if key == ProjectFields.closedAt, var data = current.projectData {
+          let requestedDate = values.first.flatMap { value -> Date? in
+            switch value {
+            case .date(let date), .dateTime(let date): date
+            default: nil
+            }
+          }
+          data.closedAt = data.status.isOpen ? nil : (requestedDate ?? data.closedAt ?? now)
+          return try PageDocument.setProperties(
+            ProjectFields.properties(for: data),
+            ensuring: BuiltInSupertags.project,
+            message: "Update project closure history",
+            in: current.document
+          )
+        }
+        return try PageDocument.setProperty(key: key, values: values, in: current.document)
       }
     )
   }
@@ -4360,6 +4576,22 @@ public actor LibraryRepository {
     return data
   }
 
+  static func projectSchemaByAddingClosedAt(
+    to definition: SupertagDefinition
+  ) -> SupertagDefinition {
+    guard !definition.fields.contains(where: { $0.id == ProjectFields.closedAt.fieldID }),
+      let builtInProject = BuiltInSupertags.all.first(where: {
+        $0.id == BuiltInSupertags.project
+      }),
+      let closedAtField = builtInProject.fields.first(where: {
+        $0.id == ProjectFields.closedAt.fieldID
+      })
+    else { return definition }
+    var updated = definition
+    updated.fields.append(closedAtField)
+    return updated
+  }
+
   private static let migrator: DatabaseMigrator = {
     var migrator = DatabaseMigrator()
     migrator.registerMigration("v1-local-authority") { db in
@@ -4808,6 +5040,35 @@ public actor LibraryRepository {
         index: "task_effect_outbox_on_enqueued_at",
         on: "task_effect_outbox",
         columns: ["enqueued_at"]
+      )
+    }
+    migrator.registerMigration("v18-project-closure-history") { db in
+      guard let encoded: Data = try Data.fetchOne(
+        db,
+        sql: "SELECT definition_json FROM supertag_schemas WHERE id = ?",
+        arguments: [BuiltInSupertags.project.rawValue]
+      ),
+        let existing = try? JSONDecoder.enchiridion.decode(
+          SupertagDefinition.self,
+          from: encoded
+        )
+      else { return }
+      let updated = projectSchemaByAddingClosedAt(to: existing)
+      guard updated != existing else { return }
+      try db.execute(
+        sql: """
+          UPDATE supertag_schemas
+          SET definition_json = ?,
+              modified_at = ?,
+              dirty_generation = dirty_generation + 1,
+              cloud_dirty = 1
+          WHERE id = ?
+          """,
+        arguments: [
+          try JSONEncoder.enchiridion.encode(updated),
+          Date().timeIntervalSince1970,
+          BuiltInSupertags.project.rawValue,
+        ]
       )
     }
     return migrator

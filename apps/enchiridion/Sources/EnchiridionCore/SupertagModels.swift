@@ -228,6 +228,7 @@ public enum BuiltInSupertags {
       field("start-date", "Start date", .date),
       field("due-date", "Due date", .date),
       field("last-reviewed-at", "Last reviewed", .dateTime),
+      field("closed-at", "Closed at", .dateTime),
       field("place", "Place", .entityReference, allowed: [place]),
       field("notes", "Notes", .text, multiline: true),
     ]),

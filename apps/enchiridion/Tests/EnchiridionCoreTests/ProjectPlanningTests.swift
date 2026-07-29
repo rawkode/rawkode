@@ -12,7 +12,97 @@ final class ProjectPlanningTests: XCTestCase {
 
     XCTAssertTrue(project.fields.contains { $0.id == ProjectFields.outcome.fieldID })
     XCTAssertTrue(project.fields.contains { $0.id == ProjectFields.lastReviewedAt.fieldID })
+    XCTAssertTrue(project.fields.contains { $0.id == ProjectFields.closedAt.fieldID })
     XCTAssertEqual(Set(status.options.map(\.id)), Set(ProjectStatus.allCases.map(\.rawValue)))
+  }
+
+  func testClosedAtSchemaMigrationPreservesCustomizedProjectDefinition() throws {
+    var customized = try XCTUnwrap(
+      BuiltInSupertags.all.first { $0.id == BuiltInSupertags.project }
+    )
+    customized.name = "Initiative"
+    customized.symbol = "flag.checkered"
+    customized.fields.removeAll { $0.id == ProjectFields.closedAt.fieldID }
+    customized.fields[0].isDeleted = true
+    customized.fields.insert(
+      SupertagFieldDefinition(
+        id: SupertagFieldID(rawValue: "custom-risk"),
+        name: "Risk",
+        type: .text
+      ),
+      at: 1
+    )
+    let originalFields = customized.fields
+
+    let migrated = LibraryRepository.projectSchemaByAddingClosedAt(to: customized)
+
+    XCTAssertEqual(migrated.name, "Initiative")
+    XCTAssertEqual(migrated.symbol, "flag.checkered")
+    XCTAssertEqual(Array(migrated.fields.dropLast()), originalFields)
+    XCTAssertEqual(migrated.fields.last?.id, ProjectFields.closedAt.fieldID)
+    XCTAssertTrue(migrated.fields[0].isDeleted)
+    XCTAssertEqual(LibraryRepository.projectSchemaByAddingClosedAt(to: migrated), migrated)
+  }
+
+  func testProjectClosedAtNormalizesAcrossCreateUpdateAndPropertyStatusWrites() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let stale = Date(timeIntervalSince1970: 1_700_000_000)
+    let createdAt = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(
+      title: "Normalize closure history",
+      data: ProjectData(status: .active, closedAt: stale),
+      now: createdAt
+    )
+    XCTAssertNil(project.projectData?.closedAt)
+
+    var data = try XCTUnwrap(project.projectData)
+    data.status = .completed
+    data.closedAt = nil
+    let updateClosedAt = createdAt.addingTimeInterval(60)
+    let closed = try await fixture.repository.updateProject(
+      pageID: project.id,
+      data: data,
+      now: updateClosedAt
+    )
+    XCTAssertEqual(closed.projectData?.closedAt, updateClosedAt)
+
+    data = try XCTUnwrap(closed.projectData)
+    data.status = .active
+    data.closedAt = stale
+    let reopened = try await fixture.repository.updateProject(pageID: project.id, data: data)
+    XCTAssertNil(reopened.projectData?.closedAt)
+
+    let propertyClosedAt = createdAt.addingTimeInterval(120)
+    try await fixture.repository.setProperty(
+      pageID: project.id,
+      key: ProjectFields.status,
+      values: [.select(ProjectStatus.cancelled.rawValue)],
+      now: propertyClosedAt
+    )
+    let loadedPropertyClosed = try await fixture.repository.page(id: project.id)
+    let propertyClosed = try XCTUnwrap(loadedPropertyClosed)
+    XCTAssertEqual(propertyClosed.projectData?.status, .cancelled)
+    XCTAssertEqual(propertyClosed.projectData?.closedAt, propertyClosedAt)
+
+    try await fixture.repository.setProperty(
+      pageID: project.id,
+      key: ProjectFields.status,
+      values: [.select(ProjectStatus.planned.rawValue)],
+      now: createdAt.addingTimeInterval(180)
+    )
+    let loadedPropertyReopened = try await fixture.repository.page(id: project.id)
+    let propertyReopened = try XCTUnwrap(loadedPropertyReopened)
+    XCTAssertEqual(propertyReopened.projectData?.status, .planned)
+    XCTAssertNil(propertyReopened.projectData?.closedAt)
+
+    try await fixture.repository.setProperty(
+      pageID: project.id,
+      key: ProjectFields.closedAt,
+      values: [.dateTime(stale)]
+    )
+    let loadedStillOpen = try await fixture.repository.page(id: project.id)
+    let stillOpen = try XCTUnwrap(loadedStillOpen)
+    XCTAssertNil(stillOpen.projectData?.closedAt)
   }
 
   func testProjectPlanRoundTripsThroughRepositoryProjection() async throws {
@@ -317,27 +407,30 @@ final class ProjectPlanningTests: XCTestCase {
       pageID: project.id,
       now: now.addingTimeInterval(60)
     )
-    guard case .closed(let firstClosed) = firstResult else {
+    guard case .closed(let firstOutcome) = firstResult else {
       return XCTFail("Expected project closure, got \(firstResult)")
     }
-    XCTAssertEqual(firstClosed.projectData?.status, .completed)
-    XCTAssertEqual(firstClosed.dirtyGeneration, project.dirtyGeneration + 1)
+    XCTAssertEqual(firstOutcome.project.projectData?.status, .completed)
+    XCTAssertEqual(firstOutcome.project.dirtyGeneration, project.dirtyGeneration + 1)
+    XCTAssertNotNil(firstOutcome.undoReceipt)
 
     let secondResult = try await fixture.repository.closeProject(
       pageID: project.id,
       now: now.addingTimeInterval(120)
     )
-    guard case .closed(let secondClosed) = secondResult else {
+    guard case .closed(let secondOutcome) = secondResult else {
       return XCTFail("Expected idempotent project closure, got \(secondResult)")
     }
-    XCTAssertEqual(secondClosed, firstClosed)
+    XCTAssertEqual(secondOutcome.project, firstOutcome.project)
+    XCTAssertTrue(secondOutcome.affectedTasks.isEmpty)
+    XCTAssertNil(secondOutcome.undoReceipt)
 
     let reopened = try await fixture.repository.reopenProject(
       pageID: project.id,
       now: now.addingTimeInterval(180)
     )
     XCTAssertEqual(reopened.projectData?.status, .active)
-    XCTAssertEqual(reopened.dirtyGeneration, firstClosed.dirtyGeneration + 1)
+    XCTAssertEqual(reopened.dirtyGeneration, firstOutcome.project.dirtyGeneration + 1)
 
     let reopenedAgain = try await fixture.repository.reopenProject(
       pageID: project.id,
@@ -395,6 +488,285 @@ final class ProjectPlanningTests: XCTestCase {
     let unchanged = try XCTUnwrap(loadedProject)
     XCTAssertEqual(unchanged.projectData?.status, .active)
     XCTAssertEqual(unchanged.dirtyGeneration, project.dirtyGeneration)
+  }
+
+  func testStrictClosureWithoutTasksReturnsUndoAndRestoresExactOpenStatus() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let closedAt = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(
+      title: "Paused initiative",
+      data: ProjectData(status: .onHold, outcome: "Resume when capacity returns")
+    )
+
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .strict,
+      now: closedAt
+    )
+    guard case .closed(let outcome) = result,
+      let receipt = outcome.undoReceipt
+    else { return XCTFail("Expected a strict closure with an undo receipt") }
+    XCTAssertTrue(outcome.affectedTasks.isEmpty)
+    XCTAssertEqual(outcome.project.projectData?.status, .completed)
+    XCTAssertEqual(outcome.project.projectData?.closedAt, closedAt)
+
+    let undone = try await fixture.repository.undoProjectClosure(
+      receipt,
+      now: closedAt.addingTimeInterval(30)
+    )
+    XCTAssertEqual(undone.project.projectData, project.projectData)
+    XCTAssertEqual(undone.project.projectData?.status, .onHold)
+    XCTAssertNil(undone.project.projectData?.closedAt)
+    XCTAssertTrue(undone.restoredTasks.isEmpty)
+  }
+
+  func testDetachResolutionPreservesTaskDataAndInternalHierarchyThenUndoRestoresLinks()
+    async throws
+  {
+    let fixture = try ProjectPlanningFixture()
+    let now = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(
+      title: "Detach project",
+      data: ProjectData(status: .planned, outcome: "Keep every next action safe")
+    )
+    let historicalParent = try await fixture.repository.createTask(
+      TaskDraft(title: "Historical parent", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    _ = try await fixture.repository.completeTask(pageID: historicalParent.id, now: now)
+    let internalParent = try await fixture.repository.createTask(
+      TaskDraft(title: "Internal parent", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    let internalChild = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Internal child",
+        data: TaskData(projectID: project.id, parentTaskID: internalParent.id)
+      ),
+      now: now
+    )
+    let crossBoundary = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Cross-boundary child",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: now.addingTimeInterval(3_600),
+          deadline: now.addingTimeInterval(86_400),
+          priority: .high,
+          projectID: project.id,
+          areaID: PageID(rawValue: "unresolved-area"),
+          parentTaskID: historicalParent.id,
+          assigneeIDs: [PageID(rawValue: "unresolved-person")],
+          tags: ["Launch"],
+          recurrence: TaskRecurrenceRule(mode: .fixedSchedule, unit: .week)
+        )
+      ),
+      now: now
+    )
+    let activeTasks = [internalParent, internalChild, crossBoundary]
+    let beforeData = Dictionary(
+      uniqueKeysWithValues: try activeTasks.map { task in
+        (task.id, try XCTUnwrap(task.taskData))
+      }
+    )
+    let taskCountBefore = try await fixture.repository.pages(with: BuiltInSupertags.task).count
+
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .detachActiveTasks,
+      now: now.addingTimeInterval(120)
+    )
+    guard case .closed(let outcome) = result,
+      let receipt = outcome.undoReceipt
+    else { return XCTFail("Expected detach closure") }
+    XCTAssertEqual(outcome.project.projectData?.status, .completed)
+    XCTAssertEqual(outcome.affectedTasks.count, 3)
+    XCTAssertEqual(outcome.affectedTasks.first { $0.id == internalParent.id }?.taskData?.projectID, nil)
+    XCTAssertEqual(
+      outcome.affectedTasks.first { $0.id == internalChild.id }?.taskData?.parentTaskID,
+      internalParent.id
+    )
+    let detachedCrossBoundary = try XCTUnwrap(
+      outcome.affectedTasks.first { $0.id == crossBoundary.id }?.taskData
+    )
+    XCTAssertNil(detachedCrossBoundary.projectID)
+    XCTAssertNil(detachedCrossBoundary.parentTaskID)
+    XCTAssertEqual(detachedCrossBoundary.scheduledAt, beforeData[crossBoundary.id]?.scheduledAt)
+    XCTAssertEqual(detachedCrossBoundary.deadline, beforeData[crossBoundary.id]?.deadline)
+    XCTAssertEqual(detachedCrossBoundary.areaID, beforeData[crossBoundary.id]?.areaID)
+    XCTAssertEqual(detachedCrossBoundary.assigneeIDs, beforeData[crossBoundary.id]?.assigneeIDs)
+    XCTAssertEqual(detachedCrossBoundary.recurrence, beforeData[crossBoundary.id]?.recurrence)
+    let taskCountAfter = try await fixture.repository.pages(with: BuiltInSupertags.task).count
+    XCTAssertEqual(taskCountAfter, taskCountBefore)
+    let loadedHistorical = try await fixture.repository.page(id: historicalParent.id)
+    XCTAssertEqual(loadedHistorical?.taskData?.projectID, project.id)
+    XCTAssertEqual(loadedHistorical?.taskData?.state, .completed)
+
+    let undone = try await fixture.repository.undoProjectClosure(receipt)
+    XCTAssertEqual(undone.project.projectData, project.projectData)
+    XCTAssertEqual(
+      Dictionary(uniqueKeysWithValues: undone.restoredTasks.compactMap { task in
+        task.taskData.map { (task.id, $0) }
+      }),
+      beforeData
+    )
+  }
+
+  func testCancelResolutionCreatesNoRecurrenceSuccessorAndUndoRestoresTasks() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let now = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(title: "Cancel project")
+    let recurring = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Recurring task",
+        data: TaskData(
+          scheduledAt: now,
+          projectID: project.id,
+          recurrence: TaskRecurrenceRule(mode: .fixedSchedule, unit: .day)
+        )
+      ),
+      now: now
+    )
+    let ordinary = try await fixture.repository.createTask(
+      TaskDraft(title: "Ordinary task", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    let historical = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Historical task",
+        data: TaskData(state: .completed, projectID: project.id)
+      ),
+      now: now
+    )
+    let beforeData = [
+      recurring.id: try XCTUnwrap(recurring.taskData),
+      ordinary.id: try XCTUnwrap(ordinary.taskData),
+    ]
+    let countBefore = try await fixture.repository.pages(with: BuiltInSupertags.task).count
+    let closedAt = now.addingTimeInterval(300)
+
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .cancelActiveTasks,
+      now: closedAt
+    )
+    guard case .closed(let outcome) = result,
+      let receipt = outcome.undoReceipt
+    else { return XCTFail("Expected cancel closure") }
+    XCTAssertEqual(outcome.project.projectData?.status, .cancelled)
+    XCTAssertEqual(outcome.project.projectData?.closedAt, closedAt)
+    XCTAssertEqual(outcome.affectedTasks.count, 2)
+    XCTAssertTrue(outcome.affectedTasks.allSatisfy { $0.taskData?.state == .canceled })
+    XCTAssertTrue(outcome.affectedTasks.allSatisfy { $0.taskData?.completedAt == closedAt })
+    XCTAssertTrue(outcome.affectedTasks.allSatisfy { $0.taskData?.projectID == project.id })
+    let countAfter = try await fixture.repository.pages(with: BuiltInSupertags.task).count
+    XCTAssertEqual(countAfter, countBefore)
+    let loadedHistorical = try await fixture.repository.page(id: historical.id)
+    XCTAssertEqual(loadedHistorical?.taskData?.state, .completed)
+    XCTAssertEqual(loadedHistorical?.taskData?.projectID, project.id)
+
+    let undone = try await fixture.repository.undoProjectClosure(receipt)
+    XCTAssertEqual(undone.project.projectData, project.projectData)
+    XCTAssertEqual(
+      Dictionary(uniqueKeysWithValues: undone.restoredTasks.compactMap { task in
+        task.taskData.map { (task.id, $0) }
+      }),
+      beforeData
+    )
+  }
+
+  func testProjectClosureUndoConflictDoesNotPartiallyRestoreAnything() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Conflict-safe closure")
+    let first = try await fixture.repository.createTask(
+      TaskDraft(title: "First", data: TaskData(projectID: project.id))
+    )
+    let second = try await fixture.repository.createTask(
+      TaskDraft(title: "Second", data: TaskData(projectID: project.id))
+    )
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .detachActiveTasks
+    )
+    guard case .closed(let outcome) = result,
+      let receipt = outcome.undoReceipt
+    else { return XCTFail("Expected detach closure") }
+    var changedData = try XCTUnwrap(outcome.affectedTasks.first { $0.id == first.id }?.taskData)
+    changedData.priority = .urgent
+    _ = try await fixture.repository.updateTask(pageID: first.id, data: changedData)
+    let projectBeforeUndo = try await fixture.repository.page(id: project.id)
+    let secondBeforeUndo = try await fixture.repository.page(id: second.id)
+
+    do {
+      _ = try await fixture.repository.undoProjectClosure(receipt)
+      XCTFail("Expected a changed task to invalidate the entire undo")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .projectClosureUndoUnavailable)
+    }
+
+    let projectAfterUndo = try await fixture.repository.page(id: project.id)
+    let secondAfterUndo = try await fixture.repository.page(id: second.id)
+    XCTAssertEqual(projectAfterUndo, projectBeforeUndo)
+    XCTAssertEqual(secondAfterUndo, secondBeforeUndo)
+    XCTAssertEqual(projectAfterUndo?.projectData?.status, .completed)
+    XCTAssertNil(secondAfterUndo?.taskData?.projectID)
+  }
+
+  func testLaterProjectReopenDoesNotRestoreCanceledTasksAndInvalidatesImmediateUndo() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Reopen only project")
+    let task = try await fixture.repository.createTask(
+      TaskDraft(title: "Remain canceled", data: TaskData(projectID: project.id))
+    )
+    let closure = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .cancelActiveTasks
+    )
+    guard case .closed(let outcome) = closure,
+      let receipt = outcome.undoReceipt
+    else { return XCTFail("Expected cancel closure") }
+
+    let reopened = try await fixture.repository.reopenProject(pageID: project.id)
+    let taskAfterReopen = try await fixture.repository.page(id: task.id)
+    XCTAssertEqual(reopened.projectData?.status, .active)
+    XCTAssertNil(reopened.projectData?.closedAt)
+    XCTAssertEqual(taskAfterReopen?.taskData?.state, .canceled)
+    XCTAssertEqual(taskAfterReopen?.taskData?.projectID, project.id)
+
+    do {
+      _ = try await fixture.repository.undoProjectClosure(receipt)
+      XCTFail("Expected later project reopening to invalidate immediate closure undo")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .projectClosureUndoUnavailable)
+    }
+  }
+
+  func testProjectClosureHandlesMoreThanTaskBatchLimitAndEnqueuesEveryTaskEffect() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Large project")
+    for index in 0...LibraryRepository.maximumTaskBatchSize {
+      _ = try await fixture.repository.createTask(
+        TaskDraft(title: "Task \(index)", data: TaskData(projectID: project.id))
+      )
+    }
+    let drainCoordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: TaskMutationEffectExecutor { _ in .applied }
+    )
+    _ = await drainCoordinator.drainPendingEffects()
+    let pendingBeforeClosure = try await fixture.repository.pendingTaskEffectOutboxCount()
+    XCTAssertEqual(pendingBeforeClosure, 0)
+
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      resolution: .detachActiveTasks
+    )
+    guard case .closed(let outcome) = result else {
+      return XCTFail("Expected a large project to close atomically")
+    }
+    XCTAssertEqual(outcome.affectedTasks.count, LibraryRepository.maximumTaskBatchSize + 1)
+    let pendingAfterClosure = try await fixture.repository.pendingTaskEffectOutboxCount()
+    XCTAssertEqual(pendingAfterClosure, (LibraryRepository.maximumTaskBatchSize + 1) * 2)
   }
 
   func testActiveTaskCannotBeCreatedForAClosedProjectButHistoricalTaskIsPreserved()
