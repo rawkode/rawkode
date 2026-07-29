@@ -3,103 +3,132 @@ import SwiftUI
 
 struct CalendarScreen: View {
   let store: LibraryStore
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var path: [PageID] = []
+  @State private var selectedDay = Calendar.current.startOfDay(for: Date())
+  @State private var searchText = ""
+  @State private var selectedCalendarTitles: Set<String> = []
+  @State private var isDatePickerPresented = false
+
   private let calendar = Calendar.current
+
+  private var filteredCalendarEvents: [CalendarEventSnapshot] {
+    store.calendarEvents.filter { event in
+      (selectedCalendarTitles.isEmpty || selectedCalendarTitles.contains(event.calendarTitle))
+        && eventMatchesSearch(event)
+    }
+  }
+
+  private var selectedDayEvents: [CalendarEventSnapshot] {
+    CalendarAgendaDate.events(on: selectedDay, in: filteredCalendarEvents, calendar: calendar)
+  }
+
+  private var selectedDayTasks: [(task: TaskItem, placement: CalendarTaskPlacement)] {
+    CalendarAgendaDate.tasks(on: selectedDay, from: store.pages, calendar: calendar)
+      .filter { taskMatchesSearch($0.task) }
+  }
+
+  private var agendaItems: [CalendarAgendaItem] {
+    CalendarAgendaDate.items(events: selectedDayEvents, tasks: selectedDayTasks)
+  }
+
+  private var calendarTitles: [String] {
+    Array(Set(store.calendarEvents.map(\.calendarTitle))).sorted()
+  }
 
   var body: some View {
     NavigationStack(path: $path) {
-      ScrollViewReader { proxy in
-        List {
-          if daySections.isEmpty {
-            ContentUnavailableView {
-              Label("No Calendar Events", systemImage: "calendar.badge.exclamationmark")
-            } description: {
-              Text(store.calendarError ?? "Connect EventKit or Google Calendar from Settings.")
-            }
-          } else {
-            ForEach(daySections) { section in
-              Section {
-                ForEach(section.events) { event in
-                  eventRow(event)
-                }
-              } header: {
-                Text(sectionTitle(section.day))
-                  .id(section.id)
-              }
-            }
-          }
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 20) {
+          CalendarHeader(selectedDay: selectedDay, showDatePicker: showDatePicker)
+          CalendarDayStrip(
+            selectedDay: selectedDay,
+            events: filteredCalendarEvents,
+            calendar: calendar,
+            selectDay: select
+          )
+          CalendarAgendaView(
+            selectedDay: selectedDay,
+            items: agendaItems,
+            isLoading: store.isLoading,
+            error: store.calendarError,
+            isSearching: !searchText.isEmpty,
+            calendar: calendar,
+            openOccurrenceNote: openOccurrenceNote,
+            openSeriesNote: openSeriesNote
+          )
         }
-        .onAppear { scrollToInitialDay(using: proxy) }
-        .onChange(of: initialDayID) { _, _ in scrollToInitialDay(using: proxy) }
-        .refreshable { try? await store.refreshCalendar() }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
       }
+      .background(Color(uiColor: .systemGroupedBackground))
       .navigationTitle("Calendar")
+      .navigationBarTitleDisplayMode(.inline)
       .navigationDestination(for: PageID.self) { pageID in
         PageEditorView(store: store, pageID: pageID)
       }
-    }
-  }
-
-  private var daySections: [CalendarDaySection] {
-    let events = store.calendarEvents.sorted {
-      if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
-      return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-    }
-    return Dictionary(grouping: events) { calendar.startOfDay(for: $0.startDate) }
-      .map { CalendarDaySection(day: $0.key, events: $0.value) }
-      .sorted { $0.day < $1.day }
-  }
-
-  private var initialDayID: Date? {
-    let today = calendar.startOfDay(for: Date())
-    return daySections.first(where: { $0.day >= today })?.id ?? daySections.last?.id
-  }
-
-  private func scrollToInitialDay(using proxy: ScrollViewProxy) {
-    guard let initialDayID else { return }
-    Task { @MainActor in
-      await Task.yield()
-      proxy.scrollTo(initialDayID, anchor: .top)
-    }
-  }
-
-  private func sectionTitle(_ day: Date) -> String {
-    if calendar.isDateInToday(day) { return "Today" }
-    return day.formatted(.dateTime.weekday(.wide).month(.wide).day())
-  }
-
-  private func eventRow(_ event: CalendarEventSnapshot) -> some View {
-    HStack(spacing: 12) {
-      Button {
-        Task {
-          if let id = await store.openCalendarEventPage(event) { path.append(id) }
+      .searchable(text: $searchText, prompt: "Search selected day")
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("Today", action: selectToday)
+            .disabled(calendar.isDateInToday(selectedDay))
+            .accessibilityHint("Show today’s agenda")
         }
-      } label: {
-        CalendarEventRow(event: event)
-          .contentShape(.rect)
-      }
-      .buttonStyle(.plain)
-
-      Spacer(minLength: 0)
-
-      if event.identity.series != nil {
-        Button {
-          Task {
-            if let id = await store.openCalendarSeriesPage(event) { path.append(id) }
-          }
-        } label: {
-          Image(systemName: "rectangle.stack")
+        ToolbarItem(placement: .topBarTrailing) {
+          CalendarFilterMenu(
+            calendarTitles: calendarTitles,
+            selectedCalendarTitles: $selectedCalendarTitles
+          )
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("Open series notes")
       }
+      .sheet(isPresented: $isDatePickerPresented) {
+        CalendarDatePicker(selectedDay: Binding(get: { selectedDay }, set: select)) {
+          isDatePickerPresented = false
+        }
+      }
+      .refreshable { try? await store.refreshCalendar() }
     }
   }
-}
 
-private struct CalendarDaySection: Identifiable {
-  let day: Date
-  let events: [CalendarEventSnapshot]
+  private func eventMatchesSearch(_ event: CalendarEventSnapshot) -> Bool {
+    guard !searchText.isEmpty else { return true }
+    return [event.title, event.location, event.calendarTitle]
+      .compactMap { $0 }
+      .contains { $0.localizedCaseInsensitiveContains(searchText) }
+  }
 
-  var id: Date { day }
+  private func taskMatchesSearch(_ task: TaskItem) -> Bool {
+    guard !searchText.isEmpty else { return true }
+    return [task.page.displayTitle, task.page.plainText]
+      .contains { $0.localizedCaseInsensitiveContains(searchText) }
+  }
+
+  private func showDatePicker() { isDatePickerPresented = true }
+
+  private func selectToday() { select(Date()) }
+
+  private func select(_ day: Date) {
+    let nextDay = calendar.startOfDay(for: day)
+    guard !calendar.isDate(nextDay, inSameDayAs: selectedDay) else { return }
+    if reduceMotion {
+      selectedDay = nextDay
+    } else {
+      withAnimation(.easeInOut(duration: 0.2)) { selectedDay = nextDay }
+    }
+  }
+
+  private func openOccurrenceNote(for event: CalendarEventSnapshot) {
+    Task {
+      if let id = await store.openCalendarEventPage(event) { path.append(id) }
+    }
+  }
+
+  private func openSeriesNote(for event: CalendarEventSnapshot) {
+    Task {
+      if let id = await store.openCalendarSeriesPage(event) { path.append(id) }
+    }
+  }
 }

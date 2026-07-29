@@ -91,6 +91,11 @@
 		F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */; };
 		F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
+		C001C001C001C001C001C001 /* CalendarAgendaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C101C101C101C101C101C101 /* CalendarAgendaModels.swift */; };
+		C002C002C002C002C002C002 /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C102C102C102C102C102C102 /* CalendarChrome.swift */; };
+		C003C003C003C003C003C003 /* CalendarDayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C103C103C103C103C103C103 /* CalendarDayStrip.swift */; };
+		C004C004C004C004C004C004 /* CalendarAgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C104C104C104C104C104C104 /* CalendarAgendaView.swift */; };
+		C005C005C005C005C005C005 /* CalendarAgendaRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = C105C105C105C105C105C105 /* CalendarAgendaRows.swift */; };
 		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		FE693E4C3ED1D8CFD6E2D282 /* DeviceContactsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */; };
 /* End PBXBuildFile section */
@@ -104,6 +109,11 @@
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderNotificationCoordinator.swift; sourceTree = "<group>"; };
 		594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScreen.swift; sourceTree = "<group>"; };
+		C101C101C101C101C101C101 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
+		C102C102C102C102C102C102 /* CalendarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarChrome.swift; sourceTree = "<group>"; };
+		C103C103C103C103C103C103 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
+		C104C104C104C104C104C104 /* CalendarAgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaView.swift; sourceTree = "<group>"; };
+		C105C105C105C105C105C105 /* CalendarAgendaRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaRows.swift; sourceTree = "<group>"; };
 		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
 		5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagementViews.swift; sourceTree = "<group>"; };
 		61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
@@ -202,6 +212,11 @@
 			isa = PBXGroup;
 			children = (
 				594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */,
+				C101C101C101C101C101C101 /* CalendarAgendaModels.swift */,
+				C102C102C102C102C102C102 /* CalendarChrome.swift */,
+				C103C103C103C103C103C103 /* CalendarDayStrip.swift */,
+				C104C104C104C104C104C104 /* CalendarAgendaView.swift */,
+				C105C105C105C105C105C105 /* CalendarAgendaRows.swift */,
 				DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */,
 				A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */,
 				720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */,
@@ -461,6 +476,11 @@
 				8AAFFCB10E8DBA2C62023E3E /* CalendarEventFilterSettingsSection.swift in Sources */,
 				FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */,
 				F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */,
+				C001C001C001C001C001C001 /* CalendarAgendaModels.swift in Sources */,
+				C002C002C002C002C002C002 /* CalendarChrome.swift in Sources */,
+				C003C003C003C003C003C003 /* CalendarDayStrip.swift in Sources */,
+				C004C004C004C004C004C004 /* CalendarAgendaView.swift in Sources */,
+				C005C005C005C005C005C005 /* CalendarAgendaRows.swift in Sources */,
 				8ED761D9FB82EF9B4DBE8776 /* CarPlayAssistantPrivacySettings.swift in Sources */,
 				C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */,
 				00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */,
