@@ -15,6 +15,7 @@ public enum TaskMutationOperation: String, Equatable, Sendable {
   case reopenTasks
   case cancelTasks
   case patchTasks
+  case trashTasks
   case undoTaskBatch
   case moveToTrash
   case restore
@@ -56,7 +57,9 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
     case .taskNotClosed:
       "Only completed or canceled tasks can be reopened."
     case .completionUndoUnavailable:
-      "The task or its recurring successor changed after completion, so the completion was not undone."
+      operation == .undoTaskBatch
+        ? "One or more tasks changed after the batch action, so it was not undone."
+        : "The task or its recurring successor changed after completion, so the completion was not undone."
     case .databaseUnavailable(let message):
       "The local library could not be opened: \(message)"
     case .unexpected(let message):
@@ -78,6 +81,7 @@ extension TaskMutationOperation {
     case .reopenTasks: "reopened"
     case .cancelTasks: "canceled"
     case .patchTasks: "updated"
+    case .trashTasks: "moved to the trash"
     case .undoTaskBatch: "restored"
     case .moveToTrash: "moved to the trash"
     case .restore: "restored"
@@ -667,6 +671,23 @@ public actor TaskMutationCoordinator {
       )
     } catch {
       return .failure(failure(operation: .patchTasks, error: error))
+    }
+  }
+
+  public func trashTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchMutationResult> {
+    do {
+      let result = try await repository.trashTasks(pageIDs, now: now)
+      return await success(
+        operation: .trashTasks,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: result.tasks.flatMap(Self.closedTaskEffects)
+      )
+    } catch {
+      return .failure(failure(operation: .trashTasks, error: error))
     }
   }
 

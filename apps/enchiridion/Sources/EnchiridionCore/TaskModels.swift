@@ -690,6 +690,7 @@ public enum TaskBatchOperation: String, Codable, Hashable, Sendable {
   case reopen
   case cancel
   case patch
+  case trash
 }
 
 public struct TaskBatchUndoEntry: Codable, Hashable, Sendable {

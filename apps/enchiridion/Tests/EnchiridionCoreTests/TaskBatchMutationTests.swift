@@ -605,6 +605,202 @@ final class TaskBatchMutationTests: XCTestCase {
     }
   }
 
+  func testTrashBatchRestoresMixedLifecycleParentChildAndRecurringTasksExactly() async throws {
+    let fixture = try TaskBatchFixture()
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let parent = try await fixture.repository.createTask(
+      TaskDraft(title: "Parent", data: TaskData(priority: .high, tags: ["family"]))
+    )
+    let child = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Child",
+        data: TaskData(parentTaskID: parent.id, tags: ["errand"])
+      )
+    )
+    let recurring = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Recurring",
+        data: TaskData(
+          scheduledAt: now,
+          recurrence: TaskRecurrenceRule(mode: .fixedSchedule, unit: .day)
+        )
+      )
+    )
+    let canceled = try await fixture.repository.createTask(TaskDraft(title: "Canceled"))
+    _ = try await fixture.repository.cancelTask(pageID: canceled.id, now: now)
+    let loadedCanceledBefore = try await fixture.repository.page(id: canceled.id)
+    let canceledBefore = try XCTUnwrap(loadedCanceledBefore)
+    let originals = Dictionary(
+      uniqueKeysWithValues: try [parent, child, recurring, canceledBefore].map {
+        ($0.id, try XCTUnwrap($0.taskData))
+      }
+    )
+    let pageIDs = [parent.id, child.id, recurring.id, canceled.id]
+
+    let trashed = try await fixture.repository.trashTasks(pageIDs, now: now.addingTimeInterval(1))
+
+    XCTAssertEqual(trashed.tasks.map(\.id), pageIDs)
+    XCTAssertTrue(trashed.tasks.allSatisfy { $0.deletedAt != nil })
+    XCTAssertTrue(trashed.createdSuccessors.isEmpty)
+    XCTAssertTrue(trashed.undoReceipt.entries.allSatisfy { $0.operation == .trash })
+    for task in trashed.tasks {
+      XCTAssertEqual(task.taskData, originals[task.id])
+    }
+
+    let recurringData = try XCTUnwrap(recurring.taskData)
+    let seriesID = try XCTUnwrap(recurringData.recurrenceSeriesID)
+    let sequence = try XCTUnwrap(recurringData.recurrenceSequence)
+    let successorID = PageID.taskOccurrence(seriesID: seriesID, sequence: sequence + 1)
+    let absentSuccessor = try await fixture.repository.page(id: successorID)
+    XCTAssertNil(absentSuccessor)
+
+    let undone = try await fixture.repository.undoTaskBatch(
+      trashed.undoReceipt,
+      now: now.addingTimeInterval(2)
+    )
+    XCTAssertEqual(undone.restoredTasks.map(\.id), pageIDs)
+    XCTAssertTrue(undone.removedSuccessorIDs.isEmpty)
+    for task in undone.restoredTasks {
+      XCTAssertNil(task.deletedAt)
+      XCTAssertEqual(task.taskData, originals[task.id])
+    }
+  }
+
+  func testTrashUndoConflictLeavesEveryOtherTaskUntouched() async throws {
+    let fixture = try TaskBatchFixture()
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let first = try await fixture.repository.createTask(TaskDraft(title: "First"))
+    let second = try await fixture.repository.createTask(TaskDraft(title: "Second"))
+    let trashed = try await fixture.repository.trashTasks(
+      [first.id, second.id],
+      now: now
+    )
+    let firstTrashed = try XCTUnwrap(trashed.tasks.first { $0.id == first.id })
+    _ = try await fixture.repository.restoreTask(
+      pageID: second.id,
+      now: now.addingTimeInterval(1)
+    )
+
+    do {
+      _ = try await fixture.repository.undoTaskBatch(
+        trashed.undoReceipt,
+        now: now.addingTimeInterval(2)
+      )
+      XCTFail("Expected a changed trash receipt to reject the whole undo")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskCompletionUndoUnavailable)
+    }
+
+    let loadedFirstAfter = try await fixture.repository.page(id: first.id)
+    let loadedSecondAfter = try await fixture.repository.page(id: second.id)
+    let firstAfter = try XCTUnwrap(loadedFirstAfter)
+    let secondAfter = try XCTUnwrap(loadedSecondAfter)
+    XCTAssertEqual(firstAfter.heads, firstTrashed.heads)
+    XCTAssertEqual(firstAfter.dirtyGeneration, firstTrashed.dirtyGeneration)
+    XCTAssertNotNil(firstAfter.deletedAt)
+    XCTAssertNil(secondAfter.deletedAt)
+  }
+
+  func testTrashBatchRejectsAlreadyTrashedMemberWithoutChangingLiveTask() async throws {
+    let fixture = try TaskBatchFixture()
+    let live = try await fixture.repository.createTask(TaskDraft(title: "Keep live"))
+    let alreadyTrashed = try await fixture.repository.createTask(TaskDraft(title: "Already gone"))
+    _ = try await fixture.repository.moveTaskToTrash(pageID: alreadyTrashed.id)
+
+    do {
+      _ = try await fixture.repository.trashTasks([live.id, alreadyTrashed.id])
+      XCTFail("Expected the whole batch to reject an already-trashed task")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .invalidRecord)
+    }
+
+    let loadedLiveAfter = try await fixture.repository.page(id: live.id)
+    let loadedTrashedAfter = try await fixture.repository.page(id: alreadyTrashed.id)
+    let liveAfter = try XCTUnwrap(loadedLiveAfter)
+    let trashedAfter = try XCTUnwrap(loadedTrashedAfter)
+    XCTAssertEqual(liveAfter.heads, live.heads)
+    XCTAssertEqual(liveAfter.dirtyGeneration, live.dirtyGeneration)
+    XCTAssertNil(liveAfter.deletedAt)
+    XCTAssertNotNil(trashedAfter.deletedAt)
+  }
+
+  func testTrashingCompletedRecurringSourceDoesNotChangeExistingSuccessor() async throws {
+    let fixture = try TaskBatchFixture()
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let source = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Recurring source",
+        data: TaskData(
+          scheduledAt: now,
+          recurrence: TaskRecurrenceRule(mode: .fixedSchedule, unit: .day)
+        )
+      )
+    )
+    let completion = try await fixture.repository.completeTask(
+      pageID: source.id,
+      now: now.addingTimeInterval(60)
+    )
+    let successor = try XCTUnwrap(completion.successor)
+
+    let trashed = try await fixture.repository.trashTasks(
+      [source.id],
+      now: now.addingTimeInterval(120)
+    )
+    _ = try await fixture.repository.undoTaskBatch(
+      trashed.undoReceipt,
+      now: now.addingTimeInterval(180)
+    )
+
+    let loadedSuccessorAfter = try await fixture.repository.page(id: successor.id)
+    let successorAfter = try XCTUnwrap(loadedSuccessorAfter)
+    XCTAssertEqual(successorAfter.heads, successor.heads)
+    XCTAssertEqual(successorAfter.dirtyGeneration, successor.dirtyGeneration)
+    XCTAssertEqual(successorAfter.taskData, successor.taskData)
+    XCTAssertNil(successorAfter.deletedAt)
+  }
+
+  func testCoordinatorTrashAndUndoRunStateCorrectEffects() async throws {
+    let fixture = try TaskBatchFixture()
+    let recorder = TaskBatchEffectRecorder()
+    let coordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: TaskMutationEffectExecutor { effect in await recorder.apply(effect) }
+    )
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let active = try await fixture.repository.createTask(TaskDraft(title: "Active"))
+    let closed = try await fixture.repository.createTask(TaskDraft(title: "Closed"))
+    _ = try await fixture.repository.cancelTask(pageID: closed.id, now: now)
+    let pageIDs = [active.id, closed.id]
+
+    let trashed = try taskMutationSuccess(
+      await coordinator.trashTasks(pageIDs, now: now.addingTimeInterval(1))
+    )
+    XCTAssertEqual(trashed.operation, .trashTasks)
+    let trashEffects = await recorder.take()
+    XCTAssertEqual(
+      trashEffects,
+      closedEffects(for: trashed.value.tasks) + syncTail(for: pageIDs)
+    )
+
+    let restored = try taskMutationSuccess(
+      await coordinator.undoTaskBatch(
+        trashed.value.undoReceipt,
+        now: now.addingTimeInterval(2)
+      )
+    )
+    let restoredActive = restored.value.restoredTasks.filter { $0.id == active.id }
+    let restoredClosed = restored.value.restoredTasks.filter { $0.id == closed.id }
+    let restoreEffects = await recorder.take()
+    XCTAssertEqual(
+      restoreEffects,
+      activeEffects(for: restoredActive)
+        + restoredClosed.flatMap {
+          [TaskMutationEffect.cancelReminder($0.id), .removeSpotlight($0.id)]
+        }
+        + syncTail(for: pageIDs)
+    )
+  }
+
   func testCancelAndReopenLifecycleFailuresRollBackEarlierPreparedTasks() async throws {
     let fixture = try TaskBatchFixture()
     let now = Date(timeIntervalSince1970: 1_900_000_000)

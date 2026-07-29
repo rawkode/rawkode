@@ -62,7 +62,10 @@ struct TaskWorkbenchUndoPresentation: Identifiable, Equatable {
   let taskCount: Int
 
   var message: String {
-    taskCount == 1 ? "Task updated" : "\(taskCount) tasks updated"
+    if receipt.entries.allSatisfy({ $0.operation == .trash }) {
+      return taskCount == 1 ? "Task moved to Trash" : "\(taskCount) tasks moved to Trash"
+    }
+    return taskCount == 1 ? "Task updated" : "\(taskCount) tasks updated"
   }
 }
 
@@ -71,6 +74,7 @@ struct TaskWorkbenchActions {
   var complete: ([PageID]) async -> TaskBatchMutationResult?
   var reopen: ([PageID]) async -> TaskBatchMutationResult?
   var cancel: ([PageID]) async -> TaskBatchMutationResult?
+  var trash: ([PageID]) async -> TaskBatchMutationResult?
   var patch: ([PageID], TaskMetadataPatch) async -> TaskBatchMutationResult?
   var undo: (TaskBatchUndoReceipt) async -> TaskBatchUndoResult?
   var failureMessage: () -> String?
@@ -79,6 +83,7 @@ struct TaskWorkbenchActions {
     complete: @escaping ([PageID]) async -> TaskBatchMutationResult?,
     reopen: @escaping ([PageID]) async -> TaskBatchMutationResult?,
     cancel: @escaping ([PageID]) async -> TaskBatchMutationResult?,
+    trash: @escaping ([PageID]) async -> TaskBatchMutationResult?,
     patch: @escaping ([PageID], TaskMetadataPatch) async -> TaskBatchMutationResult?,
     undo: @escaping (TaskBatchUndoReceipt) async -> TaskBatchUndoResult?,
     failureMessage: @escaping () -> String? = { nil }
@@ -86,6 +91,7 @@ struct TaskWorkbenchActions {
     self.complete = complete
     self.reopen = reopen
     self.cancel = cancel
+    self.trash = trash
     self.patch = patch
     self.undo = undo
     self.failureMessage = failureMessage
@@ -96,6 +102,7 @@ struct TaskWorkbenchActions {
       complete: { await store.completeTasks($0) },
       reopen: { await store.reopenTasks($0) },
       cancel: { await store.cancelTasks($0) },
+      trash: { await store.trashTasks($0) },
       patch: { await store.patchTasks($0, patch: $1) },
       undo: { await store.undoTaskBatch($0) },
       failureMessage: { store.startupError }
@@ -313,6 +320,7 @@ struct TaskWorkbenchActionBar: View {
   let actions: TaskWorkbenchActions
 
   @State private var editor: TaskWorkbenchEditor?
+  @State private var isConfirmingTrash = false
 
   var body: some View {
     HStack(spacing: 12) {
@@ -476,6 +484,9 @@ struct TaskWorkbenchActionBar: View {
             perform { await actions.cancel($0) }
           }
         }
+        Button("Move to Trash", systemImage: "trash", role: .destructive) {
+          isConfirmingTrash = true
+        }
         Button("Clear Selection", systemImage: "xmark") {
           selection.cancelSelection()
         }
@@ -511,6 +522,18 @@ struct TaskWorkbenchActionBar: View {
         )
       }
     }
+    .confirmationDialog(
+      trashConfirmationTitle,
+      isPresented: $isConfirmingTrash,
+      titleVisibility: .visible
+    ) {
+      Button("Move to Trash", role: .destructive) {
+        perform { await actions.trash($0) }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("You can undo this action immediately.")
+    }
   }
 
   private var allSelectedTasksAreActive: Bool {
@@ -520,6 +543,12 @@ struct TaskWorkbenchActionBar: View {
   private var allSelectedTasksAreClosed: Bool {
     !selectedTasks.isEmpty
       && selectedTasks.allSatisfy { TaskLifecycleScope.closed.contains($0.data.state) }
+  }
+
+  private var trashConfirmationTitle: String {
+    selection.selectedCount == 1
+      ? "Move this task to Trash?"
+      : "Move \(selection.selectedCount) tasks to Trash?"
   }
 
   private var commonTags: [String]? {

@@ -1543,6 +1543,14 @@ public actor LibraryRepository {
   }
 
   @discardableResult
+  public func trashTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) throws -> TaskBatchMutationResult {
+    try mutateTasks(pageIDs, mutation: .trash, now: now, calendar: .current)
+  }
+
+  @discardableResult
   public func patchTasks(
     _ pageIDs: [PageID],
     patch: TaskMetadataPatch,
@@ -1559,6 +1567,11 @@ public actor LibraryRepository {
     now: Date = Date()
   ) throws -> TaskBatchUndoResult {
     let sourceIDs = Set(receipt.entries.map(\.sourceAfterMutation.id))
+    let restoringTrashedSourceIDs = Set(
+      receipt.entries.lazy
+        .filter { $0.operation == .trash }
+        .map(\.sourceAfterMutation.id)
+    )
     try Self.validateTaskBatchIDs(Array(sourceIDs))
     guard sourceIDs.count == receipt.entries.count else {
       throw LibraryRepositoryError.invalidRecord
@@ -1573,7 +1586,7 @@ public actor LibraryRepository {
       for entry in receipt.entries {
         let version = entry.sourceAfterMutation
         guard let source = try Self.fetchPage(db, id: version.id),
-          source.deletedAt == nil,
+          (entry.operation == .trash ? source.deletedAt != nil : source.deletedAt == nil),
           source.heads == version.heads,
           source.dirtyGeneration == version.dirtyGeneration,
           let currentData = source.taskData,
@@ -1581,13 +1594,16 @@ public actor LibraryRepository {
             current: currentData.state,
             before: entry.sourceBeforeTaskData.state,
             operation: entry.operation
-          )
+          ),
+          entry.operation != .trash || currentData == entry.sourceBeforeTaskData,
+          entry.operation != .trash || entry.createdSuccessor == nil
         else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
 
         try Self.validateTaskDataReferences(
           db,
           pageID: source.id,
-          data: entry.sourceBeforeTaskData
+          data: entry.sourceBeforeTaskData,
+          allowingDeletedPageIDs: restoringTrashedSourceIDs
         )
 
         if let createdSuccessor = entry.createdSuccessor {
@@ -1629,12 +1645,17 @@ public actor LibraryRepository {
           successorsToRemove.append(successor)
         }
 
-        let result = try PageDocument.setProperties(
-          TaskFields.properties(for: entry.sourceBeforeTaskData),
-          ensuring: BuiltInSupertags.task,
-          message: "Undo batch task mutation",
-          in: source.document
-        )
+        let result =
+          if entry.operation == .trash {
+            try PageDocument.setDeleted(nil, in: source.document)
+          } else {
+            try PageDocument.setProperties(
+              TaskFields.properties(for: entry.sourceBeforeTaskData),
+              ensuring: BuiltInSupertags.task,
+              message: "Undo batch task mutation",
+              in: source.document
+            )
+          }
         restored.append(
           PreparedTaskPageWrite(
             page: Self.updatedPage(source, with: result, now: now),
@@ -1683,6 +1704,7 @@ public actor LibraryRepository {
     case reopen
     case cancel
     case patch(TaskMetadataPatch)
+    case trash
 
     var operation: TaskBatchOperation {
       switch self {
@@ -1690,6 +1712,7 @@ public actor LibraryRepository {
       case .reopen: .reopen
       case .cancel: .cancel
       case .patch: .patch
+      case .trash: .trash
       }
     }
 
@@ -1699,6 +1722,7 @@ public actor LibraryRepository {
       case .reopen: "Reopen task batch"
       case .cancel: "Cancel task batch"
       case .patch: "Patch task batch"
+      case .trash: "Move task batch to Trash"
       }
     }
   }
@@ -1831,15 +1855,27 @@ public actor LibraryRepository {
             previous: data,
             calendar: calendar
           )
+        case .trash:
+          break
         }
 
-        try Self.validateTaskDataReferences(db, pageID: pageID, data: data)
-        let result = try PageDocument.setProperties(
-          TaskFields.properties(for: data),
-          ensuring: BuiltInSupertags.task,
-          message: mutation.documentMessage,
-          in: current.document
-        )
+        if case .trash = mutation {
+          // Moving a task out of sight must remain possible even when a historical reference has
+          // since become unavailable. Trash does not change task metadata or create references.
+        } else {
+          try Self.validateTaskDataReferences(db, pageID: pageID, data: data)
+        }
+        let result =
+          if case .trash = mutation {
+            try PageDocument.setDeleted(now, in: current.document)
+          } else {
+            try PageDocument.setProperties(
+              TaskFields.properties(for: data),
+              ensuring: BuiltInSupertags.task,
+              message: mutation.documentMessage,
+              in: current.document
+            )
+          }
         preparedEntries.append(
           PreparedTaskBatchEntry(
             source: PreparedTaskPageWrite(
@@ -1910,20 +1946,27 @@ public actor LibraryRepository {
     case .reopen: current == .active && TaskLifecycleScope.closed.contains(before)
     case .cancel: current == .canceled && before == .active
     case .patch: current == before
+    case .trash: current == before
     }
   }
 
   private static func validateTaskDataReferences(
     _ db: Database,
     pageID: PageID,
-    data: TaskData
+    data: TaskData,
+    allowingDeletedPageIDs: Set<PageID> = []
   ) throws {
-    try validateTaskParent(db, pageID: pageID, parentTaskID: data.parentTaskID)
+    try validateTaskParent(
+      db,
+      pageID: pageID,
+      parentTaskID: data.parentTaskID,
+      allowingDeletedPageIDs: allowingDeletedPageIDs
+    )
 
     let area: PageSnapshot?
     if let areaID = data.areaID {
       guard let candidate = try fetchPage(db, id: areaID),
-        candidate.deletedAt == nil,
+        candidate.deletedAt == nil || allowingDeletedPageIDs.contains(candidate.id),
         candidate.hasSupertag(BuiltInSupertags.area)
       else { throw LibraryRepositoryError.invalidRecord }
       area = candidate
@@ -1933,12 +1976,12 @@ public actor LibraryRepository {
 
     if let projectID = data.projectID {
       guard let project = try fetchPage(db, id: projectID),
-        project.deletedAt == nil,
+        project.deletedAt == nil || allowingDeletedPageIDs.contains(project.id),
         let projectData = project.projectData
       else { throw LibraryRepositoryError.invalidRecord }
       if let projectAreaID = projectData.areaID {
         guard let projectArea = try fetchPage(db, id: projectAreaID),
-          projectArea.deletedAt == nil,
+          projectArea.deletedAt == nil || allowingDeletedPageIDs.contains(projectArea.id),
           projectArea.hasSupertag(BuiltInSupertags.area),
           area == nil || area?.id == projectAreaID
         else { throw LibraryRepositoryError.invalidRecord }
@@ -1947,7 +1990,7 @@ public actor LibraryRepository {
 
     for assigneeID in data.assigneeIDs {
       guard let assignee = try fetchPage(db, id: assigneeID),
-        assignee.deletedAt == nil,
+        assignee.deletedAt == nil || allowingDeletedPageIDs.contains(assignee.id),
         assignee.hasSupertag(BuiltInSupertags.person)
       else { throw LibraryRepositoryError.invalidRecord }
     }
@@ -2069,14 +2112,15 @@ public actor LibraryRepository {
   private static func validateTaskParent(
     _ db: Database,
     pageID: PageID,
-    parentTaskID: PageID?
+    parentTaskID: PageID?,
+    allowingDeletedPageIDs: Set<PageID> = []
   ) throws {
     var ancestorID = parentTaskID
     var visited: Set<PageID> = [pageID]
     while let candidateID = ancestorID {
       guard visited.insert(candidateID).inserted,
         let candidate = try fetchPage(db, id: candidateID),
-        candidate.deletedAt == nil,
+        candidate.deletedAt == nil || allowingDeletedPageIDs.contains(candidate.id),
         let taskData = candidate.taskData
       else {
         throw LibraryRepositoryError.invalidRecord

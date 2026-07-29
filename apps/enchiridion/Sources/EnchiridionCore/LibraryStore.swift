@@ -458,6 +458,12 @@ public final class LibraryStore {
   }
 
   @discardableResult
+  public func trashTasks(_ pageIDs: [PageID]) async -> TaskBatchMutationResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.trashTasks(pageIDs))
+  }
+
+  @discardableResult
   public func undoTaskBatch(_ receipt: TaskBatchUndoReceipt) async -> TaskBatchUndoResult? {
     guard let taskMutationCoordinator else { return nil }
     return taskMutationValue(from: await taskMutationCoordinator.undoTaskBatch(receipt))
