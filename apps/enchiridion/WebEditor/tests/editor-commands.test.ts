@@ -8,7 +8,7 @@ import {
   markSelectedText,
   moveBelowCodeBlock,
   persistSelectedMark,
-  showsMobileCommandBar,
+  showsEditorCommandBar,
 } from "../src/editorCommands"
 
 const referenceMarkName = "__ext__dev.rawkode.enchiridion.page-reference"
@@ -27,18 +27,13 @@ const schema = new Schema({
   },
 })
 
-describe("mobile editor chrome", () => {
-  test("shows exactly the base command bar for a focused caret on compact screens", () => {
-    expect(showsMobileCommandBar(true, true, false)).toBeTrue()
+describe("unified editor chrome", () => {
+  test("shows the unified command bar while the editor is focused", () => {
+    expect(showsEditorCommandBar(true)).toBeTrue()
   })
 
-  test("replaces the base command bar while selected-text controls are visible", () => {
-    expect(showsMobileCommandBar(true, true, true)).toBeFalse()
-  })
-
-  test("stays hidden outside a focused compact editor", () => {
-    expect(showsMobileCommandBar(false, true, false)).toBeFalse()
-    expect(showsMobileCommandBar(true, false, false)).toBeFalse()
+  test("stays hidden while the editor is not focused", () => {
+    expect(showsEditorCommandBar(false)).toBeFalse()
   })
 })
 

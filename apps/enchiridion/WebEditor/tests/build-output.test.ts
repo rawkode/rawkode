@@ -28,8 +28,14 @@ describe("packaged editor", () => {
 
   test("packages selected-text supertagging", () => {
     expect(html).toContain("Supertag");
+    expect(html).toContain('id="supertag-command"');
     expect(html).toContain("Find a page");
     expect(html).toContain("New page");
+  });
+
+  test("packages one unified editor command bar", () => {
+    expect(html.match(/id="mobile-command-bar"/g)).toHaveLength(1);
+    expect(html).not.toContain('id="selection-toolbar"');
   });
 
   test("packages exactly one editable inline page title", () => {

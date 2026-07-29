@@ -4,12 +4,8 @@ import { exitCode } from "prosemirror-commands"
 import type { Attrs, MarkType } from "prosemirror-model"
 import { TextSelection, type Command, type EditorState } from "prosemirror-state"
 
-export function showsMobileCommandBar(
-  usesCompactLayout: boolean,
-  editorHasFocus: boolean,
-  hasTextSelection: boolean,
-): boolean {
-  return usesCompactLayout && editorHasFocus && !hasTextSelection
+export function showsEditorCommandBar(editorHasFocus: boolean): boolean {
+  return editorHasFocus
 }
 
 export function markSelectedText(

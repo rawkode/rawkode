@@ -139,7 +139,7 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
 .youtube iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; display: block; }
 .youtube figcaption { padding: 0.65rem 0.9rem; color: var(--muted); font-size: 0.85rem; }
 
-.palette, .selection-toolbar {
+.palette {
   position: fixed;
   z-index: 10;
   left: 50%;
@@ -167,7 +167,7 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
   outline: none;
 }
 
-.palette button, .selection-toolbar button {
+.palette button {
   display: block;
   width: 100%;
   border: 0;
@@ -181,7 +181,6 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
 
 .palette button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .palette button:focus-visible,
-.selection-toolbar button:focus-visible,
 .mobile-command-bar button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -201,9 +200,37 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
   font-size: 0.78rem;
   line-height: 1.25;
 }
-.selection-toolbar { width: auto; display: flex; gap: 0.15rem; }
-.selection-toolbar button { width: auto; white-space: nowrap; }
-.mobile-command-bar { display: none; }
+.mobile-command-bar {
+  position: fixed;
+  z-index: 9;
+  left: 50%;
+  bottom: 1.5rem;
+  display: flex;
+  width: min(30rem, calc(100vw - 2rem));
+  min-height: 3rem;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0.3rem 0.65rem;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, Canvas 94%, transparent);
+  box-shadow: 0 4px 8px color-mix(in srgb, black 12%, transparent);
+  backdrop-filter: blur(24px);
+}
+.mobile-command-bar button {
+  min-width: 2.75rem;
+  min-height: 2.5rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: CanvasText;
+  background: transparent;
+  font: 600 1rem/1 -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.mobile-command-bar button:active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.mobile-command-bar button:disabled { opacity: 0.28; }
 [hidden] { display: none !important; }
 
 @media (max-width: 640px) {
@@ -216,49 +243,22 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
     max-height: min(27rem, calc(100vh - 6rem - env(safe-area-inset-bottom)));
   }
   .mobile-command-bar {
-    position: fixed;
-    z-index: 9;
     left: 0;
     right: 0;
     bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
+    width: auto;
     min-height: calc(3rem + env(safe-area-inset-bottom));
     padding: 0.3rem 0.65rem env(safe-area-inset-bottom);
-    border-top: 1px solid var(--border);
-    background: Canvas;
-  }
-  .mobile-command-bar button {
-    min-width: 2.75rem;
-    min-height: 2.5rem;
-    border: 0;
-    border-radius: 0.5rem;
-    color: CanvasText;
-    background: transparent;
-    font: 600 1rem/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  }
-  .mobile-command-bar button:active {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-  }
-  .selection-toolbar {
-    right: 0.5rem;
-    bottom: 0;
-    left: 0.5rem;
-    width: auto;
-    max-width: none;
     transform: none;
-    justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
+    border-top: 1px solid var(--border);
     border-right: 0;
+    border-bottom: 0;
     border-left: 0;
     border-radius: 0;
     background: Canvas;
+    box-shadow: none;
     backdrop-filter: none;
-    scrollbar-width: none;
   }
-  .selection-toolbar::-webkit-scrollbar { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

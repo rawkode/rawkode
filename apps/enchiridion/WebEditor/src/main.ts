@@ -6,7 +6,7 @@ import { baseKeymap, setBlockType, toggleMark, wrapIn } from "prosemirror-comman
 import { history, redo, undo } from "prosemirror-history"
 import { inputRules, smartQuotes, textblockTypeInputRule, wrappingInputRule, type InputRule } from "prosemirror-inputrules"
 import { keymap } from "prosemirror-keymap"
-import type { DOMOutputSpec, Node as PMNode, Schema } from "prosemirror-model"
+import type { DOMOutputSpec, MarkType, Node as PMNode, Schema } from "prosemirror-model"
 import { liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list"
 import { EditorState, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
@@ -14,7 +14,7 @@ import {
   exitCodeBlockOnEmptyLine,
   moveBelowCodeBlock,
   persistSelectedMark,
-  showsMobileCommandBar,
+  showsEditorCommandBar,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
 import "./style.css"
@@ -83,8 +83,8 @@ const statusElement = requiredElement<HTMLDivElement>("status")
 const contextElement = requiredElement<HTMLElement>("page-context")
 const slashMenu = requiredElement<HTMLDivElement>("slash-menu")
 const pageMenu = requiredElement<HTMLDivElement>("page-menu")
-const selectionToolbar = requiredElement<HTMLDivElement>("selection-toolbar")
 const mobileCommandBar = requiredElement<HTMLDivElement>("mobile-command-bar")
+const supertagCommandButton = requiredElement<HTMLButtonElement>("supertag-command")
 
 let handle: DocHandle<PageDoc> | undefined
 let view: EditorView | undefined
@@ -286,7 +286,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     dispatchTransaction(transaction) {
       if (!view) return
       view.updateState(view.state.apply(transaction))
-      updateSelectionToolbar()
+      updateMobileCommandBar()
     },
   })
   view.dom.addEventListener("focusin", updateMobileCommandBar)
@@ -386,11 +386,24 @@ function runMobileCommand(command: string): void {
   if (!view) return
   switch (command) {
   case "blocks":
-    showSlashMenu(view)
+    showSlashMenu(view, false)
     break
   case "reference":
-    void showPageMenu(view, { kind: "insert", position: view.state.selection.from })
+    if (view.state.selection.empty) {
+      void showPageMenu(view, { kind: "insert", position: view.state.selection.from })
+    } else {
+      const { from, to } = view.state.selection
+      const query = view.state.doc.textBetween(from, to, " ").trim()
+      void showPageMenu(view, { kind: "selection", from, to, query })
+    }
     break
+  case "supertag": {
+    if (view.state.selection.empty) break
+    const { from, to } = view.state.selection
+    const query = view.state.doc.textBetween(from, to, " ").trim()
+    void showSupertagMenu(view, { kind: "selection", from, to, query })
+    break
+  }
   case "bold":
     toggleMark(view.state.schema.marks.strong!)(view.state, view.dispatch, view)
     view.focus()
@@ -407,13 +420,8 @@ function runMobileCommand(command: string): void {
 }
 
 function updateMobileCommandBar(): void {
-  const usesCompactLayout = window.matchMedia("(max-width: 640px)").matches
-  const hasTextSelection = view != null && !view.state.selection.empty
-  mobileCommandBar.hidden = !showsMobileCommandBar(
-    usesCompactLayout,
-    view?.hasFocus() == true,
-    hasTextSelection,
-  )
+  supertagCommandButton.disabled = view?.state.selection.empty ?? true
+  mobileCommandBar.hidden = !showsEditorCommandBar(view?.hasFocus() == true)
 }
 
 function onDocumentChange(): void {
@@ -535,7 +543,7 @@ function interactionPlugin(): Plugin {
     props: {
       handleTextInput(editorView, from, _to, text) {
         if (text === "/" && editorView.state.doc.resolve(from).parent.textContent.length === 0) {
-          window.setTimeout(() => showSlashMenu(editorView), 0)
+          window.setTimeout(() => showSlashMenu(editorView, true), 0)
         }
         if (text === "[" && editorView.state.doc.textBetween(Math.max(0, from - 1), from) === "[") {
           window.setTimeout(() => void showPageMenu(editorView, {
@@ -576,25 +584,48 @@ function interactionPlugin(): Plugin {
   })
 }
 
-function showSlashMenu(editorView: EditorView): void {
+function showSlashMenu(editorView: EditorView, removesSlashTrigger: boolean): void {
+  const removeTriggerIfNeeded = () => {
+    if (removesSlashTrigger) removeSlashTrigger(editorView)
+  }
   const run = (command: ReturnType<typeof setBlockType>): (() => void) => () => {
-    removeSlashTrigger(editorView)
+    removeTriggerIfNeeded()
     command(editorView.state, editorView.dispatch, editorView)
     editorView.focus()
   }
   const insertDivider = () => {
-    removeSlashTrigger(editorView)
+    removeTriggerIfNeeded()
     const divider = editorView.state.schema.nodes.horizontal_rule!.create()
     editorView.dispatch(editorView.state.tr.replaceSelectionWith(divider).scrollIntoView())
     editorView.focus()
   }
   const mention = () => {
-    removeSlashTrigger(editorView)
-    void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
+    removeTriggerIfNeeded()
+    if (editorView.state.selection.empty) {
+      void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
+    } else {
+      const { from, to } = editorView.state.selection
+      const query = editorView.state.doc.textBetween(from, to, " ").trim()
+      void showPageMenu(editorView, { kind: "selection", from, to, query })
+    }
+  }
+  const applyMark = (mark: MarkType) => () => {
+    removeTriggerIfNeeded()
+    toggleMark(mark)(editorView.state, editorView.dispatch, editorView)
+    editorView.focus()
   }
   const groups: PaletteGroup[] = [
     {
       label: "Text Style",
+      items: [
+        { label: "Bold", detail: "Strong emphasis", action: applyMark(editorView.state.schema.marks.strong!) },
+        { label: "Italic", detail: "Emphasis", action: applyMark(editorView.state.schema.marks.em!) },
+        { label: "Strikethrough", detail: "Mark as no longer relevant", action: applyMark(editorView.state.schema.marks.strike!) },
+        { label: "Inline code", detail: "Technical text", action: applyMark(editorView.state.schema.marks.code!) },
+      ],
+    },
+    {
+      label: "Block Style",
       items: [
         { label: "Text", detail: "Plain paragraph", action: run(setBlockType(editorView.state.schema.nodes.paragraph!)) },
         { label: "Heading 1", detail: "Page section", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 1 })) },
@@ -622,6 +653,19 @@ function showSlashMenu(editorView: EditorView): void {
       label: "Insert",
       items: [
         { label: "Page or date", detail: "Create a native reference", action: mention },
+        ...(!editorView.state.selection.empty ? [{
+          label: "Supertag",
+          detail: "Find or create a typed page",
+          action: () => {
+            const { from, to } = editorView.state.selection
+            const query = editorView.state.doc.textBetween(from, to, " ").trim()
+            void showSupertagMenu(editorView, { kind: "selection", from, to, query })
+          },
+        }, {
+          label: "Link",
+          detail: "Add a web link to the selection",
+          action: () => { openLinkEditor(editorView.state, editorView.dispatch, editorView) },
+        }] : []),
         { label: "Divider", detail: "Separate sections", action: insertDivider },
       ],
     },
@@ -636,7 +680,6 @@ function removeSlashTrigger(editorView: EditorView): void {
 }
 
 async function showPageMenu(editorView: EditorView, target: PageReferenceTarget): Promise<void> {
-  selectionToolbar.hidden = true
   pageMenu.hidden = false
   pageMenu.replaceChildren()
   const input = document.createElement("input")
@@ -676,14 +719,13 @@ async function showPageMenu(editorView: EditorView, target: PageReferenceTarget)
     if (event.key !== "Escape") return
     pageMenu.hidden = true
     editorView.focus()
-    updateSelectionToolbar()
+    updateMobileCommandBar()
   })
   await update()
   input.focus()
 }
 
 async function showSupertagMenu(editorView: EditorView, target: Extract<PageReferenceTarget, { kind: "selection" }>): Promise<void> {
-  selectionToolbar.hidden = true
   pageMenu.hidden = false
   pageMenu.replaceChildren()
   const heading = document.createElement("div")
@@ -738,7 +780,7 @@ async function showTaggedPageMenu(
     if (event.key !== "Escape") return
     pageMenu.hidden = true
     editorView.focus()
-    updateSelectionToolbar()
+    updateMobileCommandBar()
   })
   await update()
   input.focus()
@@ -862,39 +904,6 @@ function insertYouTube(editorView: EditorView, url: string, videoID: string): vo
   const node = editorView.state.schema.nodes.youtube!.create({ videoID, url, title: "YouTube video" })
   editorView.dispatch(editorView.state.tr.replaceSelectionWith(node))
   editorView.focus()
-}
-
-function updateSelectionToolbar(): void {
-  if (!view || view.state.selection.empty) {
-    selectionToolbar.hidden = true
-    updateMobileCommandBar()
-    return
-  }
-  const buttons = [
-    ["Bold", view.state.schema.marks.strong!],
-    ["Italic", view.state.schema.marks.em!],
-    ["Strike", view.state.schema.marks.strike!],
-    ["Code", view.state.schema.marks.code!],
-  ] as const
-  selectionToolbar.hidden = false
-  selectionToolbar.replaceChildren(...buttons.map(([label, mark]) => button(label, () => {
-    toggleMark(mark)(view!.state, view!.dispatch, view)
-    view!.focus()
-  })))
-  selectionToolbar.append(button("Reference", () => {
-    if (!view || view.state.selection.empty) return
-    const { from, to } = view.state.selection
-    const query = view.state.doc.textBetween(from, to, " ").trim()
-    void showPageMenu(view, { kind: "selection", from, to, query })
-  }))
-  selectionToolbar.append(button("Supertag", () => {
-    if (!view || view.state.selection.empty) return
-    const { from, to } = view.state.selection
-    const query = view.state.doc.textBetween(from, to, " ").trim()
-    void showSupertagMenu(view, { kind: "selection", from, to, query })
-  }))
-  selectionToolbar.append(button("Link", () => openLinkEditor(view!.state, view!.dispatch, view)))
-  updateMobileCommandBar()
 }
 
 function openLinkEditor(state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView): boolean {
