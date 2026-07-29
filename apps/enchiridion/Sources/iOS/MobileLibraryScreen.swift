@@ -3,9 +3,15 @@ import SwiftUI
 
 struct MobileLibraryScreen: View {
   let store: LibraryStore
+  let contactsResolver: DeviceContactsResolver
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
+
+  init(store: LibraryStore, contactsResolver: DeviceContactsResolver = DeviceContactsResolver()) {
+    self.store = store
+    self.contactsResolver = contactsResolver
+  }
 
   var body: some View {
     NavigationStack {
@@ -68,6 +74,15 @@ struct MobileLibraryScreen: View {
         }
       }
       .navigationTitle("Library")
+      .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          NavigationLink {
+            MobileSettingsView(store: store, contactsResolver: contactsResolver)
+          } label: {
+            Label("Settings", systemImage: "gearshape")
+          }
+        }
+      }
       .sheet(item: $editingTag) { tag in
         SupertagSchemaEditor(store: store, definition: tag)
       }

@@ -13,49 +13,47 @@ struct MobileSettingsView: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section("Calendar") {
-          Button("Enable Local Calendars") { Task { await store.enableCalendar() } }
-          Button("Connect Google Calendar") { Task { await store.enableGoogleCalendar() } }
-          if let error = store.calendarError { Text(error).foregroundStyle(.red) }
-          Text("Calendar access is read-only. Local events stay in EventKit; Google connects directly from this device with OAuth and no Enchiridion server.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        CalendarEventFilterSettingsSection(store: store)
-        DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
-        Section("CarPlay") {
-          Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)
-          Text("When enabled, voice transcription, Apple Intelligence, calendar lookup, and note search run only on this iPhone. Diagnostics record operational state only—never transcripts or note content.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        Section("Sync") {
-          LabeledContent("Status", value: store.syncStatus.title)
-          Text(store.syncStatus.detail)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel("Sync details: \(store.syncStatus.detail)")
-          Button {
-            Task { await store.syncNow() }
-          } label: {
-            if isSyncing {
-              HStack(spacing: 8) {
-                ProgressView()
-                Text("Syncing")
-              }
-            } else {
-              Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
-            }
-          }
-          .disabled(!canRequestSync)
-          .accessibilityHint(syncActionHint)
-          Text("Pages are durable locally first. Private iCloud sync runs when your account is available.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
+    Form {
+      Section("Calendar") {
+        Button("Enable Local Calendars") { Task { await store.enableCalendar() } }
+        Button("Connect Google Calendar") { Task { await store.enableGoogleCalendar() } }
+        if let error = store.calendarError { Text(error).foregroundStyle(.red) }
+        Text("Calendar access is read-only. Local events stay in EventKit; Google connects directly from this device with OAuth and no Enchiridion server.")
+          .font(.caption).foregroundStyle(.secondary)
       }
-      .navigationTitle("Settings")
+      CalendarEventFilterSettingsSection(store: store)
+      DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
+      Section("CarPlay") {
+        Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)
+        Text("When enabled, voice transcription, Apple Intelligence, calendar lookup, and note search run only on this iPhone. Diagnostics record operational state only—never transcripts or note content.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      Section("Sync") {
+        LabeledContent("Status", value: store.syncStatus.title)
+        Text(store.syncStatus.detail)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityLabel("Sync details: \(store.syncStatus.detail)")
+        Button {
+          Task { await store.syncNow() }
+        } label: {
+          if isSyncing {
+            HStack(spacing: 8) {
+              ProgressView()
+              Text("Syncing")
+            }
+          } else {
+            Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+          }
+        }
+        .disabled(!canRequestSync)
+        .accessibilityHint(syncActionHint)
+        Text("Pages are durable locally first. Private iCloud sync runs when your account is available.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
     }
+    .navigationTitle("Settings")
   }
 
   private var isSyncing: Bool {

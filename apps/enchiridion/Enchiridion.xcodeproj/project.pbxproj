@@ -35,7 +35,6 @@
 		3FCA54B2BD75D331E1C7DCB1 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
 		3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */; };
 		4039085C66F4E6F1D4AD19BD /* DeviceContactsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */; };
-		46AE4DE39A1609A9497FA50A /* AssistantFloatingActionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2457643B358F590F3A82A66B /* AssistantFloatingActionButton.swift */; };
 		47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */; };
 		480093EC2D69E369EB3393B3 /* CalendarEventFilterSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */; };
 		4D30CAB0FFC6C0FA2DEF9FB7 /* DeviceContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */; };
@@ -46,7 +45,6 @@
 		5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
 		5E764416E1D9F740E73E8C09 /* TaskWorkbench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */; };
 		5ED250DC36C0979006A5BC2A /* TaskPlanningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */; };
-		659A6D9FAB6D5DC9178B6C89 /* ImmersiveAssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED1EFBC600F519A5C4E2F995 /* ImmersiveAssistantView.swift */; };
 		68AA474F3E1F28D661B29426 /* DeviceContactsLifecycleModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27D35C9D4DEE0FD68B85047 /* DeviceContactsLifecycleModifier.swift */; };
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
@@ -168,7 +166,6 @@
 		1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactPicker.swift; sourceTree = "<group>"; };
 		1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyTaskContext.swift; sourceTree = "<group>"; };
 		1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayTasksWidget.swift; sourceTree = "<group>"; };
-		2457643B358F590F3A82A66B /* AssistantFloatingActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantFloatingActionButton.swift; sourceTree = "<group>"; };
 		250D8A1FB97475734517559F /* MacDailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDailyTaskContext.swift; sourceTree = "<group>"; };
 		28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPlanningViews.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
@@ -229,7 +226,6 @@
 		E38E3D37CCD497ABF150C23A /* Social.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Social.framework; path = System/Library/Frameworks/Social.framework; sourceTree = SDKROOT; };
 		E7D6C466615598D4AB32237B /* enchiridion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = enchiridion; path = .; sourceTree = SOURCE_ROOT; };
 		EC0E2ACE25D5C871D0E95141 /* EnchiridionTodayTasksWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionTodayTasksWidgetBundle.swift; sourceTree = "<group>"; };
-		ED1EFBC600F519A5C4E2F995 /* ImmersiveAssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveAssistantView.swift; sourceTree = "<group>"; };
 		F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ContactsUI.framework; path = System/Library/Frameworks/ContactsUI.framework; sourceTree = SDKROOT; };
 		F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
 		F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryRowView.swift; sourceTree = "<group>"; };
@@ -314,7 +310,6 @@
 		5823A6251A1ED541F1642242 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
-				2457643B358F590F3A82A66B /* AssistantFloatingActionButton.swift */,
 				96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */,
 				2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */,
 				4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */,
@@ -327,7 +322,6 @@
 				1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */,
 				5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */,
 				DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */,
-				ED1EFBC600F519A5C4E2F995 /* ImmersiveAssistantView.swift */,
 				D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */,
 				2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */,
 				F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */,
@@ -669,7 +663,6 @@
 				08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */,
 				1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */,
 				2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */,
-				46AE4DE39A1609A9497FA50A /* AssistantFloatingActionButton.swift in Sources */,
 				DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */,
 				A5744F1937704BEFF5CD50DD /* CalendarAgendaRows.swift in Sources */,
 				7845169927C30F09425C0E77 /* CalendarAgendaView.swift in Sources */,
@@ -691,7 +684,6 @@
 				32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */,
 				47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */,
 				C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */,
-				659A6D9FAB6D5DC9178B6C89 /* ImmersiveAssistantView.swift in Sources */,
 				DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */,
 				9BDA6E300E9631938293318F /* LiveViewScreen.swift in Sources */,
 				929E1941060850FB6F278874 /* MobileLibraryScreen.swift in Sources */,

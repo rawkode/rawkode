@@ -6,15 +6,31 @@ import AppKit
 import UIKit
 #endif
 
+enum AssistantConversationPresentation: Equatable, Sendable {
+  case dismissible
+  case embedded
+}
+
 struct AssistantConversationView: View {
   let session: AssistantConversationSession?
   let unavailableReason: String?
+  let presentation: AssistantConversationPresentation
 
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
   @State private var surfaceID = UUID()
   @State private var draft = ""
   @FocusState private var composerIsFocused: Bool
+
+  init(
+    session: AssistantConversationSession?,
+    unavailableReason: String?,
+    presentation: AssistantConversationPresentation = .dismissible
+  ) {
+    self.session = session
+    self.unavailableReason = unavailableReason
+    self.presentation = presentation
+  }
 
   var body: some View {
     NavigationStack {
@@ -31,17 +47,15 @@ struct AssistantConversationView: View {
       }
       .navigationTitle("Assistant")
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Close") { dismiss() }
+        if presentation == .dismissible {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Close") { dismiss() }
+          }
         }
       }
     }
     .task(id: surfaceID) { await prepareSurface() }
-    .onDisappear {
-      guard let session else { return }
-      let closingSurfaceID = surfaceID
-      Task { await session.stopSurface(closingSurfaceID) }
-    }
+    .onDisappear(perform: stopSurface)
     .onChange(of: scenePhase) { _, phase in
       guard phase != .active, let session else { return }
       Task { await session.stop() }
@@ -132,7 +146,7 @@ struct AssistantConversationView: View {
 
       voiceAvailabilityView(session)
 
-      Text("Typed and spoken questions are answered on this device. Conversation context is discarded when you close the assistant.")
+      Text(privacyDescription)
         .font(.caption)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
@@ -240,8 +254,32 @@ struct AssistantConversationView: View {
 
   private func prepareSurface() async {
     guard let session else { return }
-    await session.activateSurface(surfaceID)
+    if presentation == .dismissible {
+      await session.activateSurface(surfaceID)
+    }
     await session.refreshVoiceAvailability()
+  }
+
+  private func stopSurface() {
+    guard let session else { return }
+    let closingSurfaceID = surfaceID
+    Task {
+      switch presentation {
+      case .dismissible:
+        await session.stopSurface(closingSurfaceID)
+      case .embedded:
+        await session.stop()
+      }
+    }
+  }
+
+  private var privacyDescription: String {
+    switch presentation {
+    case .dismissible:
+      "Typed and spoken questions are answered on this device. Conversation context is discarded when you close the assistant."
+    case .embedded:
+      "Typed and spoken questions are answered on this device. Conversation context stays available while you move between tabs."
+    }
   }
 
   private func openMicrophoneSettings() {

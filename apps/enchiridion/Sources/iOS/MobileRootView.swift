@@ -1,6 +1,5 @@
 import EnchiridionCore
 import SwiftUI
-import UIKit
 
 struct MobileRootView: View {
   @Environment(\.scenePhase) private var scenePhase
@@ -11,8 +10,6 @@ struct MobileRootView: View {
   @State private var requestedTaskID: PageID?
   @State private var showsQuickTaskCapture = false
   @State private var quickTaskSelection: TaskListSelection = .smart(.inbox)
-  @State private var assistantPresentation: MobileAssistantPresentation?
-  @State private var isKeyboardVisible = false
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
@@ -40,42 +37,21 @@ struct MobileRootView: View {
         .tabItem { Label("Tasks", systemImage: "checkmark.circle") }
         .tag(MobileTab.tasks)
 
-      MobileLibraryScreen(store: store)
-        .tabItem { Label("Library", systemImage: "books.vertical") }
-        .tag(MobileTab.library)
+      AssistantConversationView(
+        session: assistantSession,
+        unavailableReason: assistantUnavailableReason,
+        presentation: .embedded
+      )
+      .tabItem { Label("Assistant", systemImage: "waveform") }
+        .tag(MobileTab.assistant)
 
       CalendarScreen(store: store)
         .tabItem { Label("Calendar", systemImage: "calendar") }
         .tag(MobileTab.calendar)
 
-      MobileSettingsView(store: store, contactsResolver: contactsResolver)
-        .tabItem { Label("Settings", systemImage: "gear") }
-        .tag(MobileTab.settings)
-    }
-    .toolbar(isKeyboardVisible ? .hidden : .visible, for: .tabBar)
-    .overlay(alignment: .bottomTrailing) {
-      if !isKeyboardVisible {
-        AssistantFloatingActionButton(
-          openTextChat: { assistantPresentation = .text },
-          startVoice: { assistantPresentation = .voice }
-        )
-        .padding(.trailing, 18)
-        .padding(.bottom, 66)
-        .transition(.scale(scale: 0.9).combined(with: .opacity))
-      }
-    }
-    .animation(.easeOut(duration: 0.18), value: isKeyboardVisible)
-    .sheet(isPresented: assistantPresentationBinding(for: .text)) {
-      AssistantConversationView(
-        session: assistantSession,
-        unavailableReason: assistantUnavailableReason
-      )
-    }
-    .fullScreenCover(isPresented: assistantPresentationBinding(for: .voice)) {
-      ImmersiveAssistantView(
-        session: assistantSession,
-        unavailableReason: assistantUnavailableReason
-      )
+      MobileLibraryScreen(store: store, contactsResolver: contactsResolver)
+        .tabItem { Label("Library", systemImage: "books.vertical") }
+        .tag(MobileTab.library)
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
       TaskQuickCaptureSheet(store: store, selection: quickTaskSelection)
@@ -94,29 +70,8 @@ struct MobileRootView: View {
       Task { await refreshForActivation() }
     }
     .task { await refreshForActivation() }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification))
-    { _ in
-      isKeyboardVisible = true
-    }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification))
-    { _ in
-      isKeyboardVisible = false
-    }
     .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
-  }
-
-  private func assistantPresentationBinding(
-    for presentation: MobileAssistantPresentation
-  ) -> Binding<Bool> {
-    Binding(
-      get: { assistantPresentation == presentation },
-      set: { isPresented in
-        if !isPresented, assistantPresentation == presentation {
-          assistantPresentation = nil
-        }
-      }
-    )
   }
 
   private func receive(_ route: TaskDeepLinkRoute) async {
@@ -154,15 +109,10 @@ struct MobileRootView: View {
   }
 }
 
-private enum MobileAssistantPresentation: Hashable {
-  case text
-  case voice
-}
-
 private enum MobileTab: Hashable {
   case today
   case tasks
-  case library
+  case assistant
   case calendar
-  case settings
+  case library
 }
