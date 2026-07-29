@@ -1418,6 +1418,7 @@ struct TaskQuickCaptureSheet: View {
   @State private var isSaving = false
   @State private var statusMessage: String?
   @State private var showsMetadataEditor = false
+  @State private var interpretationRequestID: UUID?
   @FocusState private var isFocused: Bool
 
   init(
@@ -1452,6 +1453,7 @@ struct TaskQuickCaptureSheet: View {
               ProgressView().controlSize(.small)
               Text("Interpreting on device…")
             }
+            .accessibilityElement(children: .combine)
           }
         } else if let interpretation {
           TaskInterpretationPreview(
@@ -1460,16 +1462,30 @@ struct TaskQuickCaptureSheet: View {
             hasModelInterpretation: hasModelInterpretation,
             editMetadata: { showsMetadataEditor = true }
           )
+        } else if !trimmedEntry.isEmpty {
+          Section("Optional suggestions") {
+            Button("Interpret with On-Device Model", systemImage: "sparkles") {
+              requestInterpretation()
+            }
+            Text("Nothing changes until you review the preview and add the task.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
 
         if let statusMessage, !isInterpreting {
           Section("Interpretation") {
             Label(statusMessage, systemImage: "exclamationmark.triangle")
               .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+            Button("Try On-Device Model Again", systemImage: "arrow.clockwise") {
+              requestInterpretation()
+            }
           }
         }
 
-        if !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !trimmedEntry.isEmpty {
           Section("Literal capture") {
             Button("Keep all text literally", systemImage: "text.quote") {
               saveLiteral()
@@ -1490,16 +1506,16 @@ struct TaskQuickCaptureSheet: View {
           Button(hasModelInterpretation ? "Add Interpreted" : "Add Literally") {
             if hasModelInterpretation { saveInterpreted() } else { saveLiteral() }
           }
-          .disabled(
-            entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              || isSaving || isInterpreting || interpretation == nil
-          )
+          .disabled(trimmedEntry.isEmpty || isSaving)
         }
       }
     }
     .frame(minWidth: 390, minHeight: 520)
     .onAppear { isFocused = true }
-    .task(id: entry) { await interpretEntry() }
+    .onChange(of: entry) { oldValue, newValue in
+      guard oldValue != newValue else { return }
+      resetInterpretation(for: newValue)
+    }
     .sheet(isPresented: $showsMetadataEditor) {
       TaskDraftMetadataEditor(store: store, initialDraft: workingDraft) { updatedDraft in
         workingDraft = updatedDraft
@@ -1510,23 +1526,18 @@ struct TaskQuickCaptureSheet: View {
   @MainActor
   private func interpretEntry() async {
     let value = entry
+    let requestID = UUID()
+    interpretationRequestID = requestID
     interpretation = nil
     hasModelInterpretation = false
     statusMessage = nil
     workingDraft = TaskInterpretation.literal(value).draft
-    guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    guard !trimmedEntry.isEmpty else {
       isInterpreting = false
       return
     }
 
     isInterpreting = true
-    do {
-      try await Task.sleep(for: .milliseconds(300))
-    } catch {
-      return
-    }
-    guard !Task.isCancelled, value == entry else { return }
-
     let response = await interpreter.interpret(
       value,
       context: interpretationContext,
@@ -1534,7 +1545,7 @@ struct TaskQuickCaptureSheet: View {
       calendar: .current,
       locale: .current
     )
-    guard !Task.isCancelled, value == entry else { return }
+    guard !Task.isCancelled, value == entry, interpretationRequestID == requestID else { return }
     isInterpreting = false
     switch response {
     case .interpreted(let result):
@@ -1551,6 +1562,24 @@ struct TaskQuickCaptureSheet: View {
       workingDraft = TaskInterpretation.literal(value).draft
       statusMessage = message
     }
+  }
+
+  private var trimmedEntry: String {
+    entry.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func requestInterpretation() {
+    guard !trimmedEntry.isEmpty, !isInterpreting else { return }
+    Task { await interpretEntry() }
+  }
+
+  private func resetInterpretation(for value: String) {
+    interpretationRequestID = nil
+    interpretation = nil
+    hasModelInterpretation = false
+    isInterpreting = false
+    statusMessage = nil
+    workingDraft = TaskInterpretation.literal(value).draft
   }
 
   private var interpretationContext: TaskInterpretationContext {
