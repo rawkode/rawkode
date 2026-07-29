@@ -23,62 +23,68 @@ struct EnchiridionTaskEntity: AppEntity {
   @Property(title: "Tags")
   var tags: [String]
 
+  @Property(title: "Vault")
+  var vaultName: String
+
   var displayRepresentation: DisplayRepresentation {
     if isCompleted {
-      return DisplayRepresentation(title: "\(title)", subtitle: "Completed")
+      return DisplayRepresentation(title: "\(title)", subtitle: "Completed · \(vaultName)")
     }
     if let deadline {
       return DisplayRepresentation(
         title: "\(title)",
-        subtitle: "Due \(deadline.formatted(date: .abbreviated, time: .omitted))"
+        subtitle: "Due \(deadline.formatted(date: .abbreviated, time: .omitted)) · \(vaultName)"
       )
     }
-    return DisplayRepresentation(title: "\(title)")
+    return DisplayRepresentation(title: "\(title)", subtitle: "\(vaultName)")
   }
 
-  init(page: PageSnapshot) {
-    id = page.id.rawValue
+  init(page: PageSnapshot, vault: VaultDescriptor) {
+    id = VaultScopedNodeID(vaultID: vault.id, nodeID: page.id).id
     title = page.displayTitle
     isCompleted = page.taskData?.state == .completed
     deadline = page.taskData?.deadline
     priority = page.taskData?.priority.rawValue ?? TaskPriority.none.rawValue
     tags = page.taskData?.tags ?? []
+    vaultName = vault.name
   }
 }
 
 struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [EnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    let pagesByID = Dictionary(
-      uniqueKeysWithValues: try await repository.tasks(in: .active).map { ($0.id.rawValue, $0) }
-    )
-    return identifiers.compactMap { pagesByID[$0].map(EnchiridionTaskEntity.init(page:)) }
+    let requested = Set(identifiers)
+    return try await intentTaskPages(in: .active).compactMap { item in
+      let entity = EnchiridionTaskEntity(page: item.page, vault: item.vault)
+      return requested.contains(entity.id) ? entity : nil
+    }
   }
 
   func entities(matching string: String) async throws -> [EnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    return try await repository.tasks(in: .active)
+    return try await intentTaskPages(in: .active)
       .filter {
-        $0.displayTitle.localizedStandardContains(string)
-          || $0.plainText.localizedStandardContains(string)
+        $0.page.displayTitle.localizedStandardContains(string)
+          || $0.page.plainText.localizedStandardContains(string)
       }
       .prefix(30)
-      .map(EnchiridionTaskEntity.init(page:))
+      .map { EnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func suggestedEntities() async throws -> [EnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    let pages = try await repository.tasks(in: .active)
-    return TaskQuery.items(from: pages, selection: .smart(.today))
-      .map(\.page)
+    let contexts = try VaultRepositoryContext.openAll()
+    let items = try await contexts.asyncFlatMap { context in
+      let pages = try await context.repository.tasks(in: .active)
+      return TaskQuery.items(from: pages, selection: .smart(.today)).map {
+        IntentTaskPage(vault: context.vault, page: $0.page)
+      }
+    }
+    return items
       .prefix(20)
-      .map(EnchiridionTaskEntity.init(page:))
+      .map { EnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func allEntities() async throws -> [EnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    return try await repository.tasks(in: .active)
-      .map(EnchiridionTaskEntity.init(page:))
+    try await intentTaskPages(in: .active)
+      .map { EnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 }
 
@@ -94,50 +100,56 @@ struct ClosedEnchiridionTaskEntity: AppEntity {
   @Property(title: "Status")
   var status: String
 
+  @Property(title: "Vault")
+  var vaultName: String
+
   var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)", subtitle: "\(status)")
+    DisplayRepresentation(title: "\(title)", subtitle: "\(status) · \(vaultName)")
   }
 
-  init(page: PageSnapshot) {
-    id = page.id.rawValue
+  init(page: PageSnapshot, vault: VaultDescriptor) {
+    id = VaultScopedNodeID(vaultID: vault.id, nodeID: page.id).id
     title = page.displayTitle
     status = page.taskData?.state == .completed ? "Completed" : "Canceled"
+    vaultName = vault.name
   }
 }
 
 struct ClosedEnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [ClosedEnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    let pagesByID = Dictionary(
-      uniqueKeysWithValues: try await repository.tasks(in: .closed).map { ($0.id.rawValue, $0) }
-    )
-    return identifiers.compactMap { pagesByID[$0].map(ClosedEnchiridionTaskEntity.init(page:)) }
+    let requested = Set(identifiers)
+    return try await intentTaskPages(in: .closed).compactMap { item in
+      let entity = ClosedEnchiridionTaskEntity(page: item.page, vault: item.vault)
+      return requested.contains(entity.id) ? entity : nil
+    }
   }
 
   func entities(matching string: String) async throws -> [ClosedEnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    return try await repository.tasks(in: .closed)
+    return try await intentTaskPages(in: .closed)
       .filter {
-        $0.displayTitle.localizedStandardContains(string)
-          || $0.plainText.localizedStandardContains(string)
+        $0.page.displayTitle.localizedStandardContains(string)
+          || $0.page.plainText.localizedStandardContains(string)
       }
       .prefix(30)
-      .map(ClosedEnchiridionTaskEntity.init(page:))
+      .map { ClosedEnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func suggestedEntities() async throws -> [ClosedEnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    let pages = try await repository.tasks(in: .closed)
-    return TaskQuery.items(from: pages, selection: .smart(.logbook))
-      .map(\.page)
+    let contexts = try VaultRepositoryContext.openAll()
+    let items = try await contexts.asyncFlatMap { context in
+      let pages = try await context.repository.tasks(in: .closed)
+      return TaskQuery.items(from: pages, selection: .smart(.logbook)).map {
+        IntentTaskPage(vault: context.vault, page: $0.page)
+      }
+    }
+    return items
       .prefix(20)
-      .map(ClosedEnchiridionTaskEntity.init(page:))
+      .map { ClosedEnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func allEntities() async throws -> [ClosedEnchiridionTaskEntity] {
-    let repository = try intentRepository()
-    return try await repository.tasks(in: .closed)
-      .map(ClosedEnchiridionTaskEntity.init(page:))
+    try await intentTaskPages(in: .closed)
+      .map { ClosedEnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 }
 
@@ -226,9 +238,9 @@ struct AddEnchiridionTaskIntent: AppIntent {
     guard !normalizedTitle.isEmpty else {
       throw EnchiridionTaskIntentError.invalidTitle
     }
-    let mutations = try intentTaskMutations()
+    let context = try intentCreationContext(.defaultCapture)
     let page = try intentMutationValue(
-      await mutations.create(
+      await context.mutations.create(
         TaskDraft(
           title: normalizedTitle,
           notes: notes ?? "",
@@ -244,7 +256,7 @@ struct AddEnchiridionTaskIntent: AppIntent {
       )
     )
     return .result(
-      value: EnchiridionTaskEntity(page: page),
+      value: EnchiridionTaskEntity(page: page, vault: context.vault),
       dialog: "Added \(page.displayTitle) to Enchiridion."
     )
   }
@@ -272,11 +284,11 @@ struct QuickAddEnchiridionTaskIntent: AppIntent {
   {
     let normalizedCapture = capture.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedCapture.isEmpty else { throw EnchiridionTaskIntentError.invalidTitle }
-    let mutations = try intentTaskMutations()
+    let context = try intentCreationContext(.defaultCapture)
     let parsed = QuickTaskParser.parse(normalizedCapture)
-    let page = try intentMutationValue(await mutations.create(parsed.draft))
+    let page = try intentMutationValue(await context.mutations.create(parsed.draft))
     return .result(
-      value: EnchiridionTaskEntity(page: page),
+      value: EnchiridionTaskEntity(page: page, vault: context.vault),
       dialog: "Captured \(page.displayTitle)."
     )
   }
@@ -297,12 +309,12 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
   func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
     & ProvidesDialog
   {
-    let mutations = try intentTaskMutations()
+    let context = try intentMutationContext(for: task.id)
     let result = try intentMutationValue(
-      await mutations.complete(PageID(rawValue: task.id))
+      await context.mutations.complete(context.identity.nodeID)
     )
     return .result(
-      value: EnchiridionTaskEntity(page: result.completed),
+      value: EnchiridionTaskEntity(page: result.completed, vault: context.vault),
       dialog: "Completed \(result.completed.displayTitle)."
     )
   }
@@ -323,12 +335,12 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
   func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity>
     & ProvidesDialog
   {
-    let mutations = try intentTaskMutations()
+    let context = try intentMutationContext(for: task.id)
     let page = try intentMutationValue(
-      await mutations.reopen(PageID(rawValue: task.id))
+      await context.mutations.reopen(context.identity.nodeID)
     )
     return .result(
-      value: EnchiridionTaskEntity(page: page),
+      value: EnchiridionTaskEntity(page: page, vault: context.vault),
       dialog: "Reopened \(page.displayTitle)."
     )
   }
@@ -361,10 +373,10 @@ struct ScheduleEnchiridionTaskIntent: AppIntent {
     let schedule: TaskSchedulePatch =
       includesTime
       ? .dateTime(scheduledAt) : .dateOnly(Calendar.current.startOfDay(for: scheduledAt))
-    let mutations = try intentTaskMutations()
+    let context = try intentMutationContext(for: task.id)
     let result = try intentMutationValue(
-      await mutations.patchTasks(
-        [PageID(rawValue: task.id)],
+      await context.mutations.patchTasks(
+        [context.identity.nodeID],
         patch: TaskMetadataPatch(schedule: schedule, placement: .anytime)
       )
     )
@@ -374,7 +386,7 @@ struct ScheduleEnchiridionTaskIntent: AppIntent {
       time: includesTime ? .shortened : .omitted
     )
     return .result(
-      value: EnchiridionTaskEntity(page: page),
+      value: EnchiridionTaskEntity(page: page, vault: context.vault),
       dialog: "Scheduled \(page.displayTitle) for \(spokenDate)."
     )
   }
@@ -399,16 +411,16 @@ struct SetEnchiridionTaskDeadlineIntent: AppIntent {
     & ProvidesDialog
   {
     let normalizedDeadline = Calendar.current.startOfDay(for: deadline)
-    let mutations = try intentTaskMutations()
+    let context = try intentMutationContext(for: task.id)
     let result = try intentMutationValue(
-      await mutations.patchTasks(
-        [PageID(rawValue: task.id)],
+      await context.mutations.patchTasks(
+        [context.identity.nodeID],
         patch: TaskMetadataPatch(deadline: .set(normalizedDeadline))
       )
     )
     guard let page = result.tasks.first else { throw EnchiridionTaskIntentError.taskNotActive }
     return .result(
-      value: EnchiridionTaskEntity(page: page),
+      value: EnchiridionTaskEntity(page: page, vault: context.vault),
       dialog:
         "Set the deadline for \(page.displayTitle) to \(deadline.formatted(date: .abbreviated, time: .omitted))."
     )
@@ -431,12 +443,12 @@ struct CancelEnchiridionTaskIntent: AppIntent {
   func perform() async throws -> some IntentResult & ReturnsValue<ClosedEnchiridionTaskEntity>
     & ProvidesDialog
   {
-    let mutations = try intentTaskMutations()
+    let context = try intentMutationContext(for: task.id)
     let page = try intentMutationValue(
-      await mutations.cancel(PageID(rawValue: task.id))
+      await context.mutations.cancel(context.identity.nodeID)
     )
     return .result(
-      value: ClosedEnchiridionTaskEntity(page: page),
+      value: ClosedEnchiridionTaskEntity(page: page, vault: context.vault),
       dialog: "Canceled \(page.displayTitle)."
     )
   }
@@ -456,10 +468,12 @@ struct FindEnchiridionTasksIntent: AppIntent {
   func perform() async throws -> some IntentResult & ReturnsValue<[EnchiridionTaskEntity]>
     & ProvidesDialog
   {
-    let repository = try intentRepository()
-    let pages = try await repository.pages(with: BuiltInSupertags.task)
-    let tasks = TaskQuery.items(from: pages, selection: .smart(list.smartList))
-      .map { EnchiridionTaskEntity(page: $0.page) }
+    let contexts = try VaultRepositoryContext.openAll()
+    let tasks = try await contexts.asyncFlatMap { context in
+      let pages = try await context.repository.pages(with: BuiltInSupertags.task)
+      return TaskQuery.items(from: pages, selection: .smart(list.smartList))
+        .map { EnchiridionTaskEntity(page: $0.page, vault: context.vault) }
+    }
     await TaskSpotlightIndex.index(tasks)
     return .result(
       value: tasks,
@@ -481,7 +495,8 @@ struct OpenEnchiridionTaskListIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & OpensIntent {
-    let url = URL(string: "enchiridion://tasks/\(list.rawValue)")!
+    let context = try VaultRepositoryContext.open(.selected)
+    let url = TaskDeepLinkRoute.url(vaultID: context.vault.id, list: list.smartList)!
     return .result(opensIntent: OpenURLIntent(url))
   }
 }
@@ -584,14 +599,53 @@ private enum EnchiridionTaskIntentError: Error, CustomLocalizedStringResourceCon
   }
 }
 
-private func intentRepository() throws -> LibraryRepository {
-  try LibraryRepository(path: LibraryRepository.defaultLocalPath())
+private struct IntentTaskPage: Sendable {
+  let vault: VaultDescriptor
+  let page: PageSnapshot
 }
 
-private func intentTaskMutations() throws -> TaskMutationCoordinator {
-  TaskMutationCoordinator(
-    repository: try intentRepository(),
-    effects: .live(surface: .appIntent)
+private struct IntentMutationContext {
+  let vault: VaultDescriptor
+  let identity: VaultScopedNodeID
+  let mutations: TaskMutationCoordinator
+}
+
+private struct IntentCreationContext {
+  let vault: VaultDescriptor
+  let mutations: TaskMutationCoordinator
+}
+
+private func intentTaskPages(in lifecycle: TaskLifecycleScope) async throws -> [IntentTaskPage] {
+  try await VaultRepositoryContext.openAll().asyncFlatMap { context in
+    try await context.repository.tasks(in: lifecycle).map {
+      IntentTaskPage(vault: context.vault, page: $0)
+    }
+  }
+}
+
+private func intentCreationContext(_ selection: VaultSelection) throws -> IntentCreationContext {
+  let context = try VaultRepositoryContext.open(selection)
+  return .init(
+    vault: context.vault,
+    mutations: TaskMutationCoordinator(
+      repository: context.repository,
+      effects: .live(surface: .appIntent, vaultID: context.vault.id)
+    )
+  )
+}
+
+private func intentMutationContext(for serializedIdentity: String) throws -> IntentMutationContext {
+  guard let identity = VaultScopedNodeID(serialized: serializedIdentity) else {
+    throw EnchiridionTaskIntentError.taskNotActive
+  }
+  let context = try VaultRepositoryContext.open(.vault(identity.vaultID))
+  return .init(
+    vault: context.vault,
+    identity: identity,
+    mutations: TaskMutationCoordinator(
+      repository: context.repository,
+      effects: .live(surface: .appIntent, vaultID: identity.vaultID)
+    )
   )
 }
 
@@ -611,12 +665,22 @@ private func intentMutationValue<Value: Sendable>(
 
 private enum TaskSpotlightIndex {
   static func index(_ entities: [EnchiridionTaskEntity]) async {
-    guard !entities.isEmpty else { return }
-    let repository = try? intentRepository()
-    guard let repository else { return }
     for entity in entities {
-      guard let page = try? await repository.page(id: PageID(rawValue: entity.id)) else { continue }
-      await TaskSystemSpotlight.index(page)
+      guard let identity = VaultScopedNodeID(serialized: entity.id),
+        let context = try? VaultRepositoryContext.open(.vault(identity.vaultID)),
+        let page = try? await context.repository.page(id: identity.nodeID)
+      else { continue }
+      await TaskSystemSpotlight.index(page, vaultID: identity.vaultID)
     }
+  }
+}
+
+private extension Sequence {
+  func asyncFlatMap<Result>(
+    _ transform: (Element) async throws -> [Result]
+  ) async rethrows -> [Result] {
+    var result: [Result] = []
+    for element in self { result += try await transform(element) }
+    return result
   }
 }

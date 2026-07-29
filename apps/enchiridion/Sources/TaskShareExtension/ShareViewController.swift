@@ -25,10 +25,10 @@ final class ShareViewController: SLComposeServiceViewController {
 
     Task { @MainActor in
       do {
-        let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
+        let context = try VaultRepositoryContext.open(.defaultCapture)
         let mutations = TaskMutationCoordinator(
-          repository: repository,
-          effects: .live(surface: .shareExtension)
+          repository: context.repository,
+          effects: .live(surface: .shareExtension, vaultID: context.vault.id)
         )
         switch await mutations.create(draft) {
         case .success:

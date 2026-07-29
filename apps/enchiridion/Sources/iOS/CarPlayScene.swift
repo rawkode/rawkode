@@ -8,6 +8,9 @@ final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
   ) -> Bool {
     TaskReminderNotificationCoordinator.shared.configure(
       store: EnchiridionAppRuntime.shared.store,
+      resolveStore: { vaultID in
+        try EnchiridionAppRuntime.shared.store(for: vaultID)
+      },
       openURL: { url in
         UIApplication.shared.open(url)
       }

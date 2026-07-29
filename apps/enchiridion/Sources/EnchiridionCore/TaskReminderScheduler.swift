@@ -33,19 +33,19 @@ public enum TaskReminderAction: String, CaseIterable, Equatable, Sendable {
 }
 
 public struct TaskReminderNotificationRoute: Equatable, Sendable {
-  public let pageID: PageID
+  public let identity: VaultScopedNodeID
   public let action: TaskReminderAction
 
-  public init(pageID: PageID, action: TaskReminderAction) {
-    self.pageID = pageID
+  public init(identity: VaultScopedNodeID, action: TaskReminderAction) {
+    self.identity = identity
     self.action = action
   }
 }
 
 public enum TaskReminderActionPlan: Equatable, Sendable {
-  case complete(PageID)
-  case snooze(PageID, until: Date)
-  case open(PageID)
+  case complete(VaultScopedNodeID)
+  case snooze(VaultScopedNodeID, until: Date)
+  case open(VaultScopedNodeID)
 
   public static func make(
     route: TaskReminderNotificationRoute,
@@ -53,9 +53,9 @@ public enum TaskReminderActionPlan: Equatable, Sendable {
     snoozeInterval: TimeInterval = 60 * 60
   ) -> Self {
     switch route.action {
-    case .complete: .complete(route.pageID)
-    case .snooze: .snooze(route.pageID, until: now.addingTimeInterval(snoozeInterval))
-    case .open: .open(route.pageID)
+    case .complete: .complete(route.identity)
+    case .snooze: .snooze(route.identity, until: now.addingTimeInterval(snoozeInterval))
+    case .open: .open(route.identity)
     }
   }
 }
@@ -65,6 +65,7 @@ public actor TaskReminderScheduler {
 
   public nonisolated static let notificationCategoryIdentifier = "ENCHIRIDION_TASK"
   public nonisolated static let pageIDUserInfoKey = "pageID"
+  public nonisolated static let vaultIDUserInfoKey = "vaultID"
 
   private let identifierPrefix = "dev.rawkode.enchiridion.task."
 
@@ -118,6 +119,7 @@ public actor TaskReminderScheduler {
   @discardableResult
   public func schedule(
     _ task: PageSnapshot,
+    vaultID: VaultID,
     requestingAuthorization: Bool = false,
     now: Date = Date(),
     calendar: Calendar = .current
@@ -127,7 +129,7 @@ public actor TaskReminderScheduler {
     guard let data = task.taskData, data.state == .active,
       let reminder = data.reminder, reminder > now
     else {
-      return cancel(task.id)
+      return cancel(.init(vaultID: vaultID, nodeID: task.id))
     }
 
     var settings = await center.notificationSettings()
@@ -158,16 +160,19 @@ public actor TaskReminderScheduler {
     content.title = task.displayTitle
     content.body = notificationBody(for: data)
     content.sound = .default
-    content.userInfo = [Self.pageIDUserInfoKey: task.id.rawValue]
+    content.userInfo = [
+      Self.pageIDUserInfoKey: task.id.rawValue,
+      Self.vaultIDUserInfoKey: vaultID.rawValue,
+    ]
     content.categoryIdentifier = Self.notificationCategoryIdentifier
-    content.targetContentIdentifier = task.id.rawValue
+    content.targetContentIdentifier = "\(vaultID.rawValue)/\(task.id.rawValue)"
 
     let components = calendar.dateComponents(
       [.calendar, .timeZone, .year, .month, .day, .hour, .minute],
       from: reminder
     )
     let request = UNNotificationRequest(
-      identifier: identifier(for: task.id),
+      identifier: identifier(for: .init(vaultID: vaultID, nodeID: task.id)),
       content: content,
       trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
     )
@@ -179,7 +184,7 @@ public actor TaskReminderScheduler {
     }
   }
 
-  public func reconcile(_ tasks: [PageSnapshot]) async {
+  public func reconcile(_ tasks: [PageSnapshot], vaultID: VaultID) async {
     guard let center else { return }
     let settings = await center.notificationSettings()
     guard
@@ -192,21 +197,21 @@ public actor TaskReminderScheduler {
         guard let data = task.taskData, data.state == .active,
           data.reminder.map({ $0 > Date() }) == true
         else { return nil }
-        return identifier(for: task.id)
+        return identifier(for: .init(vaultID: vaultID, nodeID: task.id))
       })
     let pending = await center.pendingNotificationRequests()
     let stale = pending.map(\.identifier).filter {
-      $0.hasPrefix(identifierPrefix) && !activeIDs.contains($0)
+      $0.hasPrefix(identifierPrefix + vaultID.rawValue + ".") && !activeIDs.contains($0)
     }
     if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
-    for task in tasks { await schedule(task) }
+    for task in tasks { await schedule(task, vaultID: vaultID) }
   }
 
   @discardableResult
-  public func cancel(_ pageID: PageID) -> TaskReminderEffectOutcome {
+  public func cancel(_ identity: VaultScopedNodeID) -> TaskReminderEffectOutcome {
     guard let center else { return .unavailable }
-    center.removePendingNotificationRequests(withIdentifiers: [identifier(for: pageID)])
-    center.removeDeliveredNotifications(withIdentifiers: [identifier(for: pageID)])
+    center.removePendingNotificationRequests(withIdentifiers: [identifier(for: identity)])
+    center.removeDeliveredNotifications(withIdentifiers: [identifier(for: identity)])
     return .applied
   }
 
@@ -216,7 +221,8 @@ public actor TaskReminderScheduler {
     defaultActionIdentifier: String? = nil
   ) -> TaskReminderNotificationRoute? {
     guard let rawPageID = userInfo[pageIDUserInfoKey] as? String,
-      !rawPageID.isEmpty
+      let rawVaultID = userInfo[vaultIDUserInfoKey] as? String,
+      !rawPageID.isEmpty, rawVaultID.hasPrefix("vault_")
     else { return nil }
 
     let action: TaskReminderAction?
@@ -228,20 +234,25 @@ public actor TaskReminderScheduler {
       }
     }
     guard let action else { return nil }
-    return TaskReminderNotificationRoute(pageID: PageID(rawValue: rawPageID), action: action)
+    return TaskReminderNotificationRoute(
+      identity: .init(
+        vaultID: .init(rawValue: rawVaultID),
+        nodeID: .init(rawValue: rawPageID)
+      ),
+      action: action
+    )
   }
 
-  public nonisolated static func taskURL(for pageID: PageID) -> URL? {
-    var components = URLComponents()
-    components.scheme = "enchiridion"
-    components.host = "tasks"
-    components.path = "/today"
-    components.queryItems = [URLQueryItem(name: "task", value: pageID.rawValue)]
-    return components.url
+  public nonisolated static func taskURL(for identity: VaultScopedNodeID) -> URL? {
+    TaskDeepLinkRoute.url(
+      vaultID: identity.vaultID,
+      list: .today,
+      taskID: identity.nodeID
+    )
   }
 
-  private func identifier(for pageID: PageID) -> String {
-    identifierPrefix + pageID.rawValue
+  private func identifier(for identity: VaultScopedNodeID) -> String {
+    identifierPrefix + identity.vaultID.rawValue + "." + identity.nodeID.rawValue
   }
 
   private func notificationBody(for data: TaskData) -> String {

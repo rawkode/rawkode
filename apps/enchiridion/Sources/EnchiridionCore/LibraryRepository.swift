@@ -167,10 +167,6 @@ public actor LibraryRepository {
     }
   }
 
-  public static func defaultLocalPath() throws -> String {
-    try VaultRegistry.defaultGraphPath(selection: .defaultCapture)
-  }
-
   func pendingTaskEffectOutboxIdentities() throws -> [TaskEffectOutboxIdentity] {
     try database.read { db in
       try Row.fetchAll(

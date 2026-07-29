@@ -599,11 +599,11 @@ final class TaskBatchMutationTests: XCTestCase {
     XCTAssertEqual(added.tasks[1].taskData?.tags, ["alpha", "beta", "common", "shared"])
     XCTAssertEqual(
       added.tasks[0].taskData?.assigneeIDs,
-      [firstPerson.id, sharedPerson.id]
+      TaskData.normalizedPageIDs([firstPerson.id, sharedPerson.id])
     )
     XCTAssertEqual(
       added.tasks[1].taskData?.assigneeIDs,
-      [secondPerson.id, sharedPerson.id]
+      TaskData.normalizedPageIDs([secondPerson.id, sharedPerson.id])
     )
 
     let addUndo = try await fixture.repository.undoTaskBatch(added.undoReceipt)

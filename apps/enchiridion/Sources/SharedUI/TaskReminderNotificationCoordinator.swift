@@ -6,14 +6,17 @@ import Foundation
 final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
   static let shared = TaskReminderNotificationCoordinator()
 
-  private var store: LibraryStore?
+  private var resolveStore: (@MainActor @Sendable (VaultID) throws -> LibraryStore?)?
   private var openURL: (@MainActor @Sendable (URL) -> Void)?
 
   func configure(
     store: LibraryStore,
+    resolveStore: (@MainActor @Sendable (VaultID) throws -> LibraryStore?)? = nil,
     openURL: @escaping @MainActor @Sendable (URL) -> Void
   ) {
-    self.store = store
+    self.resolveStore = resolveStore ?? { vaultID in
+      vaultID == store.vaultID ? store : nil
+    }
     self.openURL = openURL
     UNUserNotificationCenter.current().delegate = self
     Task { await TaskReminderScheduler.shared.registerNotificationCategory() }
@@ -40,22 +43,24 @@ final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCen
   }
 
   private func handle(route: TaskReminderNotificationRoute) async {
-    guard let store, let task = await task(for: route.pageID, in: store),
+    guard let resolveStore,
+      let store = try? resolveStore(route.identity.vaultID),
+      let task = await task(for: route.identity.nodeID, in: store),
       let data = task.taskData
     else { return }
 
     let plan = TaskReminderActionPlan.make(route: route, now: Date())
     switch plan {
-    case .complete(let pageID):
+    case .complete(let identity):
       guard data.state == .active else { return }
-      await store.completeTask(pageID)
-    case .snooze(let pageID, let until):
+      await store.completeTask(identity.nodeID)
+    case .snooze(let identity, let until):
       guard data.state == .active else { return }
       var updatedData = data
       updatedData.reminder = until
-      await store.updateTask(pageID: pageID, data: updatedData)
-    case .open(let pageID):
-      openTask(pageID)
+      await store.updateTask(pageID: identity.nodeID, data: updatedData)
+    case .open(let identity):
+      openTask(identity)
     }
   }
 
@@ -65,8 +70,8 @@ final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCen
     return store.page(id: pageID)
   }
 
-  private func openTask(_ pageID: PageID) {
-    guard let url = TaskReminderScheduler.taskURL(for: pageID) else { return }
+  private func openTask(_ identity: VaultScopedNodeID) {
+    guard let url = TaskReminderScheduler.taskURL(for: identity) else { return }
     openURL?(url)
   }
 }

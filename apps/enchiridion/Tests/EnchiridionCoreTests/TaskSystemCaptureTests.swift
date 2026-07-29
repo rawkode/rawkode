@@ -36,12 +36,16 @@ final class TaskSystemCaptureTests: XCTestCase {
 
   func testSpotlightUsesOneStableIdentifierAndRoutesToTheExactTask() throws {
     let pageID = PageID(rawValue: "spotlight-task")
+    let identity = VaultScopedNodeID(
+      vaultID: .init(rawValue: "vault_personal"),
+      nodeID: pageID
+    )
 
-    XCTAssertEqual(TaskSystemSpotlight.searchableIdentifier(for: pageID), pageID.rawValue)
-    let url = try XCTUnwrap(TaskSystemSpotlight.contentURL(for: pageID))
+    XCTAssertEqual(TaskSystemSpotlight.searchableIdentifier(for: identity), identity.id)
+    let url = try XCTUnwrap(TaskSystemSpotlight.contentURL(for: identity))
     XCTAssertEqual(
       TaskDeepLinkRoute(url: url),
-      .task(pageID, list: .today)
+      .task(identity, list: .today)
     )
   }
 

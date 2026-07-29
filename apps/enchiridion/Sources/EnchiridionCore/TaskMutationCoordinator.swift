@@ -305,23 +305,26 @@ struct TaskSystemEffectAdapters: Sendable {
     self.removeSpotlight = removeSpotlight
   }
 
-  static let live = Self(
+  static func live(vaultID: VaultID) -> Self {
+    Self(
     scheduleReminder: { page, requestingAuthorization in
       await TaskReminderScheduler.shared.schedule(
         page,
+        vaultID: vaultID,
         requestingAuthorization: requestingAuthorization
       )
     },
     cancelReminder: { pageID in
-      await TaskReminderScheduler.shared.cancel(pageID)
+      await TaskReminderScheduler.shared.cancel(.init(vaultID: vaultID, nodeID: pageID))
     },
     indexSpotlight: { page in
-      await TaskSystemSpotlight.index(page)
+      await TaskSystemSpotlight.index(page, vaultID: vaultID)
     },
     removeSpotlight: { pageID in
-      await TaskSystemSpotlight.remove(pageID)
+      await TaskSystemSpotlight.remove(.init(vaultID: vaultID, nodeID: pageID))
     }
-  )
+    )
+  }
 }
 
 public struct TaskMutationEffectExecutor: Sendable {
@@ -340,13 +343,15 @@ public struct TaskMutationEffectExecutor: Sendable {
 
   public static func live(
     surface: TaskMutationSurface,
+    vaultID: VaultID = .standalone,
     reload: (@MainActor @Sendable () async -> TaskMutationEffectDisposition)? = nil,
     sync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil,
     purgeSync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil
   ) -> Self {
     live(
       surface: surface,
-      systemEffects: .live,
+      vaultID: vaultID,
+      systemEffects: .live(vaultID: vaultID),
       reload: reload,
       sync: sync,
       purgeSync: purgeSync
@@ -355,6 +360,7 @@ public struct TaskMutationEffectExecutor: Sendable {
 
   static func live(
     surface: TaskMutationSurface,
+    vaultID: VaultID = .standalone,
     systemEffects: TaskSystemEffectAdapters,
     reload: (@MainActor @Sendable () async -> TaskMutationEffectDisposition)? = nil,
     sync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil,

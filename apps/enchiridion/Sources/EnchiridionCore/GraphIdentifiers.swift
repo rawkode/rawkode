@@ -12,6 +12,9 @@ public struct VaultID: RawRepresentable, Codable, Hashable, Sendable, Identifiab
   public static func random() -> Self {
     .init(rawValue: "vault_\(UUID().uuidString.lowercased())")
   }
+
+  /// Identity used only by explicitly standalone repositories, such as isolated tests.
+  public static let standalone = Self(rawValue: "vault_standalone")
 }
 
 /// Nodes are the durable identities in an Enchiridion knowledge graph. PageID remains the
@@ -77,6 +80,17 @@ public struct VaultScopedNodeID: Codable, Hashable, Sendable, Identifiable {
   public init(vaultID: VaultID, nodeID: NodeID) {
     self.vaultID = vaultID
     self.nodeID = nodeID
+  }
+
+  public init?(serialized: String) {
+    guard let separator = serialized.firstIndex(of: "/") else { return nil }
+    let vault = String(serialized[..<separator])
+    let node = String(serialized[serialized.index(after: separator)...])
+    guard vault.hasPrefix("vault_"), !node.isEmpty else { return nil }
+    self.init(
+      vaultID: .init(rawValue: vault),
+      nodeID: .init(rawValue: node)
+    )
   }
 }
 

@@ -478,13 +478,18 @@ public enum PageDocument {
     let edges = try edgesObject(document)
     let relationID = BuiltInRelations.relationID(for: key)
     let sourceID = try resolvedPageID(document)
-    for (edgeID, _) in try document.mapEntries(obj: edges) {
+    let targetSet = Set(targets)
+    var retainedTargets: Set<PageID> = []
+    for (edgeID, _) in try document.mapEntries(obj: edges).sorted(by: { $0.0 < $1.0 }) {
       guard let edge = try decodedEdge(document, edges: edges, key: edgeID),
         edge.relationID == relationID
       else { continue }
+      if targetSet.contains(edge.targetNodeID), retainedTargets.insert(edge.targetNodeID).inserted {
+        continue
+      }
       try document.delete(obj: edges, key: edgeID)
     }
-    for target in targets {
+    for target in targets where retainedTargets.insert(target).inserted {
       let edge = KnowledgeEdge(
         relationID: relationID,
         sourceNodeID: sourceID,
@@ -663,7 +668,10 @@ public enum PageDocument {
       guard var edge = try decodedEdge(document, edges: edges, key: key) else { return nil }
       edge.sourceNodeID = pageID
       return edge
-    }.sorted { $0.id.rawValue < $1.id.rawValue }
+    }.sorted {
+      if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+      return $0.id.rawValue < $1.id.rawValue
+    }
   }
 
   private static func heads(_ document: Document) -> AutomergeHeads {
