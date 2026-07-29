@@ -242,6 +242,99 @@ public final class LibraryStore {
       .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
   }
 
+  public var taskProjects: [PageSnapshot] { pages(with: BuiltInSupertags.project) }
+  public var taskAreas: [PageSnapshot] { pages(with: BuiltInSupertags.area) }
+
+  public var taskTags: [String] {
+    Array(Set(pages.compactMap(\.taskData).flatMap(\.tags))).sorted()
+  }
+
+  public func tasks(
+    in selection: TaskListSelection,
+    now: Date = Date()
+  ) -> [TaskItem] {
+    TaskQuery.items(from: pages, selection: selection, now: now, calendar: calendar)
+  }
+
+  public func taskCount(_ list: TaskSmartList, now: Date = Date()) -> Int {
+    TaskQuery.count(list, in: pages, now: now, calendar: calendar)
+  }
+
+  @discardableResult
+  public func createTask(_ draft: TaskDraft) async -> PageID? {
+    guard let repository else { return nil }
+    do {
+      let page = try await repository.createTask(draft)
+      await reload()
+      await syncCoordinator?.pageDidChange(page.id)
+      return page.id
+    } catch {
+      startupError = error.localizedDescription
+      return nil
+    }
+  }
+
+  @discardableResult
+  public func createTask(from quickEntry: String) async -> PageID? {
+    await createTask(QuickTaskParser.parse(quickEntry, calendar: calendar).draft)
+  }
+
+  public func updateTask(
+    pageID: PageID,
+    data: TaskData,
+    title: String? = nil,
+    notes: String? = nil
+  ) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.updateTask(
+        pageID: pageID,
+        data: data,
+        title: title,
+        notes: notes
+      )
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func completeTask(_ pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      let result = try await repository.completeTask(pageID: pageID, calendar: calendar)
+      await reload()
+      for changedPageID in result.changedPageIDs {
+        await syncCoordinator?.pageDidChange(changedPageID)
+      }
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func reopenTask(_ pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.reopenTask(pageID: pageID)
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
+  public func cancelTask(_ pageID: PageID) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.cancelTask(pageID: pageID)
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
+  }
+
   public func setCalendarEventOmissionPrefixes(_ prefixes: [String]) async {
     guard let repository else { return }
     do {

@@ -1,0 +1,509 @@
+import Foundation
+
+public enum TaskState: String, Codable, CaseIterable, Hashable, Sendable {
+  case active
+  case completed
+  case canceled
+}
+
+public enum TaskPlacement: String, Codable, CaseIterable, Hashable, Sendable {
+  case inbox
+  case anytime
+  case someday
+
+  public var title: String {
+    switch self {
+    case .inbox: "Inbox"
+    case .anytime: "Anytime"
+    case .someday: "Someday"
+    }
+  }
+}
+
+public enum TaskPriority: String, Codable, CaseIterable, Hashable, Sendable, Comparable {
+  case none
+  case low
+  case medium
+  case high
+  case urgent
+
+  public static func < (lhs: Self, rhs: Self) -> Bool {
+    lhs.rank < rhs.rank
+  }
+
+  public var title: String {
+    rawValue.capitalized
+  }
+
+  public var rank: Int {
+    switch self {
+    case .none: 0
+    case .low: 1
+    case .medium: 2
+    case .high: 3
+    case .urgent: 4
+    }
+  }
+}
+
+public enum TaskRecurrenceMode: String, Codable, CaseIterable, Hashable, Sendable {
+  case fixedSchedule
+  case afterCompletion
+
+  public var title: String {
+    switch self {
+    case .fixedSchedule: "On schedule"
+    case .afterCompletion: "After completion"
+    }
+  }
+}
+
+public enum TaskRecurrenceUnit: String, Codable, CaseIterable, Hashable, Sendable {
+  case day
+  case week
+  case month
+  case year
+
+  public var title: String { rawValue.capitalized }
+}
+
+public enum TaskWeekday: Int, Codable, CaseIterable, Hashable, Sendable, Comparable {
+  case sunday = 1
+  case monday
+  case tuesday
+  case wednesday
+  case thursday
+  case friday
+  case saturday
+
+  public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+  public var shortTitle: String {
+    switch self {
+    case .sunday: "Sun"
+    case .monday: "Mon"
+    case .tuesday: "Tue"
+    case .wednesday: "Wed"
+    case .thursday: "Thu"
+    case .friday: "Fri"
+    case .saturday: "Sat"
+    }
+  }
+}
+
+public struct TaskRecurrenceRule: Codable, Hashable, Sendable {
+  public var mode: TaskRecurrenceMode
+  public var interval: Int
+  public var unit: TaskRecurrenceUnit
+  public var weekdays: Set<TaskWeekday>
+  public var endDate: Date?
+
+  public init(
+    mode: TaskRecurrenceMode = .fixedSchedule,
+    interval: Int = 1,
+    unit: TaskRecurrenceUnit = .week,
+    weekdays: Set<TaskWeekday> = [],
+    endDate: Date? = nil
+  ) {
+    self.mode = mode
+    self.interval = max(1, interval)
+    self.unit = unit
+    self.weekdays = weekdays
+    self.endDate = endDate
+  }
+
+  public func nextDate(
+    after date: Date,
+    calendar: Calendar = .current
+  ) -> Date? {
+    let candidate: Date?
+    if !weekdays.isEmpty {
+      candidate = nextSelectedWeekday(after: date, calendar: calendar)
+    } else {
+      let component: Calendar.Component = switch unit {
+      case .day: .day
+      case .week: .weekOfYear
+      case .month: .month
+      case .year: .year
+      }
+      candidate = calendar.date(byAdding: component, value: interval, to: date)
+    }
+    guard let candidate, endDate.map({ candidate <= $0 }) ?? true else { return nil }
+    return candidate
+  }
+
+  private func nextSelectedWeekday(after date: Date, calendar: Calendar) -> Date? {
+    let start = calendar.startOfDay(for: date)
+    let currentWeek = calendar.dateInterval(of: .weekOfYear, for: start)?.start ?? start
+    let allowed = Set(weekdays.map(\.rawValue))
+    let maximumDays = max(14, interval * 7 + 7)
+    for offset in 1...maximumDays {
+      guard let candidate = calendar.date(byAdding: .day, value: offset, to: start) else { continue }
+      guard allowed.contains(calendar.component(.weekday, from: candidate)) else { continue }
+      let candidateWeek = calendar.dateInterval(of: .weekOfYear, for: candidate)?.start ?? candidate
+      let weeks = calendar.dateComponents([.weekOfYear], from: currentWeek, to: candidateWeek).weekOfYear ?? 0
+      if weeks % interval == 0 { return candidate }
+    }
+    return nil
+  }
+}
+
+public struct TaskData: Codable, Hashable, Sendable {
+  public var state: TaskState
+  public var placement: TaskPlacement
+  public var scheduledAt: Date?
+  public var deadline: Date?
+  public var reminder: Date?
+  public var priority: TaskPriority
+  public var projectID: PageID?
+  public var areaID: PageID?
+  public var parentTaskID: PageID?
+  public var tags: [String]
+  public var recurrence: TaskRecurrenceRule?
+  public var completedAt: Date?
+  public var estimatedMinutes: Int?
+
+  public init(
+    state: TaskState = .active,
+    placement: TaskPlacement = .inbox,
+    scheduledAt: Date? = nil,
+    deadline: Date? = nil,
+    reminder: Date? = nil,
+    priority: TaskPriority = .none,
+    projectID: PageID? = nil,
+    areaID: PageID? = nil,
+    parentTaskID: PageID? = nil,
+    tags: [String] = [],
+    recurrence: TaskRecurrenceRule? = nil,
+    completedAt: Date? = nil,
+    estimatedMinutes: Int? = nil
+  ) {
+    self.state = state
+    self.placement = placement
+    self.scheduledAt = scheduledAt
+    self.deadline = deadline
+    self.reminder = reminder
+    self.priority = priority
+    self.projectID = projectID
+    self.areaID = areaID
+    self.parentTaskID = parentTaskID
+    self.tags = Self.normalizedTags(tags)
+    self.recurrence = recurrence
+    self.completedAt = completedAt
+    self.estimatedMinutes = estimatedMinutes
+  }
+
+  public var isActive: Bool { state == .active }
+
+  public static func normalizedTags(_ tags: [String]) -> [String] {
+    Array(
+      Set(
+        tags.compactMap { value -> String? in
+          let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingPrefix("#")
+            .lowercased()
+          return normalized.isEmpty ? nil : normalized
+        }
+      )
+    ).sorted()
+  }
+}
+
+public struct TaskDraft: Codable, Hashable, Sendable {
+  public var title: String
+  public var notes: String
+  public var data: TaskData
+
+  public init(title: String, notes: String = "", data: TaskData = .init()) {
+    self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    self.notes = notes
+    self.data = data
+  }
+}
+
+public struct TaskItem: Identifiable, Hashable, Sendable {
+  public var page: PageSnapshot
+  public var data: TaskData
+  public var id: PageID { page.id }
+
+  public init?(page: PageSnapshot) {
+    guard page.deletedAt == nil, let data = page.taskData else { return nil }
+    self.page = page
+    self.data = data
+  }
+}
+
+public struct TaskCompletionResult: Hashable, Sendable {
+  public var completed: PageSnapshot
+  public var successor: PageSnapshot?
+
+  public init(completed: PageSnapshot, successor: PageSnapshot?) {
+    self.completed = completed
+    self.successor = successor
+  }
+
+  public var changedPageIDs: [PageID] {
+    [completed.id] + (successor.map { [$0.id] } ?? [])
+  }
+}
+
+public enum TaskSmartList: String, CaseIterable, Codable, Hashable, Sendable, Identifiable {
+  case inbox
+  case today
+  case upcoming
+  case anytime
+  case someday
+  case logbook
+
+  public var id: Self { self }
+
+  public var title: String {
+    switch self {
+    case .inbox: "Inbox"
+    case .today: "Today"
+    case .upcoming: "Upcoming"
+    case .anytime: "Anytime"
+    case .someday: "Someday"
+    case .logbook: "Logbook"
+    }
+  }
+
+  public var systemImage: String {
+    switch self {
+    case .inbox: "tray"
+    case .today: "star"
+    case .upcoming: "calendar"
+    case .anytime: "square.stack.3d.up"
+    case .someday: "archivebox"
+    case .logbook: "checkmark.circle"
+    }
+  }
+}
+
+public enum TaskListSelection: Hashable, Sendable, Identifiable {
+  case smart(TaskSmartList)
+  case project(PageID)
+  case area(PageID)
+  case tag(String)
+  case search(String)
+
+  public var id: String {
+    switch self {
+    case .smart(let list): "smart:\(list.rawValue)"
+    case .project(let id): "project:\(id.rawValue)"
+    case .area(let id): "area:\(id.rawValue)"
+    case .tag(let value): "tag:\(value)"
+    case .search(let value): "search:\(value)"
+    }
+  }
+}
+
+public enum TaskQuery {
+  public static func items(
+    from pages: [PageSnapshot],
+    selection: TaskListSelection,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [TaskItem] {
+    let tasks = pages.compactMap(TaskItem.init(page:))
+    let filtered = tasks.filter { task in
+      let isMatch: Bool
+      switch selection {
+      case .smart(let list):
+        isMatch = matches(task, list: list, now: now, calendar: calendar)
+      case .project(let id):
+        isMatch = task.data.isActive && task.data.projectID == id
+      case .area(let id):
+        isMatch = task.data.isActive && task.data.areaID == id
+      case .tag(let value):
+        isMatch = task.data.isActive && task.data.tags.contains(value.lowercased())
+      case .search(let query):
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        isMatch = task.page.displayTitle.localizedStandardContains(value)
+          || task.page.plainText.localizedStandardContains(value)
+          || task.data.tags.contains { $0.localizedStandardContains(value) }
+      }
+      return isMatch
+    }
+    return filtered.sorted { orderedBefore($0, $1, selection: selection) }
+  }
+
+  public static func count(
+    _ list: TaskSmartList,
+    in pages: [PageSnapshot],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Int {
+    items(from: pages, selection: .smart(list), now: now, calendar: calendar).count
+  }
+
+  private static func matches(
+    _ task: TaskItem,
+    list: TaskSmartList,
+    now: Date,
+    calendar: Calendar
+  ) -> Bool {
+    let day = calendar.dateInterval(of: .day, for: now)
+    switch list {
+    case .inbox:
+      return task.data.isActive && task.data.placement == .inbox
+    case .today:
+      guard task.data.isActive, let day else { return false }
+      return task.data.scheduledAt.map { $0 < day.end } == true
+        || task.data.deadline.map { $0 < day.end } == true
+    case .upcoming:
+      guard task.data.isActive, let day else { return false }
+      return task.data.scheduledAt.map { $0 >= day.end } == true
+        || task.data.deadline.map { $0 >= day.end } == true
+    case .anytime:
+      return task.data.isActive
+        && task.data.placement == .anytime
+        && task.data.scheduledAt == nil
+    case .someday:
+      return task.data.isActive && task.data.placement == .someday
+    case .logbook:
+      return task.data.state != .active
+    }
+  }
+
+  private static func orderedBefore(
+    _ lhs: TaskItem,
+    _ rhs: TaskItem,
+    selection: TaskListSelection
+  ) -> Bool {
+    if case .smart(.logbook) = selection {
+      return (lhs.data.completedAt ?? lhs.page.modifiedAt) > (rhs.data.completedAt ?? rhs.page.modifiedAt)
+    }
+    if lhs.data.priority != rhs.data.priority { return lhs.data.priority > rhs.data.priority }
+    let lhsDate = lhs.data.scheduledAt ?? lhs.data.deadline ?? .distantFuture
+    let rhsDate = rhs.data.scheduledAt ?? rhs.data.deadline ?? .distantFuture
+    if lhsDate != rhsDate { return lhsDate < rhsDate }
+    if lhs.page.createdAt != rhs.page.createdAt { return lhs.page.createdAt < rhs.page.createdAt }
+    return lhs.page.displayTitle.localizedStandardCompare(rhs.page.displayTitle) == .orderedAscending
+  }
+}
+
+public enum TaskFields {
+  public static let status = key("status")
+  public static let placement = key("placement")
+  public static let scheduled = key("scheduled")
+  public static let deadline = key("deadline")
+  public static let reminder = key("reminder")
+  public static let priority = key("priority")
+  public static let project = key("project")
+  public static let area = key("area")
+  public static let parent = key("parent")
+  public static let tags = key("tags")
+  public static let recurrence = key("recurrence")
+  public static let completedAt = key("completed-at")
+  public static let estimatedMinutes = key("estimated-minutes")
+  public static let legacyDue = key("due")
+
+  public static func properties(for data: TaskData) -> [SupertagPropertyKey: [SupertagValue]] {
+    var values: [SupertagPropertyKey: [SupertagValue]] = [
+      status: [.select(statusValue(data.state))],
+      placement: [.select(data.placement.rawValue)],
+      tags: data.tags.map(SupertagValue.text),
+    ]
+    values[scheduled] = data.scheduledAt.map { [.dateTime($0)] } ?? []
+    values[deadline] = data.deadline.map { [.date($0)] } ?? []
+    values[reminder] = data.reminder.map { [.dateTime($0)] } ?? []
+    values[priority] = data.priority == .none ? [] : [.select(data.priority.rawValue)]
+    values[project] = data.projectID.map { [.page($0)] } ?? []
+    values[area] = data.areaID.map { [.page($0)] } ?? []
+    values[parent] = data.parentTaskID.map { [.page($0)] } ?? []
+    values[completedAt] = data.completedAt.map { [.dateTime($0)] } ?? []
+    values[estimatedMinutes] = data.estimatedMinutes.map { [.number(Double($0))] } ?? []
+    if let recurrence = data.recurrence,
+      let encoded = try? JSONEncoder.enchiridion.encode(recurrence)
+    {
+      values[self.recurrence] = [.text(String(decoding: encoded, as: UTF8.self))]
+    } else {
+      values[self.recurrence] = []
+    }
+    return values
+  }
+
+  private static func key(_ fieldID: String) -> SupertagPropertyKey {
+    .init(supertagID: BuiltInSupertags.task, fieldID: .init(rawValue: fieldID))
+  }
+
+  private static func statusValue(_ state: TaskState) -> String {
+    switch state {
+    case .active: "to-do"
+    case .completed: "done"
+    case .canceled: "cancelled"
+    }
+  }
+}
+
+extension PageSnapshot {
+  public var taskData: TaskData? {
+    guard hasSupertag(BuiltInSupertags.task) else { return nil }
+    let values = objectMetadata.properties
+    let rawStatus = values[TaskFields.status]?.first.flatMap(\.selectValue) ?? "to-do"
+    let state: TaskState = switch rawStatus {
+    case "done", "completed": .completed
+    case "cancelled", "canceled": .canceled
+    default: .active
+    }
+    let rawPlacement = values[TaskFields.placement]?.first.flatMap(\.selectValue)
+    let placement = rawPlacement.flatMap(TaskPlacement.init(rawValue:)) ?? .inbox
+    let rawPriority = values[TaskFields.priority]?.first.flatMap(\.selectValue)
+    let priority = rawPriority.flatMap(TaskPriority.init(rawValue:)) ?? .none
+    let recurrence = values[TaskFields.recurrence]?.first.flatMap(\.textValue).flatMap { value in
+      value.data(using: .utf8).flatMap { try? JSONDecoder.enchiridion.decode(TaskRecurrenceRule.self, from: $0) }
+    }
+    return TaskData(
+      state: state,
+      placement: placement,
+      scheduledAt: values[TaskFields.scheduled]?.first.flatMap(\.dateValue)
+        ?? values[TaskFields.legacyDue]?.first.flatMap(\.dateValue),
+      deadline: values[TaskFields.deadline]?.first.flatMap(\.dateValue),
+      reminder: values[TaskFields.reminder]?.first.flatMap(\.dateValue),
+      priority: priority,
+      projectID: values[TaskFields.project]?.first.flatMap(\.pageValue),
+      areaID: values[TaskFields.area]?.first.flatMap(\.pageValue),
+      parentTaskID: values[TaskFields.parent]?.first.flatMap(\.pageValue),
+      tags: values[TaskFields.tags, default: []].compactMap(\.textValue),
+      recurrence: recurrence,
+      completedAt: values[TaskFields.completedAt]?.first.flatMap(\.dateValue),
+      estimatedMinutes: values[TaskFields.estimatedMinutes]?.first.flatMap(\.numberValue).map(Int.init)
+    )
+  }
+}
+
+private extension SupertagValue {
+  var selectValue: String? {
+    guard case .select(let value) = self else { return nil }
+    return value
+  }
+
+  var textValue: String? {
+    guard case .text(let value) = self else { return nil }
+    return value
+  }
+
+  var dateValue: Date? {
+    switch self {
+    case .date(let value), .dateTime(let value): value
+    default: nil
+    }
+  }
+
+  var pageValue: PageID? {
+    guard case .page(let value) = self else { return nil }
+    return value
+  }
+
+  var numberValue: Double? {
+    guard case .number(let value) = self else { return nil }
+    return value
+  }
+}
+
+extension String {
+  fileprivate func trimmingPrefix(_ prefix: Character) -> String {
+    first == prefix ? String(dropFirst()) : self
+  }
+}

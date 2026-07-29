@@ -155,6 +155,26 @@ public enum PageDocument {
     return (document.save(), heads(document), try projection(document))
   }
 
+  public static func replaceTitle(
+    with title: String,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    guard case .Object(let titleObject, .Text)? = try document.get(obj: .ROOT, key: "title") else {
+      throw PageDocumentError.invalidSchema
+    }
+    let current = try document.text(obj: titleObject)
+    try document.spliceText(
+      obj: titleObject,
+      start: 0,
+      delete: Int64(current.unicodeScalars.count),
+      value: title
+    )
+    document.commitWith(message: "Rename page", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
+  }
+
   public static func addSupertag(
     _ supertagID: SupertagID,
     in snapshot: Data
@@ -192,6 +212,32 @@ public enum PageDocument {
           key: key.storageKey,
           value: .String(String(decoding: data, as: UTF8.self))
         )
+      }
+    }
+  }
+
+  public static func setProperties(
+    _ updates: [SupertagPropertyKey: [SupertagValue]],
+    ensuring supertagID: SupertagID,
+    message: String,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    try mutateMetadata(in: snapshot, message: message) { document, tags, properties in
+      try document.put(obj: tags, key: supertagID.rawValue, value: .Boolean(true))
+      for key in updates.keys.sorted(by: { $0.storageKey < $1.storageKey }) {
+        let values = updates[key] ?? []
+        if values.isEmpty {
+          if try document.get(obj: properties, key: key.storageKey) != nil {
+            try document.delete(obj: properties, key: key.storageKey)
+          }
+        } else {
+          let data = try JSONEncoder.enchiridion.encode(values)
+          try document.put(
+            obj: properties,
+            key: key.storageKey,
+            value: .String(String(decoding: data, as: UTF8.self))
+          )
+        }
       }
     }
   }

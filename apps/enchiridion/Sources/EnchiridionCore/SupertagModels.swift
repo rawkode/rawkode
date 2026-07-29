@@ -195,6 +195,7 @@ public struct PageObjectMetadata: Codable, Hashable, Sendable {
 public enum BuiltInSupertags {
   public static let person = SupertagID(rawValue: "person")
   public static let organization = SupertagID(rawValue: "organization")
+  public static let area = SupertagID(rawValue: "area")
   public static let project = SupertagID(rawValue: "project")
   public static let task = SupertagID(rawValue: "task")
   public static let place = SupertagID(rawValue: "place")
@@ -214,8 +215,13 @@ public enum BuiltInSupertags {
       selectField("relationship", "Relationship", ["Prospect", "Active", "Partner", "Former"]),
       field("notes", "Notes", .text, multiline: true),
     ]),
+    definition(area, "Area", "square.grid.2x2", [
+      selectField("status", "Status", ["Active", "On Hold", "Archived"]),
+      field("notes", "Notes", .text, multiline: true),
+    ]),
     definition(project, "Project", "folder", [
       selectField("status", "Status", ["Idea", "Planned", "Active", "On Hold", "Completed", "Cancelled"]),
+      field("area", "Area", .entityReference, allowed: [area]),
       field("owner", "Owner", .entityReference, many: true, allowed: [person]),
       field("organization", "Organization", .entityReference, allowed: [organization]),
       field("start-date", "Start date", .date),
@@ -225,11 +231,20 @@ public enum BuiltInSupertags {
     ]),
     definition(task, "Task", "checkmark.circle", [
       selectField("status", "Status", ["To do", "In progress", "Blocked", "Done", "Cancelled"]),
+      selectField("placement", "List", ["Inbox", "Anytime", "Someday"]),
+      field("scheduled", "When", .dateTime),
+      field("deadline", "Deadline", .date),
+      field("reminder", "Reminder", .dateTime),
       field("project", "Project", .entityReference, allowed: [project]),
+      field("area", "Area", .entityReference, allowed: [area]),
+      field("parent", "Parent task", .entityReference, allowed: [task]),
       field("assignee", "Assignee", .entityReference, many: true, allowed: [person]),
-      field("due", "Due", .dateTime),
+      field("tags", "Tags", .text, many: true),
       selectField("priority", "Priority", ["Low", "Medium", "High", "Urgent"]),
+      field("recurrence", "Repeat", .text),
+      field("estimated-minutes", "Estimate (minutes)", .number),
       field("completed-at", "Completed at", .dateTime),
+      field("due", "Due (legacy)", .dateTime),
       field("notes", "Notes", .text, multiline: true),
     ]),
     definition(place, "Place", "mappin.and.ellipse", [

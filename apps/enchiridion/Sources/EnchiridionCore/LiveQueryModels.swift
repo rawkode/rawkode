@@ -489,7 +489,7 @@ public enum BuiltInLiveQueries {
       visibleFieldIDs: [.init(rawValue: "status"), .init(rawValue: "owner"), .init(rawValue: "due-date")],
       groupFieldID: .init(rawValue: "status")),
     .init(id: .init(rawValue: "view_tasks"), name: "Tasks", source: .supertag(BuiltInSupertags.task), viewKind: .board,
-      visibleFieldIDs: [.init(rawValue: "status"), .init(rawValue: "project"), .init(rawValue: "due")],
+      visibleFieldIDs: [.init(rawValue: "status"), .init(rawValue: "project"), .init(rawValue: "scheduled"), .init(rawValue: "deadline")],
       groupFieldID: .init(rawValue: "status")),
     .init(
       id: .init(rawValue: "view_work_calendar"),

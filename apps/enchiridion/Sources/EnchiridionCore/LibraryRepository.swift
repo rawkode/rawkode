@@ -649,6 +649,170 @@ public actor LibraryRepository {
     return updated
   }
 
+  @discardableResult
+  public func createTask(
+    _ draft: TaskDraft,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+    return try database.write { db in
+      let page = try Self.createPage(db, id: .free(), kind: .free, title: title, now: now)
+      var result = try PageDocument.setProperties(
+        TaskFields.properties(for: draft.data),
+        ensuring: BuiltInSupertags.task,
+        message: "Create task",
+        in: page.document
+      )
+      if !draft.notes.isEmpty {
+        result = try PageDocument.replaceBody(with: draft.notes, in: result.document)
+      }
+      let updated = Self.updatedPage(page, with: result, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+      return updated
+    }
+  }
+
+  @discardableResult
+  public func updateTask(
+    pageID: PageID,
+    data: TaskData,
+    title: String? = nil,
+    notes: String? = nil,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    var updatedPage: PageSnapshot?
+    try mutateDocument(pageID: pageID, now: now) { current in
+      guard current.hasSupertag(BuiltInSupertags.task) else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      var result = try PageDocument.setProperties(
+        TaskFields.properties(for: data),
+        ensuring: BuiltInSupertags.task,
+        message: "Update task",
+        in: current.document
+      )
+      if let title {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+        result = try PageDocument.replaceTitle(with: normalized, in: result.document)
+      }
+      if let notes {
+        result = try PageDocument.replaceBody(with: notes, in: result.document)
+      }
+      updatedPage = Self.updatedPage(current, with: result, now: now)
+      return result
+    }
+    guard let updatedPage else { throw LibraryRepositoryError.pageNotFound }
+    return updatedPage
+  }
+
+  @discardableResult
+  public func completeTask(
+    pageID: PageID,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> TaskCompletionResult {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID), var data = current.taskData else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      guard data.state == .active else {
+        return TaskCompletionResult(completed: current, successor: nil)
+      }
+
+      data.state = .completed
+      data.completedAt = now
+      let completedResult = try PageDocument.setProperties(
+        TaskFields.properties(for: data),
+        ensuring: BuiltInSupertags.task,
+        message: "Complete task",
+        in: current.document
+      )
+      let completed = Self.updatedPage(current, with: completedResult, now: now)
+      try Self.writePage(db, page: completed, cloudDirty: true)
+
+      guard let recurrence = data.recurrence else {
+        return TaskCompletionResult(completed: completed, successor: nil)
+      }
+      let baseline: Date
+      switch recurrence.mode {
+      case .fixedSchedule:
+        baseline = data.scheduledAt ?? data.deadline ?? current.createdAt
+      case .afterCompletion:
+        baseline = now
+      }
+      guard let nextDate = recurrence.nextDate(after: baseline, calendar: calendar) else {
+        return TaskCompletionResult(completed: completed, successor: nil)
+      }
+
+      var successorData = data
+      successorData.state = .active
+      successorData.completedAt = nil
+      if data.scheduledAt != nil {
+        successorData.scheduledAt = nextDate
+      }
+      if let deadline = data.deadline {
+        let source = data.scheduledAt ?? baseline
+        let offset = deadline.timeIntervalSince(source)
+        successorData.deadline = nextDate.addingTimeInterval(offset)
+      }
+      if data.scheduledAt == nil, data.deadline == nil {
+        successorData.scheduledAt = nextDate
+      }
+      if successorData.placement == .inbox { successorData.placement = .anytime }
+
+      let successorBase = try Self.createPage(
+        db,
+        id: .free(),
+        kind: .free,
+        title: current.title,
+        now: now
+      )
+      var successorResult = try PageDocument.setProperties(
+        TaskFields.properties(for: successorData),
+        ensuring: BuiltInSupertags.task,
+        message: "Create recurring task",
+        in: successorBase.document
+      )
+      if !current.plainText.isEmpty {
+        successorResult = try PageDocument.replaceBody(
+          with: current.plainText,
+          in: successorResult.document
+        )
+      }
+      let successor = Self.updatedPage(successorBase, with: successorResult, now: now)
+      try Self.writePage(db, page: successor, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: successor.id,
+        references: successorResult.projection.references
+      )
+      return TaskCompletionResult(completed: completed, successor: successor)
+    }
+  }
+
+  @discardableResult
+  public func reopenTask(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    guard let current = try page(id: pageID), var data = current.taskData else {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    data.state = .active
+    data.completedAt = nil
+    return try updateTask(pageID: pageID, data: data, now: now)
+  }
+
+  @discardableResult
+  public func cancelTask(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
+    guard let current = try page(id: pageID), var data = current.taskData else {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    data.state = .canceled
+    data.completedAt = now
+    return try updateTask(pageID: pageID, data: data, now: now)
+  }
+
   public func addSupertag(_ supertagID: SupertagID, to pageID: PageID, now: Date = Date()) throws {
     guard try supertags().contains(where: { $0.id == supertagID }) else {
       throw LibraryRepositoryError.invalidRecord
@@ -2977,6 +3141,33 @@ public actor LibraryRepository {
           """
       )
     }
+    migrator.registerMigration("v13-task-foundation") { db in
+      for (index, definition) in BuiltInSupertags.all.enumerated() {
+        try db.execute(
+          sql: """
+            INSERT INTO supertag_schemas
+              (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
+            VALUES (?,?,?,?,?,?,1,1)
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name,
+              definition_json=excluded.definition_json,
+              deleted=0,
+              sort_order=excluded.sort_order,
+              modified_at=excluded.modified_at,
+              dirty_generation=supertag_schemas.dirty_generation + 1,
+              cloud_dirty=1
+            """,
+          arguments: [
+            definition.id.rawValue,
+            definition.name,
+            try JSONEncoder.enchiridion.encode(definition),
+            false,
+            index,
+            Date().timeIntervalSince1970,
+          ]
+        )
+      }
+    }
     return migrator
   }()
 
@@ -3064,6 +3255,31 @@ public actor LibraryRepository {
     case .daily, .free:
       break
     }
+  }
+
+  private static func updatedPage(
+    _ current: PageSnapshot,
+    with result: (
+      document: Data,
+      heads: AutomergeHeads,
+      projection: PageDocumentProjection
+    ),
+    now: Date
+  ) -> PageSnapshot {
+    PageSnapshot(
+      id: current.id,
+      kind: current.kind,
+      title: result.projection.title,
+      plainText: result.projection.plainText,
+      document: result.document,
+      heads: result.heads,
+      createdAt: current.createdAt,
+      modifiedAt: now,
+      deletedAt: result.projection.deletedAt,
+      isPinned: result.projection.isPinned,
+      dirtyGeneration: current.dirtyGeneration + 1,
+      objectMetadata: result.projection.objectMetadata
+    )
   }
 
   private static func replaceReferences(
