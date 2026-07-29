@@ -4,16 +4,38 @@ import SwiftUI
 struct MobileSettingsView: View {
   let store: LibraryStore
   let contactsResolver: DeviceContactsResolver
+  let vaultSession: VaultSession?
+  let selectVault: @MainActor (VaultID) throws -> Void
+  let workspaceDidChange: @MainActor () -> Void
+  @State private var showsVaultManager = false
   @AppStorage(CarPlayAssistantPrivacySettings.isEnabledKey)
   private var isCarPlayAssistantEnabled = true
 
-  init(store: LibraryStore, contactsResolver: DeviceContactsResolver = DeviceContactsResolver()) {
+  init(
+    store: LibraryStore,
+    contactsResolver: DeviceContactsResolver = DeviceContactsResolver(),
+    vaultSession: VaultSession? = nil,
+    selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
+    workspaceDidChange: @escaping @MainActor () -> Void = {}
+  ) {
     self.store = store
     self.contactsResolver = contactsResolver
+    self.vaultSession = vaultSession
+    self.selectVault = selectVault
+    self.workspaceDidChange = workspaceDidChange
   }
 
   var body: some View {
     Form {
+      if let vaultSession {
+        Section("Vault") {
+          VaultSwitcherMenu(session: vaultSession, selectVault: selectVault)
+          Button("Manage Vaults") { showsVaultManager = true }
+          Text("Captures can use a different default vault. Relationships never cross vault boundaries.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
       Section("Calendar") {
         Button("Enable Local Calendars") { Task { await store.enableCalendar() } }
         Button("Connect Google Calendar") { Task { await store.enableGoogleCalendar() } }
@@ -54,6 +76,15 @@ struct MobileSettingsView: View {
       }
     }
     .navigationTitle("Settings")
+    .sheet(isPresented: $showsVaultManager) {
+      if let vaultSession {
+        VaultManagementView(
+          session: vaultSession,
+          selectVault: selectVault,
+          workspaceDidChange: workspaceDidChange
+        )
+      }
+    }
   }
 
   private var isSyncing: Bool {

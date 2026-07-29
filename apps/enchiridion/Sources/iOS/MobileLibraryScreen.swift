@@ -4,18 +4,36 @@ import SwiftUI
 struct MobileLibraryScreen: View {
   let store: LibraryStore
   let contactsResolver: DeviceContactsResolver
+  let vaultSession: VaultSession?
+  let selectVault: @MainActor (VaultID) throws -> Void
+  let workspaceDidChange: @MainActor () -> Void
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
 
-  init(store: LibraryStore, contactsResolver: DeviceContactsResolver = DeviceContactsResolver()) {
+  init(
+    store: LibraryStore,
+    contactsResolver: DeviceContactsResolver = DeviceContactsResolver(),
+    vaultSession: VaultSession? = nil,
+    selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
+    workspaceDidChange: @escaping @MainActor () -> Void = {}
+  ) {
     self.store = store
     self.contactsResolver = contactsResolver
+    self.vaultSession = vaultSession
+    self.selectVault = selectVault
+    self.workspaceDidChange = workspaceDidChange
   }
 
   var body: some View {
     NavigationStack {
       List {
+        if let vaultSession {
+          Section("Vault") {
+            VaultSwitcherMenu(session: vaultSession, selectVault: selectVault)
+          }
+        }
+
         Section("Pages") {
           NavigationLink {
             PageListScreen(store: store, section: .allPages)
@@ -77,7 +95,13 @@ struct MobileLibraryScreen: View {
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           NavigationLink {
-            MobileSettingsView(store: store, contactsResolver: contactsResolver)
+            MobileSettingsView(
+              store: store,
+              contactsResolver: contactsResolver,
+              vaultSession: vaultSession,
+              selectVault: selectVault,
+              workspaceDidChange: workspaceDidChange
+            )
           } label: {
             Label("Settings", systemImage: "gearshape")
           }
