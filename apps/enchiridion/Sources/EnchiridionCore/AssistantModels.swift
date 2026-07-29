@@ -11,6 +11,7 @@ public enum AssistantEvidenceKind: String, Codable, Hashable, Sendable {
   case eventAttendees
   case pageExcerpt
   case pageTitle
+  case taskSummary
 }
 
 /// A factual sentence rendered by trusted local code. The model may select facts,
@@ -133,6 +134,49 @@ public struct AssistantNoteResults: Codable, Hashable, Sendable {
   }
 }
 
+public enum AssistantTaskScope: String, Codable, CaseIterable, Hashable, Sendable {
+  case today
+  case tomorrow
+  case inbox
+  case upcoming
+  case anytime
+  case someday
+  case logbook
+  case all
+
+  public var emptyAnswer: String {
+    switch self {
+    case .today: "You have no active tasks scheduled or due today."
+    case .tomorrow: "You have no active tasks scheduled or due tomorrow."
+    case .inbox: "Your task inbox is empty."
+    case .upcoming: "You have no upcoming tasks."
+    case .anytime: "You have no active Anytime tasks."
+    case .someday: "You have no Someday tasks."
+    case .logbook: "Your task logbook is empty."
+    case .all: "I couldn't find a matching task."
+    }
+  }
+}
+
+public struct AssistantTaskResults: Codable, Hashable, Sendable {
+  public var scope: AssistantTaskScope
+  public var sources: [AssistantSource]
+  public var evidence: [AssistantEvidenceFact]
+  public var truncated: Bool
+
+  public init(
+    scope: AssistantTaskScope,
+    sources: [AssistantSource],
+    evidence: [AssistantEvidenceFact],
+    truncated: Bool
+  ) {
+    self.scope = scope
+    self.sources = sources
+    self.evidence = evidence
+    self.truncated = truncated
+  }
+}
+
 public struct AssistantMeetingBrief: Codable, Hashable, Sendable {
   public var event: AssistantCalendarEvent
   public var occurrenceNote: AssistantSource?
@@ -220,6 +264,7 @@ public enum AssistantDataAccessError: Error, LocalizedError, Equatable {
   case invalidDateRange
   case dateRangeTooLarge
   case invalidSource
+  case invalidTaskScope
 
   public var errorDescription: String? {
     switch self {
@@ -228,6 +273,7 @@ public enum AssistantDataAccessError: Error, LocalizedError, Equatable {
     case .invalidDateRange: "The calendar search range is invalid."
     case .dateRangeTooLarge: "Calendar searches are limited to 31 days."
     case .invalidSource: "The selected calendar event is no longer available."
+    case .invalidTaskScope: "The selected task list is not available."
     }
   }
 }
@@ -286,7 +332,9 @@ public enum AssistantGroundingPolicy {
       status = .conflicting
     } else if sources.contains(where: \.isStale) {
       status = .stale
-    } else if !ambiguousTitles.isEmpty || hasAmbiguousTitles(sources) {
+    } else if !ambiguousTitles.isEmpty
+      || (facts.contains { $0.kind != .taskSummary } && hasAmbiguousTitles(sources))
+    {
       status = .ambiguous
     } else {
       status = .answered
@@ -294,9 +342,24 @@ public enum AssistantGroundingPolicy {
     return GroundedAssistantResponse(answer: answer, status: status, sources: sources)
   }
 
+  /// Renders trusted repository facts in their supplied order when model-selected
+  /// identifiers are unusable. This never incorporates model-authored factual prose.
+  public static func groundedResponseUsingTrustedFacts(
+    availableFacts: [AssistantEvidenceFact],
+    availableSources: [AssistantSource],
+    ambiguousTitles: [String] = []
+  ) throws -> GroundedAssistantResponse {
+    try groundedResponse(
+      selectedFactIDs: availableFacts.prefix(maximumSelectedFacts).map(\.id),
+      availableFacts: availableFacts,
+      availableSources: availableSources,
+      ambiguousTitles: ambiguousTitles
+    )
+  }
+
   public static func noResults() -> GroundedAssistantResponse {
     GroundedAssistantResponse(
-      answer: "I couldn't find anything in your local calendar or notes that supports an answer.",
+      answer: "I couldn't find a relevant result in your local Enchiridion data.",
       status: .noResults
     )
   }

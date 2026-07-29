@@ -49,6 +49,28 @@ public actor FoundationModelAssistant {
     locale: Locale = .current,
     now: Date = Date()
   ) async -> GroundedAssistantResponse {
+    if let taskScope = Self.deterministicTaskScope(for: question) {
+      do {
+        let results = try await repository.searchTasks(
+          scope: taskScope,
+          limit: AssistantGroundingPolicy.maximumSelectedFacts,
+          now: now
+        )
+        guard !results.evidence.isEmpty else {
+          return GroundedAssistantResponse(answer: taskScope.emptyAnswer, status: .noResults)
+        }
+        return try AssistantGroundingPolicy.groundedResponseUsingTrustedFacts(
+          availableFacts: results.evidence,
+          availableSources: results.sources
+        )
+      } catch {
+        return GroundedAssistantResponse(
+          answer: "I couldn't read your local tasks just now.",
+          status: .unavailable
+        )
+      }
+    }
+
     if let injectedResponder {
       return await injectedResponder.respond(
         to: AssistantConversationRequest(
@@ -84,7 +106,7 @@ public actor FoundationModelAssistant {
         if collected.didUseTools || result.content.usesLocalSources {
           guard !collected.facts.isEmpty else {
             return GroundedAssistantResponse(
-              answer: Self.boundedAnswer(result.content.answer),
+              answer: collected.trustedEmptyAnswer ?? AssistantGroundingPolicy.noResults().answer,
               status: .noResults
             )
           }
@@ -96,9 +118,15 @@ public actor FoundationModelAssistant {
               ambiguousTitles: collected.ambiguousTitles
             )
           } catch {
-            return GroundedAssistantResponse(
-              answer: "I couldn't verify that answer against your local sources.",
-              status: .ungrounded
+            // The repository facts are already trusted and ordered. A malformed
+            // model-selected ID must not turn a valid local answer into an error.
+            return (try? AssistantGroundingPolicy.groundedResponseUsingTrustedFacts(
+              availableFacts: collected.facts,
+              availableSources: collected.sources,
+              ambiguousTitles: collected.ambiguousTitles
+            )) ?? GroundedAssistantResponse(
+              answer: "I couldn't read that local result just now.",
+              status: .noResults
             )
           }
         }
@@ -132,6 +160,44 @@ public actor FoundationModelAssistant {
     return String(trimmed.prefix(1_200))
   }
 
+  /// A deliberately narrow reliability route for explicit task-list requests.
+  /// General language understanding remains with Foundation Models; this keeps
+  /// core lists usable even when a model tool call produces malformed metadata.
+  private nonisolated static func deterministicTaskScope(
+    for question: String
+  ) -> AssistantTaskScope? {
+    let folded = question.folding(
+      options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+      locale: Locale(identifier: "en_US_POSIX")
+    )
+    let normalized = folded.unicodeScalars.map { scalar in
+      CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : " "
+    }.joined()
+      .split(whereSeparator: \.isWhitespace)
+      .joined(separator: " ")
+
+    let hasTaskNoun = normalized.contains("task")
+      || normalized.contains("todo")
+      || normalized.contains("to do list")
+    let asksForOwnActions = normalized.hasPrefix("what do i need to do")
+      || normalized.hasPrefix("what should i do")
+      || normalized.hasPrefix("what do i have to do")
+      || normalized.hasPrefix("show me what i need to do")
+      || normalized.hasPrefix("do i have anything due")
+      || normalized.hasPrefix("is anything due")
+    let isTaskRequest = hasTaskNoun || asksForOwnActions
+    guard isTaskRequest else { return nil }
+
+    if normalized.contains("tomorrow") { return .tomorrow }
+    if normalized.contains("today") { return .today }
+    if normalized.contains("inbox") { return .inbox }
+    if normalized.contains("upcoming") { return .upcoming }
+    if normalized.contains("anytime") { return .anytime }
+    if normalized.contains("someday") { return .someday }
+    if normalized.contains("logbook") || normalized.contains("completed") { return .logbook }
+    return nil
+  }
+
 #if canImport(FoundationModels)
   @available(iOS 26.0, macOS 26.0, *)
   private func makeOrReuseModelSession() -> (LanguageModelSession, AssistantSourceCollector) {
@@ -153,6 +219,7 @@ public actor FoundationModelAssistant {
         You are Enchiridion, a warm, concise, general-purpose personal assistant.
         Respond naturally to greetings, conversation, brainstorming, and general questions without using tools.
         Use tools only when the user asks about their local calendar, tasks, people, or notes.
+        For task questions, call searchTasks. Choose the explicit task scope and leave query empty unless the user names a title or tag. “Today” is a scope, never a query.
         For every factual claim about that private local data, call the relevant tool on this turn and select only exact fact IDs returned by it.
         For meeting briefs, find the event first, then call briefCalendarEvent with its exact source ID.
         Set usesLocalSources only when the response depends on tool output. Otherwise factIDs must be empty.
@@ -203,15 +270,21 @@ private struct FoundationConversationAnswer: Generable {
 private actor AssistantSourceCollector {
   private var collected: [String: AssistantSource] = [:]
   private var factsByID: [String: AssistantEvidenceFact] = [:]
+  private var sourceOrder: [String] = []
+  private var factOrder: [String] = []
   private var ambiguous: Set<String> = []
   private var toolWasUsed = false
+  private var emptyAnswer: String?
   private var turnNow = Date()
 
   func beginTurn(now: Date) {
     collected.removeAll(keepingCapacity: true)
     factsByID.removeAll(keepingCapacity: true)
+    sourceOrder.removeAll(keepingCapacity: true)
+    factOrder.removeAll(keepingCapacity: true)
     ambiguous.removeAll(keepingCapacity: true)
     toolWasUsed = false
+    emptyAnswer = nil
     turnNow = now
   }
 
@@ -220,25 +293,35 @@ private actor AssistantSourceCollector {
   func record(
     _ sources: [AssistantSource],
     facts: [AssistantEvidenceFact],
-    ambiguousTitles: [String] = []
+    ambiguousTitles: [String] = [],
+    trustedEmptyAnswer: String? = nil
   ) {
     toolWasUsed = true
-    for source in sources { collected[source.id] = source }
-    for fact in facts { factsByID[fact.id] = fact }
+    for source in sources {
+      if collected[source.id] == nil { sourceOrder.append(source.id) }
+      collected[source.id] = source
+    }
+    for fact in facts {
+      if factsByID[fact.id] == nil { factOrder.append(fact.id) }
+      factsByID[fact.id] = fact
+    }
     ambiguous.formUnion(ambiguousTitles)
+    if facts.isEmpty, let trustedEmptyAnswer { emptyAnswer = trustedEmptyAnswer }
   }
 
   func snapshot() -> (
     sources: [AssistantSource],
     facts: [AssistantEvidenceFact],
     ambiguousTitles: [String],
-    didUseTools: Bool
+    didUseTools: Bool,
+    trustedEmptyAnswer: String?
   ) {
     (
-      collected.values.sorted { $0.id < $1.id },
-      factsByID.values.sorted { $0.id < $1.id },
+      sourceOrder.compactMap { collected[$0] },
+      factOrder.compactMap { factsByID[$0] },
       ambiguous.sorted(),
-      toolWasUsed
+      toolWasUsed,
+      emptyAnswer
     )
   }
 }
@@ -368,16 +451,24 @@ private struct BriefCalendarEventTool: Tool {
 @available(iOS 26.0, macOS 26.0, *)
 private struct SearchTasksTool: Tool {
   struct Arguments: Generable {
+    var scope: String
     var query: String
-    var includeCompleted: Bool
     var limit: Int
 
     static var generationSchema: GenerationSchema {
       GenerationSchema(
         type: Self.self,
         properties: [
-          .init(name: "query", description: "Optional short task title or tag", type: String.self),
-          .init(name: "includeCompleted", description: "Whether completed and canceled tasks are relevant", type: Bool.self),
+          .init(
+            name: "scope",
+            description: "Exactly one of: today, tomorrow, inbox, upcoming, anytime, someday, logbook, all",
+            type: String.self
+          ),
+          .init(
+            name: "query",
+            description: "Optional task title or tag only. Keep empty for list questions; temporal words belong in scope.",
+            type: String.self
+          ),
           .init(name: "limit", description: "Maximum results from 1 through 10", type: Int.self),
         ]
       )
@@ -385,62 +476,45 @@ private struct SearchTasksTool: Tool {
 
     var generatedContent: GeneratedContent {
       GeneratedContent(properties: [
+        "scope": scope,
         "query": query,
-        "includeCompleted": includeCompleted,
         "limit": limit,
       ])
     }
 
     init(_ content: GeneratedContent) throws {
+      scope = try content.value(String.self, forProperty: "scope")
       query = try content.value(String.self, forProperty: "query")
-      includeCompleted = try content.value(Bool.self, forProperty: "includeCompleted")
       limit = try content.value(Int.self, forProperty: "limit")
     }
   }
 
   let name = "searchTasks"
-  let description = "Find bounded local task titles, status, priority, schedule, and deadline. Read-only."
+  let description = "Read one explicit local task list. Use today for what to do today or deadlines today, tomorrow for tomorrow, and query only for a named title or tag. Read-only."
   let repository: LibraryRepository
   let collector: AssistantSourceCollector
 
   func call(arguments: Arguments) async throws -> String {
-    let query = arguments.query.trimmingCharacters(in: .whitespacesAndNewlines)
-    let maximum = min(max(arguments.limit, 1), 10)
-    let pages = try await repository.pages(in: .allPages)
-    let tasks = pages.compactMap(TaskItem.init).filter { task in
-      guard arguments.includeCompleted || task.data.state == .active else { return false }
-      guard !query.isEmpty else { return true }
-      return task.page.displayTitle.localizedCaseInsensitiveContains(query)
-        || task.data.tags.contains { $0.localizedCaseInsensitiveContains(query) }
-    }.prefix(maximum)
-
-    let sourceFacts = tasks.map { task -> (AssistantSource, AssistantEvidenceFact) in
-      let sourceID = "task:\(task.id.rawValue)"
-      let source = AssistantSource(
-        id: sourceID,
-        kind: .page,
-        title: String(task.page.displayTitle.prefix(120)),
-        modifiedAt: task.page.modifiedAt,
-        hasConflicts: !task.page.objectMetadata.conflicts.isEmpty
-      )
-      var details = ["\(task.page.displayTitle) is \(task.data.state.rawValue)"]
-      if task.data.priority != .none { details.append("priority \(task.data.priority.rawValue)") }
-      if let scheduledAt = task.data.scheduledAt {
-        details.append("scheduled \(scheduledAt.enchiridionISO8601)")
-      }
-      if let deadline = task.data.deadline {
-        details.append("deadline \(deadline.enchiridionISO8601)")
-      }
-      let fact = AssistantEvidenceFact(
-        id: "\(sourceID)#summary",
-        sourceID: sourceID,
-        kind: .pageTitle,
-        spokenText: details.joined(separator: ", ") + "."
-      )
-      return (source, fact)
+    guard let scope = AssistantTaskScope(
+      rawValue: arguments.scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    ) else {
+      throw AssistantDataAccessError.invalidTaskScope
     }
-    await collector.record(sourceFacts.map(\.0), facts: sourceFacts.map(\.1))
-    return sourceFacts.map { "\($0.1.id): \($0.1.spokenText)" }.joined(separator: "\n")
+    var query = arguments.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if query.localizedCaseInsensitiveCompare(scope.rawValue) == .orderedSame { query = "" }
+    let now = await collector.currentDate()
+    let results = try await repository.searchTasks(
+      scope: scope,
+      matching: query,
+      limit: arguments.limit,
+      now: now
+    )
+    await collector.record(
+      results.sources,
+      facts: results.evidence,
+      trustedEmptyAnswer: scope.emptyAnswer
+    )
+    return String(decoding: try JSONEncoder.enchiridion.encode(results), as: UTF8.self)
   }
 }
 

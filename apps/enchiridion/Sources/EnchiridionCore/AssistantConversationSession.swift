@@ -343,19 +343,25 @@ public final class AssistantConversationSession {
     let response = await answerer.respond(to: request)
     guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
 
+    let presentedResponse = response.status == .ungrounded
+      ? GroundedAssistantResponse(
+        answer: "I couldn't answer that confidently. Try asking more specifically.",
+        status: .ungrounded
+      )
+      : response
     appendTurn(
       AssistantConversationTurn(
         utterance: utterance,
-        answer: response.answer,
-        status: response.status
+        answer: presentedResponse.answer,
+        status: presentedResponse.status
       )
     )
-    switch response.status {
+    switch presentedResponse.status {
     case .unavailable:
-      fail(generation: currentGeneration, kind: .unavailable, message: response.answer)
+      fail(generation: currentGeneration, kind: .unavailable, message: presentedResponse.answer)
       return false
     case .ungrounded:
-      fail(generation: currentGeneration, kind: .ungrounded, message: response.answer)
+      fail(generation: currentGeneration, kind: .ungrounded, message: presentedResponse.answer)
       return false
     default:
       break
@@ -364,7 +370,7 @@ public final class AssistantConversationSession {
     if speaksResponses, let speaker {
       do {
         state = .speaking
-        try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: response))
+        try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: presentedResponse))
         guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
       } catch is CancellationError {
         return false

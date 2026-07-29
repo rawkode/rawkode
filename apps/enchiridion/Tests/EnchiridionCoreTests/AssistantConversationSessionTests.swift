@@ -137,13 +137,17 @@ final class AssistantConversationSessionTests: XCTestCase {
       .error(
         AssistantConversationFailure(
           kind: .ungrounded,
-          message: "I couldn't verify that against your local sources."
+          message: "I couldn't answer that confidently. Try asking more specifically."
         )
       )
     )
     let spokenValues = await speaker.spoken
     XCTAssertTrue(spokenValues.isEmpty)
     XCTAssertEqual(session.turns.map(\.utterance), ["Invent something"])
+    XCTAssertEqual(
+      session.turns.map(\.answer),
+      ["I couldn't answer that confidently. Try asking more specifically."]
+    )
   }
 
   @MainActor

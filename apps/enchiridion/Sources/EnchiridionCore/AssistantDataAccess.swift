@@ -137,6 +137,68 @@ public extension LibraryRepository {
     }
   }
 
+  /// Returns a trusted, ordered projection of one task list for assistant use.
+  /// Scope is explicit so temporal words never become accidental title searches.
+  func searchTasks(
+    scope: AssistantTaskScope,
+    matching query: String = "",
+    limit requestedLimit: Int = 5,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> AssistantTaskResults {
+    let normalizedQuery = try Self.assistantQuery(query, allowsEmpty: true)
+    let limit = min(max(requestedLimit, 1), 10)
+    let pages = try pages(with: BuiltInSupertags.task)
+    let tasks: [TaskItem]
+
+    switch scope {
+    case .today:
+      tasks = TaskQuery.items(
+        from: pages,
+        selection: .smart(.today),
+        now: now,
+        calendar: calendar
+      )
+    case .tomorrow:
+      let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+      tasks = TaskQuery.items(
+        from: pages,
+        on: tomorrow,
+        includingOverdue: false,
+        calendar: calendar
+      )
+    case .inbox:
+      tasks = TaskQuery.items(from: pages, selection: .smart(.inbox), now: now, calendar: calendar)
+    case .upcoming:
+      tasks = TaskQuery.items(from: pages, selection: .smart(.upcoming), now: now, calendar: calendar)
+    case .anytime:
+      tasks = TaskQuery.items(from: pages, selection: .smart(.anytime), now: now, calendar: calendar)
+    case .someday:
+      tasks = TaskQuery.items(from: pages, selection: .smart(.someday), now: now, calendar: calendar)
+    case .logbook:
+      tasks = TaskQuery.items(from: pages, selection: .smart(.logbook), now: now, calendar: calendar)
+    case .all:
+      tasks = pages.compactMap(TaskItem.init(page:))
+        .filter(\.data.isActive)
+        .sorted(by: Self.assistantTaskOrder)
+    }
+
+    let filtered = normalizedQuery.isEmpty ? tasks : tasks.filter { task in
+      task.page.displayTitle.localizedCaseInsensitiveContains(normalizedQuery)
+        || task.data.tags.contains { $0.localizedCaseInsensitiveContains(normalizedQuery) }
+    }
+    let selected = Array(filtered.prefix(limit))
+    let sourceFacts = selected.map { task in
+      Self.assistantTaskSourceFact(task, scope: scope, now: now, calendar: calendar)
+    }
+    return AssistantTaskResults(
+      scope: scope,
+      sources: sourceFacts.map(\.source),
+      evidence: sourceFacts.map(\.fact),
+      truncated: filtered.count > limit
+    )
+  }
+
   /// Resolves one previously returned event source to its exact occurrence note,
   /// recurring-series note, and attendee or referenced Person pages.
   func meetingBrief(
@@ -262,6 +324,83 @@ public extension LibraryRepository {
       .replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "%", with: "\\%")
       .replacingOccurrences(of: "_", with: "\\_")
+  }
+
+  private static func assistantTaskOrder(_ lhs: TaskItem, _ rhs: TaskItem) -> Bool {
+    if lhs.data.priority != rhs.data.priority { return lhs.data.priority > rhs.data.priority }
+    let lhsDate = lhs.data.scheduledAt ?? lhs.data.deadline ?? .distantFuture
+    let rhsDate = rhs.data.scheduledAt ?? rhs.data.deadline ?? .distantFuture
+    if lhsDate != rhsDate { return lhsDate < rhsDate }
+    if lhs.page.createdAt != rhs.page.createdAt { return lhs.page.createdAt < rhs.page.createdAt }
+    return lhs.page.displayTitle.localizedStandardCompare(rhs.page.displayTitle) == .orderedAscending
+  }
+
+  private static func assistantTaskSourceFact(
+    _ task: TaskItem,
+    scope: AssistantTaskScope,
+    now: Date,
+    calendar: Calendar
+  ) -> (source: AssistantSource, fact: AssistantEvidenceFact) {
+    let sourceID = "task:\(task.id.rawValue)"
+    let title = assistantBounded(task.page.displayTitle, maximum: 120)
+    let source = AssistantSource(
+      id: sourceID,
+      kind: .page,
+      title: title,
+      modifiedAt: task.page.modifiedAt,
+      hasConflicts: !task.page.objectMetadata.conflicts.isEmpty
+    )
+    let today = calendar.startOfDay(for: now)
+    var details: [String] = []
+
+    if task.data.state != .active {
+      details.append(task.data.state == .completed ? "completed" : "canceled")
+    } else if let deadline = task.data.deadline {
+      let deadlineDay = calendar.startOfDay(for: deadline)
+      if deadlineDay < today {
+        details.append("overdue, due \(deadline.formatted(date: .abbreviated, time: .omitted))")
+      } else if calendar.isDate(deadline, inSameDayAs: now) {
+        details.append("due today")
+      } else {
+        details.append("due \(deadline.formatted(date: .abbreviated, time: .omitted))")
+      }
+    }
+
+    if let scheduledAt = task.data.scheduledAt {
+      let scheduledDay = calendar.startOfDay(for: scheduledAt)
+      if scheduledDay < today, !details.contains(where: { $0.hasPrefix("overdue") }) {
+        details.append("overdue")
+      }
+      let scheduleText: String
+      if task.data.scheduleGranularity == .dateOnly {
+        if calendar.isDate(scheduledAt, inSameDayAs: now) {
+          scheduleText = "scheduled for today"
+        } else if scope == .tomorrow, scheduledDay > today {
+          scheduleText = "scheduled for tomorrow"
+        } else {
+          scheduleText = "scheduled for \(scheduledAt.formatted(date: .abbreviated, time: .omitted))"
+        }
+      } else if calendar.isDate(scheduledAt, inSameDayAs: now) {
+        scheduleText = "scheduled at \(scheduledAt.formatted(date: .omitted, time: .shortened))"
+      } else {
+        scheduleText = "scheduled \(scheduledAt.formatted(date: .abbreviated, time: .shortened))"
+      }
+      details.append(scheduleText)
+    }
+    if task.data.priority != .none { details.append("\(task.data.priority.title.lowercased()) priority") }
+
+    let spokenText = details.isEmpty
+      ? "\(title)."
+      : "\(title) is \(details.joined(separator: ", "))."
+    return (
+      source,
+      AssistantEvidenceFact(
+        id: "\(sourceID)#summary",
+        sourceID: sourceID,
+        kind: .taskSummary,
+        spokenText: spokenText
+      )
+    )
   }
 
   private static func assistantEventSourceID(_ stableKey: String) -> String {
