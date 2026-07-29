@@ -17,12 +17,14 @@ final class TaskManagementTests: XCTestCase {
     let deadline = Date(timeIntervalSince1970: 1_817_000_000)
     let scheduled = Date(timeIntervalSince1970: 1_816_900_000)
     let seriesID = TaskRecurrenceSeriesID(rawValue: "task_series_round_trip")
+    let assignees = [PageID(rawValue: "person_alice"), PageID(rawValue: "person_bob")]
     let data = TaskData(
       placement: .anytime,
       scheduledAt: scheduled,
       scheduleGranularity: .dateOnly,
       deadline: deadline,
       priority: .urgent,
+      assigneeIDs: assignees,
       tags: ["Launch", "launch", "Deep Work"],
       recurrence: .init(mode: .fixedSchedule, unit: .week),
       recurrenceSeriesID: seriesID,
@@ -42,6 +44,7 @@ final class TaskManagementTests: XCTestCase {
     XCTAssertEqual(reopened?.taskData?.scheduleGranularity, .dateOnly)
     XCTAssertEqual(reopened?.taskData?.deadline, deadline)
     XCTAssertEqual(reopened?.taskData?.priority, .urgent)
+    XCTAssertEqual(reopened?.taskData?.assigneeIDs, assignees)
     XCTAssertEqual(reopened?.taskData?.tags, ["deep work", "launch"])
     XCTAssertEqual(reopened?.taskData?.recurrenceSeriesID, seriesID)
     XCTAssertEqual(reopened?.taskData?.recurrenceSequence, 12)
@@ -68,6 +71,55 @@ final class TaskManagementTests: XCTestCase {
     let decoded = try JSONDecoder.enchiridion.decode(TaskData.self, from: legacyData)
     XCTAssertEqual(decoded.scheduledAt, scheduled)
     XCTAssertEqual(decoded.scheduleGranularity, .dateTime)
+  }
+
+  func testLegacyTaskWithoutAssigneesDefaultsToEmpty() throws {
+    let legacyProjection = try taskPage(
+      title: "Legacy unassigned task",
+      data: TaskData(),
+      omitting: [TaskFields.assignee]
+    )
+    XCTAssertEqual(legacyProjection.taskData?.assigneeIDs, [])
+
+    let encoded = try JSONEncoder.enchiridion.encode(
+      TaskData(assigneeIDs: [PageID(rawValue: "person_alice")])
+    )
+    var legacyObject = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    legacyObject.removeValue(forKey: "assigneeIDs")
+    let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+    let decoded = try JSONDecoder.enchiridion.decode(TaskData.self, from: legacyData)
+
+    XCTAssertEqual(decoded.assigneeIDs, [])
+  }
+
+  func testBuiltInTaskAssigneeFieldAllowsMultiplePeople() throws {
+    let taskDefinition = try XCTUnwrap(
+      BuiltInSupertags.all.first { $0.id == BuiltInSupertags.task }
+    )
+    let assignee = try XCTUnwrap(
+      taskDefinition.fields.first { $0.id.rawValue == "assignee" }
+    )
+
+    XCTAssertEqual(assignee.type, .entityReference)
+    XCTAssertTrue(assignee.allowsMultiple)
+    XCTAssertEqual(assignee.allowedSupertagIDs, [BuiltInSupertags.person])
+  }
+
+  func testRepositoryMigrationPersistsTaskAssigneeSchema() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let schemas = try await fixture.repository.supertags()
+    let taskDefinition = try XCTUnwrap(
+      schemas.first { $0.id == BuiltInSupertags.task }
+    )
+    let assignee = try XCTUnwrap(
+      taskDefinition.fields.first { $0.id.rawValue == "assignee" }
+    )
+
+    XCTAssertEqual(assignee.type, .entityReference)
+    XCTAssertTrue(assignee.allowsMultiple)
+    XCTAssertEqual(assignee.allowedSupertagIDs, [BuiltInSupertags.person])
   }
 
   func testLegacyRecurringTaskLazilyAcquiresStableIdentity() async throws {
@@ -280,6 +332,30 @@ final class TaskManagementTests: XCTestCase {
       TaskQuery.items(from: pages, selection: .smart(.someday), now: now, calendar: calendar).map(\.id),
       [someday.id]
     )
+  }
+
+  func testPersonSelectionReturnsOnlyActiveTasksAssignedToThatPerson() throws {
+    let alice = PageID(rawValue: "person_alice")
+    let bob = PageID(rawValue: "person_bob")
+    let assignedToAlice = try taskPage(
+      title: "Ask Alice",
+      data: TaskData(placement: .anytime, assigneeIDs: [alice])
+    )
+    let assignedToBob = try taskPage(
+      title: "Ask Bob",
+      data: TaskData(placement: .anytime, assigneeIDs: [bob])
+    )
+    let completedForAlice = try taskPage(
+      title: "Already asked Alice",
+      data: TaskData(state: .completed, placement: .anytime, assigneeIDs: [alice])
+    )
+
+    let result = TaskQuery.items(
+      from: [assignedToBob, completedForAlice, assignedToAlice],
+      selection: .person(alice)
+    )
+
+    XCTAssertEqual(result.map(\.id), [assignedToAlice.id])
   }
 
   func testDailyTaskContextIncludesADeadlineOnTheSelectedDay() throws {

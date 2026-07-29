@@ -78,6 +78,15 @@ targets:
       properties:
         CFBundleDisplayName: Enchiridion
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:
@@ -111,6 +120,10 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - target: EnchiridionTodayWidget
+        embed: true
+      - target: EnchiridionTaskShare
+        embed: true
       - sdk: CarPlay.framework
       - sdk: AppIntents.framework
       - sdk: AVFoundation.framework
@@ -129,6 +142,63 @@ targets:
         SUPPORTS_MACCATALYST: false
         CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMobile.entitlements
         CODE_SIGN_STYLE: Automatic
+
+  EnchiridionTodayWidget:
+    type: app-extension
+    platform: iOS
+    productName: EnchiridionTodayWidget
+    info:
+      path: Configuration/EnchiridionTodayWidget-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion Today
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - Sources/TodayTasksWidget
+    dependencies:
+      - sdk: AppIntents.framework
+      - sdk: WidgetKit.framework
+      - package: EnchiridionCore
+        product: EnchiridionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion.today-widget
+        PRODUCT_NAME: EnchiridionTodayWidget
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionTodayWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+  EnchiridionTaskShare:
+    type: app-extension
+    platform: iOS
+    productName: EnchiridionTaskShare
+    info:
+      path: Configuration/EnchiridionTaskShare-Info.plist
+      properties:
+        CFBundleDisplayName: Add to Enchiridion
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 12
+    sources:
+      - Sources/TaskShareExtension
+    dependencies:
+      - sdk: Social.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - package: EnchiridionCore
+        product: EnchiridionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion.task-share
+        PRODUCT_NAME: EnchiridionTaskShare
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionTaskShare.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
 
 schemes:
   Enchiridion macOS:

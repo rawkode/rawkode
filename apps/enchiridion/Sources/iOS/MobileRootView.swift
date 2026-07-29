@@ -5,6 +5,7 @@ struct MobileRootView: View {
   @State private var store: LibraryStore
   @State private var selectedTab: MobileTab = .today
   @State private var requestedTaskSelection: TaskListSelection?
+  @State private var showsQuickTaskCapture = false
   @State private var assistantPresentation: MobileAssistantPresentation?
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
@@ -64,6 +65,9 @@ struct MobileRootView: View {
         unavailableReason: assistantUnavailableReason
       )
     }
+    .sheet(isPresented: $showsQuickTaskCapture) {
+      TaskQuickCaptureSheet(store: store, selection: .smart(.inbox))
+    }
     .onOpenURL(perform: openURL)
   }
 
@@ -85,6 +89,10 @@ struct MobileRootView: View {
     selectedTab = .tasks
     let rawList = url.pathComponents.dropFirst().first ?? "inbox"
     requestedTaskSelection = .smart(TaskSmartList(rawValue: rawList) ?? .inbox)
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    showsQuickTaskCapture = components?.queryItems?.contains {
+      $0.name == "quickAdd" && $0.value == "1"
+    } == true
   }
 }
 

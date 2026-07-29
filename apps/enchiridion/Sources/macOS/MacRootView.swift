@@ -63,6 +63,23 @@ struct MacRootView: View {
           }
           .buttonStyle(.plain)
         }
+        if !store.taskPeople.isEmpty {
+          Section("People") {
+            ForEach(store.taskPeople) { person in
+              HStack {
+                Label(store.personDisplayName(for: person), systemImage: "person")
+                Spacer()
+                let count = store.tasks(in: .person(person.id)).count
+                if count > 0 {
+                  Text(count, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+              }
+              .tag(MacSidebarSelection.task(.person(person.id)))
+            }
+          }
+        }
         Section {
           ForEach(LibrarySection.allCases) { item in
             Label(item.title, systemImage: item.systemImage)
@@ -660,6 +677,15 @@ private struct MacTodayWorkspace: View {
             flushController: flushController,
             onOpenPage: openPage
           )
+          .safeAreaInset(edge: .top, spacing: 0) {
+            MacDailyTaskContext(
+              store: store,
+              day: day,
+              openTask: openPage,
+              flushBeforeChange: flushController.flush
+            )
+            .id(dailyPageID)
+          }
         } else if store.isLoading {
           ProgressView("Opening today’s note")
         } else {
@@ -753,6 +779,7 @@ private enum MacSidebarSelection: Hashable {
     case .task(.smart(let list)): list.title
     case .task(.project(let id)): store.page(id: id)?.displayTitle ?? "Project"
     case .task(.area(let id)): store.page(id: id)?.displayTitle ?? "Area"
+    case .task(.person(let id)): store.personDisplayName(for: id) ?? "Person"
     case .task(.tag(let value)): value
     case .task(.search): "Search"
     case .supertag(let id): store.supertags.first(where: { $0.id == id })?.name ?? "Supertag"

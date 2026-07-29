@@ -104,6 +104,8 @@ public struct CloudPageMergeResult: Sendable {
 }
 
 public actor LibraryRepository {
+  public static let applicationGroupIdentifier = "group.dev.rawkode.enchiridion"
+
   public nonisolated let path: String
   private let database: DatabasePool
 
@@ -130,6 +132,27 @@ public actor LibraryRepository {
 
   public static func defaultLocalPath() throws -> String {
     let manager = FileManager.default
+#if os(iOS)
+    if let sharedContainer = manager.containerURL(
+      forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
+    ) {
+      let sharedDirectory = sharedContainer
+        .appendingPathComponent("vaults", isDirectory: true)
+        .appendingPathComponent("local", isDirectory: true)
+      try manager.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
+      let sharedDatabase = sharedDirectory.appendingPathComponent("library.sqlite")
+      try migrateLegacyDatabaseIfNeeded(to: sharedDatabase, manager: manager)
+      try manager.setAttributes(
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+        ofItemAtPath: sharedDirectory.path
+      )
+      return sharedDatabase.path
+    }
+#endif
+    return try legacyLocalPath(manager: manager)
+  }
+
+  private static func legacyLocalPath(manager: FileManager) throws -> String {
     let base = try manager.url(
       for: .applicationSupportDirectory,
       in: .userDomainMask,
@@ -148,6 +171,66 @@ public actor LibraryRepository {
     )
 #endif
     return directory.appendingPathComponent("library.sqlite").path
+  }
+
+#if os(iOS)
+  private static func migrateLegacyDatabaseIfNeeded(
+    to sharedDatabase: URL,
+    manager: FileManager
+  ) throws {
+    let legacyDatabase = URL(fileURLWithPath: try legacyLocalPath(manager: manager))
+    try migrateSQLiteDatabaseIfNeeded(
+      from: legacyDatabase,
+      to: sharedDatabase,
+      manager: manager
+    )
+  }
+#endif
+
+  /// Publishes the main database file last, so its presence is a durable
+  /// completion marker even if copying a WAL-backed database is interrupted.
+  static func migrateSQLiteDatabaseIfNeeded(
+    from sourceDatabase: URL,
+    to destinationDatabase: URL,
+    manager: FileManager = .default
+  ) throws {
+    guard !manager.fileExists(atPath: destinationDatabase.path) else { return }
+    guard manager.fileExists(atPath: sourceDatabase.path) else { return }
+
+    let stagingDirectory = destinationDatabase.deletingLastPathComponent()
+      .appendingPathComponent(".library-migration-\(UUID().uuidString)", isDirectory: true)
+    try manager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+
+    let suffixes = ["", "-wal", "-shm"]
+    let stagedMain = stagingDirectory.appendingPathComponent("library.sqlite")
+    var publishedURLs: [URL] = []
+    defer { try? manager.removeItem(at: stagingDirectory) }
+
+    do {
+      for suffix in suffixes {
+        let source = URL(fileURLWithPath: sourceDatabase.path + suffix)
+        guard manager.fileExists(atPath: source.path) else { continue }
+        let staged = suffix.isEmpty
+          ? stagedMain
+          : stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
+        try manager.copyItem(at: source, to: staged)
+      }
+
+      for suffix in ["-wal", "-shm"] {
+        let staged = stagingDirectory.appendingPathComponent("library.sqlite\(suffix)")
+        guard manager.fileExists(atPath: staged.path) else { continue }
+        let destination = URL(fileURLWithPath: destinationDatabase.path + suffix)
+        try manager.moveItem(at: staged, to: destination)
+        publishedURLs.append(destination)
+      }
+
+      try manager.moveItem(at: stagedMain, to: destinationDatabase)
+    } catch {
+      for publishedURL in publishedURLs {
+        try? manager.removeItem(at: publishedURL)
+      }
+      throw error
+    }
   }
 
   public func page(id: PageID) throws -> PageSnapshot? {
@@ -3397,6 +3480,33 @@ public actor LibraryRepository {
             name=excluded.name,
             definition_json=excluded.definition_json,
             deleted=0,
+            modified_at=excluded.modified_at,
+            dirty_generation=supertag_schemas.dirty_generation + 1,
+            cloud_dirty=1
+          """,
+        arguments: [
+          definition.id.rawValue,
+          definition.name,
+          try JSONEncoder.enchiridion.encode(definition),
+          false,
+          BuiltInSupertags.all.firstIndex(where: { $0.id == definition.id }) ?? 0,
+          Date().timeIntervalSince1970,
+        ]
+      )
+    }
+    migrator.registerMigration("v16-task-people") { db in
+      guard let definition = BuiltInSupertags.all.first(where: { $0.id == BuiltInSupertags.task })
+      else { return }
+      try db.execute(
+        sql: """
+          INSERT INTO supertag_schemas
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
+          VALUES (?,?,?,?,?,?,1,1)
+          ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            definition_json=excluded.definition_json,
+            deleted=0,
+            sort_order=excluded.sort_order,
             modified_at=excluded.modified_at,
             dirty_generation=supertag_schemas.dirty_generation + 1,
             cloud_dirty=1

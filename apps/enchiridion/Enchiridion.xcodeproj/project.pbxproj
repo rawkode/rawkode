@@ -14,14 +14,20 @@
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		1D7D44FED0008DA93CE6631A /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */; };
+		1E8B08844D436F8DA97131F3 /* TodayTasksWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */; };
 		220E3B996070293692F51A6A /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		232340B69BA85A90700AB1E3 /* EnchiridionTodayTasksWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0E2ACE25D5C871D0E95141 /* EnchiridionTodayTasksWidgetBundle.swift */; };
 		2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */; };
 		292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43B5F7FE8066B45C8D015097 /* MacRootView.swift */; };
+		2ABEC83A5E8C94B9BDD2A682 /* EnchiridionTodayWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2B4BA7A86289FDE6C71A5AC4 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7505584F1FCE5E2E0ACE89DD /* Speech.framework */; };
 		2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */; };
 		2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785C87A8657C874FF5403E84 /* MacSettingsView.swift */; };
 		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
 		32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
+		3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250D8A1FB97475734517559F /* MacDailyTaskContext.swift */; };
+		39957488BAB87B576815EA51 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */; };
+		39A12EE8FD0949AE9F59A70E /* Social.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E38E3D37CCD497ABF150C23A /* Social.framework */; };
 		3BC0CC9DEC7D6BBF99C1B95E /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */; };
 		3EBB8BE2893AB23F1D3CE0A2 /* WhiteboardElementOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */; };
 		3F1BF0174D64D0FE39ED02BB /* OnDeviceSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */; };
@@ -56,12 +62,15 @@
 		8B9B161C2F9F6A5C5A8F0C63 /* WhiteboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */; };
 		8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */; };
 		8D3BFF82189A26982F6CE954 /* AssistantConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */; };
+		8D5ACAE0B70AE68B20EB8AFC /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */; };
 		8ED761D9FB82EF9B4DBE8776 /* CarPlayAssistantPrivacySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */; };
+		925E3A4178EC475CC4ADAD53 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 461F993ABDD4EC22ECF766F6 /* EnchiridionCore */; };
 		929E1941060850FB6F278874 /* MobileLibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */; };
 		939E6B7D7C297F91E5426FC8 /* DeviceContactsLifecycleModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27D35C9D4DEE0FD68B85047 /* DeviceContactsLifecycleModifier.swift */; };
 		94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
 		9537B1D11AA0918C106D2C1D /* WhiteboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */; };
 		98477947C93F3983F1AD46DF /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7505584F1FCE5E2E0ACE89DD /* Speech.framework */; };
+		989C08D0B1317BB4D5D7E339 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
 		9BDA6E300E9631938293318F /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
 		A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */; };
 		A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
@@ -69,8 +78,10 @@
 		A7072F79F1EB9FDB56A85572 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		A79AD5EDE80E4592564CB9C7 /* TaskReminderAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */; };
 		A9732128EA8883D8BA6BF9EE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B20EC98721AA71FBB0962DB /* Assets.xcassets */; };
+		A997BF51D7CC828F0707BA81 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */; };
 		AB7B3A3A930722901E924B9D /* ContactsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */; };
 		AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3E539EB8451EC283BFE5CA0D /* EnchiridionCore */; };
+		B270199CE123FA81C556D193 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = FC08746A35F52BA1CD0652FC /* EnchiridionCore */; };
 		B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
 		B54F13D5E2C5129FE49DCFBF /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
 		B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
@@ -102,17 +113,52 @@
 		F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */; };
 		F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
+		FCD11CD558E7F31C7BC4A374 /* EnchiridionTaskShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		FE693E4C3ED1D8CFD6E2D282 /* DeviceContactsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */; };
 		FF2FEEAC12639A1D21480172 /* CalendarDayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		77D9A4972CED09A3A0C80056 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CB3C241C71123388FD6B0E38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 42EC224477BBE76A9C1F7B0D;
+			remoteInfo = EnchiridionTaskShare;
+		};
+		CCB48924A95C6E64C7193404 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CB3C241C71123388FD6B0E38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C8963CBD331BC59BB77E63CE;
+			remoteInfo = EnchiridionTodayWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5E49FE2FF17C827BAA62FB28 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2ABEC83A5E8C94B9BDD2A682 /* EnchiridionTodayWidget.appex in Embed Foundation Extensions */,
+				FCD11CD558E7F31C7BC4A374 /* EnchiridionTaskShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardTool.swift; sourceTree = "<group>"; };
 		1922885EA354367E18999189 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactPicker.swift; sourceTree = "<group>"; };
 		1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyTaskContext.swift; sourceTree = "<group>"; };
+		1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayTasksWidget.swift; sourceTree = "<group>"; };
 		2457643B358F590F3A82A66B /* AssistantFloatingActionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantFloatingActionButton.swift; sourceTree = "<group>"; };
+		250D8A1FB97475734517559F /* MacDailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDailyTaskContext.swift; sourceTree = "<group>"; };
 		28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPlanningViews.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaRows.swift; sourceTree = "<group>"; };
@@ -136,6 +182,7 @@
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
+		8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTodayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
 		96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
@@ -146,6 +193,7 @@
 		A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactsSettingsSection.swift; sourceTree = "<group>"; };
 		A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryEditorView.swift; sourceTree = "<group>"; };
 		A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
+		A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
 		B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantAppIntents.swift; sourceTree = "<group>"; };
 		BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationRuntime.swift; sourceTree = "<group>"; };
@@ -158,22 +206,37 @@
 		D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasView.swift; sourceTree = "<group>"; };
 		D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardDrawingLayer.swift; sourceTree = "<group>"; };
 		D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryScreen.swift; sourceTree = "<group>"; };
+		D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventFilterSettingsSection.swift; sourceTree = "<group>"; };
 		DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayAssistantPrivacySettings.swift; sourceTree = "<group>"; };
 		DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryListScreen.swift; sourceTree = "<group>"; };
 		E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherPeopleView.swift; sourceTree = "<group>"; };
+		E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		E38E3D37CCD497ABF150C23A /* Social.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Social.framework; path = System/Library/Frameworks/Social.framework; sourceTree = SDKROOT; };
 		E7D6C466615598D4AB32237B /* enchiridion */ = {isa = PBXFileReference; lastKnownFileType = folder; name = enchiridion; path = .; sourceTree = SOURCE_ROOT; };
+		EC0E2ACE25D5C871D0E95141 /* EnchiridionTodayTasksWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionTodayTasksWidgetBundle.swift; sourceTree = "<group>"; };
 		ED1EFBC600F519A5C4E2F995 /* ImmersiveAssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveAssistantView.swift; sourceTree = "<group>"; };
 		F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ContactsUI.framework; path = System/Library/Frameworks/ContactsUI.framework; sourceTree = SDKROOT; };
 		F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
 		F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryRowView.swift; sourceTree = "<group>"; };
 		F8E348F8C323D6A9956945CF /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTaskShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagSchemaEditor.swift; sourceTree = "<group>"; };
 		FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagPropertiesView.swift; sourceTree = "<group>"; };
 		FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskAppIntents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0FF9A163CBD485D90C3BE5B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				989C08D0B1317BB4D5D7E339 /* AppIntents.framework in Frameworks */,
+				A997BF51D7CC828F0707BA81 /* WidgetKit.framework in Frameworks */,
+				925E3A4178EC475CC4ADAD53 /* EnchiridionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		48C94F2B8BEE805222E82ACA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -185,6 +248,16 @@
 				A7072F79F1EB9FDB56A85572 /* FoundationModels.framework in Frameworks */,
 				98477947C93F3983F1AD46DF /* Speech.framework in Frameworks */,
 				8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5DF742CDC2108FDFE5FF6F49 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				39A12EE8FD0949AE9F59A70E /* Social.framework in Frameworks */,
+				8D5ACAE0B70AE68B20EB8AFC /* UniformTypeIdentifiers.framework in Frameworks */,
+				B270199CE123FA81C556D193 /* EnchiridionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,7 +288,10 @@
 				9AE19FE9B39E75CC38B2F324 /* Contacts.framework */,
 				F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */,
 				8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */,
+				E38E3D37CCD497ABF150C23A /* Social.framework */,
 				7505584F1FCE5E2E0ACE89DD /* Speech.framework */,
+				A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */,
+				D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -303,6 +379,8 @@
 			children = (
 				D01C78BB8752D4959D32D9E9 /* Enchiridion.app */,
 				6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */,
+				FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */,
+				8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -313,20 +391,40 @@
 				5823A6251A1ED541F1642242 /* iOS */,
 				C47C1110E2B03124AEB6B5A2 /* macOS */,
 				6E9B1C9034899059B91D3C80 /* SharedUI */,
+				D739D39D344BFCB39157E4A9 /* TaskShareExtension */,
+				BDDA7F48BD12B92B406AC89F /* TodayTasksWidget */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		BDDA7F48BD12B92B406AC89F /* TodayTasksWidget */ = {
+			isa = PBXGroup;
+			children = (
+				EC0E2ACE25D5C871D0E95141 /* EnchiridionTodayTasksWidgetBundle.swift */,
+				1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */,
+			);
+			path = TodayTasksWidget;
 			sourceTree = "<group>";
 		};
 		C47C1110E2B03124AEB6B5A2 /* macOS */ = {
 			isa = PBXGroup;
 			children = (
 				8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */,
+				250D8A1FB97475734517559F /* MacDailyTaskContext.swift */,
 				43B5F7FE8066B45C8D015097 /* MacRootView.swift */,
 				785C87A8657C874FF5403E84 /* MacSettingsView.swift */,
 				8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */,
 				C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */,
 			);
 			path = macOS;
+			sourceTree = "<group>";
+		};
+		D739D39D344BFCB39157E4A9 /* TaskShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */,
+			);
+			path = TaskShareExtension;
 			sourceTree = "<group>";
 		};
 		F4288FD3331F5FFD9DA8FEF0 = {
@@ -342,6 +440,25 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		42EC224477BBE76A9C1F7B0D /* EnchiridionTaskShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA659475416B4E4B6C596AD5 /* Build configuration list for PBXNativeTarget "EnchiridionTaskShare" */;
+			buildPhases = (
+				915C71DA66CF38C4763CC612 /* Sources */,
+				5DF742CDC2108FDFE5FF6F49 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnchiridionTaskShare;
+			packageProductDependencies = (
+				FC08746A35F52BA1CD0652FC /* EnchiridionCore */,
+			);
+			productName = EnchiridionTaskShare;
+			productReference = FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		7437ED510D55094607A6D7EE /* EnchiridionMobile */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B5F4357527F7DFAD88E92FFC /* Build configuration list for PBXNativeTarget "EnchiridionMobile" */;
@@ -349,10 +466,13 @@
 				6E3636601CBF4FF83D740975 /* Sources */,
 				794E59A2D2ABA3F8FF9BC218 /* Resources */,
 				82BEC5343B5EDD2F6E5D3F58 /* Frameworks */,
+				5E49FE2FF17C827BAA62FB28 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2B5CD5AB1E5F3B7C9BF2107E /* PBXTargetDependency */,
+				C1F9122612D65BB1D7968AE8 /* PBXTargetDependency */,
 			);
 			name = EnchiridionMobile;
 			packageProductDependencies = (
@@ -361,6 +481,25 @@
 			productName = EnchiridionMobile;
 			productReference = 6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 968CA1CACD5F6C0975C3A30C /* Build configuration list for PBXNativeTarget "EnchiridionTodayWidget" */;
+			buildPhases = (
+				E2CF1A9B16378C0C169F1E7D /* Sources */,
+				0FF9A163CBD485D90C3BE5B5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnchiridionTodayWidget;
+			packageProductDependencies = (
+				461F993ABDD4EC22ECF766F6 /* EnchiridionCore */,
+			);
+			productName = EnchiridionTodayWidget;
+			productReference = 8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		F5C3C0B3B8897EE3525603E3 /* EnchiridionMac */ = {
 			isa = PBXNativeTarget;
@@ -391,7 +530,15 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					42EC224477BBE76A9C1F7B0D = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+					};
 					7437ED510D55094607A6D7EE = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+					};
+					C8963CBD331BC59BB77E63CE = {
 						DevelopmentTeam = 6KXCJGJ45W;
 						ProvisioningStyle = Automatic;
 					};
@@ -420,6 +567,8 @@
 			targets = (
 				F5C3C0B3B8897EE3525603E3 /* EnchiridionMac */,
 				7437ED510D55094607A6D7EE /* EnchiridionMobile */,
+				C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */,
+				42EC224477BBE76A9C1F7B0D /* EnchiridionTaskShare */,
 			);
 		};
 /* End PBXProject section */
@@ -465,6 +614,7 @@
 				105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */,
 				C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */,
 				B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */,
+				3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */,
 				292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */,
 				2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */,
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
@@ -539,9 +689,59 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		915C71DA66CF38C4763CC612 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				39957488BAB87B576815EA51 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E2CF1A9B16378C0C169F1E7D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				232340B69BA85A90700AB1E3 /* EnchiridionTodayTasksWidgetBundle.swift in Sources */,
+				1E8B08844D436F8DA97131F3 /* TodayTasksWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		2B5CD5AB1E5F3B7C9BF2107E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */;
+			targetProxy = CCB48924A95C6E64C7193404 /* PBXContainerItemProxy */;
+		};
+		C1F9122612D65BB1D7968AE8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 42EC224477BBE76A9C1F7B0D /* EnchiridionTaskShare */;
+			targetProxy = 77D9A4972CED09A3A0C80056 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		0011501B745C1D39140215A5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionTaskShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionTaskShare-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.rawkode.enchiridion.task-share";
+				PRODUCT_NAME = EnchiridionTaskShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		22B9C78C96890DE4BEE3CDC3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -601,6 +801,26 @@
 			};
 			name = Release;
 		};
+		588793E696D799A5CED9DD67 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionTodayWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionTodayWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.rawkode.enchiridion.today-widget";
+				PRODUCT_NAME = EnchiridionTodayWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		7C9065C1899F9F28E0D52DC9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -620,6 +840,46 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		88E61B1C42787EEC43C8862F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionTodayWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionTodayWidget-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.rawkode.enchiridion.today-widget";
+				PRODUCT_NAME = EnchiridionTodayWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BB473161A52DC81EC427A995 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionTaskShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionTaskShare-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.rawkode.enchiridion.task-share";
+				PRODUCT_NAME = EnchiridionTaskShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		C4D26EFB3A0B471E62A01EE2 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -757,6 +1017,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		968CA1CACD5F6C0975C3A30C /* Build configuration list for PBXNativeTarget "EnchiridionTodayWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				588793E696D799A5CED9DD67 /* Debug */,
+				88E61B1C42787EEC43C8862F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AA659475416B4E4B6C596AD5 /* Build configuration list for PBXNativeTarget "EnchiridionTaskShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB473161A52DC81EC427A995 /* Debug */,
+				0011501B745C1D39140215A5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		B5F4357527F7DFAD88E92FFC /* Build configuration list for PBXNativeTarget "EnchiridionMobile" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -789,7 +1067,15 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionCore;
 		};
+		461F993ABDD4EC22ECF766F6 /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
 		98257A715412A302965BE5CE /* EnchiridionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionCore;
+		};
+		FC08746A35F52BA1CD0652FC /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionCore;
 		};

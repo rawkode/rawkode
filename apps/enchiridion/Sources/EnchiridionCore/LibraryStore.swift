@@ -180,6 +180,7 @@ public final class LibraryStore {
         uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
       )
       Task {
+        await TaskSystemSpotlight.reconcile(live)
         await TaskReminderScheduler.shared.reconcile(
           live.filter { $0.hasSupertag(BuiltInSupertags.task) }
         )
@@ -249,6 +250,27 @@ public final class LibraryStore {
 
   public var taskProjects: [PageSnapshot] { pages(with: BuiltInSupertags.project) }
   public var taskAreas: [PageSnapshot] { pages(with: BuiltInSupertags.area) }
+  public var taskPeople: [PageSnapshot] { taskPeople(includingOtherPeople: false) }
+
+  public func taskPeople(includingOtherPeople: Bool) -> [PageSnapshot] {
+    let candidates = pages(with: BuiltInSupertags.person)
+      + (includingOtherPeople ? otherPeople : [])
+    return candidates.sorted {
+      personDisplayName(for: $0).localizedStandardCompare(personDisplayName(for: $1))
+        == .orderedAscending
+    }
+  }
+
+  public func personDisplayName(for page: PageSnapshot) -> String {
+    let contactName = contactLinks[page.id]?.record.displayName
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if let contactName, !contactName.isEmpty { return contactName }
+    return page.displayTitle
+  }
+
+  public func personDisplayName(for pageID: PageID) -> String? {
+    page(id: pageID).map(personDisplayName(for:))
+  }
 
   public func weeklyReview(now: Date = Date()) -> WeeklyReviewSnapshot {
     WeeklyReviewSnapshot.make(pages: pages, now: now, calendar: calendar)

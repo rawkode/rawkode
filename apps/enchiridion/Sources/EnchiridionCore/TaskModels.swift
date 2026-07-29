@@ -171,6 +171,7 @@ public struct TaskData: Codable, Hashable, Sendable {
   public var projectID: PageID?
   public var areaID: PageID?
   public var parentTaskID: PageID?
+  public var assigneeIDs: [PageID]
   public var tags: [String]
   public var recurrence: TaskRecurrenceRule?
   public var recurrenceSeriesID: TaskRecurrenceSeriesID?
@@ -189,6 +190,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     projectID: PageID? = nil,
     areaID: PageID? = nil,
     parentTaskID: PageID? = nil,
+    assigneeIDs: [PageID] = [],
     tags: [String] = [],
     recurrence: TaskRecurrenceRule? = nil,
     recurrenceSeriesID: TaskRecurrenceSeriesID? = nil,
@@ -206,6 +208,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     self.projectID = projectID
     self.areaID = areaID
     self.parentTaskID = parentTaskID
+    self.assigneeIDs = Self.normalizedPageIDs(assigneeIDs)
     self.tags = Self.normalizedTags(tags)
     self.recurrence = recurrence
     self.recurrenceSeriesID = recurrenceSeriesID
@@ -225,6 +228,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     case projectID
     case areaID
     case parentTaskID
+    case assigneeIDs
     case tags
     case recurrence
     case recurrenceSeriesID
@@ -249,6 +253,7 @@ public struct TaskData: Codable, Hashable, Sendable {
       projectID: try values.decodeIfPresent(PageID.self, forKey: .projectID),
       areaID: try values.decodeIfPresent(PageID.self, forKey: .areaID),
       parentTaskID: try values.decodeIfPresent(PageID.self, forKey: .parentTaskID),
+      assigneeIDs: try values.decodeIfPresent([PageID].self, forKey: .assigneeIDs) ?? [],
       tags: try values.decode([String].self, forKey: .tags),
       recurrence: try values.decodeIfPresent(TaskRecurrenceRule.self, forKey: .recurrence),
       recurrenceSeriesID: try values.decodeIfPresent(
@@ -274,6 +279,11 @@ public struct TaskData: Codable, Hashable, Sendable {
         }
       )
     ).sorted()
+  }
+
+  public static func normalizedPageIDs(_ pageIDs: [PageID]) -> [PageID] {
+    var seen: Set<PageID> = []
+    return pageIDs.filter { seen.insert($0).inserted }
   }
 }
 
@@ -355,6 +365,7 @@ public enum TaskListSelection: Hashable, Sendable, Identifiable {
   case smart(TaskSmartList)
   case project(PageID)
   case area(PageID)
+  case person(PageID)
   case tag(String)
   case search(String)
 
@@ -363,6 +374,7 @@ public enum TaskListSelection: Hashable, Sendable, Identifiable {
     case .smart(let list): "smart:\(list.rawValue)"
     case .project(let id): "project:\(id.rawValue)"
     case .area(let id): "area:\(id.rawValue)"
+    case .person(let id): "person:\(id.rawValue)"
     case .tag(let value): "tag:\(value)"
     case .search(let value): "search:\(value)"
     }
@@ -386,6 +398,8 @@ public enum TaskQuery {
         isMatch = task.data.isActive && task.data.projectID == id
       case .area(let id):
         isMatch = task.data.isActive && task.data.areaID == id
+      case .person(let id):
+        isMatch = task.data.isActive && task.data.assigneeIDs.contains(id)
       case .tag(let value):
         isMatch = task.data.isActive && task.data.tags.contains(value.lowercased())
       case .search(let query):
@@ -497,6 +511,7 @@ public enum TaskFields {
   public static let project = key("project")
   public static let area = key("area")
   public static let parent = key("parent")
+  public static let assignee = key("assignee")
   public static let tags = key("tags")
   public static let recurrence = key("recurrence")
   public static let recurrenceSeriesID = key("recurrence-series-id")
@@ -519,6 +534,7 @@ public enum TaskFields {
     values[project] = data.projectID.map { [.page($0)] } ?? []
     values[area] = data.areaID.map { [.page($0)] } ?? []
     values[parent] = data.parentTaskID.map { [.page($0)] } ?? []
+    values[assignee] = data.assigneeIDs.map(SupertagValue.page)
     values[completedAt] = data.completedAt.map { [.dateTime($0)] } ?? []
     values[estimatedMinutes] = data.estimatedMinutes.map { [.number(Double($0))] } ?? []
     values[recurrenceSeriesID] = data.recurrenceSeriesID.map { [.text($0.rawValue)] } ?? []
@@ -578,6 +594,7 @@ extension PageSnapshot {
       projectID: values[TaskFields.project]?.first.flatMap(\.pageValue),
       areaID: values[TaskFields.area]?.first.flatMap(\.pageValue),
       parentTaskID: values[TaskFields.parent]?.first.flatMap(\.pageValue),
+      assigneeIDs: values[TaskFields.assignee, default: []].compactMap(\.pageValue),
       tags: values[TaskFields.tags, default: []].compactMap(\.textValue),
       recurrence: recurrence,
       recurrenceSeriesID: values[TaskFields.recurrenceSeriesID]?.first.flatMap(\.textValue)

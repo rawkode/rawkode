@@ -17,6 +17,12 @@ struct EnchiridionTaskEntity: AppEntity {
   @Property(title: "Deadline")
   var deadline: Date?
 
+  @Property(title: "Priority")
+  var priority: String
+
+  @Property(title: "Tags")
+  var tags: [String]
+
   var displayRepresentation: DisplayRepresentation {
     if isCompleted {
       return DisplayRepresentation(title: "\(title)", subtitle: "Completed")
@@ -35,10 +41,12 @@ struct EnchiridionTaskEntity: AppEntity {
     title = page.displayTitle
     isCompleted = page.taskData?.state == .completed
     deadline = page.taskData?.deadline
+    priority = page.taskData?.priority.rawValue ?? TaskPriority.none.rawValue
+    tags = page.taskData?.tags ?? []
   }
 }
 
-struct EnchiridionTaskEntityQuery: EntityStringQuery {
+struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [EnchiridionTaskEntity] {
     let repository = try intentRepository()
     var entities: [EnchiridionTaskEntity] = []
@@ -67,6 +75,13 @@ struct EnchiridionTaskEntityQuery: EntityStringQuery {
     return TaskQuery.items(from: pages, selection: .smart(.today))
       .map(\.page)
       .prefix(20)
+      .map(EnchiridionTaskEntity.init(page:))
+  }
+
+  func allEntities() async throws -> [EnchiridionTaskEntity] {
+    let repository = try intentRepository()
+    return try await repository.pages(with: BuiltInSupertags.task)
+      .filter { $0.taskData?.state == .active }
       .map(EnchiridionTaskEntity.init(page:))
   }
 }
@@ -173,9 +188,45 @@ struct AddEnchiridionTaskIntent: AppIntent {
       page,
       requestingAuthorization: reminder != nil
     )
+    await TaskSpotlightIndex.index(page)
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Added \(page.displayTitle) to Enchiridion."
+    )
+  }
+}
+
+struct QuickAddEnchiridionTaskIntent: AppIntent {
+  static let title: LocalizedStringResource = "Quick Add Task"
+  static let description = IntentDescription(
+    "Captures one line as an Inbox task without opening Enchiridion."
+  )
+  static let openAppWhenRun = false
+
+  @Parameter(
+    title: "Task",
+    inputConnectionBehavior: .connectToPreviousIntentResult
+  )
+  var capture: String
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Quick add \(\.$capture)")
+  }
+
+  func perform() async throws -> some IntentResult & ReturnsValue<EnchiridionTaskEntity> & ProvidesDialog {
+    let normalizedCapture = capture.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedCapture.isEmpty else { throw EnchiridionTaskIntentError.invalidTitle }
+    let repository = try intentRepository()
+    let parsed = QuickTaskParser.parse(normalizedCapture)
+    let page = try await repository.createTask(parsed.draft)
+    await TaskReminderScheduler.shared.schedule(
+      page,
+      requestingAuthorization: parsed.draft.data.reminder != nil
+    )
+    await TaskSpotlightIndex.index(page)
+    return .result(
+      value: EnchiridionTaskEntity(page: page),
+      dialog: "Captured \(page.displayTitle)."
     )
   }
 }
@@ -197,7 +248,9 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
     await TaskReminderScheduler.shared.cancel(result.completed.id)
     if let successor = result.successor {
       await TaskReminderScheduler.shared.schedule(successor)
+      await TaskSpotlightIndex.index(successor)
     }
+    await TaskSpotlightIndex.remove(result.completed.id)
     return .result(
       value: EnchiridionTaskEntity(page: result.completed),
       dialog: "Completed \(result.completed.displayTitle)."
@@ -220,6 +273,7 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
     let repository = try intentRepository()
     let page = try await repository.reopenTask(pageID: PageID(rawValue: task.id))
     await TaskReminderScheduler.shared.schedule(page)
+    await TaskSpotlightIndex.index(page)
     return .result(
       value: EnchiridionTaskEntity(page: page),
       dialog: "Reopened \(page.displayTitle)."
@@ -243,6 +297,7 @@ struct FindEnchiridionTasksIntent: AppIntent {
     let pages = try await repository.pages(with: BuiltInSupertags.task)
     let tasks = TaskQuery.items(from: pages, selection: .smart(list.smartList))
       .map { EnchiridionTaskEntity(page: $0.page) }
+    await TaskSpotlightIndex.index(tasks)
     return .result(
       value: tasks,
       dialog: tasks.isEmpty ? "There are no tasks in \(list.rawValue)." : "Found \(tasks.count) tasks."
@@ -276,6 +331,15 @@ struct EnchiridionTaskShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Ask Enchiridion",
       systemImageName: "sparkles"
+    )
+    AppShortcut(
+      intent: QuickAddEnchiridionTaskIntent(),
+      phrases: [
+        "Quick add a task in \(.applicationName)",
+        "Capture a task in \(.applicationName)",
+      ],
+      shortTitle: "Quick Add Task",
+      systemImageName: "bolt.fill"
     )
     AppShortcut(
       intent: AddEnchiridionTaskIntent(),
@@ -329,4 +393,24 @@ private enum EnchiridionTaskIntentError: Error, CustomLocalizedStringResourceCon
 
 private func intentRepository() throws -> LibraryRepository {
   try LibraryRepository(path: LibraryRepository.defaultLocalPath())
+}
+
+private enum TaskSpotlightIndex {
+  static func index(_ page: PageSnapshot) async {
+    await TaskSystemSpotlight.index(page)
+  }
+
+  static func index(_ entities: [EnchiridionTaskEntity]) async {
+    guard !entities.isEmpty else { return }
+    let repository = try? intentRepository()
+    guard let repository else { return }
+    for entity in entities {
+      guard let page = try? await repository.page(id: PageID(rawValue: entity.id)) else { continue }
+      await TaskSystemSpotlight.index(page)
+    }
+  }
+
+  static func remove(_ pageID: PageID) async {
+    await TaskSystemSpotlight.remove(pageID)
+  }
 }

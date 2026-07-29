@@ -36,8 +36,10 @@ struct TodayWorkspaceView: View {
               day: day,
               includingOverdue: calendar.isDateInToday(day),
               openTask: openPage,
-              viewAll: showTodayTasks
+              viewAll: showTodayTasks,
+              flushBeforeChange: flushController.flush
             )
+            .id(dailyPageID)
           }
         } else if store.isLoading || isOpeningDay {
           ProgressView("Opening daily note")
@@ -84,7 +86,9 @@ struct TodayWorkspaceView: View {
           } label: {
             Label("Choose date", systemImage: "calendar.badge.clock")
           }
-          .accessibilityLabel("Choose date, currently \(day.formatted(date: .long, time: .omitted))")
+          .accessibilityLabel(
+            "Choose date, currently \(day.formatted(date: .long, time: .omitted))"
+          )
 
           if !calendar.isDateInToday(day) {
             Button("Today") {
@@ -148,11 +152,11 @@ struct TodayWorkspaceView: View {
           day: day,
           includingOverdue: calendar.isDateInToday(day)
         )
-          .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-              Button("Done") { isTodayTasksPresented = false }
-            }
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { isTodayTasksPresented = false }
           }
+        }
       }
     }
     .onDisappear { openDayTask?.cancel() }

@@ -53,6 +53,20 @@ struct MobileTaskHomeScreen: View {
           }
         }
 
+        if !store.taskPeople.isEmpty {
+          Section("People") {
+            ForEach(store.taskPeople) { person in
+              NavigationLink(value: TaskListSelection.person(person.id)) {
+                TaskNavigationLabel(
+                  title: store.personDisplayName(for: person),
+                  systemImage: "person",
+                  count: store.tasks(in: .person(person.id)).count
+                )
+              }
+            }
+          }
+        }
+
         if !store.taskTags.isEmpty {
           Section("Tags") {
             ForEach(store.taskTags, id: \.self) { tag in
@@ -347,6 +361,9 @@ struct TaskRow: View {
               {
                 Label(project.displayTitle, systemImage: "folder")
               }
+              if let assigneeLabel {
+                Label(assigneeLabel, systemImage: "person.2")
+              }
               if let firstTag = task.data.tags.first {
                 Label(firstTag, systemImage: "tag")
               }
@@ -391,7 +408,15 @@ struct TaskRow: View {
 
   private var hasMetadata: Bool {
     task.data.scheduledAt != nil || task.data.deadline != nil || task.data.projectID != nil
-      || !task.data.tags.isEmpty
+      || !task.data.assigneeIDs.isEmpty || !task.data.tags.isEmpty
+  }
+
+  private var assigneeLabel: String? {
+    let names = task.data.assigneeIDs.compactMap { store.personDisplayName(for: $0) }
+    guard !names.isEmpty else { return nil }
+    let visibleNames = names.prefix(2).joined(separator: ", ")
+    let remaining = names.count - min(names.count, 2)
+    return remaining > 0 ? "\(visibleNames) +\(remaining)" : visibleNames
   }
 
   private func scheduledColor(_ date: Date) -> Color {
@@ -527,6 +552,8 @@ private struct TaskMetadataEditor: View {
           TextField("Estimate in minutes", text: $estimate)
         }
 
+        TaskAssigneesSection(store: store, assigneeIDs: $data.assigneeIDs)
+
         Section("Repeat") {
           Toggle("Repeats", isOn: $hasRecurrence)
           if hasRecurrence {
@@ -585,6 +612,93 @@ private struct TaskMetadataEditor: View {
       await store.updateTask(pageID: page.id, data: data)
       isSaving = false
       dismiss()
+    }
+  }
+}
+
+private struct TaskAssigneesSection: View {
+  let store: LibraryStore
+  @Binding var assigneeIDs: [PageID]
+
+  @State private var includesOtherPeople: Bool
+
+  init(store: LibraryStore, assigneeIDs: Binding<[PageID]>) {
+    self.store = store
+    _assigneeIDs = assigneeIDs
+    let otherIDs = Set(store.otherPeople.map(\.id))
+    _includesOtherPeople = State(
+      initialValue: assigneeIDs.wrappedValue.contains(where: otherIDs.contains)
+    )
+  }
+
+  var body: some View {
+    Section {
+      if store.taskPeople.isEmpty {
+        Text("No promoted people")
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(store.taskPeople) { person in
+          TaskAssigneeRow(
+            name: store.personDisplayName(for: person),
+            isSelected: assigneeIDs.contains(person.id),
+            toggle: { toggle(person.id) }
+          )
+        }
+      }
+
+      if !store.otherPeople.isEmpty {
+        Toggle("Include Other People", isOn: $includesOtherPeople)
+          .accessibilityHint("Shows people discovered from calendar events who have not been promoted.")
+
+        if includesOtherPeople {
+          ForEach(store.otherPeople) { person in
+            TaskAssigneeRow(
+              name: store.personDisplayName(for: person),
+              isSelected: assigneeIDs.contains(person.id),
+              isOther: true,
+              toggle: { toggle(person.id) },
+              promote: { Task { await store.promotePerson(person.id) } }
+            )
+          }
+        }
+      }
+    } header: {
+      Text("People")
+    } footer: {
+      Text("Promoted people appear here and in task suggestions by default.")
+    }
+  }
+
+  private func toggle(_ personID: PageID) {
+    if assigneeIDs.contains(personID) {
+      assigneeIDs.removeAll { $0 == personID }
+    } else {
+      assigneeIDs = TaskData.normalizedPageIDs(assigneeIDs + [personID])
+    }
+  }
+}
+
+private struct TaskAssigneeRow: View {
+  let name: String
+  let isSelected: Bool
+  var isOther = false
+  let toggle: () -> Void
+  var promote: (() -> Void)? = nil
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Button(action: toggle) {
+        Label(name, systemImage: isSelected ? "checkmark.circle.fill" : "circle")
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(.rect)
+      }
+      .buttonStyle(.plain)
+
+      if isOther, let promote {
+        Button("Promote", action: promote)
+          .buttonStyle(.borderless)
+          .accessibilityHint("Adds this person to task navigation and suggestions.")
+      }
     }
   }
 }
@@ -836,7 +950,7 @@ struct TaskQuickCaptureSheet: View {
       parentTaskTitles: store.pages.compactMap(TaskItem.init(page:)).filter {
         $0.data.state == .active
       }.map { $0.page.displayTitle },
-      personNames: (store.pages(with: BuiltInSupertags.person) + store.otherPeople).map(\.displayTitle)
+      personNames: store.taskPeople.map { store.personDisplayName(for: $0) }
     )
   }
 
@@ -857,7 +971,14 @@ struct TaskQuickCaptureSheet: View {
           .map(\.page)
         match = exactMatch(suggestion.value, in: candidates)
         if let match { resolved.draft.data.parentTaskID = match.id }
-      case .person, .title, .scheduledDate, .deadline, .reminder, .recurrence, .tag, .priority,
+      case .person:
+        match = exactPersonMatch(suggestion.value)
+        if let match {
+          resolved.draft.data.assigneeIDs = TaskData.normalizedPageIDs(
+            resolved.draft.data.assigneeIDs + [match.id]
+          )
+        }
+      case .title, .scheduledDate, .deadline, .reminder, .recurrence, .tag, .priority,
         .estimatedDuration:
         match = nil
       }
@@ -871,6 +992,17 @@ struct TaskQuickCaptureSheet: View {
 
   private func exactMatch(_ value: String, in candidates: [PageSnapshot]) -> PageSnapshot? {
     candidates.first { $0.displayTitle.compare(value, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+  }
+
+  private func exactPersonMatch(_ value: String) -> PageSnapshot? {
+    store.taskPeople.first { person in
+      person.displayTitle.compare(value, options: [.caseInsensitive, .diacriticInsensitive])
+        == .orderedSame
+        || store.personDisplayName(for: person).compare(
+          value,
+          options: [.caseInsensitive, .diacriticInsensitive]
+        ) == .orderedSame
+    }
   }
 
   private func saveInterpreted() {
@@ -1094,6 +1226,8 @@ private struct TaskDraftMetadataEditor: View {
           TextField("Estimate in minutes", text: $estimate)
         }
 
+        TaskAssigneesSection(store: store, assigneeIDs: $draft.data.assigneeIDs)
+
         Section("Repeat") {
           Toggle("Repeats", isOn: $hasRecurrence)
           if hasRecurrence { TaskRecurrenceEditor(rule: recurrenceBinding) }
@@ -1270,6 +1404,9 @@ private func apply(_ selection: TaskListSelection, to data: inout TaskData) {
   case .area(let id):
     data.areaID = id
     data.placement = .anytime
+  case .person(let id):
+    data.assigneeIDs = TaskData.normalizedPageIDs(data.assigneeIDs + [id])
+    data.placement = .anytime
   case .tag(let value):
     data.tags = TaskData.normalizedTags(data.tags + [value])
   case .search:
@@ -1283,6 +1420,7 @@ private func taskSelectionTitle(_ selection: TaskListSelection, store: LibrarySt
   case .smart(let list): list.title
   case .project(let id): store.page(id: id)?.displayTitle ?? "Project"
   case .area(let id): store.page(id: id)?.displayTitle ?? "Area"
+  case .person(let id): store.personDisplayName(for: id) ?? "Person"
   case .tag(let value): value
   case .search: "Search"
   }
