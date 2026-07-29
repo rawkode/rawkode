@@ -3,8 +3,6 @@ import SwiftUI
 
 struct TodayWorkspaceView: View {
   let store: LibraryStore
-  let assistantSession: AssistantConversationSession?
-  let assistantUnavailableReason: String?
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var drawer: TodayDrawer?
@@ -14,19 +12,12 @@ struct TodayWorkspaceView: View {
   @State private var datePicker: TodayDatePickerSelection?
   @State private var isOpeningDay = false
   @State private var openDayTask: Task<Void, Never>?
-  @State private var isAssistantPresented = false
   @State private var isTodayTasksPresented = false
 
   private let calendar = Calendar.current
 
-  init(
-    store: LibraryStore,
-    assistantSession: AssistantConversationSession? = nil,
-    assistantUnavailableReason: String? = nil
-  ) {
+  init(store: LibraryStore) {
     self.store = store
-    self.assistantSession = assistantSession
-    self.assistantUnavailableReason = assistantUnavailableReason
   }
 
   var body: some View {
@@ -73,12 +64,6 @@ struct TodayWorkspaceView: View {
           }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
-          Button {
-            showAssistant()
-          } label: {
-            Label("Assistant", systemImage: "waveform.circle")
-          }
-
           Button {
             show(.pages)
           } label: {
@@ -156,12 +141,6 @@ struct TodayWorkspaceView: View {
     .sheet(item: $datePicker) { selection in
       TodayDatePicker(initialDate: selection.date, selectDate: selectDay)
     }
-    .sheet(isPresented: $isAssistantPresented) {
-      AssistantConversationView(
-        session: assistantSession,
-        unavailableReason: assistantUnavailableReason
-      )
-    }
     .sheet(isPresented: $isTodayTasksPresented) {
       NavigationStack {
         DailyTaskListScreen(
@@ -181,13 +160,6 @@ struct TodayWorkspaceView: View {
 
   private var dailyPageID: PageID {
     .daily(DayKey(date: day))
-  }
-
-  private func showAssistant() {
-    Task { @MainActor in
-      guard await flushController.flush() else { return }
-      isAssistantPresented = true
-    }
   }
 
   private func showTodayTasks() {

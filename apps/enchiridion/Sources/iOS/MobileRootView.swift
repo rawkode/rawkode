@@ -5,6 +5,7 @@ struct MobileRootView: View {
   @State private var store: LibraryStore
   @State private var selectedTab: MobileTab = .today
   @State private var requestedTaskSelection: TaskListSelection?
+  @State private var assistantPresentation: MobileAssistantPresentation?
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
   private let assistantUnavailableReason: String?
@@ -23,11 +24,7 @@ struct MobileRootView: View {
 
   var body: some View {
     TabView(selection: $selectedTab) {
-      TodayWorkspaceView(
-        store: store,
-        assistantSession: assistantSession,
-        assistantUnavailableReason: assistantUnavailableReason
-      )
+      TodayWorkspaceView(store: store)
         .tabItem { Label("Today", systemImage: "sun.max") }
         .tag(MobileTab.today)
 
@@ -47,7 +44,40 @@ struct MobileRootView: View {
         .tabItem { Label("Settings", systemImage: "gear") }
         .tag(MobileTab.settings)
     }
+    .overlay(alignment: .bottomTrailing) {
+      AssistantFloatingActionButton(
+        openTextChat: { assistantPresentation = .text },
+        startVoice: { assistantPresentation = .voice }
+      )
+      .padding(.trailing, 18)
+      .padding(.bottom, 66)
+    }
+    .sheet(isPresented: assistantPresentationBinding(for: .text)) {
+      AssistantConversationView(
+        session: assistantSession,
+        unavailableReason: assistantUnavailableReason
+      )
+    }
+    .fullScreenCover(isPresented: assistantPresentationBinding(for: .voice)) {
+      ImmersiveAssistantView(
+        session: assistantSession,
+        unavailableReason: assistantUnavailableReason
+      )
+    }
     .onOpenURL(perform: openURL)
+  }
+
+  private func assistantPresentationBinding(
+    for presentation: MobileAssistantPresentation
+  ) -> Binding<Bool> {
+    Binding(
+      get: { assistantPresentation == presentation },
+      set: { isPresented in
+        if !isPresented, assistantPresentation == presentation {
+          assistantPresentation = nil
+        }
+      }
+    )
   }
 
   private func openURL(_ url: URL) {
@@ -56,6 +86,11 @@ struct MobileRootView: View {
     let rawList = url.pathComponents.dropFirst().first ?? "inbox"
     requestedTaskSelection = .smart(TaskSmartList(rawValue: rawList) ?? .inbox)
   }
+}
+
+private enum MobileAssistantPresentation: Hashable {
+  case text
+  case voice
 }
 
 private enum MobileTab: Hashable {
