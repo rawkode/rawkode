@@ -19,6 +19,8 @@ public enum TaskMutationFailureReason: Equatable, Sendable {
   case pageNotFound
   case pagePurged
   case invalidRecord
+  case taskNotActive
+  case taskNotClosed
   case databaseUnavailable(String)
   case unexpected(String)
 }
@@ -40,6 +42,10 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
       "The task was permanently removed."
     case .invalidRecord:
       "The task record is invalid."
+    case .taskNotActive:
+      "Only active tasks can be completed."
+    case .taskNotClosed:
+      "Only completed or canceled tasks can be reopened."
     case .databaseUnavailable(let message):
       "The local library could not be opened: \(message)"
     case .unexpected(let message):
@@ -621,6 +627,10 @@ public actor TaskMutationCoordinator {
       reason = .pagePurged
     case LibraryRepositoryError.invalidRecord:
       reason = .invalidRecord
+    case LibraryRepositoryError.taskNotActive:
+      reason = .taskNotActive
+    case LibraryRepositoryError.taskNotClosed:
+      reason = .taskNotClosed
     case LibraryRepositoryError.databaseUnavailable(let message):
       reason = .databaseUnavailable(message)
     default:

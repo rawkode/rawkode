@@ -6,6 +6,20 @@ public enum TaskState: String, Codable, CaseIterable, Hashable, Sendable {
   case canceled
 }
 
+public enum TaskLifecycleScope: String, Codable, CaseIterable, Hashable, Sendable {
+  case active
+  case closed
+
+  public func contains(_ state: TaskState) -> Bool {
+    switch self {
+    case .active:
+      state == .active
+    case .closed:
+      state == .completed || state == .canceled
+    }
+  }
+}
+
 public enum TaskPlacement: String, Codable, CaseIterable, Hashable, Sendable {
   case inbox
   case anytime

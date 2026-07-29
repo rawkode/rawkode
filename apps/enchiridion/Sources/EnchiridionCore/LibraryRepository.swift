@@ -3,10 +3,12 @@ import Darwin
 import Foundation
 import GRDB
 
-public enum LibraryRepositoryError: Error, LocalizedError {
+public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case pageNotFound
   case pagePurged
   case invalidRecord
+  case taskNotActive
+  case taskNotClosed
   case databaseUnavailable(String)
 
   public var errorDescription: String? {
@@ -14,6 +16,8 @@ public enum LibraryRepositoryError: Error, LocalizedError {
     case .pageNotFound: "The page is no longer available."
     case .pagePurged: "This page was permanently removed."
     case .invalidRecord: "The local page record is invalid."
+    case .taskNotActive: "Only active tasks can be completed."
+    case .taskNotClosed: "Only completed or canceled tasks can be reopened."
     case .databaseUnavailable(let message): "The local library could not be opened: \(message)"
     }
   }
@@ -852,6 +856,12 @@ public actor LibraryRepository {
     }
   }
 
+  public func tasks(in scope: TaskLifecycleScope) throws -> [PageSnapshot] {
+    try pages(with: BuiltInSupertags.task).filter { page in
+      page.taskData.map { scope.contains($0.state) } == true
+    }
+  }
+
   public func taggedSuggestions(
     matching query: String,
     supertagID: SupertagID,
@@ -1252,29 +1262,7 @@ public actor LibraryRepository {
       guard let current = try Self.fetchPage(db, id: pageID), var data = current.taskData else {
         throw LibraryRepositoryError.invalidRecord
       }
-      guard data.state == .active else {
-        let successor =
-          data.state == .completed
-          ? try Self.existingRecurrenceSuccessor(db, data: data)
-          : nil
-        try Self.enqueueTaskEffectOutbox(
-          db,
-          pageID: current.id,
-          generation: current.dirtyGeneration,
-          requestingAuthorization: false,
-          now: now
-        )
-        if let successor {
-          try Self.enqueueTaskEffectOutbox(
-            db,
-            pageID: successor.id,
-            generation: successor.dirtyGeneration,
-            requestingAuthorization: false,
-            now: now
-          )
-        }
-        return TaskCompletionResult(completed: current, successor: successor)
-      }
+      guard data.state == .active else { throw LibraryRepositoryError.taskNotActive }
 
       data = Self.normalizedTaskData(
         data,
@@ -1508,6 +1496,9 @@ public actor LibraryRepository {
   public func reopenTask(pageID: PageID, now: Date = Date()) throws -> PageSnapshot {
     guard let current = try page(id: pageID), var data = current.taskData else {
       throw LibraryRepositoryError.invalidRecord
+    }
+    guard TaskLifecycleScope.closed.contains(data.state) else {
+      throw LibraryRepositoryError.taskNotClosed
     }
     data.state = .active
     data.completedAt = nil

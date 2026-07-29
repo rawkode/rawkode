@@ -39,12 +39,15 @@ private struct TodayTasksProvider: TimelineProvider {
   ) {
     Task {
       let entry = await loadEntry()
-      let refresh = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date(timeIntervalSinceNow: 900)
+      let refresh =
+        Calendar.current.date(byAdding: .minute, value: 15, to: Date())
+        ?? Date(timeIntervalSinceNow: 900)
       completion(Timeline(entries: [entry], policy: .after(refresh)))
     }
   }
 
   private func loadEntry() async -> TodayTasksEntry {
+    let actionFeedback = TaskWidgetActionFeedbackStore().current()?.message
     do {
       let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
       let pages = try await repository.pages(with: BuiltInSupertags.task)
@@ -57,7 +60,11 @@ private struct TodayTasksProvider: TimelineProvider {
             deadline: $0.data.deadline
           )
         }
-      return TodayTasksEntry(date: Date(), tasks: tasks)
+      return TodayTasksEntry(
+        date: Date(),
+        tasks: tasks,
+        errorMessage: actionFeedback
+      )
     } catch {
       return TodayTasksEntry(
         date: Date(),
@@ -90,9 +97,15 @@ struct CompleteTodayTaskWidgetIntent: AppIntent {
     )
     switch await mutations.complete(PageID(rawValue: taskID)) {
     case .success:
+      TaskWidgetActionFeedbackStore().clear()
+      WidgetCenter.shared.reloadTimelines(ofKind: TaskWidgetIdentifiers.todayTasks)
       return .result()
-    case .failure(let failure):
-      throw failure
+    case .failure:
+      TaskWidgetActionFeedbackStore().recordFailure(
+        "Couldn’t complete that task. Open Enchiridion and try again."
+      )
+      WidgetCenter.shared.reloadTimelines(ofKind: TaskWidgetIdentifiers.todayTasks)
+      return .result()
     }
   }
 }

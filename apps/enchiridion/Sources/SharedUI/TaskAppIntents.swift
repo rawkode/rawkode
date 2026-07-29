@@ -49,18 +49,15 @@ struct EnchiridionTaskEntity: AppEntity {
 struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [EnchiridionTaskEntity] {
     let repository = try intentRepository()
-    var entities: [EnchiridionTaskEntity] = []
-    for identifier in identifiers {
-      if let page = try await repository.page(id: PageID(rawValue: identifier)), page.taskData != nil {
-        entities.append(.init(page: page))
-      }
-    }
-    return entities
+    let pagesByID = Dictionary(
+      uniqueKeysWithValues: try await repository.tasks(in: .active).map { ($0.id.rawValue, $0) }
+    )
+    return identifiers.compactMap { pagesByID[$0].map(EnchiridionTaskEntity.init(page:)) }
   }
 
   func entities(matching string: String) async throws -> [EnchiridionTaskEntity] {
     let repository = try intentRepository()
-    return try await repository.pages(with: BuiltInSupertags.task)
+    return try await repository.tasks(in: .active)
       .filter {
         $0.displayTitle.localizedStandardContains(string)
           || $0.plainText.localizedStandardContains(string)
@@ -71,7 +68,7 @@ struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
 
   func suggestedEntities() async throws -> [EnchiridionTaskEntity] {
     let repository = try intentRepository()
-    let pages = try await repository.pages(with: BuiltInSupertags.task)
+    let pages = try await repository.tasks(in: .active)
     return TaskQuery.items(from: pages, selection: .smart(.today))
       .map(\.page)
       .prefix(20)
@@ -80,9 +77,67 @@ struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
 
   func allEntities() async throws -> [EnchiridionTaskEntity] {
     let repository = try intentRepository()
-    return try await repository.pages(with: BuiltInSupertags.task)
-      .filter { $0.taskData?.state == .active }
+    return try await repository.tasks(in: .active)
       .map(EnchiridionTaskEntity.init(page:))
+  }
+}
+
+struct ClosedEnchiridionTaskEntity: AppEntity {
+  static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Closed Task")
+  static let defaultQuery = ClosedEnchiridionTaskEntityQuery()
+
+  let id: String
+
+  @Property(title: "Title")
+  var title: String
+
+  @Property(title: "Status")
+  var status: String
+
+  var displayRepresentation: DisplayRepresentation {
+    DisplayRepresentation(title: "\(title)", subtitle: "\(status)")
+  }
+
+  init(page: PageSnapshot) {
+    id = page.id.rawValue
+    title = page.displayTitle
+    status = page.taskData?.state == .completed ? "Completed" : "Canceled"
+  }
+}
+
+struct ClosedEnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
+  func entities(for identifiers: [String]) async throws -> [ClosedEnchiridionTaskEntity] {
+    let repository = try intentRepository()
+    let pagesByID = Dictionary(
+      uniqueKeysWithValues: try await repository.tasks(in: .closed).map { ($0.id.rawValue, $0) }
+    )
+    return identifiers.compactMap { pagesByID[$0].map(ClosedEnchiridionTaskEntity.init(page:)) }
+  }
+
+  func entities(matching string: String) async throws -> [ClosedEnchiridionTaskEntity] {
+    let repository = try intentRepository()
+    return try await repository.tasks(in: .closed)
+      .filter {
+        $0.displayTitle.localizedStandardContains(string)
+          || $0.plainText.localizedStandardContains(string)
+      }
+      .prefix(30)
+      .map(ClosedEnchiridionTaskEntity.init(page:))
+  }
+
+  func suggestedEntities() async throws -> [ClosedEnchiridionTaskEntity] {
+    let repository = try intentRepository()
+    let pages = try await repository.tasks(in: .closed)
+    return TaskQuery.items(from: pages, selection: .smart(.logbook))
+      .map(\.page)
+      .prefix(20)
+      .map(ClosedEnchiridionTaskEntity.init(page:))
+  }
+
+  func allEntities() async throws -> [ClosedEnchiridionTaskEntity] {
+    let repository = try intentRepository()
+    return try await repository.tasks(in: .closed)
+      .map(ClosedEnchiridionTaskEntity.init(page:))
   }
 }
 
@@ -228,7 +283,7 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
   static let description = IntentDescription("Completes a task and creates its next occurrence if it repeats.")
 
   @Parameter(title: "Task")
-  var task: EnchiridionTaskEntity
+  var task: ClosedEnchiridionTaskEntity
 
   static var parameterSummary: some ParameterSummary {
     Summary("Complete \(\.$task)")
@@ -371,10 +426,14 @@ struct EnchiridionTaskShortcuts: AppShortcutsProvider {
 
 private enum EnchiridionTaskIntentError: Error, CustomLocalizedStringResourceConvertible {
   case invalidTitle
+  case taskNotActive
+  case taskNotClosed
 
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .invalidTitle: "A task needs a title."
+    case .taskNotActive: "Only active tasks can be completed."
+    case .taskNotClosed: "Only completed or canceled tasks can be reopened."
     }
   }
 }
@@ -395,7 +454,12 @@ private func intentMutationValue<Value: Sendable>(
 ) throws -> Value {
   switch result {
   case .success(let success): success.value
-  case .failure(let failure): throw failure
+  case .failure(let failure):
+    switch failure.reason {
+    case .taskNotActive: throw EnchiridionTaskIntentError.taskNotActive
+    case .taskNotClosed: throw EnchiridionTaskIntentError.taskNotClosed
+    default: throw failure
+    }
   }
 }
 
