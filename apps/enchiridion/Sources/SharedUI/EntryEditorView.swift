@@ -85,6 +85,7 @@ struct PageDestinationView: View {
 
 private enum EntityDetailSection: String, CaseIterable, Identifiable {
   case properties = "Properties"
+  case relationships = "Relationships"
   case notes = "Notes"
 
   var id: Self { self }
@@ -134,6 +135,12 @@ struct EntityDetailView: View {
       switch selectedSection {
       case .properties:
         PagePropertiesView(store: store, pageID: page.id)
+      case .relationships:
+        GraphRelationshipsView(
+          store: store,
+          pageID: page.id,
+          onOpenPage: onOpenPage
+        )
       case .notes:
         PageEditorView(
           store: store,

@@ -31,10 +31,8 @@ struct SupertagPropertiesView: View {
           )
         }
 
-        ForEach(page.objectMetadata.supertagIDs) { tagID in
-          if let definition = store.supertags.first(where: { $0.id == tagID }),
-            !visibleFields(in: definition, on: page).isEmpty
-          {
+        ForEach(visibleDefinitions(on: page)) { definition in
+          if !visibleFields(in: definition, on: page).isEmpty {
             Section(definition.name) {
               ForEach(visibleFields(in: definition, on: page)) { field in
                 SupertagFieldEditor(
@@ -121,6 +119,20 @@ struct SupertagPropertiesView: View {
         return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
       }
       .map(\.element)
+  }
+
+  private func visibleDefinitions(on page: PageSnapshot) -> [SupertagDefinition] {
+    var ordered: [SupertagDefinition] = []
+    var visited: Set<TagID> = []
+    func append(_ id: TagID) {
+      guard visited.insert(id).inserted,
+        let definition = store.supertags.first(where: { $0.id == id })
+      else { return }
+      for parentID in definition.parentIDs { append(parentID) }
+      ordered.append(definition)
+    }
+    for tagID in page.objectMetadata.supertagIDs { append(tagID) }
+    return ordered
   }
 
   private func fieldRank(

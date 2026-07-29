@@ -90,6 +90,24 @@ struct MobileLibraryScreen: View {
             Label("New View", systemImage: "plus")
           }
         }
+
+        Section("Graph") {
+          NavigationLink {
+            MobileGraphQueryDestination(store: store)
+          } label: {
+            Label("Query", systemImage: "point.3.connected.trianglepath.dotted")
+          }
+          NavigationLink {
+            GraphRelationDefinitionsView(store: store)
+          } label: {
+            Label("Relationship Types", systemImage: "arrow.left.arrow.right")
+          }
+          NavigationLink {
+            MobileGraphIssuesDestination(store: store)
+          } label: {
+            Label("Needs Attention", systemImage: "exclamationmark.triangle")
+          }
+        }
       }
       .navigationTitle("Library")
       .toolbar {
@@ -114,6 +132,30 @@ struct MobileLibraryScreen: View {
         LiveViewEditor(store: store, definition: view)
       }
     }
+  }
+}
+
+private struct MobileGraphQueryDestination: View {
+  let store: LibraryStore
+  @State private var openedPageID: PageID?
+
+  var body: some View {
+    GraphQueryWorkspace(store: store) { openedPageID = $0 }
+      .sheet(item: $openedPageID) { pageID in
+        NavigationStack { PageDestinationView(store: store, pageID: pageID) }
+      }
+  }
+}
+
+private struct MobileGraphIssuesDestination: View {
+  let store: LibraryStore
+  @State private var openedPageID: PageID?
+
+  var body: some View {
+    GraphIssuesView(store: store) { openedPageID = $0 }
+      .sheet(item: $openedPageID) { pageID in
+        NavigationStack { PageDestinationView(store: store, pageID: pageID) }
+      }
   }
 }
 
