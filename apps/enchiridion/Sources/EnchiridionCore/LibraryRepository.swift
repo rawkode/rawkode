@@ -650,6 +650,78 @@ public actor LibraryRepository {
   }
 
   @discardableResult
+  public func createProject(
+    title: String,
+    data: ProjectData = .init(),
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedTitle.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+    let normalizedData = ProjectData(
+      status: data.status,
+      outcome: data.outcome,
+      areaID: data.areaID,
+      startDate: data.startDate,
+      dueDate: data.dueDate,
+      lastReviewedAt: data.lastReviewedAt
+    )
+    return try database.write { db in
+      let page = try Self.createPage(
+        db,
+        id: .free(),
+        kind: .free,
+        title: normalizedTitle,
+        now: now
+      )
+      let result = try PageDocument.setProperties(
+        ProjectFields.properties(for: normalizedData),
+        ensuring: BuiltInSupertags.project,
+        message: "Create project",
+        in: page.document
+      )
+      let project = Self.updatedPage(page, with: result, now: now)
+      try Self.writePage(db, page: project, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: project.id,
+        references: result.projection.references
+      )
+      return project
+    }
+  }
+
+  @discardableResult
+  public func updateProject(
+    pageID: PageID,
+    data: ProjectData,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    let normalized = ProjectData(
+      status: data.status,
+      outcome: data.outcome,
+      areaID: data.areaID,
+      startDate: data.startDate,
+      dueDate: data.dueDate,
+      lastReviewedAt: data.lastReviewedAt
+    )
+    try mutateDocument(pageID: pageID, now: now) { current in
+      guard current.hasSupertag(BuiltInSupertags.project) else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      return try PageDocument.setProperties(
+        ProjectFields.properties(for: normalized),
+        ensuring: BuiltInSupertags.project,
+        message: "Update project plan",
+        in: current.document
+      )
+    }
+    guard let project = try page(id: pageID) else {
+      throw LibraryRepositoryError.pageNotFound
+    }
+    return project
+  }
+
+  @discardableResult
   public func createTask(
     _ draft: TaskDraft,
     now: Date = Date()
@@ -659,6 +731,11 @@ public actor LibraryRepository {
     return try database.write { db in
       let page = try Self.createPage(db, id: .free(), kind: .free, title: title, now: now)
       let data = Self.normalizedTaskData(draft.data, pageID: page.id)
+      try Self.validateTaskParent(
+        db,
+        pageID: page.id,
+        parentTaskID: data.parentTaskID
+      )
       var result = try PageDocument.setProperties(
         TaskFields.properties(for: data),
         ensuring: BuiltInSupertags.task,
@@ -683,6 +760,13 @@ public actor LibraryRepository {
     notes: String? = nil,
     now: Date = Date()
   ) throws -> PageSnapshot {
+    try database.read { db in
+      try Self.validateTaskParent(
+        db,
+        pageID: pageID,
+        parentTaskID: data.parentTaskID
+      )
+    }
     var updatedPage: PageSnapshot?
     try mutateDocument(pageID: pageID, now: now) { current in
       guard current.hasSupertag(BuiltInSupertags.task) else {
@@ -860,6 +944,25 @@ public actor LibraryRepository {
       normalized.recurrenceSequence = 0
     }
     return normalized
+  }
+
+  private static func validateTaskParent(
+    _ db: Database,
+    pageID: PageID,
+    parentTaskID: PageID?
+  ) throws {
+    var ancestorID = parentTaskID
+    var visited: Set<PageID> = [pageID]
+    while let candidateID = ancestorID {
+      guard visited.insert(candidateID).inserted,
+        let candidate = try fetchPage(db, id: candidateID),
+        candidate.deletedAt == nil,
+        let taskData = candidate.taskData
+      else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      ancestorID = taskData.parentTaskID
+    }
   }
 
   private static func existingRecurrenceSuccessor(
@@ -3258,6 +3361,32 @@ public actor LibraryRepository {
     }
     migrator.registerMigration("v14-task-schedule-granularity") { db in
       guard let definition = BuiltInSupertags.all.first(where: { $0.id == BuiltInSupertags.task })
+      else { return }
+      try db.execute(
+        sql: """
+          INSERT INTO supertag_schemas
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
+          VALUES (?,?,?,?,?,?,1,1)
+          ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            definition_json=excluded.definition_json,
+            deleted=0,
+            modified_at=excluded.modified_at,
+            dirty_generation=supertag_schemas.dirty_generation + 1,
+            cloud_dirty=1
+          """,
+        arguments: [
+          definition.id.rawValue,
+          definition.name,
+          try JSONEncoder.enchiridion.encode(definition),
+          false,
+          BuiltInSupertags.all.firstIndex(where: { $0.id == definition.id }) ?? 0,
+          Date().timeIntervalSince1970,
+        ]
+      )
+    }
+    migrator.registerMigration("v15-project-planning") { db in
+      guard let definition = BuiltInSupertags.all.first(where: { $0.id == BuiltInSupertags.project })
       else { return }
       try db.execute(
         sql: """

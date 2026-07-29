@@ -221,11 +221,13 @@ public enum BuiltInSupertags {
     ]),
     definition(project, "Project", "folder", [
       selectField("status", "Status", ["Idea", "Planned", "Active", "On Hold", "Completed", "Cancelled"]),
+      field("outcome", "Outcome", .text, multiline: true),
       field("area", "Area", .entityReference, allowed: [area]),
       field("owner", "Owner", .entityReference, many: true, allowed: [person]),
       field("organization", "Organization", .entityReference, allowed: [organization]),
       field("start-date", "Start date", .date),
       field("due-date", "Due date", .date),
+      field("last-reviewed-at", "Last reviewed", .dateTime),
       field("place", "Place", .entityReference, allowed: [place]),
       field("notes", "Notes", .text, multiline: true),
     ]),

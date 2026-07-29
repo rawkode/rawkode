@@ -113,7 +113,7 @@ struct MobileTaskHomeScreen: View {
 
   private func badgeCount(for list: TaskSmartList) -> Int? {
     switch list {
-    case .logbook, .anytime, .someday: nil
+    case .logbook, .anytime, .someday, .review: nil
     case .inbox, .today, .upcoming: store.taskCount(list)
     }
   }
@@ -140,9 +140,11 @@ struct TaskListScreen: View {
       TaskQuickEntryBar(store: store, selection: selection)
     }
     .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        Button { showsQuickCapture = true } label: {
-          Label("New Task", systemImage: "plus")
+      if selection != .smart(.review) {
+        ToolbarItem(placement: .primaryAction) {
+          Button { showsQuickCapture = true } label: {
+            Label("New Task", systemImage: "plus")
+          }
         }
       }
     }
@@ -166,26 +168,37 @@ struct TaskListContent: View {
   let openTask: (PageID) -> Void
 
   var body: some View {
-    let tasks = visibleTasks
-    List {
-      if tasks.isEmpty {
-        ContentUnavailableView(
-          emptyTitle,
-          systemImage: emptySymbol,
-          description: Text(emptyDescription)
-        )
-        .listRowSeparator(.hidden)
-      } else if case .smart(.upcoming) = selection {
-        ForEach(groupedUpcoming, id: \.day) { group in
-          Section(group.day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())) {
-            taskRows(group.tasks)
+    if case .smart(.review) = selection {
+      WeeklyReviewContent(store: store)
+    } else if case .project(let projectID) = selection {
+      ProjectTaskListContent(
+        store: store,
+        projectID: projectID,
+        query: query,
+        openTask: openTask
+      )
+    } else {
+      let tasks = visibleTasks
+      List {
+        if tasks.isEmpty {
+          ContentUnavailableView(
+            emptyTitle,
+            systemImage: emptySymbol,
+            description: Text(emptyDescription)
+          )
+          .listRowSeparator(.hidden)
+        } else if case .smart(.upcoming) = selection {
+          ForEach(groupedUpcoming, id: \.day) { group in
+            Section(group.day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())) {
+              taskRows(group.tasks)
+            }
           }
+        } else {
+          taskRows(tasks)
         }
-      } else {
-        taskRows(tasks)
       }
+      .listStyle(.inset)
     }
-    .listStyle(.inset)
   }
 
   @ViewBuilder
@@ -626,35 +639,37 @@ struct TaskQuickEntryBar: View {
   @State private var captureRequest: TaskQuickCaptureRequest?
 
   var body: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "plus.circle.fill")
-        .foregroundStyle(.tint)
-        .accessibilityHidden(true)
-      TextField("New task", text: $entry)
-        .textFieldStyle(.plain)
-        .focused($isFocused)
-        .submitLabel(.next)
-        .onSubmit(review)
-        .accessibilityHint("Review an on-device interpretation before saving.")
-      Button("Review", systemImage: "arrow.right.circle.fill", action: review)
-        .labelStyle(.iconOnly)
-        .buttonStyle(.plain)
-        .foregroundStyle(.tint)
-        .disabled(entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
-    .background(.bar)
-    .sheet(item: $captureRequest) { request in
-      TaskQuickCaptureSheet(
-        store: store,
-        selection: selection,
-        initialEntry: request.entry,
-        onSaved: {
-          entry = ""
-          isFocused = true
-        }
-      )
+    if selection != .smart(.review) {
+      HStack(spacing: 10) {
+        Image(systemName: "plus.circle.fill")
+          .foregroundStyle(.tint)
+          .accessibilityHidden(true)
+        TextField("New task", text: $entry)
+          .textFieldStyle(.plain)
+          .focused($isFocused)
+          .submitLabel(.next)
+          .onSubmit(review)
+          .accessibilityHint("Review an on-device interpretation before saving.")
+        Button("Review", systemImage: "arrow.right.circle.fill", action: review)
+          .labelStyle(.iconOnly)
+          .buttonStyle(.plain)
+          .foregroundStyle(.tint)
+          .disabled(entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      .background(.bar)
+      .sheet(item: $captureRequest) { request in
+        TaskQuickCaptureSheet(
+          store: store,
+          selection: selection,
+          initialEntry: request.entry,
+          onSaved: {
+            entry = ""
+            isFocused = true
+          }
+        )
+      }
     }
   }
 
@@ -1224,7 +1239,11 @@ struct TaskCollectionCreator: View {
     let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { return }
     Task {
-      _ = await store.createTaggedPage(title: title, supertagID: draft.kind.supertagID)
+      if draft.kind == .project {
+        _ = await store.createProject(title: title)
+      } else {
+        _ = await store.createTaggedPage(title: title, supertagID: draft.kind.supertagID)
+      }
       dismiss()
     }
   }
@@ -1243,7 +1262,7 @@ private func apply(_ selection: TaskListSelection, to data: inout TaskData) {
   case .smart(.someday):
     data.placement = .someday
     data.scheduledAt = nil
-  case .smart(.inbox), .smart(.logbook):
+  case .smart(.inbox), .smart(.review), .smart(.logbook):
     break
   case .project(let id):
     data.projectID = id

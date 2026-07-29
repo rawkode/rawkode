@@ -1,0 +1,253 @@
+import Foundation
+
+public enum ProjectStatus: String, Codable, CaseIterable, Hashable, Sendable {
+  // Raw values are the stable IDs generated for the built-in select options.
+  case idea
+  case planned
+  case active
+  case onHold = "on-hold"
+  case completed
+  case cancelled
+
+  public var title: String {
+    switch self {
+    case .idea: "Idea"
+    case .planned: "Planned"
+    case .active: "Active"
+    case .onHold: "On Hold"
+    case .completed: "Completed"
+    case .cancelled: "Cancelled"
+    }
+  }
+
+  public var isOpen: Bool {
+    self != .completed && self != .cancelled
+  }
+}
+
+public struct ProjectData: Codable, Hashable, Sendable {
+  public var status: ProjectStatus
+  public var outcome: String
+  public var areaID: PageID?
+  public var startDate: Date?
+  public var dueDate: Date?
+  public var lastReviewedAt: Date?
+
+  public init(
+    status: ProjectStatus = .active,
+    outcome: String = "",
+    areaID: PageID? = nil,
+    startDate: Date? = nil,
+    dueDate: Date? = nil,
+    lastReviewedAt: Date? = nil
+  ) {
+    self.status = status
+    self.outcome = outcome.trimmingCharacters(in: .whitespacesAndNewlines)
+    self.areaID = areaID
+    self.startDate = startDate
+    self.dueDate = dueDate
+    self.lastReviewedAt = lastReviewedAt
+  }
+}
+
+public enum ProjectFields {
+  public static let status = key("status")
+  public static let outcome = key("outcome")
+  public static let area = key("area")
+  public static let startDate = key("start-date")
+  public static let dueDate = key("due-date")
+  public static let lastReviewedAt = key("last-reviewed-at")
+
+  public static func properties(for data: ProjectData) -> [SupertagPropertyKey: [SupertagValue]] {
+    [
+      status: [.select(data.status.rawValue)],
+      outcome: data.outcome.isEmpty ? [] : [.text(data.outcome)],
+      area: data.areaID.map { [.page($0)] } ?? [],
+      startDate: data.startDate.map { [.date($0)] } ?? [],
+      dueDate: data.dueDate.map { [.date($0)] } ?? [],
+      lastReviewedAt: data.lastReviewedAt.map { [.dateTime($0)] } ?? [],
+    ]
+  }
+
+  private static func key(_ fieldID: String) -> SupertagPropertyKey {
+    .init(supertagID: BuiltInSupertags.project, fieldID: .init(rawValue: fieldID))
+  }
+}
+
+extension PageSnapshot {
+  public var projectData: ProjectData? {
+    guard hasSupertag(BuiltInSupertags.project) else { return nil }
+    let values = objectMetadata.properties
+    let status =
+      values[ProjectFields.status]?.first?.projectSelectValue
+      .flatMap(ProjectStatus.init(rawValue:)) ?? .active
+    return ProjectData(
+      status: status,
+      outcome: values[ProjectFields.outcome]?.first?.projectTextValue ?? "",
+      areaID: values[ProjectFields.area]?.first?.projectPageValue,
+      startDate: values[ProjectFields.startDate]?.first?.projectDateValue,
+      dueDate: values[ProjectFields.dueDate]?.first?.projectDateValue,
+      lastReviewedAt: values[ProjectFields.lastReviewedAt]?.first?.projectDateValue
+    )
+  }
+}
+
+public struct TaskHierarchyRow: Identifiable, Hashable, Sendable {
+  public var task: TaskItem
+  public var depth: Int
+  public var directSubtaskCount: Int
+  public var id: PageID { task.id }
+
+  public init(task: TaskItem, depth: Int, directSubtaskCount: Int) {
+    self.task = task
+    self.depth = max(0, depth)
+    self.directSubtaskCount = max(0, directSubtaskCount)
+  }
+}
+
+public enum TaskHierarchy {
+  /// Flattens the supplied task order into a stable parent-first tree.
+  ///
+  /// Missing parents are treated as roots. Corrupt parent cycles are broken deterministically,
+  /// so every task remains reachable without allowing recursive rendering to loop.
+  public static func rows(from tasks: [TaskItem]) -> [TaskHierarchyRow] {
+    let taskIDs = Set(tasks.map(\.id))
+    let tasksByID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+    let childrenByParent = Dictionary(
+      grouping: tasks.filter {
+        $0.data.parentTaskID.map(taskIDs.contains) == true
+      }
+    ) { $0.data.parentTaskID! }
+    var visited: Set<PageID> = []
+    var result: [TaskHierarchyRow] = []
+
+    func append(_ task: TaskItem, depth: Int) {
+      guard visited.insert(task.id).inserted else { return }
+      let children = childrenByParent[task.id] ?? []
+      result.append(
+        TaskHierarchyRow(task: task, depth: depth, directSubtaskCount: children.count)
+      )
+      for child in children {
+        append(child, depth: depth + 1)
+      }
+    }
+
+    for task in tasks where task.data.parentTaskID.flatMap({ tasksByID[$0] }) == nil {
+      append(task, depth: 0)
+    }
+    for task in tasks where !visited.contains(task.id) {
+      append(task, depth: 0)
+    }
+    return result
+  }
+}
+
+public struct ProjectReviewItem: Identifiable, Hashable, Sendable {
+  public var project: PageSnapshot
+  public var data: ProjectData
+  public var activeTaskCount: Int
+  public var overdueTaskCount: Int
+  public var needsReview: Bool
+  public var id: PageID { project.id }
+
+  public init(
+    project: PageSnapshot,
+    data: ProjectData,
+    activeTaskCount: Int,
+    overdueTaskCount: Int,
+    needsReview: Bool
+  ) {
+    self.project = project
+    self.data = data
+    self.activeTaskCount = activeTaskCount
+    self.overdueTaskCount = overdueTaskCount
+    self.needsReview = needsReview
+  }
+}
+
+public struct WeeklyReviewSnapshot: Hashable, Sendable {
+  public var inboxTaskCount: Int
+  public var overdueTaskCount: Int
+  public var projects: [ProjectReviewItem]
+
+  public init(inboxTaskCount: Int, overdueTaskCount: Int, projects: [ProjectReviewItem]) {
+    self.inboxTaskCount = inboxTaskCount
+    self.overdueTaskCount = overdueTaskCount
+    self.projects = projects
+  }
+
+  public static func make(
+    pages: [PageSnapshot],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Self {
+    let tasks = pages.compactMap(TaskItem.init(page:)).filter(\.data.isActive)
+    let startOfToday = calendar.startOfDay(for: now)
+    let reviewCutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+    let isOverdue: (TaskItem) -> Bool = { task in
+      task.data.deadline.map { $0 < startOfToday } == true
+        || task.data.scheduledAt.map { $0 < startOfToday } == true
+    }
+    let tasksByProject = Dictionary(
+      grouping: tasks.compactMap { task in
+        task.data.projectID.map { ($0, task) }
+      }, by: \.0)
+
+    let projects = pages.compactMap { page -> ProjectReviewItem? in
+      guard let data = page.projectData, data.status.isOpen, page.deletedAt == nil else {
+        return nil
+      }
+      let projectTasks = tasksByProject[page.id, default: []].map(\.1)
+      let overdue = projectTasks.filter(isOverdue).count
+      let needsReview =
+        data.outcome.isEmpty
+        || projectTasks.isEmpty
+        || overdue > 0
+        || data.lastReviewedAt.map { $0 < reviewCutoff } ?? true
+      return ProjectReviewItem(
+        project: page,
+        data: data,
+        activeTaskCount: projectTasks.count,
+        overdueTaskCount: overdue,
+        needsReview: needsReview
+      )
+    }.sorted { lhs, rhs in
+      if lhs.needsReview != rhs.needsReview { return lhs.needsReview }
+      let lhsDue = lhs.data.dueDate ?? .distantFuture
+      let rhsDue = rhs.data.dueDate ?? .distantFuture
+      if lhsDue != rhsDue { return lhsDue < rhsDue }
+      return lhs.project.displayTitle.localizedStandardCompare(rhs.project.displayTitle)
+        == .orderedAscending
+    }
+
+    return Self(
+      inboxTaskCount: tasks.filter { $0.data.placement == .inbox }.count,
+      overdueTaskCount: tasks.filter(isOverdue).count,
+      projects: projects
+    )
+  }
+}
+
+extension SupertagValue {
+  fileprivate var projectSelectValue: String? {
+    guard case .select(let value) = self else { return nil }
+    return value
+  }
+
+  fileprivate var projectTextValue: String? {
+    guard case .text(let value) = self else { return nil }
+    return value
+  }
+
+  fileprivate var projectPageValue: PageID? {
+    guard case .page(let value) = self else { return nil }
+    return value
+  }
+
+  fileprivate var projectDateValue: Date? {
+    switch self {
+    case .date(let value), .dateTime(let value): value
+    default: nil
+    }
+  }
+}

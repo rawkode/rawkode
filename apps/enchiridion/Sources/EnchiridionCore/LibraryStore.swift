@@ -250,6 +250,10 @@ public final class LibraryStore {
   public var taskProjects: [PageSnapshot] { pages(with: BuiltInSupertags.project) }
   public var taskAreas: [PageSnapshot] { pages(with: BuiltInSupertags.area) }
 
+  public func weeklyReview(now: Date = Date()) -> WeeklyReviewSnapshot {
+    WeeklyReviewSnapshot.make(pages: pages, now: now, calendar: calendar)
+  }
+
   public var taskTags: [String] {
     Array(Set(pages.compactMap(\.taskData).flatMap(\.tags))).sorted()
   }
@@ -263,6 +267,31 @@ public final class LibraryStore {
 
   public func taskCount(_ list: TaskSmartList, now: Date = Date()) -> Int {
     TaskQuery.count(list, in: pages, now: now, calendar: calendar)
+  }
+
+  @discardableResult
+  public func createProject(title: String, data: ProjectData = .init()) async -> PageID? {
+    guard let repository else { return nil }
+    do {
+      let project = try await repository.createProject(title: title, data: data)
+      await reload()
+      await syncCoordinator?.pageDidChange(project.id)
+      return project.id
+    } catch {
+      startupError = error.localizedDescription
+      return nil
+    }
+  }
+
+  public func updateProject(pageID: PageID, data: ProjectData) async {
+    guard let repository else { return }
+    do {
+      _ = try await repository.updateProject(pageID: pageID, data: data)
+      await reload()
+      await syncCoordinator?.pageDidChange(pageID)
+    } catch {
+      startupError = error.localizedDescription
+    }
   }
 
   public func tasks(on day: Date, includingOverdue: Bool = false) -> [TaskItem] {

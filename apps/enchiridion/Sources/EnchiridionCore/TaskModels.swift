@@ -321,6 +321,7 @@ public enum TaskSmartList: String, CaseIterable, Codable, Hashable, Sendable, Id
   case upcoming
   case anytime
   case someday
+  case review
   case logbook
 
   public var id: Self { self }
@@ -332,6 +333,7 @@ public enum TaskSmartList: String, CaseIterable, Codable, Hashable, Sendable, Id
     case .upcoming: "Upcoming"
     case .anytime: "Anytime"
     case .someday: "Someday"
+    case .review: "Weekly Review"
     case .logbook: "Logbook"
     }
   }
@@ -343,6 +345,7 @@ public enum TaskSmartList: String, CaseIterable, Codable, Hashable, Sendable, Id
     case .upcoming: "calendar"
     case .anytime: "square.stack.3d.up"
     case .someday: "archivebox"
+    case .review: "checklist"
     case .logbook: "checkmark.circle"
     }
   }
@@ -459,6 +462,8 @@ public enum TaskQuery {
         && task.data.scheduledAt == nil
     case .someday:
       return task.data.isActive && task.data.placement == .someday
+    case .review:
+      return false
     case .logbook:
       return task.data.state != .active
     }
