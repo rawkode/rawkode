@@ -448,6 +448,247 @@ public struct TaskPageVersion: Codable, Hashable, Sendable {
   }
 }
 
+/// The editable, user-reviewed fields for clarifying one literal Inbox capture.
+///
+/// Lifecycle and recurrence provenance are deliberately absent. A clarification can enrich the
+/// metadata people already edit on a task, but it cannot silently complete, cancel, or rewrite the
+/// identity of a recurring occurrence. Notes are also absent so model interpretation never rewrites
+/// captured source material outside the title.
+public struct TaskClarificationDraft: Codable, Hashable, Sendable {
+  public var title: String
+  public var scheduledAt: Date?
+  public var scheduleGranularity: TaskScheduleGranularity
+  public var deadline: Date?
+  public var reminder: Date?
+  public var priority: TaskPriority
+  public var projectID: PageID?
+  public var areaID: PageID?
+  public var parentTaskID: PageID?
+  public var assigneeIDs: [PageID]
+  public var tags: [String]
+  public var recurrence: TaskRecurrenceRule?
+  public var estimatedMinutes: Int?
+
+  public init(
+    title: String,
+    scheduledAt: Date? = nil,
+    scheduleGranularity: TaskScheduleGranularity = .dateTime,
+    deadline: Date? = nil,
+    reminder: Date? = nil,
+    priority: TaskPriority = .none,
+    projectID: PageID? = nil,
+    areaID: PageID? = nil,
+    parentTaskID: PageID? = nil,
+    assigneeIDs: [PageID] = [],
+    tags: [String] = [],
+    recurrence: TaskRecurrenceRule? = nil,
+    estimatedMinutes: Int? = nil
+  ) {
+    self.title = title
+    self.scheduledAt = scheduledAt
+    self.scheduleGranularity = scheduleGranularity
+    self.deadline = deadline
+    self.reminder = reminder
+    self.priority = priority
+    self.projectID = projectID
+    self.areaID = areaID
+    self.parentTaskID = parentTaskID
+    self.assigneeIDs = TaskData.normalizedPageIDs(assigneeIDs)
+    self.tags = TaskData.normalizedTags(tags)
+    self.recurrence = recurrence
+    self.estimatedMinutes = estimatedMinutes
+  }
+
+  public init?(task page: PageSnapshot) {
+    guard page.deletedAt == nil, let data = page.taskData else { return nil }
+    self.init(
+      title: page.title,
+      scheduledAt: data.scheduledAt,
+      scheduleGranularity: data.scheduleGranularity,
+      deadline: data.deadline,
+      reminder: data.reminder,
+      priority: data.priority,
+      projectID: data.projectID,
+      areaID: data.areaID,
+      parentTaskID: data.parentTaskID,
+      assigneeIDs: data.assigneeIDs,
+      tags: data.tags,
+      recurrence: data.recurrence,
+      estimatedMinutes: data.estimatedMinutes
+    )
+  }
+
+  func applying(to source: TaskData, placement: TaskPlacement) -> TaskData {
+    var data = source
+    data.placement = placement
+    data.scheduledAt = scheduledAt
+    data.scheduleGranularity = scheduleGranularity
+    data.deadline = deadline
+    data.reminder = reminder
+    data.priority = priority
+    data.projectID = projectID
+    data.areaID = areaID
+    data.parentTaskID = parentTaskID
+    data.assigneeIDs = TaskData.normalizedPageIDs(assigneeIDs)
+    data.tags = TaskData.normalizedTags(tags)
+    data.recurrence = recurrence
+    data.estimatedMinutes = estimatedMinutes
+    return data
+  }
+}
+
+public enum TaskClarificationAction: Hashable, Sendable {
+  case applyAndContinue(TaskClarificationDraft)
+  case moveToSomeday
+  case skip
+}
+
+public struct TaskClarificationNamedReference: Codable, Hashable, Sendable, Identifiable {
+  public var id: PageID
+  public var title: String
+
+  public init(id: PageID, title: String) {
+    self.id = id
+    self.title = title
+  }
+}
+
+public struct TaskClarificationReferenceCatalog: Codable, Hashable, Sendable {
+  public var projects: [TaskClarificationNamedReference]
+  public var areas: [TaskClarificationNamedReference]
+  public var parentTasks: [TaskClarificationNamedReference]
+  public var people: [TaskClarificationNamedReference]
+
+  public init(
+    projects: [TaskClarificationNamedReference] = [],
+    areas: [TaskClarificationNamedReference] = [],
+    parentTasks: [TaskClarificationNamedReference] = [],
+    people: [TaskClarificationNamedReference] = []
+  ) {
+    self.projects = projects
+    self.areas = areas
+    self.parentTasks = parentTasks
+    self.people = people
+  }
+
+  public var interpretationContext: TaskInterpretationContext {
+    TaskInterpretationContext(
+      projectNames: projects.map(\.title),
+      areaNames: areas.map(\.title),
+      parentTaskTitles: parentTasks.map(\.title),
+      personNames: people.map(\.title)
+    )
+  }
+}
+
+/// Read-only input captured before optional model interpretation starts.
+public struct TaskClarificationSeed: Hashable, Sendable {
+  public var taskID: PageID
+  public var expectedVersion: TaskPageVersion
+  public var input: String
+  public var literalDraft: TaskClarificationDraft
+  public var references: TaskClarificationReferenceCatalog
+
+  public init(
+    taskID: PageID,
+    expectedVersion: TaskPageVersion,
+    input: String,
+    literalDraft: TaskClarificationDraft,
+    references: TaskClarificationReferenceCatalog
+  ) {
+    self.taskID = taskID
+    self.expectedVersion = expectedVersion
+    self.input = input
+    self.literalDraft = literalDraft
+    self.references = references
+  }
+}
+
+public struct TaskClarificationProposal: Hashable, Sendable {
+  public var taskID: PageID
+  public var expectedVersion: TaskPageVersion
+  public var draft: TaskClarificationDraft
+  public var interpretation: TaskInterpretation
+
+  public init(
+    taskID: PageID,
+    expectedVersion: TaskPageVersion,
+    draft: TaskClarificationDraft,
+    interpretation: TaskInterpretation
+  ) {
+    self.taskID = taskID
+    self.expectedVersion = expectedVersion
+    self.draft = draft
+    self.interpretation = interpretation
+  }
+}
+
+public struct TaskClarificationManualFallback: Hashable, Sendable {
+  public var taskID: PageID
+  public var expectedVersion: TaskPageVersion
+  public var draft: TaskClarificationDraft
+
+  public init(
+    taskID: PageID,
+    expectedVersion: TaskPageVersion,
+    draft: TaskClarificationDraft
+  ) {
+    self.taskID = taskID
+    self.expectedVersion = expectedVersion
+    self.draft = draft
+  }
+}
+
+public enum TaskClarificationProposalResult: Sendable {
+  case proposed(TaskClarificationProposal)
+  case unavailable(TaskClarificationManualFallback, AssistantAvailability)
+  case failed(TaskClarificationManualFallback, String)
+  case stale(expected: TaskPageVersion, current: TaskPageVersion?)
+  case ineligible(String)
+}
+
+public struct TaskClarificationUndoReceipt: Codable, Hashable, Sendable {
+  public var action: TaskClarificationActionKind
+  public var sourceAfterMutation: TaskPageVersion
+  public var sourceBeforeTitle: String
+  public var sourceBeforeTaskData: TaskData
+
+  public init(
+    action: TaskClarificationActionKind,
+    sourceAfterMutation: TaskPageVersion,
+    sourceBeforeTitle: String,
+    sourceBeforeTaskData: TaskData
+  ) {
+    self.action = action
+    self.sourceAfterMutation = sourceAfterMutation
+    self.sourceBeforeTitle = sourceBeforeTitle
+    self.sourceBeforeTaskData = sourceBeforeTaskData
+  }
+}
+
+public enum TaskClarificationActionKind: String, Codable, Hashable, Sendable {
+  case applyAndContinue
+  case moveToSomeday
+}
+
+public struct TaskClarificationMutationResult: Hashable, Sendable {
+  public var task: PageSnapshot
+  public var undoReceipt: TaskClarificationUndoReceipt
+
+  public init(task: PageSnapshot, undoReceipt: TaskClarificationUndoReceipt) {
+    self.task = task
+    self.undoReceipt = undoReceipt
+  }
+}
+
+public struct TaskClarificationUndoResult: Hashable, Sendable {
+  public var restoredTask: PageSnapshot
+
+  public init(restoredTask: PageSnapshot) {
+    self.restoredTask = restoredTask
+  }
+}
+
 public struct TaskCreatedSuccessorReceipt: Codable, Hashable, Sendable {
   public var version: TaskPageVersion
   public var seriesID: TaskRecurrenceSeriesID

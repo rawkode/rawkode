@@ -17,6 +17,9 @@ public enum TaskMutationOperation: String, Equatable, Sendable {
   case patchTasks
   case trashTasks
   case undoTaskBatch
+  case applyClarification
+  case moveClarificationToSomeday
+  case undoClarification
   case closeProject
   case undoProjectClosure
   case moveToTrash
@@ -31,6 +34,9 @@ public enum TaskMutationFailureReason: Equatable, Sendable {
   case taskNotActive
   case taskNotClosed
   case completionUndoUnavailable
+  case clarificationNotEligible
+  case clarificationStale
+  case clarificationUndoUnavailable
   case projectClosureUndoUnavailable
   case databaseUnavailable(String)
   case unexpected(String)
@@ -63,6 +69,12 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
       operation == .undoTaskBatch
         ? "One or more tasks changed after the batch action, so it was not undone."
         : "The task or its recurring successor changed after completion, so the completion was not undone."
+    case .clarificationNotEligible:
+      "Only active Inbox tasks can be clarified."
+    case .clarificationStale:
+      "This Inbox task changed while it was being clarified. Review the latest copy and try again."
+    case .clarificationUndoUnavailable:
+      "The task changed after clarification, so Undo was not applied."
     case .projectClosureUndoUnavailable:
       "The project or one of its tasks changed after closure, so Undo was not applied."
     case .databaseUnavailable(let message):
@@ -88,6 +100,9 @@ extension TaskMutationOperation {
     case .patchTasks: "updated"
     case .trashTasks: "moved to the trash"
     case .undoTaskBatch: "restored"
+    case .applyClarification: "clarified"
+    case .moveClarificationToSomeday: "moved to Someday"
+    case .undoClarification: "restored"
     case .closeProject: "closed"
     case .undoProjectClosure: "restored"
     case .moveToTrash: "moved to the trash"
@@ -720,6 +735,74 @@ public actor TaskMutationCoordinator {
     }
   }
 
+  public func applyClarification(
+    taskID: PageID,
+    draft: TaskClarificationDraft,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskClarificationMutationResult> {
+    do {
+      let result = try await repository.applyTaskClarification(
+        pageID: taskID,
+        draft: draft,
+        expectedVersion: expectedVersion,
+        now: now,
+        calendar: calendar
+      )
+      return await success(
+        operation: .applyClarification,
+        value: result,
+        changedPageIDs: [result.task.id],
+        mutationEffects: [
+          .scheduleReminder(result.task, requestingAuthorization: draft.reminder != nil),
+          .indexSpotlight(result.task),
+        ]
+      )
+    } catch {
+      return .failure(failure(operation: .applyClarification, error: error))
+    }
+  }
+
+  public func moveClarificationTaskToSomeday(
+    taskID: PageID,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskClarificationMutationResult> {
+    do {
+      let result = try await repository.moveClarificationTaskToSomeday(
+        pageID: taskID,
+        expectedVersion: expectedVersion,
+        now: now,
+        calendar: calendar
+      )
+      return await success(
+        operation: .moveClarificationToSomeday,
+        value: result,
+        changedPageIDs: [result.task.id],
+        mutationEffects: Self.activeTaskEffects(result.task)
+      )
+    } catch {
+      return .failure(failure(operation: .moveClarificationToSomeday, error: error))
+    }
+  }
+
+  public func undoClarification(
+    _ receipt: TaskClarificationUndoReceipt,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskClarificationUndoResult> {
+    do {
+      let result = try await repository.undoTaskClarification(receipt, now: now)
+      return await success(
+        operation: .undoClarification,
+        value: result,
+        changedPageIDs: [result.restoredTask.id],
+        mutationEffects: Self.effectsForCurrentState(result.restoredTask)
+      )
+    } catch {
+      return .failure(failure(operation: .undoClarification, error: error))
+    }
+  }
+
   public func closeProject(
     pageID: PageID,
     resolution: ProjectClosureResolution,
@@ -1009,6 +1092,12 @@ public actor TaskMutationCoordinator {
       reason = .taskNotClosed
     case LibraryRepositoryError.taskCompletionUndoUnavailable:
       reason = .completionUndoUnavailable
+    case LibraryRepositoryError.taskNotClarifiable:
+      reason = .clarificationNotEligible
+    case LibraryRepositoryError.taskClarificationStale:
+      reason = .clarificationStale
+    case LibraryRepositoryError.taskClarificationUndoUnavailable:
+      reason = .clarificationUndoUnavailable
     case LibraryRepositoryError.projectClosureUndoUnavailable:
       reason = .projectClosureUndoUnavailable
     case LibraryRepositoryError.databaseUnavailable(let message):

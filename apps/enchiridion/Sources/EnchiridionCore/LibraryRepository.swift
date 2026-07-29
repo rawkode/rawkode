@@ -13,6 +13,9 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case taskNotActive
   case taskNotClosed
   case taskCompletionUndoUnavailable
+  case taskNotClarifiable
+  case taskClarificationStale
+  case taskClarificationUndoUnavailable
   case databaseUnavailable(String)
 
   public var errorDescription: String? {
@@ -30,6 +33,12 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .taskNotClosed: "Only completed or canceled tasks can be reopened."
     case .taskCompletionUndoUnavailable:
       "The task or its recurring successor changed after completion, so the completion was not undone."
+    case .taskNotClarifiable:
+      "Only active Inbox tasks can be clarified."
+    case .taskClarificationStale:
+      "This Inbox task changed while it was being clarified. Review the latest copy and try again."
+    case .taskClarificationUndoUnavailable:
+      "The task changed after clarification, so Undo was not applied."
     case .databaseUnavailable(let message): "The local library could not be opened: \(message)"
     }
   }
@@ -875,6 +884,63 @@ public actor LibraryRepository {
     }
   }
 
+  /// Captures one stable Inbox task and its local association catalog before optional model work.
+  /// This is read-only; callers decide whether and when to invoke an interpreter.
+  public func taskClarificationSeed(pageID: PageID) throws -> TaskClarificationSeed {
+    try database.read { db in
+      guard let task = try Self.fetchPage(db, id: pageID),
+        task.deletedAt == nil,
+        let data = task.taskData,
+        data.state == .active,
+        data.placement == .inbox,
+        let draft = TaskClarificationDraft(task: task)
+      else { throw LibraryRepositoryError.taskNotClarifiable }
+
+      func taggedPages(_ supertagID: SupertagID) throws -> [PageSnapshot] {
+        try Row.fetchAll(
+          db,
+          sql: """
+            SELECT p.* FROM pages p
+            JOIN page_supertags s ON s.page_id = p.id
+            WHERE s.supertag_id = ? AND p.deleted_at IS NULL
+            ORDER BY p.title COLLATE NOCASE, p.id
+            """,
+          arguments: [supertagID.rawValue]
+        ).map(Self.decodePage)
+      }
+
+      let projects = try taggedPages(BuiltInSupertags.project).compactMap {
+        page -> TaskClarificationNamedReference? in
+        guard page.projectData?.status.isOpen == true else { return nil }
+        return TaskClarificationNamedReference(id: page.id, title: page.title)
+      }
+      let areas = try taggedPages(BuiltInSupertags.area).map {
+        TaskClarificationNamedReference(id: $0.id, title: $0.title)
+      }
+      let parentTasks = try taggedPages(BuiltInSupertags.task).compactMap {
+        page -> TaskClarificationNamedReference? in
+        guard page.id != task.id, page.taskData?.state == .active else { return nil }
+        return TaskClarificationNamedReference(id: page.id, title: page.title)
+      }
+      let people = try taggedPages(BuiltInSupertags.person).map {
+        TaskClarificationNamedReference(id: $0.id, title: $0.title)
+      }
+
+      return TaskClarificationSeed(
+        taskID: task.id,
+        expectedVersion: TaskPageVersion(task),
+        input: task.title,
+        literalDraft: draft,
+        references: TaskClarificationReferenceCatalog(
+          projects: projects,
+          areas: areas,
+          parentTasks: parentTasks,
+          people: people
+        )
+      )
+    }
+  }
+
   public func taggedSuggestions(
     matching query: String,
     supertagID: SupertagID,
@@ -1508,6 +1574,172 @@ public actor LibraryRepository {
         now: now
       )
       return updatedPage
+    }
+  }
+
+  /// Applies one explicitly confirmed clarification. The proposal's captured version is checked
+  /// before any document preparation or write, so a stale confirmation has no partial effects.
+  @discardableResult
+  public func applyTaskClarification(
+    pageID: PageID,
+    draft: TaskClarificationDraft,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> TaskClarificationMutationResult {
+    try mutateTaskClarification(
+      pageID: pageID,
+      expectedVersion: expectedVersion,
+      mutation: .apply(draft),
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  /// Defers an Inbox task without interpretation. Someday is intentionally unscheduled; deadline
+  /// and reminder metadata remain independent and are preserved.
+  @discardableResult
+  public func moveClarificationTaskToSomeday(
+    pageID: PageID,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> TaskClarificationMutationResult {
+    try mutateTaskClarification(
+      pageID: pageID,
+      expectedVersion: expectedVersion,
+      mutation: .moveToSomeday,
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  @discardableResult
+  public func undoTaskClarification(
+    _ receipt: TaskClarificationUndoReceipt,
+    now: Date = Date()
+  ) throws -> TaskClarificationUndoResult {
+    try database.write { db in
+      let version = receipt.sourceAfterMutation
+      guard let current = try Self.fetchPage(db, id: version.id),
+        current.deletedAt == nil,
+        current.heads == version.heads,
+        current.dirtyGeneration == version.dirtyGeneration,
+        let currentData = current.taskData
+      else { throw LibraryRepositoryError.taskClarificationUndoUnavailable }
+
+      try Self.validateTaskClarificationReferenceChanges(
+        db,
+        pageID: current.id,
+        source: currentData,
+        updated: receipt.sourceBeforeTaskData
+      )
+      var result = try PageDocument.setProperties(
+        TaskFields.properties(for: receipt.sourceBeforeTaskData),
+        ensuring: BuiltInSupertags.task,
+        message: "Undo task clarification",
+        in: current.document
+      )
+      result = try PageDocument.replaceTitle(
+        with: receipt.sourceBeforeTitle,
+        in: result.document
+      )
+      let restored = PreparedTaskPageWrite(
+        page: Self.updatedPage(current, with: result, now: now),
+        references: result.projection.references
+      )
+      try Self.writePreparedTaskPage(db, prepared: restored, now: now)
+      return TaskClarificationUndoResult(restoredTask: restored.page)
+    }
+  }
+
+  private enum TaskClarificationMutation {
+    case apply(TaskClarificationDraft)
+    case moveToSomeday
+
+    var action: TaskClarificationActionKind {
+      switch self {
+      case .apply: .applyAndContinue
+      case .moveToSomeday: .moveToSomeday
+      }
+    }
+
+    var documentMessage: String {
+      switch self {
+      case .apply: "Clarify Inbox task"
+      case .moveToSomeday: "Move Inbox task to Someday"
+      }
+    }
+  }
+
+  private func mutateTaskClarification(
+    pageID: PageID,
+    expectedVersion: TaskPageVersion,
+    mutation: TaskClarificationMutation,
+    now: Date,
+    calendar: Calendar
+  ) throws -> TaskClarificationMutationResult {
+    try database.write { db in
+      guard expectedVersion.id == pageID,
+        let current = try Self.fetchPage(db, id: pageID),
+        current.deletedAt == nil,
+        current.heads == expectedVersion.heads,
+        current.dirtyGeneration == expectedVersion.dirtyGeneration
+      else { throw LibraryRepositoryError.taskClarificationStale }
+      guard let sourceData = current.taskData,
+        sourceData.state == .active,
+        sourceData.placement == .inbox
+      else { throw LibraryRepositoryError.taskNotClarifiable }
+
+      let title: String
+      var proposedData: TaskData
+      switch mutation {
+      case .apply(let draft):
+        title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+        proposedData = draft.applying(to: sourceData, placement: .anytime)
+      case .moveToSomeday:
+        title = current.title
+        proposedData = sourceData
+        proposedData.placement = .someday
+        proposedData.scheduledAt = nil
+      }
+      let data = Self.normalizedTaskData(
+        proposedData,
+        pageID: pageID,
+        previous: sourceData,
+        calendar: calendar
+      )
+      try Self.validateTaskClarificationReferenceChanges(
+        db,
+        pageID: pageID,
+        source: sourceData,
+        updated: data
+      )
+
+      var result = try PageDocument.setProperties(
+        TaskFields.properties(for: data),
+        ensuring: BuiltInSupertags.task,
+        message: mutation.documentMessage,
+        in: current.document
+      )
+      if case .apply = mutation {
+        result = try PageDocument.replaceTitle(with: title, in: result.document)
+      }
+      let prepared = PreparedTaskPageWrite(
+        page: Self.updatedPage(current, with: result, now: now),
+        references: result.projection.references
+      )
+      try Self.writePreparedTaskPage(db, prepared: prepared, now: now)
+      return TaskClarificationMutationResult(
+        task: prepared.page,
+        undoReceipt: TaskClarificationUndoReceipt(
+          action: mutation.action,
+          sourceAfterMutation: TaskPageVersion(prepared.page),
+          sourceBeforeTitle: current.title,
+          sourceBeforeTaskData: sourceData
+        )
+      )
     }
   }
 
@@ -2326,6 +2558,59 @@ public actor LibraryRepository {
       !projectData.status.isOpen
     else { return }
     throw LibraryRepositoryError.taskProjectClosed(projectID: projectID)
+  }
+
+  /// Validates only references introduced or changed by clarification. Existing unresolved
+  /// references are preserved byte-for-byte for sync compatibility and do not become a reason an
+  /// otherwise independent clarification fails.
+  private static func validateTaskClarificationReferenceChanges(
+    _ db: Database,
+    pageID: PageID,
+    source: TaskData,
+    updated: TaskData
+  ) throws {
+    if source.parentTaskID != updated.parentTaskID {
+      try validateTaskParent(db, pageID: pageID, parentTaskID: updated.parentTaskID)
+    }
+
+    if source.areaID != updated.areaID, let areaID = updated.areaID {
+      guard let area = try fetchPage(db, id: areaID),
+        area.deletedAt == nil,
+        area.hasSupertag(BuiltInSupertags.area)
+      else { throw LibraryRepositoryError.invalidRecord }
+    }
+
+    if source.projectID != updated.projectID, let projectID = updated.projectID {
+      guard let project = try fetchPage(db, id: projectID),
+        project.deletedAt == nil,
+        let projectData = project.projectData
+      else { throw LibraryRepositoryError.invalidRecord }
+      if let projectAreaID = projectData.areaID,
+        let areaID = updated.areaID,
+        areaID != projectAreaID
+      {
+        throw LibraryRepositoryError.invalidRecord
+      }
+    }
+
+    let addedAssigneeIDs = Set(updated.assigneeIDs).subtracting(source.assigneeIDs)
+    for assigneeID in addedAssigneeIDs {
+      guard let assignee = try fetchPage(db, id: assigneeID),
+        assignee.deletedAt == nil,
+        assignee.hasSupertag(BuiltInSupertags.person)
+      else { throw LibraryRepositoryError.invalidRecord }
+    }
+
+    if source.areaID != updated.areaID,
+      let projectID = updated.projectID,
+      let project = try fetchPage(db, id: projectID),
+      let projectAreaID = project.projectData?.areaID,
+      let areaID = updated.areaID,
+      areaID != projectAreaID
+    {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    try validateActiveTaskProjectStatus(db, data: updated)
   }
 
   private static func writePreparedTaskPage(

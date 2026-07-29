@@ -179,6 +179,111 @@ public protocol TaskInputInterpreting: Sendable {
   ) async -> TaskInterpretationResponse
 }
 
+/// Converts an explicitly requested interpretation into an editable proposal without writing it.
+/// Local associations are accepted only when one existing catalog entry has the same canonical
+/// name. Ambiguous and missing names remain unresolved suggestions and never create pages.
+public enum TaskClarificationProposalBuilder {
+  public static func result(
+    seed: TaskClarificationSeed,
+    response: TaskInterpretationResponse
+  ) -> TaskClarificationProposalResult {
+    let fallback = TaskClarificationManualFallback(
+      taskID: seed.taskID,
+      expectedVersion: seed.expectedVersion,
+      draft: seed.literalDraft
+    )
+    switch response {
+    case .unavailable(_, let availability):
+      return .unavailable(fallback, availability)
+    case .failed(let message):
+      return .failed(fallback, message)
+    case .interpreted(let interpretation):
+      return .proposed(proposal(seed: seed, interpretation: interpretation))
+    }
+  }
+
+  private static func proposal(
+    seed: TaskClarificationSeed,
+    interpretation: TaskInterpretation
+  ) -> TaskClarificationProposal {
+    var draft = seed.literalDraft
+    var resolved = interpretation
+    let interpretedData = interpretation.draft.data
+    let appliedFields = Set(
+      interpretation.suggestions.lazy
+        .filter { $0.state == .applied }
+        .map(\.field)
+    )
+
+    draft.title = interpretation.draft.title
+    if appliedFields.contains(.scheduledDate) {
+      draft.scheduledAt = interpretedData.scheduledAt
+      draft.scheduleGranularity = interpretedData.scheduleGranularity
+    }
+    if appliedFields.contains(.deadline) { draft.deadline = interpretedData.deadline }
+    if appliedFields.contains(.reminder) { draft.reminder = interpretedData.reminder }
+    if appliedFields.contains(.recurrence) { draft.recurrence = interpretedData.recurrence }
+    if appliedFields.contains(.priority) { draft.priority = interpretedData.priority }
+    if appliedFields.contains(.estimatedDuration) {
+      draft.estimatedMinutes = interpretedData.estimatedMinutes
+    }
+    if appliedFields.contains(.tag) {
+      draft.tags = TaskData.normalizedTags(draft.tags + interpretedData.tags)
+    }
+
+    for index in resolved.suggestions.indices where resolved.suggestions[index].state == .unresolved {
+      let suggestion = resolved.suggestions[index]
+      let match: TaskClarificationNamedReference?
+      switch suggestion.field {
+      case .project:
+        match = uniqueExactMatch(suggestion.value, in: seed.references.projects)
+        if let match { draft.projectID = match.id }
+      case .area:
+        match = uniqueExactMatch(suggestion.value, in: seed.references.areas)
+        if let match { draft.areaID = match.id }
+      case .parentTask:
+        match = uniqueExactMatch(suggestion.value, in: seed.references.parentTasks)
+        if let match { draft.parentTaskID = match.id }
+      case .person:
+        match = uniqueExactMatch(suggestion.value, in: seed.references.people)
+        if let match {
+          draft.assigneeIDs = TaskData.normalizedPageIDs(draft.assigneeIDs + [match.id])
+        }
+      default:
+        match = nil
+      }
+      if let match {
+        resolved.suggestions[index].state = .applied
+        resolved.suggestions[index].value = match.title
+        resolved.suggestions[index].explanation = "Matched an existing local item."
+      }
+    }
+
+    return TaskClarificationProposal(
+      taskID: seed.taskID,
+      expectedVersion: seed.expectedVersion,
+      draft: draft,
+      interpretation: resolved
+    )
+  }
+
+  private static func uniqueExactMatch(
+    _ name: String,
+    in candidates: [TaskClarificationNamedReference]
+  ) -> TaskClarificationNamedReference? {
+    let canonical = canonicalName(name)
+    guard !canonical.isEmpty else { return nil }
+    let matches = candidates.filter { canonicalName($0.title) == canonical }
+    guard matches.count == 1 else { return nil }
+    return matches[0]
+  }
+
+  private static func canonicalName(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines)
+      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+  }
+}
+
 public actor FoundationTaskInterpreter: TaskInputInterpreting {
   public init() {}
 

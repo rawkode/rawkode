@@ -36,6 +36,24 @@ public struct ProjectClosureUndoOffer: Equatable, Sendable {
   }
 }
 
+public struct TaskClarificationUndoOffer: Equatable, Sendable {
+  public let taskTitle: String
+  public let action: TaskClarificationActionKind
+  public let receipt: TaskClarificationUndoReceipt
+
+  public init(_ result: TaskClarificationMutationResult) {
+    taskTitle = result.task.displayTitle
+    action = result.undoReceipt.action
+    receipt = result.undoReceipt
+  }
+}
+
+public enum TaskClarificationMutationResponse: Sendable {
+  case applied(TaskClarificationMutationResult)
+  case stale(String)
+  case failed(String)
+}
+
 @MainActor
 @Observable
 public final class LibraryStore {
@@ -57,6 +75,9 @@ public final class LibraryStore {
   public private(set) var taskCompletionUndoFailure: String?
   public private(set) var latestProjectClosureUndoOffer: ProjectClosureUndoOffer?
   public private(set) var projectClosureUndoFailure: String?
+  public private(set) var latestTaskClarificationUndoOffer: TaskClarificationUndoOffer?
+  public private(set) var taskClarificationUndoFailure: String?
+  public private(set) var taskClarificationError: String?
   public private(set) var calendarError: String?
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
@@ -67,6 +88,7 @@ public final class LibraryStore {
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
   @ObservationIgnored private var contactResolver: (any DeviceContactResolving)?
   @ObservationIgnored private let calendar: Calendar
+  @ObservationIgnored private let taskInterpreter: any TaskInputInterpreting
   @ObservationIgnored private let taskSystemReconciliationCoordinator:
     TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
@@ -79,9 +101,11 @@ public final class LibraryStore {
     contactResolver: (any DeviceContactResolving)? = nil,
     startImmediately: Bool = true,
     taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared,
-    taskMutationEffects: TaskMutationEffectExecutor? = nil
+    taskMutationEffects: TaskMutationEffectExecutor? = nil,
+    taskInterpreter: any TaskInputInterpreting = FoundationTaskInterpreter()
   ) {
     self.calendar = calendar
+    self.taskInterpreter = taskInterpreter
     self.contactResolver = contactResolver
     self.taskSystemReconciliationCoordinator = taskSystemReconciliationCoordinator
     if let repository {
@@ -405,6 +429,74 @@ public final class LibraryStore {
     TaskQuery.count(list, in: pages, now: now, calendar: calendar)
   }
 
+  /// Active literal captures waiting for one-at-a-time clarification, oldest first.
+  public var clarificationInboxTasks: [TaskItem] {
+    pages.compactMap(TaskItem.init(page:))
+      .filter { $0.data.state == .active && $0.data.placement == .inbox }
+      .sorted { lhs, rhs in
+        if lhs.page.createdAt != rhs.page.createdAt {
+          return lhs.page.createdAt < rhs.page.createdAt
+        }
+        return lhs.id.rawValue < rhs.id.rawValue
+      }
+  }
+
+  public var clarificationAvailability: AssistantAvailability {
+    FoundationTaskInterpreter.availability()
+  }
+
+  /// Produces the complete manual editing path without consulting a language model.
+  public func manualClarificationProposal(
+    for taskID: PageID
+  ) async -> TaskClarificationManualFallback? {
+    guard let repository else { return nil }
+    do {
+      let seed = try await repository.taskClarificationSeed(pageID: taskID)
+      taskClarificationError = nil
+      return TaskClarificationManualFallback(
+        taskID: seed.taskID,
+        expectedVersion: seed.expectedVersion,
+        draft: seed.literalDraft
+      )
+    } catch {
+      taskClarificationError = error.localizedDescription
+      return nil
+    }
+  }
+
+  /// The interpreter runs only when this explicit method is called. The repository contributes a
+  /// read-only seed before interpretation and is checked again afterward so the UI never reviews a
+  /// proposal already known to be stale.
+  public func clarificationProposal(
+    for taskID: PageID,
+    now: Date = Date(),
+    locale: Locale = .current
+  ) async -> TaskClarificationProposalResult {
+    guard let repository else {
+      return .ineligible(startupError ?? "The library is unavailable.")
+    }
+    do {
+      let seed = try await repository.taskClarificationSeed(pageID: taskID)
+      let response = await taskInterpreter.interpret(
+        seed.input,
+        context: seed.references.interpretationContext,
+        now: now,
+        calendar: calendar,
+        locale: locale
+      )
+      let current = try await repository.page(id: taskID)
+      let currentVersion = current.map(TaskPageVersion.init)
+      guard currentVersion == seed.expectedVersion else {
+        return .stale(expected: seed.expectedVersion, current: currentVersion)
+      }
+      taskClarificationError = nil
+      return TaskClarificationProposalBuilder.result(seed: seed, response: response)
+    } catch {
+      taskClarificationError = error.localizedDescription
+      return .ineligible(error.localizedDescription)
+    }
+  }
+
   @discardableResult
   public func createProject(title: String, data: ProjectData = .init()) async -> PageID? {
     guard let repository else { return nil }
@@ -456,6 +548,8 @@ public final class LibraryStore {
       projectClosureUndoFailure = nil
       latestTaskCompletionUndoOffer = nil
       taskCompletionUndoFailure = nil
+      latestTaskClarificationUndoOffer = nil
+      taskClarificationUndoFailure = nil
       return result
     case .failure(let failure):
       let message = failure.localizedDescription
@@ -563,6 +657,8 @@ public final class LibraryStore {
     taskCompletionUndoFailure = nil
     latestProjectClosureUndoOffer = nil
     projectClosureUndoFailure = nil
+    latestTaskClarificationUndoOffer = nil
+    taskClarificationUndoFailure = nil
     return result
   }
 
@@ -645,6 +741,98 @@ public final class LibraryStore {
   public func undoTaskBatch(_ receipt: TaskBatchUndoReceipt) async -> TaskBatchUndoResult? {
     guard let taskMutationCoordinator else { return nil }
     return taskMutationValue(from: await taskMutationCoordinator.undoTaskBatch(receipt))
+  }
+
+  @discardableResult
+  public func applyClarification(
+    taskID: PageID,
+    draft: TaskClarificationDraft,
+    expectedVersion: TaskPageVersion
+  ) async -> TaskClarificationMutationResponse {
+    guard let taskMutationCoordinator else {
+      return .failed(startupError ?? "The library is unavailable.")
+    }
+    undoOfferGeneration &+= 1
+    let offerGeneration = undoOfferGeneration
+    let response = await taskMutationCoordinator.applyClarification(
+      taskID: taskID,
+      draft: draft,
+      expectedVersion: expectedVersion
+    )
+    return recordClarificationMutation(response, offerGeneration: offerGeneration)
+  }
+
+  @discardableResult
+  public func moveClarificationTaskToSomeday(
+    taskID: PageID,
+    expectedVersion: TaskPageVersion
+  ) async -> TaskClarificationMutationResponse {
+    guard let taskMutationCoordinator else {
+      return .failed(startupError ?? "The library is unavailable.")
+    }
+    undoOfferGeneration &+= 1
+    let offerGeneration = undoOfferGeneration
+    let response = await taskMutationCoordinator.moveClarificationTaskToSomeday(
+      taskID: taskID,
+      expectedVersion: expectedVersion
+    )
+    return recordClarificationMutation(response, offerGeneration: offerGeneration)
+  }
+
+  @discardableResult
+  public func undoTaskClarification(
+    _ receipt: TaskClarificationUndoReceipt
+  ) async -> TaskClarificationUndoResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.undoClarification(receipt))
+  }
+
+  @discardableResult
+  public func undoLatestTaskClarification() async -> TaskClarificationUndoResult? {
+    guard let offer = latestTaskClarificationUndoOffer else { return nil }
+    let result = await undoTaskClarification(offer.receipt)
+    guard latestTaskClarificationUndoOffer?.receipt == offer.receipt else { return result }
+    if result != nil {
+      dismissLatestTaskClarificationUndo()
+    } else {
+      taskClarificationUndoFailure =
+        startupError ?? "The task changed after clarification, so Undo was not applied."
+    }
+    return result
+  }
+
+  public func dismissLatestTaskClarificationUndo() {
+    undoOfferGeneration &+= 1
+    latestTaskClarificationUndoOffer = nil
+    taskClarificationUndoFailure = nil
+  }
+
+  private func recordClarificationMutation(
+    _ response: TaskMutationResult<TaskClarificationMutationResult>,
+    offerGeneration: UInt64
+  ) -> TaskClarificationMutationResponse {
+    switch response {
+    case .success(let success):
+      startupError = nil
+      taskClarificationError = nil
+      taskMutationWarnings = success.warnings
+      if offerGeneration == undoOfferGeneration {
+        latestTaskClarificationUndoOffer = TaskClarificationUndoOffer(success.value)
+        taskClarificationUndoFailure = nil
+        latestTaskCompletionUndoOffer = nil
+        taskCompletionUndoFailure = nil
+        latestProjectClosureUndoOffer = nil
+        projectClosureUndoFailure = nil
+      }
+      return .applied(success.value)
+    case .failure(let failure):
+      let message = failure.localizedDescription
+      startupError = message
+      taskClarificationError = message
+      taskMutationWarnings = []
+      if failure.reason == .clarificationStale { return .stale(message) }
+      return .failed(message)
+    }
   }
 
   private func taskMutationValue<Value: Sendable>(
