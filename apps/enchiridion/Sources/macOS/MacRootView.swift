@@ -380,6 +380,7 @@ struct MacRootView: View {
     .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
       store.purge(pageID: $0)
     }
+    .presentsTaskMutationWarnings(from: store)
   }
 
   private var isTodaySelection: Bool {

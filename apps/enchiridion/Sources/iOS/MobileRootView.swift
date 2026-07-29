@@ -94,12 +94,15 @@ struct MobileRootView: View {
       Task { await refreshForActivation() }
     }
     .task { await refreshForActivation() }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification))
+    { _ in
       isKeyboardVisible = true
     }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification))
+    { _ in
       isKeyboardVisible = false
     }
+    .presentsTaskMutationWarnings(from: store)
   }
 
   private func assistantPresentationBinding(

@@ -5,6 +5,59 @@ import XCTest
 
 final class LibraryRepositoryTests: XCTestCase {
   @MainActor
+  func testAcknowledgementLeavesFailedReminderQueuedAndRetryDrainsOutbox() async throws {
+    let fixture = try RepositoryFixture()
+    let reminderEffects = TransientReminderEffects()
+    let store = LibraryStore(
+      repository: fixture.repository,
+      startImmediately: false,
+      taskMutationEffects: TaskMutationEffectExecutor { effect in
+        await reminderEffects.apply(effect)
+      }
+    )
+
+    let taskID = await store.createTask(
+      TaskDraft(
+        title: "Durable reminder",
+        data: TaskData(reminder: Date(timeIntervalSince1970: 1_900_000_000))
+      )
+    )
+
+    let pendingAfterFailure = try await fixture.repository.pendingTaskEffectOutboxCount()
+    let initialPresentation = TaskMutationWarningPresentation.make(
+      warnings: store.taskMutationWarnings
+    )
+    XCTAssertNotNil(taskID)
+    XCTAssertEqual(store.taskMutationWarnings.count, 1)
+    XCTAssertEqual(pendingAfterFailure, 1)
+
+    store.acknowledgeTaskMutationWarnings()
+
+    let pendingAfterAcknowledgement =
+      try await fixture.repository.pendingTaskEffectOutboxCount()
+    XCTAssertTrue(store.taskMutationWarnings.isEmpty)
+    XCTAssertNil(TaskMutationWarningPresentation.make(warnings: store.taskMutationWarnings))
+    XCTAssertEqual(pendingAfterAcknowledgement, 1)
+
+    let firstRetrySucceeded = await store.retryPendingTaskEffects()
+    let pendingAfterFailedRetry = try await fixture.repository.pendingTaskEffectOutboxCount()
+    let retryPresentation = TaskMutationWarningPresentation.make(
+      warnings: store.taskMutationWarnings
+    )
+    XCTAssertFalse(firstRetrySucceeded)
+    XCTAssertEqual(retryPresentation, initialPresentation)
+    XCTAssertEqual(pendingAfterFailedRetry, 1)
+
+    let retrySucceeded = await store.retryPendingTaskEffects()
+    let pendingAfterRetry = try await fixture.repository.pendingTaskEffectOutboxCount()
+    let reminderAttemptCount = await reminderEffects.reminderAttempts()
+    XCTAssertTrue(retrySucceeded)
+    XCTAssertTrue(store.taskMutationWarnings.isEmpty)
+    XCTAssertEqual(pendingAfterRetry, 0)
+    XCTAssertEqual(reminderAttemptCount, 3)
+  }
+
+  @MainActor
   func testTaskMutationReloadSkipsFullSystemReconciliation() async throws {
     let fixture = try RepositoryFixture()
     let probe = StoreReconciliationProbe()
@@ -1232,6 +1285,26 @@ final class LibraryRepositoryTests: XCTestCase {
       url: nil,
       calendarTitle: provider
     )
+  }
+}
+
+private actor TransientReminderEffects {
+  private var attempts = 0
+
+  func apply(_ effect: TaskMutationEffect) -> TaskMutationEffectDisposition {
+    switch effect {
+    case .scheduleReminder, .cancelReminder:
+      attempts += 1
+      return attempts <= 2
+        ? .failed("The reminder could not be scheduled: Service offline")
+        : .applied
+    case .reloadLibrary, .sync, .syncPurge, .indexSpotlight, .removeSpotlight, .reloadWidgets:
+      return .applied
+    }
+  }
+
+  func reminderAttempts() -> Int {
+    attempts
   }
 }
 

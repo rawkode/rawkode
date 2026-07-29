@@ -43,7 +43,8 @@ public final class LibraryStore {
     calendar: Calendar = .current,
     contactResolver: (any DeviceContactResolving)? = nil,
     startImmediately: Bool = true,
-    taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared
+    taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared,
+    taskMutationEffects: TaskMutationEffectExecutor? = nil
   ) {
     self.calendar = calendar
     self.contactResolver = contactResolver
@@ -59,10 +60,9 @@ public final class LibraryStore {
       }
     }
     if let repository = self.repository {
-      taskMutationCoordinator = TaskMutationCoordinator(
-        repository: repository,
-        calendar: calendar,
-        effects: .live(
+      let effects =
+        taskMutationEffects
+        ?? TaskMutationEffectExecutor.live(
           surface: .application,
           reload: { [weak self] in
             guard let self else { return .failed("The library is unavailable.") }
@@ -82,6 +82,10 @@ public final class LibraryStore {
             return .applied
           }
         )
+      taskMutationCoordinator = TaskMutationCoordinator(
+        repository: repository,
+        calendar: calendar,
+        effects: effects
       )
     }
     if startImmediately {
@@ -193,6 +197,20 @@ public final class LibraryStore {
       startupError = error.localizedDescription
       isLoading = false
     }
+  }
+
+  /// Dismisses the current presentation only. Durable side effects remain queued.
+  public func acknowledgeTaskMutationWarnings() {
+    taskMutationWarnings = []
+  }
+
+  /// Retries the existing durable outbox without replaying the persisted task mutation.
+  @discardableResult
+  public func retryPendingTaskEffects() async -> Bool {
+    guard let taskMutationCoordinator else { return false }
+    let outcomes = await taskMutationCoordinator.drainPendingEffects()
+    taskMutationWarnings = outcomes.compactMap(\.warning)
+    return taskMutationWarnings.isEmpty
   }
 
   @discardableResult
