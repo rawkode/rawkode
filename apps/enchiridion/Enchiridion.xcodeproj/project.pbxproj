@@ -23,6 +23,7 @@
 		2B4BA7A86289FDE6C71A5AC4 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7505584F1FCE5E2E0ACE89DD /* Speech.framework */; };
 		2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */; };
 		2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785C87A8657C874FF5403E84 /* MacSettingsView.swift */; };
+		2F7BD98BF9B80F87F0217CD8 /* TaskCompletionUndoModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */; };
 		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
 		32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
 		3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250D8A1FB97475734517559F /* MacDailyTaskContext.swift */; };
@@ -79,6 +80,7 @@
 		A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */; };
 		A40D92F77ECEF3BD9F93F222 /* TaskMutationWarningModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */; };
 		A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
+		A560FD670108778F88258DF9 /* TaskCompletionUndoModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */; };
 		A5744F1937704BEFF5CD50DD /* CalendarAgendaRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */; };
 		A7072F79F1EB9FDB56A85572 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		A79AD5EDE80E4592564CB9C7 /* TaskReminderAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */; };
@@ -196,6 +198,7 @@
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
 		948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSystemSpeechOutput.swift; sourceTree = "<group>"; };
 		96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
+		96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionUndoModifier.swift; sourceTree = "<group>"; };
 		9AE19FE9B39E75CC38B2F324 /* Contacts.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Contacts.framework; path = System/Library/Frameworks/Contacts.framework; sourceTree = SDKROOT; };
 		9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceView.swift; sourceTree = "<group>"; };
 		9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardElementOverlay.swift; sourceTree = "<group>"; };
@@ -366,6 +369,7 @@
 				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
 				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
 				FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */,
+				96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */,
 				5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */,
 				F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */,
 				28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */,
@@ -641,6 +645,7 @@
 				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
 				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
 				15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */,
+				A560FD670108778F88258DF9 /* TaskCompletionUndoModifier.swift in Sources */,
 				E1933CD85E9587F250228CFE /* TaskManagementViews.swift in Sources */,
 				A40D92F77ECEF3BD9F93F222 /* TaskMutationWarningModifier.swift in Sources */,
 				5ED250DC36C0979006A5BC2A /* TaskPlanningViews.swift in Sources */,
@@ -698,6 +703,7 @@
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
 				F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */,
+				2F7BD98BF9B80F87F0217CD8 /* TaskCompletionUndoModifier.swift in Sources */,
 				4D9ECB3247D1E94F2F5BCE1E /* TaskManagementViews.swift in Sources */,
 				ADFEEFED47744B5DDC927214 /* TaskMutationWarningModifier.swift in Sources */,
 				7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */,

@@ -102,6 +102,7 @@ struct MobileRootView: View {
     { _ in
       isKeyboardVisible = false
     }
+    .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
   }
 

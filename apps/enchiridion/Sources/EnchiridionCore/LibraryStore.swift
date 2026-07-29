@@ -6,6 +6,21 @@ public enum LibraryReloadPolicy: Equatable, Sendable {
   case reconcileSystemState
 }
 
+public struct TaskCompletionUndoOffer: Equatable, Sendable {
+  public let taskTitle: String
+  public let receipt: TaskCompletionUndoReceipt
+
+  public init(taskTitle: String, receipt: TaskCompletionUndoReceipt) {
+    self.taskTitle = taskTitle
+    self.receipt = receipt
+  }
+
+  public init?(completion: TaskCompletionResult) {
+    guard let receipt = completion.undoReceipt else { return nil }
+    self.init(taskTitle: completion.completed.displayTitle, receipt: receipt)
+  }
+}
+
 @MainActor
 @Observable
 public final class LibraryStore {
@@ -23,6 +38,8 @@ public final class LibraryStore {
   public private(set) var isLoading = true
   public private(set) var startupError: String?
   public private(set) var taskMutationWarnings: [TaskMutationWarning] = []
+  public private(set) var latestTaskCompletionUndoOffer: TaskCompletionUndoOffer?
+  public private(set) var taskCompletionUndoFailure: String?
   public private(set) var calendarError: String?
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
@@ -37,6 +54,7 @@ public final class LibraryStore {
     TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
+  @ObservationIgnored private var taskCompletionOfferGeneration: UInt64 = 0
 
   public init(
     repository: LibraryRepository? = nil,
@@ -440,11 +458,41 @@ public final class LibraryStore {
   }
 
   @discardableResult
+  public func completeTaskOfferingUndo(_ pageID: PageID) async -> TaskCompletionResult? {
+    taskCompletionOfferGeneration &+= 1
+    let offerGeneration = taskCompletionOfferGeneration
+    guard let result = await completeTask(pageID) else { return nil }
+    guard offerGeneration == taskCompletionOfferGeneration else { return result }
+    latestTaskCompletionUndoOffer = TaskCompletionUndoOffer(completion: result)
+    taskCompletionUndoFailure = nil
+    return result
+  }
+
+  @discardableResult
   public func undoTaskCompletion(
     _ receipt: TaskCompletionUndoReceipt
   ) async -> TaskCompletionUndoResult? {
     guard let taskMutationCoordinator else { return nil }
     return taskMutationValue(from: await taskMutationCoordinator.undoCompletion(receipt))
+  }
+
+  @discardableResult
+  public func undoLatestTaskCompletion() async -> TaskCompletionUndoResult? {
+    guard let offer = latestTaskCompletionUndoOffer else { return nil }
+    let result = await undoTaskCompletion(offer.receipt)
+    guard latestTaskCompletionUndoOffer?.receipt == offer.receipt else { return result }
+    if result != nil {
+      dismissLatestTaskCompletionUndo()
+    } else {
+      taskCompletionUndoFailure =
+        startupError ?? "The task changed after completion, so Undo was not applied."
+    }
+    return result
+  }
+
+  public func dismissLatestTaskCompletionUndo() {
+    latestTaskCompletionUndoOffer = nil
+    taskCompletionUndoFailure = nil
   }
 
   @discardableResult

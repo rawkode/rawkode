@@ -361,7 +361,7 @@ struct TaskListContent: View {
         if !workbench.isSelecting {
           if task.data.state == .active {
             Button {
-              Task { await store.completeTask(task.id) }
+              Task { await store.completeTaskOfferingUndo(task.id) }
             } label: {
               Label("Complete", systemImage: "checkmark")
             }
@@ -380,7 +380,7 @@ struct TaskListContent: View {
         if !workbench.isSelecting {
           if task.data.state == .active {
             Button("Complete", systemImage: "checkmark.circle") {
-              Task { await store.completeTask(task.id) }
+              Task { await store.completeTaskOfferingUndo(task.id) }
             }
             Button("Move to Someday", systemImage: "archivebox") {
               var data = task.data
@@ -506,7 +506,7 @@ struct TaskRow: View {
     Button {
       Task {
         if task.data.state == .active {
-          await store.completeTask(task.id)
+          await store.completeTaskOfferingUndo(task.id)
         } else {
           await store.reopenTask(task.id)
         }
@@ -646,7 +646,7 @@ struct TaskDetailScreen: View {
             Button {
               Task {
                 if data.state == .active {
-                  await store.completeTask(pageID)
+                  await store.completeTaskOfferingUndo(pageID)
                 } else {
                   await store.reopenTask(pageID)
                 }

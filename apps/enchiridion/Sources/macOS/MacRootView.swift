@@ -380,6 +380,7 @@ struct MacRootView: View {
     .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
       store.purge(pageID: $0)
     }
+    .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
   }
 

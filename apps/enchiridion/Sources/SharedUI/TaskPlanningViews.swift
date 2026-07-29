@@ -64,7 +64,7 @@ struct ProjectTaskListContent: View {
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
               if !workbench.isSelecting {
                 Button {
-                  Task { await store.completeTask(row.id) }
+                  Task { await store.completeTaskOfferingUndo(row.id) }
                 } label: {
                   Label("Complete", systemImage: "checkmark")
                 }
@@ -77,7 +77,7 @@ struct ProjectTaskListContent: View {
                   subtaskParent = row.task
                 }
                 Button("Complete", systemImage: "checkmark.circle") {
-                  Task { await store.completeTask(row.id) }
+                  Task { await store.completeTaskOfferingUndo(row.id) }
                 }
                 Button("Cancel", systemImage: "xmark.circle", role: .destructive) {
                   Task { await store.cancelTask(row.id) }

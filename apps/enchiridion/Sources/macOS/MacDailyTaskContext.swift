@@ -197,7 +197,7 @@ struct MacDailyTaskContext: View {
   private func complete(_ task: TaskItem) {
     Task { @MainActor in
       guard await flushBeforeChange() else { return }
-      await store.completeTask(task.id)
+      await store.completeTaskOfferingUndo(task.id)
     }
   }
 
