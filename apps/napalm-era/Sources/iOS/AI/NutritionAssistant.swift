@@ -39,6 +39,9 @@ enum NutritionAssistantInput: @unchecked Sendable {
         if case .image(let image, _, _) = self { image } else { nil }
     }
 
+    var requiresOCR: Bool {
+        if case .image(_, .label, _) = self { true } else { false }
+    }
 }
 
 enum NutritionModelRoute: String, Codable, Sendable {
@@ -51,9 +54,29 @@ struct NutritionModelEndpointState: Equatable, Sendable {
     let isAvailable: Bool
     let isAtQuota: Bool
     let supportsVision: Bool
+    let supportsGuidedGeneration: Bool
+    let supportsToolCalling: Bool
 
-    func canHandle(requiresVision: Bool) -> Bool {
-        isAvailable && !isAtQuota && (!requiresVision || supportsVision)
+    init(
+        isAvailable: Bool,
+        isAtQuota: Bool,
+        supportsVision: Bool,
+        supportsGuidedGeneration: Bool = true,
+        supportsToolCalling: Bool = true
+    ) {
+        self.isAvailable = isAvailable
+        self.isAtQuota = isAtQuota
+        self.supportsVision = supportsVision
+        self.supportsGuidedGeneration = supportsGuidedGeneration
+        self.supportsToolCalling = supportsToolCalling
+    }
+
+    func canHandle(requiresVision: Bool, requiresToolCalling: Bool = false) -> Bool {
+        isAvailable
+            && !isAtQuota
+            && supportsGuidedGeneration
+            && (!requiresVision || supportsVision)
+            && (!requiresToolCalling || supportsToolCalling)
     }
 }
 
@@ -61,10 +84,15 @@ enum NutritionRoutingPolicy {
     static func preferredRoute(
         pcc: NutritionModelEndpointState,
         onDevice: NutritionModelEndpointState,
-        requiresVision: Bool
+        requiresVision: Bool,
+        requiresToolCalling: Bool = false
     ) -> NutritionModelRoute? {
-        if pcc.canHandle(requiresVision: requiresVision) { return .privateCloudCompute }
-        if onDevice.canHandle(requiresVision: requiresVision) { return .onDevice }
+        if pcc.canHandle(requiresVision: requiresVision, requiresToolCalling: requiresToolCalling) {
+            return .privateCloudCompute
+        }
+        if onDevice.canHandle(requiresVision: requiresVision, requiresToolCalling: requiresToolCalling) {
+            return .onDevice
+        }
         return nil
     }
 }
@@ -300,18 +328,25 @@ actor FoundationModelsNutritionAssistant: NutritionAssistantClient {
 
     nonisolated var availability: NutritionAssistantAvailability {
         let pcc = PrivateCloudComputeLanguageModel()
-        if pcc.isAvailable, !pcc.quotaUsage.isLimitReached {
+        if pcc.isAvailable,
+           !pcc.quotaUsage.isLimitReached,
+           pcc.capabilities.contains(.guidedGeneration) {
             return .available("Private Cloud Compute is ready. The on-device system model remains the automatic fallback.")
         }
 
-        if SystemLanguageModel.default.isAvailable {
+        let local = SystemLanguageModel.default
+        if local.isAvailable, local.capabilities.contains(.guidedGeneration) {
             let reason = pcc.quotaUsage.isLimitReached
                 ? "Private Cloud Compute's daily limit has been reached, so nutrition capture is using the on-device system model."
                 : "Nutrition capture is using the on-device system model because Private Cloud Compute is not ready."
             return .available(reason)
         }
 
-        return .unavailable(Self.unavailabilityReason(pcc: pcc, requiresVision: false))
+        return .unavailable(Self.unavailabilityReason(
+            pcc: pcc,
+            requiresVision: false,
+            requiresToolCalling: false
+        ))
     }
 
     func analyze(input: NutritionAssistantInput) async throws -> NutritionAssistantResult {
@@ -323,7 +358,11 @@ actor FoundationModelsNutritionAssistant: NutritionAssistantClient {
                 Attachment(image).label("nutrition-input")
             }
         }
-        return try await respond(to: prompt, requiresVision: input.image != nil)
+        return try await respond(
+            to: prompt,
+            requiresVision: input.image != nil,
+            requiresOCR: input.requiresOCR
+        )
     }
 
     func revise(draft: NutritionDraft, instruction: String) async throws -> NutritionAssistantResult {
@@ -333,49 +372,77 @@ actor FoundationModelsNutritionAssistant: NutritionAssistantClient {
             draft
             "Correction: \(instruction)"
         }
-        return try await respond(to: prompt, requiresVision: false)
+        return try await respond(to: prompt, requiresVision: false, requiresOCR: false)
     }
 
-    private func respond(to prompt: Prompt, requiresVision: Bool) async throws -> NutritionAssistantResult {
+    private func respond(
+        to prompt: Prompt,
+        requiresVision: Bool,
+        requiresOCR: Bool
+    ) async throws -> NutritionAssistantResult {
         let pcc = PrivateCloudComputeLanguageModel()
         let local = SystemLanguageModel.default
         let pccState = NutritionModelEndpointState(
             isAvailable: pcc.isAvailable,
             isAtQuota: pcc.quotaUsage.isLimitReached,
-            supportsVision: pcc.capabilities.contains(.vision)
+            supportsVision: pcc.capabilities.contains(.vision),
+            supportsGuidedGeneration: pcc.capabilities.contains(.guidedGeneration),
+            supportsToolCalling: pcc.capabilities.contains(.toolCalling)
         )
         let localState = NutritionModelEndpointState(
             isAvailable: local.isAvailable,
             isAtQuota: false,
-            supportsVision: local.capabilities.contains(.vision)
+            supportsVision: local.capabilities.contains(.vision),
+            supportsGuidedGeneration: local.capabilities.contains(.guidedGeneration),
+            supportsToolCalling: local.capabilities.contains(.toolCalling)
         )
 
         if NutritionRoutingPolicy.preferredRoute(
             pcc: pccState,
             onDevice: localState,
-            requiresVision: requiresVision
+            requiresVision: requiresVision,
+            requiresToolCalling: requiresOCR
         ) == .privateCloudCompute {
             do {
-                return try await generate(model: pcc, prompt: prompt, route: .privateCloudCompute)
+                return try await generate(
+                    model: pcc,
+                    prompt: prompt,
+                    route: .privateCloudCompute,
+                    usesOCR: requiresOCR
+                )
             } catch {
                 // A local retry preserves the no-form capture path when PCC is offline or at quota.
             }
         }
 
-        if localState.canHandle(requiresVision: requiresVision) {
-            return try await generate(model: local, prompt: prompt, route: .onDevice)
+        if localState.canHandle(requiresVision: requiresVision, requiresToolCalling: requiresOCR) {
+            return try await generate(
+                model: local,
+                prompt: prompt,
+                route: .onDevice,
+                usesOCR: requiresOCR
+            )
         }
-        throw NutritionAssistantError.unavailable(Self.unavailabilityReason(pcc: pcc, requiresVision: requiresVision))
+        throw NutritionAssistantError.unavailable(Self.unavailabilityReason(
+            pcc: pcc,
+            requiresVision: requiresVision,
+            requiresToolCalling: requiresOCR
+        ))
     }
 
     private func generate<Model: LanguageModel>(
         model: Model,
         prompt: Prompt,
-        route: NutritionModelRoute
+        route: NutritionModelRoute,
+        usesOCR: Bool
     ) async throws -> NutritionAssistantResult {
         #if canImport(_Vision_FoundationModels)
-        let session = LanguageModelSession(model: model, tools: [OCRTool()], instructions: Self.instructions)
+        let tools: [any Tool] = usesOCR ? [OCRTool()] : []
+        let session = LanguageModelSession(model: model, tools: tools, instructions: Self.instructions)
         #else
+        guard !usesOCR else {
+            throw NutritionAssistantError.unavailable("Apple's OCR model is unavailable on this device. Text and meal-photo capture remain available.")
+        }
         let session = LanguageModelSession(model: model, instructions: Self.instructions)
         #endif
         let response = try await session.respond(
@@ -405,14 +472,34 @@ actor FoundationModelsNutritionAssistant: NutritionAssistantClient {
 
     nonisolated private static func unavailabilityReason(
         pcc: PrivateCloudComputeLanguageModel,
-        requiresVision: Bool
+        requiresVision: Bool,
+        requiresToolCalling: Bool
     ) -> String {
         let local = SystemLanguageModel.default
+        let pccReady = pcc.isAvailable && !pcc.quotaUsage.isLimitReached
+        let localReady = local.isAvailable
+
+        if pccReady || localReady {
+            let supportsGuidedGeneration = (pccReady && pcc.capabilities.contains(.guidedGeneration))
+                || (localReady && local.capabilities.contains(.guidedGeneration))
+            if !supportsGuidedGeneration {
+                return "The available Apple Foundation Models do not support structured nutrition generation. There is no manual nutrition-entry fallback."
+            }
+        }
+
         if requiresVision {
-            let pccCanSee = pcc.isAvailable && !pcc.quotaUsage.isLimitReached && pcc.capabilities.contains(.vision)
-            let localCanSee = local.isAvailable && local.capabilities.contains(.vision)
+            let pccCanSee = pccReady && pcc.capabilities.contains(.vision)
+            let localCanSee = localReady && local.capabilities.contains(.vision)
             if !pccCanSee, !localCanSee, pcc.isAvailable || local.isAvailable {
                 return "The available Apple Foundation Models on this device do not support image analysis. Text and voice nutrition capture remain available."
+            }
+        }
+
+        if requiresToolCalling {
+            let pccCanCallTools = pccReady && pcc.capabilities.contains(.toolCalling)
+            let localCanCallTools = localReady && local.capabilities.contains(.toolCalling)
+            if !pccCanCallTools, !localCanCallTools {
+                return "The available Apple Foundation Models do not support nutrition-label OCR. Text, voice, and meal-photo capture remain available."
             }
         }
 

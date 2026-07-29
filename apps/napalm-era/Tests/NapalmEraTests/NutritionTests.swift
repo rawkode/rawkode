@@ -76,6 +76,44 @@ final class NutritionTests: XCTestCase {
         XCTAssertEqual(NutritionRoutingPolicy.preferredRoute(pcc: noVision, onDevice: noVision, requiresVision: false), .privateCloudCompute)
     }
 
+    func testRoutingRequiresGuidedGenerationForNutritionDrafts() {
+        let unsupported = NutritionModelEndpointState(
+            isAvailable: true,
+            isAtQuota: false,
+            supportsVision: true,
+            supportsGuidedGeneration: false
+        )
+        XCTAssertNil(NutritionRoutingPolicy.preferredRoute(
+            pcc: unsupported,
+            onDevice: unsupported,
+            requiresVision: false
+        ))
+    }
+
+    func testRoutingRequiresToolCallingOnlyForLabelOCR() {
+        let noTools = NutritionModelEndpointState(
+            isAvailable: true,
+            isAtQuota: false,
+            supportsVision: true,
+            supportsToolCalling: false
+        )
+        XCTAssertEqual(
+            NutritionRoutingPolicy.preferredRoute(
+                pcc: noTools,
+                onDevice: noTools,
+                requiresVision: true,
+                requiresToolCalling: false
+            ),
+            .privateCloudCompute
+        )
+        XCTAssertNil(NutritionRoutingPolicy.preferredRoute(
+            pcc: noTools,
+            onDevice: noTools,
+            requiresVision: true,
+            requiresToolCalling: true
+        ))
+    }
+
     func testRoutingDisablesCaptureWhenNeitherModelIsAvailable() {
         let unavailable = NutritionModelEndpointState(isAvailable: false, isAtQuota: false, supportsVision: false)
         XCTAssertNil(NutritionRoutingPolicy.preferredRoute(pcc: unavailable, onDevice: unavailable, requiresVision: false))
