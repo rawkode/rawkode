@@ -10,6 +10,14 @@ public enum TaskReminderAuthorizationStatus: String, Sendable {
   case ephemeral
 }
 
+public enum TaskReminderEffectOutcome: Equatable, Sendable {
+  case applied
+  case unavailable
+  case authorizationRequired(TaskReminderAuthorizationStatus)
+  case authorizationRequestFailed(String)
+  case schedulingFailed(String)
+}
+
 public enum TaskReminderAction: String, CaseIterable, Equatable, Sendable {
   case complete
   case snooze
@@ -100,34 +108,51 @@ public actor TaskReminderScheduler {
     case .denied: TaskReminderAuthorizationStatus.denied
     case .authorized: TaskReminderAuthorizationStatus.authorized
     case .provisional: TaskReminderAuthorizationStatus.provisional
-    case .ephemeral: TaskReminderAuthorizationStatus.ephemeral
+    #if os(iOS)
+      case .ephemeral: TaskReminderAuthorizationStatus.ephemeral
+    #endif
     @unknown default: TaskReminderAuthorizationStatus.unavailable
     }
   }
 
+  @discardableResult
   public func schedule(
     _ task: PageSnapshot,
     requestingAuthorization: Bool = false,
     now: Date = Date(),
     calendar: Calendar = .current
-  ) async {
-    guard let center else { return }
+  ) async -> TaskReminderEffectOutcome {
+    guard let center else { return .unavailable }
     registerNotificationCategory()
     guard let data = task.taskData, data.state == .active,
       let reminder = data.reminder, reminder > now
     else {
-      cancel(task.id)
-      return
+      return cancel(task.id)
     }
 
     var settings = await center.notificationSettings()
     if settings.authorizationStatus == .notDetermined, requestingAuthorization {
-      _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+      do {
+        _ = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+      } catch {
+        return .authorizationRequestFailed(error.localizedDescription)
+      }
       settings = await center.notificationSettings()
     }
-    guard settings.authorizationStatus == .authorized
-      || settings.authorizationStatus == .provisional
-    else { return }
+    switch settings.authorizationStatus {
+    case .authorized, .provisional:
+      break
+    #if os(iOS)
+      case .ephemeral:
+        break
+    #endif
+    case .notDetermined:
+      return .authorizationRequired(.notDetermined)
+    case .denied:
+      return .authorizationRequired(.denied)
+    @unknown default:
+      return .authorizationRequired(.unavailable)
+    }
 
     let content = UNMutableNotificationContent()
     content.title = task.displayTitle
@@ -146,22 +171,29 @@ public actor TaskReminderScheduler {
       content: content,
       trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
     )
-    try? await center.add(request)
+    do {
+      try await center.add(request)
+      return .applied
+    } catch {
+      return .schedulingFailed(error.localizedDescription)
+    }
   }
 
   public func reconcile(_ tasks: [PageSnapshot]) async {
     guard let center else { return }
     let settings = await center.notificationSettings()
-    guard settings.authorizationStatus == .authorized
-      || settings.authorizationStatus == .provisional
+    guard
+      settings.authorizationStatus == .authorized
+        || settings.authorizationStatus == .provisional
     else { return }
 
-    let activeIDs = Set(tasks.compactMap { task -> String? in
-      guard let data = task.taskData, data.state == .active,
-        data.reminder.map({ $0 > Date() }) == true
-      else { return nil }
-      return identifier(for: task.id)
-    })
+    let activeIDs = Set(
+      tasks.compactMap { task -> String? in
+        guard let data = task.taskData, data.state == .active,
+          data.reminder.map({ $0 > Date() }) == true
+        else { return nil }
+        return identifier(for: task.id)
+      })
     let pending = await center.pendingNotificationRequests()
     let stale = pending.map(\.identifier).filter {
       $0.hasPrefix(identifierPrefix) && !activeIDs.contains($0)
@@ -170,10 +202,12 @@ public actor TaskReminderScheduler {
     for task in tasks { await schedule(task) }
   }
 
-  public func cancel(_ pageID: PageID) {
-    guard let center else { return }
+  @discardableResult
+  public func cancel(_ pageID: PageID) -> TaskReminderEffectOutcome {
+    guard let center else { return .unavailable }
     center.removePendingNotificationRequests(withIdentifiers: [identifier(for: pageID)])
     center.removeDeliveredNotifications(withIdentifiers: [identifier(for: pageID)])
+    return .applied
   }
 
   public nonisolated static func route(

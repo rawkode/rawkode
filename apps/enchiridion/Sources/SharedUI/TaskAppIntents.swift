@@ -283,7 +283,7 @@ struct CompleteEnchiridionTaskIntent: AppIntent {
   static let description = IntentDescription("Completes a task and creates its next occurrence if it repeats.")
 
   @Parameter(title: "Task")
-  var task: ClosedEnchiridionTaskEntity
+  var task: EnchiridionTaskEntity
 
   static var parameterSummary: some ParameterSummary {
     Summary("Complete \(\.$task)")
@@ -306,7 +306,7 @@ struct ReopenEnchiridionTaskIntent: AppIntent {
   static let description = IntentDescription("Returns a completed or canceled task to its active list.")
 
   @Parameter(title: "Task")
-  var task: EnchiridionTaskEntity
+  var task: ClosedEnchiridionTaskEntity
 
   static var parameterSummary: some ParameterSummary {
     Summary("Reopen \(\.$task)")
@@ -453,7 +453,7 @@ private func intentMutationValue<Value: Sendable>(
   _ result: TaskMutationResult<Value>
 ) throws -> Value {
   switch result {
-  case .success(let success): success.value
+  case .success(let success): return success.value
   case .failure(let failure):
     switch failure.reason {
     case .taskNotActive: throw EnchiridionTaskIntentError.taskNotActive

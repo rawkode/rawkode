@@ -99,6 +99,40 @@ public actor TaskSystemHandoffCoordinator {
   }
 }
 
+/// Runs system mutations one at a time even when an operation suspends. Actors
+/// are otherwise reentrant across `await`, which is unsafe for replace-all
+/// operations such as Spotlight reconciliation.
+actor TaskSystemExclusiveOperationLane {
+  private var isActive = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func perform<Value: Sendable>(
+    _ operation: @escaping @Sendable () async throws -> Value
+  ) async rethrows -> Value {
+    await acquire()
+    defer { release() }
+    return try await operation()
+  }
+
+  private func acquire() async {
+    guard isActive else {
+      isActive = true
+      return
+    }
+    await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  private func release() {
+    guard !waiters.isEmpty else {
+      isActive = false
+      return
+    }
+    waiters.removeFirst().resume()
+  }
+}
+
 /// Coalesces expensive system reconciliation behind one serial lane. If state
 /// changes while a reconciliation is running, only the newest queued snapshot
 /// runs next and therefore becomes the final Spotlight and notification state.

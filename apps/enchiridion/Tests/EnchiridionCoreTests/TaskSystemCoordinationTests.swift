@@ -108,6 +108,39 @@ final class TaskSystemCoordinationTests: XCTestCase {
     XCTAssertEqual(snapshot.maximumConcurrentOperations, 1)
   }
 
+  func testExclusiveOperationLaneDoesNotReenterAcrossSuspension() async {
+    let lane = TaskSystemExclusiveOperationLane()
+    let gate = OneShotGate()
+    let probe = ExclusiveLaneProbe()
+
+    let first = Task {
+      await lane.perform {
+        await probe.enter("first")
+        await gate.enterAndWait()
+        await probe.leave("first")
+      }
+    }
+    await gate.waitUntilEntered()
+    let second = Task {
+      await lane.perform {
+        await probe.enter("second")
+        await probe.leave("second")
+      }
+    }
+    await Task.yield()
+    let concurrentBeforeRelease = await probe.maximumConcurrentOperations()
+    XCTAssertEqual(concurrentBeforeRelease, 1)
+
+    await gate.release()
+    await first.value
+    await second.value
+
+    let events = await probe.events()
+    let maximumConcurrentOperations = await probe.maximumConcurrentOperations()
+    XCTAssertEqual(events, ["first:start", "first:end", "second:start", "second:end"])
+    XCTAssertEqual(maximumConcurrentOperations, 1)
+  }
+
   private func waitUntilSubmitted(
     _ count: UInt64,
     to coordinator: TaskSystemHandoffCoordinator
@@ -196,4 +229,25 @@ private actor ReconciliationProbe {
       maximumConcurrentOperations: maximumConcurrentOperations
     )
   }
+}
+
+private actor ExclusiveLaneProbe {
+  private var recordedEvents: [String] = []
+  private var concurrentOperations = 0
+  private var maximumConcurrent = 0
+
+  func enter(_ name: String) {
+    concurrentOperations += 1
+    maximumConcurrent = max(maximumConcurrent, concurrentOperations)
+    recordedEvents.append("\(name):start")
+  }
+
+  func leave(_ name: String) {
+    recordedEvents.append("\(name):end")
+    concurrentOperations -= 1
+  }
+
+  func events() -> [String] { recordedEvents }
+
+  func maximumConcurrentOperations() -> Int { maximumConcurrent }
 }

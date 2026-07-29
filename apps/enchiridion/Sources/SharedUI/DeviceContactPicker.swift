@@ -81,16 +81,18 @@ private struct IOSContactPicker: UIViewControllerRepresentable {
 
   func updateUIViewController(_ controller: CNContactPickerViewController, context: Context) {}
 
-  final class Coordinator: NSObject, CNContactPickerDelegate {
+  final class Coordinator: NSObject, @MainActor CNContactPickerDelegate {
     let parent: IOSContactPicker
 
     init(parent: IOSContactPicker) { self.parent = parent }
 
+    @MainActor
     func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact) {
       parent.selectContact(contact)
       parent.dismiss()
     }
 
+    @MainActor
     func contactPickerDidCancel(_ picker: CNContactPickerViewController) {
       parent.dismiss()
     }

@@ -8,6 +8,7 @@ public enum TaskMutationOperation: String, Equatable, Sendable {
   case create
   case update
   case complete
+  case undoCompletion
   case reopen
   case cancel
   case moveToTrash
@@ -21,6 +22,7 @@ public enum TaskMutationFailureReason: Equatable, Sendable {
   case invalidRecord
   case taskNotActive
   case taskNotClosed
+  case completionUndoUnavailable
   case databaseUnavailable(String)
   case unexpected(String)
 }
@@ -46,6 +48,8 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
       "Only active tasks can be completed."
     case .taskNotClosed:
       "Only completed or canceled tasks can be reopened."
+    case .completionUndoUnavailable:
+      "The task or its recurring successor changed after completion, so the completion was not undone."
     case .databaseUnavailable(let message):
       "The local library could not be opened: \(message)"
     case .unexpected(let message):
@@ -60,6 +64,7 @@ extension TaskMutationOperation {
     case .create: "created"
     case .update: "updated"
     case .complete: "completed"
+    case .undoCompletion: "restored"
     case .reopen: "reopened"
     case .cancel: "canceled"
     case .moveToTrash: "moved to the trash"
@@ -82,6 +87,10 @@ public enum TaskMutationEffectDisposition: Equatable, Sendable {
   case notNeeded
   case deferred(TaskMutationDeferralReason)
   case failed(String)
+
+  var acknowledgesDurableEffect: Bool {
+    self == .applied || self == .notNeeded
+  }
 }
 
 public enum TaskMutationEffect: Equatable, Sendable {
@@ -155,6 +164,33 @@ public struct TaskMutationEffectOutcome: Equatable, Sendable {
     self.effect = effect
     self.disposition = disposition
   }
+
+  public var warning: TaskMutationWarning? {
+    let message: String
+    switch disposition {
+    case .applied, .notNeeded:
+      return nil
+    case .failed(let failure):
+      message = failure
+    case .deferred(.hostApplicationRequired):
+      message = "A task system update is queued until Enchiridion next opens."
+    case .deferred(.unsupportedPlatform):
+      message = "A task system update is unavailable on this platform."
+    case .deferred(.durableRetryScheduled):
+      message = "A task system update is queued and will retry."
+    }
+    return TaskMutationWarning(effect: effect, message: message)
+  }
+}
+
+public struct TaskMutationWarning: Equatable, Sendable {
+  public let effect: TaskMutationEffect
+  public let message: String
+
+  public init(effect: TaskMutationEffect, message: String) {
+    self.effect = effect
+    self.message = message
+  }
 }
 
 public struct TaskMutationSuccess<Value: Sendable>: Sendable {
@@ -173,6 +209,10 @@ public struct TaskMutationSuccess<Value: Sendable>: Sendable {
     self.value = value
     self.changedPageIDs = changedPageIDs
     self.sideEffects = sideEffects
+  }
+
+  public var warnings: [TaskMutationWarning] {
+    sideEffects.compactMap(\.warning)
   }
 }
 
@@ -203,6 +243,49 @@ public enum TaskWidgetIdentifiers {
   public static let todayTasks = "EnchiridionTodayTasksWidget"
 }
 
+struct TaskSystemEffectAdapters: Sendable {
+  typealias ScheduleReminder =
+    @Sendable (PageSnapshot, Bool) async -> TaskReminderEffectOutcome
+  typealias CancelReminder = @Sendable (PageID) async -> TaskReminderEffectOutcome
+  typealias IndexSpotlight = @Sendable (PageSnapshot) async -> TaskSpotlightEffectOutcome
+  typealias RemoveSpotlight = @Sendable (PageID) async -> TaskSpotlightEffectOutcome
+
+  let scheduleReminder: ScheduleReminder
+  let cancelReminder: CancelReminder
+  let indexSpotlight: IndexSpotlight
+  let removeSpotlight: RemoveSpotlight
+
+  init(
+    scheduleReminder: @escaping ScheduleReminder,
+    cancelReminder: @escaping CancelReminder,
+    indexSpotlight: @escaping IndexSpotlight,
+    removeSpotlight: @escaping RemoveSpotlight
+  ) {
+    self.scheduleReminder = scheduleReminder
+    self.cancelReminder = cancelReminder
+    self.indexSpotlight = indexSpotlight
+    self.removeSpotlight = removeSpotlight
+  }
+
+  static let live = Self(
+    scheduleReminder: { page, requestingAuthorization in
+      await TaskReminderScheduler.shared.schedule(
+        page,
+        requestingAuthorization: requestingAuthorization
+      )
+    },
+    cancelReminder: { pageID in
+      await TaskReminderScheduler.shared.cancel(pageID)
+    },
+    indexSpotlight: { page in
+      await TaskSystemSpotlight.index(page)
+    },
+    removeSpotlight: { pageID in
+      await TaskSystemSpotlight.remove(pageID)
+    }
+  )
+}
+
 public struct TaskMutationEffectExecutor: Sendable {
   public typealias Handler =
     @Sendable (TaskMutationEffect) async -> TaskMutationEffectDisposition
@@ -223,6 +306,22 @@ public struct TaskMutationEffectExecutor: Sendable {
     sync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil,
     purgeSync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil
   ) -> Self {
+    live(
+      surface: surface,
+      systemEffects: .live,
+      reload: reload,
+      sync: sync,
+      purgeSync: purgeSync
+    )
+  }
+
+  static func live(
+    surface: TaskMutationSurface,
+    systemEffects: TaskSystemEffectAdapters,
+    reload: (@MainActor @Sendable () async -> TaskMutationEffectDisposition)? = nil,
+    sync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil,
+    purgeSync: (@MainActor @Sendable (PageID) async -> TaskMutationEffectDisposition)? = nil
+  ) -> Self {
     Self { effect in
       switch effect {
       case .reloadLibrary:
@@ -238,23 +337,16 @@ public struct TaskMutationEffectExecutor: Sendable {
         guard surface.canManageAppNotifications else {
           return .deferred(.hostApplicationRequired)
         }
-        await TaskReminderScheduler.shared.schedule(
-          page,
-          requestingAuthorization: requestingAuthorization
-        )
-        return .applied
+        return await systemEffects.scheduleReminder(page, requestingAuthorization).disposition
       case .cancelReminder(let pageID):
         guard surface.canManageAppNotifications else {
           return .deferred(.hostApplicationRequired)
         }
-        await TaskReminderScheduler.shared.cancel(pageID)
-        return .applied
+        return await systemEffects.cancelReminder(pageID).disposition
       case .indexSpotlight(let page):
-        await TaskSystemSpotlight.index(page)
-        return .applied
+        return await systemEffects.indexSpotlight(page).disposition
       case .removeSpotlight(let pageID):
-        await TaskSystemSpotlight.remove(pageID)
-        return .applied
+        return await systemEffects.removeSpotlight(pageID).disposition
       case .reloadWidgets:
         #if canImport(WidgetKit)
           WidgetCenter.shared.reloadTimelines(ofKind: TaskWidgetIdentifiers.todayTasks)
@@ -263,6 +355,51 @@ public struct TaskMutationEffectExecutor: Sendable {
           return .deferred(.unsupportedPlatform)
         #endif
       }
+    }
+  }
+}
+
+extension TaskReminderEffectOutcome {
+  fileprivate var disposition: TaskMutationEffectDisposition {
+    switch self {
+    case .applied:
+      .applied
+    case .unavailable:
+      .deferred(.unsupportedPlatform)
+    case .authorizationRequired(let status):
+      .failed("Reminder authorization is \(status.warningDescription).")
+    case .authorizationRequestFailed(let message):
+      .failed("Reminder authorization could not be requested: \(message)")
+    case .schedulingFailed(let message):
+      .failed("The reminder could not be scheduled: \(message)")
+    }
+  }
+}
+
+extension TaskReminderAuthorizationStatus {
+  fileprivate var warningDescription: String {
+    switch self {
+    case .unavailable: "unavailable"
+    case .notDetermined: "still required"
+    case .denied: "denied"
+    case .authorized: "authorized"
+    case .provisional: "provisional"
+    case .ephemeral: "ephemeral"
+    }
+  }
+}
+
+extension TaskSpotlightEffectOutcome {
+  fileprivate var disposition: TaskMutationEffectDisposition {
+    switch self {
+    case .applied:
+      .applied
+    case .unavailable:
+      .deferred(.unsupportedPlatform)
+    case .indexingFailed(let message):
+      .failed("The task could not be indexed in Spotlight: \(message)")
+    case .removalFailed(let message):
+      .failed("The task could not be removed from Spotlight: \(message)")
     }
   }
 }
@@ -367,6 +504,34 @@ public actor TaskMutationCoordinator {
       )
     } catch {
       return .failure(failure(operation: .complete, error: error))
+    }
+  }
+
+  public func undoCompletion(
+    _ receipt: TaskCompletionUndoReceipt,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskCompletionUndoResult> {
+    do {
+      let result = try await repository.undoTaskCompletion(receipt, now: now)
+      var mutationEffects: [TaskMutationEffect] = [
+        .scheduleReminder(result.reopened, requestingAuthorization: false),
+        .indexSpotlight(result.reopened),
+      ]
+      var purgePageIDs: Set<PageID> = []
+      if let removedSuccessorID = result.removedSuccessorID {
+        mutationEffects.append(.cancelReminder(removedSuccessorID))
+        mutationEffects.append(.removeSpotlight(removedSuccessorID))
+        purgePageIDs.insert(removedSuccessorID)
+      }
+      return await success(
+        operation: .undoCompletion,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: mutationEffects,
+        purgePageIDs: purgePageIDs
+      )
+    } catch {
+      return .failure(failure(operation: .undoCompletion, error: error))
     }
   }
 
@@ -631,6 +796,8 @@ public actor TaskMutationCoordinator {
       reason = .taskNotActive
     case LibraryRepositoryError.taskNotClosed:
       reason = .taskNotClosed
+    case LibraryRepositoryError.taskCompletionUndoUnavailable:
+      reason = .completionUndoUnavailable
     case LibraryRepositoryError.databaseUnavailable(let message):
       reason = .databaseUnavailable(message)
     default:

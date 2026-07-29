@@ -9,6 +9,7 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case invalidRecord
   case taskNotActive
   case taskNotClosed
+  case taskCompletionUndoUnavailable
   case databaseUnavailable(String)
 
   public var errorDescription: String? {
@@ -18,6 +19,8 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .invalidRecord: "The local page record is invalid."
     case .taskNotActive: "Only active tasks can be completed."
     case .taskNotClosed: "Only completed or canceled tasks can be reopened."
+    case .taskCompletionUndoUnavailable:
+      "The task or its recurring successor changed after completion, so the completion was not undone."
     case .databaseUnavailable(let message): "The local library could not be opened: \(message)"
     }
   }
@@ -286,8 +289,9 @@ public actor LibraryRepository {
         ), let currentGeneration: Int64 = row["generation"]
       else { return .completed }
 
-      let succeeded = disposition == .applied || disposition == .notNeeded
-      if currentGeneration == claim.generation, succeeded {
+      if currentGeneration == claim.generation,
+        disposition.acknowledgesDurableEffect
+      {
         try db.execute(
           sql: """
             DELETE FROM task_effect_outbox
@@ -1264,6 +1268,7 @@ public actor LibraryRepository {
       }
       guard data.state == .active else { throw LibraryRepositoryError.taskNotActive }
 
+      let sourceBeforeTaskData = data
       data = Self.normalizedTaskData(
         data,
         pageID: pageID,
@@ -1320,7 +1325,15 @@ public actor LibraryRepository {
       )
 
       guard let preparedSuccessor else {
-        return TaskCompletionResult(completed: completed, successor: nil)
+        return TaskCompletionResult(
+          completed: completed,
+          successor: nil,
+          undoReceipt: try Self.taskCompletionUndoReceipt(
+            sourceBeforeTaskData: sourceBeforeTaskData,
+            completed: completed,
+            createdSuccessor: nil
+          )
+        )
       }
       let successorData = preparedSuccessor.data
       let successorID = preparedSuccessor.id
@@ -1337,7 +1350,9 @@ public actor LibraryRepository {
           requestingAuthorization: false,
           now: now
         )
-        return TaskCompletionResult(completed: completed, successor: existing)
+        // This invocation did not create the deterministic successor, so it cannot safely offer
+        // an inverse that removes it.
+        return TaskCompletionResult(completed: completed, successor: existing, undoReceipt: nil)
       }
 
       // Fork before applying completion so independently-created successors share the original
@@ -1366,6 +1381,11 @@ public actor LibraryRepository {
         in: successorBase.document
       )
       let successor = Self.updatedPage(successorBase, with: successorResult, now: now)
+      // Re-completing after an undo intentionally recreates the same deterministic occurrence.
+      try db.execute(
+        sql: "DELETE FROM purge_markers WHERE page_id = ?",
+        arguments: [successor.id.rawValue]
+      )
       try Self.writePage(db, page: successor, cloudDirty: true)
       try Self.replaceReferences(
         db,
@@ -1379,8 +1399,146 @@ public actor LibraryRepository {
         requestingAuthorization: false,
         now: now
       )
-      return TaskCompletionResult(completed: completed, successor: successor)
+      return TaskCompletionResult(
+        completed: completed,
+        successor: successor,
+        undoReceipt: try Self.taskCompletionUndoReceipt(
+          sourceBeforeTaskData: sourceBeforeTaskData,
+          completed: completed,
+          createdSuccessor: successor
+        )
+      )
     }
+  }
+
+  @discardableResult
+  public func undoTaskCompletion(
+    _ receipt: TaskCompletionUndoReceipt,
+    now: Date = Date()
+  ) throws -> TaskCompletionUndoResult {
+    try database.write { db in
+      guard receipt.sourceBeforeTaskData.state == .active,
+        let source = try Self.fetchPage(db, id: receipt.sourceAfterCompletion.id),
+        source.deletedAt == nil,
+        source.heads == receipt.sourceAfterCompletion.heads,
+        source.dirtyGeneration == receipt.sourceAfterCompletion.dirtyGeneration,
+        source.taskData?.state == .completed
+      else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
+
+      var successorToRemove: PageSnapshot?
+      if let createdSuccessor = receipt.createdSuccessor {
+        let sourceSeriesID = receipt.sourceBeforeTaskData.recurrenceSeriesID
+          ?? .derived(from: source.id)
+        let sourceSequence = receipt.sourceBeforeTaskData.recurrenceSequence ?? 0
+        let (expectedSequence, overflow) = sourceSequence.addingReportingOverflow(1)
+        guard receipt.sourceBeforeTaskData.recurrence != nil,
+          !overflow,
+          createdSuccessor.seriesID == sourceSeriesID,
+          createdSuccessor.sequence == expectedSequence,
+          createdSuccessor.version.id == PageID.taskOccurrence(
+            seriesID: sourceSeriesID,
+            sequence: expectedSequence
+          ),
+          let successor = try Self.fetchPage(db, id: createdSuccessor.version.id),
+          successor.deletedAt == nil,
+          successor.heads == createdSuccessor.version.heads,
+          successor.dirtyGeneration == createdSuccessor.version.dirtyGeneration,
+          let successorData = successor.taskData,
+          successorData.recurrenceSeriesID == createdSuccessor.seriesID,
+          successorData.recurrenceSequence == createdSuccessor.sequence,
+          try Bool.fetchOne(
+            db,
+            sql: "SELECT EXISTS(SELECT 1 FROM page_references WHERE target_page_id = ?)",
+            arguments: [successor.id.rawValue]
+          ) != true,
+          try Bool.fetchOne(
+            db,
+            sql: "SELECT EXISTS(SELECT 1 FROM purge_markers WHERE page_id = ?)",
+            arguments: [successor.id.rawValue]
+          ) != true
+        else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
+        successorToRemove = successor
+      }
+
+      let reopenedResult = try PageDocument.setProperties(
+        TaskFields.properties(for: receipt.sourceBeforeTaskData),
+        ensuring: BuiltInSupertags.task,
+        message: "Undo task completion",
+        in: source.document
+      )
+      let reopened = Self.updatedPage(source, with: reopenedResult, now: now)
+      try Self.writePage(db, page: reopened, cloudDirty: true)
+      try Self.replaceReferences(
+        db,
+        pageID: reopened.id,
+        references: reopenedResult.projection.references
+      )
+      try Self.enqueueTaskEffectOutbox(
+        db,
+        pageID: reopened.id,
+        generation: reopened.dirtyGeneration,
+        requestingAuthorization: false,
+        now: now
+      )
+
+      if let successorToRemove {
+        let purgeGeneration = successorToRemove.dirtyGeneration + 1
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO purge_markers
+              (page_id,generation,purged_at,cloud_dirty)
+            VALUES (?,?,?,1)
+            """,
+          arguments: [
+            successorToRemove.id.rawValue,
+            purgeGeneration,
+            now.timeIntervalSince1970,
+          ]
+        )
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: successorToRemove.id,
+          generation: purgeGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
+        try db.execute(
+          sql: "DELETE FROM pages WHERE id = ?",
+          arguments: [successorToRemove.id.rawValue]
+        )
+      }
+
+      return TaskCompletionUndoResult(
+        reopened: reopened,
+        removedSuccessorID: successorToRemove?.id
+      )
+    }
+  }
+
+  private static func taskCompletionUndoReceipt(
+    sourceBeforeTaskData: TaskData,
+    completed: PageSnapshot,
+    createdSuccessor: PageSnapshot?
+  ) throws -> TaskCompletionUndoReceipt {
+    let successorReceipt: TaskCreatedSuccessorReceipt?
+    if let createdSuccessor {
+      guard let data = createdSuccessor.taskData,
+        let seriesID = data.recurrenceSeriesID,
+        let sequence = data.recurrenceSequence
+      else { throw LibraryRepositoryError.invalidRecord }
+      successorReceipt = TaskCreatedSuccessorReceipt(
+        version: TaskPageVersion(createdSuccessor),
+        seriesID: seriesID,
+        sequence: sequence
+      )
+    } else {
+      successorReceipt = nil
+    }
+    return TaskCompletionUndoReceipt(
+      sourceAfterCompletion: TaskPageVersion(completed),
+      sourceBeforeTaskData: sourceBeforeTaskData,
+      createdSuccessor: successorReceipt
+    )
   }
 
   private static func normalizedTaskData(

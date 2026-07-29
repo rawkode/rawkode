@@ -93,7 +93,7 @@ final class TaskMutationCoordinatorTests: XCTestCase {
     )
   }
 
-  func testRepeatedCompletionReusesSuccessorAndStableSideEffectIdentifiers() async throws {
+  func testRepeatedCompletionFailsWithoutCreatingAnotherSuccessorOrEffects() async throws {
     let fixture = try TaskMutationFixture()
     let recorder = TaskMutationEffectRecorder()
     let coordinator = TaskMutationCoordinator(
@@ -122,22 +122,127 @@ final class TaskMutationCoordinatorTests: XCTestCase {
       )
     )
     let firstEffects = await recorder.take()
-    let second = try success(
-      await coordinator.complete(
-        created.value.id,
-        now: Date(timeIntervalSince1970: 1_800_172_800)
-      )
+    let second = await coordinator.complete(
+      created.value.id,
+      now: Date(timeIntervalSince1970: 1_800_172_800)
     )
     let secondEffects = await recorder.take()
 
     let successorID = try XCTUnwrap(first.value.successor?.id)
-    XCTAssertEqual(second.value.successor?.id, successorID)
     XCTAssertEqual(first.changedPageIDs, [created.value.id, successorID])
-    XCTAssertEqual(second.changedPageIDs, first.changedPageIDs)
-    XCTAssertEqual(firstEffects.map(\.stableIdentity), secondEffects.map(\.stableIdentity))
+    XCTAssertFalse(firstEffects.isEmpty)
+    XCTAssertEqual(
+      second,
+      .failure(
+        TaskMutationFailure(operation: .complete, reason: .taskNotActive)
+      )
+    )
+    XCTAssertTrue(secondEffects.isEmpty)
 
     let tasks = try await fixture.repository.pages(with: BuiltInSupertags.task)
     XCTAssertEqual(tasks.filter { $0.id == successorID }.count, 1)
+  }
+
+  func testCompletionUndoReopensSourcePurgesSuccessorAndRunsOrderedEffects() async throws {
+    let fixture = try TaskMutationFixture()
+    let recorder = TaskMutationEffectRecorder()
+    let coordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: TaskMutationEffectExecutor { effect in await recorder.apply(effect) }
+    )
+    let created = try success(
+      await coordinator.create(
+        TaskDraft(
+          title: "Undo recurring completion",
+          data: TaskData(
+            scheduledAt: Date(timeIntervalSince1970: 1_800_000_000),
+            recurrence: .init(mode: .fixedSchedule, unit: .day)
+          )
+        )
+      )
+    )
+    _ = await recorder.take()
+    let completed = try success(
+      await coordinator.complete(
+        created.value.id,
+        now: Date(timeIntervalSince1970: 1_800_086_400)
+      )
+    )
+    _ = await recorder.take()
+    let successorID = try XCTUnwrap(completed.value.successor?.id)
+    let receipt = try XCTUnwrap(completed.value.undoReceipt)
+
+    let undone = try success(
+      await coordinator.undoCompletion(
+        receipt,
+        now: Date(timeIntervalSince1970: 1_800_129_600)
+      )
+    )
+
+    try await assertEffects(
+      of: undone,
+      equal: [
+        .reloadLibrary,
+        .scheduleReminder(undone.value.reopened, requestingAuthorization: false),
+        .indexSpotlight(undone.value.reopened),
+        .cancelReminder(successorID),
+        .removeSpotlight(successorID),
+        .sync(created.value.id),
+        .syncPurge(successorID),
+        .reloadWidgets,
+      ],
+      recorder: recorder
+    )
+    XCTAssertEqual(undone.value.reopened.taskData?.state, .active)
+    let removedSuccessor = try await fixture.repository.page(id: successorID)
+    XCTAssertNil(removedSuccessor)
+  }
+
+  func testCompletionUndoConflictIsTypedAndDoesNotRunEffects() async throws {
+    let fixture = try TaskMutationFixture()
+    let recorder = TaskMutationEffectRecorder()
+    let coordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: TaskMutationEffectExecutor { effect in await recorder.apply(effect) }
+    )
+    let created = try success(
+      await coordinator.create(
+        TaskDraft(
+          title: "Protect changed recurrence",
+          data: TaskData(
+            scheduledAt: Date(timeIntervalSince1970: 1_800_000_000),
+            recurrence: .init(mode: .fixedSchedule, unit: .day)
+          )
+        )
+      )
+    )
+    _ = await recorder.take()
+    let completed = try success(
+      await coordinator.complete(
+        created.value.id,
+        now: Date(timeIntervalSince1970: 1_800_086_400)
+      )
+    )
+    _ = await recorder.take()
+    let successor = try XCTUnwrap(completed.value.successor)
+    var changedData = try XCTUnwrap(successor.taskData)
+    changedData.priority = .urgent
+    _ = try await fixture.repository.updateTask(pageID: successor.id, data: changedData)
+    let receipt = try XCTUnwrap(completed.value.undoReceipt)
+
+    let result = await coordinator.undoCompletion(receipt)
+
+    XCTAssertEqual(
+      result,
+      .failure(
+        TaskMutationFailure(
+          operation: .undoCompletion,
+          reason: .completionUndoUnavailable
+        )
+      )
+    )
+    let effects = await recorder.take()
+    XCTAssertTrue(effects.isEmpty)
   }
 
   func testRepositoryFailureIsTypedAndDoesNotRunSideEffects() async throws {
@@ -184,6 +289,115 @@ final class TaskMutationCoordinatorTests: XCTestCase {
     )
     let tasks = try await fixture.repository.pages(with: BuiltInSupertags.task)
     XCTAssertEqual(tasks.map(\.id), [success.value.id])
+  }
+
+  func testLiveAdaptersTranslateTypedReminderAndSpotlightFailures() async throws {
+    let fixture = try TaskMutationFixture()
+    let page = try await fixture.repository.createTask(TaskDraft(title: "Typed adapters"))
+
+    let authorizationExecutor = TaskMutationEffectExecutor.live(
+      surface: .application,
+      systemEffects: systemEffectAdapters(
+        schedule: .authorizationRequestFailed("Prompt unavailable")
+      )
+    )
+    let authorizationDisposition = await authorizationExecutor.apply(
+      .scheduleReminder(page, requestingAuthorization: true)
+    )
+    XCTAssertEqual(
+      authorizationDisposition,
+      .failed("Reminder authorization could not be requested: Prompt unavailable")
+    )
+    let deniedExecutor = TaskMutationEffectExecutor.live(
+      surface: .application,
+      systemEffects: systemEffectAdapters(
+        schedule: .authorizationRequired(.denied)
+      )
+    )
+    let deniedDisposition = await deniedExecutor.apply(
+      .scheduleReminder(page, requestingAuthorization: true)
+    )
+    XCTAssertEqual(deniedDisposition, .failed("Reminder authorization is denied."))
+
+    let operationExecutor = TaskMutationEffectExecutor.live(
+      surface: .application,
+      systemEffects: systemEffectAdapters(
+        schedule: .schedulingFailed("Notification service offline"),
+        index: .indexingFailed("Search service offline"),
+        remove: .removalFailed("Search removal offline")
+      )
+    )
+    let schedulingDisposition = await operationExecutor.apply(
+      .scheduleReminder(page, requestingAuthorization: false)
+    )
+    let indexingDisposition = await operationExecutor.apply(.indexSpotlight(page))
+    let removalDisposition = await operationExecutor.apply(.removeSpotlight(page.id))
+    XCTAssertEqual(
+      schedulingDisposition,
+      .failed("The reminder could not be scheduled: Notification service offline")
+    )
+    XCTAssertEqual(
+      indexingDisposition,
+      .failed("The task could not be indexed in Spotlight: Search service offline")
+    )
+    XCTAssertEqual(
+      removalDisposition,
+      .failed("The task could not be removed from Spotlight: Search removal offline")
+    )
+  }
+
+  func testLiveSystemFailuresRemainDurableWarningsAfterPersistedCreate() async throws {
+    let fixture = try TaskMutationFixture()
+    let coordinator = TaskMutationCoordinator(
+      repository: fixture.repository,
+      effects: .live(
+        surface: .application,
+        systemEffects: systemEffectAdapters(
+          schedule: .schedulingFailed("Notification service offline"),
+          index: .indexingFailed("Search service offline")
+        ),
+        reload: { .applied },
+        sync: { _ in .applied },
+        purgeSync: { _ in .applied }
+      )
+    )
+
+    let created = try success(
+      await coordinator.create(
+        TaskDraft(
+          title: "Saved with warnings",
+          data: TaskData(reminder: Date(timeIntervalSince1970: 1_900_000_000))
+        )
+      )
+    )
+
+    XCTAssertEqual(
+      created.warnings.map(\.message),
+      [
+        "The reminder could not be scheduled: Notification service offline",
+        "The task could not be indexed in Spotlight: Search service offline",
+      ]
+    )
+    let pendingCount = try await fixture.repository.pendingTaskEffectOutboxCount()
+    let persistedPage = try await fixture.repository.page(id: created.value.id)
+    XCTAssertEqual(pendingCount, 2)
+    XCTAssertEqual(persistedPage?.id, created.value.id)
+
+    let retry = TaskMutationCoordinator(
+      repository: try LibraryRepository(path: fixture.path),
+      effects: .live(
+        surface: .application,
+        systemEffects: systemEffectAdapters(),
+        reload: { .applied },
+        sync: { _ in .applied },
+        purgeSync: { _ in .applied }
+      )
+    )
+    let retried = await retry.drainPendingEffects()
+
+    let remainingCount = try await fixture.repository.pendingTaskEffectOutboxCount()
+    XCTAssertEqual(retried.map(\.disposition), [.applied, .applied])
+    XCTAssertEqual(remainingCount, 0)
   }
 
   func testWidgetExtensionDefersReminderOwnershipToHostApplication() async throws {
@@ -417,6 +631,20 @@ final class TaskMutationCoordinatorTests: XCTestCase {
       line: line
     )
   }
+}
+
+private func systemEffectAdapters(
+  schedule: TaskReminderEffectOutcome = .applied,
+  cancel: TaskReminderEffectOutcome = .applied,
+  index: TaskSpotlightEffectOutcome = .applied,
+  remove: TaskSpotlightEffectOutcome = .applied
+) -> TaskSystemEffectAdapters {
+  TaskSystemEffectAdapters(
+    scheduleReminder: { _, _ in schedule },
+    cancelReminder: { _ in cancel },
+    indexSpotlight: { _ in index },
+    removeSpotlight: { _ in remove }
+  )
 }
 
 private actor TaskMutationEffectRecorder {

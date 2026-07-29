@@ -4,6 +4,50 @@ import XCTest
 @testable import EnchiridionCore
 
 final class TaskManagementTests: XCTestCase {
+  func testTaskLifecycleScopesSeparateActiveAndClosedCandidates() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let active = try await fixture.repository.createTask(TaskDraft(title: "Active candidate"))
+    let completed = try await fixture.repository.createTask(TaskDraft(title: "Completed candidate"))
+    let canceled = try await fixture.repository.createTask(TaskDraft(title: "Canceled candidate"))
+
+    _ = try await fixture.repository.completeTask(pageID: completed.id)
+    _ = try await fixture.repository.cancelTask(pageID: canceled.id)
+
+    let activeIDs = Set(try await fixture.repository.tasks(in: .active).map(\.id))
+    let closedIDs = Set(try await fixture.repository.tasks(in: .closed).map(\.id))
+
+    XCTAssertEqual(activeIDs, [active.id])
+    XCTAssertEqual(closedIDs, [completed.id, canceled.id])
+  }
+
+  func testCompleteAndReopenEnforceTaskLifecycleTransitions() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let task = try await fixture.repository.createTask(TaskDraft(title: "Stateful task"))
+
+    do {
+      _ = try await fixture.repository.reopenTask(pageID: task.id)
+      XCTFail("Expected reopening an active task to fail")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskNotClosed)
+      XCTAssertEqual(
+        error.localizedDescription,
+        "Only completed or canceled tasks can be reopened."
+      )
+    }
+
+    _ = try await fixture.repository.completeTask(pageID: task.id)
+    do {
+      _ = try await fixture.repository.completeTask(pageID: task.id)
+      XCTFail("Expected completing a closed task to fail")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskNotActive)
+      XCTAssertEqual(error.localizedDescription, "Only active tasks can be completed.")
+    }
+
+    let reopened = try await fixture.repository.reopenTask(pageID: task.id)
+    XCTAssertEqual(reopened.taskData?.state, .active)
+  }
+
   func testEnablingOptionalTaskMetadataPersistsTheDisplayedDefaults() {
     let scheduled = Date(timeIntervalSince1970: 1_817_000_000)
     let deadline = Date(timeIntervalSince1970: 1_817_086_400)
@@ -251,6 +295,16 @@ final class TaskManagementTests: XCTestCase {
     XCTAssertEqual(result.successor?.id, expectedSuccessorID)
     XCTAssertEqual(result.successor?.taskData?.recurrenceSeriesID, expectedSeriesID)
     XCTAssertEqual(result.successor?.taskData?.recurrenceSequence, 1)
+
+    let receipt = try XCTUnwrap(result.undoReceipt)
+    let undo = try await fixture.repository.undoTaskCompletion(
+      receipt,
+      now: scheduled.addingTimeInterval(7_200)
+    )
+    XCTAssertNil(undo.reopened.taskData?.recurrenceSeriesID)
+    XCTAssertNil(undo.reopened.taskData?.recurrenceSequence)
+    let removedSuccessor = try await fixture.repository.page(id: expectedSuccessorID)
+    XCTAssertNil(removedSuccessor)
   }
 
   func testCompletingFixedRecurringTaskCreatesNextOccurrenceAndKeepsHistory() async throws {
@@ -303,12 +357,16 @@ final class TaskManagementTests: XCTestCase {
       PageID.taskOccurrence(seriesID: seriesID, sequence: 1)
     )
 
-    let repeated = try await fixture.repository.completeTask(
-      pageID: task.id,
-      now: completedAt.addingTimeInterval(60),
-      calendar: calendar
-    )
-    XCTAssertEqual(repeated.successor?.id, result.successor?.id)
+    do {
+      _ = try await fixture.repository.completeTask(
+        pageID: task.id,
+        now: completedAt.addingTimeInterval(60),
+        calendar: calendar
+      )
+      XCTFail("Expected repeated completion of a closed task to fail")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskNotActive)
+    }
     let seriesPages = try await fixture.repository.pages(in: .allPages).filter {
       $0.taskData?.recurrenceSeriesID == seriesID
     }
@@ -326,6 +384,131 @@ final class TaskManagementTests: XCTestCase {
       nextCompletion.successor?.id,
       PageID.taskOccurrence(seriesID: seriesID, sequence: 2)
     )
+  }
+
+  func testUndoCompletionRestoresExactNonRecurringTaskData() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let created = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Undo completion",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: Date(timeIntervalSince1970: 1_817_000_000),
+          priority: .high,
+          tags: ["focus"],
+          estimatedMinutes: 30
+        )
+      )
+    )
+    let before = try XCTUnwrap(created.taskData)
+    let completion = try await fixture.repository.completeTask(
+      pageID: created.id,
+      now: Date(timeIntervalSince1970: 1_817_003_600)
+    )
+
+    let receipt = try XCTUnwrap(completion.undoReceipt)
+    let undo = try await fixture.repository.undoTaskCompletion(
+      receipt,
+      now: Date(timeIntervalSince1970: 1_817_007_200)
+    )
+
+    XCTAssertEqual(undo.reopened.taskData, before)
+    XCTAssertNil(undo.removedSuccessorID)
+    XCTAssertEqual(undo.changedPageIDs, [created.id])
+  }
+
+  func testUndoRecurringCompletionPurgesUntouchedSuccessorAndCanBeCompletedAgain() async throws {
+    let fixture = try TaskRepositoryFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let scheduled = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 29, hour: 9)
+    )!
+    let created = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Undo recurring completion",
+        data: TaskData(
+          placement: .anytime,
+          scheduledAt: scheduled,
+          recurrence: .init(mode: .fixedSchedule, unit: .day)
+        )
+      ),
+      now: scheduled,
+      calendar: calendar
+    )
+    let before = try XCTUnwrap(created.taskData)
+    let completion = try await fixture.repository.completeTask(
+      pageID: created.id,
+      now: scheduled.addingTimeInterval(3_600),
+      calendar: calendar
+    )
+    let successorID = try XCTUnwrap(completion.successor?.id)
+
+    let receipt = try XCTUnwrap(completion.undoReceipt)
+    let undo = try await fixture.repository.undoTaskCompletion(
+      receipt,
+      now: scheduled.addingTimeInterval(7_200)
+    )
+
+    XCTAssertEqual(undo.reopened.taskData, before)
+    XCTAssertEqual(undo.removedSuccessorID, successorID)
+    let removedSuccessor = try await fixture.repository.page(id: successorID)
+    let undoPurgeMarker = try await fixture.repository.purgeMarker(pageID: successorID)
+    XCTAssertNil(removedSuccessor)
+    XCTAssertNotNil(undoPurgeMarker)
+
+    let recompletion = try await fixture.repository.completeTask(
+      pageID: created.id,
+      now: scheduled.addingTimeInterval(10_800),
+      calendar: calendar
+    )
+    XCTAssertEqual(recompletion.successor?.id, successorID)
+    XCTAssertNotNil(recompletion.undoReceipt)
+    let recompletionPurgeMarker = try await fixture.repository.purgeMarker(pageID: successorID)
+    XCTAssertNil(recompletionPurgeMarker)
+  }
+
+  func testUndoRecurringCompletionRefusesAtomicallyWhenSuccessorChanged() async throws {
+    let fixture = try TaskRepositoryFixture()
+    let created = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Protect changed successor",
+        data: TaskData(
+          scheduledAt: Date(timeIntervalSince1970: 1_817_000_000),
+          recurrence: .init(mode: .fixedSchedule, unit: .day)
+        )
+      )
+    )
+    let completion = try await fixture.repository.completeTask(
+      pageID: created.id,
+      now: Date(timeIntervalSince1970: 1_817_003_600)
+    )
+    let successor = try XCTUnwrap(completion.successor)
+    var changedData = try XCTUnwrap(successor.taskData)
+    changedData.priority = .urgent
+    _ = try await fixture.repository.updateTask(
+      pageID: successor.id,
+      data: changedData,
+      now: Date(timeIntervalSince1970: 1_817_007_200)
+    )
+    let receipt = try XCTUnwrap(completion.undoReceipt)
+
+    do {
+      _ = try await fixture.repository.undoTaskCompletion(
+        receipt,
+        now: Date(timeIntervalSince1970: 1_817_010_800)
+      )
+      XCTFail("Expected the stale completion receipt to be rejected")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskCompletionUndoUnavailable)
+    }
+
+    let sourceAfterConflict = try await fixture.repository.page(id: created.id)
+    let successorAfterConflict = try await fixture.repository.page(id: successor.id)
+    let purgeMarkerAfterConflict = try await fixture.repository.purgeMarker(pageID: successor.id)
+    XCTAssertEqual(sourceAfterConflict?.taskData?.state, .completed)
+    XCTAssertEqual(successorAfterConflict?.taskData?.priority, .urgent)
+    XCTAssertNil(purgeMarkerAfterConflict)
   }
 
   func testTwoReplicasConvergeOnOneRecurringSuccessorWithoutDuplicatingContent() async throws {

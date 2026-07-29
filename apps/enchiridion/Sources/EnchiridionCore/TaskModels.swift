@@ -432,17 +432,85 @@ public struct TaskItem: Identifiable, Hashable, Sendable {
   }
 }
 
+public struct TaskPageVersion: Codable, Hashable, Sendable {
+  public var id: PageID
+  public var heads: AutomergeHeads
+  public var dirtyGeneration: Int64
+
+  public init(id: PageID, heads: AutomergeHeads, dirtyGeneration: Int64) {
+    self.id = id
+    self.heads = heads
+    self.dirtyGeneration = dirtyGeneration
+  }
+
+  public init(_ page: PageSnapshot) {
+    self.init(id: page.id, heads: page.heads, dirtyGeneration: page.dirtyGeneration)
+  }
+}
+
+public struct TaskCreatedSuccessorReceipt: Codable, Hashable, Sendable {
+  public var version: TaskPageVersion
+  public var seriesID: TaskRecurrenceSeriesID
+  public var sequence: Int
+
+  public init(
+    version: TaskPageVersion,
+    seriesID: TaskRecurrenceSeriesID,
+    sequence: Int
+  ) {
+    self.version = version
+    self.seriesID = seriesID
+    self.sequence = sequence
+  }
+}
+
+public struct TaskCompletionUndoReceipt: Codable, Hashable, Sendable {
+  public var sourceAfterCompletion: TaskPageVersion
+  public var sourceBeforeTaskData: TaskData
+  public var createdSuccessor: TaskCreatedSuccessorReceipt?
+
+  public init(
+    sourceAfterCompletion: TaskPageVersion,
+    sourceBeforeTaskData: TaskData,
+    createdSuccessor: TaskCreatedSuccessorReceipt?
+  ) {
+    self.sourceAfterCompletion = sourceAfterCompletion
+    self.sourceBeforeTaskData = sourceBeforeTaskData
+    self.createdSuccessor = createdSuccessor
+  }
+}
+
 public struct TaskCompletionResult: Hashable, Sendable {
   public var completed: PageSnapshot
   public var successor: PageSnapshot?
+  public var undoReceipt: TaskCompletionUndoReceipt?
 
-  public init(completed: PageSnapshot, successor: PageSnapshot?) {
+  public init(
+    completed: PageSnapshot,
+    successor: PageSnapshot?,
+    undoReceipt: TaskCompletionUndoReceipt? = nil
+  ) {
     self.completed = completed
     self.successor = successor
+    self.undoReceipt = undoReceipt
   }
 
   public var changedPageIDs: [PageID] {
     [completed.id] + (successor.map { [$0.id] } ?? [])
+  }
+}
+
+public struct TaskCompletionUndoResult: Hashable, Sendable {
+  public var reopened: PageSnapshot
+  public var removedSuccessorID: PageID?
+
+  public init(reopened: PageSnapshot, removedSuccessorID: PageID?) {
+    self.reopened = reopened
+    self.removedSuccessorID = removedSuccessorID
+  }
+
+  public var changedPageIDs: [PageID] {
+    [reopened.id] + (removedSuccessorID.map { [$0] } ?? [])
   }
 }
 

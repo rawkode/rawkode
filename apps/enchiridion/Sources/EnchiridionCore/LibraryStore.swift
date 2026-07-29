@@ -17,6 +17,7 @@ public final class LibraryStore {
   public private(set) var syncStatus: SyncStatus = .localOnly
   public private(set) var isLoading = true
   public private(set) var startupError: String?
+  public private(set) var taskMutationWarnings: [TaskMutationWarning] = []
   public private(set) var calendarError: String?
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
@@ -156,7 +157,8 @@ public final class LibraryStore {
     do {
       let today = try await repository.dailyPage(for: DayKey(date: Date(), calendar: calendar))
       selectedPageID = selectedPageID ?? today.id
-      _ = await taskMutationCoordinator?.drainPendingEffects()
+      let pendingEffectOutcomes = await taskMutationCoordinator?.drainPendingEffects() ?? []
+      taskMutationWarnings = pendingEffectOutcomes.compactMap(\.warning)
       await reload()
       let now = Date()
       let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
@@ -407,6 +409,14 @@ public final class LibraryStore {
   }
 
   @discardableResult
+  public func undoTaskCompletion(
+    _ receipt: TaskCompletionUndoReceipt
+  ) async -> TaskCompletionUndoResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.undoCompletion(receipt))
+  }
+
+  @discardableResult
   public func reopenTask(_ pageID: PageID) async -> PageSnapshot? {
     guard let taskMutationCoordinator else { return nil }
     return taskMutationValue(from: await taskMutationCoordinator.reopen(pageID))
@@ -424,9 +434,11 @@ public final class LibraryStore {
     switch result {
     case .success(let success):
       startupError = nil
+      taskMutationWarnings = success.warnings
       return success.value
     case .failure(let failure):
       startupError = failure.localizedDescription
+      taskMutationWarnings = []
       return nil
     }
   }
