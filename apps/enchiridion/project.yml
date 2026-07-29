@@ -37,7 +37,7 @@ targets:
         NSMicrophoneUsageDescription: Enchiridion uses the microphone only while you are talking to its on-device assistant.
         NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
-        GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
         EnchiridionCodeSigningAllowed: $(CODE_SIGNING_ALLOWED)
         CFBundleURLTypes:
@@ -46,7 +46,7 @@ targets:
               - enchiridion
           - CFBundleURLName: Google Calendar OAuth
             CFBundleURLSchemes:
-              - com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+              - enchiridion-google-oauth-unconfigured
     sources:
       - path: Sources/SharedUI
         excludes:
@@ -107,7 +107,7 @@ targets:
         NSMicrophoneUsageDescription: Enchiridion uses the microphone only while you are talking to its on-device assistant.
         NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
-        GoogleOAuthRedirectScheme: com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+        GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
         EnchiridionCodeSigningAllowed: $(CODE_SIGNING_ALLOWED)
         CFBundleURLTypes:
@@ -116,7 +116,7 @@ targets:
               - enchiridion
           - CFBundleURLName: Google Calendar OAuth
             CFBundleURLSchemes:
-              - com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
+              - enchiridion-google-oauth-unconfigured
     sources:
       - path: Sources/SharedUI
         excludes:

@@ -33,7 +33,7 @@
 			<string>Google Calendar OAuth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
+				<string>enchiridion-google-oauth-unconfigured</string>
 			</array>
 		</dict>
 	</array>
@@ -46,7 +46,7 @@
 	<key>GoogleOAuthClientID</key>
 	<string>CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>GoogleOAuthRedirectScheme</key>
-	<string>com.googleusercontent.apps.CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
+	<string>enchiridion-google-oauth-unconfigured</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Enchiridion shows your local calendar events so you can attach private notes. It never edits events.</string>
 	<key>NSContactsUsageDescription</key>
