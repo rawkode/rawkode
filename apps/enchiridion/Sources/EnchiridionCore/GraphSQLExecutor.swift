@@ -64,11 +64,11 @@ enum GraphSQLExecutor {
   ]
 
   private static let allowedFunctions: Set<String> = [
-    "abs", "avg", "coalesce", "count", "date", "datetime", "glob", "group_concat",
+    "abs", "avg", "bm25", "coalesce", "count", "date", "datetime", "glob", "group_concat",
     "hex", "ifnull", "iif", "instr", "julianday", "json_array", "json_extract",
     "json_object", "json_type", "length", "like", "likely", "lower", "ltrim", "match",
     "max", "min", "nullif", "printf", "quote", "random", "replace", "round", "row_number",
-    "rtrim", "strftime", "substr", "substring", "sum", "time", "total", "trim", "typeof",
+    "rtrim", "snippet", "strftime", "substr", "substring", "sum", "time", "total", "trim", "typeof",
     "unicode", "unixepoch", "unlikely", "upper",
   ]
 
