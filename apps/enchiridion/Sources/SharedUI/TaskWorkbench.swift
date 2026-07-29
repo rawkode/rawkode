@@ -459,17 +459,59 @@ struct TaskWorkbenchActionBar: View {
         }
 
         Divider()
-        Button("Edit Tags…", systemImage: "tag") {
-          editor = .tags(commonTags)
+        Menu("Tags", systemImage: "tag") {
+          Button("Add Tags…", systemImage: "plus") {
+            editor = .tags(
+              operation: .add,
+              initialValues: selectedTagIntersection,
+              candidates: selectedTagUnion,
+              hasMixedValues: commonTags == nil
+            )
+          }
+          Button("Remove Tags…", systemImage: "minus") {
+            editor = .tags(
+              operation: .remove,
+              initialValues: [],
+              candidates: selectedTagUnion,
+              hasMixedValues: commonTags == nil
+            )
+          }
+          .disabled(selectedTagUnion.isEmpty)
+          Button("Replace All Tags…", systemImage: "arrow.triangle.2.circlepath") {
+            editor = .tags(
+              operation: .replaceAll,
+              initialValues: commonTags ?? [],
+              candidates: selectedTagUnion,
+              hasMixedValues: commonTags == nil
+            )
+          }
         }
-        Button("Clear Tags", systemImage: "tag.slash") {
-          applyPatch(.init(tags: []))
-        }
-        Button("Edit Assignees…", systemImage: "person.2") {
-          editor = .assignees(commonAssigneeIDs)
-        }
-        Button("Clear Assignees", systemImage: "person.2.slash") {
-          applyPatch(.init(assigneeIDs: []))
+        Menu("Assignees", systemImage: "person.2") {
+          Button("Add Assignees…", systemImage: "person.badge.plus") {
+            editor = .assignees(
+              operation: .add,
+              initialValues: selectedAssigneeIDIntersection,
+              candidates: selectedAssigneeIDUnion,
+              hasMixedValues: commonAssigneeIDs == nil
+            )
+          }
+          Button("Remove Assignees…", systemImage: "person.badge.minus") {
+            editor = .assignees(
+              operation: .remove,
+              initialValues: [],
+              candidates: selectedAssigneeIDUnion,
+              hasMixedValues: commonAssigneeIDs == nil
+            )
+          }
+          .disabled(selectedAssigneeIDUnion.isEmpty)
+          Button("Replace All Assignees…", systemImage: "arrow.triangle.2.circlepath") {
+            editor = .assignees(
+              operation: .replaceAll,
+              initialValues: commonAssigneeIDs ?? [],
+              candidates: selectedAssigneeIDUnion,
+              hasMixedValues: commonAssigneeIDs == nil
+            )
+          }
         }
       } label: {
         Label("Edit", systemImage: "slider.horizontal.3")
@@ -558,11 +600,34 @@ struct TaskWorkbenchActionBar: View {
     return first
   }
 
+  private var selectedTagUnion: [String] {
+    TaskData.normalizedTags(selectedTasks.flatMap(\.data.tags))
+  }
+
+  private var selectedTagIntersection: [String] {
+    guard let first = selectedTasks.first else { return [] }
+    let shared = selectedTasks.dropFirst().reduce(into: Set(first.data.tags)) { result, task in
+      result.formIntersection(task.data.tags)
+    }
+    return TaskData.normalizedTags(Array(shared))
+  }
+
   private var commonAssigneeIDs: Set<PageID>? {
     guard let first = selectedTasks.first.map({ Set($0.data.assigneeIDs) }),
       selectedTasks.dropFirst().allSatisfy({ Set($0.data.assigneeIDs) == first })
     else { return nil }
     return first
+  }
+
+  private var selectedAssigneeIDUnion: Set<PageID> {
+    Set(selectedTasks.flatMap(\.data.assigneeIDs))
+  }
+
+  private var selectedAssigneeIDIntersection: Set<PageID> {
+    guard let first = selectedTasks.first else { return [] }
+    return selectedTasks.dropFirst().reduce(into: Set(first.data.assigneeIDs)) { result, task in
+      result.formIntersection(task.data.assigneeIDs)
+    }
   }
 
   private var commonScheduledAt: Date? {
@@ -656,18 +721,42 @@ struct TaskWorkbenchActionBar: View {
   }
 }
 
+private enum TaskWorkbenchMetadataOperation: String {
+  case add
+  case remove
+  case replaceAll
+
+  var title: String {
+    switch self {
+    case .add: "Add"
+    case .remove: "Remove"
+    case .replaceAll: "Replace All"
+    }
+  }
+}
+
 private enum TaskWorkbenchEditor: Identifiable {
   case schedule(Date?, includesTime: Bool, isMixed: Bool)
   case deadline(Date?, isMixed: Bool)
-  case tags([String]?)
-  case assignees(Set<PageID>?)
+  case tags(
+    operation: TaskWorkbenchMetadataOperation,
+    initialValues: [String],
+    candidates: [String],
+    hasMixedValues: Bool
+  )
+  case assignees(
+    operation: TaskWorkbenchMetadataOperation,
+    initialValues: Set<PageID>,
+    candidates: Set<PageID>,
+    hasMixedValues: Bool
+  )
 
   var id: String {
     switch self {
     case .schedule: "schedule"
     case .deadline: "deadline"
-    case .tags: "tags"
-    case .assignees: "assignees"
+    case .tags(let operation, _, _, _): "tags-\(operation.rawValue)"
+    case .assignees(let operation, _, _, _): "assignees-\(operation.rawValue)"
     }
   }
 
@@ -781,10 +870,15 @@ private struct TaskWorkbenchMetadataSheet: View {
   let apply: (TaskMetadataPatch) -> Void
 
   @State private var tagsText: String
+  @State private var selectedTags: Set<String>
   @State private var assigneeIDs: Set<PageID>
-  @State private var hasEdits = false
   @State private var replacementConfirmed = false
   @State private var includesOtherPeople = false
+  private let operation: TaskWorkbenchMetadataOperation
+  private let initialTags: [String]
+  private let initialAssigneeIDs: Set<PageID>
+  private let tagCandidates: [String]
+  private let assigneeCandidates: Set<PageID>
   private let hadMixedValues: Bool
 
   init(
@@ -796,16 +890,36 @@ private struct TaskWorkbenchMetadataSheet: View {
     self.store = store
     self.apply = apply
     switch editor {
-    case .tags(let tags):
-      _tagsText = State(initialValue: tags?.joined(separator: ", ") ?? "")
+    case .tags(let operation, let initialValues, let candidates, let hasMixedValues):
+      self.operation = operation
+      initialTags = TaskData.normalizedTags(initialValues)
+      initialAssigneeIDs = []
+      tagCandidates = TaskData.normalizedTags(candidates)
+      assigneeCandidates = []
+      _tagsText = State(
+        initialValue: operation == .replaceAll ? initialTags.joined(separator: ", ") : ""
+      )
+      _selectedTags = State(initialValue: [])
       _assigneeIDs = State(initialValue: [])
-      hadMixedValues = tags == nil
-    case .assignees(let ids):
+      hadMixedValues = hasMixedValues
+    case .assignees(let operation, let initialValues, let candidates, let hasMixedValues):
+      self.operation = operation
+      initialTags = []
+      initialAssigneeIDs = initialValues
+      tagCandidates = []
+      assigneeCandidates = candidates
       _tagsText = State(initialValue: "")
-      _assigneeIDs = State(initialValue: ids ?? [])
-      hadMixedValues = ids == nil
+      _selectedTags = State(initialValue: [])
+      _assigneeIDs = State(initialValue: operation == .replaceAll ? initialValues : [])
+      hadMixedValues = hasMixedValues
     case .schedule, .deadline:
+      operation = .add
+      initialTags = []
+      initialAssigneeIDs = []
+      tagCandidates = []
+      assigneeCandidates = []
       _tagsText = State(initialValue: "")
+      _selectedTags = State(initialValue: [])
       _assigneeIDs = State(initialValue: [])
       hadMixedValues = false
     }
@@ -816,53 +930,55 @@ private struct TaskWorkbenchMetadataSheet: View {
       Form {
         switch editor {
         case .tags:
-          TextField("Tags, separated by commas", text: $tagsText)
-            .onChange(of: tagsText) { _, _ in hasEdits = true }
-          if hadMixedValues && !hasEdits {
-            Label("Selected tasks have different tags", systemImage: "exclamationmark.triangle")
-              .foregroundStyle(.secondary)
+          if operation == .remove {
+            if tagCandidates.isEmpty {
+              ContentUnavailableView(
+                "No Tags to Remove",
+                systemImage: "tag.slash",
+                description: Text("The selected tasks do not have any tags.")
+              )
+            } else {
+              Section("Tags on Selected Tasks") {
+                ForEach(tagCandidates, id: \.self) { tag in
+                  Toggle(tag, isOn: tagBinding(tag))
+                }
+              }
+            }
+          } else {
+            Section {
+              TextField("Tags, separated by commas", text: $tagsText)
+            } footer: {
+              Text(tagOperationExplanation)
+            }
           }
-          Text("Applying replaces the tags on every selected task.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          replacementWarning(for: "tags")
         case .assignees:
-          Toggle("Include Other People", isOn: $includesOtherPeople)
-          Text("Other people stay hidden from normal task mentions until you include them here.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          if operation != .remove, !store.otherPeople.isEmpty {
+            Section {
+              Toggle("Include Other People", isOn: $includesOtherPeople)
+            } footer: {
+              Text(
+                "Other people remain hidden from normal views and mentions until promoted, but can still be assigned here."
+              )
+            }
+          }
           if people.isEmpty {
             ContentUnavailableView(
-              "No People Available",
+              operation == .remove ? "No Assignees to Remove" : "No People Available",
               systemImage: "person.2",
-              description: Text("Promote a person before assigning them to tasks.")
+              description: Text(peopleUnavailableDescription)
             )
           } else {
-            if hadMixedValues {
-              Toggle("Replace all assignees", isOn: $replacementConfirmed)
-              Text(
-                "Selected tasks have different assignees. Replacement removes each task's existing assignees."
-              )
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            }
-            ForEach(people) { person in
-              Toggle(
-                store.personDisplayName(for: person),
-                isOn: Binding(
-                  get: { assigneeIDs.contains(person.id) },
-                  set: { isSelected in
-                    hasEdits = true
-                    if isSelected {
-                      assigneeIDs.insert(person.id)
-                    } else {
-                      assigneeIDs.remove(person.id)
-                    }
-                  }
+            Section(operation == .remove ? "Assigned People" : "People") {
+              ForEach(people) { person in
+                Toggle(
+                  store.personDisplayName(for: person),
+                  isOn: assigneeBinding(person.id)
                 )
-              )
-              .disabled(hadMixedValues && !replacementConfirmed)
+              }
             }
           }
+          replacementWarning(for: "assignees")
         case .schedule, .deadline:
           EmptyView()
         }
@@ -877,10 +993,7 @@ private struct TaskWorkbenchMetadataSheet: View {
             apply(patch)
             dismiss()
           }
-          .disabled(
-            hadMixedValues
-              && (!hasEdits || (isAssigneeEditor && !replacementConfirmed))
-          )
+          .disabled(!canApply)
         }
       }
     }
@@ -888,28 +1001,129 @@ private struct TaskWorkbenchMetadataSheet: View {
   }
 
   private var title: String {
-    if case .tags = editor { return "Edit Tags" }
-    return "Edit Assignees"
+    if case .tags = editor { return "\(operation.title) Tags" }
+    return "\(operation.title) Assignees"
   }
 
   private var people: [PageSnapshot] {
-    store.taskPeople(includingOtherPeople: includesOtherPeople)
+    var seen: Set<PageID> = []
+    let requiredIDs = operation == .add ? Set<PageID>() : assigneeCandidates
+    let candidates =
+      store.taskPeople(includingOtherPeople: includesOtherPeople)
+      + requiredIDs.compactMap { store.page(id: $0) }
+    return candidates.filter {
+      seen.insert($0.id).inserted && (operation != .add || !initialAssigneeIDs.contains($0.id))
+    }.sorted {
+      store.personDisplayName(for: $0).localizedStandardCompare(store.personDisplayName(for: $1))
+        == .orderedAscending
+    }
   }
 
-  private var isAssigneeEditor: Bool {
-    if case .assignees = editor { return true }
+  private var normalizedTags: [String] {
+    TaskData.normalizedTags(
+      tagsText.split(separator: ",").map {
+        String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+    )
+  }
+
+  private var tagOperand: [String] {
+    operation == .add
+      ? normalizedTags.filter { !initialTags.contains($0) }
+      : normalizedTags
+  }
+
+  private var canApply: Bool {
+    switch operation {
+    case .add:
+      return isTagEditor
+        ? !tagOperand.isEmpty
+        : !assigneeIDs.subtracting(initialAssigneeIDs).isEmpty
+    case .remove:
+      return isTagEditor ? !selectedTags.isEmpty : !assigneeIDs.isEmpty
+    case .replaceAll:
+      if hadMixedValues { return replacementConfirmed }
+      return isTagEditor
+        ? normalizedTags != initialTags
+        : assigneeIDs != initialAssigneeIDs
+    }
+  }
+
+  private var isTagEditor: Bool {
+    if case .tags = editor { return true }
     return false
+  }
+
+  private var tagOperationExplanation: String {
+    switch operation {
+    case .add: "These tags are added without removing tags already on a task."
+    case .remove: ""
+    case .replaceAll: "This becomes the complete tag list for every selected task."
+    }
+  }
+
+  private var peopleUnavailableDescription: String {
+    switch operation {
+    case .add:
+      "Promote or include someone who is not already assigned to every selected task."
+    case .replaceAll: "Promote a person or include Other People to assign them."
+    case .remove: "The selected tasks do not have any assignees."
+    }
+  }
+
+  @ViewBuilder
+  private func replacementWarning(for valueName: String) -> some View {
+    if operation == .replaceAll, hadMixedValues {
+      Section {
+        Toggle("Confirm Replace All", isOn: $replacementConfirmed)
+      } footer: {
+        Text(
+          "The selected tasks have different \(valueName). Replace All removes every existing value before applying this selection."
+        )
+      }
+    }
+  }
+
+  private func tagBinding(_ tag: String) -> Binding<Bool> {
+    Binding(
+      get: { selectedTags.contains(tag) },
+      set: { isSelected in
+        if isSelected { selectedTags.insert(tag) } else { selectedTags.remove(tag) }
+      }
+    )
+  }
+
+  private func assigneeBinding(_ pageID: PageID) -> Binding<Bool> {
+    Binding(
+      get: { assigneeIDs.contains(pageID) },
+      set: { isSelected in
+        if isSelected { assigneeIDs.insert(pageID) } else { assigneeIDs.remove(pageID) }
+      }
+    )
   }
 
   private var patch: TaskMetadataPatch {
     switch editor {
     case .tags:
-      let tags = tagsText.split(separator: ",").map {
-        String($0).trimmingCharacters(in: .whitespacesAndNewlines)
-      }
-      return .init(tags: tags)
+      let tags = operation == .remove ? Array(selectedTags) : tagOperand
+      let tagPatch: TaskTagCollectionPatch =
+        switch operation {
+        case .add: .add(tags)
+        case .remove: .remove(tags)
+        case .replaceAll: .replace(tags)
+        }
+      return .init(tagPatch: tagPatch)
     case .assignees:
-      return .init(assigneeIDs: assigneeIDs.sorted { $0.rawValue < $1.rawValue })
+      let operand =
+        operation == .add ? assigneeIDs.subtracting(initialAssigneeIDs) : assigneeIDs
+      let values = operand.sorted { $0.rawValue < $1.rawValue }
+      let assigneePatch: TaskAssigneeCollectionPatch =
+        switch operation {
+        case .add: .add(values)
+        case .remove: .remove(values)
+        case .replaceAll: .replace(values)
+        }
+      return .init(assigneePatch: assigneePatch)
     case .schedule, .deadline:
       return .init()
     }

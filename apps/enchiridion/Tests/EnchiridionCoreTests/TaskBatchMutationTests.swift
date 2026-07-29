@@ -4,6 +4,91 @@ import XCTest
 @testable import EnchiridionCore
 
 final class TaskBatchMutationTests: XCTestCase {
+  func testEmptyCollectionOperationsAreEmptyAfterOperandNormalization() {
+    XCTAssertTrue(TaskMetadataPatch(tagPatch: .add([])).isEmpty)
+    XCTAssertTrue(TaskMetadataPatch(tagPatch: .add(["", "  ", "#"])).isEmpty)
+    XCTAssertTrue(TaskMetadataPatch(tagPatch: .remove(["", "\n", " # "])).isEmpty)
+    XCTAssertTrue(TaskMetadataPatch(assigneePatch: .add([])).isEmpty)
+    XCTAssertTrue(TaskMetadataPatch(assigneePatch: .remove([])).isEmpty)
+
+    XCTAssertFalse(TaskMetadataPatch(tagPatch: .add(["work"])).isEmpty)
+    XCTAssertFalse(TaskMetadataPatch(tagPatch: .remove(["work"])).isEmpty)
+    XCTAssertFalse(
+      TaskMetadataPatch(assigneePatch: .add([PageID(rawValue: "person-alex")])).isEmpty
+    )
+    XCTAssertFalse(
+      TaskMetadataPatch(assigneePatch: .remove([PageID(rawValue: "person-alex")])).isEmpty
+    )
+
+    // Empty replacement collections intentionally clear existing metadata.
+    XCTAssertFalse(TaskMetadataPatch(tags: []).isEmpty)
+    XCTAssertFalse(TaskMetadataPatch(assigneeIDs: []).isEmpty)
+  }
+
+  func testNormalizedCollectionOperationsPreserveUnmentionedMetadata() {
+    let alex = PageID(rawValue: "person-alex")
+    let blair = PageID(rawValue: "person-blair")
+    let original = TaskData(
+      assigneeIDs: [alex],
+      tags: ["alpha", "shared"]
+    )
+
+    let added = TaskMetadataPatch(
+      tagPatch: .add([" ALPHA ", "#Beta", "", " beta "]),
+      assigneePatch: .add([alex, blair, blair])
+    ).applying(to: original)
+
+    XCTAssertEqual(added.tags, ["alpha", "beta", "shared"])
+    XCTAssertEqual(added.assigneeIDs, [alex, blair])
+
+    let removed = TaskMetadataPatch(
+      tagPatch: .remove([" SHARED ", "#missing", ""]),
+      assigneePatch: .remove([blair, blair])
+    ).applying(to: original)
+
+    XCTAssertEqual(removed.tags, ["alpha"])
+    XCTAssertEqual(removed.assigneeIDs, [alex])
+  }
+
+  func testRepositoryRejectsEmptyNormalizedCollectionOperationsWithoutVersionChurn()
+    async throws
+  {
+    let fixture = try TaskBatchFixture()
+    let existingPerson = try await fixture.repository.createTaggedPage(
+      title: "Existing person",
+      supertagID: BuiltInSupertags.person
+    )
+    let task = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Keep metadata untouched",
+        data: TaskData(
+          assigneeIDs: [existingPerson.id],
+          tags: ["existing"]
+        )
+      )
+    )
+
+    for patch in [
+      TaskMetadataPatch(tagPatch: .add(["", " # "])),
+      TaskMetadataPatch(tagPatch: .remove([" ", "#"])),
+      TaskMetadataPatch(assigneePatch: .add([])),
+      TaskMetadataPatch(assigneePatch: .remove([])),
+    ] {
+      do {
+        _ = try await fixture.repository.patchTasks([task.id], patch: patch)
+        XCTFail("Expected an empty collection operation to be rejected")
+      } catch {
+        XCTAssertEqual(error as? LibraryRepositoryError, .invalidRecord)
+      }
+    }
+
+    let loaded = try await fixture.repository.page(id: task.id)
+    let unchanged = try XCTUnwrap(loaded)
+    XCTAssertEqual(unchanged.heads, task.heads)
+    XCTAssertEqual(unchanged.dirtyGeneration, task.dirtyGeneration)
+    XCTAssertEqual(unchanged.taskData, task.taskData)
+  }
+
   func testRejectsDuplicateAndOverMaximumBatchesBeforeChangingAnything() async throws {
     let fixture = try TaskBatchFixture()
     let task = try await fixture.repository.createTask(TaskDraft(title: "Leave untouched"))

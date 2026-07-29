@@ -552,6 +552,17 @@ public enum TaskTagCollectionPatch: Codable, Hashable, Sendable {
       return existing.filter { !removed.contains($0) }
     }
   }
+
+  fileprivate var isEmptyOperation: Bool {
+    switch self {
+    case .unchanged:
+      return true
+    case .add(let tags), .remove(let tags):
+      return TaskData.normalizedTags(tags).isEmpty
+    case .replace:
+      return false
+    }
+  }
 }
 
 public enum TaskAssigneeCollectionPatch: Codable, Hashable, Sendable {
@@ -571,6 +582,17 @@ public enum TaskAssigneeCollectionPatch: Codable, Hashable, Sendable {
     case .remove(let pageIDs):
       let removed = Set(pageIDs)
       return existing.filter { !removed.contains($0) }
+    }
+  }
+
+  fileprivate var isEmptyOperation: Bool {
+    switch self {
+    case .unchanged:
+      return true
+    case .add(let pageIDs), .remove(let pageIDs):
+      return TaskData.normalizedPageIDs(pageIDs).isEmpty
+    case .replace:
+      return false
     }
   }
 }
@@ -641,8 +663,8 @@ public struct TaskMetadataPatch: Codable, Hashable, Sendable {
       && placement == nil
       && project == .unchanged
       && area == .unchanged
-      && tagPatch == .unchanged
-      && assigneePatch == .unchanged
+      && tagPatch.isEmptyOperation
+      && assigneePatch.isEmptyOperation
   }
 
   public func applying(to data: TaskData) -> TaskData {
