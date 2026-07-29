@@ -282,6 +282,77 @@ final class TaskManagementTests: XCTestCase {
     )
   }
 
+  func testDailyTaskContextIncludesADeadlineOnTheSelectedDay() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let selectedDay = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29))!
+    let dueToday = try taskPage(
+      title: "Submit expenses",
+      data: TaskData(
+        placement: .anytime,
+        deadline: calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 18))
+      )
+    )
+    let dueTomorrow = try taskPage(
+      title: "Renew certificate",
+      data: TaskData(
+        placement: .anytime,
+        deadline: calendar.date(from: DateComponents(year: 2026, month: 7, day: 30, hour: 9))
+      )
+    )
+
+    let result = TaskQuery.items(
+      from: [dueTomorrow, dueToday],
+      on: selectedDay,
+      includingOverdue: false,
+      calendar: calendar
+    )
+
+    XCTAssertEqual(result.map(\.id), [dueToday.id])
+  }
+
+  func testDailyTaskContextTreatsDateOnlySchedulingAsTheExactCalendarDay() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let scheduledDay = calendar.date(from: DateComponents(year: 2026, month: 7, day: 29))!
+    let task = try taskPage(
+      title: "Plan August",
+      data: TaskData(
+        placement: .anytime,
+        scheduledAt: scheduledDay,
+        scheduleGranularity: .dateOnly
+      )
+    )
+    let previousDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: scheduledDay))
+    let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: scheduledDay))
+
+    XCTAssertEqual(
+      TaskQuery.items(
+        from: [task],
+        on: scheduledDay,
+        includingOverdue: false,
+        calendar: calendar
+      ).map(\.id),
+      [task.id]
+    )
+    XCTAssertTrue(
+      TaskQuery.items(
+        from: [task],
+        on: previousDay,
+        includingOverdue: false,
+        calendar: calendar
+      ).isEmpty
+    )
+    XCTAssertTrue(
+      TaskQuery.items(
+        from: [task],
+        on: nextDay,
+        includingOverdue: false,
+        calendar: calendar
+      ).isEmpty
+    )
+  }
+
   private func taskPage(
     title: String,
     data: TaskData,

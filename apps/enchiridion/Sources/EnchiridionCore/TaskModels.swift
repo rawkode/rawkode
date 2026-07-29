@@ -405,6 +405,36 @@ public enum TaskQuery {
     items(from: pages, selection: .smart(list), now: now, calendar: calendar).count
   }
 
+  /// Active tasks that belong in a daily note's task context.
+  ///
+  /// When `includingOverdue` is true, tasks scheduled or due before the end of
+  /// the selected day are included. This gives the actual Today page the same
+  /// carry-forward behavior as the Today smart list. Historical and future
+  /// daily notes pass false so only work scheduled or due on that exact day is
+  /// shown.
+  public static func items(
+    from pages: [PageSnapshot],
+    on day: Date,
+    includingOverdue: Bool,
+    calendar: Calendar = .current
+  ) -> [TaskItem] {
+    guard let interval = calendar.dateInterval(of: .day, for: day) else { return [] }
+    return pages.compactMap(TaskItem.init(page:))
+      .filter { task in
+        guard task.data.isActive else { return false }
+        let belongsOnDay: (Date) -> Bool = { date in
+          if includingOverdue { return date < interval.end }
+          // DateInterval.contains includes its end boundary. Daily buckets are
+          // half-open so a date-only task at midnight never leaks into the
+          // previous day.
+          return date >= interval.start && date < interval.end
+        }
+        return task.data.scheduledAt.map(belongsOnDay) == true
+          || task.data.deadline.map(belongsOnDay) == true
+      }
+      .sorted { orderedBefore($0, $1, selection: .smart(.today)) }
+  }
+
   private static func matches(
     _ task: TaskItem,
     list: TaskSmartList,

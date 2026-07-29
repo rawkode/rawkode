@@ -265,6 +265,15 @@ public final class LibraryStore {
     TaskQuery.count(list, in: pages, now: now, calendar: calendar)
   }
 
+  public func tasks(on day: Date, includingOverdue: Bool = false) -> [TaskItem] {
+    TaskQuery.items(
+      from: pages,
+      on: day,
+      includingOverdue: includingOverdue,
+      calendar: calendar
+    )
+  }
+
   @discardableResult
   public func createTask(_ draft: TaskDraft) async -> PageID? {
     guard let repository else { return nil }
