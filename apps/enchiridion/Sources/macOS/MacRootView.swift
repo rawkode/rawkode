@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MacRootView: View {
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.scenePhase) private var scenePhase
 
   @State private var store: LibraryStore
   @State private var selection: MacSidebarSelection = .section(.today)
@@ -336,9 +337,15 @@ struct MacRootView: View {
       _ = await store.openDailyPage(for: selectedDay)
     }
     .onOpenURL { url in
-      guard url.scheme == "enchiridion", url.host == "tasks" else { return }
-      let rawList = url.pathComponents.dropFirst().first ?? "inbox"
-      openTaskList(TaskSmartList(rawValue: rawList) ?? .inbox)
+      guard let route = TaskDeepLinkRoute(url: url) else { return }
+      Task { await open(route) }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task { @MainActor in
+        guard await editorFlushController.flush() else { return }
+        await store.reload()
+      }
     }
   }
 
@@ -559,6 +566,26 @@ struct MacRootView: View {
   private func openTaskList(_ list: TaskSmartList) {
     query = ""
     selectSidebar(.task(.smart(list)))
+  }
+
+  private func open(_ route: TaskDeepLinkRoute) async {
+    guard await editorFlushController.flush() else { return }
+    await store.reload()
+    let route = route.validated(against: store.pages)
+    query = ""
+    selection = .task(.smart(route.list))
+
+    switch route {
+    case .list:
+      showsQuickTaskCapture = false
+      store.selectedPageID = nil
+    case .task(let pageID, list: _):
+      showsQuickTaskCapture = false
+      store.selectedPageID = pageID
+    case .quickAdd:
+      store.selectedPageID = nil
+      showsQuickTaskCapture = true
+    }
   }
 
   private func selectPage(_ pageID: PageID) {

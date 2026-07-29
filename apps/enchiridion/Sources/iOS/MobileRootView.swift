@@ -2,10 +2,14 @@ import EnchiridionCore
 import SwiftUI
 
 struct MobileRootView: View {
+  @Environment(\.scenePhase) private var scenePhase
+
   @State private var store: LibraryStore
   @State private var selectedTab: MobileTab = .today
   @State private var requestedTaskSelection: TaskListSelection?
+  @State private var requestedTaskID: PageID?
   @State private var showsQuickTaskCapture = false
+  @State private var quickTaskSelection: TaskListSelection = .smart(.inbox)
   @State private var assistantPresentation: MobileAssistantPresentation?
   private let contactsResolver: DeviceContactsResolver
   private let assistantSession: AssistantConversationSession?
@@ -66,9 +70,21 @@ struct MobileRootView: View {
       )
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
-      TaskQuickCaptureSheet(store: store, selection: .smart(.inbox))
+      TaskQuickCaptureSheet(store: store, selection: quickTaskSelection)
     }
-    .onOpenURL(perform: openURL)
+    .sheet(item: $requestedTaskID) { pageID in
+      NavigationStack {
+        TaskDetailScreen(store: store, pageID: pageID)
+      }
+    }
+    .onOpenURL { url in
+      guard let route = TaskDeepLinkRoute(url: url) else { return }
+      Task { await open(route) }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task { await store.reload() }
+    }
   }
 
   private func assistantPresentationBinding(
@@ -84,15 +100,24 @@ struct MobileRootView: View {
     )
   }
 
-  private func openURL(_ url: URL) {
-    guard url.scheme == "enchiridion", url.host == "tasks" else { return }
+  private func open(_ route: TaskDeepLinkRoute) async {
+    await store.reload()
+    let route = route.validated(against: store.pages)
     selectedTab = .tasks
-    let rawList = url.pathComponents.dropFirst().first ?? "inbox"
-    requestedTaskSelection = .smart(TaskSmartList(rawValue: rawList) ?? .inbox)
-    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-    showsQuickTaskCapture = components?.queryItems?.contains {
-      $0.name == "quickAdd" && $0.value == "1"
-    } == true
+    requestedTaskSelection = .smart(route.list)
+
+    switch route {
+    case .list:
+      requestedTaskID = nil
+      showsQuickTaskCapture = false
+    case .task(let pageID, list: _):
+      showsQuickTaskCapture = false
+      requestedTaskID = pageID
+    case .quickAdd(let list):
+      requestedTaskID = nil
+      quickTaskSelection = .smart(list)
+      showsQuickTaskCapture = true
+    }
   }
 }
 

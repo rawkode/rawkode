@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import EnchiridionCore
 
 final class TaskSystemCaptureTests: XCTestCase {
@@ -33,17 +34,14 @@ final class TaskSystemCaptureTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path + "-wal"))
   }
 
-  func testSpotlightUsesOneStableIdentifierAndAWorkingTaskDeepLink() throws {
+  func testSpotlightUsesOneStableIdentifierAndRoutesToTheExactTask() throws {
     let pageID = PageID(rawValue: "spotlight-task")
 
     XCTAssertEqual(TaskSystemSpotlight.searchableIdentifier(for: pageID), pageID.rawValue)
     let url = try XCTUnwrap(TaskSystemSpotlight.contentURL(for: pageID))
-    XCTAssertEqual(url.scheme, "enchiridion")
-    XCTAssertEqual(url.host, "tasks")
-    XCTAssertEqual(url.path, "/today")
     XCTAssertEqual(
-      URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-      [URLQueryItem(name: "task", value: pageID.rawValue)]
+      TaskDeepLinkRoute(url: url),
+      .task(pageID, list: .today)
     )
   }
 

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import EnchiridionCore
 
 final class TaskReminderSchedulerTests: XCTestCase {
@@ -25,14 +26,16 @@ final class TaskReminderSchedulerTests: XCTestCase {
   }
 
   func testRouteRejectsUnknownActionsAndMissingTaskIDs() {
-    XCTAssertNil(TaskReminderScheduler.route(
-      actionIdentifier: "unexpected",
-      userInfo: [TaskReminderScheduler.pageIDUserInfoKey: "task-123"]
-    ))
-    XCTAssertNil(TaskReminderScheduler.route(
-      actionIdentifier: TaskReminderAction.snooze.notificationActionIdentifier,
-      userInfo: [:]
-    ))
+    XCTAssertNil(
+      TaskReminderScheduler.route(
+        actionIdentifier: "unexpected",
+        userInfo: [TaskReminderScheduler.pageIDUserInfoKey: "task-123"]
+      ))
+    XCTAssertNil(
+      TaskReminderScheduler.route(
+        actionIdentifier: TaskReminderAction.snooze.notificationActionIdentifier,
+        userInfo: [:]
+      ))
   }
 
   func testSnoozePlanUsesTheRequestedIntervalWithoutChangingTheTaskID() {
@@ -47,16 +50,10 @@ final class TaskReminderSchedulerTests: XCTestCase {
     XCTAssertEqual(plan, .snooze(pageID, until: now.addingTimeInterval(15 * 60)))
   }
 
-  func testTaskURLTargetsTasksAndCarriesTheExactTaskID() throws {
+  func testTaskURLRoutesToTheExactTask() throws {
     let pageID = PageID(rawValue: "task-123")
-    let components = try XCTUnwrap(
-      TaskReminderScheduler.taskURL(for: pageID)
-        .flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-    )
+    let url = try XCTUnwrap(TaskReminderScheduler.taskURL(for: pageID))
 
-    XCTAssertEqual(components.scheme, "enchiridion")
-    XCTAssertEqual(components.host, "tasks")
-    XCTAssertEqual(components.path, "/today")
-    XCTAssertEqual(components.queryItems?.first(where: { $0.name == "task" })?.value, pageID.rawValue)
+    XCTAssertEqual(TaskDeepLinkRoute(url: url), .task(pageID, list: .today))
   }
 }
