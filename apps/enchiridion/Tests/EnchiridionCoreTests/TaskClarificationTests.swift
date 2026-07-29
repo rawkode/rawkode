@@ -20,6 +20,11 @@ final class TaskClarificationTests: XCTestCase {
       title: "Alex",
       supertagID: BuiltInSupertags.person
     )
+    let otherPerson = try await fixture.repository.createTaggedPage(
+      title: "Event Attendee",
+      supertagID: BuiltInSupertags.person
+    )
+    _ = try await fixture.repository.movePersonToOther(pageID: otherPerson.id)
     let source = try await fixture.repository.createTask(
       TaskDraft(title: "Plan launch", notes: "Captured source notes")
     )
@@ -35,6 +40,7 @@ final class TaskClarificationTests: XCTestCase {
     XCTAssertEqual(seed.references.areas.map(\.id), [area.id])
     XCTAssertEqual(seed.references.parentTasks.map(\.id), [parent.id])
     XCTAssertEqual(seed.references.people.map(\.id), [person.id])
+    XCTAssertFalse(seed.references.people.map(\.id).contains(otherPerson.id))
     XCTAssertEqual(unchanged.heads, source.heads)
     XCTAssertEqual(unchanged.dirtyGeneration, source.dirtyGeneration)
     XCTAssertEqual(unchanged.plainText, "Captured source notes")

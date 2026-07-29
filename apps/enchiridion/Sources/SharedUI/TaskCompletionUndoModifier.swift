@@ -29,6 +29,18 @@ private struct TaskCompletionUndoModifier: ViewModifier {
           )
           .padding(.horizontal)
           .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if let offer = store.latestTaskClarificationUndoOffer {
+          LifecycleUndoBanner(
+            title: clarificationTitle(offer),
+            detailMessage: clarificationDetail(offer),
+            failureMessage: store.taskClarificationUndoFailure,
+            isUndoing: isUndoing,
+            undo: performTaskClarificationUndo,
+            dismiss: dismissTaskClarification,
+            dismissHint: "Dismisses the clarification confirmation"
+          )
+          .padding(.horizontal)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if let offer = store.latestTaskCompletionUndoOffer {
           LifecycleUndoBanner(
             title: "Completed \(offer.taskTitle)",
@@ -51,6 +63,10 @@ private struct TaskCompletionUndoModifier: ViewModifier {
         accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18),
         value: store.latestProjectClosureUndoOffer
       )
+      .animation(
+        accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18),
+        value: store.latestTaskClarificationUndoOffer
+      )
   }
 
   private func performTaskCompletionUndo() {
@@ -71,6 +87,15 @@ private struct TaskCompletionUndoModifier: ViewModifier {
     }
   }
 
+  private func performTaskClarificationUndo() {
+    guard !isUndoing else { return }
+    isUndoing = true
+    Task { @MainActor in
+      _ = await store.undoLatestTaskClarification()
+      isUndoing = false
+    }
+  }
+
   private func dismissTaskCompletion() {
     withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18)) {
       store.dismissLatestTaskCompletionUndo()
@@ -80,6 +105,12 @@ private struct TaskCompletionUndoModifier: ViewModifier {
   private func dismissProjectClosure() {
     withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18)) {
       store.dismissLatestProjectClosureUndo()
+    }
+  }
+
+  private func dismissTaskClarification() {
+    withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18)) {
+      store.dismissLatestTaskClarificationUndo()
     }
   }
 
@@ -96,6 +127,20 @@ private struct TaskCompletionUndoModifier: ViewModifier {
     guard offer.resolution == .detachActiveTasks, offer.affectedTaskCount > 0 else { return nil }
     return
       "\(offer.affectedTaskCount) \(offer.affectedTaskCount == 1 ? "task remains" : "tasks remain") active in \(offer.affectedTaskCount == 1 ? "its" : "their") current lists."
+  }
+
+  private func clarificationTitle(_ offer: TaskClarificationUndoOffer) -> String {
+    switch offer.action {
+    case .applyAndContinue: "Moved \(offer.taskTitle) to Anytime"
+    case .moveToSomeday: "Moved \(offer.taskTitle) to Someday"
+    }
+  }
+
+  private func clarificationDetail(_ offer: TaskClarificationUndoOffer) -> String? {
+    switch offer.action {
+    case .applyAndContinue: "Reviewed properties were applied. Existing notes were unchanged."
+    case .moveToSomeday: nil
+    }
   }
 }
 

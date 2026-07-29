@@ -922,8 +922,10 @@ public actor LibraryRepository {
         guard page.id != task.id, page.taskData?.state == .active else { return nil }
         return TaskClarificationNamedReference(id: page.id, title: page.title)
       }
-      let people = try taggedPages(BuiltInSupertags.person).map {
-        TaskClarificationNamedReference(id: $0.id, title: $0.title)
+      let people = try taggedPages(BuiltInSupertags.person).compactMap {
+        page -> TaskClarificationNamedReference? in
+        guard page.effectivePersonVisibility == .promoted else { return nil }
+        return TaskClarificationNamedReference(id: page.id, title: page.title)
       }
 
       return TaskClarificationSeed(

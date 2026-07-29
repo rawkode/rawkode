@@ -130,7 +130,7 @@ struct MobileTaskHomeScreen: View {
           } label: {
             Label("New Task", systemImage: "plus")
           }
-          .accessibilityHint("Opens on-device task interpretation with a confirmation preview.")
+          .accessibilityHint("Opens task capture with optional on-device suggestions.")
         }
         ToolbarItem {
           Menu {
@@ -201,6 +201,7 @@ struct TaskListScreen: View {
   @State private var query = ""
   @State private var showsQuickCapture = false
   @State private var editingTaskID: PageID?
+  @State private var clarificationRequest: TaskClarificationSessionRequest?
 
   var body: some View {
     TaskListContent(
@@ -212,6 +213,14 @@ struct TaskListScreen: View {
     .navigationTitle(title)
     .searchable(text: $query, prompt: "Filter this list")
     .toolbar {
+      if isInbox, !store.clarificationInboxTasks.isEmpty {
+        ToolbarItem {
+          Button("Clarify Inbox", systemImage: "checklist") {
+            startClarification()
+          }
+          .accessibilityHint("Reviews the current Inbox one task at a time")
+        }
+      }
       if allowsTaskCreation {
         ToolbarItem(placement: .primaryAction) {
           Button {
@@ -230,9 +239,22 @@ struct TaskListScreen: View {
         TaskDetailScreen(store: store, pageID: pageID)
       }
     }
+    .sheet(item: $clarificationRequest) { request in
+      ClarifyInboxSheet(store: store, request: request)
+    }
   }
 
   private var title: String { taskSelectionTitle(selection, store: store) }
+
+  private var isInbox: Bool {
+    selection == .smart(.inbox)
+  }
+
+  private func startClarification() {
+    let taskIDs = store.clarificationInboxTasks.map(\.id)
+    guard !taskIDs.isEmpty else { return }
+    clarificationRequest = TaskClarificationSessionRequest(taskIDs: taskIDs)
+  }
 
   private var allowsTaskCreation: Bool {
     switch selection {
@@ -975,7 +997,7 @@ struct TaskPropertiesView: View {
     .formStyle(.grouped)
     .disabled(isChangingState)
     #if os(macOS)
-    .frame(minWidth: 340, minHeight: 480)
+      .frame(minWidth: 340, minHeight: 480)
     #endif
   }
 
@@ -1464,7 +1486,7 @@ struct TaskQuickCaptureSheet: View {
           )
         } else if !trimmedEntry.isEmpty {
           Section("Optional suggestions") {
-            Button("Interpret with On-Device Model", systemImage: "sparkles") {
+            Button("Suggest Details On Device", systemImage: "sparkles") {
               requestInterpretation()
             }
             Text("Nothing changes until you review the preview and add the task.")
@@ -1479,7 +1501,7 @@ struct TaskQuickCaptureSheet: View {
             Label(statusMessage, systemImage: "exclamationmark.triangle")
               .foregroundStyle(.secondary)
               .fixedSize(horizontal: false, vertical: true)
-            Button("Try On-Device Model Again", systemImage: "arrow.clockwise") {
+            Button("Try On-Device Suggestions Again", systemImage: "arrow.clockwise") {
               requestInterpretation()
             }
           }
@@ -1774,7 +1796,7 @@ private struct TaskInterpretationSuggestionRow: View {
 
   private var stateTitle: String {
     switch suggestion.state {
-    case .applied: "Applied"
+    case .applied: "Suggested"
     case .unresolved: "Confirm"
     case .invalid: "Not applied"
     }
@@ -1782,7 +1804,7 @@ private struct TaskInterpretationSuggestionRow: View {
 
   private var stateSymbol: String {
     switch suggestion.state {
-    case .applied: "checkmark.circle"
+    case .applied: "sparkles"
     case .unresolved: "questionmark.circle"
     case .invalid: "exclamationmark.triangle"
     }
@@ -1790,7 +1812,7 @@ private struct TaskInterpretationSuggestionRow: View {
 
   private var stateColor: Color {
     switch suggestion.state {
-    case .applied: .green
+    case .applied: .accentColor
     case .unresolved: .orange
     case .invalid: .red
     }
@@ -1948,6 +1970,670 @@ private struct TaskDraftMetadataEditor: View {
     draft.data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
     onSave(draft)
     dismiss()
+  }
+}
+
+struct TaskClarificationSessionRequest: Identifiable {
+  let id = UUID()
+  let taskIDs: [PageID]
+}
+
+struct ClarifyInboxSheet: View {
+  let store: LibraryStore
+  let request: TaskClarificationSessionRequest
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dismiss) private var dismiss
+  @State private var currentIndex = 0
+  @State private var draft: TaskClarificationDraft?
+  @State private var expectedVersion: TaskPageVersion?
+  @State private var tags = ""
+  @State private var estimate = ""
+  @State private var interpretation: TaskInterpretation?
+  @State private var manualMessage: String?
+  @State private var failureMessage: String?
+  @State private var conflictMessage: String?
+  @State private var unavailableMessage: String?
+  @State private var isPreparing = false
+  @State private var isInterpreting = false
+  @State private var isApplying = false
+  @State private var showsSuggestionDetails = false
+  @State private var baselineDraft: TaskClarificationDraft?
+  @State private var baselineTags = ""
+  @State private var baselineEstimate = ""
+  @State private var processedTaskIDs: Set<PageID> = []
+  @State private var skippedTaskIDs: Set<PageID> = []
+  @State private var showsStopConfirmation = false
+  @State private var interpretationTask: Task<Void, Never>?
+  @FocusState private var titleIsFocused: Bool
+  @AccessibilityFocusState private var statusIsFocused: Bool
+  @AccessibilityFocusState private var currentTaskIsFocused: Bool
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if isComplete {
+          completionView
+        } else if let conflictMessage {
+          conflictView(message: conflictMessage)
+        } else if let unavailableMessage {
+          unavailableView(message: unavailableMessage)
+        } else if let draft {
+          editor(draft)
+        } else {
+          ProgressView("Preparing task…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      }
+      .navigationTitle("Clarify Inbox")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Stop Clarifying") { requestStop() }
+        }
+      }
+    }
+    .frame(minWidth: 420, idealWidth: 620, minHeight: 560, idealHeight: 720)
+    .task(id: currentTaskID) {
+      await prepareCurrentTask()
+    }
+    .confirmationDialog(
+      "Discard Changes?",
+      isPresented: $showsStopConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes", role: .destructive) { dismiss() }
+      Button("Keep Clarifying", role: .cancel) {}
+    } message: {
+      Text("Edits to this task have not been applied.")
+    }
+    .interactiveDismissDisabled(hasUnappliedEdits)
+    .onDisappear { interpretationTask?.cancel() }
+    .presentsTaskCompletionUndo(from: store)
+  }
+
+  @ViewBuilder
+  private func editor(_ value: TaskClarificationDraft) -> some View {
+    Form {
+      Section {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .firstTextBaseline) {
+            Text("Task \(currentIndex + 1) of \(request.taskIDs.count)")
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+              .accessibilityFocused($currentTaskIsFocused)
+            Spacer()
+            Text(progressPercent, format: .percent.precision(.fractionLength(0)))
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+          ProgressView(value: Double(currentIndex), total: Double(request.taskIDs.count))
+            .accessibilityLabel("Clarification progress")
+            .accessibilityValue("Task \(currentIndex + 1) of \(request.taskIDs.count)")
+        }
+
+        TextField("Task title", text: draftBinding.title, axis: .vertical)
+          .lineLimit(1...4)
+          .focused($titleIsFocused)
+
+        LabeledContent("Destination") {
+          Label("Anytime", systemImage: "archivebox")
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Task")
+      } footer: {
+        Text(
+          "Apply and Continue moves this task from Inbox to Anytime. Existing notes stay unchanged."
+        )
+      }
+
+      Section("Suggestions") {
+        if isInterpreting {
+          HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("Reviewing this task on device…")
+          }
+          .accessibilityElement(children: .combine)
+        } else {
+          Button("Suggest Details On Device", systemImage: "sparkles") {
+            requestSuggestions()
+          }
+          .disabled(isWorking)
+        }
+
+        Text("Suggestions stay on this device. Nothing changes until you apply.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        if let interpretation {
+          Label(
+            "Suggestion ready. Review every field before applying.", systemImage: "checkmark.circle"
+          )
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          if let manualMessage {
+            Label(manualMessage, systemImage: "hand.raised.fill")
+              .foregroundStyle(.orange)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          if !interpretation.suggestions.isEmpty {
+            DisclosureGroup(
+              "Review \(interpretation.suggestions.count) suggested \(interpretation.suggestions.count == 1 ? "field" : "fields")",
+              isExpanded: $showsSuggestionDetails
+            ) {
+              ForEach(interpretation.suggestions) { suggestion in
+                TaskInterpretationSuggestionRow(suggestion: suggestion)
+                  .padding(.vertical, 4)
+              }
+            }
+          }
+        } else {
+          Label("Manual mode", systemImage: "hand.raised")
+            .foregroundStyle(.secondary)
+          Text(
+            manualMessage ?? "Edit the task directly, or request optional on-device suggestions."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      TaskClarificationEditorSections(
+        store: store,
+        taskID: currentTaskID,
+        draft: draftBinding,
+        tags: $tags,
+        estimate: $estimate
+      )
+
+      if let failureMessage {
+        Section("Couldn’t Update Task") {
+          Label(failureMessage, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityFocused($statusIsFocused)
+        }
+      }
+    }
+    .formStyle(.grouped)
+    .disabled(isApplying || isPreparing)
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      TaskClarificationActionBar(
+        isWorking: isWorking,
+        canApply: !value.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          && isEstimateValid,
+        isFinalTask: currentIndex == request.taskIDs.count - 1,
+        apply: { Task { await applyAndContinue() } },
+        moveToSomeday: { Task { await moveToSomeday() } },
+        skip: skipCurrentTask
+      )
+    }
+  }
+
+  private var completionView: some View {
+    ContentUnavailableView {
+      Label("Inbox Review Complete", systemImage: "checkmark.circle")
+    } description: {
+      Text(completionMessage)
+    } actions: {
+      Button("Done") { dismiss() }
+        .buttonStyle(.borderedProminent)
+    }
+  }
+
+  private func conflictView(message: String) -> some View {
+    ContentUnavailableView {
+      Label("Task Changed", systemImage: "arrow.triangle.2.circlepath")
+    } description: {
+      Text(message)
+    } actions: {
+      Button("Reload Task") {
+        conflictMessage = nil
+        Task { await reloadCurrentTask() }
+      }
+      .buttonStyle(.borderedProminent)
+      Button("Skip for Now", action: skipCurrentTask)
+    }
+  }
+
+  private func unavailableView(message: String) -> some View {
+    ContentUnavailableView {
+      Label("Task Unavailable", systemImage: "exclamationmark.circle")
+    } description: {
+      Text(message)
+    } actions: {
+      Button("Skip for Now", action: skipCurrentTask)
+        .buttonStyle(.borderedProminent)
+    }
+  }
+
+  private var currentTaskID: PageID? {
+    request.taskIDs.indices.contains(currentIndex) ? request.taskIDs[currentIndex] : nil
+  }
+
+  private var isComplete: Bool {
+    currentIndex >= request.taskIDs.count
+  }
+
+  private var isWorking: Bool {
+    isPreparing || isInterpreting || isApplying
+  }
+
+  private var progressPercent: Double {
+    guard !request.taskIDs.isEmpty else { return 1 }
+    return Double(currentIndex) / Double(request.taskIDs.count)
+  }
+
+  private var draftBinding: Binding<TaskClarificationDraft> {
+    Binding(
+      get: { draft ?? TaskClarificationDraft(title: "") },
+      set: { draft = $0 }
+    )
+  }
+
+  private var isEstimateValid: Bool {
+    let value = estimate.trimmingCharacters(in: .whitespacesAndNewlines)
+    return value.isEmpty || Int(value).map { $0 > 0 } == true
+  }
+
+  private var completionMessage: String {
+    let currentIDs = Set(store.clarificationInboxTasks.map(\.id))
+    let snapshotIDs = Set(request.taskIDs)
+    let remainingCount = currentIDs.intersection(snapshotIDs).count
+    let skippedCount = currentIDs.intersection(skippedTaskIDs).count
+    let newCount = currentIDs.subtracting(snapshotIDs).count
+    let organized = organizedMessage
+    if remainingCount == 0, newCount == 0 { return "\(organized) Inbox is clear." }
+    if remainingCount > 0, newCount > 0 {
+      return
+        "\(organized) \(remainingMessage(remainingCount, skippedCount: skippedCount)), and \(taskCount(newCount)) arrived afterward."
+    }
+    if remainingCount > 0 {
+      return "\(organized) \(remainingMessage(remainingCount, skippedCount: skippedCount))."
+    }
+    return
+      "\(organized) \(taskCount(newCount)) arrived afterward and were not added to this session."
+  }
+
+  private var organizedMessage: String {
+    switch processedTaskIDs.count {
+    case 0: "This review is complete."
+    case 1: "One task was organized."
+    case let count: "\(count) tasks were organized."
+    }
+  }
+
+  private func taskCount(_ count: Int) -> String {
+    "\(count) \(count == 1 ? "task" : "tasks")"
+  }
+
+  private func remainingMessage(_ count: Int, skippedCount: Int) -> String {
+    if count == skippedCount {
+      return "\(taskCount(count)) remain in Inbox after being skipped"
+    }
+    return "\(taskCount(count)) from this review remain in Inbox"
+  }
+
+  @MainActor
+  private func prepareCurrentTask() async {
+    guard let taskID = currentTaskID else { return }
+    isPreparing = true
+    failureMessage = nil
+    conflictMessage = nil
+    unavailableMessage = nil
+    interpretation = nil
+    manualMessage = nil
+    showsSuggestionDetails = false
+    defer { isPreparing = false }
+
+    guard let fallback = await store.manualClarificationProposal(for: taskID) else {
+      unavailableMessage =
+        store.taskClarificationError ?? "This task is no longer available for clarification."
+      return
+    }
+    guard currentTaskID == fallback.taskID else { return }
+    install(fallback.draft, expectedVersion: fallback.expectedVersion)
+  }
+
+  @MainActor
+  private func interpretCurrentTask() async {
+    guard let taskID = currentTaskID, !isWorking else { return }
+    isInterpreting = true
+    failureMessage = nil
+    defer { isInterpreting = false }
+
+    switch await store.clarificationProposal(for: taskID) {
+    case .proposed(let proposal):
+      guard currentTaskID == proposal.taskID else { return }
+      interpretation = proposal.interpretation
+      if hasUnappliedEdits {
+        manualMessage =
+          "Your manual edits were kept. Suggested details are shown below but were not inserted."
+      } else {
+        install(proposal.draft, expectedVersion: proposal.expectedVersion)
+        manualMessage = nil
+      }
+    case .unavailable(let fallback, let availability):
+      guard currentTaskID == fallback.taskID else { return }
+      if hasUnappliedEdits, fallback.expectedVersion != expectedVersion {
+        conflictMessage =
+          "This task changed while suggestions were being prepared. Reload it before applying changes."
+        return
+      }
+      if !hasUnappliedEdits {
+        install(fallback.draft, expectedVersion: fallback.expectedVersion)
+      }
+      interpretation = nil
+      manualMessage = "\(availability.message) Continue in manual mode."
+    case .failed(let fallback, let message):
+      guard currentTaskID == fallback.taskID else { return }
+      if hasUnappliedEdits, fallback.expectedVersion != expectedVersion {
+        conflictMessage =
+          "This task changed while suggestions were being prepared. Reload it before applying changes."
+        return
+      }
+      if !hasUnappliedEdits {
+        install(fallback.draft, expectedVersion: fallback.expectedVersion)
+      }
+      interpretation = nil
+      manualMessage = "\(message) Continue in manual mode."
+    case .stale:
+      conflictMessage =
+        "This task changed while suggestions were being prepared. Reload it before applying changes."
+    case .ineligible(let message):
+      unavailableMessage = message
+    }
+  }
+
+  @MainActor
+  private func applyAndContinue() async {
+    guard let taskID = currentTaskID, let expectedVersion, var prepared = draft,
+      !isWorking, isEstimateValid
+    else { return }
+    prepared.title = prepared.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !prepared.title.isEmpty else { return }
+    prepared.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
+    prepared.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
+    if let recurrence = prepared.recurrence {
+      prepared.recurrence = TaskTemporalPolicy.normalized(recurrence)
+    }
+
+    isApplying = true
+    defer { isApplying = false }
+    handleMutation(
+      await store.applyClarification(
+        taskID: taskID,
+        draft: prepared,
+        expectedVersion: expectedVersion
+      )
+    )
+  }
+
+  @MainActor
+  private func moveToSomeday() async {
+    guard let taskID = currentTaskID, let expectedVersion, !isWorking else { return }
+    isApplying = true
+    defer { isApplying = false }
+    handleMutation(
+      await store.moveClarificationTaskToSomeday(
+        taskID: taskID,
+        expectedVersion: expectedVersion
+      )
+    )
+  }
+
+  private func install(_ value: TaskClarificationDraft, expectedVersion: TaskPageVersion) {
+    draft = value
+    self.expectedVersion = expectedVersion
+    tags = value.tags.joined(separator: ", ")
+    estimate = value.estimatedMinutes.map(String.init) ?? ""
+    baselineDraft = value
+    baselineTags = tags
+    baselineEstimate = estimate
+    Task { @MainActor in
+      await Task.yield()
+      currentTaskIsFocused = true
+    }
+  }
+
+  private func handleMutation(_ response: TaskClarificationMutationResponse) {
+    switch response {
+    case .applied:
+      if let currentTaskID { processedTaskIDs.insert(currentTaskID) }
+      advance()
+    case .stale(let message):
+      conflictMessage = message
+    case .failed(let message):
+      failureMessage = message
+      statusIsFocused = true
+    }
+  }
+
+  private func advance() {
+    interpretationTask?.cancel()
+    interpretationTask = nil
+    draft = nil
+    expectedVersion = nil
+    baselineDraft = nil
+    baselineTags = ""
+    baselineEstimate = ""
+    tags = ""
+    estimate = ""
+    interpretation = nil
+    currentTaskIsFocused = false
+    let update = { currentIndex += 1 }
+    if reduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.18), update) }
+  }
+
+  private func skipCurrentTask() {
+    if let currentTaskID { skippedTaskIDs.insert(currentTaskID) }
+    advance()
+  }
+
+  private var hasUnappliedEdits: Bool {
+    draft != baselineDraft || tags != baselineTags || estimate != baselineEstimate
+  }
+
+  private func requestStop() {
+    if hasUnappliedEdits {
+      showsStopConfirmation = true
+    } else {
+      interpretationTask?.cancel()
+      dismiss()
+    }
+  }
+
+  private func requestSuggestions() {
+    guard interpretationTask == nil, !isWorking else { return }
+    interpretationTask = Task {
+      await interpretCurrentTask()
+      interpretationTask = nil
+    }
+  }
+
+  @MainActor
+  private func reloadCurrentTask() async {
+    _ = await store.reload(policy: .refreshOnly)
+    await prepareCurrentTask()
+  }
+}
+
+private struct TaskClarificationEditorSections: View {
+  let store: LibraryStore
+  let taskID: PageID?
+  @Binding var draft: TaskClarificationDraft
+  @Binding var tags: String
+  @Binding var estimate: String
+
+  var body: some View {
+    Section("Planning") {
+      Toggle("Schedule", isOn: scheduledEnabled)
+      if draft.scheduledAt != nil {
+        Picker("Schedule precision", selection: $draft.scheduleGranularity) {
+          Text("Date only").tag(TaskScheduleGranularity.dateOnly)
+          Text("Date and time").tag(TaskScheduleGranularity.dateTime)
+        }
+        DatePicker(
+          "When",
+          selection: scheduledDate,
+          displayedComponents: draft.scheduleGranularity == .dateOnly
+            ? [.date] : [.date, .hourAndMinute]
+        )
+      }
+      Toggle("Deadline", isOn: deadlineEnabled)
+      if draft.deadline != nil {
+        DatePicker("Deadline", selection: deadlineDate, displayedComponents: .date)
+      }
+      Toggle("Reminder", isOn: reminderEnabled)
+      if draft.reminder != nil {
+        DatePicker(
+          "Remind me", selection: reminderDate, displayedComponents: [.date, .hourAndMinute])
+      }
+      Picker("Priority", selection: $draft.priority) {
+        ForEach(TaskPriority.allCases, id: \.self) { Text($0.title).tag($0) }
+      }
+    }
+
+    Section("Organization") {
+      Picker("Project", selection: $draft.projectID) {
+        Text("None").tag(PageID?.none)
+        ForEach(assignableProjects) { project in
+          Text(project.displayTitle).tag(PageID?.some(project.id))
+        }
+      }
+      Picker("Area", selection: $draft.areaID) {
+        Text("None").tag(PageID?.none)
+        ForEach(store.taskAreas) { area in
+          Text(area.displayTitle).tag(PageID?.some(area.id))
+        }
+      }
+      Picker("Parent Task", selection: $draft.parentTaskID) {
+        Text("None").tag(PageID?.none)
+        ForEach(parentCandidates) { task in
+          Text(task.page.displayTitle).tag(PageID?.some(task.id))
+        }
+      }
+      TextField("Tags, separated by commas", text: $tags)
+    }
+
+    TaskAssigneesSection(store: store, assigneeIDs: $draft.assigneeIDs)
+
+    Section("Repeat & Estimate") {
+      Toggle("Repeats", isOn: recurrenceEnabled)
+      if draft.recurrence != nil {
+        TaskRecurrenceEditor(rule: recurrenceRule)
+      }
+      TextField("Estimate in minutes", text: $estimate)
+    }
+  }
+
+  private var assignableProjects: [PageSnapshot] {
+    var projects = store.taskProjects.filter { $0.projectData?.status.isOpen == true }
+    if let projectID = draft.projectID,
+      let current = store.page(id: projectID),
+      !projects.contains(where: { $0.id == projectID })
+    {
+      projects.append(current)
+    }
+    return projects
+  }
+
+  private var parentCandidates: [TaskItem] {
+    store.pages.compactMap(TaskItem.init(page:)).filter {
+      $0.id != taskID && $0.data.state == .active
+    }
+  }
+
+  private var scheduledEnabled: Binding<Bool> {
+    Binding(
+      get: { draft.scheduledAt != nil },
+      set: { draft.scheduledAt = $0 ? Date() : nil }
+    )
+  }
+
+  private var scheduledDate: Binding<Date> {
+    Binding(get: { draft.scheduledAt ?? Date() }, set: { draft.scheduledAt = $0 })
+  }
+
+  private var deadlineEnabled: Binding<Bool> {
+    Binding(get: { draft.deadline != nil }, set: { draft.deadline = $0 ? Date() : nil })
+  }
+
+  private var deadlineDate: Binding<Date> {
+    Binding(get: { draft.deadline ?? Date() }, set: { draft.deadline = $0 })
+  }
+
+  private var reminderEnabled: Binding<Bool> {
+    Binding(get: { draft.reminder != nil }, set: { draft.reminder = $0 ? Date() : nil })
+  }
+
+  private var reminderDate: Binding<Date> {
+    Binding(get: { draft.reminder ?? Date() }, set: { draft.reminder = $0 })
+  }
+
+  private var recurrenceEnabled: Binding<Bool> {
+    Binding(
+      get: { draft.recurrence != nil },
+      set: { draft.recurrence = $0 ? TaskRecurrenceRule() : nil }
+    )
+  }
+
+  private var recurrenceRule: Binding<TaskRecurrenceRule> {
+    Binding(
+      get: { draft.recurrence ?? TaskRecurrenceRule() },
+      set: { draft.recurrence = TaskTemporalPolicy.normalized($0) }
+    )
+  }
+}
+
+private struct TaskClarificationActionBar: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  let isWorking: Bool
+  let canApply: Bool
+  let isFinalTask: Bool
+  let apply: () -> Void
+  let moveToSomeday: () -> Void
+  let skip: () -> Void
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Button(
+        isFinalTask ? "Apply and Finish" : "Apply and Continue",
+        systemImage: isFinalTask ? "checkmark.circle.fill" : "arrow.right.circle.fill",
+        action: apply
+      )
+        .buttonStyle(.borderedProminent)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .disabled(!canApply || isWorking)
+
+      Group {
+        if dynamicTypeSize.isAccessibilitySize {
+          VStack(spacing: 8) { secondaryActions }
+        } else {
+          HStack(spacing: 12) { secondaryActions }
+        }
+      }
+      .disabled(isWorking)
+
+      Text("Someday removes the schedule. Deadlines and reminders stay unchanged.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.horizontal)
+    .padding(.vertical, 10)
+    .background(.bar)
+  }
+
+  @ViewBuilder
+  private var secondaryActions: some View {
+    Button("Move to Someday", systemImage: "archivebox", action: moveToSomeday)
+      .frame(maxWidth: .infinity, minHeight: 44)
+    Button("Skip for Now", systemImage: "forward", action: skip)
+      .frame(maxWidth: .infinity, minHeight: 44)
   }
 }
 

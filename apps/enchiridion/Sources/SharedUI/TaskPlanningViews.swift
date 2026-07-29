@@ -356,6 +356,7 @@ struct WeeklyReviewContent: View {
 
   @State private var planningDraft: ProjectPlanningDraft?
   @State private var acceptedOverdueProjectIDs: Set<PageID> = []
+  @State private var clarificationRequest: TaskClarificationSessionRequest?
 
   var body: some View {
     let review = store.weeklyReview()
@@ -371,6 +372,19 @@ struct WeeklyReviewContent: View {
           )
         }
         .accessibilityHint("Opens the Inbox task queue")
+
+        if !store.clarificationInboxTasks.isEmpty {
+          Button {
+            startClarification()
+          } label: {
+            WeeklyReviewQueueLabel(
+              title: "Clarify Inbox",
+              count: review.inboxTaskCount,
+              systemImage: "checklist"
+            )
+          }
+          .accessibilityHint("Reviews the current Inbox one task at a time")
+        }
 
         NavigationLink {
           WeeklyReviewOverdueQueue(store: store)
@@ -469,6 +483,15 @@ struct WeeklyReviewContent: View {
     .sheet(item: $planningDraft) { draft in
       ProjectPlanningEditor(store: store, draft: draft)
     }
+    .sheet(item: $clarificationRequest) { request in
+      ClarifyInboxSheet(store: store, request: request)
+    }
+  }
+
+  private func startClarification() {
+    let taskIDs = store.clarificationInboxTasks.map(\.id)
+    guard !taskIDs.isEmpty else { return }
+    clarificationRequest = TaskClarificationSessionRequest(taskIDs: taskIDs)
   }
 
   private func markReviewed(_ item: ProjectReviewItem, acceptsOverdueWork: Bool) {

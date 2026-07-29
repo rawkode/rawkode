@@ -12,6 +12,7 @@ struct MacRootView: View {
   @State private var editingView: LiveQueryDefinition?
   @State private var perspectivePendingDeletion: LiveQueryDefinition?
   @State private var showsQuickTaskCapture = false
+  @State private var clarificationRequest: TaskClarificationSessionRequest?
   @State private var taskCollectionDraft: TaskCollectionDraft?
   @State private var todayPresentedPageID: PageID?
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
@@ -324,6 +325,15 @@ struct MacRootView: View {
           .accessibilityHint("Edit, duplicate, or delete this perspective.")
         }
       }
+      if isInboxSelection, !store.clarificationInboxTasks.isEmpty {
+        ToolbarItem {
+          Button("Clarify Inbox", systemImage: "checklist") {
+            startClarification()
+          }
+          .help("Review the current Inbox one task at a time")
+          .accessibilityHint("Reviews the current Inbox one task at a time")
+        }
+      }
       ToolbarItem {
         Menu {
           Button("Enable Local Calendars", systemImage: "calendar") {
@@ -397,6 +407,9 @@ struct MacRootView: View {
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
       TaskQuickCaptureSheet(store: store, selection: quickTaskCaptureSelection)
+    }
+    .sheet(item: $clarificationRequest) { request in
+      ClarifyInboxSheet(store: store, request: request)
     }
     .sheet(item: $taskCollectionDraft) { draft in
       TaskCollectionCreator(store: store, draft: draft)
@@ -475,6 +488,16 @@ struct MacRootView: View {
 
   private var quickTaskCaptureSelection: TaskListSelection {
     canCreateTaskInCurrentContext ? selection.taskSelection ?? .smart(.inbox) : .smart(.inbox)
+  }
+
+  private var isInboxSelection: Bool {
+    selection.taskSelection == .smart(.inbox)
+  }
+
+  private func startClarification() {
+    let taskIDs = store.clarificationInboxTasks.map(\.id)
+    guard !taskIDs.isEmpty else { return }
+    clarificationRequest = TaskClarificationSessionRequest(taskIDs: taskIDs)
   }
 
   private var perspectiveDeletionBinding: Binding<Bool> {
