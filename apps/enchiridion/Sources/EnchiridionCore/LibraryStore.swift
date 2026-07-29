@@ -57,6 +57,7 @@ public enum TaskClarificationMutationResponse: Sendable {
 @MainActor
 @Observable
 public final class LibraryStore {
+  public let vaultID: VaultID
   public private(set) var pages: [PageSnapshot] = []
   public private(set) var calendarEvents: [CalendarEventSnapshot] = []
   public private(set) var calendarPageContexts: [PageID: CalendarPageContext] = [:]
@@ -96,6 +97,7 @@ public final class LibraryStore {
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
 
   public init(
+    vaultID: VaultID? = nil,
     repository: LibraryRepository? = nil,
     calendar: Calendar = .current,
     contactResolver: (any DeviceContactResolving)? = nil,
@@ -104,25 +106,37 @@ public final class LibraryStore {
     taskMutationEffects: TaskMutationEffectExecutor? = nil,
     taskInterpreter: any TaskInputInterpreting = FoundationTaskInterpreter()
   ) {
+    let resolvedRepository: LibraryRepository?
+    let resolvedVaultID: VaultID
+    var repositoryStartupError: String?
+    if let repository {
+      resolvedRepository = repository
+      resolvedVaultID = vaultID ?? .standalone
+    } else {
+      do {
+        let context = try VaultRepositoryContext.open(.selected)
+        resolvedRepository = context.repository
+        resolvedVaultID = context.vault.id
+      } catch {
+        resolvedRepository = nil
+        resolvedVaultID = vaultID ?? .standalone
+        repositoryStartupError = error.localizedDescription
+      }
+    }
+
+    self.vaultID = resolvedVaultID
     self.calendar = calendar
     self.taskInterpreter = taskInterpreter
     self.contactResolver = contactResolver
     self.taskSystemReconciliationCoordinator = taskSystemReconciliationCoordinator
-    if let repository {
-      self.repository = repository
-    } else {
-      do {
-        self.repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
-      } catch {
-        self.repository = nil
-        startupError = error.localizedDescription
-      }
-    }
+    self.repository = resolvedRepository
+    startupError = repositoryStartupError
     if let repository = self.repository {
       let effects =
         taskMutationEffects
         ?? TaskMutationEffectExecutor.live(
           surface: .application,
+          vaultID: resolvedVaultID,
           reload: { [weak self] in
             guard let self else { return .failed("The library is unavailable.") }
             guard await self.reload(policy: .refreshOnly) != nil else {
@@ -240,6 +254,7 @@ public final class LibraryStore {
       if CloudSyncCoordinator.hasRequiredEntitlement {
         let coordinator = CloudSyncCoordinator(
           repository: repository,
+          zoneName: "EnchiridionGraph-\(vaultID.rawValue)",
           statusHandler: { [weak self] status in
             Task { @MainActor in self?.syncStatus = status }
           },
@@ -314,7 +329,7 @@ public final class LibraryStore {
       otherPeople = loadedOtherPeople
       contactLinks = loadedContactLinks
       if policy == .reconcileSystemState {
-        await taskSystemReconciliationCoordinator.submit(live)
+        await taskSystemReconciliationCoordinator.submit(vaultID: vaultID, pages: live)
       }
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id

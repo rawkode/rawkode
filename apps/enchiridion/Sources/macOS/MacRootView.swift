@@ -811,9 +811,10 @@ struct MacRootView: View {
   }
 
   private func receive(_ route: TaskDeepLinkRoute) async {
+    guard await editorFlushController.flush() else { return }
+    guard let workspaceStore = workspaceStore(for: route.vaultID) else { return }
     let outcome = await systemHandoffCoordinator.open(route) {
-      guard await editorFlushController.flush() else { return nil }
-      return await store.reload()
+      await workspaceStore.reload()
     }
     guard let route = outcome?.route else { return }
     apply(route)
@@ -836,12 +837,24 @@ struct MacRootView: View {
     case .list:
       showsQuickTaskCapture = false
       store.selectedPageID = nil
-    case .task(let pageID, list: _):
+    case .task(let identity, list: _):
       showsQuickTaskCapture = false
-      store.selectedPageID = pageID
+      store.selectedPageID = identity.nodeID
     case .quickAdd:
       store.selectedPageID = nil
       showsQuickTaskCapture = true
+    }
+  }
+
+  private func workspaceStore(for vaultID: VaultID) -> LibraryStore? {
+    guard let vaultSession else { return store.vaultID == vaultID ? store : nil }
+    do {
+      if vaultSession.selectedVault.id != vaultID {
+        try selectVault(vaultID)
+      }
+      return vaultSession.store
+    } catch {
+      return nil
     }
   }
 

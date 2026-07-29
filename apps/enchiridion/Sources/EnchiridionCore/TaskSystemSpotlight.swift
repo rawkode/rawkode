@@ -16,23 +16,26 @@ public enum TaskSpotlightEffectOutcome: Equatable, Sendable {
 }
 
 public enum TaskSystemSpotlight {
-  private static let domainIdentifier = "dev.rawkode.enchiridion.tasks"
+  private static let domainIdentifierPrefix = "dev.rawkode.enchiridion.tasks."
   private static let operationLane = TaskSystemExclusiveOperationLane()
 
-  static func searchableIdentifier(for pageID: PageID) -> String { pageID.rawValue }
+  static func searchableIdentifier(for identity: VaultScopedNodeID) -> String { identity.id }
 
-  static func contentURL(for pageID: PageID) -> URL? {
-    TaskReminderScheduler.taskURL(for: pageID)
+  static func contentURL(for identity: VaultScopedNodeID) -> URL? {
+    TaskReminderScheduler.taskURL(for: identity)
   }
 
   @discardableResult
-  public static func index(_ page: PageSnapshot) async -> TaskSpotlightEffectOutcome {
+  public static func index(
+    _ page: PageSnapshot,
+    vaultID: VaultID
+  ) async -> TaskSpotlightEffectOutcome {
     #if canImport(CoreSpotlight)
       do {
         return try await operationLane.perform {
           try await withCrossProcessLock {
-            guard let item = searchableItem(for: page) else {
-              return await removeWithoutLock(page.id)
+            guard let item = searchableItem(for: page, vaultID: vaultID) else {
+              return await removeWithoutLock(.init(vaultID: vaultID, nodeID: page.id))
             }
             do {
               try await CSSearchableIndex.default().indexSearchableItems([item])
@@ -51,12 +54,12 @@ public enum TaskSystemSpotlight {
   }
 
   @discardableResult
-  public static func remove(_ pageID: PageID) async -> TaskSpotlightEffectOutcome {
+  public static func remove(_ identity: VaultScopedNodeID) async -> TaskSpotlightEffectOutcome {
     #if canImport(CoreSpotlight)
       do {
         return try await operationLane.perform {
           try await withCrossProcessLock {
-            await removeWithoutLock(pageID)
+            await removeWithoutLock(identity)
           }
         }
       } catch {
@@ -70,19 +73,22 @@ public enum TaskSystemSpotlight {
   /// Rebuilds the task domain from repository state. This is the single
   /// canonical indexing path used at app startup and after local reloads.
   @discardableResult
-  public static func reconcile(_ pages: [PageSnapshot]) async -> TaskSpotlightEffectOutcome {
+  public static func reconcile(
+    _ pages: [PageSnapshot],
+    vaultID: VaultID
+  ) async -> TaskSpotlightEffectOutcome {
     #if canImport(CoreSpotlight)
       do {
         return try await operationLane.perform {
           try await withCrossProcessLock {
             do {
               try await CSSearchableIndex.default().deleteSearchableItems(
-                withDomainIdentifiers: [domainIdentifier]
+                withDomainIdentifiers: [domainIdentifier(for: vaultID)]
               )
             } catch {
               return .removalFailed(error.localizedDescription)
             }
-            let activeItems = pages.compactMap(searchableItem(for:))
+            let activeItems = pages.compactMap { searchableItem(for: $0, vaultID: vaultID) }
             guard !activeItems.isEmpty else { return .applied }
             do {
               try await CSSearchableIndex.default().indexSearchableItems(activeItems)
@@ -101,7 +107,10 @@ public enum TaskSystemSpotlight {
   }
 
   #if canImport(CoreSpotlight)
-    private static func searchableItem(for page: PageSnapshot) -> CSSearchableItem? {
+    private static func searchableItem(
+      for page: PageSnapshot,
+      vaultID: VaultID
+    ) -> CSSearchableItem? {
       guard page.deletedAt == nil, let task = page.taskData, task.state == .active else {
         return nil
       }
@@ -111,18 +120,21 @@ public enum TaskSystemSpotlight {
       attributes.dueDate = task.deadline
       attributes.keywords =
         task.tags + (task.priority == .none ? [] : [task.priority.rawValue])
-      attributes.contentURL = contentURL(for: page.id)
+      let identity = VaultScopedNodeID(vaultID: vaultID, nodeID: page.id)
+      attributes.contentURL = contentURL(for: identity)
       return CSSearchableItem(
-        uniqueIdentifier: searchableIdentifier(for: page.id),
-        domainIdentifier: domainIdentifier,
+        uniqueIdentifier: searchableIdentifier(for: identity),
+        domainIdentifier: domainIdentifier(for: vaultID),
         attributeSet: attributes
       )
     }
 
-    private static func removeWithoutLock(_ pageID: PageID) async -> TaskSpotlightEffectOutcome {
+    private static func removeWithoutLock(
+      _ identity: VaultScopedNodeID
+    ) async -> TaskSpotlightEffectOutcome {
       do {
         try await CSSearchableIndex.default().deleteSearchableItems(
-          withIdentifiers: [pageID.rawValue]
+          withIdentifiers: [searchableIdentifier(for: identity)]
         )
         return .applied
       } catch {
@@ -133,7 +145,7 @@ public enum TaskSystemSpotlight {
     private static func withCrossProcessLock<Value: Sendable>(
       _ operation: @escaping @Sendable () async -> Value
     ) async throws -> Value {
-      let lockPath = try LibraryRepository.defaultLocalPath() + ".spotlight.lock"
+      let lockPath = try VaultRegistry.defaultCatalogPath() + ".spotlight.lock"
       let descriptor = open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
       guard descriptor >= 0 else { throw posixError() }
       defer { close(descriptor) }
@@ -146,4 +158,8 @@ public enum TaskSystemSpotlight {
       NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
     }
   #endif
+
+  private static func domainIdentifier(for vaultID: VaultID) -> String {
+    domainIdentifierPrefix + vaultID.rawValue
+  }
 }

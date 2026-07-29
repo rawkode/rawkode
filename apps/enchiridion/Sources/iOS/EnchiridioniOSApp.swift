@@ -72,8 +72,21 @@ final class EnchiridionAppRuntime {
     rebuildWorkspaceDependents()
     TaskReminderNotificationCoordinator.shared.configure(
       store: store,
+      resolveStore: { vaultID in
+        try EnchiridionAppRuntime.shared.store(for: vaultID)
+      },
       openURL: { url in UIApplication.shared.open(url) }
     )
+  }
+
+  func store(for vaultID: VaultID) throws -> LibraryStore? {
+    guard let vaultSession else {
+      return store.vaultID == vaultID ? store : nil
+    }
+    if vaultSession.selectedVault.id != vaultID {
+      try selectVault(vaultID)
+    }
+    return vaultSession.store
   }
 
   private func rebuildWorkspaceDependents() {

@@ -62,7 +62,7 @@ final class LibraryRepositoryTests: XCTestCase {
   func testTaskMutationReloadSkipsFullSystemReconciliation() async throws {
     let fixture = try RepositoryFixture()
     let probe = StoreReconciliationProbe()
-    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { pages in
+    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { _, pages in
       await probe.record(pages)
     }
     let store = LibraryStore(
@@ -85,7 +85,7 @@ final class LibraryRepositoryTests: XCTestCase {
     let fixture = try RepositoryFixture()
     let task = try await fixture.repository.createTask(TaskDraft(title: "Reconcile refresh"))
     let probe = StoreReconciliationProbe()
-    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { pages in
+    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { _, pages in
       await probe.record(pages)
     }
     let store = LibraryStore(

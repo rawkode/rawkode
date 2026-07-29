@@ -378,8 +378,7 @@ public struct TaskData: Codable, Hashable, Sendable {
   }
 
   public static func normalizedPageIDs(_ pageIDs: [PageID]) -> [PageID] {
-    var seen: Set<PageID> = []
-    return pageIDs.filter { seen.insert($0).inserted }
+    Array(Set(pageIDs)).sorted { $0.rawValue < $1.rawValue }
   }
 
   public mutating func setScheduleEnabled(

@@ -113,6 +113,14 @@ final class GraphRepositoryTests: XCTestCase {
     XCTAssertEqual(outgoingEdges, [edge])
     XCTAssertEqual(backlinks.map(\.edge), [edge])
 
+    try await fixture.repository.setProperty(
+      pageID: task.id,
+      key: TaskFields.project,
+      values: [.page(firstProject.id)]
+    )
+    let stableOutgoingEdges = try await fixture.repository.outgoingEdges(from: task.id)
+    XCTAssertEqual(stableOutgoingEdges, [edge])
+
     let inverse = try fixture.repository.runGraphSQL(
       "SELECT from_node_id, to_node_id, relationship_name FROM graph_edges WHERE edge_id = :edge AND direction = 'inverse'",
       arguments: ["edge": .text(edge.id.rawValue)]

@@ -137,17 +137,18 @@ actor TaskSystemExclusiveOperationLane {
 /// changes while a reconciliation is running, only the newest queued snapshot
 /// runs next and therefore becomes the final Spotlight and notification state.
 public actor TaskSystemReconciliationCoordinator {
-  public typealias Operation = @Sendable ([PageSnapshot]) async -> Void
+  public typealias Operation = @Sendable (VaultID, [PageSnapshot]) async -> Void
 
-  public static let shared = TaskSystemReconciliationCoordinator { pages in
-    await TaskSystemSpotlight.reconcile(pages)
+  public static let shared = TaskSystemReconciliationCoordinator { vaultID, pages in
+    await TaskSystemSpotlight.reconcile(pages, vaultID: vaultID)
     await TaskReminderScheduler.shared.reconcile(
-      pages.filter { $0.hasSupertag(BuiltInSupertags.task) }
+      pages.filter { $0.hasSupertag(BuiltInSupertags.task) },
+      vaultID: vaultID
     )
   }
 
   private let operation: Operation
-  private var pendingPages: [PageSnapshot]?
+  private var pendingSnapshot: (vaultID: VaultID, pages: [PageSnapshot])?
   private var isDraining = false
   private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -155,24 +156,24 @@ public actor TaskSystemReconciliationCoordinator {
     self.operation = operation
   }
 
-  public func submit(_ pages: [PageSnapshot]) {
-    pendingPages = pages
+  public func submit(vaultID: VaultID, pages: [PageSnapshot]) {
+    pendingSnapshot = (vaultID, pages)
     guard !isDraining else { return }
     isDraining = true
     Task { await drain() }
   }
 
   func waitUntilIdle() async {
-    guard isDraining || pendingPages != nil else { return }
+    guard isDraining || pendingSnapshot != nil else { return }
     await withCheckedContinuation { continuation in
       idleWaiters.append(continuation)
     }
   }
 
   private func drain() async {
-    while let pages = pendingPages {
-      pendingPages = nil
-      await operation(pages)
+    while let snapshot = pendingSnapshot {
+      pendingSnapshot = nil
+      await operation(snapshot.vaultID, snapshot.pages)
     }
     isDraining = false
     let waiters = idleWaiters

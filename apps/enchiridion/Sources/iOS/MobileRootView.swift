@@ -112,8 +112,9 @@ struct MobileRootView: View {
   }
 
   private func receive(_ route: TaskDeepLinkRoute) async {
+    guard let workspaceStore = workspaceStore(for: route.vaultID) else { return }
     let outcome = await systemHandoffCoordinator.open(route) {
-      await store.reload()
+      await workspaceStore.reload()
     }
     guard let route = outcome?.route else { return }
     apply(route)
@@ -135,13 +136,25 @@ struct MobileRootView: View {
     case .list:
       requestedTaskID = nil
       showsQuickTaskCapture = false
-    case .task(let pageID, list: _):
+    case .task(let identity, list: _):
       showsQuickTaskCapture = false
-      requestedTaskID = pageID
-    case .quickAdd(let list):
+      requestedTaskID = identity.nodeID
+    case .quickAdd(let list, vaultID: _):
       requestedTaskID = nil
       quickTaskSelection = .smart(list)
       showsQuickTaskCapture = true
+    }
+  }
+
+  private func workspaceStore(for vaultID: VaultID) -> LibraryStore? {
+    guard let vaultSession else { return store.vaultID == vaultID ? store : nil }
+    do {
+      if vaultSession.selectedVault.id != vaultID {
+        try selectVault(vaultID)
+      }
+      return vaultSession.store
+    } catch {
+      return nil
     }
   }
 }

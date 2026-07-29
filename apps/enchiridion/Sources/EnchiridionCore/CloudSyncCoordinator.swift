@@ -184,6 +184,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
 
   public init(
     repository: LibraryRepository,
+    zoneName: String = CloudSyncCoordinator.zoneName,
     statusHandler: @escaping @Sendable (SyncStatus) -> Void,
     changeHandler: @escaping @Sendable () -> Void = {}
   ) {
@@ -191,7 +192,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     self.statusHandler = statusHandler
     self.changeHandler = changeHandler
     container = CKContainer(identifier: Self.containerIdentifier)
-    zoneID = CKRecordZone.ID(zoneName: Self.zoneName, ownerName: CKCurrentUserDefaultName)
+    zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
   }
 
   public func start() async {

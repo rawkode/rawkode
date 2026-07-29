@@ -23,7 +23,7 @@ struct AskEnchiridionIntent: AppIntent {
     let normalizedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedQuestion.isEmpty else { throw AskEnchiridionIntentError.emptyQuestion }
 
-    let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
+    let repository = try VaultRepositoryContext.open(.selected).repository
     let assistant = FoundationModelAssistant(repository: repository)
     let response = await assistant.respond(to: normalizedQuestion)
     return .result(dialog: IntentDialog(stringLiteral: response.answer))

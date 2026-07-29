@@ -5,10 +5,12 @@ import XCTest
 
 @MainActor
 final class TaskSystemCoordinationTests: XCTestCase {
+  private let vaultID = VaultID(rawValue: "vault_personal")
+
   func testColdLaunchDeliversExactTaskAfterFreshRead() async {
     let coordinator = TaskSystemHandoffCoordinator()
     let task = page("cold-launch")
-    let route = TaskDeepLinkRoute.task(task.id, list: .today)
+    let route = TaskDeepLinkRoute.task(scoped(task.id), list: .today)
 
     let outcome = await coordinator.open(route) { [task] in [task] }
 
@@ -20,7 +22,7 @@ final class TaskSystemCoordinationTests: XCTestCase {
     let coordinator = TaskSystemHandoffCoordinator()
     let gate = OneShotGate()
     let task = page("activation-url")
-    let route = TaskDeepLinkRoute.task(task.id, list: .inbox)
+    let route = TaskDeepLinkRoute.task(scoped(task.id), list: .inbox)
 
     let urlRequest = Task {
       await coordinator.open(route) { [task] in
@@ -49,8 +51,8 @@ final class TaskSystemCoordinationTests: XCTestCase {
     let firstTask = page("first")
     let secondTask = page("second")
     let pages = [firstTask, secondTask]
-    let firstRoute = TaskDeepLinkRoute.task(firstTask.id, list: .today)
-    let secondRoute = TaskDeepLinkRoute.task(secondTask.id, list: .upcoming)
+    let firstRoute = TaskDeepLinkRoute.task(scoped(firstTask.id), list: .today)
+    let secondRoute = TaskDeepLinkRoute.task(scoped(secondTask.id), list: .upcoming)
 
     let firstRequest = Task {
       await coordinator.open(firstRoute) { [pages] in
@@ -76,7 +78,7 @@ final class TaskSystemCoordinationTests: XCTestCase {
   func testFailedRefreshKeepsExactRoutePendingForNextSuccessfulActivation() async {
     let coordinator = TaskSystemHandoffCoordinator()
     let task = page("retry-after-refresh")
-    let route = TaskDeepLinkRoute.task(task.id, list: .today)
+    let route = TaskDeepLinkRoute.task(scoped(task.id), list: .today)
 
     let failedOutcome = await coordinator.open(route) { nil }
     let recoveredOutcome = await coordinator.activate { [task] in [task] }
@@ -89,23 +91,27 @@ final class TaskSystemCoordinationTests: XCTestCase {
   func testReconciliationIsSerializedAndCoalescesToLatestSnapshot() async {
     let gate = OneShotGate()
     let probe = ReconciliationProbe(gate: gate)
-    let coordinator = TaskSystemReconciliationCoordinator { pages in
+    let coordinator = TaskSystemReconciliationCoordinator { _, pages in
       await probe.reconcile(pages)
     }
     let first = page("first")
     let middle = page("middle")
     let latest = page("latest")
 
-    await coordinator.submit([first])
+    await coordinator.submit(vaultID: vaultID, pages: [first])
     await gate.waitUntilEntered()
-    await coordinator.submit([middle])
-    await coordinator.submit([latest])
+    await coordinator.submit(vaultID: vaultID, pages: [middle])
+    await coordinator.submit(vaultID: vaultID, pages: [latest])
     await gate.release()
     await coordinator.waitUntilIdle()
 
     let snapshot = await probe.snapshot()
     XCTAssertEqual(snapshot.calls, [[first.id], [latest.id]])
     XCTAssertEqual(snapshot.maximumConcurrentOperations, 1)
+  }
+
+  private func scoped(_ pageID: PageID) -> VaultScopedNodeID {
+    .init(vaultID: vaultID, nodeID: pageID)
   }
 
   func testExclusiveOperationLaneDoesNotReenterAcrossSuspension() async {

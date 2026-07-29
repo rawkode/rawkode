@@ -11,6 +11,7 @@ private struct TodayTaskSummary: Identifiable, Sendable {
 
 private struct TodayTasksEntry: TimelineEntry {
   var date: Date
+  var vaultID: VaultID?
   var tasks: [TodayTaskSummary]
   var errorMessage: String?
 }
@@ -19,6 +20,7 @@ private struct TodayTasksProvider: TimelineProvider {
   func placeholder(in context: Context) -> TodayTasksEntry {
     TodayTasksEntry(
       date: Date(),
+      vaultID: nil,
       tasks: [
         TodayTaskSummary(id: "one", title: "Review today", deadline: nil),
         TodayTaskSummary(id: "two", title: "Plan tomorrow", deadline: nil),
@@ -49,8 +51,8 @@ private struct TodayTasksProvider: TimelineProvider {
   private func loadEntry() async -> TodayTasksEntry {
     let actionFeedback = TaskWidgetActionFeedbackStore().current()?.message
     do {
-      let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
-      let pages = try await repository.pages(with: BuiltInSupertags.task)
+      let context = try VaultRepositoryContext.open(.defaultCapture)
+      let pages = try await context.repository.pages(with: BuiltInSupertags.task)
       let tasks = TaskQuery.items(from: pages, selection: .smart(.today))
         .prefix(8)
         .map {
@@ -62,12 +64,14 @@ private struct TodayTasksProvider: TimelineProvider {
         }
       return TodayTasksEntry(
         date: Date(),
+        vaultID: context.vault.id,
         tasks: tasks,
         errorMessage: actionFeedback
       )
     } catch {
       return TodayTasksEntry(
         date: Date(),
+        vaultID: nil,
         tasks: [],
         errorMessage: "Open Enchiridion to finish setup."
       )
@@ -83,17 +87,21 @@ struct CompleteTodayTaskWidgetIntent: AppIntent {
   @Parameter(title: "Task ID")
   var taskID: String
 
+  @Parameter(title: "Vault ID")
+  var vaultID: String
+
   init() {}
 
-  init(taskID: String) {
+  init(taskID: String, vaultID: VaultID) {
     self.taskID = taskID
+    self.vaultID = vaultID.rawValue
   }
 
   func perform() async throws -> some IntentResult {
-    let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
+    let context = try VaultRepositoryContext.open(.vault(.init(rawValue: vaultID)))
     let mutations = TaskMutationCoordinator(
-      repository: repository,
-      effects: .live(surface: .widgetExtension)
+      repository: context.repository,
+      effects: .live(surface: .widgetExtension, vaultID: context.vault.id)
     )
     switch await mutations.complete(PageID(rawValue: taskID)) {
     case .success:
@@ -124,11 +132,19 @@ private struct TodayTasksWidgetView: View {
         Label("Today", systemImage: "sun.max.fill")
           .font(.headline)
         Spacer()
-        Link(destination: URL(string: "enchiridion://tasks/inbox?quickAdd=1")!) {
-          Image(systemName: "plus.circle.fill")
-            .font(.title3)
+        if let vaultID = entry.vaultID,
+          let destination = TaskDeepLinkRoute.url(
+            vaultID: vaultID,
+            list: .inbox,
+            quickAdd: true
+          )
+        {
+          Link(destination: destination) {
+            Image(systemName: "plus.circle.fill")
+              .font(.title3)
+          }
+          .accessibilityLabel("Quick add task")
         }
-        .accessibilityLabel("Quick add task")
       }
 
       if let errorMessage = entry.errorMessage {
@@ -141,9 +157,9 @@ private struct TodayTasksWidgetView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         Spacer(minLength: 0)
-      } else {
+      } else if let vaultID = entry.vaultID {
         ForEach(visibleTasks) { task in
-          Button(intent: CompleteTodayTaskWidgetIntent(taskID: task.id)) {
+          Button(intent: CompleteTodayTaskWidgetIntent(taskID: task.id, vaultID: vaultID)) {
             HStack(spacing: 7) {
               Image(systemName: "circle")
                 .foregroundStyle(.secondary)
@@ -163,10 +179,16 @@ private struct TodayTasksWidgetView: View {
           .accessibilityLabel("Complete \(task.title)")
         }
         Spacer(minLength: 0)
+      } else {
+        ForEach(visibleTasks) { task in
+          Label(task.title, systemImage: "circle")
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
       }
     }
     .containerBackground(.fill.tertiary, for: .widget)
-    .widgetURL(URL(string: "enchiridion://tasks/today"))
+    .widgetURL(entry.vaultID.flatMap { TaskDeepLinkRoute.url(vaultID: $0, list: .today) })
   }
 }
 

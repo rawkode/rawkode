@@ -62,6 +62,7 @@ public final class VaultSession {
     selectedVault = descriptor
     self.repository = repository
     store = LibraryStore(
+      vaultID: descriptor.id,
       repository: repository,
       calendar: calendar,
       contactResolver: contactResolver,
@@ -158,6 +159,7 @@ public final class VaultSession {
     do {
       let repository = try LibraryRepository(path: registry.graphPath(for: id))
       let store = LibraryStore(
+        vaultID: descriptor.id,
         repository: repository,
         calendar: calendar,
         contactResolver: contactResolver,
