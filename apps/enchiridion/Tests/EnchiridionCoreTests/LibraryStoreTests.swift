@@ -4,6 +4,49 @@ import XCTest
 @testable import EnchiridionCore
 
 final class LibraryRepositoryTests: XCTestCase {
+  @MainActor
+  func testTaskMutationReloadSkipsFullSystemReconciliation() async throws {
+    let fixture = try RepositoryFixture()
+    let probe = StoreReconciliationProbe()
+    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { pages in
+      await probe.record(pages)
+    }
+    let store = LibraryStore(
+      repository: fixture.repository,
+      startImmediately: false,
+      taskSystemReconciliationCoordinator: reconciliationCoordinator
+    )
+
+    let taskID = await store.createTask(TaskDraft(title: "Mutation refresh"))
+    await reconciliationCoordinator.waitUntilIdle()
+    let submissions = await probe.submissions()
+
+    XCTAssertNotNil(taskID)
+    XCTAssertEqual(store.page(id: try XCTUnwrap(taskID))?.title, "Mutation refresh")
+    XCTAssertTrue(submissions.isEmpty)
+  }
+
+  @MainActor
+  func testOrdinaryReloadSubmitsFullSystemReconciliation() async throws {
+    let fixture = try RepositoryFixture()
+    let task = try await fixture.repository.createTask(TaskDraft(title: "Reconcile refresh"))
+    let probe = StoreReconciliationProbe()
+    let reconciliationCoordinator = TaskSystemReconciliationCoordinator { pages in
+      await probe.record(pages)
+    }
+    let store = LibraryStore(
+      repository: fixture.repository,
+      startImmediately: false,
+      taskSystemReconciliationCoordinator: reconciliationCoordinator
+    )
+
+    await store.reload()
+    await reconciliationCoordinator.waitUntilIdle()
+    let submissions = await probe.submissions()
+
+    XCTAssertEqual(submissions, [[task.id]])
+  }
+
   func testOnlyTaskSourceListsAreTaskPerspectives() {
     let taskList = LiveQueryDefinition(
       name: "Next actions",
@@ -1251,6 +1294,18 @@ private actor IdentifierOnlyContactResolver: DeviceContactResolving {
 
   func contact(identifier: String) async throws -> DeviceContactRecord? {
     contacts[identifier]
+  }
+}
+
+private actor StoreReconciliationProbe {
+  private var recordedSubmissions: [[PageID]] = []
+
+  func record(_ pages: [PageSnapshot]) {
+    recordedSubmissions.append(pages.map(\.id))
+  }
+
+  func submissions() -> [[PageID]] {
+    recordedSubmissions
   }
 }
 

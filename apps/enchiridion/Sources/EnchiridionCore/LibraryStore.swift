@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+public enum LibraryReloadPolicy: Equatable, Sendable {
+  case refreshOnly
+  case reconcileSystemState
+}
+
 @MainActor
 @Observable
 public final class LibraryStore {
@@ -28,6 +33,8 @@ public final class LibraryStore {
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
   @ObservationIgnored private var contactResolver: (any DeviceContactResolving)?
   @ObservationIgnored private let calendar: Calendar
+  @ObservationIgnored private let taskSystemReconciliationCoordinator:
+    TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
 
@@ -35,10 +42,12 @@ public final class LibraryStore {
     repository: LibraryRepository? = nil,
     calendar: Calendar = .current,
     contactResolver: (any DeviceContactResolving)? = nil,
-    startImmediately: Bool = true
+    startImmediately: Bool = true,
+    taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared
   ) {
     self.calendar = calendar
     self.contactResolver = contactResolver
+    self.taskSystemReconciliationCoordinator = taskSystemReconciliationCoordinator
     if let repository {
       self.repository = repository
     } else {
@@ -57,7 +66,7 @@ public final class LibraryStore {
           surface: .application,
           reload: { [weak self] in
             guard let self else { return .failed("The library is unavailable.") }
-            guard await self.reload() != nil else {
+            guard await self.reload(policy: .refreshOnly) != nil else {
               return .failed(self.startupError ?? "The library could not be refreshed.")
             }
             return .applied
@@ -187,7 +196,9 @@ public final class LibraryStore {
   }
 
   @discardableResult
-  public func reload() async -> [PageSnapshot]? {
+  public func reload(
+    policy: LibraryReloadPolicy = .reconcileSystemState
+  ) async -> [PageSnapshot]? {
     guard let repository else { return nil }
     reloadGeneration &+= 1
     let generation = reloadGeneration
@@ -225,7 +236,9 @@ public final class LibraryStore {
       calendarEvents = loadedCalendarEvents
       otherPeople = loadedOtherPeople
       contactLinks = loadedContactLinks
-      await TaskSystemReconciliationCoordinator.shared.submit(live)
+      if policy == .reconcileSystemState {
+        await taskSystemReconciliationCoordinator.submit(live)
+      }
       if let selectedPageID, page(id: selectedPageID) == nil {
         self.selectedPageID = live.first?.id
       }
