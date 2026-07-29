@@ -3,6 +3,25 @@ import XCTest
 @testable import EnchiridionCore
 
 final class AssistantCoreTests: XCTestCase {
+  func testInjectedConversationalModelAnswersGreetingWithoutRetrievalRefusal() async throws {
+    let fixture = try AssistantRepositoryFixture()
+    let responder = ConversationalModelStub()
+    let assistant = FoundationModelAssistant(
+      repository: fixture.repository,
+      modelResponder: responder
+    )
+
+    let greeting = await assistant.respond(to: "Hello")
+    let generalChat = await assistant.respond(to: "Help me think of a name for my garden shed")
+
+    XCTAssertEqual(greeting.status, .answered)
+    XCTAssertEqual(greeting.answer, "Hello! How can I help?")
+    XCTAssertEqual(generalChat.status, .answered)
+    XCTAssertFalse(generalChat.answer.localizedCaseInsensitiveContains("couldn't find"))
+    XCTAssertTrue(greeting.sources.isEmpty)
+    XCTAssertTrue(generalChat.sources.isEmpty)
+  }
+
   func testCalendarSearchReturnsExactNextEventAndClampsOutput() async throws {
     let fixture = try AssistantRepositoryFixture()
     let now = Date(timeIntervalSince1970: 1_900_000_000)
@@ -320,6 +339,18 @@ final class AssistantCoreTests: XCTestCase {
       notes: nil,
       url: nil,
       calendarTitle: "Work"
+    )
+  }
+}
+
+private actor ConversationalModelStub: AssistantConversationAnswering {
+  func respond(to request: AssistantConversationRequest) -> GroundedAssistantResponse {
+    if request.utterance.localizedCaseInsensitiveCompare("Hello") == .orderedSame {
+      return GroundedAssistantResponse(answer: "Hello! How can I help?", status: .answered)
+    }
+    return GroundedAssistantResponse(
+      answer: "How about The Green Room?",
+      status: .answered
     )
   }
 }

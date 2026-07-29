@@ -9,11 +9,10 @@ func makeAssistantConversationSession(
   if #available(iOS 26.0, macOS 26.0, *) {
     return AssistantConversationSession(
       transcriber: OnDeviceSpeechTranscriber(),
-      answerer: assistant,
-      speaker: AVSpeechSynthesizerConversationSpeaker()
+      answerer: assistant
     )
   }
-  return nil
+  return AssistantConversationSession(answerer: assistant)
 }
 
 func assistantUnavailabilityMessage(

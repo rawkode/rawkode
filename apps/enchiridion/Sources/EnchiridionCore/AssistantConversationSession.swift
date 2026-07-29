@@ -34,12 +34,38 @@ public struct AssistantConversationRequest: Equatable, Sendable {
   }
 }
 
+public enum AssistantVoiceAvailability: Equatable, Sendable {
+  case checking
+  case available
+  case permissionRequired
+  case permissionDenied
+  case installationRequired
+  case installing
+  case unavailable(String)
+}
+
 public protocol AssistantConversationTranscribing: Sendable {
+  func availability() async -> AssistantVoiceAvailability
+  func requestPermission() async -> AssistantVoiceAvailability
+  func installAssets() async throws
   func transcribe() async throws -> String
+  func stop() async
+}
+
+public extension AssistantConversationTranscribing {
+  func availability() async -> AssistantVoiceAvailability { .available }
+  func requestPermission() async -> AssistantVoiceAvailability { await availability() }
+  func installAssets() async throws {}
+  func stop() async {}
 }
 
 public protocol AssistantConversationAnswering: Sendable {
   func respond(to request: AssistantConversationRequest) async -> GroundedAssistantResponse
+  func resetConversation() async
+}
+
+public extension AssistantConversationAnswering {
+  func resetConversation() async {}
 }
 
 public protocol AssistantConversationSpeaking: Sendable {
@@ -95,8 +121,8 @@ public enum AssistantSpokenResponseFormatter {
   }
 }
 
-/// Owns the serial listen -> answer -> speak loop shared by iOS, macOS, and
-/// CarPlay. It intentionally has no persistence or logging dependency.
+/// Owns an ephemeral, text-first assistant conversation. Voice is an optional
+/// input/output surface layered on top of the same grounded response path.
 @MainActor
 @Observable
 public final class AssistantConversationSession {
@@ -104,6 +130,8 @@ public final class AssistantConversationSession {
 
   public private(set) var state: AssistantConversationState = .idle
   public private(set) var turns: [AssistantConversationTurn] = []
+  public private(set) var voiceAvailability: AssistantVoiceAvailability
+  public var speaksResponses: Bool
 
   public var isRunning: Bool {
     switch state {
@@ -114,9 +142,11 @@ public final class AssistantConversationSession {
     }
   }
 
-  @ObservationIgnored private let transcriber: any AssistantConversationTranscribing
+  public var isVoiceRunning: Bool { voiceOperationIsActive }
+
+  @ObservationIgnored private let transcriber: (any AssistantConversationTranscribing)?
   @ObservationIgnored private let answerer: any AssistantConversationAnswering
-  @ObservationIgnored private let speaker: any AssistantConversationSpeaking
+  @ObservationIgnored private let speaker: (any AssistantConversationSpeaking)?
   @ObservationIgnored private let maximumContextTurns: Int
   @ObservationIgnored private let interTurnDelay: Duration
   @ObservationIgnored private let locale: Locale
@@ -124,11 +154,14 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var operation: Task<Void, Never>?
   @ObservationIgnored private var generation: UInt64 = 0
   @ObservationIgnored private var surfaceOwnerID: UUID?
+  @ObservationIgnored private var isStopping = false
+  @ObservationIgnored private var voiceOperationIsActive = false
 
   public init(
-    transcriber: any AssistantConversationTranscribing,
+    transcriber: (any AssistantConversationTranscribing)? = nil,
     answerer: any AssistantConversationAnswering,
-    speaker: any AssistantConversationSpeaking,
+    speaker: (any AssistantConversationSpeaking)? = nil,
+    speaksResponses: Bool = false,
     maximumContextTurns: Int = AssistantConversationSession.defaultMaximumContextTurns,
     interTurnDelay: Duration = .milliseconds(500),
     locale: Locale = .current,
@@ -138,44 +171,91 @@ public final class AssistantConversationSession {
     self.transcriber = transcriber
     self.answerer = answerer
     self.speaker = speaker
+    self.speaksResponses = speaksResponses
     self.maximumContextTurns = maximumContextTurns
     self.interTurnDelay = interTurnDelay
     self.locale = locale
     self.now = now
+    voiceAvailability = transcriber == nil
+      ? .unavailable("Voice input is unavailable on this device.")
+      : .checking
   }
 
   deinit {
     operation?.cancel()
   }
 
-  /// Starts a fresh conversation. Calling this while a turn is already active
-  /// is intentionally a no-op.
-  public func start() {
-    guard operation == nil else { return }
+  /// Sends typed text through the grounded assistant regardless of voice state.
+  public func submit(_ text: String) async {
+    let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !utterance.isEmpty, operation == nil, !isStopping else { return }
+
     generation &+= 1
-    turns.removeAll(keepingCapacity: true)
-    state = .listening
     let currentGeneration = generation
+    voiceOperationIsActive = false
+    state = .thinking
+    let task = Task { [weak self] in
+      await self?.answer(utterance, generation: currentGeneration)
+      self?.finishOperation(generation: currentGeneration)
+    }
+    operation = task
+    await task.value
+  }
+
+  /// Starts voice only after an explicit user action. It never clears typed history.
+  public func startVoice() async {
+    guard operation == nil, !isStopping, let transcriber else { return }
+
+    var availability = await transcriber.availability()
+    if availability == .permissionRequired {
+      availability = await transcriber.requestPermission()
+    }
+    voiceAvailability = availability
+    guard availability == .available else { return }
+
+    generation &+= 1
+    let currentGeneration = generation
+    voiceOperationIsActive = true
+    state = .listening
     operation = Task { [weak self] in
-      await self?.run(generation: currentGeneration)
+      await self?.runVoice(generation: currentGeneration)
+      self?.finishOperation(generation: currentGeneration)
     }
   }
 
-  /// Stops listening or speech immediately and forgets all ephemeral context.
-  public func stop() async {
-    generation &+= 1
-    let activeOperation = operation
-    operation = nil
-    activeOperation?.cancel()
-    await activeOperation?.value
-    turns.removeAll(keepingCapacity: true)
-    state = .stopped
-    await speaker.stop()
+  /// Compatibility for the CarPlay surface; voice still starts only from its Start action.
+  public func start() {
+    Task { await startVoice() }
   }
 
-  /// Returns a disconnected surface to its initial presentation state.
+  public func refreshVoiceAvailability() async {
+    guard let transcriber else {
+      voiceAvailability = .unavailable("Voice input is unavailable on this device.")
+      return
+    }
+    voiceAvailability = .checking
+    voiceAvailability = await transcriber.availability()
+  }
+
+  public func installVoiceAssets() async {
+    guard let transcriber, operation == nil else { return }
+    voiceAvailability = .installing
+    do {
+      try await transcriber.installAssets()
+      voiceAvailability = await transcriber.availability()
+    } catch {
+      voiceAvailability = .unavailable(error.localizedDescription)
+    }
+  }
+
+  /// Stops active capture/generation/speech while retaining visible conversation.
+  public func stop() async {
+    await stop(preservingTurns: true)
+  }
+
   public func reset() async {
-    await stop()
+    await stop(preservingTurns: false)
+    guard !isStopping else { return }
     state = .idle
   }
 
@@ -183,18 +263,42 @@ public final class AssistantConversationSession {
   /// surface closes after a replacement opens, its delayed teardown is ignored.
   public func activateSurface(_ id: UUID) async {
     guard surfaceOwnerID != id else { return }
-    await stop()
     surfaceOwnerID = id
+    await stop(preservingTurns: false)
+    guard surfaceOwnerID == id, !isStopping else { return }
     state = .idle
   }
 
   public func stopSurface(_ id: UUID) async {
     guard surfaceOwnerID == id else { return }
-    await stop()
-    if surfaceOwnerID == id { surfaceOwnerID = nil }
+    surfaceOwnerID = nil
+    await stop(preservingTurns: false)
   }
 
-  private func run(generation currentGeneration: UInt64) async {
+  private func stop(preservingTurns: Bool) async {
+    generation &+= 1
+    let stopGeneration = generation
+    isStopping = true
+    voiceOperationIsActive = false
+    let activeOperation = operation
+    operation = nil
+    activeOperation?.cancel()
+
+    // Force the adapters to release continuations and hardware before waiting
+    // for the operation that may currently be suspended inside either adapter.
+    await transcriber?.stop()
+    await speaker?.stop()
+    await activeOperation?.value
+    if !preservingTurns { await answerer.resetConversation() }
+
+    guard generation == stopGeneration else { return }
+    if !preservingTurns { turns.removeAll(keepingCapacity: true) }
+    state = .stopped
+    isStopping = false
+  }
+
+  private func runVoice(generation currentGeneration: UInt64) async {
+    guard let transcriber else { return }
     while isCurrent(currentGeneration) {
       do {
         state = .listening
@@ -211,51 +315,11 @@ public final class AssistantConversationSession {
           return
         }
 
-        state = .thinking
-        let request = AssistantConversationRequest(
-          utterance: utterance,
-          priorTurns: turns,
-          locale: locale,
-          now: now()
-        )
-        let response = await answerer.respond(to: request)
-        try Task.checkCancellation()
-        guard isCurrent(currentGeneration) else { return }
-
-        switch response.status {
-        case .unavailable:
-          fail(generation: currentGeneration, kind: .unavailable, message: response.answer)
-          return
-        case .ungrounded:
-          fail(generation: currentGeneration, kind: .ungrounded, message: response.answer)
-          return
-        default:
-          break
-        }
-
-        appendTurn(
-          AssistantConversationTurn(
-            utterance: utterance,
-            answer: response.answer,
-            status: response.status
-          )
-        )
-        state = .speaking
-        try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: response))
-        try Task.checkCancellation()
-        guard isCurrent(currentGeneration) else { return }
-        if interTurnDelay > .zero {
-          try await Task.sleep(for: interTurnDelay)
-        }
+        let shouldContinue = await answer(utterance, generation: currentGeneration)
+        guard shouldContinue, isCurrent(currentGeneration) else { return }
+        if interTurnDelay > .zero { try await Task.sleep(for: interTurnDelay) }
         await Task.yield()
       } catch is CancellationError {
-        if currentGeneration == generation, operation != nil, !Task.isCancelled {
-          fail(
-            generation: currentGeneration,
-            kind: .transcription,
-            message: "Listening was interrupted."
-          )
-        }
         return
       } catch {
         guard isCurrent(currentGeneration) else { return }
@@ -264,6 +328,60 @@ public final class AssistantConversationSession {
         return
       }
     }
+  }
+
+  @discardableResult
+  private func answer(_ utterance: String, generation currentGeneration: UInt64) async -> Bool {
+    guard isCurrent(currentGeneration) else { return false }
+    state = .thinking
+    let request = AssistantConversationRequest(
+      utterance: utterance,
+      priorTurns: turns,
+      locale: locale,
+      now: now()
+    )
+    let response = await answerer.respond(to: request)
+    guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
+
+    appendTurn(
+      AssistantConversationTurn(
+        utterance: utterance,
+        answer: response.answer,
+        status: response.status
+      )
+    )
+    switch response.status {
+    case .unavailable:
+      fail(generation: currentGeneration, kind: .unavailable, message: response.answer)
+      return false
+    case .ungrounded:
+      fail(generation: currentGeneration, kind: .ungrounded, message: response.answer)
+      return false
+    default:
+      break
+    }
+
+    if speaksResponses, let speaker {
+      do {
+        state = .speaking
+        try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: response))
+        guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
+      } catch is CancellationError {
+        return false
+      } catch {
+        fail(generation: currentGeneration, kind: .speaking, message: error.localizedDescription)
+        return false
+      }
+    }
+    state = voiceOperationIsActive ? .listening : .idle
+    return true
+  }
+
+  private func finishOperation(generation candidate: UInt64) {
+    guard candidate == generation else { return }
+    operation = nil
+    voiceOperationIsActive = false
+    if state == .thinking || state == .speaking || state == .listening { state = .idle }
   }
 
   private func appendTurn(_ turn: AssistantConversationTurn) {
@@ -283,7 +401,6 @@ public final class AssistantConversationSession {
     message: String
   ) {
     guard candidate == generation else { return }
-    operation = nil
     state = .error(AssistantConversationFailure(kind: kind, message: message))
   }
 }

@@ -12,6 +12,7 @@ final class AssistantConversationSessionTests: XCTestCase {
       transcriber: transcriber,
       answerer: answerer,
       speaker: speaker,
+      speaksResponses: true,
       interTurnDelay: .zero,
       locale: Locale(identifier: "en_GB"),
       now: { Date(timeIntervalSince1970: 1_900_000_000) }
@@ -47,7 +48,7 @@ final class AssistantConversationSessionTests: XCTestCase {
 
     await session.stop()
     XCTAssertEqual(session.state, .stopped)
-    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.turns.map(\.utterance), ["What's next?"])
   }
 
   @MainActor
@@ -61,6 +62,7 @@ final class AssistantConversationSessionTests: XCTestCase {
       transcriber: transcriber,
       answerer: answerer,
       speaker: speaker,
+      speaksResponses: true,
       interTurnDelay: .zero
     )
 
@@ -79,11 +81,11 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(spokenValues.count, 5)
 
     await session.stop()
-    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.turns.count, 4)
   }
 
   @MainActor
-  func testStopCancelsActiveListeningAndClearsContext() async throws {
+  func testStopCancelsActiveListeningAndPreservesContext() async throws {
     let transcriber = ControlledTranscriber()
     let answerer = RecordingAnswerer()
     let speaker = RecordingSpeaker()
@@ -141,7 +143,72 @@ final class AssistantConversationSessionTests: XCTestCase {
     )
     let spokenValues = await speaker.spoken
     XCTAssertTrue(spokenValues.isEmpty)
+    XCTAssertEqual(session.turns.map(\.utterance), ["Invent something"])
+  }
+
+  @MainActor
+  func testTypedChatWorksWithoutSpeechAdapters() async {
+    let session = AssistantConversationSession(
+      answerer: FixedAnswerer(
+        response: GroundedAssistantResponse(
+          answer: "Design review is at ten.",
+          status: .answered
+        )
+      ),
+      locale: Locale(identifier: "en_GB")
+    )
+
+    await session.submit("What is next?")
+
+    XCTAssertEqual(session.state, .idle)
+    XCTAssertEqual(
+      session.turns,
+      [
+        AssistantConversationTurn(
+          utterance: "What is next?",
+          answer: "Design review is at ten.",
+          status: .answered
+        )
+      ]
+    )
+    if case .unavailable = session.voiceAvailability {
+      // Voice availability never gates typed requests.
+    } else {
+      XCTFail("A session without a transcriber should report voice as unavailable")
+    }
+  }
+
+  @MainActor
+  func testDeniedVoiceDoesNotEraseTypedConversationOrStartCapture() async {
+    let transcriber = DeniedTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: FixedAnswerer(
+        response: GroundedAssistantResponse(answer: "Local answer", status: .answered)
+      )
+    )
+
+    await session.submit("Typed first")
+    await session.startVoice()
+
+    XCTAssertEqual(session.voiceAvailability, .permissionDenied)
+    XCTAssertEqual(session.turns.map(\.utterance), ["Typed first"])
+    let captureCount = await transcriber.captureCount
+    XCTAssertEqual(captureCount, 0)
+  }
+
+  @MainActor
+  func testResetClearsVisibleAndModelConversationContext() async {
+    let answerer = ResetRecordingAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+
+    await session.submit("Remember this only for this surface")
+    await session.reset()
+
     XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.state, .idle)
+    let resetCount = await answerer.resetCount
+    XCTAssertEqual(resetCount, 1)
   }
 
   func testSpokenFormatterKeepsSafetyCaveatAndDeduplicatesSources() {
@@ -156,6 +223,30 @@ final class AssistantConversationSessionTests: XCTestCase {
       AssistantSpokenResponseFormatter.spokenText(for: response),
       "Your local calendar information may be out of date. It starts at ten. Sources: Design review."
     )
+  }
+}
+
+private actor DeniedTranscriber: AssistantConversationTranscribing {
+  private(set) var captureCount = 0
+
+  func availability() -> AssistantVoiceAvailability { .permissionRequired }
+  func requestPermission() -> AssistantVoiceAvailability { .permissionDenied }
+
+  func transcribe() async throws -> String {
+    captureCount += 1
+    return "should not capture"
+  }
+}
+
+private actor ResetRecordingAnswerer: AssistantConversationAnswering {
+  private(set) var resetCount = 0
+
+  func respond(to request: AssistantConversationRequest) -> GroundedAssistantResponse {
+    GroundedAssistantResponse(answer: "Remembered for now", status: .answered)
+  }
+
+  func resetConversation() {
+    resetCount += 1
   }
 }
 

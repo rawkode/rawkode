@@ -13,7 +13,8 @@ struct AssistantConversationView: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
   @State private var surfaceID = UUID()
-  @State private var speechSetup: AssistantSpeechSetupState = .checking
+  @State private var draft = ""
+  @FocusState private var composerIsFocused: Bool
 
   var body: some View {
     NavigationStack {
@@ -23,7 +24,7 @@ struct AssistantConversationView: View {
         } else {
           ContentUnavailableView(
             "Assistant Unavailable",
-            systemImage: "waveform.slash",
+            systemImage: "sparkles",
             description: Text(unavailableReason ?? "The on-device assistant is not available.")
           )
         }
@@ -35,9 +36,7 @@ struct AssistantConversationView: View {
         }
       }
     }
-    .task(id: surfaceID) {
-      await prepareSurface()
-    }
+    .task(id: surfaceID) { await prepareSurface() }
     .onDisappear {
       guard let session else { return }
       let closingSurfaceID = surfaceID
@@ -45,33 +44,11 @@ struct AssistantConversationView: View {
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase != .active, let session else { return }
-      let inactiveSurfaceID = surfaceID
-      Task { await session.stopSurface(inactiveSurfaceID) }
+      Task { await session.stop() }
     }
   }
 
   private func conversation(_ session: AssistantConversationSession) -> some View {
-    Group {
-      switch speechSetup {
-      case .checking:
-        ProgressView("Checking on-device speech…")
-      case .ready:
-        activeConversation(session)
-      case .installationRequired:
-        speechInstallation
-      case .installing:
-        ProgressView("Installing on-device speech model…")
-      case .unavailable(let message):
-        ContentUnavailableView(
-          "Speech Unavailable",
-          systemImage: "waveform.slash",
-          description: Text(message)
-        )
-      }
-    }
-  }
-
-  private func activeConversation(_ session: AssistantConversationSession) -> some View {
     VStack(spacing: 0) {
       ScrollViewReader { proxy in
         ScrollView {
@@ -96,72 +73,150 @@ struct AssistantConversationView: View {
       }
 
       Divider()
-
-      VStack(spacing: 14) {
-        Label(statusText(session.state), systemImage: statusSymbol(session.state))
-          .font(.headline)
-          .foregroundStyle(statusColor(session.state))
-          .contentTransition(.symbolEffect(.replace))
-
-        Button {
-          if session.isRunning {
-            Task { await session.stop() }
-          } else {
-            session.start()
-          }
-        } label: {
-          Label(
-            session.isRunning ? "Stop" : startButtonTitle(session.state),
-            systemImage: session.isRunning ? "stop.fill" : "mic.fill"
-          )
-          .frame(minWidth: 150)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .tint(session.isRunning ? .red : .accentColor)
-
-        if case .error(let failure) = session.state,
-          failure.message.localizedCaseInsensitiveContains("microphone")
-        {
-          Button("Open Microphone Settings") { openMicrophoneSettings() }
-        }
-
-        Text("Questions are transcribed and answered on this device. Conversation context is discarded when you close the assistant.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: 520)
-      }
-      .padding(20)
+      voiceControls(session)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      composer(session)
     }
   }
 
-  private var speechInstallation: some View {
-    ContentUnavailableView {
-      Label("Install Speech Model", systemImage: "arrow.down.circle")
-    } description: {
-      Text("The current language needs an Apple on-device speech model before Enchiridion can listen.")
-    } actions: {
-      Button("Download and Install") {
-        Task { await installSpeechAssets() }
+  private func composer(_ session: AssistantConversationSession) -> some View {
+    HStack(alignment: .bottom, spacing: 10) {
+      TextField("Ask anything", text: $draft, axis: .vertical)
+        .lineLimit(1...5)
+        .textFieldStyle(.plain)
+        .focused($composerIsFocused)
+        .onSubmit { submit(draft, to: session) }
+
+      Button {
+        submit(draft, to: session)
+      } label: {
+        Image(systemName: "arrow.up.circle.fill")
+          .font(.title2)
       }
-      .buttonStyle(.borderedProminent)
+      .buttonStyle(.plain)
+      .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.isRunning)
+      .accessibilityLabel("Send")
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .background(.bar)
+  }
+
+  private func voiceControls(_ session: AssistantConversationSession) -> some View {
+    VStack(spacing: 12) {
+      HStack(spacing: 12) {
+        Label(statusText(session.state), systemImage: statusSymbol(session.state))
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(statusColor(session.state))
+          .contentTransition(.symbolEffect(.replace))
+
+        Spacer()
+
+        Button {
+          if session.isVoiceRunning {
+            Task { await session.stop() }
+          } else {
+            Task { await session.startVoice() }
+          }
+        } label: {
+          Label(
+            session.isVoiceRunning ? "Stop" : "Listen",
+            systemImage: session.isVoiceRunning ? "stop.fill" : "mic.fill"
+          )
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(session.isVoiceRunning ? .red : .accentColor)
+        .disabled(!canStartVoice(session.voiceAvailability) && !session.isVoiceRunning)
+      }
+
+      voiceAvailabilityView(session)
+
+      Text("Typed and spoken questions are answered on this device. Conversation context is discarded when you close the assistant.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+    }
+    .padding(.horizontal, 20)
+    .padding(.vertical, 14)
+  }
+
+  @ViewBuilder
+  private func voiceAvailabilityView(_ session: AssistantConversationSession) -> some View {
+    switch session.voiceAvailability {
+    case .checking:
+      HStack(spacing: 8) {
+        ProgressView().controlSize(.small)
+        Text("Checking on-device voice…")
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    case .available:
+      EmptyView()
+    case .permissionRequired:
+      Text("Microphone access will be requested when you tap Listen.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    case .permissionDenied:
+      HStack {
+        Text("Microphone access is off. Typed chat is still available.")
+        Button("Open Settings") { openMicrophoneSettings() }
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    case .installationRequired:
+      HStack {
+        Text("Install Apple's on-device speech model to use the microphone.")
+        Button("Install Model") { Task { await session.installVoiceAssets() } }
+          .buttonStyle(.bordered)
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    case .installing:
+      HStack(spacing: 8) {
+        ProgressView().controlSize(.small)
+        Text("Installing on-device speech model…")
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    case .unavailable(let message):
+      HStack {
+        Text(message)
+          .lineLimit(2)
+        Button("Retry") { Task { await session.refreshVoiceAvailability() } }
+      }
+      .font(.caption)
+      .foregroundStyle(.secondary)
     }
   }
 
   private var introduction: some View {
     ContentUnavailableView {
-      Label("Talk to Enchiridion", systemImage: "waveform.circle.fill")
+      Label("Ask Enchiridion", systemImage: "sparkles")
     } description: {
-      Text("Ask about your calendar or notes. Enchiridion verifies answers against local sources, then keeps listening for a follow-up.")
+      Text("Ask about tasks, your calendar, notes, or anything else. If on-device speech is ready, you can also tap Listen.")
     }
+  }
+
+  private func submit(_ value: String, to session: AssistantConversationSession) {
+    let utterance = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !utterance.isEmpty, !session.isRunning else { return }
+    draft = ""
+    Task {
+      await session.submit(utterance)
+      composerIsFocused = true
+    }
+  }
+
+  private func canStartVoice(_ availability: AssistantVoiceAvailability) -> Bool {
+    availability == .available || availability == .permissionRequired
   }
 
   private func statusText(_ state: AssistantConversationState) -> String {
     switch state {
     case .idle: "Ready"
     case .listening: "Listening…"
-    case .thinking: "Checking your local sources…"
+    case .thinking: "Thinking…"
     case .speaking: "Speaking…"
     case .stopped: "Stopped"
     case .error(let failure): failure.message
@@ -170,9 +225,9 @@ struct AssistantConversationView: View {
 
   private func statusSymbol(_ state: AssistantConversationState) -> String {
     switch state {
-    case .idle, .stopped: "waveform"
+    case .idle, .stopped: "sparkles"
     case .listening: "mic.fill"
-    case .thinking: "sparkles"
+    case .thinking: "ellipsis.bubble"
     case .speaking: "speaker.wave.2.fill"
     case .error: "exclamationmark.triangle.fill"
     }
@@ -183,41 +238,10 @@ struct AssistantConversationView: View {
     return .primary
   }
 
-  private func startButtonTitle(_ state: AssistantConversationState) -> String {
-    switch state {
-    case .error: "Try Again"
-    default: "Start Listening"
-    }
-  }
-
   private func prepareSurface() async {
     guard let session else { return }
     await session.activateSurface(surfaceID)
-    if #available(iOS 26.0, macOS 26.0, *) {
-      await refreshSpeechSetupUntilSettled()
-    } else {
-      speechSetup = .unavailable("The audio assistant requires iOS 26 or macOS 26, or later.")
-    }
-  }
-
-  private func installSpeechAssets() async {
-    guard #available(iOS 26.0, macOS 26.0, *) else { return }
-    speechSetup = .installing
-    do {
-      try await AssistantSpeechAssets.shared.install()
-      await refreshSpeechSetupUntilSettled()
-    } catch {
-      speechSetup = .unavailable(error.localizedDescription)
-    }
-  }
-
-  @available(iOS 26.0, macOS 26.0, *)
-  private func refreshSpeechSetupUntilSettled() async {
-    repeat {
-      speechSetup = await AssistantSpeechAssets.shared.setupState()
-      guard speechSetup == .installing else { return }
-      try? await Task.sleep(for: .seconds(1))
-    } while !Task.isCancelled
+    await session.refreshVoiceAvailability()
   }
 
   private func openMicrophoneSettings() {

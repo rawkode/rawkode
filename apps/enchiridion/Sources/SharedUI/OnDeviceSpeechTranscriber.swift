@@ -41,13 +41,54 @@ enum OnDeviceSpeechError: Error, LocalizedError {
 @available(iOS 26.0, macOS 26.0, *)
 actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   private let managesIOSAudioSession: Bool
+  private var activeSource: MicrophoneAnalyzerInputSource?
+  private var activeAnalyzer: SpeechAnalyzer?
+  private var activeResultTask: Task<String, any Error>?
 
   init(managesIOSAudioSession: Bool = true) {
     self.managesIOSAudioSession = managesIOSAudioSession
   }
 
-  func availability(locale: Locale = .current) async -> OnDeviceSpeechAvailability {
-    await AssistantSpeechAssets.shared.availability(locale: locale)
+  func availability() async -> AssistantVoiceAvailability {
+    await availability(locale: .current)
+  }
+
+  func availability(locale: Locale) async -> AssistantVoiceAvailability {
+    switch await AssistantSpeechAssets.shared.availability(locale: locale) {
+    case .installationRequired:
+      return .installationRequired
+    case .downloading:
+      return .installing
+    case .unavailable(let reason):
+      return .unavailable(reason)
+    case .available:
+      break
+    }
+
+    #if os(macOS)
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized: return .available
+    case .notDetermined: return .permissionRequired
+    case .denied, .restricted: return .permissionDenied
+    @unknown default: return .unavailable("Microphone permission could not be determined.")
+    }
+    #else
+    switch AVAudioApplication.shared.recordPermission {
+    case .granted: return .available
+    case .undetermined: return .permissionRequired
+    case .denied: return .permissionDenied
+    @unknown default: return .unavailable("Microphone permission could not be determined.")
+    }
+    #endif
+  }
+
+  func requestPermission() async -> AssistantVoiceAvailability {
+    guard await requestMicrophonePermission() else { return .permissionDenied }
+    return await availability()
+  }
+
+  func installAssets() async throws {
+    try await AssistantSpeechAssets.shared.install()
   }
 
   func requestMicrophonePermission() async -> Bool {
@@ -93,26 +134,29 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     maximumDuration: Duration,
     silenceDuration: Duration
   ) async throws -> String {
-    let currentAvailability = await availability(locale: locale)
-    guard case .available = currentAvailability else {
-      if case .installationRequired = currentAvailability {
-        throw OnDeviceSpeechError.unavailable("Install the current language's on-device speech model first.")
-      } else if case .downloading = currentAvailability {
-        throw OnDeviceSpeechError.unavailable("The on-device speech model is still downloading.")
-      } else if case .unavailable(let reason) = currentAvailability {
-        throw OnDeviceSpeechError.unavailable(reason)
-      }
+    guard let selectedModule = await AssistantSpeechAssets.shared.selectedModule(locale: locale) else {
+      throw OnDeviceSpeechError.unavailable(
+        "Neither on-device transcription path supports the current language."
+      )
+    }
+    switch await AssetInventory.status(forModules: [selectedModule.module]) {
+    case .installed:
+      break
+    case .supported:
+      throw OnDeviceSpeechError.unavailable("Install the current language's on-device speech model first.")
+    case .downloading:
+      throw OnDeviceSpeechError.unavailable("The on-device speech model is still downloading.")
+    case .unsupported:
+      throw OnDeviceSpeechError.unavailable("The selected on-device speech model is unsupported.")
+    @unknown default:
       throw OnDeviceSpeechError.unavailable("On-device speech transcription is unavailable.")
     }
     guard await requestMicrophonePermission() else {
       throw OnDeviceSpeechError.microphonePermissionDenied
     }
-
-    guard let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
-      throw OnDeviceSpeechError.unavailable("The current language is unsupported.")
-    }
-    let transcriber = SpeechTranscriber(locale: supportedLocale, preset: .progressiveTranscription)
-    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(
+      compatibleWith: [selectedModule.module]
+    ) else {
       throw OnDeviceSpeechError.noAudioInput
     }
 
@@ -122,12 +166,25 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     }
     #endif
     do {
-      let text = try await capture(
-        with: transcriber,
-        format: format,
-        maximumDuration: maximumDuration,
-        silenceDuration: silenceDuration
-      )
+      let text: String
+      switch selectedModule {
+      case .speech(let transcriber):
+        text = try await capture(
+          with: transcriber,
+          format: format,
+          maximumDuration: maximumDuration,
+          silenceDuration: silenceDuration,
+          text: { String($0.text.characters) }
+        )
+      case .dictation(let transcriber):
+        text = try await capture(
+          with: transcriber,
+          format: format,
+          maximumDuration: maximumDuration,
+          silenceDuration: silenceDuration,
+          text: { String($0.text.characters) }
+        )
+      }
       #if os(iOS)
       if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
       #endif
@@ -141,11 +198,12 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     }
   }
 
-  private func capture(
-    with transcriber: SpeechTranscriber,
+  private func capture<Module: SpeechModule>(
+    with transcriber: Module,
     format: AVAudioFormat,
     maximumDuration: Duration,
-    silenceDuration: Duration
+    silenceDuration: Duration,
+    text: @escaping @Sendable (Module.Result) -> String
   ) async throws -> String {
     let source = MicrophoneAnalyzerInputSource(targetFormat: format)
     let inputSequence = try source.start()
@@ -155,13 +213,16 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       var finalText = ""
       var latestText = ""
       for try await result in transcriber.results {
-        let value = String(result.text.characters)
+        let value = text(result)
         latestText = value
         await activity.record(value)
         if result.isFinal { finalText = value }
       }
       return finalText.isEmpty ? latestText : finalText
     }
+    activeSource = source
+    activeAnalyzer = analyzer
+    activeResultTask = resultTask
 
     do {
       try await analyzer.prepareToAnalyze(in: format)
@@ -172,31 +233,69 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       )
       source.stop()
       try await analyzer.finalizeAndFinishThroughEndOfInput()
-      return try await resultTask.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      let result = try await resultTask.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      clearCaptureIfCurrent(source)
+      return result
     } catch {
-      source.stop()
-      resultTask.cancel()
-      await analyzer.cancelAndFinishNow()
+      await stopCapture(source: source, analyzer: analyzer, resultTask: resultTask)
       throw error
     }
+  }
+
+  func stop() async {
+    guard let source = activeSource else {
+      #if os(iOS)
+      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+      #endif
+      return
+    }
+    let analyzer = activeAnalyzer
+    let resultTask = activeResultTask
+    source.stop()
+    resultTask?.cancel()
+    if let analyzer { await analyzer.cancelAndFinishNow() }
+    if let resultTask { _ = try? await resultTask.value }
+    clearCaptureIfCurrent(source)
+    #if os(iOS)
+    if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+    #endif
+  }
+
+  private func stopCapture(
+    source: MicrophoneAnalyzerInputSource,
+    analyzer: SpeechAnalyzer,
+    resultTask: Task<String, any Error>
+  ) async {
+    source.stop()
+    resultTask.cancel()
+    await analyzer.cancelAndFinishNow()
+    _ = try? await resultTask.value
+    clearCaptureIfCurrent(source)
+  }
+
+  private func clearCaptureIfCurrent(_ source: MicrophoneAnalyzerInputSource) {
+    guard activeSource === source else { return }
+    activeSource = nil
+    activeAnalyzer = nil
+    activeResultTask = nil
   }
 }
 
 @available(iOS 26.0, macOS 26.0, *)
 actor AssistantSpeechAssets {
   static let shared = AssistantSpeechAssets()
+  private var dictationFallbackLocales: Set<String> = []
 
   func availability(locale: Locale = .current) async -> OnDeviceSpeechAvailability {
     guard Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil else {
       return .unavailable("This build is missing its microphone privacy description.")
     }
-    guard SpeechTranscriber.isAvailable else {
-      return .unavailable("On-device speech transcription is unavailable on this device.")
+    guard let selectedModule = await selectedModule(locale: locale) else {
+      return .unavailable(
+        "Neither on-device transcription path supports the current language."
+      )
     }
-    guard let module = await module(locale: locale) else {
-      return .unavailable("On-device speech transcription does not support the current language.")
-    }
-    switch await AssetInventory.status(forModules: [module]) {
+    switch await AssetInventory.status(forModules: [selectedModule.module]) {
     case .installed: return .available
     case .downloading: return .downloading
     case .supported: return .installationRequired
@@ -217,20 +316,92 @@ actor AssistantSpeechAssets {
   }
 
   func install(locale: Locale = .current) async throws {
-    guard let module = await module(locale: locale) else {
-      throw OnDeviceSpeechError.unavailable("The current language is unsupported.")
+    guard let selection = await selectedModule(locale: locale) else {
+      throw OnDeviceSpeechError.unavailable(
+        "Neither on-device transcription path supports the current language."
+      )
     }
-    guard let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) else {
-      throw OnDeviceSpeechError.unavailable("The on-device speech model cannot be installed on this device.")
+    do {
+      guard let request = try await AssetInventory.assetInstallationRequest(
+        supporting: [selection.module]
+      ) else {
+        throw OnDeviceSpeechError.unavailable(
+          "The preferred on-device speech model cannot be installed on this device."
+        )
+      }
+      try await request.downloadAndInstall()
+    } catch {
+      guard case .speech = selection,
+        let fallback = await dictationModule(locale: locale)
+      else { throw error }
+
+      // Remember the fallback so status checks and live capture select the same
+      // exact module type and locale that this installation request reserved.
+      dictationFallbackLocales.insert(localeIdentifier(locale))
+      switch await AssetInventory.status(forModules: [fallback.module]) {
+      case .installed:
+        return
+      case .supported, .downloading:
+        guard let fallbackRequest = try await AssetInventory.assetInstallationRequest(
+          supporting: [fallback.module]
+        ) else {
+          throw OnDeviceSpeechError.unavailable(
+            "Neither local speech model can be installed on this device."
+          )
+        }
+        try await fallbackRequest.downloadAndInstall()
+      case .unsupported:
+        throw OnDeviceSpeechError.unavailable(
+          "Neither local speech model can be installed on this device."
+        )
+      @unknown default:
+        throw OnDeviceSpeechError.unavailable("The on-device speech model is unavailable.")
+      }
     }
-    try await request.downloadAndInstall()
   }
 
-  private func module(locale: Locale) async -> SpeechTranscriber? {
-    guard let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
+  fileprivate func selectedModule(locale: Locale) async -> SelectedSpeechModule? {
+    if dictationFallbackLocales.contains(localeIdentifier(locale)) {
+      return await dictationModule(locale: locale)
+    }
+
+    if SpeechTranscriber.isAvailable,
+      let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+    {
+      let progressive = SelectedSpeechModule.speech(
+        SpeechTranscriber(locale: supportedLocale, preset: .progressiveTranscription)
+      )
+      if await AssetInventory.status(forModules: [progressive.module]) != .unsupported {
+        return progressive
+      }
+    }
+    return await dictationModule(locale: locale)
+  }
+
+  private func dictationModule(locale: Locale) async -> SelectedSpeechModule? {
+    guard let supportedLocale = await DictationTranscriber.supportedLocale(equivalentTo: locale) else {
       return nil
     }
-    return SpeechTranscriber(locale: supportedLocale, preset: .progressiveTranscription)
+    return .dictation(
+      DictationTranscriber(locale: supportedLocale, preset: .progressiveShortDictation)
+    )
+  }
+
+  private func localeIdentifier(_ locale: Locale) -> String {
+    locale.identifier(.bcp47)
+  }
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+private enum SelectedSpeechModule: Sendable {
+  case speech(SpeechTranscriber)
+  case dictation(DictationTranscriber)
+
+  var module: any SpeechModule {
+    switch self {
+    case .speech(let module): module
+    case .dictation(let module): module
+    }
   }
 }
 

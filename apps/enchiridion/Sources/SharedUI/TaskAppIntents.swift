@@ -270,6 +270,14 @@ struct OpenEnchiridionTaskListIntent: AppIntent {
 struct EnchiridionTaskShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
     AppShortcut(
+      intent: AskEnchiridionIntent(),
+      phrases: [
+        "Ask \(.applicationName)",
+      ],
+      shortTitle: "Ask Enchiridion",
+      systemImageName: "sparkles"
+    )
+    AppShortcut(
       intent: AddEnchiridionTaskIntent(),
       phrases: [
         "Add a task in \(.applicationName)",
