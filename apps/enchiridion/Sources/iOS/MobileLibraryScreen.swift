@@ -21,6 +21,11 @@ struct MobileLibraryScreen: View {
           } label: {
             Label("Pinned", systemImage: "pin")
           }
+          NavigationLink {
+            PageListScreen(store: store, section: .trash)
+          } label: {
+            Label("Trash", systemImage: "trash")
+          }
         }
 
         Section("Supertags") {

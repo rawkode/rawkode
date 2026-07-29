@@ -16,6 +16,7 @@ struct MacRootView: View {
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
   @State private var editorFlushController = EditorFlushController()
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
+  @State private var pagePendingPermanentDeletion: PageSnapshot?
 
   init(store: LibraryStore = LibraryStore()) {
     _store = State(initialValue: store)
@@ -376,6 +377,9 @@ struct MacRootView: View {
       Task { await refreshForActivation() }
     }
     .task { await refreshForActivation() }
+    .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
+      store.purge(pageID: $0)
+    }
   }
 
   private var isTodaySelection: Bool {
@@ -507,15 +511,11 @@ struct MacRootView: View {
 
   @ViewBuilder
   private func contextMenu(for page: PageSnapshot) -> some View {
-    if page.deletedAt == nil {
-      Button(page.isPinned ? "Unpin" : "Pin") { store.togglePinned(pageID: page.id) }
-      Divider()
-      Button("Move to Trash", role: .destructive) { store.moveToTrash(pageID: page.id) }
-    } else {
-      Button("Restore") { store.restore(pageID: page.id) }
-      Divider()
-      Button("Delete Permanently", role: .destructive) { store.purge(pageID: page.id) }
-    }
+    PageLifecycleMenuActions(
+      store: store,
+      page: page,
+      requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+    )
   }
 
   private var syncSymbol: String {

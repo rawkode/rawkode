@@ -7,6 +7,7 @@ struct PageListScreen: View {
 
   @State private var query = ""
   @State private var path: [PageID] = []
+  @State private var pagePendingPermanentDeletion: PageSnapshot?
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -29,19 +30,68 @@ struct PageListScreen: View {
         Section(section == .today ? "Notes" : section.title) {
           let pages = store.pages(in: section, matching: query)
           if pages.isEmpty {
-            Button(action: createPage) { Label("Create a page", systemImage: "doc.badge.plus") }
+            if section == .trash {
+              ContentUnavailableView(
+                "Trash is empty",
+                systemImage: "trash",
+                description: Text(
+                  "Pages moved to Trash appear here until they are restored or deleted permanently."
+                )
+              )
+            } else {
+              Button(action: createPage) { Label("Create a page", systemImage: "doc.badge.plus") }
+            }
           } else {
             ForEach(pages) { page in
               NavigationLink(value: page.id) {
                 PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
               }
-                .swipeActions(edge: .trailing) {
-                  Button("Trash", role: .destructive) { store.moveToTrash(pageID: page.id) }
+              .swipeActions(edge: .trailing, allowsFullSwipe: section != .trash) {
+                if section == .trash {
+                  Button(role: .destructive) {
+                    pagePendingPermanentDeletion = page
+                  } label: {
+                    Label("Delete Permanently", systemImage: "trash.slash")
+                  }
+                  .accessibilityHint("Opens a confirmation before permanently deleting this page.")
+                } else {
+                  Button(role: .destructive) {
+                    store.moveToTrash(pageID: page.id)
+                  } label: {
+                    Label("Move to Trash", systemImage: "trash")
+                  }
+                  .accessibilityHint("Moves this page to Trash, where it can be restored.")
                 }
-                .swipeActions(edge: .leading) {
-                  Button(page.isPinned ? "Unpin" : "Pin") { store.togglePinned(pageID: page.id) }
-                    .tint(.orange)
+              }
+              .swipeActions(edge: .leading) {
+                if section == .trash {
+                  Button {
+                    store.restore(pageID: page.id)
+                  } label: {
+                    Label("Restore", systemImage: "arrow.uturn.backward")
+                  }
+                  .tint(.blue)
+                  .accessibilityHint("Returns this page to the library.")
+                } else {
+                  Button {
+                    store.togglePinned(pageID: page.id)
+                  } label: {
+                    Label(
+                      page.isPinned ? "Unpin" : "Pin",
+                      systemImage: page.isPinned ? "pin.slash" : "pin")
+                  }
+                  .tint(.orange)
+                  .accessibilityHint(
+                    page.isPinned ? "Removes this page from Pinned." : "Adds this page to Pinned.")
                 }
+              }
+              .contextMenu {
+                PageLifecycleMenuActions(
+                  store: store,
+                  page: page,
+                  requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+                )
+              }
             }
           }
         }
@@ -52,9 +102,14 @@ struct PageListScreen: View {
       }
       .searchable(text: $query, prompt: "Search pages")
       .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          Button(action: createPage) { Label("New Page", systemImage: "square.and.pencil") }
+        if section != .trash {
+          ToolbarItem(placement: .primaryAction) {
+            Button(action: createPage) { Label("New Page", systemImage: "square.and.pencil") }
+          }
         }
+      }
+      .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
+        store.purge(pageID: $0)
       }
     }
   }

@@ -57,9 +57,11 @@
 		7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */; };
 		7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		82E9E242902EB55707C88FF1 /* DeviceContactsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */; };
+		8418C11580D7E921F83365BC /* PageLifecycleActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */; };
 		87255CCD64CA18D480C65230 /* DeviceContactsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */; };
 		8860C174604A5B979C3A104B /* DeviceContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */; };
 		8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = 98257A715412A302965BE5CE /* EnchiridionCore */; };
+		8A55C779BD86C9700B4BAB10 /* PageLifecycleActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */; };
 		8AAFFCB10E8DBA2C62023E3E /* CalendarEventFilterSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */; };
 		8B9B161C2F9F6A5C5A8F0C63 /* WhiteboardTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */; };
 		8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */; };
@@ -202,6 +204,7 @@
 		A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
 		B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantAppIntents.swift; sourceTree = "<group>"; };
+		BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLifecycleActions.swift; sourceTree = "<group>"; };
 		BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationRuntime.swift; sourceTree = "<group>"; };
 		C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderAppDelegate.swift; sourceTree = "<group>"; };
 		CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
@@ -356,6 +359,7 @@
 				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
 				D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */,
 				E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */,
+				BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */,
 				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
 				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
 				FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */,
@@ -629,6 +633,7 @@
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
 				51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */,
+				8418C11580D7E921F83365BC /* PageLifecycleActions.swift in Sources */,
 				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
 				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
 				15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */,
@@ -684,6 +689,7 @@
 				6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */,
 				3F1BF0174D64D0FE39ED02BB /* OnDeviceSpeechTranscriber.swift in Sources */,
 				3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */,
+				8A55C779BD86C9700B4BAB10 /* PageLifecycleActions.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
 				F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */,

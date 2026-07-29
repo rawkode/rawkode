@@ -38,6 +38,7 @@ struct PageEditorView: View {
   @State private var flushController: EditorFlushController
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
+  @State private var pagePendingPermanentDeletion: PageSnapshot?
   #if !os(macOS)
   @State private var pushedPageID: PageID?
   #endif
@@ -57,7 +58,7 @@ struct PageEditorView: View {
   var body: some View {
     Group {
       if let page = store.page(id: pageID) {
-        if page.isOtherPerson {
+        if page.isOtherPerson, page.deletedAt == nil {
           OtherPersonPromotionGate(store: store, page: page)
             .navigationTitle("")
         } else {
@@ -76,6 +77,9 @@ struct PageEditorView: View {
       PageEditorView(store: store, pageID: pageID, flushController: flushController)
     }
     #endif
+    .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
+      store.purge(pageID: $0)
+    }
   }
 
   private func editor(_ page: PageSnapshot) -> some View {
@@ -89,39 +93,44 @@ struct PageEditorView: View {
         .navigationTitle("")
         .toolbar {
           ToolbarItemGroup {
-            Menu {
-              ForEach(store.supertags.filter { !page.objectMetadata.supertagIDs.contains($0.id) }) { tag in
-                Button { store.addSupertag(tag.id, to: page.id) } label: {
-                  Label(tag.name, systemImage: tag.symbol)
+            if page.deletedAt == nil {
+              Menu {
+                ForEach(store.supertags.filter { !page.objectMetadata.supertagIDs.contains($0.id) }) { tag in
+                  Button { store.addSupertag(tag.id, to: page.id) } label: {
+                    Label(tag.name, systemImage: tag.symbol)
+                  }
                 }
+              } label: {
+                Label("Add Supertag", systemImage: "number")
               }
-            } label: {
-              Label("Add Supertag", systemImage: "number")
-            }
 
-            Button {
-              Task { @MainActor in
-                guard await flushController.flush() else { return }
-                #if os(macOS)
-                showsProperties.toggle()
-                #else
-                propertiesSheetPage = page.id
-                #endif
+              Button {
+                Task { @MainActor in
+                  guard await flushController.flush() else { return }
+                  #if os(macOS)
+                  showsProperties.toggle()
+                  #else
+                  propertiesSheetPage = page.id
+                  #endif
+                }
+              } label: {
+                Label("Properties", systemImage: "slider.horizontal.3")
               }
-            } label: {
-              Label("Properties", systemImage: "slider.horizontal.3")
-            }
 
-            Button {
-              store.togglePinned(pageID: page.id)
-            } label: {
-              Label(page.isPinned ? "Unpin" : "Pin", systemImage: page.isPinned ? "pin.slash" : "pin")
+              Button {
+                store.togglePinned(pageID: page.id)
+              } label: {
+                Label(page.isPinned ? "Unpin" : "Pin", systemImage: page.isPinned ? "pin.slash" : "pin")
+              }
             }
 
             Menu {
-              Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                store.moveToTrash(pageID: page.id)
-              }
+              PageLifecycleMenuActions(
+                store: store,
+                page: page,
+                showsPinAction: false,
+                requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+              )
             } label: {
               Label("Page actions", systemImage: "ellipsis.circle")
             }
