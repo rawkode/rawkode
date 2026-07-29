@@ -82,7 +82,7 @@ struct MobileTaskHomeScreen: View {
           Button { showsQuickCapture = true } label: {
             Label("New Task", systemImage: "plus")
           }
-          .accessibilityHint("Opens quick entry with natural date, priority, repeat, and tag syntax.")
+          .accessibilityHint("Opens on-device task interpretation with a confirmation preview.")
         }
         ToolbarItem {
           Menu {
@@ -623,7 +623,7 @@ struct TaskQuickEntryBar: View {
 
   @State private var entry = ""
   @FocusState private var isFocused: Bool
-  @State private var isSaving = false
+  @State private var captureRequest: TaskQuickCaptureRequest?
 
   var body: some View {
     HStack(spacing: 10) {
@@ -633,38 +633,68 @@ struct TaskQuickEntryBar: View {
       TextField("New task", text: $entry)
         .textFieldStyle(.plain)
         .focused($isFocused)
-        .submitLabel(.done)
-        .onSubmit(save)
-        .accessibilityHint("Try tomorrow, by tomorrow, every weekday, hash tags, or exclamation high.")
-      if isSaving { ProgressView().controlSize(.small) }
+        .submitLabel(.next)
+        .onSubmit(review)
+        .accessibilityHint("Review an on-device interpretation before saving.")
+      Button("Review", systemImage: "arrow.right.circle.fill", action: review)
+        .labelStyle(.iconOnly)
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .disabled(entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
     .background(.bar)
+    .sheet(item: $captureRequest) { request in
+      TaskQuickCaptureSheet(
+        store: store,
+        selection: selection,
+        initialEntry: request.entry,
+        onSaved: {
+          entry = ""
+          isFocused = true
+        }
+      )
+    }
   }
 
-  private func save() {
-    guard !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSaving else { return }
-    isSaving = true
-    let value = entry
-    Task {
-      var draft = QuickTaskParser.parse(value).draft
-      apply(selection, to: &draft.data)
-      if await store.createTask(draft) != nil { entry = "" }
-      isSaving = false
-      isFocused = true
-    }
+  private func review() {
+    guard !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    captureRequest = TaskQuickCaptureRequest(entry: entry)
   }
 }
 
 struct TaskQuickCaptureSheet: View {
   let store: LibraryStore
   let selection: TaskListSelection
+  let interpreter: any TaskInputInterpreting
+  let onSaved: () -> Void
 
   @Environment(\.dismiss) private var dismiss
-  @State private var entry = ""
+  @State private var entry: String
+  @State private var interpretation: TaskInterpretation?
+  @State private var workingDraft: TaskDraft
+  @State private var hasModelInterpretation = false
+  @State private var isInterpreting = false
   @State private var isSaving = false
+  @State private var statusMessage: String?
+  @State private var showsMetadataEditor = false
   @FocusState private var isFocused: Bool
+
+  init(
+    store: LibraryStore,
+    selection: TaskListSelection,
+    initialEntry: String = "",
+    interpreter: any TaskInputInterpreting = FoundationTaskInterpreter(),
+    onSaved: @escaping () -> Void = {}
+  ) {
+    self.store = store
+    self.selection = selection
+    self.interpreter = interpreter
+    self.onSaved = onSaved
+    _entry = State(initialValue: initialEntry)
+    _workingDraft = State(initialValue: TaskInterpretation.literal(initialEntry).draft)
+  }
 
   var body: some View {
     NavigationStack {
@@ -673,26 +703,42 @@ struct TaskQuickCaptureSheet: View {
           TextField("What needs doing?", text: $entry, axis: .vertical)
             .lineLimit(2...5)
             .focused($isFocused)
-            .submitLabel(.done)
-            .onSubmit(save)
         } footer: {
-          Text("Try “Prepare brief tomorrow #work !high every weekday”.")
+          Text("Interpretation stays on this device. Nothing is sent to a network service.")
         }
 
-        if !preview.recognizedTokens.isEmpty {
-          Section("Recognized") {
-            ScrollView(.horizontal) {
-              HStack {
-                ForEach(preview.recognizedTokens, id: \.self) { token in
-                  Text(token)
-                    .font(.caption)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: .capsule)
-                }
-              }
+        if isInterpreting {
+          Section {
+            HStack(spacing: 10) {
+              ProgressView().controlSize(.small)
+              Text("Interpreting on device…")
             }
-            .scrollIndicators(.hidden)
+          }
+        } else if let interpretation {
+          TaskInterpretationPreview(
+            interpretation: interpretation,
+            draft: $workingDraft,
+            hasModelInterpretation: hasModelInterpretation,
+            editMetadata: { showsMetadataEditor = true }
+          )
+        }
+
+        if let statusMessage, !isInterpreting {
+          Section("Interpretation") {
+            Label(statusMessage, systemImage: "exclamationmark.triangle")
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        if !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          Section("Literal capture") {
+            Button("Keep all text literally", systemImage: "text.quote") {
+              saveLiteral()
+            }
+            .disabled(isSaving)
+            Text("Keeps every word in the title and applies no interpreted metadata.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
         }
       }
@@ -702,26 +748,393 @@ struct TaskQuickCaptureSheet: View {
           Button("Cancel") { dismiss() }
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Add") { save() }
-            .disabled(entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+          Button(hasModelInterpretation ? "Add Interpreted" : "Add Literally") {
+            if hasModelInterpretation { saveInterpreted() } else { saveLiteral() }
+          }
+          .disabled(
+            entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              || isSaving || isInterpreting || interpretation == nil
+          )
         }
       }
     }
-    .frame(minWidth: 360, minHeight: 260)
+    .frame(minWidth: 390, minHeight: 520)
     .onAppear { isFocused = true }
+    .task(id: entry) { await interpretEntry() }
+    .sheet(isPresented: $showsMetadataEditor) {
+      TaskDraftMetadataEditor(store: store, initialDraft: workingDraft) { updatedDraft in
+        workingDraft = updatedDraft
+      }
+    }
   }
 
-  private var preview: QuickTaskParseResult { QuickTaskParser.parse(entry) }
+  @MainActor
+  private func interpretEntry() async {
+    let value = entry
+    interpretation = nil
+    hasModelInterpretation = false
+    statusMessage = nil
+    workingDraft = TaskInterpretation.literal(value).draft
+    guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      isInterpreting = false
+      return
+    }
 
-  private func save() {
+    isInterpreting = true
+    do {
+      try await Task.sleep(for: .milliseconds(300))
+    } catch {
+      return
+    }
+    guard !Task.isCancelled, value == entry else { return }
+
+    let response = await interpreter.interpret(
+      value,
+      context: interpretationContext,
+      now: Date(),
+      calendar: .current,
+      locale: .current
+    )
+    guard !Task.isCancelled, value == entry else { return }
+    isInterpreting = false
+    switch response {
+    case .interpreted(let result):
+      let resolved = resolvingLocalAssociations(in: result)
+      interpretation = resolved
+      workingDraft = resolved.draft
+      hasModelInterpretation = true
+    case .unavailable(let literal, let availability):
+      interpretation = literal
+      workingDraft = literal.draft
+      statusMessage = "\(availability.message) Literal capture remains available."
+    case .failed(let message):
+      interpretation = TaskInterpretation.literal(value)
+      workingDraft = TaskInterpretation.literal(value).draft
+      statusMessage = message
+    }
+  }
+
+  private var interpretationContext: TaskInterpretationContext {
+    TaskInterpretationContext(
+      projectNames: store.taskProjects.map(\.displayTitle),
+      areaNames: store.taskAreas.map(\.displayTitle),
+      parentTaskTitles: store.pages.compactMap(TaskItem.init(page:)).filter {
+        $0.data.state == .active
+      }.map { $0.page.displayTitle },
+      personNames: (store.pages(with: BuiltInSupertags.person) + store.otherPeople).map(\.displayTitle)
+    )
+  }
+
+  private func resolvingLocalAssociations(in result: TaskInterpretation) -> TaskInterpretation {
+    var resolved = result
+    for index in resolved.suggestions.indices where resolved.suggestions[index].state == .unresolved {
+      let suggestion = resolved.suggestions[index]
+      let match: PageSnapshot?
+      switch suggestion.field {
+      case .project:
+        match = exactMatch(suggestion.value, in: store.taskProjects)
+        if let match { resolved.draft.data.projectID = match.id }
+      case .area:
+        match = exactMatch(suggestion.value, in: store.taskAreas)
+        if let match { resolved.draft.data.areaID = match.id }
+      case .parentTask:
+        let candidates = store.pages.compactMap(TaskItem.init(page:)).filter { $0.data.state == .active }
+          .map(\.page)
+        match = exactMatch(suggestion.value, in: candidates)
+        if let match { resolved.draft.data.parentTaskID = match.id }
+      case .person, .title, .scheduledDate, .deadline, .reminder, .recurrence, .tag, .priority,
+        .estimatedDuration:
+        match = nil
+      }
+      if let match {
+        resolved.suggestions[index].state = .applied
+        resolved.suggestions[index].explanation = "Matched local \(suggestion.field.title.lowercased()) “\(match.displayTitle)”."
+      }
+    }
+    return resolved
+  }
+
+  private func exactMatch(_ value: String, in candidates: [PageSnapshot]) -> PageSnapshot? {
+    candidates.first { $0.displayTitle.compare(value, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+  }
+
+  private func saveInterpreted() {
     guard !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSaving else { return }
     isSaving = true
-    var draft = preview.draft
+    var draft = workingDraft
     apply(selection, to: &draft.data)
     Task {
-      if await store.createTask(draft) != nil { dismiss() }
+      if await store.createTask(draft) != nil {
+        onSaved()
+        dismiss()
+      }
       isSaving = false
     }
+  }
+
+  private func saveLiteral() {
+    guard !entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSaving else { return }
+    isSaving = true
+    var draft = TaskInterpretation.literal(entry).draft
+    apply(selection, to: &draft.data)
+    Task {
+      if await store.createTask(draft) != nil {
+        onSaved()
+        dismiss()
+      }
+      isSaving = false
+    }
+  }
+}
+
+private struct TaskQuickCaptureRequest: Identifiable {
+  let id = UUID()
+  var entry: String
+}
+
+private struct TaskInterpretationPreview: View {
+  let interpretation: TaskInterpretation
+  @Binding var draft: TaskDraft
+  let hasModelInterpretation: Bool
+  let editMetadata: () -> Void
+
+  var body: some View {
+    Section("Preview") {
+      TextField("Title", text: $draft.title, axis: .vertical)
+        .lineLimit(1...4)
+      Button("Edit title and metadata", systemImage: "slider.horizontal.3", action: editMetadata)
+      if !hasModelInterpretation {
+        Text("No model metadata will be applied.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+
+    if !interpretation.suggestions.isEmpty {
+      Section("Extracted fields") {
+        ForEach(interpretation.suggestions) { suggestion in
+          TaskInterpretationSuggestionRow(suggestion: suggestion)
+        }
+      }
+    }
+
+    if !interpretation.recognizedTokens.isEmpty {
+      Section("Source tokens") {
+        ScrollView(.horizontal) {
+          HStack {
+            ForEach(Array(interpretation.recognizedTokens.enumerated()), id: \.offset) { _, token in
+              Text(token)
+                .font(.caption)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(.quaternary, in: .capsule)
+            }
+          }
+        }
+        .scrollIndicators(.hidden)
+      }
+    }
+
+    if interpretation.confirmation == .unresolvedHints {
+      Section("Confirmation needed") {
+        Label(
+          "Some hints are not representable or did not match local metadata. Review them, edit the task, or keep the input literally.",
+          systemImage: "exclamationmark.bubble"
+        )
+        .foregroundStyle(.secondary)
+      }
+    }
+  }
+}
+
+private struct TaskInterpretationSuggestionRow: View {
+  let suggestion: TaskInterpretationSuggestion
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(suggestion.field.title)
+          .font(.subheadline.weight(.semibold))
+        Spacer()
+        Label(stateTitle, systemImage: stateSymbol)
+          .font(.caption)
+          .foregroundStyle(stateColor)
+      }
+      if !suggestion.value.isEmpty { Text(suggestion.value) }
+      if !suggestion.sourceText.isEmpty {
+        Text("From “\(suggestion.sourceText)”")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if let explanation = suggestion.explanation {
+        Text(explanation)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var stateTitle: String {
+    switch suggestion.state {
+    case .applied: "Applied"
+    case .unresolved: "Confirm"
+    case .invalid: "Not applied"
+    }
+  }
+
+  private var stateSymbol: String {
+    switch suggestion.state {
+    case .applied: "checkmark.circle"
+    case .unresolved: "questionmark.circle"
+    case .invalid: "exclamationmark.triangle"
+    }
+  }
+
+  private var stateColor: Color {
+    switch suggestion.state {
+    case .applied: .green
+    case .unresolved: .orange
+    case .invalid: .red
+    }
+  }
+}
+
+private struct TaskDraftMetadataEditor: View {
+  let store: LibraryStore
+  let onSave: (TaskDraft) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var draft: TaskDraft
+  @State private var hasScheduledDate: Bool
+  @State private var hasDeadline: Bool
+  @State private var hasReminder: Bool
+  @State private var hasRecurrence: Bool
+  @State private var tags: String
+  @State private var estimate: String
+
+  init(store: LibraryStore, initialDraft: TaskDraft, onSave: @escaping (TaskDraft) -> Void) {
+    self.store = store
+    self.onSave = onSave
+    _draft = State(initialValue: initialDraft)
+    _hasScheduledDate = State(initialValue: initialDraft.data.scheduledAt != nil)
+    _hasDeadline = State(initialValue: initialDraft.data.deadline != nil)
+    _hasReminder = State(initialValue: initialDraft.data.reminder != nil)
+    _hasRecurrence = State(initialValue: initialDraft.data.recurrence != nil)
+    _tags = State(initialValue: initialDraft.data.tags.joined(separator: ", "))
+    _estimate = State(initialValue: initialDraft.data.estimatedMinutes.map(String.init) ?? "")
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Task") {
+          TextField("Title", text: $draft.title, axis: .vertical)
+          TextField("Notes", text: $draft.notes, axis: .vertical)
+          Picker("List", selection: $draft.data.placement) {
+            ForEach(TaskPlacement.allCases, id: \.self) { Text($0.title).tag($0) }
+          }
+          Picker("Priority", selection: $draft.data.priority) {
+            ForEach(TaskPriority.allCases, id: \.self) { Text($0.title).tag($0) }
+          }
+        }
+
+        Section("Dates") {
+          Toggle("Schedule", isOn: $hasScheduledDate)
+          if hasScheduledDate {
+            Picker("Schedule precision", selection: $draft.data.scheduleGranularity) {
+              Text("Date only").tag(TaskScheduleGranularity.dateOnly)
+              Text("Date and time").tag(TaskScheduleGranularity.dateTime)
+            }
+            DatePicker(
+              "When",
+              selection: scheduledBinding,
+              displayedComponents: draft.data.scheduleGranularity == .dateOnly ? [.date] : [.date, .hourAndMinute]
+            )
+          }
+          Toggle("Deadline", isOn: $hasDeadline)
+          if hasDeadline {
+            DatePicker("Deadline", selection: deadlineBinding, displayedComponents: .date)
+          }
+          Toggle("Reminder", isOn: $hasReminder)
+          if hasReminder {
+            DatePicker("Remind me", selection: reminderBinding, displayedComponents: [.date, .hourAndMinute])
+          }
+        }
+
+        Section("Organize") {
+          Picker("Project", selection: $draft.data.projectID) {
+            Text("None").tag(PageID?.none)
+            ForEach(store.taskProjects) { Text($0.displayTitle).tag(PageID?.some($0.id)) }
+          }
+          Picker("Area", selection: $draft.data.areaID) {
+            Text("None").tag(PageID?.none)
+            ForEach(store.taskAreas) { Text($0.displayTitle).tag(PageID?.some($0.id)) }
+          }
+          Picker("Parent Task", selection: $draft.data.parentTaskID) {
+            Text("None").tag(PageID?.none)
+            ForEach(parentCandidates) { Text($0.page.displayTitle).tag(PageID?.some($0.id)) }
+          }
+          TextField("Tags, separated by commas", text: $tags)
+          TextField("Estimate in minutes", text: $estimate)
+        }
+
+        Section("Repeat") {
+          Toggle("Repeats", isOn: $hasRecurrence)
+          if hasRecurrence { TaskRecurrenceEditor(rule: recurrenceBinding) }
+        }
+      }
+      .navigationTitle("Review Task")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { finish() }
+            .disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+      }
+    }
+    .frame(minWidth: 360, minHeight: 540)
+  }
+
+  private var scheduledBinding: Binding<Date> {
+    Binding(get: { draft.data.scheduledAt ?? Date() }, set: { draft.data.scheduledAt = $0 })
+  }
+
+  private var deadlineBinding: Binding<Date> {
+    Binding(get: { draft.data.deadline ?? Date() }, set: { draft.data.deadline = $0 })
+  }
+
+  private var reminderBinding: Binding<Date> {
+    Binding(get: { draft.data.reminder ?? Date() }, set: { draft.data.reminder = $0 })
+  }
+
+  private var recurrenceBinding: Binding<TaskRecurrenceRule> {
+    Binding(
+      get: { draft.data.recurrence ?? TaskRecurrenceRule() },
+      set: { draft.data.recurrence = $0 }
+    )
+  }
+
+  private var parentCandidates: [TaskItem] {
+    store.pages.compactMap(TaskItem.init(page:)).filter { $0.data.state == .active }
+  }
+
+  private func finish() {
+    if !hasScheduledDate { draft.data.scheduledAt = nil }
+    if draft.data.scheduleGranularity == .dateOnly, let scheduledAt = draft.data.scheduledAt {
+      draft.data.scheduledAt = Calendar.current.startOfDay(for: scheduledAt)
+    }
+    if !hasDeadline {
+      draft.data.deadline = nil
+    } else if let deadline = draft.data.deadline {
+      draft.data.deadline = Calendar.current.startOfDay(for: deadline)
+    }
+    if !hasReminder { draft.data.reminder = nil }
+    if !hasRecurrence { draft.data.recurrence = nil }
+    draft.data.tags = TaskData.normalizedTags(tags.split(separator: ",").map(String.init))
+    draft.data.estimatedMinutes = Int(estimate).flatMap { $0 > 0 ? $0 : nil }
+    onSave(draft)
+    dismiss()
   }
 }
 
@@ -820,7 +1233,10 @@ struct TaskCollectionCreator: View {
 private func apply(_ selection: TaskListSelection, to data: inout TaskData) {
   switch selection {
   case .smart(.today):
-    if data.scheduledAt == nil { data.scheduledAt = Calendar.current.startOfDay(for: Date()) }
+    if data.scheduledAt == nil {
+      data.scheduledAt = Calendar.current.startOfDay(for: Date())
+      data.scheduleGranularity = .dateOnly
+    }
     data.placement = .anytime
   case .smart(.anytime), .smart(.upcoming):
     data.placement = .anytime
