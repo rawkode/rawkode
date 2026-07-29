@@ -23,14 +23,20 @@ struct LiveViewScreen: View {
     .navigationTitle(definition.name)
     .toolbar {
       Menu {
-        Button { editingView = definition } label: {
+        Button {
+          editingView = definition
+        } label: {
           Label("Edit View", systemImage: "line.3.horizontal.decrease.circle")
         }
-        Button { store.duplicateView(definition) } label: {
+        Button {
+          store.duplicateView(definition)
+        } label: {
           Label("Duplicate View", systemImage: "plus.square.on.square")
         }
         Divider()
-        Button(role: .destructive) { showingDeleteConfirmation = true } label: {
+        Button(role: .destructive) {
+          showingDeleteConfirmation = true
+        } label: {
           Label("Delete View", systemImage: "trash")
         }
       } label: {
@@ -123,10 +129,14 @@ struct LiveViewScreen: View {
 
   private var calendar: some View {
     List {
-      ForEach(Dictionary(grouping: datedItems, by: { Calendar.current.startOfDay(for: $0.date) })
-        .keys.sorted(), id: \.self) { day in
+      ForEach(
+        Dictionary(grouping: datedItems, by: { Calendar.current.startOfDay(for: $0.date) })
+          .keys.sorted(), id: \.self
+      ) { day in
         Section(day.formatted(date: .complete, time: .omitted)) {
-          ForEach(datedItems.filter { Calendar.current.isDate($0.date, inSameDayAs: day) }, id: \.item.id) { dated in
+          ForEach(
+            datedItems.filter { Calendar.current.isDate($0.date, inSameDayAs: day) }, id: \.item.id
+          ) { dated in
             HStack {
               itemButton(dated.item)
               Spacer()
@@ -161,7 +171,8 @@ struct LiveViewScreen: View {
       ContentUnavailableView(
         "Canvas Unavailable",
         systemImage: "calendar.badge.exclamationmark",
-        description: Text("Calendar events are read-only. Choose Pages or a Supertag as this view’s source.")
+        description: Text(
+          "Calendar events are read-only. Choose Pages or a Supertag as this view’s source.")
       )
     }
   }
@@ -192,7 +203,8 @@ struct LiveViewScreen: View {
   }
 
   private func boardItems(_ optionID: String) -> [LiveQueryItem] {
-    guard let fieldID = definition.groupFieldID, case .supertag(let tagID) = definition.source else { return [] }
+    guard let fieldID = definition.groupFieldID, case .supertag(let tagID) = definition.source
+    else { return [] }
     let key = SupertagPropertyKey(supertagID: tagID, fieldID: fieldID)
     return items.filter { item in
       guard case .page(let page) = item else { return false }
@@ -206,7 +218,9 @@ struct LiveViewScreen: View {
   }
 
   private func value(for item: LiveQueryItem, fieldID: SupertagFieldID) -> String {
-    guard case .page(let page) = item, case .supertag(let tagID) = definition.source else { return "—" }
+    guard case .page(let page) = item, case .supertag(let tagID) = definition.source else {
+      return "—"
+    }
     let key = SupertagPropertyKey(supertagID: tagID, fieldID: fieldID)
     return page.objectMetadata.properties[key]?.map { value in
       if case .page(let id) = value { return store.page(id: id)?.displayTitle ?? "Missing page" }
@@ -255,21 +269,32 @@ struct LiveViewScreen: View {
   }
 }
 
+enum LiveViewEditorPurpose {
+  case libraryView
+  case taskPerspective
+}
+
 struct LiveViewEditor: View {
   let store: LibraryStore
   let definition: LiveQueryDefinition
+  let purpose: LiveViewEditorPurpose
   @Environment(\.dismiss) private var dismiss
   @State private var draft: LiveQueryDefinition
   @State private var sql: String
   @State private var error: String?
   #if os(iOS)
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   #endif
 
-  init(store: LibraryStore, definition: LiveQueryDefinition) {
+  init(
+    store: LibraryStore,
+    definition: LiveQueryDefinition,
+    purpose: LiveViewEditorPurpose = .libraryView
+  ) {
     self.store = store
     self.definition = definition
+    self.purpose = purpose
     _draft = State(initialValue: definition)
     _sql = State(initialValue: definition.domainSQL)
   }
@@ -279,30 +304,41 @@ struct LiveViewEditor: View {
       Form {
         Section("View") {
           TextField("Name", text: $draft.name)
-          Picker("Source", selection: $draft.source) {
-            Text("All Pages").tag(LiveQuerySource.pages)
-            Text("Calendar Events").tag(LiveQuerySource.calendarEvents)
-            Text("Work Calendar").tag(LiveQuerySource.workCalendar)
-            ForEach(store.supertags) { tag in
-              Text(tag.name).tag(LiveQuerySource.supertag(tag.id))
+          if purpose == .taskPerspective {
+            LabeledContent("Source", value: "Tasks")
+            LabeledContent("Layout") {
+              Label(LiveViewKind.list.title, systemImage: LiveViewKind.list.systemImage)
             }
-          }
-          Picker("Layout", selection: $draft.viewKind) {
-            ForEach(availableViewKinds, id: \.self) { kind in
-              Label(kind.title, systemImage: kind.systemImage).tag(kind)
+          } else {
+            Picker("Source", selection: $draft.source) {
+              Text("All Pages").tag(LiveQuerySource.pages)
+              Text("Calendar Events").tag(LiveQuerySource.calendarEvents)
+              Text("Work Calendar").tag(LiveQuerySource.workCalendar)
+              ForEach(store.supertags) { tag in
+                Text(tag.name).tag(LiveQuerySource.supertag(tag.id))
+              }
+            }
+            Picker("Layout", selection: $draft.viewKind) {
+              ForEach(availableViewKinds, id: \.self) { kind in
+                Label(kind.title, systemImage: kind.systemImage).tag(kind)
+              }
             }
           }
           Stepper("Limit: \(draft.limit)", value: $draft.limit, in: 1...maximumLimit, step: 25)
           if canReturnPeople {
             Toggle("Include Other People", isOn: includeOthersBinding)
-            Text("Other People come from calendar events and stay out of views and mentions until you promote them.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+            Text(
+              "Other People come from calendar events and stay out of views and mentions until you promote them."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
           }
           if draft.viewKind == .canvas {
-            Text("Canvas views place up to \(WhiteboardLimits.maximumPageCards) live-query page cards.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+            Text(
+              "Canvas views place up to \(WhiteboardLimits.maximumPageCards) live-query page cards."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
           }
         }
 
@@ -324,7 +360,8 @@ struct LiveViewEditor: View {
             }
             .onDelete { draft.filters.remove(atOffsets: $0) }
             Button("Add Filter", systemImage: "plus") {
-              draft.filters.append(.init(systemField: "title", operation: .contains, value: .text("")))
+              draft.filters.append(
+                .init(systemField: "title", operation: .contains, value: .text("")))
             }
           }
 
@@ -359,7 +396,8 @@ struct LiveViewEditor: View {
               }
             }
             if draft.viewKind == .board {
-              Picker("Group by", selection: optionalFieldBinding(\LiveQueryDefinition.groupFieldID)) {
+              Picker("Group by", selection: optionalFieldBinding(\LiveQueryDefinition.groupFieldID))
+              {
                 Text("Choose a field").tag("")
                 ForEach(sourceTag.fields.filter { !$0.isDeleted && $0.type == .select }) { field in
                   Text(field.name).tag(field.id.rawValue)
@@ -367,7 +405,9 @@ struct LiveViewEditor: View {
               }
             }
             if draft.viewKind == .calendar {
-              Picker("Start date", selection: optionalFieldBinding(\LiveQueryDefinition.startFieldID)) {
+              Picker(
+                "Start date", selection: optionalFieldBinding(\LiveQueryDefinition.startFieldID)
+              ) {
                 Text("Choose a field").tag("")
                 ForEach(dateFields) { field in Text(field.name).tag(field.id.rawValue) }
               }
@@ -382,16 +422,21 @@ struct LiveViewEditor: View {
         Section("Advanced Query") {
           TextEditor(text: $sql).font(.system(.body, design: .monospaced)).frame(minHeight: 140)
           HStack {
-            Button("Reset from Builder") { sql = draft.domainSQL; error = nil }
+            Button("Reset from Builder") {
+              sql = draft.domainSQL
+              error = nil
+            }
             Button("Apply to Builder") { applySQL() }
           }
-          Text("Safe clauses: WHERE, SHOW, INCLUDE OTHERS, GROUP BY, DATES, ORDER BY, LIMIT, and VIEW. This language cannot execute raw SQLite.")
-            .font(.caption).foregroundStyle(.secondary)
+          Text(
+            "Safe clauses: WHERE, SHOW, INCLUDE OTHERS, GROUP BY, DATES, ORDER BY, LIMIT, and VIEW. This language cannot execute raw SQLite."
+          )
+          .font(.caption).foregroundStyle(.secondary)
           if let error { Text(error).foregroundStyle(.red) }
         }
       }
       .formStyle(.grouped)
-      .navigationTitle(definition.name == "New View" ? "New View" : "Edit View")
+      .navigationTitle(editorTitle)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
         ToolbarItem(placement: .confirmationAction) {
@@ -406,13 +451,22 @@ struct LiveViewEditor: View {
     .onChange(of: draft.viewKind) { _, _ in normalizeDisplayConfiguration() }
     .onChange(of: draft) { _, definition in sql = definition.domainSQL }
     #if os(macOS)
-    .frame(minWidth: 520, minHeight: 620)
+      .frame(minWidth: 520, minHeight: 620)
     #endif
   }
 
   private var sourceTag: SupertagDefinition? {
     guard case .supertag(let id) = draft.source else { return nil }
     return store.supertags.first { $0.id == id }
+  }
+
+  private var editorTitle: String {
+    switch purpose {
+    case .libraryView:
+      definition.name == "New View" ? "New View" : "Edit View"
+    case .taskPerspective:
+      definition.name == "New Perspective" ? "New Perspective" : "Edit Perspective"
+    }
   }
 
   private var dateFields: [SupertagFieldDefinition] {
@@ -453,9 +507,9 @@ struct LiveViewEditor: View {
 
   private var usesVerticalQueryLayout: Bool {
     #if os(iOS)
-    horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+      horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
     #else
-    false
+      false
     #endif
   }
 
@@ -474,9 +528,10 @@ struct LiveViewEditor: View {
         .init(id: "source", name: "Source", type: .text, isSystem: true),
       ]
     }
-    choices += sourceTag?.fields.filter { !$0.isDeleted }.map {
-      .init(id: $0.id.rawValue, name: $0.name, type: $0.type, options: $0.options)
-    } ?? []
+    choices +=
+      sourceTag?.fields.filter { !$0.isDeleted }.map {
+        .init(id: $0.id.rawValue, name: $0.name, type: $0.type, options: $0.options)
+      } ?? []
     return choices
   }
 
@@ -511,7 +566,8 @@ struct LiveViewEditor: View {
       !validQueryFieldIDs.contains($0.systemField ?? $0.fieldID?.rawValue ?? "")
     }
     if draft.sorts.isEmpty {
-      let field = (draft.source == .calendarEvents || draft.source == .workCalendar) ? "start" : "title"
+      let field =
+        (draft.source == .calendarEvents || draft.source == .workCalendar) ? "start" : "title"
       draft.sorts = [.init(systemField: field)]
     }
     if draft.viewKind == .canvas {
@@ -542,7 +598,9 @@ struct LiveViewEditor: View {
 
   private func applySQL() {
     do {
-      draft = try DomainQueryCodec.parse(sql, id: draft.id, name: draft.name)
+      let parsed = try DomainQueryCodec.parse(sql, id: draft.id, name: draft.name)
+      try validatePurpose(parsed)
+      draft = parsed
       error = nil
     } catch { self.error = error.localizedDescription }
   }
@@ -559,10 +617,19 @@ struct LiveViewEditor: View {
       if draft.viewKind == .calendar, case .supertag = draft.source, draft.startFieldID == nil {
         throw DomainQueryError.unsupported("A calendar needs a Date or Date & Time start field.")
       }
+      try validatePurpose(draft)
       _ = try DomainQueryCodec.parse(draft.domainSQL, id: draft.id, name: draft.name)
       store.saveView(draft)
       dismiss()
     } catch { self.error = error.localizedDescription }
+  }
+
+  private func validatePurpose(_ definition: LiveQueryDefinition) throws {
+    guard purpose != .taskPerspective || definition.isTaskListPerspective else {
+      throw DomainQueryError.unsupported(
+        "A task perspective must use the Tasks source and List layout."
+      )
+    }
   }
 }
 
@@ -702,7 +769,9 @@ private struct LiveQueryFilterRow: View {
       get: {
         guard let value = filter.value else { return "" }
         return switch value {
-        case .text(let value), .select(let value), .url(let value), .email(let value), .phone(let value): value
+        case .text(let value), .select(let value), .url(let value), .email(let value),
+          .phone(let value):
+          value
         case .number(let value): String(value)
         case .page(let value): value.rawValue
         default: value.displayValue
@@ -724,7 +793,10 @@ private struct LiveQueryFilterRow: View {
 
   private var boolValue: Binding<Bool> {
     Binding(
-      get: { if case .boolean(let value) = filter.value { return value }; return false },
+      get: {
+        if case .boolean(let value) = filter.value { return value }
+        return false
+      },
       set: { filter.value = .boolean($0) }
     )
   }
@@ -796,11 +868,11 @@ private struct LiveQuerySortRow: View {
   private var directionPicker: some View {
     Picker("Direction", selection: $sort.ascending) {
       #if os(iOS)
-      Text("↑ Asc").accessibilityLabel("Ascending").tag(true)
-      Text("↓ Desc").accessibilityLabel("Descending").tag(false)
+        Text("↑ Asc").accessibilityLabel("Ascending").tag(true)
+        Text("↓ Desc").accessibilityLabel("Descending").tag(false)
       #else
-      Text("Ascending").tag(true)
-      Text("Descending").tag(false)
+        Text("Ascending").tag(true)
+        Text("Descending").tag(false)
       #endif
     }
   }

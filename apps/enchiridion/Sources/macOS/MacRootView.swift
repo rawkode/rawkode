@@ -10,6 +10,7 @@ struct MacRootView: View {
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
+  @State private var perspectivePendingDeletion: LiveQueryDefinition?
   @State private var showsQuickTaskCapture = false
   @State private var taskCollectionDraft: TaskCollectionDraft?
   @State private var todayPresentedPageID: PageID?
@@ -48,13 +49,31 @@ struct MacRootView: View {
           }
           .buttonStyle(.plain)
         }
-        if !taskPerspectives.isEmpty {
-          Section("Perspectives") {
-            ForEach(taskPerspectives) { view in
-              Label(view.name, systemImage: view.viewKind.systemImage)
-                .tag(MacSidebarSelection.view(view.id))
-            }
+        Section("Perspectives") {
+          ForEach(taskPerspectives) { view in
+            Label(view.name, systemImage: view.viewKind.systemImage)
+              .tag(MacSidebarSelection.view(view.id))
+              .contextMenu {
+                Button("Edit Perspective", systemImage: "slider.horizontal.3") {
+                  presentViewEditor(view)
+                }
+                Button("Duplicate Perspective", systemImage: "plus.square.on.square") {
+                  store.duplicateView(view)
+                }
+                Divider()
+                Button("Delete Perspective", systemImage: "trash", role: .destructive) {
+                  perspectivePendingDeletion = view
+                }
+              }
           }
+          Button {
+            presentViewEditor(.taskPerspectiveDraft())
+          } label: {
+            Label("New Perspective", systemImage: "plus")
+          }
+          .buttonStyle(.plain)
+          .help("Create a reusable filtered task list")
+          .accessibilityHint("Creates a reusable filtered task list.")
         }
         Section("Projects") {
           ForEach(store.taskProjects) { project in
@@ -289,6 +308,26 @@ struct MacRootView: View {
           }
         }
       }
+      if let taskPerspective {
+        ToolbarItem {
+          Menu {
+            Button("Edit Perspective", systemImage: "slider.horizontal.3") {
+              presentViewEditor(taskPerspective)
+            }
+            Button("Duplicate Perspective", systemImage: "plus.square.on.square") {
+              store.duplicateView(taskPerspective)
+            }
+            Divider()
+            Button("Delete Perspective", systemImage: "trash", role: .destructive) {
+              perspectivePendingDeletion = taskPerspective
+            }
+          } label: {
+            Label("Perspective Options", systemImage: "ellipsis.circle")
+          }
+          .help("Edit, duplicate, or delete this perspective")
+          .accessibilityHint("Edit, duplicate, or delete this perspective.")
+        }
+      }
       ToolbarItem {
         Menu {
           Button("Enable Local Calendars", systemImage: "calendar") {
@@ -302,7 +341,7 @@ struct MacRootView: View {
         }
         .help("Connect read-only calendars")
       }
-      if case .task = selection {
+      if selection.taskSelection != nil || taskPerspective != nil {
         ToolbarItem(placement: .primaryAction) {
           Button {
             showsQuickTaskCapture = true
@@ -335,7 +374,11 @@ struct MacRootView: View {
       SupertagSchemaEditor(store: store, definition: tag)
     }
     .sheet(item: $editingView) { view in
-      LiveViewEditor(store: store, definition: view)
+      LiveViewEditor(
+        store: store,
+        definition: view,
+        purpose: view.isTaskListPerspective ? .taskPerspective : .libraryView
+      )
     }
     .sheet(item: $todayPresentedPageID) { pageID in
       NavigationStack {
@@ -359,9 +402,26 @@ struct MacRootView: View {
     .sheet(item: $taskCollectionDraft) { draft in
       TaskCollectionCreator(store: store, draft: draft)
     }
-    .onChange(of: store.savedViews) { _, views in
+    .confirmationDialog(
+      "Delete \(perspectivePendingDeletion?.name ?? "Perspective")?",
+      isPresented: perspectiveDeletionBinding,
+      titleVisibility: .visible
+    ) {
+      Button("Delete Perspective", role: .destructive) {
+        deletePendingPerspective()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("The perspective will disappear on every synced device. Your tasks are not deleted.")
+    }
+    .onChange(of: store.savedViews) { oldViews, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
-        selectSidebar(.section(.allPages))
+        let removedView = oldViews.first { $0.id == id }
+        selectSidebar(
+          removedView?.isTaskListPerspective == true
+            ? .task(.smart(.inbox))
+            : .section(.allPages)
+        )
       }
     }
     .task(id: selectedDay) {
@@ -395,6 +455,24 @@ struct MacRootView: View {
   private var taskPerspective: LiveQueryDefinition? {
     guard case .view(let viewID) = selection else { return nil }
     return taskPerspectives.first { $0.id == viewID }
+  }
+
+  private var perspectiveDeletionBinding: Binding<Bool> {
+    Binding(
+      get: { perspectivePendingDeletion != nil },
+      set: { isPresented in
+        if !isPresented { perspectivePendingDeletion = nil }
+      }
+    )
+  }
+
+  private func deletePendingPerspective() {
+    guard let perspective = perspectivePendingDeletion else { return }
+    if selection == .view(perspective.id) {
+      selectSidebar(.task(.smart(.inbox)))
+    }
+    store.deleteView(perspective.id)
+    perspectivePendingDeletion = nil
   }
 
   @ViewBuilder

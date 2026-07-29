@@ -9,6 +9,7 @@ struct MobileTaskHomeScreen: View {
   @State private var path: [MobileTaskDestination] = []
   @State private var showsQuickCapture = false
   @State private var collectionDraft: TaskCollectionDraft?
+  @State private var editingPerspective: LiveQueryDefinition?
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -81,18 +82,22 @@ struct MobileTaskHomeScreen: View {
           }
         }
 
-        if !taskPerspectives.isEmpty {
-          Section("Perspectives") {
-            ForEach(taskPerspectives) { perspective in
-              NavigationLink(value: MobileTaskDestination.perspective(perspective.id)) {
-                TaskNavigationLabel(
-                  title: perspective.name,
-                  systemImage: perspective.viewKind.systemImage,
-                  count: taskPerspectiveItems(perspective).count
-                )
-              }
+        Section("Perspectives") {
+          ForEach(taskPerspectives) { perspective in
+            NavigationLink(value: MobileTaskDestination.perspective(perspective.id)) {
+              TaskNavigationLabel(
+                title: perspective.name,
+                systemImage: perspective.viewKind.systemImage,
+                count: taskPerspectiveItems(perspective).count
+              )
             }
           }
+          Button {
+            editingPerspective = .taskPerspectiveDraft()
+          } label: {
+            Label("New Perspective", systemImage: "plus")
+          }
+          .accessibilityHint("Creates a reusable filtered task list.")
         }
       }
       .navigationTitle("Tasks")
@@ -145,6 +150,13 @@ struct MobileTaskHomeScreen: View {
       }
       .sheet(item: $collectionDraft) { draft in
         TaskCollectionCreator(store: store, draft: draft)
+      }
+      .sheet(item: $editingPerspective) { perspective in
+        LiveViewEditor(
+          store: store,
+          definition: perspective,
+          purpose: .taskPerspective
+        )
       }
       .onChange(of: requestedSelection) { _, selection in
         guard let selection else { return }
@@ -223,8 +235,11 @@ struct TaskPerspectiveScreen: View {
   let store: LibraryStore
   let definition: LiveQueryDefinition
 
+  @Environment(\.dismiss) private var dismiss
   @State private var query = ""
   @State private var editingTaskID: PageID?
+  @State private var editingPerspective: LiveQueryDefinition?
+  @State private var showsDeleteConfirmation = false
 
   var body: some View {
     TaskListContent(
@@ -235,10 +250,49 @@ struct TaskPerspectiveScreen: View {
     )
     .navigationTitle(definition.name)
     .searchable(text: $query, prompt: "Filter this perspective")
+    .toolbar {
+      ToolbarItem {
+        Menu {
+          Button("Edit Perspective", systemImage: "slider.horizontal.3") {
+            editingPerspective = definition
+          }
+          Button("Duplicate Perspective", systemImage: "plus.square.on.square") {
+            store.duplicateView(definition)
+          }
+          Divider()
+          Button("Delete Perspective", systemImage: "trash", role: .destructive) {
+            showsDeleteConfirmation = true
+          }
+        } label: {
+          Label("Perspective Options", systemImage: "ellipsis.circle")
+        }
+        .accessibilityHint("Edit, duplicate, or delete this perspective.")
+      }
+    }
     .sheet(item: $editingTaskID) { pageID in
       NavigationStack {
         TaskDetailScreen(store: store, pageID: pageID)
       }
+    }
+    .sheet(item: $editingPerspective) { perspective in
+      LiveViewEditor(
+        store: store,
+        definition: perspective,
+        purpose: .taskPerspective
+      )
+    }
+    .confirmationDialog(
+      "Delete \(definition.name)?",
+      isPresented: $showsDeleteConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Delete Perspective", role: .destructive) {
+        store.deleteView(definition.id)
+        dismiss()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("The perspective will disappear on every synced device. Your tasks are not deleted.")
     }
   }
 }

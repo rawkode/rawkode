@@ -148,6 +148,27 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     return supertagID == BuiltInSupertags.task
   }
 
+  /// A useful starting point for a task perspective without exposing completed work by default.
+  public static func taskPerspectiveDraft(name: String = "New Perspective") -> Self {
+    .init(
+      name: name,
+      source: .supertag(BuiltInSupertags.task),
+      filters: [
+        .init(
+          fieldID: TaskFields.status.fieldID,
+          operation: .equals,
+          value: .select("to-do")
+        )
+      ],
+      sorts: [
+        .init(fieldID: TaskFields.scheduled.fieldID),
+        .init(fieldID: TaskFields.deadline.fieldID),
+        .init(systemField: "title"),
+      ],
+      viewKind: .list
+    )
+  }
+
   private enum CodingKeys: String, CodingKey {
     case id, name, source, filters, sorts, viewKind, visibleFieldIDs, groupFieldID
     case startFieldID, endFieldID, limit, peopleScope
@@ -220,16 +241,22 @@ public enum LiveQueryItem: Identifiable, Hashable, Sendable {
 public enum DomainQueryError: Error, LocalizedError, Equatable {
   case unsupported(String)
   public var errorDescription: String? {
-    switch self { case .unsupported(let message): message }
+    switch self {
+    case .unsupported(let message): message
+    }
   }
 }
 
 public enum DomainQueryCodec {
-  public static func parse(_ sql: String, id: LiveQueryID = .random(), name: String = "Untitled View") throws -> LiveQueryDefinition {
+  public static func parse(
+    _ sql: String, id: LiveQueryID = .random(), name: String = "Untitled View"
+  ) throws -> LiveQueryDefinition {
     let tokens = tokenize(sql)
     guard tokens.count >= 4, tokens[0].uppercased() == "SELECT",
       tokens[1] == "*", tokens[2].uppercased() == "FROM"
-    else { throw DomainQueryError.unsupported("Use SELECT * FROM followed by a tag or system source.") }
+    else {
+      throw DomainQueryError.unsupported("Use SELECT * FROM followed by a tag or system source.")
+    }
     let source: LiveQuerySource
     switch tokens[3].lowercased() {
     case "pages": source = .pages
@@ -255,11 +282,21 @@ public enum DomainQueryCodec {
           }
           let operation: LiveQueryOperator
           switch tokens[index].uppercased() {
-          case "=": operation = .equals; index += 1
-          case "!=": operation = .notEquals; index += 1
-          case "CONTAINS": operation = .contains; index += 1
-          case "BEFORE": operation = .before; index += 1
-          case "AFTER": operation = .after; index += 1
+          case "=":
+            operation = .equals
+            index += 1
+          case "!=":
+            operation = .notEquals
+            index += 1
+          case "CONTAINS":
+            operation = .contains
+            index += 1
+          case "BEFORE":
+            operation = .before
+            index += 1
+          case "AFTER":
+            operation = .after
+            index += 1
           case "IS":
             index += 1
             if index < tokens.count, tokens[index].uppercased() == "NOT" {
@@ -281,7 +318,9 @@ public enum DomainQueryCodec {
           }
           var value: SupertagValue?
           if operation.needsValue {
-            guard index < tokens.count, !isClause(tokens[index]), tokens[index].uppercased() != "AND" else {
+            guard index < tokens.count, !isClause(tokens[index]),
+              tokens[index].uppercased() != "AND"
+            else {
               throw DomainQueryError.unsupported("The \(field) filter needs a value.")
             }
             value = try decodeLiteral(tokens[index])
@@ -349,14 +388,19 @@ public enum DomainQueryCodec {
           )
         }
       case "LIMIT":
-        guard index + 1 < tokens.count, let limit = Int(tokens[index + 1]), (1...5_000).contains(limit) else {
+        guard index + 1 < tokens.count, let limit = Int(tokens[index + 1]),
+          (1...5_000).contains(limit)
+        else {
           throw DomainQueryError.unsupported("LIMIT must be between 1 and 5000.")
         }
         definition.limit = limit
         index += 2
       case "VIEW":
-        guard index + 1 < tokens.count, let kind = LiveViewKind(rawValue: tokens[index + 1].lowercased()) else {
-          throw DomainQueryError.unsupported("VIEW must be LIST, TABLE, BOARD, CALENDAR, or CANVAS.")
+        guard index + 1 < tokens.count,
+          let kind = LiveViewKind(rawValue: tokens[index + 1].lowercased())
+        else {
+          throw DomainQueryError.unsupported(
+            "VIEW must be LIST, TABLE, BOARD, CALENDAR, or CANVAS.")
         }
         definition.viewKind = kind
         index += 2
@@ -364,7 +408,8 @@ public enum DomainQueryCodec {
         throw DomainQueryError.unsupported("Unsupported clause \(tokens[index]).")
       }
     }
-    guard definition.viewKind != .canvas || definition.limit <= WhiteboardLimits.maximumPageCards else {
+    guard definition.viewKind != .canvas || definition.limit <= WhiteboardLimits.maximumPageCards
+    else {
       throw DomainQueryError.unsupported(
         "Canvas views are limited to \(WhiteboardLimits.maximumPageCards) query results."
       )
@@ -413,10 +458,14 @@ public enum DomainQueryCodec {
   private static let clauseWords: Set<String> = [
     "WHERE", "SHOW", "INCLUDE", "GROUP", "DATES", "ORDER", "LIMIT", "VIEW",
   ]
-  private static let systemFields: Set<String> = ["title", "created", "modified", "kind", "start", "end", "calendar", "source"]
+  private static let systemFields: Set<String> = [
+    "title", "created", "modified", "kind", "start", "end", "calendar", "source",
+  ]
 
   private static func isClause(_ token: String) -> Bool { clauseWords.contains(token.uppercased()) }
-  private static func isSystemField(_ field: String) -> Bool { systemFields.contains(field.lowercased()) }
+  private static func isSystemField(_ field: String) -> Bool {
+    systemFields.contains(field.lowercased())
+  }
 
   private static func encodeLiteral(_ value: SupertagValue?) -> String {
     guard let value else { return quoted("text:") }
@@ -441,16 +490,24 @@ public enum DomainQueryCodec {
     switch pieces[0] {
     case "text": return .text(value)
     case "number":
-      guard let number = Double(value) else { throw DomainQueryError.unsupported("Invalid number literal.") }
+      guard let number = Double(value) else {
+        throw DomainQueryError.unsupported("Invalid number literal.")
+      }
       return .number(number)
     case "boolean":
-      guard let boolean = Bool(value) else { throw DomainQueryError.unsupported("Invalid boolean literal.") }
+      guard let boolean = Bool(value) else {
+        throw DomainQueryError.unsupported("Invalid boolean literal.")
+      }
       return .boolean(boolean)
     case "date":
-      guard let date = try? Date.ISO8601FormatStyle().parse(value) else { throw DomainQueryError.unsupported("Invalid date literal.") }
+      guard let date = try? Date.ISO8601FormatStyle().parse(value) else {
+        throw DomainQueryError.unsupported("Invalid date literal.")
+      }
       return .date(date)
     case "dateTime":
-      guard let date = try? Date.ISO8601FormatStyle().parse(value) else { throw DomainQueryError.unsupported("Invalid date-time literal.") }
+      guard let date = try? Date.ISO8601FormatStyle().parse(value) else {
+        throw DomainQueryError.unsupported("Invalid date-time literal.")
+      }
       return .dateTime(date)
     case "select": return .select(value)
     case "url": return .url(value)
@@ -462,7 +519,8 @@ public enum DomainQueryCodec {
   }
 
   private static func quoted(_ value: String) -> String {
-    "\"" + value.replacingOccurrences(of: "\\", with: "\\\\")
+    "\""
+      + value.replacingOccurrences(of: "\\", with: "\\\\")
       .replacingOccurrences(of: "\"", with: "\\\"") + "\""
   }
 
@@ -472,12 +530,25 @@ public enum DomainQueryCodec {
     var quoted = false
     var escaping = false
     func finish() {
-      if !current.isEmpty { tokens.append(current); current = "" }
+      if !current.isEmpty {
+        tokens.append(current)
+        current = ""
+      }
     }
     for character in input {
-      if escaping { current.append(character); escaping = false; continue }
-      if quoted && character == "\\" { escaping = true; continue }
-      if character == "\"" { quoted.toggle(); continue }
+      if escaping {
+        current.append(character)
+        escaping = false
+        continue
+      }
+      if quoted && character == "\\" {
+        escaping = true
+        continue
+      }
+      if character == "\"" {
+        quoted.toggle()
+        continue
+      }
       if !quoted && (character.isWhitespace || character == ",") {
         finish()
       } else {
@@ -491,13 +562,26 @@ public enum DomainQueryCodec {
 
 public enum BuiltInLiveQueries {
   public static let all: [LiveQueryDefinition] = [
-    .init(id: .init(rawValue: "view_people"), name: "People", source: .supertag(BuiltInSupertags.person), viewKind: .table,
-      visibleFieldIDs: [.init(rawValue: "email"), .init(rawValue: "organization"), .init(rawValue: "role")]),
-    .init(id: .init(rawValue: "view_projects"), name: "Projects", source: .supertag(BuiltInSupertags.project), viewKind: .board,
-      visibleFieldIDs: [.init(rawValue: "status"), .init(rawValue: "owner"), .init(rawValue: "due-date")],
+    .init(
+      id: .init(rawValue: "view_people"), name: "People",
+      source: .supertag(BuiltInSupertags.person), viewKind: .table,
+      visibleFieldIDs: [
+        .init(rawValue: "email"), .init(rawValue: "organization"), .init(rawValue: "role"),
+      ]),
+    .init(
+      id: .init(rawValue: "view_projects"), name: "Projects",
+      source: .supertag(BuiltInSupertags.project), viewKind: .board,
+      visibleFieldIDs: [
+        .init(rawValue: "status"), .init(rawValue: "owner"), .init(rawValue: "due-date"),
+      ],
       groupFieldID: .init(rawValue: "status")),
-    .init(id: .init(rawValue: "view_tasks"), name: "Tasks", source: .supertag(BuiltInSupertags.task), viewKind: .board,
-      visibleFieldIDs: [.init(rawValue: "status"), .init(rawValue: "project"), .init(rawValue: "scheduled"), .init(rawValue: "deadline")],
+    .init(
+      id: .init(rawValue: "view_tasks"), name: "Tasks", source: .supertag(BuiltInSupertags.task),
+      viewKind: .board,
+      visibleFieldIDs: [
+        .init(rawValue: "status"), .init(rawValue: "project"), .init(rawValue: "scheduled"),
+        .init(rawValue: "deadline"),
+      ],
       groupFieldID: .init(rawValue: "status")),
     .init(
       id: .init(rawValue: "view_work_calendar"),

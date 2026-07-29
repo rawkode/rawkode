@@ -1,6 +1,7 @@
 import Automerge
 import Foundation
 import XCTest
+
 @testable import EnchiridionCore
 
 final class LibraryRepositoryTests: XCTestCase {
@@ -116,6 +117,49 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertTrue(taskList.isTaskListPerspective)
     XCTAssertFalse(taskBoard.isTaskListPerspective)
     XCTAssertFalse(pageList.isTaskListPerspective)
+  }
+
+  func testTaskPerspectiveDraftUsesActiveTasksAndTaskOrdering() throws {
+    let draft = LiveQueryDefinition.taskPerspectiveDraft()
+    let statusFilter = try XCTUnwrap(draft.filters.first)
+
+    XCTAssertEqual(draft.name, "New Perspective")
+    XCTAssertEqual(draft.source, .supertag(BuiltInSupertags.task))
+    XCTAssertEqual(draft.viewKind, .list)
+    XCTAssertEqual(draft.filters.count, 1)
+    XCTAssertEqual(statusFilter.fieldID, TaskFields.status.fieldID)
+    XCTAssertEqual(statusFilter.operation, .equals)
+    XCTAssertEqual(statusFilter.value, .select("to-do"))
+    XCTAssertEqual(
+      draft.sorts,
+      [
+        .init(fieldID: TaskFields.scheduled.fieldID),
+        .init(fieldID: TaskFields.deadline.fieldID),
+        .init(systemField: "title"),
+      ]
+    )
+    XCTAssertTrue(draft.isTaskListPerspective)
+  }
+
+  func testTaskPerspectiveSaveDuplicateDeleteLifecycle() async throws {
+    let fixture = try RepositoryFixture()
+    let original = LiveQueryDefinition.taskPerspectiveDraft(name: "Focused")
+    try await fixture.repository.saveView(original)
+
+    var copy = original
+    copy.id = .random()
+    copy.name = "Focused Copy"
+    try await fixture.repository.duplicateView(copy, from: original.id)
+
+    var perspectives = try await fixture.repository.savedViews().filter(\.isTaskListPerspective)
+    XCTAssertTrue(perspectives.contains(original))
+    XCTAssertTrue(perspectives.contains(copy))
+
+    try await fixture.repository.deleteView(copy.id)
+
+    perspectives = try await fixture.repository.savedViews().filter(\.isTaskListPerspective)
+    XCTAssertTrue(perspectives.contains(original))
+    XCTAssertFalse(perspectives.contains(copy))
   }
 
   func testCloudSyncRequiresTheConfiguredContainerEntitlement() {
@@ -236,7 +280,8 @@ final class LibraryRepositoryTests: XCTestCase {
     let deletedAt = Date(timeIntervalSince1970: 2_000)
     let deleted = try PageDocument.setDeleted(deletedAt, in: original.document)
 
-    let merged = try PageDocument.merge(local: pinned.document, remote: deleted.document, pageID: id)
+    let merged = try PageDocument.merge(
+      local: pinned.document, remote: deleted.document, pageID: id)
 
     XCTAssertTrue(merged.projection.isPinned)
     XCTAssertEqual(merged.projection.deletedAt, deletedAt)
@@ -279,7 +324,8 @@ final class LibraryRepositoryTests: XCTestCase {
 
     XCTAssertEqual(Set(views.map(\.id)), Set(BuiltInLiveQueries.all.map(\.id)))
     XCTAssertEqual(views.first(where: { $0.id.rawValue == "view_people" })?.viewKind, .table)
-    XCTAssertEqual(views.first(where: { $0.id.rawValue == "view_work_calendar" })?.source, .workCalendar)
+    XCTAssertEqual(
+      views.first(where: { $0.id.rawValue == "view_work_calendar" })?.source, .workCalendar)
     XCTAssertEqual(
       views.first(where: { $0.id.rawValue == "view_work_calendar" })?.sorts,
       [.init(systemField: "start")]
@@ -302,7 +348,8 @@ final class LibraryRepositoryTests: XCTestCase {
 
   func testDomainQueryRoundTripsAndRejectsRawSQL() throws {
     let original = BuiltInLiveQueries.all[2]
-    let parsed = try DomainQueryCodec.parse(original.domainSQL, id: original.id, name: original.name)
+    let parsed = try DomainQueryCodec.parse(
+      original.domainSQL, id: original.id, name: original.name)
 
     XCTAssertEqual(parsed.source, original.source)
     XCTAssertEqual(parsed.viewKind, original.viewKind)
@@ -336,13 +383,19 @@ final class LibraryRepositoryTests: XCTestCase {
       peopleScope: .includeOthers
     )
 
-    let parsed = try DomainQueryCodec.parse(original.domainSQL, id: original.id, name: original.name)
+    let parsed = try DomainQueryCodec.parse(
+      original.domainSQL, id: original.id, name: original.name)
 
     XCTAssertEqual(parsed.id, original.id)
     XCTAssertEqual(parsed.name, original.name)
     XCTAssertEqual(parsed.source, original.source)
-    XCTAssertEqual(parsed.filters.map { [$0.fieldID?.rawValue, $0.systemField, $0.operation.rawValue, $0.value?.id] },
-      original.filters.map { [$0.fieldID?.rawValue, $0.systemField, $0.operation.rawValue, $0.value?.id] })
+    XCTAssertEqual(
+      parsed.filters.map {
+        [$0.fieldID?.rawValue, $0.systemField, $0.operation.rawValue, $0.value?.id]
+      },
+      original.filters.map {
+        [$0.fieldID?.rawValue, $0.systemField, $0.operation.rawValue, $0.value?.id]
+      })
     XCTAssertEqual(parsed.sorts, original.sorts)
     XCTAssertEqual(parsed.viewKind, original.viewKind)
     XCTAssertEqual(parsed.visibleFieldIDs, original.visibleFieldIDs)
@@ -381,7 +434,8 @@ final class LibraryRepositoryTests: XCTestCase {
     let due = SupertagPropertyKey(
       supertagID: BuiltInSupertags.project, fieldID: .init(rawValue: "due-date"))
     for page in [first, second, ignored] {
-      try await fixture.repository.setProperty(pageID: page.id, key: status, values: [.select("active")])
+      try await fixture.repository.setProperty(
+        pageID: page.id, key: status, values: [.select("active")])
     }
     try await fixture.repository.setProperty(
       pageID: first.id, key: due, values: [.date(Date(timeIntervalSince1970: 2_000))])
@@ -433,10 +487,12 @@ final class LibraryRepositoryTests: XCTestCase {
 
     let empty = try await IDs(for: .init(fieldID: status.fieldID, operation: .isEmpty))
     let notEmpty = try await IDs(for: .init(fieldID: status.fieldID, operation: .isNotEmpty))
-    let before = try await IDs(for: .init(
-      fieldID: due.fieldID, operation: .before, value: .date(Date(timeIntervalSince1970: 3_000))))
-    let after = try await IDs(for: .init(
-      fieldID: due.fieldID, operation: .after, value: .date(Date(timeIntervalSince1970: 3_000))))
+    let before = try await IDs(
+      for: .init(
+        fieldID: due.fieldID, operation: .before, value: .date(Date(timeIntervalSince1970: 3_000))))
+    let after = try await IDs(
+      for: .init(
+        fieldID: due.fieldID, operation: .after, value: .date(Date(timeIntervalSince1970: 3_000))))
 
     XCTAssertEqual(empty, ["page:\(late.id.rawValue)"])
     XCTAssertEqual(notEmpty, ["page:\(early.id.rawValue)"])
@@ -527,14 +583,17 @@ final class LibraryRepositoryTests: XCTestCase {
     let definition = try XCTUnwrap(BuiltInLiveQueries.all.first { $0.source == .workCalendar })
     let items = try await fixture.repository.run(definition)
 
-    XCTAssertTrue(items.contains { if case .event(let value) = $0 { value.id == event.id } else { false } })
-    XCTAssertTrue(items.contains { if case .page(let value) = $0 { value.id == task.id } else { false } })
+    XCTAssertTrue(
+      items.contains { if case .event(let value) = $0 { value.id == event.id } else { false } })
+    XCTAssertTrue(
+      items.contains { if case .page(let value) = $0 { value.id == task.id } else { false } })
   }
 
   func testCalendarAttendeesCreateDeterministicPeople() async throws {
     let fixture = try RepositoryFixture()
     let start = Date(timeIntervalSince1970: 1_817_000_000)
-    var event = calendarEvent(provider: "google", id: "planning", start: start, end: start.addingTimeInterval(3600))
+    var event = calendarEvent(
+      provider: "google", id: "planning", start: start, end: start.addingTimeInterval(3600))
     event.attendees = [
       CalendarAttendeeIdentity(
         email: "Alice@Example.com",
@@ -1107,7 +1166,9 @@ final class LibraryRepositoryTests: XCTestCase {
       from: start.addingTimeInterval(-1),
       through: start.addingTimeInterval(3_601)
     )
-    let opened = try await projected.asyncMap { try await fixture.repository.calendarEventPages(for: $0) }
+    let opened = try await projected.asyncMap {
+      try await fixture.repository.calendarEventPages(for: $0)
+    }
 
     XCTAssertEqual(Set(projected.compactMap { $0.identity.series?.canonicalKey }).count, 1)
     XCTAssertEqual(Set(opened.map(\.occurrence.id)).count, 1)
@@ -1117,7 +1178,8 @@ final class LibraryRepositoryTests: XCTestCase {
   func testLegacyOccurrencePageIsReusedWhenSeriesMetadataArrives() async throws {
     let fixture = try RepositoryFixture()
     let start = Date(timeIntervalSince1970: 1_817_000_000)
-    let legacy = calendarEvent(provider: "eventkit", id: "legacy", start: start, end: start.addingTimeInterval(3_600))
+    let legacy = calendarEvent(
+      provider: "eventkit", id: "legacy", start: start, end: start.addingTimeInterval(3_600))
     let legacyPage = try await fixture.repository.calendarEventPage(for: legacy)
     let enriched = recurringEvent(
       provider: "eventkit",
@@ -1250,7 +1312,8 @@ final class LibraryRepositoryTests: XCTestCase {
     provider: String, id: String, start: Date, end: Date
   ) -> CalendarEventSnapshot {
     CalendarEventSnapshot(
-      identity: CalendarEventIdentity(provider: provider, externalIdentifier: id, occurrenceStart: start),
+      identity: CalendarEventIdentity(
+        provider: provider, externalIdentifier: id, occurrenceStart: start),
       title: id,
       startDate: start,
       endDate: end,
@@ -1313,8 +1376,8 @@ private struct ReferenceMarkPayload: Codable {
   var label: String
 }
 
-private extension Array {
-  func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+extension Array {
+  fileprivate func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
     var values: [T] = []
     for element in self { values.append(try await transform(element)) }
     return values
