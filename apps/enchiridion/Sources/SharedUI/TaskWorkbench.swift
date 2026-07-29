@@ -349,12 +349,14 @@ struct TaskWorkbenchActionBar: View {
         } label: {
           Label("Complete", systemImage: "checkmark.circle")
         }
+        .taskWorkbenchActionControl("Complete selected tasks")
       } else if allSelectedTasksAreClosed {
         Button {
           perform { await actions.reopen($0) }
         } label: {
           Label("Reopen", systemImage: "arrow.uturn.backward.circle")
         }
+        .taskWorkbenchActionControl("Reopen selected tasks")
       }
 
       Menu {
@@ -389,6 +391,7 @@ struct TaskWorkbenchActionBar: View {
       } label: {
         Label("Schedule", systemImage: "calendar")
       }
+      .taskWorkbenchActionControl("Opens scheduling options for selected tasks")
 
       Menu {
         Menu("Deadline", systemImage: "flag") {
@@ -516,6 +519,7 @@ struct TaskWorkbenchActionBar: View {
       } label: {
         Label("Edit", systemImage: "slider.horizontal.3")
       }
+      .taskWorkbenchActionControl("Opens editing options for selected tasks")
 
       Menu {
         if !allSelectedTasksAreActive && !allSelectedTasksAreClosed {
@@ -535,6 +539,7 @@ struct TaskWorkbenchActionBar: View {
       } label: {
         Label("More", systemImage: "ellipsis.circle")
       }
+      .taskWorkbenchActionControl("Opens more actions for selected tasks")
 
       if selection.isApplying {
         ProgressView()
@@ -560,6 +565,7 @@ struct TaskWorkbenchActionBar: View {
         TaskWorkbenchMetadataSheet(
           editor: editor,
           store: store,
+          taskCount: selection.selectedCount,
           apply: applyPatch
         )
       }
@@ -721,6 +727,27 @@ struct TaskWorkbenchActionBar: View {
   }
 }
 
+private struct TaskWorkbenchActionControlModifier: ViewModifier {
+  let helpText: String
+
+  func body(content: Content) -> some View {
+    #if os(macOS)
+      content.help(helpText)
+    #else
+      content
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityHint(helpText)
+    #endif
+  }
+}
+
+extension View {
+  fileprivate func taskWorkbenchActionControl(_ helpText: String) -> some View {
+    modifier(TaskWorkbenchActionControlModifier(helpText: helpText))
+  }
+}
+
 private enum TaskWorkbenchMetadataOperation: String {
   case add
   case remove
@@ -867,6 +894,7 @@ private struct TaskWorkbenchMetadataSheet: View {
 
   let editor: TaskWorkbenchEditor
   let store: LibraryStore
+  let taskCount: Int
   let apply: (TaskMetadataPatch) -> Void
 
   @State private var tagsText: String
@@ -884,10 +912,12 @@ private struct TaskWorkbenchMetadataSheet: View {
   init(
     editor: TaskWorkbenchEditor,
     store: LibraryStore,
+    taskCount: Int,
     apply: @escaping (TaskMetadataPatch) -> Void
   ) {
     self.editor = editor
     self.store = store
+    self.taskCount = taskCount
     self.apply = apply
     switch editor {
     case .tags(let operation, let initialValues, let candidates, let hasMixedValues):
@@ -971,10 +1001,29 @@ private struct TaskWorkbenchMetadataSheet: View {
           } else {
             Section(operation == .remove ? "Assigned People" : "People") {
               ForEach(people) { person in
-                Toggle(
-                  store.personDisplayName(for: person),
-                  isOn: assigneeBinding(person.id)
-                )
+                Toggle(isOn: assigneeBinding(person.id)) {
+                  HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(store.personDisplayName(for: person))
+                      if let detail = personDetail(person) {
+                        Text(detail)
+                          .font(.caption)
+                          .foregroundStyle(.secondary)
+                          .lineLimit(1)
+                      }
+                    }
+                    Spacer(minLength: 8)
+                    if person.isOtherPerson {
+                      Text("Other")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                    }
+                  }
+                }
+                .accessibilityLabel(personAccessibilityLabel(person))
               }
             }
           }
@@ -989,15 +1038,22 @@ private struct TaskWorkbenchMetadataSheet: View {
           Button("Cancel") { dismiss() }
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Apply") {
+          Button(confirmationTitle) {
             apply(patch)
             dismiss()
           }
           .disabled(!canApply)
+          .accessibilityLabel(confirmationAccessibilityLabel)
         }
       }
     }
     .presentationDetents([.medium, .large])
+    .onChange(of: includesOtherPeople) { _, includesOthers in
+      guard !includesOthers else { return }
+      let requiredIDs = operation == .add ? Set<PageID>() : assigneeCandidates
+      let hiddenOtherIDs = Set(store.otherPeople.map(\.id)).subtracting(requiredIDs)
+      assigneeIDs.subtract(hiddenOtherIDs)
+    }
   }
 
   private var title: String {
@@ -1014,8 +1070,14 @@ private struct TaskWorkbenchMetadataSheet: View {
     return candidates.filter {
       seen.insert($0.id).inserted && (operation != .add || !initialAssigneeIDs.contains($0.id))
     }.sorted {
-      store.personDisplayName(for: $0).localizedStandardCompare(store.personDisplayName(for: $1))
-        == .orderedAscending
+      let leftName = store.personDisplayName(for: $0)
+      let rightName = store.personDisplayName(for: $1)
+      let nameComparison = leftName.localizedStandardCompare(rightName)
+      if nameComparison != .orderedSame { return nameComparison == .orderedAscending }
+      let detailComparison =
+        (personDetail($0) ?? "").localizedStandardCompare(personDetail($1) ?? "")
+      if detailComparison != .orderedSame { return detailComparison == .orderedAscending }
+      return $0.id.rawValue < $1.id.rawValue
     }
   }
 
@@ -1071,17 +1133,68 @@ private struct TaskWorkbenchMetadataSheet: View {
     }
   }
 
+  private var confirmationTitle: String {
+    operation == .replaceAll ? "Replace All" : "Apply"
+  }
+
+  private var confirmationAccessibilityLabel: String {
+    let values = isTagEditor ? "tags" : "assignees"
+    let tasks = taskCount == 1 ? "1 task" : "\(taskCount) tasks"
+    return switch operation {
+    case .add: "Add \(values) to \(tasks)"
+    case .remove: "Remove \(values) from \(tasks)"
+    case .replaceAll: "Replace all \(values) on \(tasks)"
+    }
+  }
+
   @ViewBuilder
   private func replacementWarning(for valueName: String) -> some View {
     if operation == .replaceAll, hadMixedValues {
       Section {
         Toggle("Confirm Replace All", isOn: $replacementConfirmed)
       } footer: {
+        let taskScope =
+          taskCount == 1 ? "This task has" : "These \(taskCount) tasks have"
         Text(
-          "The selected tasks have different \(valueName). Replace All removes every existing value before applying this selection."
+          "\(taskScope) different \(valueName). Replace All removes every existing value before applying this selection."
         )
       }
     }
+  }
+
+  private func personAccessibilityLabel(_ person: PageSnapshot) -> String {
+    var parts = [store.personDisplayName(for: person)]
+    if let detail = personDetail(person) { parts.append(detail) }
+    if person.isOtherPerson { parts.append("Other person") }
+    return parts.joined(separator: ", ")
+  }
+
+  private func personDetail(_ person: PageSnapshot) -> String? {
+    if let contact = store.contactLinks[person.id]?.record {
+      let role = [nonBlank(contact.jobTitle), nonBlank(contact.organizationName)]
+        .compactMap { $0 }
+        .joined(separator: " at ")
+      let email = contact.emails.lazy.compactMap(nonBlank).first ?? personEmail(person)
+      let details = [nonBlank(role), email].compactMap { $0 }
+      return details.isEmpty ? nil : details.joined(separator: " · ")
+    }
+    return personEmail(person)
+  }
+
+  private func personEmail(_ person: PageSnapshot) -> String? {
+    for (key, values) in person.objectMetadata.properties
+    where key.supertagID == BuiltInSupertags.person && key.fieldID.rawValue == "email" {
+      for value in values {
+        if case .email(let email) = value, let email = nonBlank(email) { return email }
+      }
+    }
+    return nil
+  }
+
+  private func nonBlank(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 
   private func tagBinding(_ tag: String) -> Binding<Bool> {
