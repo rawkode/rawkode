@@ -21,6 +21,9 @@ struct MacRootView: View {
   @State private var editorFlushController = EditorFlushController()
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
   @State private var pagePendingPermanentDeletion: PageSnapshot?
+  @State private var showsGraphQuery = false
+  @State private var showsGraphIssues = false
+  @State private var showsGraphRelationDefinitions = false
 
   init(
     store: LibraryStore = LibraryStore(),
@@ -164,6 +167,26 @@ struct MacRootView: View {
             presentViewEditor(.init(name: "New View", source: .pages))
           } label: {
             Label("New View", systemImage: "plus")
+          }
+          .buttonStyle(.plain)
+        }
+        Section("Graph") {
+          Button {
+            showsGraphQuery = true
+          } label: {
+            Label("Query", systemImage: "point.3.connected.trianglepath.dotted")
+          }
+          .buttonStyle(.plain)
+          Button {
+            showsGraphRelationDefinitions = true
+          } label: {
+            Label("Relationship Types", systemImage: "arrow.left.arrow.right")
+          }
+          .buttonStyle(.plain)
+          Button {
+            showsGraphIssues = true
+          } label: {
+            Label("Needs Attention", systemImage: "exclamationmark.triangle")
           }
           .buttonStyle(.plain)
         }
@@ -426,6 +449,45 @@ struct MacRootView: View {
     }
     .sheet(item: $taskCollectionDraft) { draft in
       TaskCollectionCreator(store: store, draft: draft)
+    }
+    .sheet(isPresented: $showsGraphQuery) {
+      NavigationStack {
+        GraphQueryWorkspace(store: store) { pageID in
+          showsGraphQuery = false
+          selectPage(pageID)
+        }
+        .frame(minWidth: 760, minHeight: 620)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { showsGraphQuery = false }
+          }
+        }
+      }
+    }
+    .sheet(isPresented: $showsGraphRelationDefinitions) {
+      NavigationStack {
+        GraphRelationDefinitionsView(store: store)
+          .frame(minWidth: 620, minHeight: 620)
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Done") { showsGraphRelationDefinitions = false }
+            }
+          }
+      }
+    }
+    .sheet(isPresented: $showsGraphIssues) {
+      NavigationStack {
+        GraphIssuesView(store: store) { pageID in
+          showsGraphIssues = false
+          selectPage(pageID)
+        }
+        .frame(minWidth: 560, minHeight: 520)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { showsGraphIssues = false }
+          }
+        }
+      }
     }
     .confirmationDialog(
       "Delete \(perspectivePendingDeletion?.name ?? "Perspective")?",

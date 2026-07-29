@@ -6,6 +6,8 @@ struct SupertagSchemaEditor: View {
   let definition: SupertagDefinition
   @Environment(\.dismiss) private var dismiss
   @State private var draft: SupertagDefinition
+  @State private var isSaving = false
+  @State private var errorMessage: String?
 
   init(store: LibraryStore, definition: SupertagDefinition) {
     self.store = store
@@ -19,6 +21,58 @@ struct SupertagSchemaEditor: View {
         Section("Supertag") {
           TextField("Name", text: $draft.name)
           TextField("Symbol", text: $draft.symbol)
+        }
+
+        Section("Inheritance") {
+          if definition.isBuiltIn {
+            if draft.parentIDs.isEmpty {
+              Text("Base Tag")
+                .foregroundStyle(.secondary)
+            } else {
+              ForEach(draft.parentIDs) { parentID in
+                Label(parentName(parentID), systemImage: "arrow.up.right")
+              }
+            }
+            Text("Base Tag inheritance is fixed by Enchiridion.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          } else {
+            Menu("Inherits From", systemImage: "arrow.triangle.branch") {
+              ForEach(store.supertags.filter { $0.id != draft.id }) { candidate in
+                Toggle(
+                  candidate.name,
+                  isOn: Binding(
+                    get: { draft.parentIDs.contains(candidate.id) },
+                    set: { enabled in
+                      if enabled { draft.parentIDs.append(candidate.id) }
+                      else { draft.parentIDs.removeAll { $0 == candidate.id } }
+                    }
+                  )
+                )
+              }
+            }
+            if draft.parentIDs.isEmpty {
+              Text("This type does not inherit properties from another type.")
+                .foregroundStyle(.secondary)
+            } else {
+              ForEach(draft.parentIDs) { parentID in
+                HStack {
+                  Label(parentName(parentID), systemImage: "arrow.up.right")
+                  Spacer()
+                  Button(role: .destructive) {
+                    draft.parentIDs.removeAll { $0 == parentID }
+                  } label: {
+                    Label("Remove Parent", systemImage: "minus.circle")
+                      .labelStyle(.iconOnly)
+                  }
+                  .buttonStyle(.borderless)
+                }
+              }
+            }
+            Text("Multiple inheritance is allowed. Cycles are rejected when you save.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
 
         Section("Fields") {
@@ -95,11 +149,18 @@ struct SupertagSchemaEditor: View {
         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
         ToolbarItem(placement: .confirmationAction) {
           Button("Save") {
-            store.saveSupertag(draft)
-            dismiss()
+            Task { await save() }
           }
-          .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(
+            draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving
+          )
         }
+      }
+      .disabled(isSaving)
+      .alert("Cannot Save Supertag", isPresented: errorBinding) {
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(errorMessage ?? "Check the inheritance and field definitions, then try again.")
       }
     }
     #if os(macOS)
@@ -113,5 +174,27 @@ struct SupertagSchemaEditor: View {
   private func valueCount(for fieldID: SupertagFieldID) -> Int {
     let key = SupertagPropertyKey(supertagID: definition.id, fieldID: fieldID)
     return taggedPages.reduce(0) { $0 + ($1.objectMetadata.properties[key]?.count ?? 0) }
+  }
+
+  private func parentName(_ id: TagID) -> String {
+    store.supertags.first(where: { $0.id == id })?.name ?? id.rawValue
+  }
+
+  private func save() async {
+    isSaving = true
+    defer { isSaving = false }
+    do {
+      try await store.saveSupertag(draft)
+      dismiss()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private var errorBinding: Binding<Bool> {
+    Binding(
+      get: { errorMessage != nil },
+      set: { if !$0 { errorMessage = nil } }
+    )
   }
 }

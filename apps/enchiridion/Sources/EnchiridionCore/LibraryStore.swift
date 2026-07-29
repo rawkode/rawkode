@@ -82,7 +82,7 @@ public final class LibraryStore {
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
 
-  @ObservationIgnored private let repository: LibraryRepository?
+  @ObservationIgnored let repository: LibraryRepository?
   @ObservationIgnored private var syncCoordinator: CloudSyncCoordinator?
   @ObservationIgnored private var calendarProvider: EventKitCalendarProvider?
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
@@ -1055,14 +1055,13 @@ public final class LibraryStore {
     }
   }
 
-  public func saveSupertag(_ definition: SupertagDefinition) {
-    Task {
-      do {
-        try await repository?.saveSupertag(definition)
-        await reload()
-        await syncCoordinator?.supertagDidChange(definition.id)
-      } catch { startupError = error.localizedDescription }
+  public func saveSupertag(_ definition: SupertagDefinition) async throws {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
     }
+    try await repository.saveSupertag(definition)
+    await reload()
+    await syncCoordinator?.supertagDidChange(definition.id)
   }
 
   public func saveView(_ definition: LiveQueryDefinition) {
