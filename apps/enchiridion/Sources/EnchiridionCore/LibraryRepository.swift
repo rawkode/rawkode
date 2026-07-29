@@ -135,7 +135,7 @@ public actor LibraryRepository {
   private static let migrationLockTimeout: TimeInterval = 5
 
   public nonisolated let path: String
-  private let database: DatabasePool
+  let database: DatabasePool
 
   func assistantRead<T: Sendable>(
     _ access: @Sendable (Database) throws -> T
@@ -2930,6 +2930,8 @@ public actor LibraryRepository {
           now.timeIntervalSince1970,
         ]
       )
+      try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try GraphProjectionStore.refreshIssues(in: db)
     }
   }
 
@@ -3031,6 +3033,8 @@ public actor LibraryRepository {
           systemFields,
         ]
       )
+      try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try GraphProjectionStore.refreshIssues(in: db)
       return false
     }
   }
@@ -3059,6 +3063,8 @@ public actor LibraryRepository {
           """,
         arguments: [id.rawValue]
       )
+      try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try GraphProjectionStore.refreshIssues(in: db)
       return false
     }
   }
@@ -5340,6 +5346,9 @@ public actor LibraryRepository {
         ]
       )
     }
+    migrator.registerMigration("v19-knowledge-graph") { db in
+      try GraphDatabaseSchema.install(in: db)
+    }
     return migrator
   }()
 
@@ -5374,7 +5383,7 @@ public actor LibraryRepository {
     }
   }
 
-  private static func writePage(
+  static func writePage(
     _ db: Database,
     page: PageSnapshot,
     cloudDirty: Bool,
@@ -5441,6 +5450,8 @@ public actor LibraryRepository {
       ]
     )
     try replaceObjectProjection(db, pageID: page.id, metadata: page.objectMetadata)
+    try GraphProjectionStore.replacePage(page, references: nil, in: db)
+    try GraphProjectionStore.refreshIssues(in: db)
     switch page.kind {
     case .calendarEvent(let identity):
       try mapOccurrencePage(
@@ -5460,7 +5471,7 @@ public actor LibraryRepository {
     }
   }
 
-  private static func updatedPage(
+  static func updatedPage(
     _ current: PageSnapshot,
     with result: (
       document: Data,
@@ -5500,9 +5511,11 @@ public actor LibraryRepository {
         arguments: [pageID.rawValue, reference.targetPageID.rawValue, reference.fallbackLabel]
       )
     }
+    try GraphProjectionStore.replaceMentions(from: pageID, references: references, in: db)
+    try GraphProjectionStore.refreshIssues(in: db)
   }
 
-  private static func fetchPage(_ db: Database, id: PageID) throws -> PageSnapshot? {
+  static func fetchPage(_ db: Database, id: PageID) throws -> PageSnapshot? {
     guard let row = try Row.fetchOne(db, sql: "SELECT * FROM pages WHERE id = ?", arguments: [id.rawValue]) else {
       return nil
     }

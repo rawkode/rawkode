@@ -76,7 +76,7 @@ public struct KnowledgeFact: Codable, Hashable, Sendable, Identifiable {
     self.predicateID = predicateID
     self.value = value
     self.origin = origin
-    self.createdAt = createdAt
+    self.createdAt = Date(timeIntervalSince1970: createdAt.timeIntervalSince1970)
   }
 }
 
@@ -164,7 +164,38 @@ public struct KnowledgeEdge: Codable, Hashable, Sendable, Identifiable {
     self.sourceNodeID = sourceNodeID
     self.targetNodeID = targetNodeID
     self.origin = origin
-    self.createdAt = createdAt
+    self.createdAt = Date(timeIntervalSince1970: createdAt.timeIntervalSince1970)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case relationID
+    case sourceNodeID
+    case targetNodeID
+    case origin
+    case createdAt
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(EdgeID.self, forKey: .id)
+    relationID = try container.decode(RelationID.self, forKey: .relationID)
+    sourceNodeID = try container.decode(NodeID.self, forKey: .sourceNodeID)
+    targetNodeID = try container.decode(NodeID.self, forKey: .targetNodeID)
+    origin = try container.decode(GraphEdgeOrigin.self, forKey: .origin)
+    createdAt = Date(
+      timeIntervalSince1970: try container.decode(Double.self, forKey: .createdAt)
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(relationID, forKey: .relationID)
+    try container.encode(sourceNodeID, forKey: .sourceNodeID)
+    try container.encode(targetNodeID, forKey: .targetNodeID)
+    try container.encode(origin, forKey: .origin)
+    try container.encode(createdAt.timeIntervalSince1970, forKey: .createdAt)
   }
 }
 
