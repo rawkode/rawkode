@@ -27,43 +27,37 @@ struct DailyTaskContext: View {
     let tasks = store.tasks(on: day, includingOverdue: includingOverdue)
     VStack(spacing: 0) {
       HStack(spacing: 10) {
-        Button {
-          withAnimation(reduceMotion ? nil : .smooth(duration: 0.18)) {
-            isExpanded.toggle()
-          }
-        } label: {
-          HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle")
-              .foregroundStyle(.tint)
-            Text("Tasks")
-              .font(.subheadline.weight(.semibold))
-            if !tasks.isEmpty {
+        if tasks.isEmpty {
+          Label("Tasks", systemImage: "checkmark.circle")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+        } else {
+          Button {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.18)) {
+              isExpanded.toggle()
+            }
+          } label: {
+            HStack(spacing: 8) {
+              Image(systemName: "checkmark.circle")
+                .foregroundStyle(.tint)
+              Text("Tasks")
+                .font(.subheadline.weight(.semibold))
               Text(tasks.count, format: .number)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.quaternary, in: Capsule())
+              Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(isExpanded ? .zero : .degrees(-90))
             }
-            Image(systemName: "chevron.down")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.tertiary)
-              .rotationEffect(isExpanded ? .zero : .degrees(-90))
+            .frame(minHeight: 44)
+            .contentShape(.rect)
           }
-          .contentShape(.rect)
+          .buttonStyle(.plain)
+          .accessibilityLabel(isExpanded ? "Collapse daily tasks" : "Expand daily tasks")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isExpanded ? "Collapse daily tasks" : "Expand daily tasks")
 
         Spacer(minLength: 8)
-
-        if !tasks.isEmpty {
-          Button("View all", systemImage: "arrow.up.right") { viewAll() }
-            .labelStyle(.iconOnly)
-            .font(.caption.weight(.medium))
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-        }
 
         Menu {
           Button {
@@ -78,15 +72,19 @@ struct DailyTaskContext: View {
               Label("Plan tomorrow", systemImage: "sunrise")
             }
           }
+          if !tasks.isEmpty {
+            Divider()
+            Button("View All Tasks", systemImage: "list.bullet", action: viewAll)
+          }
         } label: {
-          Label("Add task", systemImage: "plus")
+          Label("Task actions", systemImage: "plus")
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.plain)
-        .accessibilityHint("Add for this daily page or plan tomorrow")
+        .accessibilityHint("Add for this daily page, plan tomorrow, or view all tasks")
       }
       .padding(.horizontal, 16)
-      .padding(.vertical, 9)
 
       if let captureDay {
         Divider().padding(.leading, 16)
@@ -102,14 +100,16 @@ struct DailyTaskContext: View {
             } else {
               Button("Add", systemImage: "arrow.up.circle.fill") { createTask() }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
                 .foregroundStyle(.tint)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
                 .disabled(draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             Button("Cancel", systemImage: "xmark") { cancelCapture() }
               .labelStyle(.iconOnly)
-              .buttonStyle(.plain)
               .foregroundStyle(.secondary)
+              .frame(width: 44, height: 44)
+              .contentShape(.rect)
           }
           if let captureError {
             Text(captureError)
@@ -117,8 +117,9 @@ struct DailyTaskContext: View {
               .foregroundStyle(.red)
           }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
       }
 
       if isExpanded, !tasks.isEmpty {
@@ -144,20 +145,18 @@ struct DailyTaskContext: View {
             }
           }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(.opacity)
 
         if tasks.count > visibleLimit {
           Button("View \(tasks.count - visibleLimit) more") { viewAll() }
             .font(.caption.weight(.medium))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .padding(.leading, 50)
-            .padding(.vertical, 7)
             .buttonStyle(.plain)
             .foregroundStyle(.tint)
         }
       }
     }
-    .background(.bar)
     .overlay(alignment: .bottom) { Divider() }
     .accessibilityElement(children: .contain)
     .sheet(item: $deferSelection) { selection in
@@ -169,6 +168,9 @@ struct DailyTaskContext: View {
     }
     .onChange(of: captureDay) { _, value in
       if value != nil { isCaptureFocused = true }
+    }
+    .onChange(of: tasks.isEmpty) { _, isEmpty in
+      if isEmpty { isExpanded = false }
     }
   }
 
@@ -255,13 +257,15 @@ private struct DailyTaskContextRow: View {
   private let calendar = Calendar.current
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
+    HStack(alignment: .center, spacing: 6) {
       Button {
         complete()
       } label: {
         Image(systemName: "circle")
           .font(.title3)
           .foregroundStyle(.secondary)
+          .frame(width: 44, height: 44)
+          .contentShape(.rect)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Complete \(task.page.displayTitle)")
@@ -284,7 +288,7 @@ private struct DailyTaskContextRow: View {
             .lineLimit(1)
           }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(.rect)
       }
       .buttonStyle(.plain)
@@ -295,13 +299,15 @@ private struct DailyTaskContextRow: View {
         Button("Choose date…", systemImage: "calendar", action: chooseDate)
       } label: {
         Label("Task actions", systemImage: "ellipsis")
+          .frame(width: 44, height: 44)
+          .contentShape(.rect)
       }
       .labelStyle(.iconOnly)
       .buttonStyle(.plain)
       .foregroundStyle(.secondary)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 8)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 2)
   }
 
   private var contextLabels: [ContextLabel] {

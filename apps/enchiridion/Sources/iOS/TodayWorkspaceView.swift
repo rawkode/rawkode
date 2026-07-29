@@ -4,15 +4,13 @@ import SwiftUI
 struct TodayWorkspaceView: View {
   let store: LibraryStore
 
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @State private var drawer: TodayDrawer?
+  @State private var presentedPanel: TodayPanel?
   @State private var path: [PageID] = []
   @State private var flushController = EditorFlushController()
   @State private var day = Calendar.current.startOfDay(for: Date())
   @State private var datePicker: TodayDatePickerSelection?
   @State private var isOpeningDay = false
   @State private var openDayTask: Task<Void, Never>?
-  @State private var isTodayTasksPresented = false
 
   private let calendar = Calendar.current
 
@@ -28,7 +26,8 @@ struct TodayWorkspaceView: View {
             store: store,
             pageID: dailyPageID,
             flushController: flushController,
-            onOpenPage: navigate
+            onOpenPage: navigate,
+            showsPageActions: false
           )
           .safeAreaInset(edge: .top, spacing: 0) {
             DailyTaskContext(
@@ -52,57 +51,44 @@ struct TodayWorkspaceView: View {
         }
       }
       .toolbar {
-        ToolbarItemGroup(placement: .topBarLeading) {
+        ToolbarItem(placement: .topBarLeading) {
           Button {
-            show(.events)
+            presentedPanel = .events
           } label: {
             Label("Show events for this day", systemImage: "calendar")
           }
+        }
 
+        ToolbarItemGroup(placement: .topBarTrailing) {
           Button {
             showTodayTasks()
           } label: {
             Label("Show tasks for this day", systemImage: "checkmark.circle")
           }
-        }
-        ToolbarItemGroup(placement: .topBarTrailing) {
-          Button {
-            show(.pages)
-          } label: {
-            Label("Show changed pages for this day", systemImage: "clock.arrow.circlepath")
-          }
-        }
-        ToolbarItemGroup(placement: .bottomBar) {
-          Button {
-            moveDay(by: -1)
-          } label: {
-            Label("Previous day", systemImage: "chevron.left")
-          }
 
-          Spacer()
-
-          Button {
-            showDatePicker()
-          } label: {
-            Label("Choose date", systemImage: "calendar.badge.clock")
-          }
-          .accessibilityLabel(
-            "Choose date, currently \(day.formatted(date: .long, time: .omitted))"
-          )
-
-          if !calendar.isDateInToday(day) {
-            Button("Today") {
-              selectDay(Date())
+          Menu {
+            Section("Date") {
+              Button("Previous Day", systemImage: "chevron.left") {
+                moveDay(by: -1)
+              }
+              Button("Next Day", systemImage: "chevron.right") {
+                moveDay(by: 1)
+              }
+              Button("Choose Date", systemImage: "calendar.badge.clock") {
+                showDatePicker()
+              }
+              if !calendar.isDateInToday(day) {
+                Button("Return to Today", systemImage: "arrow.uturn.backward") {
+                  selectDay(Date())
+                }
+              }
             }
-            .accessibilityHint("Open today’s daily note")
-          }
 
-          Spacer()
-
-          Button {
-            moveDay(by: 1)
+            Button("Changed Pages", systemImage: "clock.arrow.circlepath") {
+              presentedPanel = .pages
+            }
           } label: {
-            Label("Next day", systemImage: "chevron.right")
+            Label("More Today actions", systemImage: "ellipsis.circle")
           }
         }
       }
@@ -115,49 +101,21 @@ struct TodayWorkspaceView: View {
         )
       }
     }
-    .overlay {
-      GeometryReader { geometry in
-        ZStack {
-          if let drawer {
-            Color.black.opacity(0.22)
-              .ignoresSafeArea()
-              .onTapGesture { dismissDrawer() }
-              .accessibilityHidden(true)
-
-            drawerPanel(drawer)
-              .frame(width: min(geometry.size.width * 0.86, 380))
-              .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: drawer == .events ? .leading : .trailing
-              )
-              .transition(.move(edge: drawer.edge))
-          } else {
-            HStack(spacing: 0) {
-              edgeTarget(for: .events)
-              Spacer(minLength: 0)
-              edgeTarget(for: .pages)
-            }
-          }
-        }
-      }
-    }
     .sheet(item: $datePicker) { selection in
       TodayDatePicker(initialDate: selection.date, selectDate: selectDay)
     }
-    .sheet(isPresented: $isTodayTasksPresented) {
+    .sheet(item: $presentedPanel) { panel in
       NavigationStack {
-        DailyTaskListScreen(
-          store: store,
-          day: day,
-          includingOverdue: calendar.isDateInToday(day)
-        )
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Done") { isTodayTasksPresented = false }
+        panelContent(panel)
+          .navigationTitle(panel.navigationTitle(for: day, calendar: calendar))
+          .navigationBarTitleDisplayMode(.inline)
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Done") { presentedPanel = nil }
+            }
           }
-        }
       }
+      .presentationDetents([.medium, .large])
     }
     .onDisappear { openDayTask?.cancel() }
   }
@@ -169,92 +127,33 @@ struct TodayWorkspaceView: View {
   private func showTodayTasks() {
     Task { @MainActor in
       guard await flushController.flush() else { return }
-      isTodayTasksPresented = true
+      presentedPanel = .tasks
     }
   }
 
   @ViewBuilder
-  private func drawerPanel(_ drawer: TodayDrawer) -> some View {
-    VStack(spacing: 0) {
-      HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(drawer.title)
-            .font(.headline)
-          Text(day.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-        Button("Close", systemImage: "xmark") { dismissDrawer() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderless)
-      }
-      .padding()
-
-      Divider()
-
-      switch drawer {
-      case .events:
-        TodayEventsList(
-          store: store,
-          day: day,
-          flushBeforeOpening: flushController.flush,
-          openPage: openPageAfterFlush
-        )
-      case .pages:
-        TodayChangedPagesList(
-          store: store,
-          day: day,
-          excluding: dailyPageID,
-          openPage: openPage
-        )
-      }
-    }
-    .background(.regularMaterial)
-    .contentShape(.rect)
-    .gesture(closeGesture(for: drawer))
-    .accessibilityAddTraits(.isModal)
-  }
-
-  private func edgeTarget(for drawer: TodayDrawer) -> some View {
-    Color.clear
-      .frame(width: 24)
-      .contentShape(.rect)
-      .gesture(openGesture(for: drawer))
-      .accessibilityHidden(true)
-  }
-
-  private func openGesture(for drawer: TodayDrawer) -> some Gesture {
-    DragGesture(minimumDistance: 18)
-      .onEnded { value in
-        let crossedThreshold =
-          drawer == .events
-          ? value.translation.width > 48
-          : value.translation.width < -48
-        if crossedThreshold { show(drawer) }
-      }
-  }
-
-  private func closeGesture(for drawer: TodayDrawer) -> some Gesture {
-    DragGesture(minimumDistance: 18)
-      .onEnded { value in
-        let crossedThreshold =
-          drawer == .events
-          ? value.translation.width < -48
-          : value.translation.width > 48
-        if crossedThreshold { dismissDrawer() }
-      }
-  }
-
-  private func show(_ drawer: TodayDrawer) {
-    withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
-      self.drawer = drawer
-    }
-  }
-
-  private func dismissDrawer() {
-    withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
-      drawer = nil
+  private func panelContent(_ panel: TodayPanel) -> some View {
+    switch panel {
+    case .events:
+      TodayEventsList(
+        store: store,
+        day: day,
+        flushBeforeOpening: flushController.flush,
+        openPage: openPageAfterFlush
+      )
+    case .tasks:
+      DailyTaskListScreen(
+        store: store,
+        day: day,
+        includingOverdue: calendar.isDateInToday(day)
+      )
+    case .pages:
+      TodayChangedPagesList(
+        store: store,
+        day: day,
+        excluding: dailyPageID,
+        openPage: openPage
+      )
     }
   }
 
@@ -266,7 +165,7 @@ struct TodayWorkspaceView: View {
   }
 
   private func openPageAfterFlush(_ pageID: PageID) {
-    dismissDrawer()
+    presentedPanel = nil
     navigate(pageID)
   }
 
@@ -343,21 +242,21 @@ private struct TodayDatePicker: View {
   }
 }
 
-private enum TodayDrawer: Equatable {
+private enum TodayPanel: String, Hashable, Identifiable {
   case events
+  case tasks
   case pages
 
-  var title: String {
-    switch self {
-    case .events: "Events"
-    case .pages: "Changed Pages"
-    }
-  }
+  var id: Self { self }
 
-  var edge: Edge {
-    switch self {
-    case .events: .leading
-    case .pages: .trailing
+  func navigationTitle(for day: Date, calendar: Calendar) -> String {
+    let date = calendar.isDateInToday(day)
+      ? "Today"
+      : day.formatted(.dateTime.month(.abbreviated).day())
+    return switch self {
+    case .events: "\(date) Events"
+    case .tasks: "\(date) Tasks"
+    case .pages: "\(date) Changes"
     }
   }
 }
