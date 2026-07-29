@@ -1,4 +1,4 @@
-# Enchiridion Product
+# Product
 
 ## Register
 
@@ -6,36 +6,32 @@ product
 
 ## Users
 
-Enchiridion is a private task and knowledge workspace for one person moving between a Mac, iPhone, calendar, and CarPlay. The primary job is to capture commitments quickly, decide when and where they belong, and finish the right work without maintaining separate task, calendar, and daily-note systems.
+Enchiridion is for privacy-conscious knowledge workers who plan across tasks, calendar events, daily notes, projects, and people. They move between iPhone and Mac throughout the day and may use voice while driving. They need fast capture when attention is scarce, clear planning when attention is available, and trustworthy local context without maintaining several disconnected systems.
 
 ## Product Purpose
 
-Enchiridion is the primary place to capture, plan, execute, and review personal work. Tasks provide dependable scheduling, deadlines, reminders, recurrence, projects, areas, people, and saved perspectives. The daily note remains the execution surface where tasks and calendar context meet readable prose. Local storage is authoritative, iCloud transports conflict-safe changes between devices, calendar access stays read-only, and on-device models interpret natural language only through an explicit confirmation step.
+Enchiridion is a local-first personal operating system for capturing, clarifying, planning, and completing work. It combines a capable task manager, calendar-aware daily workspace, linked knowledge journal, typed supertags, and an on-device assistant. Success means a user can see what matters now, understand the context around it, act without friction, and trust that private data remains locally authoritative and safely synchronized.
 
 ## Brand Personality
 
-Calm, precise, and native. The interface should feel like a focused Apple-platform writing tool: immediately understandable, quietly capable, and trustworthy with personal information.
+Calm, capable, and humane. The interface should feel contemporary and distinctly native to Apple platforms: focused without sterility, information-rich without database chrome, and confident without coaching or spectacle. Product copy is direct, specific, and respectful of the user's attention.
 
 ## Anti-references
 
-- Calendar dashboards that make an agenda the main content of Today.
-- Note apps that collect commitments but require people to manually reconstruct a task system.
-- Visible database or query syntax inside ordinary prose.
-- Card-heavy productivity dashboards, gamified coaching, and decorative glass.
-- Opaque natural-language capture that silently changes dates, recurrence, or project membership.
-- Contact-derived people lists that promote every meeting attendee into everyday navigation.
-- Touch interactions copied onto macOS without sidebars, keyboard access, or pointer affordances.
+- iOS interfaces that feel frozen in 2015: floating action buttons, duplicated toolbars, oversized chrome, and modal sheets for every secondary action.
+- Visible database syntax, form-first entity pages, or property grids that obscure readable notes and everyday language.
+- Gamified productivity coaching, celebratory noise, streak mechanics, and judgmental overdue messaging.
+- AI that acts silently, invents associations, hides uncertainty, or replaces reliable literal capture with a fragile parsing step.
+- Decorative glass, generic card grids, heavy gradients, and custom controls that fight standard Apple interaction patterns.
 
 ## Design Principles
 
-1. Make capture immediate, interpretation reviewable, and task state unambiguous.
-2. Keep the daily note central to execution, with tasks and calendar events as nearby context.
-3. Separate start dates, deadlines, reminders, and recurrence so planning never changes meaning accidentally.
-4. Preserve readable prose while making linked tasks, people, events, pages, and types inspectable.
-5. Prefer familiar Apple-platform behavior, including keyboard access, multi-selection, undo, widgets, App Intents, and CarPlay-safe interaction.
-6. Make local durability and sync state explicit without interrupting work.
-7. Reveal complexity progressively: capture first, structure during clarification and review.
+1. Put the user's current work first. High-frequency actions and the next meaningful decision should be obvious without scanning chrome.
+2. Keep capture immediate and clarification deliberate. Literal input must always work; interpretation happens only when requested and stays editable until confirmed.
+3. Preserve readable prose. Supertags and relationships enrich notes and tasks without exposing storage mechanics or turning pages into database records.
+4. Use one coherent native vocabulary. Navigation, editors, task rows, properties, confirmation, and undo should behave consistently across iOS and macOS.
+5. Make trust visible. Explain consequential actions, prevent stale or partial writes, provide atomic undo where practical, and state when on-device capabilities are unavailable.
 
 ## Accessibility & Inclusion
 
-Use semantic controls, Dynamic Type, VoiceOver labels, keyboard access, system contrast, and reduced-motion-aware transitions. Gestures must have visible or assistive alternatives, and meaning must never depend on color alone.
+Use semantic SwiftUI controls and support VoiceOver, Dynamic Type including accessibility sizes, Reduce Motion, keyboard navigation on macOS, and sufficient contrast in light and dark appearances. Interactive targets should be at least 44 points on touch surfaces. State and priority must never rely on color alone, and motion or voice must always have a complete non-motion or text alternative.
