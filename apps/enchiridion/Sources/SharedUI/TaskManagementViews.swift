@@ -6,7 +6,7 @@ struct MobileTaskHomeScreen: View {
   @Binding var requestedSelection: TaskListSelection?
 
   @State private var query = ""
-  @State private var path: [TaskListSelection] = []
+  @State private var path: [MobileTaskDestination] = []
   @State private var showsQuickCapture = false
   @State private var collectionDraft: TaskCollectionDraft?
 
@@ -15,7 +15,7 @@ struct MobileTaskHomeScreen: View {
       List {
         Section {
           ForEach(TaskSmartList.allCases) { list in
-            NavigationLink(value: TaskListSelection.smart(list)) {
+            NavigationLink(value: MobileTaskDestination.list(.smart(list))) {
               TaskNavigationLabel(
                 title: list.title,
                 systemImage: list.systemImage,
@@ -28,7 +28,7 @@ struct MobileTaskHomeScreen: View {
         if !store.taskProjects.isEmpty {
           Section("Projects") {
             ForEach(store.taskProjects) { project in
-              NavigationLink(value: TaskListSelection.project(project.id)) {
+              NavigationLink(value: MobileTaskDestination.list(.project(project.id))) {
                 TaskNavigationLabel(
                   title: project.displayTitle,
                   systemImage: "folder",
@@ -42,7 +42,7 @@ struct MobileTaskHomeScreen: View {
         if !store.taskAreas.isEmpty {
           Section("Areas") {
             ForEach(store.taskAreas) { area in
-              NavigationLink(value: TaskListSelection.area(area.id)) {
+              NavigationLink(value: MobileTaskDestination.list(.area(area.id))) {
                 TaskNavigationLabel(
                   title: area.displayTitle,
                   systemImage: "square.grid.2x2",
@@ -56,7 +56,7 @@ struct MobileTaskHomeScreen: View {
         if !store.taskPeople.isEmpty {
           Section("People") {
             ForEach(store.taskPeople) { person in
-              NavigationLink(value: TaskListSelection.person(person.id)) {
+              NavigationLink(value: MobileTaskDestination.list(.person(person.id))) {
                 TaskNavigationLabel(
                   title: store.personDisplayName(for: person),
                   systemImage: "person",
@@ -70,11 +70,25 @@ struct MobileTaskHomeScreen: View {
         if !store.taskTags.isEmpty {
           Section("Tags") {
             ForEach(store.taskTags, id: \.self) { tag in
-              NavigationLink(value: TaskListSelection.tag(tag)) {
+              NavigationLink(value: MobileTaskDestination.list(.tag(tag))) {
                 TaskNavigationLabel(
                   title: tag,
                   systemImage: "tag",
                   count: store.tasks(in: .tag(tag)).count
+                )
+              }
+            }
+          }
+        }
+
+        if !taskPerspectives.isEmpty {
+          Section("Perspectives") {
+            ForEach(taskPerspectives) { perspective in
+              NavigationLink(value: MobileTaskDestination.perspective(perspective.id)) {
+                TaskNavigationLabel(
+                  title: perspective.name,
+                  systemImage: perspective.viewKind.systemImage,
+                  count: taskPerspectiveItems(perspective).count
                 )
               }
             }
@@ -88,8 +102,21 @@ struct MobileTaskHomeScreen: View {
           TaskSearchOverlay(store: store, query: query)
         }
       }
-      .navigationDestination(for: TaskListSelection.self) { selection in
-        TaskListScreen(store: store, selection: selection)
+      .navigationDestination(for: MobileTaskDestination.self) { destination in
+        switch destination {
+        case .list(let selection):
+          TaskListScreen(store: store, selection: selection)
+        case .perspective(let viewID):
+          if let perspective = taskPerspectives.first(where: { $0.id == viewID }) {
+            TaskPerspectiveScreen(store: store, definition: perspective)
+          } else {
+            ContentUnavailableView(
+              "Perspective Unavailable",
+              systemImage: "list.bullet.rectangle",
+              description: Text("This saved task perspective is no longer available.")
+            )
+          }
+        }
       }
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
@@ -121,7 +148,7 @@ struct MobileTaskHomeScreen: View {
       }
       .onChange(of: requestedSelection) { _, selection in
         guard let selection else { return }
-        path = [selection]
+        path = [.list(selection)]
         requestedSelection = nil
       }
     }
@@ -133,6 +160,22 @@ struct MobileTaskHomeScreen: View {
     case .inbox, .today, .upcoming: store.taskCount(list)
     }
   }
+
+  private var taskPerspectives: [LiveQueryDefinition] {
+    store.savedViews.filter(\.isTaskListPerspective)
+  }
+
+  private func taskPerspectiveItems(_ perspective: LiveQueryDefinition) -> [TaskItem] {
+    (store.liveViewItems[perspective.id] ?? []).compactMap { item in
+      guard case .page(let page) = item else { return nil }
+      return TaskItem(page: page)
+    }
+  }
+}
+
+private enum MobileTaskDestination: Hashable {
+  case list(TaskListSelection)
+  case perspective(LiveQueryID)
 }
 
 struct TaskListScreen: View {
@@ -152,9 +195,6 @@ struct TaskListScreen: View {
     )
     .navigationTitle(title)
     .searchable(text: $query, prompt: "Filter this list")
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      TaskQuickEntryBar(store: store, selection: selection)
-    }
     .toolbar {
       if selection != .smart(.review) {
         ToolbarItem(placement: .primaryAction) {
@@ -179,25 +219,112 @@ struct TaskListScreen: View {
   private var title: String { taskSelectionTitle(selection, store: store) }
 }
 
+struct TaskPerspectiveScreen: View {
+  let store: LibraryStore
+  let definition: LiveQueryDefinition
+
+  @State private var query = ""
+  @State private var editingTaskID: PageID?
+
+  var body: some View {
+    TaskListContent(
+      store: store,
+      perspective: definition,
+      query: query,
+      openTask: { editingTaskID = $0 }
+    )
+    .navigationTitle(definition.name)
+    .searchable(text: $query, prompt: "Filter this perspective")
+    .sheet(item: $editingTaskID) { pageID in
+      NavigationStack {
+        TaskDetailScreen(store: store, pageID: pageID)
+      }
+    }
+  }
+}
+
 struct TaskListContent: View {
   let store: LibraryStore
-  let selection: TaskListSelection
+  let source: TaskListContentSource
   var query = ""
   let openTask: (PageID) -> Void
 
+  @State private var workbench = TaskWorkbenchSelection()
+
+  init(
+    store: LibraryStore,
+    selection: TaskListSelection,
+    query: String = "",
+    openTask: @escaping (PageID) -> Void
+  ) {
+    self.store = store
+    source = .list(selection)
+    self.query = query
+    self.openTask = openTask
+  }
+
+  init(
+    store: LibraryStore,
+    perspective: LiveQueryDefinition,
+    query: String = "",
+    openTask: @escaping (PageID) -> Void
+  ) {
+    self.store = store
+    source = .perspective(perspective.id)
+    self.query = query
+    self.openTask = openTask
+  }
+
   var body: some View {
-    if case .smart(.review) = selection {
+    if case .list(.smart(.review)) = source {
       WeeklyReviewContent(store: store)
-    } else if case .project(let projectID) = selection {
+    } else {
+      workbenchContent
+        .taskWorkbenchChrome(
+          selection: $workbench,
+          visibleTaskIDs: visibleTaskIDs,
+          actions: .live(store: store)
+        )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+          if workbench.presentsActions {
+            TaskWorkbenchActionBar(
+              selection: $workbench,
+              store: store,
+              selectedTasks: visibleTasks.filter { workbench.selectedTaskIDs.contains($0.id) },
+              actions: .live(store: store)
+            )
+          } else if let selection = source.listSelection {
+            TaskQuickEntryBar(store: store, selection: selection)
+          }
+        }
+        .onChange(of: source) { _, _ in
+          workbench.cancelSelection()
+        }
+        #if os(macOS)
+          .onChange(of: workbench.selectedTaskIDs) { oldSelection, newSelection in
+            guard newSelection.count == 1,
+              newSelection != oldSelection,
+              let pageID = newSelection.first
+            else { return }
+            openTask(pageID)
+          }
+        #endif
+    }
+  }
+
+  @ViewBuilder
+  private var workbenchContent: some View {
+    if case .list(.project(let projectID)) = source {
       ProjectTaskListContent(
         store: store,
         projectID: projectID,
         query: query,
-        openTask: openTask
+        openTask: openTask,
+        workbench: $workbench
       )
     } else {
       let tasks = visibleTasks
-      List {
+      TaskWorkbenchList(selection: $workbench) {
         if tasks.isEmpty {
           ContentUnavailableView(
             emptyTitle,
@@ -205,7 +332,7 @@ struct TaskListContent: View {
             description: Text(emptyDescription)
           )
           .listRowSeparator(.hidden)
-        } else if case .smart(.upcoming) = selection {
+        } else if case .list(.smart(.upcoming)) = source {
           ForEach(groupedUpcoming, id: \.day) { group in
             Section(group.day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())) {
               taskRows(group.tasks)
@@ -222,9 +349,16 @@ struct TaskListContent: View {
   @ViewBuilder
   private func taskRows(_ tasks: [TaskItem]) -> some View {
     ForEach(tasks) { task in
-      TaskRow(store: store, task: task, open: { openTask(task.id) })
-        .padding(.leading, task.data.parentTaskID == nil ? 0 : 18)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+      TaskRow(
+        store: store,
+        task: task,
+        open: { openTask(task.id) },
+        usesListSelection: usesNativeTaskSelection
+      )
+      .tag(task.id)
+      .padding(.leading, task.data.parentTaskID == nil ? 0 : 18)
+      .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        if !workbench.isSelecting {
           if task.data.state == .active {
             Button {
               Task { await store.completeTask(task.id) }
@@ -241,7 +375,9 @@ struct TaskListContent: View {
             .tint(.blue)
           }
         }
-        .contextMenu {
+      }
+      .contextMenu {
+        if !workbench.isSelecting {
           if task.data.state == .active {
             Button("Complete", systemImage: "checkmark.circle") {
               Task { await store.completeTask(task.id) }
@@ -265,11 +401,21 @@ struct TaskListContent: View {
             store.moveToTrash(pageID: task.id)
           }
         }
+      }
     }
   }
 
   private var visibleTasks: [TaskItem] {
-    let tasks = store.tasks(in: selection)
+    let tasks: [TaskItem]
+    switch source {
+    case .list(let selection):
+      tasks = store.tasks(in: selection)
+    case .perspective(let viewID):
+      tasks = (store.liveViewItems[viewID] ?? []).compactMap { item in
+        guard case .page(let page) = item else { return nil }
+        return TaskItem(page: page)
+      }
+    }
     let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !value.isEmpty else { return tasks }
     return tasks.filter {
@@ -277,6 +423,21 @@ struct TaskListContent: View {
         || $0.page.plainText.localizedStandardContains(value)
         || $0.data.tags.contains { $0.localizedStandardContains(value) }
     }
+  }
+
+  private var usesNativeTaskSelection: Bool {
+    #if os(iOS)
+      workbench.isSelecting
+    #else
+      true
+    #endif
+  }
+
+  private var visibleTaskIDs: [PageID] {
+    if case .list(.project(_)) = source {
+      return TaskHierarchy.rows(from: visibleTasks).map(\.id)
+    }
+    return visibleTasks.map(\.id)
   }
 
   private var groupedUpcoming: [(day: Date, tasks: [TaskItem])] {
@@ -289,20 +450,23 @@ struct TaskListContent: View {
   }
 
   private var emptyTitle: String {
-    if case .smart(.logbook) = selection { return "No completed tasks" }
+    if case .list(.smart(.logbook)) = source { return "No completed tasks" }
+    if case .perspective = source { return "No matching tasks" }
     return "All clear"
   }
 
   private var emptySymbol: String {
-    if case .smart(.inbox) = selection { return "tray" }
+    if case .list(.smart(.inbox)) = source { return "tray" }
+    if case .perspective = source { return "list.bullet.rectangle" }
     return "checkmark.circle"
   }
 
   private var emptyDescription: String {
-    if case .smart(.inbox) = selection {
+    if case .list(.smart(.inbox)) = source {
       return "Capture something as soon as it crosses your mind."
     }
-    if case .smart(.today) = selection { return "Nothing is scheduled or due today." }
+    if case .list(.smart(.today)) = source { return "Nothing is scheduled or due today." }
+    if case .perspective = source { return "No tasks match this saved perspective." }
     return "No tasks match this list."
   }
 }
@@ -311,82 +475,109 @@ struct TaskRow: View {
   let store: LibraryStore
   let task: TaskItem
   let open: () -> Void
+  var usesListSelection = false
 
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: 11) {
-      Button {
-        Task {
-          if task.data.state == .active {
-            await store.completeTask(task.id)
-          } else {
-            await store.reopenTask(task.id)
-          }
+      #if os(iOS)
+        if usesListSelection {
+          completionImage
+        } else {
+          completionButton
         }
-      } label: {
-        Image(systemName: completionSymbol)
-          .font(.title3)
-          .foregroundStyle(completionColor)
-          .contentTransition(.symbolEffect(.replace))
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel(
-        task.data.state == .active
-          ? "Complete \(task.page.displayTitle)" : "Reopen \(task.page.displayTitle)")
+      #else
+        completionButton
+      #endif
 
-      Button(action: open) {
-        VStack(alignment: .leading, spacing: 5) {
-          HStack(spacing: 6) {
-            if task.data.priority != .none {
-              Image(systemName: "exclamationmark")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(priorityColor)
-                .accessibilityLabel("\(task.data.priority.title) priority")
-            }
-            Text(task.page.displayTitle)
-              .strikethrough(task.data.state != .active)
-              .foregroundStyle(task.data.state == .active ? .primary : .secondary)
-              .lineLimit(2)
-            if task.data.recurrence != nil {
-              Image(systemName: "repeat")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Repeating")
-            }
-          }
-
-          if hasMetadata {
-            HStack(spacing: 9) {
-              if let scheduledAt = task.data.scheduledAt {
-                Label(taskDateLabel(scheduledAt), systemImage: "calendar")
-                  .foregroundStyle(scheduledColor(scheduledAt))
-              }
-              if let deadline = task.data.deadline {
-                Label(taskDateLabel(deadline), systemImage: "flag")
-                  .foregroundStyle(deadlineColor(deadline))
-              }
-              if let projectID = task.data.projectID,
-                let project = store.page(id: projectID)
-              {
-                Label(project.displayTitle, systemImage: "folder")
-              }
-              if let assigneeLabel {
-                Label(assigneeLabel, systemImage: "person.2")
-              }
-              if let firstTag = task.data.tags.first {
-                Label(firstTag, systemImage: "tag")
-              }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.rect)
+      if usesListSelection {
+        taskLabel
+      } else {
+        Button(action: open) { taskLabel }
+          .buttonStyle(.plain)
       }
-      .buttonStyle(.plain)
     }
     .padding(.vertical, 4)
+    .accessibilityHint(
+      usesListSelection ? "Selects this task for batch actions" : "Opens task details"
+    )
+  }
+
+  private var completionButton: some View {
+    Button {
+      Task {
+        if task.data.state == .active {
+          await store.completeTask(task.id)
+        } else {
+          await store.reopenTask(task.id)
+        }
+      }
+    } label: {
+      completionImage
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(
+      task.data.state == .active
+        ? "Complete \(task.page.displayTitle)" : "Reopen \(task.page.displayTitle)")
+  }
+
+  private var completionImage: some View {
+    Image(systemName: completionSymbol)
+      .font(.title3)
+      .foregroundStyle(completionColor)
+      .contentTransition(.symbolEffect(.replace))
+      .accessibilityHidden(usesListSelection)
+  }
+
+  private var taskLabel: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(spacing: 6) {
+        if task.data.priority != .none {
+          Image(systemName: "exclamationmark")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(priorityColor)
+            .accessibilityLabel("\(task.data.priority.title) priority")
+        }
+        Text(task.page.displayTitle)
+          .strikethrough(task.data.state != .active)
+          .foregroundStyle(task.data.state == .active ? .primary : .secondary)
+          .lineLimit(2)
+        if task.data.recurrence != nil {
+          Image(systemName: "repeat")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Repeating")
+        }
+      }
+
+      if hasMetadata {
+        HStack(spacing: 9) {
+          if let scheduledAt = task.data.scheduledAt {
+            Label(taskDateLabel(scheduledAt), systemImage: "calendar")
+              .foregroundStyle(scheduledColor(scheduledAt))
+          }
+          if let deadline = task.data.deadline {
+            Label(taskDateLabel(deadline), systemImage: "flag")
+              .foregroundStyle(deadlineColor(deadline))
+          }
+          if let projectID = task.data.projectID,
+            let project = store.page(id: projectID)
+          {
+            Label(project.displayTitle, systemImage: "folder")
+          }
+          if let assigneeLabel {
+            Label(assigneeLabel, systemImage: "person.2")
+          }
+          if let firstTag = task.data.tags.first {
+            Label(firstTag, systemImage: "tag")
+          }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(.rect)
   }
 
   private var completionSymbol: String {

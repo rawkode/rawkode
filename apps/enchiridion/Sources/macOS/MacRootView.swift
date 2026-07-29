@@ -47,6 +47,14 @@ struct MacRootView: View {
           }
           .buttonStyle(.plain)
         }
+        if !taskPerspectives.isEmpty {
+          Section("Perspectives") {
+            ForEach(taskPerspectives) { view in
+              Label(view.name, systemImage: view.viewKind.systemImage)
+                .tag(MacSidebarSelection.view(view.id))
+            }
+          }
+        }
         Section("Projects") {
           ForEach(store.taskProjects) { project in
             Label(project.displayTitle, systemImage: "folder")
@@ -114,7 +122,7 @@ struct MacRootView: View {
           }
         }
         Section("Views") {
-          ForEach(store.savedViews) { view in
+          ForEach(store.savedViews.filter { !$0.isTaskListPerspective }) { view in
             Label(view.name, systemImage: view.viewKind.systemImage)
               .tag(MacSidebarSelection.view(view.id))
           }
@@ -186,10 +194,16 @@ struct MacRootView: View {
           query: query,
           openTask: selectPage
         )
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-          TaskQuickEntryBar(store: store, selection: taskSelection)
-        }
         .navigationTitle(selection.title(in: store))
+        .searchable(text: $query, prompt: "Search tasks")
+      } else if let taskPerspective {
+        TaskListContent(
+          store: store,
+          perspective: taskPerspective,
+          query: query,
+          openTask: selectPage
+        )
+        .navigationTitle(taskPerspective.name)
         .searchable(text: $query, prompt: "Search tasks")
       } else {
         pageList
@@ -366,6 +380,15 @@ struct MacRootView: View {
 
   private var isTodaySelection: Bool {
     selection == .section(.today)
+  }
+
+  private var taskPerspectives: [LiveQueryDefinition] {
+    store.savedViews.filter(\.isTaskListPerspective)
+  }
+
+  private var taskPerspective: LiveQueryDefinition? {
+    guard case .view(let viewID) = selection else { return nil }
+    return taskPerspectives.first { $0.id == viewID }
   }
 
   @ViewBuilder

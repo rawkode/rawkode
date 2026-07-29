@@ -40,20 +40,24 @@ struct MobileLibraryScreen: View {
               }
             }
           }
-          Button { editingTag = .draft() } label: {
+          Button {
+            editingTag = .draft()
+          } label: {
             Label("New Supertag", systemImage: "plus")
           }
         }
 
         Section("Views") {
-          ForEach(store.savedViews) { view in
+          ForEach(store.savedViews.filter { !$0.isTaskListPerspective }) { view in
             NavigationLink {
               MobileLiveViewDestination(store: store, definition: view)
             } label: {
               Label(view.name, systemImage: view.viewKind.systemImage)
             }
           }
-          Button { editingView = .init(name: "New View", source: .pages) } label: {
+          Button {
+            editingView = .init(name: "New View", source: .pages)
+          } label: {
             Label("New View", systemImage: "plus")
           }
         }
@@ -109,13 +113,17 @@ private struct SupertagMobileCollection: View {
     .searchable(text: $query, prompt: "Search \(tag.name.lowercased())")
     .toolbar {
       ToolbarItem {
-        Button { editingTag = tag } label: {
+        Button {
+          editingTag = tag
+        } label: {
           Label("Edit Schema", systemImage: "slider.horizontal.3")
         }
       }
       ToolbarItem(placement: .primaryAction) {
         Button {
-          Task { _ = await store.createTaggedPage(title: "Untitled \(tag.name)", supertagID: tag.id) }
+          Task {
+            _ = await store.createTaggedPage(title: "Untitled \(tag.name)", supertagID: tag.id)
+          }
         } label: {
           Label("New \(tag.name)", systemImage: "plus")
         }
@@ -128,7 +136,8 @@ private struct SupertagMobileCollection: View {
 
   private var filteredPages: [PageSnapshot] {
     store.pages(with: tag.id).filter {
-      query.isEmpty || $0.title.localizedStandardContains(query) || $0.plainText.localizedStandardContains(query)
+      query.isEmpty || $0.title.localizedStandardContains(query)
+        || $0.plainText.localizedStandardContains(query)
     }
   }
 }

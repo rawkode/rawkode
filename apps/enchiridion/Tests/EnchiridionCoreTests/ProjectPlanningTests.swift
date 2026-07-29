@@ -158,6 +158,112 @@ final class ProjectPlanningTests: XCTestCase {
     XCTAssertFalse(review.projects[1].needsReview)
   }
 
+  func testProjectReviewReadinessRequiresOutcomeNextActionAndOverdueDecision() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(
+      title: "Prepare launch",
+      data: ProjectData(status: .active)
+    )
+    let incomplete = ProjectReviewItem(
+      project: project,
+      data: try XCTUnwrap(project.projectData),
+      activeTaskCount: 0,
+      overdueTaskCount: 0,
+      needsReview: true
+    )
+
+    XCTAssertEqual(
+      WeeklyReviewPolicy.readiness(for: incomplete, acceptsOverdueWork: false).blockers,
+      [.missingOutcome, .missingNextAction]
+    )
+
+    let overdue = ProjectReviewItem(
+      project: project,
+      data: ProjectData(status: .active, outcome: "Launch is ready for customers"),
+      activeTaskCount: 1,
+      overdueTaskCount: 1,
+      needsReview: true
+    )
+    let unresolved = WeeklyReviewPolicy.readiness(for: overdue, acceptsOverdueWork: false)
+    let accepted = WeeklyReviewPolicy.readiness(for: overdue, acceptsOverdueWork: true)
+
+    XCTAssertEqual(unresolved.blockers, [.unresolvedOverdue(count: 1)])
+    XCTAssertFalse(unresolved.canMarkReviewed)
+    XCTAssertTrue(accepted.blockers.isEmpty)
+    XCTAssertTrue(accepted.canMarkReviewed)
+  }
+
+  func testWeeklyReviewOverdueQueueMatchesSnapshotAndExcludesTodayFutureAndCompletedTasks()
+    async throws
+  {
+    let fixture = try ProjectPlanningFixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = try XCTUnwrap(
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: 29, hour: 12))
+    )
+    let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: now))
+    let today = calendar.startOfDay(for: now)
+    let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+    _ = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Scheduled yesterday",
+        data: TaskData(placement: .anytime, scheduledAt: yesterday)
+      ),
+      now: now,
+      calendar: calendar
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Due yesterday",
+        data: TaskData(placement: .anytime, deadline: yesterday)
+      ),
+      now: now,
+      calendar: calendar
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(title: "Due today", data: TaskData(placement: .anytime, deadline: today)),
+      now: now,
+      calendar: calendar
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Scheduled tomorrow",
+        data: TaskData(placement: .anytime, scheduledAt: tomorrow)
+      ),
+      now: now,
+      calendar: calendar
+    )
+    let completedOverdue = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Completed overdue",
+        data: TaskData(placement: .anytime, deadline: yesterday)
+      ),
+      now: now,
+      calendar: calendar
+    )
+    _ = try await fixture.repository.completeTask(
+      pageID: completedOverdue.id,
+      now: now,
+      calendar: calendar
+    )
+    let pages = try await fixture.repository.pages(in: .allPages)
+
+    let overdueTasks = WeeklyReviewPolicy.overdueTasks(
+      in: pages,
+      now: now,
+      calendar: calendar
+    )
+    let snapshot = WeeklyReviewSnapshot.make(pages: pages, now: now, calendar: calendar)
+
+    XCTAssertEqual(
+      Set(overdueTasks.map(\.page.displayTitle)),
+      ["Scheduled yesterday", "Due yesterday"]
+    )
+    XCTAssertEqual(snapshot.overdueTaskCount, overdueTasks.count)
+  }
+
   private func taskItem(
     id: PageID = .free(),
     title: String,

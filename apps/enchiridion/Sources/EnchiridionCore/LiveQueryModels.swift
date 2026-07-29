@@ -140,6 +140,14 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
 
   public var domainSQL: String { DomainQueryCodec.serialize(self) }
 
+  /// Whether this saved view can use the task workbench instead of the generic page renderer.
+  public var isTaskListPerspective: Bool {
+    guard viewKind == .list, case .supertag(let supertagID) = source else {
+      return false
+    }
+    return supertagID == BuiltInSupertags.task
+  }
+
   private enum CodingKeys: String, CodingKey {
     case id, name, source, filters, sorts, viewKind, visibleFieldIDs, groupFieldID
     case startFieldID, endFieldID, limit, peopleScope

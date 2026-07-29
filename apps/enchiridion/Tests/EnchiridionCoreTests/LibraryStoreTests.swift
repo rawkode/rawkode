@@ -4,6 +4,24 @@ import XCTest
 @testable import EnchiridionCore
 
 final class LibraryRepositoryTests: XCTestCase {
+  func testOnlyTaskSourceListsAreTaskPerspectives() {
+    let taskList = LiveQueryDefinition(
+      name: "Next actions",
+      source: .supertag(BuiltInSupertags.task),
+      viewKind: .list
+    )
+    let taskBoard = LiveQueryDefinition(
+      name: "Task board",
+      source: .supertag(BuiltInSupertags.task),
+      viewKind: .board
+    )
+    let pageList = LiveQueryDefinition(name: "Pages", source: .pages, viewKind: .list)
+
+    XCTAssertTrue(taskList.isTaskListPerspective)
+    XCTAssertFalse(taskBoard.isTaskListPerspective)
+    XCTAssertFalse(pageList.isTaskListPerspective)
+  }
+
   func testCloudSyncRequiresTheConfiguredContainerEntitlement() {
     XCTAssertFalse(CloudSyncCoordinator.hasRequiredEntitlement(in: nil))
     XCTAssertFalse(CloudSyncCoordinator.hasRequiredEntitlement(in: []))

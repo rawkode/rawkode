@@ -6,12 +6,13 @@ struct ProjectTaskListContent: View {
   let projectID: PageID
   var query = ""
   let openTask: (PageID) -> Void
+  @Binding var workbench: TaskWorkbenchSelection
 
   @State private var planningDraft: ProjectPlanningDraft?
   @State private var subtaskParent: TaskItem?
 
   var body: some View {
-    List {
+    TaskWorkbenchList(selection: $workbench) {
       if let project, let data = project.projectData {
         Section("Outcome") {
           Button {
@@ -49,12 +50,19 @@ struct ProjectTaskListContent: View {
           .listRowSeparator(.hidden)
         } else {
           ForEach(rows) { row in
-            TaskRow(store: store, task: row.task, open: { openTask(row.id) })
-              .padding(.leading, CGFloat(row.depth) * 18)
-              .accessibilityValue(
-                row.depth == 0 ? "Top-level task" : "Subtask level \(row.depth)"
-              )
-              .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            TaskRow(
+              store: store,
+              task: row.task,
+              open: { openTask(row.id) },
+              usesListSelection: usesNativeTaskSelection
+            )
+            .tag(row.id)
+            .padding(.leading, CGFloat(row.depth) * 18)
+            .accessibilityValue(
+              row.depth == 0 ? "Top-level task" : "Subtask level \(row.depth)"
+            )
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+              if !workbench.isSelecting {
                 Button {
                   Task { await store.completeTask(row.id) }
                 } label: {
@@ -62,7 +70,9 @@ struct ProjectTaskListContent: View {
                 }
                 .tint(.green)
               }
-              .contextMenu {
+            }
+            .contextMenu {
+              if !workbench.isSelecting {
                 Button("Add Subtask", systemImage: "arrow.turn.down.right") {
                   subtaskParent = row.task
                 }
@@ -73,6 +83,7 @@ struct ProjectTaskListContent: View {
                   Task { await store.cancelTask(row.id) }
                 }
               }
+            }
           }
         }
       }
@@ -103,19 +114,48 @@ struct ProjectTaskListContent: View {
       }
     return TaskHierarchy.rows(from: visible)
   }
+
+  private var usesNativeTaskSelection: Bool {
+    #if os(iOS)
+      workbench.isSelecting
+    #else
+      true
+    #endif
+  }
 }
 
 struct WeeklyReviewContent: View {
   let store: LibraryStore
 
   @State private var planningDraft: ProjectPlanningDraft?
+  @State private var acceptedOverdueProjectIDs: Set<PageID> = []
 
   var body: some View {
     let review = store.weeklyReview()
     List {
       Section("Clear the decks") {
-        LabeledContent("Inbox", value: "\(review.inboxTaskCount) tasks")
-        LabeledContent("Overdue", value: "\(review.overdueTaskCount) tasks")
+        NavigationLink {
+          TaskListScreen(store: store, selection: .smart(.inbox))
+        } label: {
+          WeeklyReviewQueueLabel(
+            title: "Inbox",
+            count: review.inboxTaskCount,
+            systemImage: "tray"
+          )
+        }
+        .accessibilityHint("Opens the Inbox task queue")
+
+        NavigationLink {
+          WeeklyReviewOverdueQueue(store: store)
+        } label: {
+          WeeklyReviewQueueLabel(
+            title: "Overdue",
+            count: review.overdueTaskCount,
+            systemImage: "exclamationmark.circle"
+          )
+        }
+        .accessibilityHint("Opens the overdue task queue")
+
         Text("Clarify the inbox and reschedule or complete overdue work before reviewing projects.")
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -131,27 +171,68 @@ struct WeeklyReviewContent: View {
           .listRowSeparator(.hidden)
         } else {
           ForEach(review.projects) { item in
-            HStack(alignment: .center, spacing: 12) {
-              Button {
-                planningDraft = .init(
-                  project: item.project,
-                  data: item.data,
-                  marksReviewedOnSave: true
-                )
-              } label: {
-                ProjectReviewRow(item: item)
-                  .contentShape(.rect)
-              }
-              .buttonStyle(.plain)
+            let acceptsOverdueWork = acceptedOverdueProjectIDs.contains(item.id)
+            let readiness = WeeklyReviewPolicy.readiness(
+              for: item,
+              acceptsOverdueWork: acceptsOverdueWork
+            )
 
-              Button {
-                markReviewed(item)
-              } label: {
-                Label("Mark \(item.project.displayTitle) reviewed", systemImage: "checkmark.circle")
+            VStack(alignment: .leading, spacing: 8) {
+              HStack(alignment: .center, spacing: 12) {
+                Button {
+                  planningDraft = .init(project: item.project, data: item.data)
+                } label: {
+                  ProjectReviewRow(item: item)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens project planning details")
+
+                Button {
+                  markReviewed(item, acceptsOverdueWork: acceptsOverdueWork)
+                } label: {
+                  Label(
+                    "Mark \(item.project.displayTitle) reviewed",
+                    systemImage: "checkmark.circle"
+                  )
                   .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!readiness.canMarkReviewed)
+                .accessibilityValue(readiness.canMarkReviewed ? "Ready" : "Unavailable")
+                .accessibilityHint(markReviewedHint(for: readiness))
               }
-              .buttonStyle(.borderless)
-              .accessibilityHint("Records this project as reviewed today")
+
+              if !readiness.canMarkReviewed {
+                Label(blockerExplanation(for: readiness), systemImage: "exclamationmark.circle")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+
+              if item.overdueTaskCount > 0 {
+                Button {
+                  if acceptsOverdueWork {
+                    acceptedOverdueProjectIDs.remove(item.id)
+                  } else {
+                    acceptedOverdueProjectIDs.insert(item.id)
+                  }
+                } label: {
+                  Label(
+                    acceptsOverdueWork
+                      ? "Overdue work accepted for this review"
+                      : "Accept \(taskCount(item.overdueTaskCount)) for this review",
+                    systemImage: acceptsOverdueWork ? "checkmark.shield" : "shield"
+                  )
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .accessibilityHint(
+                  acceptsOverdueWork
+                    ? "Requires overdue work to be resolved or rescheduled again"
+                    : "Allows this project to be marked reviewed without changing its overdue tasks"
+                )
+              }
             }
           }
         }
@@ -163,10 +244,128 @@ struct WeeklyReviewContent: View {
     }
   }
 
-  private func markReviewed(_ item: ProjectReviewItem) {
+  private func markReviewed(_ item: ProjectReviewItem, acceptsOverdueWork: Bool) {
+    let readiness = WeeklyReviewPolicy.readiness(
+      for: item,
+      acceptsOverdueWork: acceptsOverdueWork
+    )
+    guard readiness.canMarkReviewed else { return }
+
     var data = item.data
     data.lastReviewedAt = Date()
+    acceptedOverdueProjectIDs.remove(item.id)
     Task { await store.updateProject(pageID: item.id, data: data) }
+  }
+
+  private func markReviewedHint(for readiness: ProjectReviewReadiness) -> String {
+    readiness.canMarkReviewed
+      ? "Records this project as reviewed today"
+      : blockerExplanation(for: readiness)
+  }
+
+  private func blockerExplanation(for readiness: ProjectReviewReadiness) -> String {
+    readiness.blockers.map { blocker in
+      switch blocker {
+      case .missingOutcome:
+        "Add a project outcome."
+      case .missingNextAction:
+        "Add at least one active next action."
+      case .unresolvedOverdue(let count):
+        "Resolve, reschedule, or accept \(taskCount(count))."
+      }
+    }
+    .joined(separator: " ")
+  }
+
+  private func taskCount(_ count: Int) -> String {
+    "\(count) overdue \(count == 1 ? "task" : "tasks")"
+  }
+}
+
+private struct WeeklyReviewQueueLabel: View {
+  let title: String
+  let count: Int
+  let systemImage: String
+
+  var body: some View {
+    Label {
+      LabeledContent(title, value: "\(count) \(count == 1 ? "task" : "tasks")")
+    } icon: {
+      Image(systemName: systemImage)
+    }
+  }
+}
+
+private struct WeeklyReviewOverdueQueue: View {
+  let store: LibraryStore
+
+  @State private var editingTaskID: PageID?
+  @State private var workbench = TaskWorkbenchSelection()
+
+  var body: some View {
+    TaskWorkbenchList(selection: $workbench) {
+      if tasks.isEmpty {
+        ContentUnavailableView(
+          "No overdue tasks",
+          systemImage: "checkmark.circle",
+          description: Text("Overdue tasks appear here until they are completed or rescheduled.")
+        )
+        .listRowSeparator(.hidden)
+      } else {
+        ForEach(tasks) { task in
+          TaskRow(
+            store: store,
+            task: task,
+            open: { editingTaskID = task.id },
+            usesListSelection: usesNativeTaskSelection
+          )
+          .tag(task.id)
+        }
+      }
+    }
+    .listStyle(.inset)
+    .navigationTitle("Overdue")
+    .taskWorkbenchChrome(
+      selection: $workbench,
+      visibleTaskIDs: tasks.map(\.id),
+      actions: .live(store: store)
+    )
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if workbench.presentsActions {
+        TaskWorkbenchActionBar(
+          selection: $workbench,
+          store: store,
+          selectedTasks: tasks.filter { workbench.selectedTaskIDs.contains($0.id) },
+          actions: .live(store: store)
+        )
+      }
+    }
+    .sheet(item: $editingTaskID) { pageID in
+      NavigationStack {
+        TaskDetailScreen(store: store, pageID: pageID)
+      }
+    }
+    #if os(macOS)
+      .onChange(of: workbench.selectedTaskIDs) { oldSelection, newSelection in
+        guard newSelection.count == 1,
+          newSelection != oldSelection,
+          let pageID = newSelection.first
+        else { return }
+        editingTaskID = pageID
+      }
+    #endif
+  }
+
+  private var tasks: [TaskItem] {
+    WeeklyReviewPolicy.overdueTasks(in: store.pages)
+  }
+
+  private var usesNativeTaskSelection: Bool {
+    #if os(iOS)
+      workbench.isSelecting
+    #else
+      true
+    #endif
   }
 }
 

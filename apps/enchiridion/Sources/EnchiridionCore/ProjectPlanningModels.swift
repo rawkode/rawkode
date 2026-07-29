@@ -165,6 +165,68 @@ public struct ProjectReviewItem: Identifiable, Hashable, Sendable {
   }
 }
 
+public enum ProjectReviewBlocker: Hashable, Sendable {
+  case missingOutcome
+  case missingNextAction
+  case unresolvedOverdue(count: Int)
+}
+
+public struct ProjectReviewReadiness: Hashable, Sendable {
+  public var blockers: [ProjectReviewBlocker]
+
+  public init(blockers: [ProjectReviewBlocker]) {
+    self.blockers = blockers
+  }
+
+  public var canMarkReviewed: Bool { blockers.isEmpty }
+}
+
+public enum WeeklyReviewPolicy {
+  public static func readiness(
+    for item: ProjectReviewItem,
+    acceptsOverdueWork: Bool
+  ) -> ProjectReviewReadiness {
+    var blockers: [ProjectReviewBlocker] = []
+    if item.data.outcome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      blockers.append(.missingOutcome)
+    }
+    if item.activeTaskCount == 0 {
+      blockers.append(.missingNextAction)
+    }
+    if item.overdueTaskCount > 0, !acceptsOverdueWork {
+      blockers.append(.unresolvedOverdue(count: item.overdueTaskCount))
+    }
+    return ProjectReviewReadiness(blockers: blockers)
+  }
+
+  public static func overdueTasks(
+    in pages: [PageSnapshot],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [TaskItem] {
+    let startOfToday = calendar.startOfDay(for: now)
+    return pages.compactMap(TaskItem.init(page:))
+      .filter { task in
+        task.data.isActive
+          && (task.data.deadline.map { $0 < startOfToday } == true
+            || task.data.scheduledAt.map { $0 < startOfToday } == true)
+      }
+      .sorted { lhs, rhs in
+        let lhsDate =
+          [lhs.data.deadline, lhs.data.scheduledAt]
+          .compactMap { $0 }
+          .min() ?? .distantFuture
+        let rhsDate =
+          [rhs.data.deadline, rhs.data.scheduledAt]
+          .compactMap { $0 }
+          .min() ?? .distantFuture
+        if lhsDate != rhsDate { return lhsDate < rhsDate }
+        return lhs.page.displayTitle.localizedStandardCompare(rhs.page.displayTitle)
+          == .orderedAscending
+      }
+  }
+}
+
 public struct WeeklyReviewSnapshot: Hashable, Sendable {
   public var inboxTaskCount: Int
   public var overdueTaskCount: Int
@@ -182,12 +244,9 @@ public struct WeeklyReviewSnapshot: Hashable, Sendable {
     calendar: Calendar = .current
   ) -> Self {
     let tasks = pages.compactMap(TaskItem.init(page:)).filter(\.data.isActive)
-    let startOfToday = calendar.startOfDay(for: now)
+    let overdueTasks = WeeklyReviewPolicy.overdueTasks(in: pages, now: now, calendar: calendar)
+    let overdueTaskIDs = Set(overdueTasks.map(\.id))
     let reviewCutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
-    let isOverdue: (TaskItem) -> Bool = { task in
-      task.data.deadline.map { $0 < startOfToday } == true
-        || task.data.scheduledAt.map { $0 < startOfToday } == true
-    }
     let tasksByProject = Dictionary(
       grouping: tasks.compactMap { task in
         task.data.projectID.map { ($0, task) }
@@ -198,7 +257,7 @@ public struct WeeklyReviewSnapshot: Hashable, Sendable {
         return nil
       }
       let projectTasks = tasksByProject[page.id, default: []].map(\.1)
-      let overdue = projectTasks.filter(isOverdue).count
+      let overdue = projectTasks.filter { overdueTaskIDs.contains($0.id) }.count
       let needsReview =
         data.outcome.isEmpty
         || projectTasks.isEmpty
@@ -222,7 +281,7 @@ public struct WeeklyReviewSnapshot: Hashable, Sendable {
 
     return Self(
       inboxTaskCount: tasks.filter { $0.data.placement == .inbox }.count,
-      overdueTaskCount: tasks.filter(isOverdue).count,
+      overdueTaskCount: overdueTasks.count,
       projects: projects
     )
   }
