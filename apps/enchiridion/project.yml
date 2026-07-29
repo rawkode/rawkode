@@ -32,6 +32,7 @@ targets:
         CFBundleDisplayName: Enchiridion
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.
         NSMicrophoneUsageDescription: Enchiridion uses the microphone only while you are talking to its on-device assistant.
@@ -83,6 +84,7 @@ targets:
         CFBundleDisplayName: Enchiridion
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
