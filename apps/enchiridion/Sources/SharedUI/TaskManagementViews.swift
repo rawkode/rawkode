@@ -685,47 +685,15 @@ struct TaskDetailScreen: View {
   let store: LibraryStore
   let pageID: PageID
 
-  @State private var showsDetails = false
-
   var body: some View {
-    PageEditorView(store: store, pageID: pageID)
-      .toolbar {
-        ToolbarItemGroup(placement: .primaryAction) {
-          Button {
-            showsDetails = true
-          } label: {
-            Label("Task Details", systemImage: "checklist")
-          }
-          if let data = store.page(id: pageID)?.taskData {
-            Button {
-              Task {
-                if data.state == .active {
-                  await store.completeTaskOfferingUndo(pageID)
-                } else {
-                  await store.reopenTask(pageID)
-                }
-              }
-            } label: {
-              Label(
-                data.state == .active ? "Complete" : "Reopen",
-                systemImage: data.state == .active ? "checkmark.circle" : "arrow.uturn.backward")
-            }
-          }
-        }
-      }
-      .sheet(isPresented: $showsDetails) {
-        if let page = store.page(id: pageID), let data = page.taskData {
-          TaskMetadataEditor(store: store, page: page, initialData: data)
-        }
-      }
+    PageDestinationView(store: store, pageID: pageID)
   }
 }
 
-private struct TaskMetadataEditor: View {
+struct TaskPropertiesView: View {
   let store: LibraryStore
   let page: PageSnapshot
 
-  @Environment(\.dismiss) private var dismiss
   @State private var data: TaskData
   @State private var tags: String
   @State private var estimate: String
@@ -741,98 +709,93 @@ private struct TaskMetadataEditor: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section {
-          Picker("List", selection: $data.placement) {
-            ForEach(TaskPlacement.allCases, id: \.self) { placement in
-              Text(placement.title).tag(placement)
-            }
-          }
-          Picker("Priority", selection: $data.priority) {
-            ForEach(TaskPriority.allCases, id: \.self) { priority in
-              Text(priority.title).tag(priority)
-            }
+    Form {
+      Section {
+        Picker("List", selection: $data.placement) {
+          ForEach(TaskPlacement.allCases, id: \.self) { placement in
+            Text(placement.title).tag(placement)
           }
         }
-
-        Section("Dates") {
-          Toggle("Schedule", isOn: hasScheduledDateBinding)
-          if data.scheduledAt != nil {
-            Picker("Schedule precision", selection: $data.scheduleGranularity) {
-              Text("Date only").tag(TaskScheduleGranularity.dateOnly)
-              Text("Date and time").tag(TaskScheduleGranularity.dateTime)
-            }
-            DatePicker(
-              "When",
-              selection: scheduledBinding,
-              displayedComponents: data.scheduleGranularity == .dateOnly
-                ? [.date]
-                : [.date, .hourAndMinute]
-            )
-          }
-          Toggle("Deadline", isOn: hasDeadlineBinding)
-          if data.deadline != nil {
-            DatePicker("Deadline", selection: deadlineBinding, displayedComponents: .date)
-          }
-          Toggle("Reminder", isOn: hasReminderBinding)
-          if data.reminder != nil {
-            DatePicker(
-              "Remind me",
-              selection: reminderBinding,
-              displayedComponents: [.date, .hourAndMinute]
-            )
-          }
-        }
-
-        Section("Organize") {
-          Picker("Project", selection: $data.projectID) {
-            Text("None").tag(PageID?.none)
-            ForEach(store.taskProjects) { project in
-              Text(project.displayTitle).tag(PageID?.some(project.id))
-            }
-          }
-          Picker("Area", selection: $data.areaID) {
-            Text("None").tag(PageID?.none)
-            ForEach(store.taskAreas) { area in
-              Text(area.displayTitle).tag(PageID?.some(area.id))
-            }
-          }
-          Picker("Parent Task", selection: $data.parentTaskID) {
-            Text("None").tag(PageID?.none)
-            ForEach(parentCandidates) { task in
-              Text(task.page.displayTitle).tag(PageID?.some(task.id))
-            }
-          }
-          TextField("Tags, separated by commas", text: $tags)
-          TextField("Estimate in minutes", text: $estimate)
-        }
-
-        TaskAssigneesSection(store: store, assigneeIDs: $data.assigneeIDs)
-
-        Section("Repeat") {
-          Toggle("Repeats", isOn: hasRecurrenceBinding)
-          if data.recurrence != nil {
-            TaskRecurrenceEditor(rule: recurrenceBinding)
-          }
-        }
-
-        if let saveError {
-          Section {
-            Label(saveError, systemImage: "exclamationmark.triangle")
-              .foregroundStyle(.red)
+        Picker("Priority", selection: $data.priority) {
+          ForEach(TaskPriority.allCases, id: \.self) { priority in
+            Text(priority.title).tag(priority)
           }
         }
       }
-      .navigationTitle("Task Details")
+
+      Section("Dates") {
+        Toggle("Schedule", isOn: hasScheduledDateBinding)
+        if data.scheduledAt != nil {
+          Picker("Schedule precision", selection: $data.scheduleGranularity) {
+            Text("Date only").tag(TaskScheduleGranularity.dateOnly)
+            Text("Date and time").tag(TaskScheduleGranularity.dateTime)
+          }
+          DatePicker(
+            "When",
+            selection: scheduledBinding,
+            displayedComponents: data.scheduleGranularity == .dateOnly
+              ? [.date]
+              : [.date, .hourAndMinute]
+          )
+        }
+        Toggle("Deadline", isOn: hasDeadlineBinding)
+        if data.deadline != nil {
+          DatePicker("Deadline", selection: deadlineBinding, displayedComponents: .date)
+        }
+        Toggle("Reminder", isOn: hasReminderBinding)
+        if data.reminder != nil {
+          DatePicker(
+            "Remind me",
+            selection: reminderBinding,
+            displayedComponents: [.date, .hourAndMinute]
+          )
+        }
+      }
+
+      Section("Organize") {
+        Picker("Project", selection: $data.projectID) {
+          Text("None").tag(PageID?.none)
+          ForEach(store.taskProjects) { project in
+            Text(project.displayTitle).tag(PageID?.some(project.id))
+          }
+        }
+        Picker("Area", selection: $data.areaID) {
+          Text("None").tag(PageID?.none)
+          ForEach(store.taskAreas) { area in
+            Text(area.displayTitle).tag(PageID?.some(area.id))
+          }
+        }
+        Picker("Parent Task", selection: $data.parentTaskID) {
+          Text("None").tag(PageID?.none)
+          ForEach(parentCandidates) { task in
+            Text(task.page.displayTitle).tag(PageID?.some(task.id))
+          }
+        }
+        TextField("Tags, separated by commas", text: $tags)
+        TextField("Estimate in minutes", text: $estimate)
+      }
+
+      TaskAssigneesSection(store: store, assigneeIDs: $data.assigneeIDs)
+
+      Section("Repeat") {
+        Toggle("Repeats", isOn: hasRecurrenceBinding)
+        if data.recurrence != nil {
+          TaskRecurrenceEditor(rule: recurrenceBinding)
+        }
+      }
+
+      if let saveError {
+        Section {
+          Label(saveError, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.red)
+        }
+      }
+      }
+      .formStyle(.grouped)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
-        }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Save") { save() }
-            .disabled(isSaving)
-        }
+      ToolbarItem(placement: .confirmationAction) {
+        Button("Save") { save() }
+          .disabled(isSaving)
       }
     }
     .frame(minWidth: 340, minHeight: 480)
@@ -903,7 +866,6 @@ private struct TaskMetadataEditor: View {
         return
       }
       isSaving = false
-      dismiss()
     }
   }
 }

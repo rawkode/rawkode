@@ -263,6 +263,22 @@ public struct PageSnapshot: Identifiable, Codable, Hashable, Sendable {
   public var isOtherPerson: Bool { effectivePersonVisibility == .other }
 }
 
+public enum PageDestinationKind: Hashable, Sendable {
+  case unavailable
+  case task
+  case entity
+  case note
+}
+
+public enum PageDestinationClassifier {
+  public static func classify(_ page: PageSnapshot?) -> PageDestinationKind {
+    guard let page, page.deletedAt == nil else { return .unavailable }
+    if page.hasSupertag(BuiltInSupertags.task) { return .task }
+    if !page.objectMetadata.supertagIDs.isEmpty { return .entity }
+    return .note
+  }
+}
+
 public struct PageReference: Codable, Hashable, Sendable {
   public var sourcePageID: PageID
   public var targetPageID: PageID

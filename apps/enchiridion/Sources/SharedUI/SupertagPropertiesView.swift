@@ -4,6 +4,17 @@ import SwiftUI
 struct SupertagPropertiesView: View {
   let store: LibraryStore
   let pageID: PageID
+  let navigationTitle: String
+
+  init(
+    store: LibraryStore,
+    pageID: PageID,
+    navigationTitle: String = "Properties"
+  ) {
+    self.store = store
+    self.pageID = pageID
+    self.navigationTitle = navigationTitle
+  }
 
   private var page: PageSnapshot? { store.page(id: pageID) }
 
@@ -45,7 +56,7 @@ struct SupertagPropertiesView: View {
         ForEach(page.objectMetadata.supertagIDs) { tagID in
           if let definition = store.supertags.first(where: { $0.id == tagID }) {
             Section(definition.name) {
-              ForEach(definition.fields.filter { !$0.isDeleted }) { field in
+              ForEach(visibleFields(in: definition)) { field in
                 SupertagFieldEditor(
                   store: store,
                   page: page,
@@ -81,7 +92,13 @@ struct SupertagPropertiesView: View {
       }
     }
     .formStyle(.grouped)
-    .navigationTitle("Properties")
+    .navigationTitle(navigationTitle)
+  }
+
+  private func visibleFields(in definition: SupertagDefinition) -> [SupertagFieldDefinition] {
+    definition.fields.filter { field in
+      !field.isDeleted && !(definition.isBuiltIn && field.id.rawValue == "notes")
+    }
   }
 
   private func fieldName(_ key: SupertagPropertyKey) -> String {

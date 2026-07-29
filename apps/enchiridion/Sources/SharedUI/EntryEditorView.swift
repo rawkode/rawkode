@@ -31,10 +31,211 @@ final class EditorFlushController {
   }
 }
 
+struct PageDestinationView: View {
+  let store: LibraryStore
+  let pageID: PageID
+  private let onOpenPage: ((PageID) -> Void)?
+  @State private var flushController: EditorFlushController
+
+  init(
+    store: LibraryStore,
+    pageID: PageID,
+    flushController: EditorFlushController? = nil,
+    onOpenPage: ((PageID) -> Void)? = nil
+  ) {
+    self.store = store
+    self.pageID = pageID
+    self.onOpenPage = onOpenPage
+    _flushController = State(initialValue: flushController ?? EditorFlushController())
+  }
+
+  var body: some View {
+    switch PageDestinationClassifier.classify(store.page(id: pageID)) {
+    case .unavailable:
+      ContentUnavailableView(
+        "Page unavailable",
+        systemImage: "doc.questionmark",
+        description: Text("Choose another page from the library.")
+      )
+    case .task, .entity:
+      if let page = store.page(id: pageID) {
+        EntityDetailView(
+          store: store,
+          page: page,
+          flushController: flushController,
+          onOpenPage: onOpenPage
+        )
+      }
+    case .note:
+      PageEditorView(
+        store: store,
+        pageID: pageID,
+        flushController: flushController,
+        onOpenPage: onOpenPage
+      )
+    }
+  }
+}
+
+private enum EntityDetailSection: String, CaseIterable, Identifiable {
+  case properties = "Properties"
+  case notes = "Notes"
+
+  var id: Self { self }
+}
+
+struct EntityDetailView: View {
+  let store: LibraryStore
+  let page: PageSnapshot
+  let flushController: EditorFlushController
+  let onOpenPage: ((PageID) -> Void)?
+
+  @State private var selectedSection = EntityDetailSection.properties
+  @State private var pagePendingPermanentDeletion: PageSnapshot?
+
+  var body: some View {
+    VStack(spacing: 0) {
+      VStack(alignment: .leading, spacing: selectedSection == .properties ? 10 : 0) {
+        if selectedSection == .properties {
+          Text(page.displayTitle)
+            .font(.largeTitle.bold())
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+          Label(typeNames, systemImage: primaryTypeSymbol)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+        }
+
+        Picker("Page section", selection: $selectedSection) {
+          ForEach(EntityDetailSection.allCases) { section in
+            Text(section.rawValue).tag(section)
+          }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("page-detail-section")
+      }
+      .padding(.horizontal)
+      .padding(.top, 12)
+      .padding(.bottom)
+
+      Divider()
+
+      switch selectedSection {
+      case .properties:
+        PagePropertiesView(store: store, pageID: page.id)
+      case .notes:
+        PageEditorView(
+          store: store,
+          pageID: page.id,
+          flushController: flushController,
+          onOpenPage: onOpenPage,
+          showsPropertiesAction: false,
+          showsPageActions: false
+        )
+      }
+    }
+    .navigationTitle("")
+    .toolbar {
+      if let taskData = page.taskData {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            Task {
+              if taskData.state == .active {
+                await store.completeTaskOfferingUndo(page.id)
+              } else {
+                await store.reopenTask(page.id)
+              }
+            }
+          } label: {
+            Label(
+              taskData.state == .active ? "Complete" : "Reopen",
+              systemImage: taskData.state == .active
+                ? "checkmark.circle"
+                : "arrow.uturn.backward"
+            )
+          }
+        }
+      }
+
+      ToolbarItem(placement: .secondaryAction) {
+        Menu {
+          if page.deletedAt == nil {
+            Button {
+              store.togglePinned(pageID: page.id)
+            } label: {
+              Label(page.isPinned ? "Unpin" : "Pin", systemImage: page.isPinned ? "pin.slash" : "pin")
+            }
+          }
+
+          PageLifecycleMenuActions(
+            store: store,
+            page: page,
+            showsPinAction: false,
+            requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+          )
+        } label: {
+          Label("Page actions", systemImage: "ellipsis.circle")
+        }
+      }
+    }
+    .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
+      store.purge(pageID: $0)
+    }
+  }
+
+  private var typeDefinitions: [SupertagDefinition] {
+    let definitions = page.objectMetadata.supertagIDs.compactMap { tagID in
+      store.supertags.first(where: { $0.id == tagID })
+    }
+    guard page.hasSupertag(BuiltInSupertags.task),
+      let task = definitions.first(where: { $0.id == BuiltInSupertags.task })
+    else { return definitions }
+    return [task] + definitions.filter { $0.id != BuiltInSupertags.task }
+  }
+
+  private var typeNames: String {
+    let resolvedNames = typeDefinitions.map(\.name)
+    if !resolvedNames.isEmpty { return resolvedNames.joined(separator: " · ") }
+    return page.objectMetadata.supertagIDs.map(\.rawValue).joined(separator: " · ")
+  }
+
+  private var primaryTypeSymbol: String {
+    typeDefinitions.first?.symbol
+      ?? (page.hasSupertag(BuiltInSupertags.task) ? "checkmark.circle" : "number")
+  }
+}
+
+private struct PagePropertiesView: View {
+  let store: LibraryStore
+  let pageID: PageID
+
+  var body: some View {
+    if let page = store.page(id: pageID), page.deletedAt == nil {
+      if let taskData = page.taskData {
+        TaskPropertiesView(store: store, page: page, initialData: taskData)
+      } else {
+        SupertagPropertiesView(
+          store: store,
+          pageID: pageID,
+          navigationTitle: ""
+        )
+      }
+    } else {
+      ContentUnavailableView(
+        "Page unavailable",
+        systemImage: "doc.questionmark",
+        description: Text("Choose another page from the library.")
+      )
+    }
+  }
+}
+
 struct PageEditorView: View {
   let store: LibraryStore
   let pageID: PageID
   private let onOpenPage: ((PageID) -> Void)?
+  private let showsPropertiesAction: Bool
+  private let showsPageActions: Bool
   @State private var flushController: EditorFlushController
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
@@ -47,11 +248,15 @@ struct PageEditorView: View {
     store: LibraryStore,
     pageID: PageID,
     flushController: EditorFlushController? = nil,
-    onOpenPage: ((PageID) -> Void)? = nil
+    onOpenPage: ((PageID) -> Void)? = nil,
+    showsPropertiesAction: Bool = true,
+    showsPageActions: Bool = true
   ) {
     self.store = store
     self.pageID = pageID
     self.onOpenPage = onOpenPage
+    self.showsPropertiesAction = showsPropertiesAction
+    self.showsPageActions = showsPageActions
     _flushController = State(initialValue: flushController ?? EditorFlushController())
   }
 
@@ -74,7 +279,11 @@ struct PageEditorView: View {
     }
     #if !os(macOS)
     .navigationDestination(item: $pushedPageID) { pageID in
-      PageEditorView(store: store, pageID: pageID, flushController: flushController)
+      PageDestinationView(
+        store: store,
+        pageID: pageID,
+        flushController: flushController
+      )
     }
     #endif
     .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
@@ -92,7 +301,8 @@ struct PageEditorView: View {
       )
         .navigationTitle("")
         .toolbar {
-          ToolbarItemGroup {
+          if showsPageActions {
+            ToolbarItemGroup {
             if page.deletedAt == nil {
               Menu {
                 ForEach(store.supertags.filter { !page.objectMetadata.supertagIDs.contains($0.id) }) { tag in
@@ -104,17 +314,19 @@ struct PageEditorView: View {
                 Label("Add Supertag", systemImage: "number")
               }
 
-              Button {
-                Task { @MainActor in
-                  guard await flushController.flush() else { return }
-                  #if os(macOS)
-                  showsProperties.toggle()
-                  #else
-                  propertiesSheetPage = page.id
-                  #endif
+              if showsPropertiesAction {
+                Button {
+                  Task { @MainActor in
+                    guard await flushController.flush() else { return }
+                    #if os(macOS)
+                    showsProperties.toggle()
+                    #else
+                    propertiesSheetPage = page.id
+                    #endif
+                  }
+                } label: {
+                  Label("Properties", systemImage: "slider.horizontal.3")
                 }
-              } label: {
-                Label("Properties", systemImage: "slider.horizontal.3")
               }
 
               Button {
@@ -134,17 +346,18 @@ struct PageEditorView: View {
             } label: {
               Label("Page actions", systemImage: "ellipsis.circle")
             }
+            }
           }
         }
         #if os(macOS)
         .inspector(isPresented: $showsProperties) {
-          SupertagPropertiesView(store: store, pageID: page.id)
+          PagePropertiesView(store: store, pageID: page.id)
             .inspectorColumnWidth(min: 280, ideal: 340, max: 480)
         }
         #else
         .sheet(item: $propertiesSheetPage) { pageID in
           NavigationStack {
-            SupertagPropertiesView(store: store, pageID: pageID)
+            PagePropertiesView(store: store, pageID: pageID)
               .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                   Button("Done") { propertiesSheetPage = nil }
