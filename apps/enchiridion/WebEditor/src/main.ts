@@ -10,7 +10,12 @@ import type { DOMOutputSpec, Node as PMNode, Schema } from "prosemirror-model"
 import { liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list"
 import { EditorState, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
-import { exitCodeBlockOnEmptyLine, moveBelowCodeBlock, persistSelectedMark } from "./editorCommands"
+import {
+  exitCodeBlockOnEmptyLine,
+  moveBelowCodeBlock,
+  persistSelectedMark,
+  showsMobileCommandBar,
+} from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
 import "./style.css"
 
@@ -403,7 +408,12 @@ function runMobileCommand(command: string): void {
 
 function updateMobileCommandBar(): void {
   const usesCompactLayout = window.matchMedia("(max-width: 640px)").matches
-  mobileCommandBar.hidden = !usesCompactLayout || !view?.hasFocus()
+  const hasTextSelection = view != null && !view.state.selection.empty
+  mobileCommandBar.hidden = !showsMobileCommandBar(
+    usesCompactLayout,
+    view?.hasFocus() == true,
+    hasTextSelection,
+  )
 }
 
 function onDocumentChange(): void {
@@ -857,6 +867,7 @@ function insertYouTube(editorView: EditorView, url: string, videoID: string): vo
 function updateSelectionToolbar(): void {
   if (!view || view.state.selection.empty) {
     selectionToolbar.hidden = true
+    updateMobileCommandBar()
     return
   }
   const buttons = [
@@ -883,6 +894,7 @@ function updateSelectionToolbar(): void {
     void showSupertagMenu(view, { kind: "selection", from, to, query })
   }))
   selectionToolbar.append(button("Link", () => openLinkEditor(view!.state, view!.dispatch, view)))
+  updateMobileCommandBar()
 }
 
 function openLinkEditor(state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView): boolean {

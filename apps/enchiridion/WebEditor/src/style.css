@@ -215,7 +215,6 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
     bottom: calc(3.65rem + env(safe-area-inset-bottom));
     max-height: min(27rem, calc(100vh - 6rem - env(safe-area-inset-bottom)));
   }
-  .selection-toolbar { bottom: calc(3.65rem + env(safe-area-inset-bottom)); }
   .mobile-command-bar {
     position: fixed;
     z-index: 9;
@@ -242,6 +241,24 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
   .mobile-command-bar button:active {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
+  .selection-toolbar {
+    right: 0.5rem;
+    bottom: 0;
+    left: 0.5rem;
+    width: auto;
+    max-width: none;
+    transform: none;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    background: Canvas;
+    backdrop-filter: none;
+    scrollbar-width: none;
+  }
+  .selection-toolbar::-webkit-scrollbar { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
