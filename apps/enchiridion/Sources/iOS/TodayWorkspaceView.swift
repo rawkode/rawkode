@@ -93,7 +93,7 @@ struct TodayWorkspaceView: View {
         }
       }
       .navigationDestination(for: PageID.self) { pageID in
-        PageEditorView(
+        PageDestinationView(
           store: store,
           pageID: pageID,
           flushController: flushController,

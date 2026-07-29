@@ -98,7 +98,7 @@ struct PageListScreen: View {
       }
       .navigationTitle(section.title)
       .navigationDestination(for: PageID.self) { pageID in
-        PageEditorView(store: store, pageID: pageID)
+        PageDestinationView(store: store, pageID: pageID)
       }
       .searchable(text: $query, prompt: "Search pages")
       .toolbar {

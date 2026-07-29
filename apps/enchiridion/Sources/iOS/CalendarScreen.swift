@@ -100,7 +100,7 @@ struct CalendarScreen: View {
       .navigationTitle("Calendar")
       .navigationBarTitleDisplayMode(.inline)
       .navigationDestination(for: PageID.self) { pageID in
-        PageEditorView(store: store, pageID: pageID)
+        PageDestinationView(store: store, pageID: pageID)
       }
       .searchable(text: $searchText, prompt: "Search selected day")
       .toolbar {

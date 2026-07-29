@@ -24,11 +24,20 @@ struct OtherPeopleView: View {
         )
       } else {
         List(filteredPeople) { person in
-          OtherPersonRow(
-            page: person,
-            contactLink: store.contactLinks[person.id],
-            promote: { Task { await store.promotePerson(person.id) } }
-          )
+          NavigationLink {
+            PageDestinationView(store: store, pageID: person.id)
+          } label: {
+            OtherPersonRow(
+              page: person,
+              contactLink: store.contactLinks[person.id]
+            )
+          }
+          .swipeActions {
+            Button("Promote", systemImage: "person.badge.plus") {
+              Task { await store.promotePerson(person.id) }
+            }
+            .tint(.accentColor)
+          }
         }
       }
     }
@@ -51,7 +60,6 @@ struct OtherPeopleView: View {
 private struct OtherPersonRow: View {
   let page: PageSnapshot
   let contactLink: PersonContactLink?
-  let promote: () -> Void
 
   var body: some View {
     HStack(spacing: 12) {
@@ -69,10 +77,6 @@ private struct OtherPersonRow: View {
       }
 
       Spacer(minLength: 12)
-
-      Button("Promote", action: promote)
-        .buttonStyle(.bordered)
-        .accessibilityHint("Shows this person in views and mention suggestions")
     }
     .padding(.vertical, 3)
   }

@@ -239,15 +239,11 @@ struct MacRootView: View {
           openPage: presentTodayPage
         )
       } else if let selectedPageID = store.selectedPageID {
-        if case .task = selection, store.page(id: selectedPageID)?.taskData != nil {
-          TaskDetailScreen(store: store, pageID: selectedPageID)
-        } else {
-          PageEditorView(
-            store: store,
-            pageID: selectedPageID,
-            flushController: editorFlushController
-          )
-        }
+        PageDestinationView(
+          store: store,
+          pageID: selectedPageID,
+          flushController: editorFlushController
+        )
       } else {
         ContentUnavailableView(
           "Choose a page",
@@ -385,7 +381,7 @@ struct MacRootView: View {
     }
     .sheet(item: $todayPresentedPageID) { pageID in
       NavigationStack {
-        PageEditorView(
+        PageDestinationView(
           store: store,
           pageID: pageID,
           flushController: editorFlushController,

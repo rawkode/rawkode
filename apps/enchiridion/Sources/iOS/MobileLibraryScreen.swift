@@ -104,7 +104,7 @@ private struct MobileLiveViewDestination: View {
     }
     .sheet(item: $openedPageID) { pageID in
       NavigationStack {
-        PageEditorView(store: store, pageID: pageID)
+        PageDestinationView(store: store, pageID: pageID)
       }
     }
   }
@@ -119,7 +119,7 @@ private struct SupertagMobileCollection: View {
   var body: some View {
     List(filteredPages) { page in
       NavigationLink {
-        PageEditorView(store: store, pageID: page.id)
+        PageDestinationView(store: store, pageID: page.id)
       } label: {
         PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
       }
