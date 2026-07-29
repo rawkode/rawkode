@@ -168,25 +168,7 @@ public actor LibraryRepository {
   }
 
   public static func defaultLocalPath() throws -> String {
-    let manager = FileManager.default
-#if os(iOS)
-    if let sharedContainer = manager.containerURL(
-      forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
-    ) {
-      let sharedDirectory = sharedContainer
-        .appendingPathComponent("vaults", isDirectory: true)
-        .appendingPathComponent("local", isDirectory: true)
-      try manager.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
-      let sharedDatabase = sharedDirectory.appendingPathComponent("library.sqlite")
-      try migrateLegacyDatabaseIfNeeded(to: sharedDatabase, manager: manager)
-      try manager.setAttributes(
-        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-        ofItemAtPath: sharedDirectory.path
-      )
-      return sharedDatabase.path
-    }
-#endif
-    return try legacyLocalPath(manager: manager)
+    try VaultRegistry.defaultGraphPath(selection: .defaultCapture)
   }
 
   func pendingTaskEffectOutboxIdentities() throws -> [TaskEffectOutboxIdentity] {
