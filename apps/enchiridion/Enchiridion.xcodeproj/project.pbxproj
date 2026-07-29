@@ -100,6 +100,8 @@
 		C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
 		C8C6F37DE6DE094440175D44 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8E348F8C323D6A9956945CF /* AVFoundation.framework */; };
 		C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
+		CCA4C3B4D33E63877C0D862D /* VaultManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */; };
+		CEAB5177991E19C711C72DF2 /* VaultManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */; };
 		D1149A491B23B3D229E28CFB /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8E348F8C323D6A9956945CF /* AVFoundation.framework */; };
 		D23352015992D41FF8882FF2 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		D2A35D7137F26A24D0D4AB92 /* DailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */; };
@@ -210,6 +212,7 @@
 		BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationRuntime.swift; sourceTree = "<group>"; };
 		C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderAppDelegate.swift; sourceTree = "<group>"; };
 		CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
+		CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManagementView.swift; sourceTree = "<group>"; };
 		D01C78BB8752D4959D32D9E9 /* Enchiridion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibrarySection+Presentation.swift"; sourceTree = "<group>"; };
 		D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationView.swift; sourceTree = "<group>"; };
@@ -369,6 +372,7 @@
 				28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */,
 				4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */,
 				147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */,
+				CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */,
 				7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */,
 				D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */,
 				89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */,
@@ -646,6 +650,7 @@
 				A79AD5EDE80E4592564CB9C7 /* TaskReminderAppDelegate.swift in Sources */,
 				B54F13D5E2C5129FE49DCFBF /* TaskReminderNotificationCoordinator.swift in Sources */,
 				FFC8ABA3D669D308FAD1714C /* TaskWorkbench.swift in Sources */,
+				CEAB5177991E19C711C72DF2 /* VaultManagementView.swift in Sources */,
 				E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */,
 				1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */,
 				DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */,
@@ -702,6 +707,7 @@
 				BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */,
 				5E764416E1D9F740E73E8C09 /* TaskWorkbench.swift in Sources */,
 				EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */,
+				CCA4C3B4D33E63877C0D862D /* VaultManagementView.swift in Sources */,
 				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
 				5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */,
 				D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */,

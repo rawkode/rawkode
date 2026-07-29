@@ -6,7 +6,7 @@ import UIKit
 struct MobileRootView: View {
   @Environment(\.scenePhase) private var scenePhase
 
-  @State private var store: LibraryStore
+  let store: LibraryStore
   @State private var selectedTab: MobileTab = .today
   @State private var requestedTaskSelection: TaskListSelection?
   @State private var requestedTaskID: PageID?
@@ -16,17 +16,26 @@ struct MobileRootView: View {
   @State private var isEditorFocused = false
   @State private var isKeyboardVisible = false
   private let contactsResolver: DeviceContactsResolver
+  private let vaultSession: VaultSession?
+  private let selectVault: @MainActor (VaultID) throws -> Void
+  private let workspaceDidChange: @MainActor () -> Void
   private let assistantSession: AssistantConversationSession?
   private let assistantUnavailableReason: String?
 
   init(
     store: LibraryStore,
     contactsResolver: DeviceContactsResolver = DeviceContactsResolver(),
+    vaultSession: VaultSession? = nil,
+    selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
+    workspaceDidChange: @escaping @MainActor () -> Void = {},
     assistantSession: AssistantConversationSession? = nil,
     assistantUnavailableReason: String? = nil
   ) {
-    _store = State(initialValue: store)
+    self.store = store
     self.contactsResolver = contactsResolver
+    self.vaultSession = vaultSession
+    self.selectVault = selectVault
+    self.workspaceDidChange = workspaceDidChange
     self.assistantSession = assistantSession
     self.assistantUnavailableReason = assistantUnavailableReason
   }
@@ -57,7 +66,13 @@ struct MobileRootView: View {
         .tag(MobileTab.calendar)
         .toolbar(tabBarVisibility, for: .tabBar)
 
-      MobileLibraryScreen(store: store, contactsResolver: contactsResolver)
+      MobileLibraryScreen(
+        store: store,
+        contactsResolver: contactsResolver,
+        vaultSession: vaultSession,
+        selectVault: selectVault,
+        workspaceDidChange: workspaceDidChange
+      )
         .tabItem { Label("Library", systemImage: "books.vertical") }
         .tag(MobileTab.library)
         .toolbar(tabBarVisibility, for: .tabBar)

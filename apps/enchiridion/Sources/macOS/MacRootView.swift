@@ -5,7 +5,9 @@ struct MacRootView: View {
   @Environment(\.openWindow) private var openWindow
   @Environment(\.scenePhase) private var scenePhase
 
-  @State private var store: LibraryStore
+  let store: LibraryStore
+  let vaultSession: VaultSession?
+  let selectVault: @MainActor (VaultID) throws -> Void
   @State private var selection: MacSidebarSelection = .section(.today)
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
@@ -20,13 +22,24 @@ struct MacRootView: View {
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
   @State private var pagePendingPermanentDeletion: PageSnapshot?
 
-  init(store: LibraryStore = LibraryStore()) {
-    _store = State(initialValue: store)
+  init(
+    store: LibraryStore = LibraryStore(),
+    vaultSession: VaultSession? = nil,
+    selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in }
+  ) {
+    self.store = store
+    self.vaultSession = vaultSession
+    self.selectVault = selectVault
   }
 
   var body: some View {
     NavigationSplitView {
       List(selection: sidebarSelectionBinding) {
+        if let vaultSession {
+          Section("Vault") {
+            VaultSwitcherMenu(session: vaultSession, selectVault: selectVault)
+          }
+        }
         Section("Tasks") {
           ForEach(TaskSmartList.allCases) { list in
             HStack {

@@ -1,4 +1,6 @@
+import AppKit
 import EnchiridionCore
+import Observation
 import SwiftUI
 
 @main
@@ -8,14 +10,19 @@ struct EnchiridionMacApp: App {
   @FocusedValue(\.newTaskAction) private var newTaskAction
   @FocusedValue(\.openTaskListAction) private var openTaskListAction
   @Environment(\.openWindow) private var openWindow
+  @State private var runtime = EnchiridionMacRuntime.shared
 
   var body: some Scene {
     WindowGroup {
-      MacRootView(store: EnchiridionMacRuntime.shared.store)
+      MacRootView(
+        store: runtime.store,
+        vaultSession: runtime.vaultSession,
+        selectVault: runtime.selectVault
+      )
         .frame(minWidth: 820, minHeight: 520)
         .managesDeviceContacts(
-          store: EnchiridionMacRuntime.shared.store,
-          resolver: EnchiridionMacRuntime.shared.contactsResolver
+          store: runtime.store,
+          resolver: runtime.contactsResolver
         )
     }
     .commands {
@@ -56,8 +63,8 @@ struct EnchiridionMacApp: App {
 
     Window("Assistant", id: "assistant") {
       AssistantConversationView(
-        session: EnchiridionMacRuntime.shared.assistantSession,
-        unavailableReason: EnchiridionMacRuntime.shared.assistantUnavailableReason
+        session: runtime.assistantSession,
+        unavailableReason: runtime.assistantUnavailableReason
       )
       .frame(minWidth: 480, minHeight: 560)
     }
@@ -65,39 +72,63 @@ struct EnchiridionMacApp: App {
 
     Settings {
       MacSettingsView(
-        store: EnchiridionMacRuntime.shared.store,
-        contactsResolver: EnchiridionMacRuntime.shared.contactsResolver
+        store: runtime.store,
+        contactsResolver: runtime.contactsResolver,
+        vaultSession: runtime.vaultSession,
+        selectVault: runtime.selectVault,
+        workspaceDidChange: runtime.workspaceDidChange
       )
     }
   }
 }
 
 @MainActor
+@Observable
 final class EnchiridionMacRuntime {
   static let shared = EnchiridionMacRuntime()
 
-  let repository: LibraryRepository?
-  let store: LibraryStore
-  let assistant: FoundationModelAssistant?
-  lazy var assistantSession = makeAssistantConversationSession(assistant: assistant)
+  let vaultSession: VaultSession?
+  let contactsResolver = DeviceContactsResolver()
+  private let fallbackStore: LibraryStore
+  private(set) var assistant: FoundationModelAssistant?
+  private(set) var assistantSession: AssistantConversationSession?
+  private(set) var repositoryError: String?
+
+  var repository: LibraryRepository? { vaultSession?.repository }
+  var store: LibraryStore { vaultSession?.store ?? fallbackStore }
   var assistantUnavailableReason: String? {
     assistantUnavailabilityMessage(assistant: assistant, repositoryError: repositoryError)
   }
-  let repositoryError: String?
-  let contactsResolver = DeviceContactsResolver()
-
   private init() {
     do {
-      let repository = try LibraryRepository(path: LibraryRepository.defaultLocalPath())
-      self.repository = repository
-      store = LibraryStore(repository: repository, contactResolver: contactsResolver)
-      assistant = FoundationModelAssistant(repository: repository)
-      repositoryError = nil
+      let session = try VaultSession(contactResolver: contactsResolver)
+      vaultSession = session
+      fallbackStore = session.store
     } catch {
-      repository = nil
-      store = LibraryStore(contactResolver: contactsResolver)
-      assistant = nil
+      vaultSession = nil
+      fallbackStore = LibraryStore(contactResolver: contactsResolver)
       repositoryError = error.localizedDescription
     }
+    rebuildWorkspaceDependents()
+  }
+
+  func selectVault(_ id: VaultID) throws {
+    guard let vaultSession else { throw VaultRegistryError.vaultNotFound }
+    try vaultSession.selectVault(id)
+    workspaceDidChange()
+  }
+
+  func workspaceDidChange() {
+    repositoryError = nil
+    rebuildWorkspaceDependents()
+    TaskReminderNotificationCoordinator.shared.configure(
+      store: store,
+      openURL: { url in NSWorkspace.shared.open(url) }
+    )
+  }
+
+  private func rebuildWorkspaceDependents() {
+    assistant = repository.map { FoundationModelAssistant(repository: $0) }
+    assistantSession = makeAssistantConversationSession(assistant: assistant)
   }
 }
