@@ -1,0 +1,762 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		006EB85D731E9C04A1230B87 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 96067C038C726DB0DF5E8D99 /* Localizable.xcstrings */; };
+		04DADDFA4B32E8C17B4B9464 /* BrowserModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DD378135E9D3624915EE571 /* BrowserModels.swift */; };
+		077B4BDBABCC0D892925F8C5 /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2336BAA68180A67A68A8F06 /* QuickLookThumbnailing.framework */; };
+		0B88A4FE16778F7913DF27E4 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25011A3147555AF38F477050 /* QuickLookUI.framework */; };
+		1F51D53C079A238002B8106C /* AccessGrantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C92B6525D8FD9830F698A3F5 /* AccessGrantTests.swift */; };
+		22FE38C733BF6F4D6F688F39 /* SecurityScopeBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45ED6A4F2EC178A6302F6315 /* SecurityScopeBroker.swift */; };
+		277004CA8A73FE3CD31B9474 /* OperationJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BCAF8B990230A6104467963 /* OperationJournal.swift */; };
+		39FE968C98496DA0E164B1A8 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B90277C995CA327C6E5FE /* ModelTests.swift */; };
+		3EBB2BCC5E9080DDA0A12444 /* ScoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 490C1D895BD887B84574EE47 /* ScoutSettingsView.swift */; };
+		4EEE7E3E4129899DC1C8C24C /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 2EE9C88A7DB5FA847BAE7892 /* ZIPFoundation */; };
+		5294E4001301FFB3749491F4 /* WindowBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CF3DB70E13BEDCD7568B992 /* WindowBridge.swift */; };
+		53C1DF0E8E6F42FF0835FEF0 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 418DD6D62AC89DFCE3EC703B /* UniformTypeIdentifiers.framework */; };
+		5B139EEF1943521C040F1242 /* QuickLookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1702966CB1A9E201676F758B /* QuickLookBridge.swift */; };
+		769A1AB4FF582EE347C25042 /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C21FD5817F56AADDC16D2722 /* CommandPaletteView.swift */; };
+		8072B3FB84463FD1590C41A8 /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F393D612E88BCB52023E34F /* ScoutApp.swift */; };
+		81071182B0E9404A6C362DD3 /* DirectoryPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39F5DB34BDAF1C6B68C3261 /* DirectoryPresenter.swift */; };
+		8925015A4AA22BAB38D86A5A /* FileSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7021BF58AA559E71A58FE020 /* FileSearchClient.swift */; };
+		8DD5BE57AA2738C52C387084 /* FileSystemClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F270E5B95A1ED588BC6DDE38 /* FileSystemClientTests.swift */; };
+		95403B930C26CA708DC8C1A8 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1690D9F793C5C235BAB8AA20 /* QuickLook.framework */; };
+		976F09B977DFE441ECDE2341 /* FileSystemClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2316FA1EBF3E05A9157DBE85 /* FileSystemClient.swift */; };
+		ACA8E13CC7703FBC48A7200B /* URLSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370EA719118577388E2EBD95 /* URLSafety.swift */; };
+		AE9688A7EDFE85A769828F24 /* InspectorAndOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */; };
+		B4D8F70DD2562721EC57EA3D /* PathSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9079BBFF0DFFC4B64C0F3FEF /* PathSafetyTests.swift */; };
+		B6AFF47D9BD1C0A71B446886 /* BrowserBridges.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB47E255232F005CA1D21C8C /* BrowserBridges.swift */; };
+		BA2DD30D63ADFD2EB2FFFCD5 /* ScoutAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0A30C2D972078B209475CE /* ScoutAppModel.swift */; };
+		BE4C1CA2373C741EF4B28FB2 /* WorkspaceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AF9AF238B42D8B9247BA25 /* WorkspaceClient.swift */; };
+		C639F6A9972394BAD4CBA7D9 /* AccessGrantStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED3C27BBE57979FB01C67F8 /* AccessGrantStore.swift */; };
+		C6EE0C0963253E20980B4F5E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46D7E3C4FB8D8CA1EA26AEE7 /* Assets.xcassets */; };
+		C9E2E4807438AA9C1F8973D0 /* FileSystemModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53F60F32AF8498B2F76CE36 /* FileSystemModels.swift */; };
+		DE0F11CD4FFAEBBC38ED220C /* ArchiveClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BE1F819AEF03FEDEE6CBB5F /* ArchiveClient.swift */; };
+		E2EAB9043C690924F3337574 /* ScoutWindowHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE59B8F84249A365F467006 /* ScoutWindowHost.swift */; };
+		E58927F979E67F8AB236E8F8 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2CF0E2246AD6F9D21A7897CC /* AppKit.framework */; };
+		EDE8A1E6D93445C249C738FA /* ScoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475DBA9DDE1A02E6ED800E24 /* ScoutUITests.swift */; };
+		FDED09EB4C6123728B7FE579 /* BrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A6B504E33166CBB3408DC6 /* BrowserSession.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3AF7FA02F816876422DA75DA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 41B094AA7B81704D49814DA7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 07224840A05C2ED61F3A31AF;
+			remoteInfo = Scout;
+		};
+		438509A2A372373EF3E81F6C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 41B094AA7B81704D49814DA7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 07224840A05C2ED61F3A31AF;
+			remoteInfo = Scout;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0AE59B8F84249A365F467006 /* ScoutWindowHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutWindowHost.swift; sourceTree = "<group>"; };
+		0CF3DB70E13BEDCD7568B992 /* WindowBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowBridge.swift; sourceTree = "<group>"; };
+		1690D9F793C5C235BAB8AA20 /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
+		1702966CB1A9E201676F758B /* QuickLookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookBridge.swift; sourceTree = "<group>"; };
+		17807A002C04E20022167DC2 /* ScoutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScoutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2316FA1EBF3E05A9157DBE85 /* FileSystemClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemClient.swift; sourceTree = "<group>"; };
+		25011A3147555AF38F477050 /* QuickLookUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookUI.framework; path = System/Library/Frameworks/QuickLookUI.framework; sourceTree = SDKROOT; };
+		2CF0E2246AD6F9D21A7897CC /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		2DD378135E9D3624915EE571 /* BrowserModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModels.swift; sourceTree = "<group>"; };
+		32AF9AF238B42D8B9247BA25 /* WorkspaceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceClient.swift; sourceTree = "<group>"; };
+		370EA719118577388E2EBD95 /* URLSafety.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSafety.swift; sourceTree = "<group>"; };
+		418DD6D62AC89DFCE3EC703B /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
+		45ED6A4F2EC178A6302F6315 /* SecurityScopeBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopeBroker.swift; sourceTree = "<group>"; };
+		46D7E3C4FB8D8CA1EA26AEE7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		475DBA9DDE1A02E6ED800E24 /* ScoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutUITests.swift; sourceTree = "<group>"; };
+		490C1D895BD887B84574EE47 /* ScoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutSettingsView.swift; sourceTree = "<group>"; };
+		4ED3C27BBE57979FB01C67F8 /* AccessGrantStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessGrantStore.swift; sourceTree = "<group>"; };
+		4F393D612E88BCB52023E34F /* ScoutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutApp.swift; sourceTree = "<group>"; };
+		5A6B90277C995CA327C6E5FE /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
+		61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorAndOverlays.swift; sourceTree = "<group>"; };
+		6D0A30C2D972078B209475CE /* ScoutAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAppModel.swift; sourceTree = "<group>"; };
+		7021BF58AA559E71A58FE020 /* FileSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchClient.swift; sourceTree = "<group>"; };
+		7BCAF8B990230A6104467963 /* OperationJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationJournal.swift; sourceTree = "<group>"; };
+		8BE1F819AEF03FEDEE6CBB5F /* ArchiveClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveClient.swift; sourceTree = "<group>"; };
+		9079BBFF0DFFC4B64C0F3FEF /* PathSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathSafetyTests.swift; sourceTree = "<group>"; };
+		96067C038C726DB0DF5E8D99 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		9A4C6E431C9C6C84DB08481C /* Scout.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Scout.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B30D3A0A6715141C40A5B63E /* ScoutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScoutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B3A6B504E33166CBB3408DC6 /* BrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSession.swift; sourceTree = "<group>"; };
+		C21FD5817F56AADDC16D2722 /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
+		C53F60F32AF8498B2F76CE36 /* FileSystemModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemModels.swift; sourceTree = "<group>"; };
+		C92B6525D8FD9830F698A3F5 /* AccessGrantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessGrantTests.swift; sourceTree = "<group>"; };
+		D2336BAA68180A67A68A8F06 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
+		DB47E255232F005CA1D21C8C /* BrowserBridges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserBridges.swift; sourceTree = "<group>"; };
+		E39F5DB34BDAF1C6B68C3261 /* DirectoryPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryPresenter.swift; sourceTree = "<group>"; };
+		F270E5B95A1ED588BC6DDE38 /* FileSystemClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemClientTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		034AA96F85CFCFCA3158C709 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4EEE7E3E4129899DC1C8C24C /* ZIPFoundation in Frameworks */,
+				E58927F979E67F8AB236E8F8 /* AppKit.framework in Frameworks */,
+				95403B930C26CA708DC8C1A8 /* QuickLook.framework in Frameworks */,
+				077B4BDBABCC0D892925F8C5 /* QuickLookThumbnailing.framework in Frameworks */,
+				0B88A4FE16778F7913DF27E4 /* QuickLookUI.framework in Frameworks */,
+				53C1DF0E8E6F42FF0835FEF0 /* UniformTypeIdentifiers.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0042D17CF4C0BD4873490213 = {
+			isa = PBXGroup;
+			children = (
+				70DEAE9D7173BDC784D52DD4 /* Sources */,
+				F8C16D788E85FDBCA12A1A8F /* Tests */,
+				E58BB7A4A6454A6F63D41A96 /* Frameworks */,
+				0337B0B581B1E855D618C75C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		02B1A2243B5D55196B11EB1E /* App */ = {
+			isa = PBXGroup;
+			children = (
+				4F393D612E88BCB52023E34F /* ScoutApp.swift */,
+				6D0A30C2D972078B209475CE /* ScoutAppModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		0337B0B581B1E855D618C75C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9A4C6E431C9C6C84DB08481C /* Scout.app */,
+				17807A002C04E20022167DC2 /* ScoutTests.xctest */,
+				B30D3A0A6715141C40A5B63E /* ScoutUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		1140FDFBE6468EE6D680B8CA /* ScoutUITests */ = {
+			isa = PBXGroup;
+			children = (
+				475DBA9DDE1A02E6ED800E24 /* ScoutUITests.swift */,
+			);
+			path = ScoutUITests;
+			sourceTree = "<group>";
+		};
+		116CBA320D356CFE2BF9778F /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8BE1F819AEF03FEDEE6CBB5F /* ArchiveClient.swift */,
+				E39F5DB34BDAF1C6B68C3261 /* DirectoryPresenter.swift */,
+				7021BF58AA559E71A58FE020 /* FileSearchClient.swift */,
+				2316FA1EBF3E05A9157DBE85 /* FileSystemClient.swift */,
+				45ED6A4F2EC178A6302F6315 /* SecurityScopeBroker.swift */,
+				32AF9AF238B42D8B9247BA25 /* WorkspaceClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		11DB6B889FB77D209F304BDD /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				46D7E3C4FB8D8CA1EA26AEE7 /* Assets.xcassets */,
+				96067C038C726DB0DF5E8D99 /* Localizable.xcstrings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5DBEDC2A323E6601300F12B8 /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				4ED3C27BBE57979FB01C67F8 /* AccessGrantStore.swift */,
+				B3A6B504E33166CBB3408DC6 /* BrowserSession.swift */,
+				7BCAF8B990230A6104467963 /* OperationJournal.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		65980A9FB2ECED00F29EB1EA /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				370EA719118577388E2EBD95 /* URLSafety.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		70DEAE9D7173BDC784D52DD4 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				02B1A2243B5D55196B11EB1E /* App */,
+				9C9630A3A65C93CFEC10B27B /* AppKit */,
+				CB9D43438C24BAB3E686A30D /* Models */,
+				11DB6B889FB77D209F304BDD /* Resources */,
+				116CBA320D356CFE2BF9778F /* Services */,
+				5DBEDC2A323E6601300F12B8 /* Stores */,
+				65980A9FB2ECED00F29EB1EA /* Support */,
+				867C3C80B45E821BA1AE7ABB /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		8613D632D4A4004282800F0E /* ScoutTests */ = {
+			isa = PBXGroup;
+			children = (
+				C92B6525D8FD9830F698A3F5 /* AccessGrantTests.swift */,
+				F270E5B95A1ED588BC6DDE38 /* FileSystemClientTests.swift */,
+				5A6B90277C995CA327C6E5FE /* ModelTests.swift */,
+				9079BBFF0DFFC4B64C0F3FEF /* PathSafetyTests.swift */,
+			);
+			path = ScoutTests;
+			sourceTree = "<group>";
+		};
+		867C3C80B45E821BA1AE7ABB /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				C21FD5817F56AADDC16D2722 /* CommandPaletteView.swift */,
+				61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */,
+				490C1D895BD887B84574EE47 /* ScoutSettingsView.swift */,
+				0AE59B8F84249A365F467006 /* ScoutWindowHost.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		9C9630A3A65C93CFEC10B27B /* AppKit */ = {
+			isa = PBXGroup;
+			children = (
+				DB47E255232F005CA1D21C8C /* BrowserBridges.swift */,
+				1702966CB1A9E201676F758B /* QuickLookBridge.swift */,
+				0CF3DB70E13BEDCD7568B992 /* WindowBridge.swift */,
+			);
+			path = AppKit;
+			sourceTree = "<group>";
+		};
+		CB9D43438C24BAB3E686A30D /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				2DD378135E9D3624915EE571 /* BrowserModels.swift */,
+				C53F60F32AF8498B2F76CE36 /* FileSystemModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		E58BB7A4A6454A6F63D41A96 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2CF0E2246AD6F9D21A7897CC /* AppKit.framework */,
+				1690D9F793C5C235BAB8AA20 /* QuickLook.framework */,
+				D2336BAA68180A67A68A8F06 /* QuickLookThumbnailing.framework */,
+				25011A3147555AF38F477050 /* QuickLookUI.framework */,
+				418DD6D62AC89DFCE3EC703B /* UniformTypeIdentifiers.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		F8C16D788E85FDBCA12A1A8F /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				8613D632D4A4004282800F0E /* ScoutTests */,
+				1140FDFBE6468EE6D680B8CA /* ScoutUITests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		003385D7F95669C6298D33FC /* ScoutUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC295E284AA47EDAEE88FE5A /* Build configuration list for PBXNativeTarget "ScoutUITests" */;
+			buildPhases = (
+				B43DA76B0F33D0A402F974D9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BE46E6C9E82C3BF09D85BA08 /* PBXTargetDependency */,
+			);
+			name = ScoutUITests;
+			packageProductDependencies = (
+			);
+			productName = ScoutUITests;
+			productReference = B30D3A0A6715141C40A5B63E /* ScoutUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		07224840A05C2ED61F3A31AF /* Scout */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 274378A3B3749E660120AEAB /* Build configuration list for PBXNativeTarget "Scout" */;
+			buildPhases = (
+				20430C75B0C40ED5AE004B81 /* Sources */,
+				868092B194D9091B71F769F1 /* Resources */,
+				034AA96F85CFCFCA3158C709 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Scout;
+			packageProductDependencies = (
+				2EE9C88A7DB5FA847BAE7892 /* ZIPFoundation */,
+			);
+			productName = Scout;
+			productReference = 9A4C6E431C9C6C84DB08481C /* Scout.app */;
+			productType = "com.apple.product-type.application";
+		};
+		14A66302F006B5E9904FA979 /* ScoutTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 771E8F5217CCA3CDB8155A2E /* Build configuration list for PBXNativeTarget "ScoutTests" */;
+			buildPhases = (
+				97E4ECC72541AC83B0BFE943 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				73ABEAF9E399F29F58009485 /* PBXTargetDependency */,
+			);
+			name = ScoutTests;
+			packageProductDependencies = (
+			);
+			productName = ScoutTests;
+			productReference = 17807A002C04E20022167DC2 /* ScoutTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		41B094AA7B81704D49814DA7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					003385D7F95669C6298D33FC = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						TestTargetID = 07224840A05C2ED61F3A31AF;
+					};
+					07224840A05C2ED61F3A31AF = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+					};
+					14A66302F006B5E9904FA979 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+					};
+				};
+			};
+			buildConfigurationList = 5B00B5C06AFC6A6CA624DCFE /* Build configuration list for PBXProject "Scout" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 0042D17CF4C0BD4873490213;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0662F71193C5BC32FDB32915 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 0337B0B581B1E855D618C75C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				07224840A05C2ED61F3A31AF /* Scout */,
+				14A66302F006B5E9904FA979 /* ScoutTests */,
+				003385D7F95669C6298D33FC /* ScoutUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		868092B194D9091B71F769F1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C6EE0C0963253E20980B4F5E /* Assets.xcassets in Resources */,
+				006EB85D731E9C04A1230B87 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		20430C75B0C40ED5AE004B81 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C639F6A9972394BAD4CBA7D9 /* AccessGrantStore.swift in Sources */,
+				DE0F11CD4FFAEBBC38ED220C /* ArchiveClient.swift in Sources */,
+				B6AFF47D9BD1C0A71B446886 /* BrowserBridges.swift in Sources */,
+				04DADDFA4B32E8C17B4B9464 /* BrowserModels.swift in Sources */,
+				FDED09EB4C6123728B7FE579 /* BrowserSession.swift in Sources */,
+				769A1AB4FF582EE347C25042 /* CommandPaletteView.swift in Sources */,
+				81071182B0E9404A6C362DD3 /* DirectoryPresenter.swift in Sources */,
+				8925015A4AA22BAB38D86A5A /* FileSearchClient.swift in Sources */,
+				976F09B977DFE441ECDE2341 /* FileSystemClient.swift in Sources */,
+				C9E2E4807438AA9C1F8973D0 /* FileSystemModels.swift in Sources */,
+				AE9688A7EDFE85A769828F24 /* InspectorAndOverlays.swift in Sources */,
+				277004CA8A73FE3CD31B9474 /* OperationJournal.swift in Sources */,
+				5B139EEF1943521C040F1242 /* QuickLookBridge.swift in Sources */,
+				8072B3FB84463FD1590C41A8 /* ScoutApp.swift in Sources */,
+				BA2DD30D63ADFD2EB2FFFCD5 /* ScoutAppModel.swift in Sources */,
+				3EBB2BCC5E9080DDA0A12444 /* ScoutSettingsView.swift in Sources */,
+				E2EAB9043C690924F3337574 /* ScoutWindowHost.swift in Sources */,
+				22FE38C733BF6F4D6F688F39 /* SecurityScopeBroker.swift in Sources */,
+				ACA8E13CC7703FBC48A7200B /* URLSafety.swift in Sources */,
+				5294E4001301FFB3749491F4 /* WindowBridge.swift in Sources */,
+				BE4C1CA2373C741EF4B28FB2 /* WorkspaceClient.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		97E4ECC72541AC83B0BFE943 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1F51D53C079A238002B8106C /* AccessGrantTests.swift in Sources */,
+				8DD5BE57AA2738C52C387084 /* FileSystemClientTests.swift in Sources */,
+				39FE968C98496DA0E164B1A8 /* ModelTests.swift in Sources */,
+				B4D8F70DD2562721EC57EA3D /* PathSafetyTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B43DA76B0F33D0A402F974D9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EDE8A1E6D93445C249C738FA /* ScoutUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		73ABEAF9E399F29F58009485 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 07224840A05C2ED61F3A31AF /* Scout */;
+			targetProxy = 438509A2A372373EF3E81F6C /* PBXContainerItemProxy */;
+		};
+		BE46E6C9E82C3BF09D85BA08 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 07224840A05C2ED61F3A31AF /* Scout */;
+			targetProxy = 3AF7FA02F816876422DA75DA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		80DB0ECF052AE81D8C6B69FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8E5628F67F094104CC16BB2C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.ScoutUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Scout;
+			};
+			name = Debug;
+		};
+		8EA87F5FEB794E3AC0D021CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.ScoutTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Scout.app/Contents/MacOS/Scout";
+			};
+			name = Debug;
+		};
+		B759D5C473BE677A6A43DFF2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = ScoutAccent;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Scout.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/Scout-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.scout;
+				PRODUCT_MODULE_NAME = Scout;
+				PRODUCT_NAME = Scout;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		BAD229AE14D87433F90E1913 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CA8D3323D866545C5D2407CE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = ScoutAccent;
+				CODE_SIGN_ENTITLEMENTS = Configuration/Scout.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Configuration/Scout-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.scout;
+				PRODUCT_MODULE_NAME = Scout;
+				PRODUCT_NAME = Scout;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		E00B1EFEE8C74D7A5AC5E80C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.ScoutTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Scout.app/Contents/MacOS/Scout";
+			};
+			name = Release;
+		};
+		F36BD1E998F94CC373673EB5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.ScoutUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = Scout;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		274378A3B3749E660120AEAB /* Build configuration list for PBXNativeTarget "Scout" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B759D5C473BE677A6A43DFF2 /* Debug */,
+				CA8D3323D866545C5D2407CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5B00B5C06AFC6A6CA624DCFE /* Build configuration list for PBXProject "Scout" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BAD229AE14D87433F90E1913 /* Debug */,
+				80DB0ECF052AE81D8C6B69FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		771E8F5217CCA3CDB8155A2E /* Build configuration list for PBXNativeTarget "ScoutTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EA87F5FEB794E3AC0D021CD /* Debug */,
+				E00B1EFEE8C74D7A5AC5E80C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EC295E284AA47EDAEE88FE5A /* Build configuration list for PBXNativeTarget "ScoutUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E5628F67F094104CC16BB2C /* Debug */,
+				F36BD1E998F94CC373673EB5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0662F71193C5BC32FDB32915 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.20;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2EE9C88A7DB5FA847BAE7892 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0662F71193C5BC32FDB32915 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 41B094AA7B81704D49814DA7 /* Project object */;
+}

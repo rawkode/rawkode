@@ -1,0 +1,100 @@
+name: Scout
+
+options:
+  bundleIdPrefix: dev.rawkode
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "27.0"
+  generateEmptyDirectories: true
+
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.20
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: 6KXCJGJ45W
+    ENABLE_PREVIEWS: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    MARKETING_VERSION: 0.1.0
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_VERSION: 6.0
+
+targets:
+  Scout:
+    type: application
+    platform: macOS
+    deploymentTarget: "27.0"
+    productName: Scout
+    sources:
+      - Sources
+    dependencies:
+      - package: ZIPFoundation
+      - sdk: AppKit.framework
+      - sdk: QuickLook.framework
+      - sdk: QuickLookThumbnailing.framework
+      - sdk: QuickLookUI.framework
+      - sdk: UniformTypeIdentifiers.framework
+    info:
+      path: Configuration/Scout-Info.plist
+      properties:
+        CFBundleDisplayName: Scout
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: Copyright 2026 Rawkode Ltd.
+        NSSupportsAutomaticTermination: true
+        NSSupportsSuddenTermination: true
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ScoutAccent
+        CODE_SIGN_ENTITLEMENTS: Configuration/Scout.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.scout
+        PRODUCT_MODULE_NAME: Scout
+        PRODUCT_NAME: Scout
+
+  ScoutTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "27.0"
+    sources:
+      - Tests/ScoutTests
+    dependencies:
+      - target: Scout
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Scout.app/Contents/MacOS/Scout
+
+  ScoutUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "27.0"
+    sources:
+      - Tests/ScoutUITests
+    dependencies:
+      - target: Scout
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Scout:
+    build:
+      targets:
+        Scout: all
+        ScoutTests: [test]
+        ScoutUITests: [test]
+    run:
+      config: Debug
+    test:
+      targets:
+        - ScoutTests
+        - ScoutUITests
