@@ -7,6 +7,8 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case pageNotFound
   case pagePurged
   case invalidRecord
+  case projectHasActiveTasks(count: Int)
+  case taskProjectClosed(projectID: PageID)
   case taskNotActive
   case taskNotClosed
   case taskCompletionUndoUnavailable
@@ -17,6 +19,10 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .pageNotFound: "The page is no longer available."
     case .pagePurged: "This page was permanently removed."
     case .invalidRecord: "The local page record is invalid."
+    case .projectHasActiveTasks(let count):
+      "Complete or move the project's \(count) active task\(count == 1 ? "" : "s") before closing it."
+    case .taskProjectClosed:
+      "Active tasks cannot be assigned to a closed project. Reopen the project or choose another project."
     case .taskNotActive: "Only active tasks can be completed."
     case .taskNotClosed: "Only completed or canceled tasks can be reopened."
     case .taskCompletionUndoUnavailable:
@@ -1143,21 +1149,87 @@ public actor LibraryRepository {
       dueDate: data.dueDate,
       lastReviewedAt: data.lastReviewedAt
     )
-    try mutateDocument(pageID: pageID, now: now) { current in
-      guard current.hasSupertag(BuiltInSupertags.project) else {
+    return try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      guard let currentData = current.projectData else {
         throw LibraryRepositoryError.invalidRecord
       }
-      return try PageDocument.setProperties(
-        ProjectFields.properties(for: normalized),
-        ensuring: BuiltInSupertags.project,
+      if currentData.status.isOpen, !normalized.status.isOpen {
+        let activeTaskCount = try Self.activeTaskCount(db, projectID: pageID)
+        guard activeTaskCount == 0 else {
+          throw LibraryRepositoryError.projectHasActiveTasks(count: activeTaskCount)
+        }
+      }
+      return try Self.writeProjectUpdate(
+        db,
+        current: current,
+        data: normalized,
         message: "Update project plan",
-        in: current.document
+        now: now
       )
     }
-    guard let project = try page(id: pageID) else {
-      throw LibraryRepositoryError.pageNotFound
+  }
+
+  /// Completes a project only when no active task still refers to it.
+  ///
+  /// The task count and project write share one database transaction, so a blocked result never
+  /// partially changes the project or its cloud-dirty generation.
+  public func closeProject(
+    pageID: PageID,
+    now: Date = Date()
+  ) throws -> ProjectCloseResult {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      guard var data = current.projectData else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      guard data.status.isOpen else { return .closed(current) }
+
+      let activeTaskCount = try Self.activeTaskCount(db, projectID: pageID)
+      guard activeTaskCount == 0 else {
+        return .blocked(activeTaskCount: activeTaskCount)
+      }
+
+      data.status = .completed
+      let closed = try Self.writeProjectUpdate(
+        db,
+        current: current,
+        data: data,
+        message: "Close project",
+        now: now
+      )
+      return .closed(closed)
     }
-    return project
+  }
+
+  /// Reopens a completed or cancelled project as active. Calling this for an open project is a
+  /// no-op so retries do not create needless document or sync generations.
+  public func reopenProject(
+    pageID: PageID,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      guard var data = current.projectData else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      guard !data.status.isOpen else { return current }
+
+      data.status = .active
+      return try Self.writeProjectUpdate(
+        db,
+        current: current,
+        data: data,
+        message: "Reopen project",
+        now: now
+      )
+    }
   }
 
   @discardableResult
@@ -1176,6 +1248,7 @@ public actor LibraryRepository {
         pageID: page.id,
         parentTaskID: data.parentTaskID
       )
+      try Self.validateActiveTaskProjectStatus(db, data: data)
       var result = try PageDocument.setProperties(
         TaskFields.properties(for: data),
         ensuring: BuiltInSupertags.task,
@@ -1213,17 +1286,18 @@ public actor LibraryRepository {
       guard let current = try Self.fetchPage(db, id: pageID),
         current.hasSupertag(BuiltInSupertags.task)
       else { throw LibraryRepositoryError.invalidRecord }
-      try Self.validateTaskParent(
-        db,
-        pageID: pageID,
-        parentTaskID: data.parentTaskID
-      )
       let normalizedData = Self.normalizedTaskData(
         data,
         pageID: pageID,
         previous: current.taskData,
         calendar: calendar
       )
+      try Self.validateTaskParent(
+        db,
+        pageID: pageID,
+        parentTaskID: normalizedData.parentTaskID
+      )
+      try Self.validateActiveTaskProjectStatus(db, data: normalizedData)
       var result = try PageDocument.setProperties(
         TaskFields.properties(for: normalizedData),
         ensuring: BuiltInSupertags.task,
@@ -1950,6 +2024,56 @@ public actor LibraryRepository {
     }
   }
 
+  private static func activeTaskCount(
+    _ db: Database,
+    projectID: PageID
+  ) throws -> Int {
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT DISTINCT p.*
+        FROM pages p
+        JOIN page_supertags s
+          ON s.page_id = p.id AND s.supertag_id = ?
+        JOIN page_property_values project
+          ON project.page_id = p.id
+          AND project.supertag_id = ?
+          AND project.field_id = ?
+          AND project.entity_page_id = ?
+        WHERE p.deleted_at IS NULL
+        """,
+      arguments: [
+        BuiltInSupertags.task.rawValue,
+        BuiltInSupertags.task.rawValue,
+        TaskFields.project.fieldID.rawValue,
+        projectID.rawValue,
+      ]
+    )
+    return try rows
+      .map(Self.decodePage)
+      .filter { $0.taskData?.isActive == true }
+      .count
+  }
+
+  private static func writeProjectUpdate(
+    _ db: Database,
+    current: PageSnapshot,
+    data: ProjectData,
+    message: String,
+    now: Date
+  ) throws -> PageSnapshot {
+    let result = try PageDocument.setProperties(
+      ProjectFields.properties(for: data),
+      ensuring: BuiltInSupertags.project,
+      message: message,
+      in: current.document
+    )
+    let updated = updatedPage(current, with: result, now: now)
+    try writePage(db, page: updated, cloudDirty: true)
+    try replaceReferences(db, pageID: updated.id, references: result.projection.references)
+    return updated
+  }
+
   private static func validateTaskDataReferences(
     _ db: Database,
     pageID: PageID,
@@ -1979,6 +2103,7 @@ public actor LibraryRepository {
         project.deletedAt == nil || allowingDeletedPageIDs.contains(project.id),
         let projectData = project.projectData
       else { throw LibraryRepositoryError.invalidRecord }
+      try validateActiveTaskProjectStatus(db, data: data)
       if let projectAreaID = projectData.areaID {
         guard let projectArea = try fetchPage(db, id: projectAreaID),
           projectArea.deletedAt == nil || allowingDeletedPageIDs.contains(projectArea.id),
@@ -1994,6 +2119,22 @@ public actor LibraryRepository {
         assignee.hasSupertag(BuiltInSupertags.person)
       else { throw LibraryRepositoryError.invalidRecord }
     }
+  }
+
+  /// Keeps direct task writes compatible with their existing permissive reference handling while
+  /// enforcing the project lifecycle invariant whenever the referenced project is locally known.
+  private static func validateActiveTaskProjectStatus(
+    _ db: Database,
+    data: TaskData
+  ) throws {
+    guard data.isActive,
+      let projectID = data.projectID,
+      let project = try fetchPage(db, id: projectID),
+      project.deletedAt == nil,
+      let projectData = project.projectData,
+      !projectData.status.isOpen
+    else { return }
+    throw LibraryRepositoryError.taskProjectClosed(projectID: projectID)
   }
 
   private static func writePreparedTaskPage(
@@ -2231,9 +2372,30 @@ public actor LibraryRepository {
       let field = schema.fields.first(where: { $0.id == key.fieldID && !$0.isDeleted })
     else { throw LibraryRepositoryError.invalidRecord }
     try Self.validate(values: values, for: field)
-    try mutateDocument(pageID: pageID, now: now) { current in
-      try PageDocument.setProperty(key: key, values: values, in: current.document)
-    }
+    let requestedProjectStatus: ProjectStatus? = {
+      guard key == ProjectFields.status,
+        values.count == 1,
+        case .select(let rawValue) = values[0]
+      else { return nil }
+      return ProjectStatus(rawValue: rawValue)
+    }()
+    try mutateDocument(
+      pageID: pageID,
+      now: now,
+      validation: { db, current in
+        guard let requestedProjectStatus,
+          !requestedProjectStatus.isOpen,
+          current.projectData?.status.isOpen == true
+        else { return }
+        let activeTaskCount = try Self.activeTaskCount(db, projectID: pageID)
+        guard activeTaskCount == 0 else {
+          throw LibraryRepositoryError.projectHasActiveTasks(count: activeTaskCount)
+        }
+      },
+      mutation: { current in
+        try PageDocument.setProperty(key: key, values: values, in: current.document)
+      }
+    )
   }
 
   public func saveSupertag(
@@ -4081,6 +4243,7 @@ public actor LibraryRepository {
   private func mutateDocument(
     pageID: PageID,
     now: Date,
+    validation: ((Database, PageSnapshot) throws -> Void)? = nil,
     mutation: (PageSnapshot) throws -> (
       document: Data,
       heads: AutomergeHeads,
@@ -4091,6 +4254,7 @@ public actor LibraryRepository {
       guard let current = try Self.fetchPage(db, id: pageID) else {
         throw LibraryRepositoryError.pageNotFound
       }
+      try validation?(db, current)
       let result = try mutation(current)
       let updated = PageSnapshot(
         id: current.id,

@@ -264,6 +264,242 @@ final class ProjectPlanningTests: XCTestCase {
     XCTAssertEqual(snapshot.overdueTaskCount, overdueTasks.count)
   }
 
+  func testCloseProjectBlocksAtomicallyWhileActiveTasksRemain() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let now = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(
+      title: "Ship safely",
+      data: ProjectData(outcome: "The release is available"),
+      now: now
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(title: "Active one", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(title: "Active two", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    let completed = try await fixture.repository.createTask(
+      TaskDraft(title: "Already done", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    _ = try await fixture.repository.completeTask(pageID: completed.id, now: now)
+    let loadedBefore = try await fixture.repository.page(id: project.id)
+    let before = try XCTUnwrap(loadedBefore)
+
+    let result = try await fixture.repository.closeProject(
+      pageID: project.id,
+      now: now.addingTimeInterval(60)
+    )
+    let loadedAfter = try await fixture.repository.page(id: project.id)
+    let after = try XCTUnwrap(loadedAfter)
+
+    guard case .blocked(let activeTaskCount) = result else {
+      return XCTFail("Expected active tasks to block project closure, got \(result)")
+    }
+    XCTAssertEqual(activeTaskCount, 2)
+    XCTAssertEqual(after, before)
+    XCTAssertEqual(after.projectData?.status, .active)
+  }
+
+  func testCloseAndReopenProjectAreSafeAndIdempotent() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let now = Date(timeIntervalSince1970: 1_817_000_000)
+    let project = try await fixture.repository.createProject(title: "Ship safely", now: now)
+    let completedTask = try await fixture.repository.createTask(
+      TaskDraft(title: "Done", data: TaskData(projectID: project.id)),
+      now: now
+    )
+    _ = try await fixture.repository.completeTask(pageID: completedTask.id, now: now)
+
+    let firstResult = try await fixture.repository.closeProject(
+      pageID: project.id,
+      now: now.addingTimeInterval(60)
+    )
+    guard case .closed(let firstClosed) = firstResult else {
+      return XCTFail("Expected project closure, got \(firstResult)")
+    }
+    XCTAssertEqual(firstClosed.projectData?.status, .completed)
+    XCTAssertEqual(firstClosed.dirtyGeneration, project.dirtyGeneration + 1)
+
+    let secondResult = try await fixture.repository.closeProject(
+      pageID: project.id,
+      now: now.addingTimeInterval(120)
+    )
+    guard case .closed(let secondClosed) = secondResult else {
+      return XCTFail("Expected idempotent project closure, got \(secondResult)")
+    }
+    XCTAssertEqual(secondClosed, firstClosed)
+
+    let reopened = try await fixture.repository.reopenProject(
+      pageID: project.id,
+      now: now.addingTimeInterval(180)
+    )
+    XCTAssertEqual(reopened.projectData?.status, .active)
+    XCTAssertEqual(reopened.dirtyGeneration, firstClosed.dirtyGeneration + 1)
+
+    let reopenedAgain = try await fixture.repository.reopenProject(
+      pageID: project.id,
+      now: now.addingTimeInterval(240)
+    )
+    XCTAssertEqual(reopenedAgain, reopened)
+  }
+
+  func testProjectUpdateCannotBypassActiveTaskCloseGuard() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(
+      title: "Guarded project",
+      data: ProjectData(outcome: "Original outcome")
+    )
+    _ = try await fixture.repository.createTask(
+      TaskDraft(title: "Still active", data: TaskData(projectID: project.id))
+    )
+    var data = try XCTUnwrap(project.projectData)
+    data.status = .cancelled
+    data.outcome = "This must not be partially saved"
+
+    do {
+      _ = try await fixture.repository.updateProject(pageID: project.id, data: data)
+      XCTFail("Expected project closure through updateProject to be rejected")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .projectHasActiveTasks(count: 1))
+    }
+
+    let loadedProject = try await fixture.repository.page(id: project.id)
+    let unchanged = try XCTUnwrap(loadedProject)
+    XCTAssertEqual(unchanged.projectData?.status, .active)
+    XCTAssertEqual(unchanged.projectData?.outcome, "Original outcome")
+    XCTAssertEqual(unchanged.dirtyGeneration, project.dirtyGeneration)
+  }
+
+  func testProjectStatusPropertyCannotBypassActiveTaskCloseGuard() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Guarded property")
+    _ = try await fixture.repository.createTask(
+      TaskDraft(title: "Still active", data: TaskData(projectID: project.id))
+    )
+
+    do {
+      try await fixture.repository.setProperty(
+        pageID: project.id,
+        key: ProjectFields.status,
+        values: [.select(ProjectStatus.completed.rawValue)]
+      )
+      XCTFail("Expected direct status property closure to be rejected")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .projectHasActiveTasks(count: 1))
+    }
+
+    let loadedProject = try await fixture.repository.page(id: project.id)
+    let unchanged = try XCTUnwrap(loadedProject)
+    XCTAssertEqual(unchanged.projectData?.status, .active)
+    XCTAssertEqual(unchanged.dirtyGeneration, project.dirtyGeneration)
+  }
+
+  func testActiveTaskCannotBeCreatedForAClosedProjectButHistoricalTaskIsPreserved()
+    async throws
+  {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Closed project")
+    _ = try await fixture.repository.closeProject(pageID: project.id)
+
+    do {
+      _ = try await fixture.repository.createTask(
+        TaskDraft(title: "Invalid active task", data: TaskData(projectID: project.id))
+      )
+      XCTFail("Expected active task creation for a closed project to be rejected")
+    } catch {
+      XCTAssertEqual(error as? LibraryRepositoryError, .taskProjectClosed(projectID: project.id))
+    }
+
+    let historical = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Historical completed task",
+        data: TaskData(state: .completed, projectID: project.id)
+      )
+    )
+    XCTAssertEqual(historical.taskData?.projectID, project.id)
+    XCTAssertEqual(historical.taskData?.state, .completed)
+
+    _ = try await fixture.repository.reopenProject(pageID: project.id)
+    let active = try await fixture.repository.createTask(
+      TaskDraft(title: "Valid active task", data: TaskData(projectID: project.id))
+    )
+    XCTAssertEqual(active.taskData?.projectID, project.id)
+    XCTAssertEqual(active.taskData?.state, .active)
+  }
+
+  func testActiveTaskCannotBeReassignedOrReopenedIntoAClosedProject() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let sourceProject = try await fixture.repository.createProject(title: "Open project")
+    let closedProject = try await fixture.repository.createProject(title: "Closed project")
+    _ = try await fixture.repository.closeProject(pageID: closedProject.id)
+    let active = try await fixture.repository.createTask(
+      TaskDraft(title: "Active task", data: TaskData(projectID: sourceProject.id))
+    )
+    var reassignedData = try XCTUnwrap(active.taskData)
+    reassignedData.projectID = closedProject.id
+
+    do {
+      _ = try await fixture.repository.updateTask(pageID: active.id, data: reassignedData)
+      XCTFail("Expected reassignment into a closed project to be rejected")
+    } catch {
+      XCTAssertEqual(
+        error as? LibraryRepositoryError,
+        .taskProjectClosed(projectID: closedProject.id)
+      )
+    }
+    let loadedTask = try await fixture.repository.page(id: active.id)
+    let unchanged = try XCTUnwrap(loadedTask)
+    XCTAssertEqual(unchanged.taskData?.projectID, sourceProject.id)
+
+    let historical = try await fixture.repository.createTask(
+      TaskDraft(
+        title: "Closed historical task",
+        data: TaskData(state: .completed, projectID: closedProject.id)
+      )
+    )
+    do {
+      _ = try await fixture.repository.reopenTask(pageID: historical.id)
+      XCTFail("Expected task reopening in a closed project to be rejected")
+    } catch {
+      XCTAssertEqual(
+        error as? LibraryRepositoryError,
+        .taskProjectClosed(projectID: closedProject.id)
+      )
+    }
+
+    _ = try await fixture.repository.reopenProject(pageID: closedProject.id)
+    let reopenedTask = try await fixture.repository.reopenTask(pageID: historical.id)
+    XCTAssertEqual(reopenedTask.taskData?.state, .active)
+    XCTAssertEqual(reopenedTask.taskData?.projectID, closedProject.id)
+  }
+
+  @MainActor
+  func testStoreCloseProjectReturnsBlockedThenRefreshesSuccessfulClosure() async throws {
+    let fixture = try ProjectPlanningFixture()
+    let project = try await fixture.repository.createProject(title: "Store project")
+    let task = try await fixture.repository.createTask(
+      TaskDraft(title: "Resolve me", data: TaskData(projectID: project.id))
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    _ = await store.reload(policy: .refreshOnly)
+
+    let blocked = await store.closeProject(pageID: project.id)
+    guard case .blocked(let activeTaskCount) = blocked else {
+      return XCTFail("Expected the store to surface the blocked result, got \(blocked)")
+    }
+    XCTAssertEqual(activeTaskCount, 1)
+
+    _ = try await fixture.repository.completeTask(pageID: task.id)
+    let closed = await store.closeProject(pageID: project.id)
+    guard case .closed = closed else {
+      return XCTFail("Expected the store to close the project, got \(closed)")
+    }
+    XCTAssertEqual(store.page(id: project.id)?.projectData?.status, .completed)
+  }
+
   private func taskItem(
     id: PageID = .free(),
     title: String,

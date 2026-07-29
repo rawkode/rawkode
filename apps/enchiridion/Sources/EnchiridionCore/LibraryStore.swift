@@ -413,6 +413,38 @@ public final class LibraryStore {
     }
   }
 
+  @discardableResult
+  public func closeProject(pageID: PageID) async -> ProjectCloseResult {
+    guard let repository else {
+      return .failed(message: startupError ?? "The library is unavailable.")
+    }
+    do {
+      let result = try await repository.closeProject(pageID: pageID)
+      guard case .closed(let project) = result else { return result }
+      await reload()
+      await syncCoordinator?.pageDidChange(project.id)
+      return .closed(project)
+    } catch {
+      let message = error.localizedDescription
+      startupError = message
+      return .failed(message: message)
+    }
+  }
+
+  @discardableResult
+  public func reopenProject(pageID: PageID) async -> PageSnapshot? {
+    guard let repository else { return nil }
+    do {
+      let project = try await repository.reopenProject(pageID: pageID)
+      await reload()
+      await syncCoordinator?.pageDidChange(project.id)
+      return project
+    } catch {
+      startupError = error.localizedDescription
+      return nil
+    }
+  }
+
   public func tasks(on day: Date, includingOverdue: Bool = false) -> [TaskItem] {
     TaskQuery.items(
       from: pages,

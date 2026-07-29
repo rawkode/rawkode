@@ -26,9 +26,9 @@ struct MobileTaskHomeScreen: View {
           }
         }
 
-        if !store.taskProjects.isEmpty {
-          Section("Projects") {
-            ForEach(store.taskProjects) { project in
+        if !openProjects.isEmpty {
+          Section("Open Projects") {
+            ForEach(openProjects) { project in
               NavigationLink(value: MobileTaskDestination.list(.project(project.id))) {
                 TaskNavigationLabel(
                   title: project.displayTitle,
@@ -177,6 +177,10 @@ struct MobileTaskHomeScreen: View {
     store.savedViews.filter(\.isTaskListPerspective)
   }
 
+  private var openProjects: [PageSnapshot] {
+    store.taskProjects.filter { $0.projectData?.status.isOpen == true }
+  }
+
   private func taskPerspectiveItems(_ perspective: LiveQueryDefinition) -> [TaskItem] {
     (store.liveViewItems[perspective.id] ?? []).compactMap { item in
       guard case .page(let page) = item else { return nil }
@@ -208,7 +212,7 @@ struct TaskListScreen: View {
     .navigationTitle(title)
     .searchable(text: $query, prompt: "Filter this list")
     .toolbar {
-      if selection != .smart(.review) {
+      if allowsTaskCreation {
         ToolbarItem(placement: .primaryAction) {
           Button {
             showsQuickCapture = true
@@ -229,6 +233,17 @@ struct TaskListScreen: View {
   }
 
   private var title: String { taskSelectionTitle(selection, store: store) }
+
+  private var allowsTaskCreation: Bool {
+    switch selection {
+    case .smart(.review), .smart(.logbook):
+      false
+    case .project(let projectID):
+      store.page(id: projectID)?.projectData?.status.isOpen == true
+    default:
+      true
+    }
+  }
 }
 
 struct TaskPerspectiveScreen: View {
@@ -347,7 +362,7 @@ struct TaskListContent: View {
               selectedTasks: visibleTasks.filter { workbench.selectedTaskIDs.contains($0.id) },
               actions: .live(store: store)
             )
-          } else if let selection = source.listSelection {
+          } else if let selection = source.listSelection, allowsQuickEntry(for: selection) {
             TaskQuickEntryBar(store: store, selection: selection)
           }
         }
@@ -379,7 +394,15 @@ struct TaskListContent: View {
     } else {
       let tasks = visibleTasks
       TaskWorkbenchList(selection: $workbench) {
-        if tasks.isEmpty {
+        if isLogbook, !closedProjects.isEmpty {
+          Section("Closed Projects") {
+            ForEach(closedProjects) { project in
+              ClosedProjectRow(store: store, project: project)
+            }
+          }
+        }
+
+        if tasks.isEmpty, closedProjects.isEmpty {
           ContentUnavailableView(
             emptyTitle,
             systemImage: emptySymbol,
@@ -392,7 +415,11 @@ struct TaskListContent: View {
               taskRows(group.tasks)
             }
           }
-        } else {
+        } else if isLogbook, !tasks.isEmpty {
+          Section("Task History") {
+            taskRows(tasks)
+          }
+        } else if !tasks.isEmpty {
           taskRows(tasks)
         }
       }
@@ -479,6 +506,27 @@ struct TaskListContent: View {
     }
   }
 
+  private var isLogbook: Bool {
+    if case .list(.smart(.logbook)) = source { return true }
+    return false
+  }
+
+  private var closedProjects: [PageSnapshot] {
+    guard isLogbook else { return [] }
+    return store.taskProjects.filter { $0.projectData?.status.isOpen == false }
+  }
+
+  private func allowsQuickEntry(for selection: TaskListSelection) -> Bool {
+    switch selection {
+    case .smart(.logbook), .smart(.review):
+      false
+    case .project(let projectID):
+      store.page(id: projectID)?.projectData?.status.isOpen == true
+    default:
+      true
+    }
+  }
+
   private var usesNativeTaskSelection: Bool {
     #if os(iOS)
       workbench.isSelecting
@@ -504,7 +552,7 @@ struct TaskListContent: View {
   }
 
   private var emptyTitle: String {
-    if case .list(.smart(.logbook)) = source { return "No completed tasks" }
+    if isLogbook { return "Nothing in Logbook" }
     if case .perspective = source { return "No matching tasks" }
     return "All clear"
   }
@@ -520,8 +568,86 @@ struct TaskListContent: View {
       return "Capture something as soon as it crosses your mind."
     }
     if case .list(.smart(.today)) = source { return "Nothing is scheduled or due today." }
+    if isLogbook { return "Completed or cancelled tasks and closed projects appear here." }
     if case .perspective = source { return "No tasks match this saved perspective." }
     return "No tasks match this list."
+  }
+}
+
+private struct ClosedProjectRow: View {
+  let store: LibraryStore
+  let project: PageSnapshot
+
+  @State private var isReopening = false
+  @State private var failureMessage: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(project.displayTitle)
+            .font(.body.weight(.medium))
+            .lineLimit(2)
+
+          Label(status.title, systemImage: statusSystemImage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+          if let outcome = project.projectData?.outcome, !outcome.isEmpty {
+            Text(outcome)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+
+        Button(action: reopen) {
+          if isReopening {
+            ProgressView()
+              .controlSize(.small)
+              .frame(minWidth: 72)
+          } else {
+            Label("Reopen", systemImage: "arrow.uturn.backward")
+              .fixedSize()
+          }
+        }
+        .buttonStyle(.borderless)
+        .frame(minHeight: 44)
+        .disabled(isReopening)
+        .accessibilityLabel("Reopen \(project.displayTitle)")
+        .accessibilityHint("Returns this project to Open Projects")
+      }
+
+      if let failureMessage {
+        Label(failureMessage, systemImage: "exclamationmark.triangle")
+          .font(.caption)
+          .foregroundStyle(.red)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(.vertical, 2)
+  }
+
+  private var status: ProjectStatus {
+    project.projectData?.status ?? .completed
+  }
+
+  private var statusSystemImage: String {
+    status == .cancelled ? "xmark.circle" : "checkmark.circle"
+  }
+
+  private func reopen() {
+    guard !isReopening else { return }
+    failureMessage = nil
+    isReopening = true
+    Task {
+      if await store.reopenProject(pageID: project.id) == nil {
+        failureMessage = store.startupError ?? "The project could not be reopened."
+      }
+      isReopening = false
+    }
   }
 }
 
@@ -772,8 +898,8 @@ struct TaskPropertiesView: View {
       Section("Organization") {
         Picker("Project", selection: $data.projectID) {
           Text("None").tag(PageID?.none)
-          ForEach(store.taskProjects) { project in
-            Text(project.displayTitle).tag(PageID?.some(project.id))
+          ForEach(assignableProjects) { project in
+            Text(projectPickerTitle(project)).tag(PageID?.some(project.id))
           }
         }
         Picker("Area", selection: $data.areaID) {
@@ -914,6 +1040,23 @@ struct TaskPropertiesView: View {
     store.pages.compactMap(TaskItem.init(page:)).filter {
       $0.id != page.id && $0.data.state == .active
     }
+  }
+
+  private var assignableProjects: [PageSnapshot] {
+    var projects = store.taskProjects.filter { $0.projectData?.status.isOpen == true }
+    if let projectID = data.projectID,
+      let current = store.page(id: projectID),
+      !projects.contains(where: { $0.id == projectID })
+    {
+      projects.append(current)
+    }
+    return projects
+  }
+
+  private func projectPickerTitle(_ project: PageSnapshot) -> String {
+    project.projectData?.status.isOpen == false
+      ? "\(project.displayTitle) (Closed)"
+      : project.displayTitle
   }
 
   private func stateTitle(_ state: TaskState) -> String {
@@ -1398,7 +1541,7 @@ struct TaskQuickCaptureSheet: View {
 
   private var interpretationContext: TaskInterpretationContext {
     TaskInterpretationContext(
-      projectNames: store.taskProjects.map(\.displayTitle),
+      projectNames: openProjects.map(\.displayTitle),
       areaNames: store.taskAreas.map(\.displayTitle),
       parentTaskTitles: store.pages.compactMap(TaskItem.init(page:)).filter {
         $0.data.state == .active
@@ -1415,7 +1558,7 @@ struct TaskQuickCaptureSheet: View {
       let match: PageSnapshot?
       switch suggestion.field {
       case .project:
-        match = exactMatch(suggestion.value, in: store.taskProjects)
+        match = exactMatch(suggestion.value, in: openProjects)
         if let match { resolved.draft.data.projectID = match.id }
       case .area:
         match = exactMatch(suggestion.value, in: store.taskAreas)
@@ -1445,6 +1588,10 @@ struct TaskQuickCaptureSheet: View {
       }
     }
     return resolved
+  }
+
+  private var openProjects: [PageSnapshot] {
+    store.taskProjects.filter { $0.projectData?.status.isOpen == true }
   }
 
   private func exactMatch(_ value: String, in candidates: [PageSnapshot]) -> PageSnapshot? {
@@ -1666,7 +1813,9 @@ private struct TaskDraftMetadataEditor: View {
         Section("Organize") {
           Picker("Project", selection: $draft.data.projectID) {
             Text("None").tag(PageID?.none)
-            ForEach(store.taskProjects) { Text($0.displayTitle).tag(PageID?.some($0.id)) }
+            ForEach(store.taskProjects.filter { $0.projectData?.status.isOpen == true }) {
+              Text($0.displayTitle).tag(PageID?.some($0.id))
+            }
           }
           Picker("Area", selection: $draft.data.areaID) {
             Text("None").tag(PageID?.none)

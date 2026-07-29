@@ -10,11 +10,13 @@ struct ProjectTaskListContent: View {
 
   @State private var planningDraft: ProjectPlanningDraft?
   @State private var subtaskParent: TaskItem?
+  @State private var lifecycleFeedback: ProjectLifecycleFeedback?
+  @State private var isChangingLifecycle = false
 
   var body: some View {
     TaskWorkbenchList(selection: $workbench) {
       if let project, let data = project.projectData {
-        Section("Outcome") {
+        Section {
           Button {
             planningDraft = .init(project: project, data: data)
           } label: {
@@ -33,18 +35,55 @@ struct ProjectTaskListContent: View {
           }
           .buttonStyle(.plain)
           .accessibilityHint("Edits this project's outcome, status, and dates")
+
+          Button {
+            changeLifecycle(for: data)
+          } label: {
+            HStack(spacing: 10) {
+              Label(
+                data.status.isOpen ? "Close Project" : "Reopen Project",
+                systemImage: data.status.isOpen ? "archivebox" : "arrow.uturn.backward"
+              )
+              Spacer()
+              if isChangingLifecycle {
+                ProgressView()
+                  .controlSize(.small)
+                  .accessibilityLabel(
+                    data.status.isOpen ? "Closing project" : "Reopening project"
+                  )
+              }
+            }
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+          }
+          .disabled(isChangingLifecycle)
+          .accessibilityHint(
+            data.status.isOpen
+              ? "Closes the project when it has no unfinished tasks"
+              : "Returns the project to Open Projects"
+          )
+
+          if let lifecycleFeedback {
+            ProjectLifecycleFeedbackView(feedback: lifecycleFeedback)
+          }
+        } header: {
+          Text("Project")
+        } footer: {
+          Text(
+            data.status.isOpen
+              ? "Close this project after every unfinished task is completed or moved."
+              : "Closed projects appear in Logbook."
+          )
         }
       }
 
       Section("Tasks") {
         if rows.isEmpty {
           ContentUnavailableView(
-            query.isEmpty ? "No next actions" : "No matching tasks",
-            systemImage: "checklist",
+            emptyTaskTitle(for: project?.projectData),
+            systemImage: project?.projectData?.status.isOpen == false ? "archivebox" : "checklist",
             description: Text(
-              query.isEmpty
-                ? "Add a task, then use Add Subtask to break work into smaller actions."
-                : "Try a different search."
+              emptyTaskDescription(for: project?.projectData)
             )
           )
           .listRowSeparator(.hidden)
@@ -72,7 +111,7 @@ struct ProjectTaskListContent: View {
               }
             }
             .contextMenu {
-              if !workbench.isSelecting {
+              if !workbench.isSelecting, project?.projectData?.status.isOpen == true {
                 Button("Add Subtask", systemImage: "arrow.turn.down.right") {
                   subtaskParent = row.task
                 }
@@ -101,6 +140,42 @@ struct ProjectTaskListContent: View {
     store.page(id: projectID)
   }
 
+  private func emptyTaskTitle(for data: ProjectData?) -> String {
+    if !query.isEmpty { return "No matching tasks" }
+    return data?.status.isOpen == false ? "Project closed" : "No next actions"
+  }
+
+  private func emptyTaskDescription(for data: ProjectData?) -> String {
+    if !query.isEmpty { return "Try a different search." }
+    if data?.status.isOpen == false { return "Reopen this project to add next actions." }
+    return "Add a task, then use Add Subtask to break work into smaller actions."
+  }
+
+  private func changeLifecycle(for data: ProjectData) {
+    guard !isChangingLifecycle else { return }
+    lifecycleFeedback = nil
+    isChangingLifecycle = true
+
+    Task {
+      if data.status.isOpen {
+        let result = await store.closeProject(pageID: projectID)
+        switch result {
+        case .closed:
+          lifecycleFeedback = nil
+        case .blocked(let activeTaskCount):
+          lifecycleFeedback = .blocked(activeTaskCount: activeTaskCount)
+        case .failed(let message):
+          lifecycleFeedback = .failed(message: message)
+        }
+      } else if await store.reopenProject(pageID: projectID) == nil {
+        lifecycleFeedback = .failed(
+          message: store.startupError ?? "The project could not be reopened."
+        )
+      }
+      isChangingLifecycle = false
+    }
+  }
+
   private var rows: [TaskHierarchyRow] {
     let tasks = store.tasks(in: .project(projectID))
     let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,6 +196,53 @@ struct ProjectTaskListContent: View {
     #else
       true
     #endif
+  }
+}
+
+private enum ProjectLifecycleFeedback: Equatable {
+  case blocked(activeTaskCount: Int)
+  case failed(message: String)
+}
+
+private struct ProjectLifecycleFeedbackView: View {
+  let feedback: ProjectLifecycleFeedback
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Image(systemName: systemImage)
+        .foregroundStyle(iconColor)
+        .accessibilityHidden(true)
+      Text(message)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .font(.callout)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var message: String {
+    switch feedback {
+    case .blocked(let activeTaskCount):
+      let noun = activeTaskCount == 1 ? "task" : "tasks"
+      return
+        "\(activeTaskCount) unfinished \(noun) still belong to this project. Complete or move \(activeTaskCount == 1 ? "it" : "them") before closing."
+    case .failed(let message):
+      return message
+    }
+  }
+
+  private var systemImage: String {
+    switch feedback {
+    case .blocked: "exclamationmark.circle"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var iconColor: Color {
+    switch feedback {
+    case .blocked: .orange
+    case .failed: .red
+    }
   }
 }
 
@@ -453,12 +575,15 @@ private struct ProjectPlanningEditor: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section("Plan") {
+        Section {
           TextField("Outcome", text: $data.outcome, axis: .vertical)
             .lineLimit(2...6)
           Picker("Status", selection: $data.status) {
-            ForEach(ProjectStatus.allCases, id: \.self) { status in
+            ForEach(ProjectStatus.allCases.filter(\.isOpen), id: \.self) { status in
               Text(status.title).tag(status)
+            }
+            if !data.status.isOpen {
+              Text(data.status.title).tag(data.status)
             }
           }
           Picker("Area", selection: $data.areaID) {
@@ -467,6 +592,10 @@ private struct ProjectPlanningEditor: View {
               Text(area.displayTitle).tag(PageID?.some(area.id))
             }
           }
+        } header: {
+          Text("Plan")
+        } footer: {
+          Text("Close or reopen this project from its task list.")
         }
 
         Section("Dates") {

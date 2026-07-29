@@ -25,6 +25,12 @@ public enum ProjectStatus: String, Codable, CaseIterable, Hashable, Sendable {
   }
 }
 
+public enum ProjectCloseResult: Hashable, Sendable {
+  case closed(PageSnapshot)
+  case blocked(activeTaskCount: Int)
+  case failed(message: String)
+}
+
 public struct ProjectData: Codable, Hashable, Sendable {
   public var status: ProjectStatus
   public var outcome: String

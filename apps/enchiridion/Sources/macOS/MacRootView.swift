@@ -76,7 +76,7 @@ struct MacRootView: View {
           .accessibilityHint("Creates a reusable filtered task list.")
         }
         Section("Projects") {
-          ForEach(store.taskProjects) { project in
+          ForEach(openProjects) { project in
             Label(project.displayTitle, systemImage: "folder")
               .tag(MacSidebarSelection.task(.project(project.id)))
           }
@@ -341,7 +341,7 @@ struct MacRootView: View {
         }
         .help("Connect read-only calendars")
       }
-      if selection.taskSelection != nil || taskPerspective != nil {
+      if canCreateTaskInCurrentContext {
         ToolbarItem(placement: .primaryAction) {
           Button {
             showsQuickTaskCapture = true
@@ -368,7 +368,10 @@ struct MacRootView: View {
       }
     }
     .focusedSceneValue(\.newPageAction, createPage)
-    .focusedSceneValue(\.newTaskAction, { showsQuickTaskCapture = true })
+    .focusedSceneValue(
+      \.newTaskAction,
+      canCreateTaskInCurrentContext ? { showsQuickTaskCapture = true } : nil
+    )
     .focusedSceneValue(\.openTaskListAction, openTaskList)
     .sheet(item: $editingTag) { tag in
       SupertagSchemaEditor(store: store, definition: tag)
@@ -397,7 +400,7 @@ struct MacRootView: View {
       }
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
-      TaskQuickCaptureSheet(store: store, selection: selection.taskSelection ?? .smart(.inbox))
+      TaskQuickCaptureSheet(store: store, selection: quickTaskCaptureSelection)
     }
     .sheet(item: $taskCollectionDraft) { draft in
       TaskCollectionCreator(store: store, draft: draft)
@@ -452,9 +455,30 @@ struct MacRootView: View {
     store.savedViews.filter(\.isTaskListPerspective)
   }
 
+  private var openProjects: [PageSnapshot] {
+    store.taskProjects.filter { $0.projectData?.status.isOpen == true }
+  }
+
   private var taskPerspective: LiveQueryDefinition? {
     guard case .view(let viewID) = selection else { return nil }
     return taskPerspectives.first { $0.id == viewID }
+  }
+
+  private var canCreateTaskInCurrentContext: Bool {
+    if taskPerspective != nil { return true }
+    guard let selection = selection.taskSelection else { return false }
+    return switch selection {
+    case .smart(.logbook), .smart(.review):
+      false
+    case .project(let projectID):
+      store.page(id: projectID)?.projectData?.status.isOpen == true
+    default:
+      true
+    }
+  }
+
+  private var quickTaskCaptureSelection: TaskListSelection {
+    canCreateTaskInCurrentContext ? selection.taskSelection ?? .smart(.inbox) : .smart(.inbox)
   }
 
   private var perspectiveDeletionBinding: Binding<Bool> {
