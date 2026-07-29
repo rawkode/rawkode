@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct EnchiridionMacApp: App {
+  @NSApplicationDelegateAdaptor(EnchiridionMacAppDelegate.self) private var appDelegate
   @FocusedValue(\.newPageAction) private var newPageAction
   @FocusedValue(\.newTaskAction) private var newTaskAction
   @FocusedValue(\.openTaskListAction) private var openTaskListAction

@@ -4,6 +4,19 @@ import UIKit
 final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
   func application(
     _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    TaskReminderNotificationCoordinator.shared.configure(
+      store: EnchiridionAppRuntime.shared.store,
+      openURL: { url in
+        UIApplication.shared.open(url)
+      }
+    )
+    return true
+  }
+
+  func application(
+    _ application: UIApplication,
     configurationForConnecting connectingSceneSession: UISceneSession,
     options: UIScene.ConnectionOptions
   ) -> UISceneConfiguration {
