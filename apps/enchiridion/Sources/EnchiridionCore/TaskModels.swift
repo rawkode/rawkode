@@ -514,6 +514,245 @@ public struct TaskCompletionUndoResult: Hashable, Sendable {
   }
 }
 
+public enum TaskSchedulePatch: Codable, Hashable, Sendable {
+  case unchanged
+  case clear
+  case dateOnly(Date)
+  case dateTime(Date)
+}
+
+public enum TaskDatePatch: Codable, Hashable, Sendable {
+  case unchanged
+  case clear
+  case set(Date)
+}
+
+public enum TaskPageReferencePatch: Codable, Hashable, Sendable {
+  case unchanged
+  case clear
+  case set(PageID)
+}
+
+public enum TaskTagCollectionPatch: Codable, Hashable, Sendable {
+  case unchanged
+  case replace([String])
+  case add([String])
+  case remove([String])
+
+  fileprivate func applying(to existing: [String]) -> [String] {
+    switch self {
+    case .unchanged:
+      return existing
+    case .replace(let tags):
+      return TaskData.normalizedTags(tags)
+    case .add(let tags):
+      return TaskData.normalizedTags(existing + tags)
+    case .remove(let tags):
+      let removed = Set(TaskData.normalizedTags(tags))
+      return existing.filter { !removed.contains($0) }
+    }
+  }
+}
+
+public enum TaskAssigneeCollectionPatch: Codable, Hashable, Sendable {
+  case unchanged
+  case replace([PageID])
+  case add([PageID])
+  case remove([PageID])
+
+  fileprivate func applying(to existing: [PageID]) -> [PageID] {
+    switch self {
+    case .unchanged:
+      return existing
+    case .replace(let pageIDs):
+      return TaskData.normalizedPageIDs(pageIDs)
+    case .add(let pageIDs):
+      return TaskData.normalizedPageIDs(existing + pageIDs)
+    case .remove(let pageIDs):
+      let removed = Set(pageIDs)
+      return existing.filter { !removed.contains($0) }
+    }
+  }
+}
+
+/// A partial task-data edit used by the atomic Task Workbench APIs.
+///
+/// Optional scalar values use `nil` to mean "leave unchanged". Reference, date, and collection
+/// values have explicit patch enums because clearing, adding or removing, and leaving them
+/// unchanged are all meaningful operations. The `tags:` and `assigneeIDs:` initializer arguments
+/// remain explicit replacement conveniences for homogeneous selections; mixed selections should
+/// use `tagPatch:` and `assigneePatch:` to preserve values that are not visible across every task.
+public struct TaskMetadataPatch: Codable, Hashable, Sendable {
+  public var schedule: TaskSchedulePatch
+  public var deadline: TaskDatePatch
+  public var priority: TaskPriority?
+  public var placement: TaskPlacement?
+  public var project: TaskPageReferencePatch
+  public var area: TaskPageReferencePatch
+  public var tagPatch: TaskTagCollectionPatch
+  public var assigneePatch: TaskAssigneeCollectionPatch
+
+  public var tags: [String]? {
+    get {
+      guard case .replace(let tags) = tagPatch else { return nil }
+      return tags
+    }
+    set {
+      tagPatch = newValue.map(TaskTagCollectionPatch.replace) ?? .unchanged
+    }
+  }
+
+  public var assigneeIDs: [PageID]? {
+    get {
+      guard case .replace(let pageIDs) = assigneePatch else { return nil }
+      return pageIDs
+    }
+    set {
+      assigneePatch = newValue.map(TaskAssigneeCollectionPatch.replace) ?? .unchanged
+    }
+  }
+
+  public init(
+    schedule: TaskSchedulePatch = .unchanged,
+    deadline: TaskDatePatch = .unchanged,
+    priority: TaskPriority? = nil,
+    placement: TaskPlacement? = nil,
+    project: TaskPageReferencePatch = .unchanged,
+    area: TaskPageReferencePatch = .unchanged,
+    tags: [String]? = nil,
+    assigneeIDs: [PageID]? = nil,
+    tagPatch: TaskTagCollectionPatch = .unchanged,
+    assigneePatch: TaskAssigneeCollectionPatch = .unchanged
+  ) {
+    self.schedule = schedule
+    self.deadline = deadline
+    self.priority = priority
+    self.placement = placement
+    self.project = project
+    self.area = area
+    self.tagPatch = tags.map(TaskTagCollectionPatch.replace) ?? tagPatch
+    self.assigneePatch = assigneeIDs.map(TaskAssigneeCollectionPatch.replace) ?? assigneePatch
+  }
+
+  public var isEmpty: Bool {
+    schedule == .unchanged
+      && deadline == .unchanged
+      && priority == nil
+      && placement == nil
+      && project == .unchanged
+      && area == .unchanged
+      && tagPatch == .unchanged
+      && assigneePatch == .unchanged
+  }
+
+  public func applying(to data: TaskData) -> TaskData {
+    var updated = data
+    switch schedule {
+    case .unchanged:
+      break
+    case .clear:
+      updated.scheduledAt = nil
+    case .dateOnly(let date):
+      updated.scheduledAt = date
+      updated.scheduleGranularity = .dateOnly
+    case .dateTime(let date):
+      updated.scheduledAt = date
+      updated.scheduleGranularity = .dateTime
+    }
+    switch deadline {
+    case .unchanged:
+      break
+    case .clear:
+      updated.deadline = nil
+    case .set(let date):
+      updated.deadline = date
+    }
+    if let priority { updated.priority = priority }
+    if let placement { updated.placement = placement }
+    switch project {
+    case .unchanged: break
+    case .clear: updated.projectID = nil
+    case .set(let pageID): updated.projectID = pageID
+    }
+    switch area {
+    case .unchanged: break
+    case .clear: updated.areaID = nil
+    case .set(let pageID): updated.areaID = pageID
+    }
+    updated.tags = tagPatch.applying(to: updated.tags)
+    updated.assigneeIDs = assigneePatch.applying(to: updated.assigneeIDs)
+    return updated
+  }
+}
+
+public enum TaskBatchOperation: String, Codable, Hashable, Sendable {
+  case complete
+  case reopen
+  case cancel
+  case patch
+}
+
+public struct TaskBatchUndoEntry: Codable, Hashable, Sendable {
+  public var operation: TaskBatchOperation
+  public var sourceAfterMutation: TaskPageVersion
+  public var sourceBeforeTaskData: TaskData
+  public var createdSuccessor: TaskCreatedSuccessorReceipt?
+
+  public init(
+    operation: TaskBatchOperation,
+    sourceAfterMutation: TaskPageVersion,
+    sourceBeforeTaskData: TaskData,
+    createdSuccessor: TaskCreatedSuccessorReceipt? = nil
+  ) {
+    self.operation = operation
+    self.sourceAfterMutation = sourceAfterMutation
+    self.sourceBeforeTaskData = sourceBeforeTaskData
+    self.createdSuccessor = createdSuccessor
+  }
+}
+
+public struct TaskBatchUndoReceipt: Codable, Hashable, Sendable {
+  public var entries: [TaskBatchUndoEntry]
+
+  public init(entries: [TaskBatchUndoEntry]) {
+    self.entries = entries
+  }
+}
+
+public struct TaskBatchMutationResult: Hashable, Sendable {
+  public var tasks: [PageSnapshot]
+  public var createdSuccessors: [PageSnapshot]
+  public var undoReceipt: TaskBatchUndoReceipt
+
+  public init(
+    tasks: [PageSnapshot],
+    createdSuccessors: [PageSnapshot] = [],
+    undoReceipt: TaskBatchUndoReceipt
+  ) {
+    self.tasks = tasks
+    self.createdSuccessors = createdSuccessors
+    self.undoReceipt = undoReceipt
+  }
+
+  public var changedPageIDs: [PageID] {
+    tasks.map(\.id) + createdSuccessors.map(\.id)
+  }
+}
+
+public struct TaskBatchUndoResult: Hashable, Sendable {
+  public var restoredTasks: [PageSnapshot]
+  public var removedSuccessorIDs: [PageID]
+
+  public init(restoredTasks: [PageSnapshot], removedSuccessorIDs: [PageID] = []) {
+    self.restoredTasks = restoredTasks
+    self.removedSuccessorIDs = removedSuccessorIDs
+  }
+
+  public var changedPageIDs: [PageID] {
+    restoredTasks.map(\.id) + removedSuccessorIDs
+  }
+}
+
 public enum TaskSmartList: String, CaseIterable, Codable, Hashable, Sendable, Identifiable {
   case inbox
   case today

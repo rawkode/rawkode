@@ -1515,6 +1515,460 @@ public actor LibraryRepository {
     }
   }
 
+  public static let maximumTaskBatchSize = 100
+
+  @discardableResult
+  public func completeTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> TaskBatchMutationResult {
+    try mutateTasks(pageIDs, mutation: .complete, now: now, calendar: calendar)
+  }
+
+  @discardableResult
+  public func reopenTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) throws -> TaskBatchMutationResult {
+    try mutateTasks(pageIDs, mutation: .reopen, now: now, calendar: .current)
+  }
+
+  @discardableResult
+  public func cancelTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) throws -> TaskBatchMutationResult {
+    try mutateTasks(pageIDs, mutation: .cancel, now: now, calendar: .current)
+  }
+
+  @discardableResult
+  public func patchTasks(
+    _ pageIDs: [PageID],
+    patch: TaskMetadataPatch,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) throws -> TaskBatchMutationResult {
+    guard !patch.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+    return try mutateTasks(pageIDs, mutation: .patch(patch), now: now, calendar: calendar)
+  }
+
+  @discardableResult
+  public func undoTaskBatch(
+    _ receipt: TaskBatchUndoReceipt,
+    now: Date = Date()
+  ) throws -> TaskBatchUndoResult {
+    let sourceIDs = Set(receipt.entries.map(\.sourceAfterMutation.id))
+    try Self.validateTaskBatchIDs(Array(sourceIDs))
+    guard sourceIDs.count == receipt.entries.count else {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    return try database.write { db in
+      var restored: [PreparedTaskPageWrite] = []
+      var successorsToRemove: [PageSnapshot] = []
+      var successorIDs: Set<PageID> = []
+
+      // Preflight the entire receipt before preparing or issuing a write. Heads and generation
+      // checks make this the batch equivalent of the completion undo safety contract.
+      for entry in receipt.entries {
+        let version = entry.sourceAfterMutation
+        guard let source = try Self.fetchPage(db, id: version.id),
+          source.deletedAt == nil,
+          source.heads == version.heads,
+          source.dirtyGeneration == version.dirtyGeneration,
+          let currentData = source.taskData,
+          Self.taskStatesMatchBatchOperation(
+            current: currentData.state,
+            before: entry.sourceBeforeTaskData.state,
+            operation: entry.operation
+          )
+        else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
+
+        try Self.validateTaskDataReferences(
+          db,
+          pageID: source.id,
+          data: entry.sourceBeforeTaskData
+        )
+
+        if let createdSuccessor = entry.createdSuccessor {
+          guard entry.operation == .complete,
+            !sourceIDs.contains(createdSuccessor.version.id),
+            successorIDs.insert(createdSuccessor.version.id).inserted,
+            let recurrence = entry.sourceBeforeTaskData.recurrence,
+            recurrence.interval > 0,
+            let sourceSequence = entry.sourceBeforeTaskData.recurrenceSequence
+          else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
+          let seriesID = entry.sourceBeforeTaskData.recurrenceSeriesID
+            ?? .derived(from: source.id)
+          let (expectedSequence, overflow) = sourceSequence.addingReportingOverflow(1)
+          guard !overflow,
+            createdSuccessor.seriesID == seriesID,
+            createdSuccessor.sequence == expectedSequence,
+            createdSuccessor.version.id == PageID.taskOccurrence(
+              seriesID: seriesID,
+              sequence: expectedSequence
+            ),
+            let successor = try Self.fetchPage(db, id: createdSuccessor.version.id),
+            successor.deletedAt == nil,
+            successor.heads == createdSuccessor.version.heads,
+            successor.dirtyGeneration == createdSuccessor.version.dirtyGeneration,
+            let successorData = successor.taskData,
+            successorData.recurrenceSeriesID == seriesID,
+            successorData.recurrenceSequence == expectedSequence,
+            try Bool.fetchOne(
+              db,
+              sql: "SELECT EXISTS(SELECT 1 FROM page_references WHERE target_page_id = ?)",
+              arguments: [successor.id.rawValue]
+            ) != true,
+            try Bool.fetchOne(
+              db,
+              sql: "SELECT EXISTS(SELECT 1 FROM purge_markers WHERE page_id = ?)",
+              arguments: [successor.id.rawValue]
+            ) != true
+          else { throw LibraryRepositoryError.taskCompletionUndoUnavailable }
+          successorsToRemove.append(successor)
+        }
+
+        let result = try PageDocument.setProperties(
+          TaskFields.properties(for: entry.sourceBeforeTaskData),
+          ensuring: BuiltInSupertags.task,
+          message: "Undo batch task mutation",
+          in: source.document
+        )
+        restored.append(
+          PreparedTaskPageWrite(
+            page: Self.updatedPage(source, with: result, now: now),
+            references: result.projection.references
+          )
+        )
+      }
+
+      let restoredReferenceTargets = Set(restored.flatMap(\.references).map(\.targetPageID))
+      guard restoredReferenceTargets.isDisjoint(with: successorIDs) else {
+        throw LibraryRepositoryError.taskCompletionUndoUnavailable
+      }
+
+      for prepared in restored {
+        try Self.writePreparedTaskPage(db, prepared: prepared, now: now)
+      }
+      for successor in successorsToRemove {
+        let purgeGeneration = successor.dirtyGeneration + 1
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO purge_markers
+              (page_id,generation,purged_at,cloud_dirty)
+            VALUES (?,?,?,1)
+            """,
+          arguments: [successor.id.rawValue, purgeGeneration, now.timeIntervalSince1970]
+        )
+        try Self.enqueueTaskEffectOutbox(
+          db,
+          pageID: successor.id,
+          generation: purgeGeneration,
+          requestingAuthorization: false,
+          now: now
+        )
+        try db.execute(sql: "DELETE FROM pages WHERE id = ?", arguments: [successor.id.rawValue])
+      }
+
+      return TaskBatchUndoResult(
+        restoredTasks: restored.map(\.page),
+        removedSuccessorIDs: successorsToRemove.map(\.id)
+      )
+    }
+  }
+
+  private enum TaskBatchMutation {
+    case complete
+    case reopen
+    case cancel
+    case patch(TaskMetadataPatch)
+
+    var operation: TaskBatchOperation {
+      switch self {
+      case .complete: .complete
+      case .reopen: .reopen
+      case .cancel: .cancel
+      case .patch: .patch
+      }
+    }
+
+    var documentMessage: String {
+      switch self {
+      case .complete: "Complete task batch"
+      case .reopen: "Reopen task batch"
+      case .cancel: "Cancel task batch"
+      case .patch: "Patch task batch"
+      }
+    }
+  }
+
+  private struct PreparedTaskPageWrite {
+    var page: PageSnapshot
+    var references: [PageReference]
+  }
+
+  private struct PreparedTaskBatchEntry {
+    var source: PreparedTaskPageWrite
+    var sourceBeforeTaskData: TaskData
+    var createdSuccessor: PreparedTaskPageWrite?
+  }
+
+  private func mutateTasks(
+    _ pageIDs: [PageID],
+    mutation: TaskBatchMutation,
+    now: Date,
+    calendar: Calendar
+  ) throws -> TaskBatchMutationResult {
+    try Self.validateTaskBatchIDs(pageIDs)
+    return try database.write { db in
+      var preparedEntries: [PreparedTaskBatchEntry] = []
+      var plannedSuccessorIDs: Set<PageID> = []
+
+      // All task, lifecycle, relationship, and document checks happen in this phase. No database
+      // write is issued until every selected task has a complete mutation plan.
+      for pageID in pageIDs {
+        guard let current = try Self.fetchPage(db, id: pageID),
+          current.deletedAt == nil,
+          let sourceBeforeTaskData = current.taskData
+        else { throw LibraryRepositoryError.invalidRecord }
+
+        var data = sourceBeforeTaskData
+        var preparedSuccessor: PreparedTaskPageWrite?
+        switch mutation {
+        case .complete:
+          guard data.state == .active else { throw LibraryRepositoryError.taskNotActive }
+          data = Self.normalizedTaskData(
+            data,
+            pageID: pageID,
+            previous: data,
+            calendar: calendar,
+            normalizingTemporalValues: false
+          )
+          if data.recurrence != nil,
+            var successorData = TaskTemporalPolicy.successorData(
+              from: data,
+              createdAt: current.createdAt,
+              completedAt: now,
+              calendar: calendar
+            )
+          {
+            guard let seriesID = data.recurrenceSeriesID,
+              let sequence = data.recurrenceSequence
+            else { throw LibraryRepositoryError.invalidRecord }
+            let (nextSequence, overflow) = sequence.addingReportingOverflow(1)
+            guard !overflow else { throw LibraryRepositoryError.invalidRecord }
+            successorData.recurrenceSeriesID = seriesID
+            successorData.recurrenceSequence = nextSequence
+            if let generation = TaskTemporalPolicy.completionSuccessorGeneration(
+              from: data,
+              successor: successorData,
+              completedAt: now
+            ) {
+              data.completionSuccessorGeneration = generation
+              successorData.completionSuccessorGeneration = generation
+            }
+            let successorID = PageID.taskOccurrence(seriesID: seriesID, sequence: nextSequence)
+            if let existing = try Self.fetchPage(db, id: successorID) {
+              guard let existingData = existing.taskData,
+                existingData.recurrenceSeriesID == seriesID,
+                existingData.recurrenceSequence == nextSequence
+              else { throw LibraryRepositoryError.invalidRecord }
+            } else {
+              guard plannedSuccessorIDs.insert(successorID).inserted else {
+                throw LibraryRepositoryError.invalidRecord
+              }
+              try Self.validateTaskDataReferences(
+                db,
+                pageID: successorID,
+                data: successorData
+              )
+              let fork = try PageDocument.fork(
+                current.document,
+                to: successorID,
+                message: "Fork recurring task occurrence"
+              )
+              let successorBase = PageSnapshot(
+                id: successorID,
+                kind: .free,
+                title: fork.projection.title,
+                plainText: fork.projection.plainText,
+                document: fork.document,
+                heads: fork.heads,
+                createdAt: now,
+                modifiedAt: now,
+                dirtyGeneration: 0,
+                objectMetadata: fork.projection.objectMetadata
+              )
+              let result = try PageDocument.setProperties(
+                TaskFields.properties(for: successorData),
+                ensuring: BuiltInSupertags.task,
+                message: "Create recurring task",
+                in: successorBase.document
+              )
+              preparedSuccessor = PreparedTaskPageWrite(
+                page: Self.updatedPage(successorBase, with: result, now: now),
+                references: result.projection.references
+              )
+            }
+          }
+          data.state = .completed
+          data.completedAt = now
+        case .reopen:
+          guard TaskLifecycleScope.closed.contains(data.state) else {
+            throw LibraryRepositoryError.taskNotClosed
+          }
+          data.state = .active
+          data.completedAt = nil
+        case .cancel:
+          guard data.state == .active else { throw LibraryRepositoryError.taskNotActive }
+          data.state = .canceled
+          data.completedAt = now
+        case .patch(let patch):
+          data = Self.normalizedTaskData(
+            patch.applying(to: data),
+            pageID: pageID,
+            previous: data,
+            calendar: calendar
+          )
+        }
+
+        try Self.validateTaskDataReferences(db, pageID: pageID, data: data)
+        let result = try PageDocument.setProperties(
+          TaskFields.properties(for: data),
+          ensuring: BuiltInSupertags.task,
+          message: mutation.documentMessage,
+          in: current.document
+        )
+        preparedEntries.append(
+          PreparedTaskBatchEntry(
+            source: PreparedTaskPageWrite(
+              page: Self.updatedPage(current, with: result, now: now),
+              references: result.projection.references
+            ),
+            sourceBeforeTaskData: sourceBeforeTaskData,
+            createdSuccessor: preparedSuccessor
+          )
+        )
+      }
+
+      let entries = try preparedEntries.map { entry -> TaskBatchUndoEntry in
+        let successorReceipt: TaskCreatedSuccessorReceipt?
+        if let successor = entry.createdSuccessor?.page {
+          guard let successorData = successor.taskData,
+            let seriesID = successorData.recurrenceSeriesID,
+            let sequence = successorData.recurrenceSequence
+          else { throw LibraryRepositoryError.invalidRecord }
+          successorReceipt = TaskCreatedSuccessorReceipt(
+            version: TaskPageVersion(successor),
+            seriesID: seriesID,
+            sequence: sequence
+          )
+        } else {
+          successorReceipt = nil
+        }
+        return TaskBatchUndoEntry(
+          operation: mutation.operation,
+          sourceAfterMutation: TaskPageVersion(entry.source.page),
+          sourceBeforeTaskData: entry.sourceBeforeTaskData,
+          createdSuccessor: successorReceipt
+        )
+      }
+
+      for entry in preparedEntries {
+        try Self.writePreparedTaskPage(db, prepared: entry.source, now: now)
+        if let successor = entry.createdSuccessor {
+          try db.execute(
+            sql: "DELETE FROM purge_markers WHERE page_id = ?",
+            arguments: [successor.page.id.rawValue]
+          )
+          try Self.writePreparedTaskPage(db, prepared: successor, now: now)
+        }
+      }
+      return TaskBatchMutationResult(
+        tasks: preparedEntries.map(\.source.page),
+        createdSuccessors: preparedEntries.compactMap(\.createdSuccessor?.page),
+        undoReceipt: TaskBatchUndoReceipt(entries: entries)
+      )
+    }
+  }
+
+  private static func validateTaskBatchIDs(_ pageIDs: [PageID]) throws {
+    guard !pageIDs.isEmpty,
+      pageIDs.count <= maximumTaskBatchSize,
+      Set(pageIDs).count == pageIDs.count
+    else { throw LibraryRepositoryError.invalidRecord }
+  }
+
+  private static func taskStatesMatchBatchOperation(
+    current: TaskState,
+    before: TaskState,
+    operation: TaskBatchOperation
+  ) -> Bool {
+    switch operation {
+    case .complete: current == .completed && before == .active
+    case .reopen: current == .active && TaskLifecycleScope.closed.contains(before)
+    case .cancel: current == .canceled && before == .active
+    case .patch: current == before
+    }
+  }
+
+  private static func validateTaskDataReferences(
+    _ db: Database,
+    pageID: PageID,
+    data: TaskData
+  ) throws {
+    try validateTaskParent(db, pageID: pageID, parentTaskID: data.parentTaskID)
+
+    let area: PageSnapshot?
+    if let areaID = data.areaID {
+      guard let candidate = try fetchPage(db, id: areaID),
+        candidate.deletedAt == nil,
+        candidate.hasSupertag(BuiltInSupertags.area)
+      else { throw LibraryRepositoryError.invalidRecord }
+      area = candidate
+    } else {
+      area = nil
+    }
+
+    if let projectID = data.projectID {
+      guard let project = try fetchPage(db, id: projectID),
+        project.deletedAt == nil,
+        let projectData = project.projectData
+      else { throw LibraryRepositoryError.invalidRecord }
+      if let projectAreaID = projectData.areaID {
+        guard let projectArea = try fetchPage(db, id: projectAreaID),
+          projectArea.deletedAt == nil,
+          projectArea.hasSupertag(BuiltInSupertags.area),
+          area == nil || area?.id == projectAreaID
+        else { throw LibraryRepositoryError.invalidRecord }
+      }
+    }
+
+    for assigneeID in data.assigneeIDs {
+      guard let assignee = try fetchPage(db, id: assigneeID),
+        assignee.deletedAt == nil,
+        assignee.hasSupertag(BuiltInSupertags.person)
+      else { throw LibraryRepositoryError.invalidRecord }
+    }
+  }
+
+  private static func writePreparedTaskPage(
+    _ db: Database,
+    prepared: PreparedTaskPageWrite,
+    now: Date
+  ) throws {
+    try writePage(db, page: prepared.page, cloudDirty: true)
+    try replaceReferences(db, pageID: prepared.page.id, references: prepared.references)
+    try enqueueTaskEffectOutbox(
+      db,
+      pageID: prepared.page.id,
+      generation: prepared.page.dirtyGeneration,
+      requestingAuthorization: false,
+      now: now
+    )
+  }
+
   private static func taskCompletionUndoReceipt(
     sourceBeforeTaskData: TaskData,
     completed: PageSnapshot,

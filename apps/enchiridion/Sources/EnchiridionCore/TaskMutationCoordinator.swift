@@ -11,6 +11,11 @@ public enum TaskMutationOperation: String, Equatable, Sendable {
   case undoCompletion
   case reopen
   case cancel
+  case completeTasks
+  case reopenTasks
+  case cancelTasks
+  case patchTasks
+  case undoTaskBatch
   case moveToTrash
   case restore
   case purge
@@ -45,7 +50,9 @@ public struct TaskMutationFailure: Error, Equatable, LocalizedError, Sendable {
     case .invalidRecord:
       "The task record is invalid."
     case .taskNotActive:
-      "Only active tasks can be completed."
+      operation == .cancelTasks
+        ? "Only active tasks can be canceled."
+        : "Only active tasks can be completed."
     case .taskNotClosed:
       "Only completed or canceled tasks can be reopened."
     case .completionUndoUnavailable:
@@ -67,6 +74,11 @@ extension TaskMutationOperation {
     case .undoCompletion: "restored"
     case .reopen: "reopened"
     case .cancel: "canceled"
+    case .completeTasks: "completed"
+    case .reopenTasks: "reopened"
+    case .cancelTasks: "canceled"
+    case .patchTasks: "updated"
+    case .undoTaskBatch: "restored"
     case .moveToTrash: "moved to the trash"
     case .restore: "restored"
     case .purge: "permanently deleted"
@@ -575,6 +587,111 @@ public actor TaskMutationCoordinator {
     }
   }
 
+  public func completeTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchMutationResult> {
+    do {
+      let result = try await repository.completeTasks(pageIDs, now: now, calendar: calendar)
+      let sourceEffects = result.tasks.flatMap {
+        [TaskMutationEffect.cancelReminder($0.id), .removeSpotlight($0.id)]
+      }
+      let successorEffects = result.createdSuccessors.flatMap {
+        [
+          TaskMutationEffect.scheduleReminder($0, requestingAuthorization: false),
+          .indexSpotlight($0),
+        ]
+      }
+      return await success(
+        operation: .completeTasks,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: sourceEffects + successorEffects
+      )
+    } catch {
+      return .failure(failure(operation: .completeTasks, error: error))
+    }
+  }
+
+  public func reopenTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchMutationResult> {
+    do {
+      let result = try await repository.reopenTasks(pageIDs, now: now)
+      return await success(
+        operation: .reopenTasks,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: result.tasks.flatMap(Self.activeTaskEffects)
+      )
+    } catch {
+      return .failure(failure(operation: .reopenTasks, error: error))
+    }
+  }
+
+  public func cancelTasks(
+    _ pageIDs: [PageID],
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchMutationResult> {
+    do {
+      let result = try await repository.cancelTasks(pageIDs, now: now)
+      return await success(
+        operation: .cancelTasks,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: result.tasks.flatMap(Self.closedTaskEffects)
+      )
+    } catch {
+      return .failure(failure(operation: .cancelTasks, error: error))
+    }
+  }
+
+  public func patchTasks(
+    _ pageIDs: [PageID],
+    patch: TaskMetadataPatch,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchMutationResult> {
+    do {
+      let result = try await repository.patchTasks(
+        pageIDs,
+        patch: patch,
+        now: now,
+        calendar: calendar
+      )
+      return await success(
+        operation: .patchTasks,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: result.tasks.flatMap(Self.effectsForCurrentState)
+      )
+    } catch {
+      return .failure(failure(operation: .patchTasks, error: error))
+    }
+  }
+
+  public func undoTaskBatch(
+    _ receipt: TaskBatchUndoReceipt,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskBatchUndoResult> {
+    do {
+      let result = try await repository.undoTaskBatch(receipt, now: now)
+      let restoredEffects = result.restoredTasks.flatMap(Self.effectsForCurrentState)
+      let removedEffects = result.removedSuccessorIDs.flatMap {
+        [TaskMutationEffect.cancelReminder($0), .removeSpotlight($0)]
+      }
+      return await success(
+        operation: .undoTaskBatch,
+        value: result,
+        changedPageIDs: result.changedPageIDs,
+        mutationEffects: restoredEffects + removedEffects,
+        purgePageIDs: Set(result.removedSuccessorIDs)
+      )
+    } catch {
+      return .failure(failure(operation: .undoTaskBatch, error: error))
+    }
+  }
+
   public func moveToTrash(
     _ pageID: PageID,
     now: Date = Date()
@@ -778,6 +895,21 @@ public actor TaskMutationCoordinator {
   private func unique(_ pageIDs: [PageID]) -> [PageID] {
     var seen: Set<PageID> = []
     return pageIDs.filter { seen.insert($0).inserted }
+  }
+
+  private static func activeTaskEffects(_ page: PageSnapshot) -> [TaskMutationEffect] {
+    [
+      .scheduleReminder(page, requestingAuthorization: false),
+      .indexSpotlight(page),
+    ]
+  }
+
+  private static func closedTaskEffects(_ page: PageSnapshot) -> [TaskMutationEffect] {
+    [.cancelReminder(page.id), .removeSpotlight(page.id)]
+  }
+
+  private static func effectsForCurrentState(_ page: PageSnapshot) -> [TaskMutationEffect] {
+    page.taskData?.state == .active ? activeTaskEffects(page) : closedTaskEffects(page)
   }
 
   private func failure(

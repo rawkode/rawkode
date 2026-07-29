@@ -428,6 +428,41 @@ public final class LibraryStore {
     return taskMutationValue(from: await taskMutationCoordinator.cancel(pageID))
   }
 
+  @discardableResult
+  public func completeTasks(_ pageIDs: [PageID]) async -> TaskBatchMutationResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.completeTasks(pageIDs))
+  }
+
+  @discardableResult
+  public func reopenTasks(_ pageIDs: [PageID]) async -> TaskBatchMutationResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.reopenTasks(pageIDs))
+  }
+
+  @discardableResult
+  public func cancelTasks(_ pageIDs: [PageID]) async -> TaskBatchMutationResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.cancelTasks(pageIDs))
+  }
+
+  @discardableResult
+  public func patchTasks(
+    _ pageIDs: [PageID],
+    patch: TaskMetadataPatch
+  ) async -> TaskBatchMutationResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(
+      from: await taskMutationCoordinator.patchTasks(pageIDs, patch: patch)
+    )
+  }
+
+  @discardableResult
+  public func undoTaskBatch(_ receipt: TaskBatchUndoReceipt) async -> TaskBatchUndoResult? {
+    guard let taskMutationCoordinator else { return nil }
+    return taskMutationValue(from: await taskMutationCoordinator.undoTaskBatch(receipt))
+  }
+
   private func taskMutationValue<Value: Sendable>(
     from result: TaskMutationResult<Value>
   ) -> Value? {
