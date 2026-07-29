@@ -52,6 +52,33 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
+  func testVoiceGreetingSpeaksBeforeListening() async throws {
+    let transcriber = ControlledTranscriber()
+    let speaker = ControlledSpeaker()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      speaker: speaker,
+      speaksResponses: true,
+      interTurnDelay: .zero
+    )
+
+    await session.startVoice(greeting: "Hello. What can I help with?")
+    try await waitUntil { await speaker.spoken.count == 1 }
+    XCTAssertEqual(session.state, .speaking)
+    let greetingValues = await speaker.spoken
+    let captureCountBeforeGreetingFinished = await transcriber.callCount
+    XCTAssertEqual(greetingValues, ["Hello. What can I help with?"])
+    XCTAssertEqual(captureCountBeforeGreetingFinished, 0)
+
+    await speaker.finishNext()
+    try await waitUntil { await transcriber.callCount == 1 }
+    XCTAssertEqual(session.state, .listening)
+
+    await session.stop()
+  }
+
+  @MainActor
   func testRetainsOnlyFourEphemeralTurnsAndPassesThemAsContext() async throws {
     let transcriber = ScriptedTranscriber(
       utterances: ["question 1", "question 2", "question 3", "question 4", "question 5"]
@@ -180,6 +207,27 @@ final class AssistantConversationSessionTests: XCTestCase {
     } else {
       XCTFail("A session without a transcriber should report voice as unavailable")
     }
+  }
+
+  @MainActor
+  func testTypedChatDoesNotSpeakWhenVoiceOutputIsConfigured() async {
+    let speaker = RecordingSpeaker()
+    let session = AssistantConversationSession(
+      answerer: FixedAnswerer(
+        response: GroundedAssistantResponse(
+          answer: "Design review is at ten.",
+          status: .answered
+        )
+      ),
+      speaker: speaker,
+      speaksResponses: true
+    )
+
+    await session.submit("What is next?")
+
+    XCTAssertEqual(session.state, .idle)
+    let spokenValues = await speaker.spoken
+    XCTAssertTrue(spokenValues.isEmpty)
   }
 
   @MainActor

@@ -54,4 +54,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
   func sceneWillResignActive(_ scene: UIScene) {
     EnchiridionAppRuntime.shared.carPlayVoice.pauseForSafety(reason: .sceneInactive)
   }
+
+  func sceneDidBecomeActive(_ scene: UIScene) {
+    EnchiridionAppRuntime.shared.carPlayVoice.resumeAfterBecomingActive()
+  }
 }

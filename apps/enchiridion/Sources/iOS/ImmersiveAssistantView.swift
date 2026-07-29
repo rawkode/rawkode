@@ -288,7 +288,7 @@ struct ImmersiveAssistantView: View {
     await session.activateSurface(surfaceID)
     await session.refreshVoiceAvailability()
     guard !Task.isCancelled else { return }
-    await session.startVoice()
+    await session.startVoice(greeting: "Hello. What can I help with?")
   }
 
   private func stopSurface() {

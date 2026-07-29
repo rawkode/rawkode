@@ -413,7 +413,7 @@ private enum HandheldConversationAudioSession {
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(
       .playAndRecord,
-      mode: .voiceChat,
+      mode: .default,
       options: [.defaultToSpeaker, .allowBluetoothHFP]
     )
     try session.setActive(true)

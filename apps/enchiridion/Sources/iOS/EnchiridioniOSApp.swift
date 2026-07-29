@@ -29,15 +29,26 @@ final class EnchiridionAppRuntime {
   let repository: LibraryRepository?
   let store: LibraryStore
   let assistant: FoundationModelAssistant?
+  lazy var carPlayAssistant = repository.map { FoundationModelAssistant(repository: $0) }
   lazy var assistantSession = makeAssistantConversationSession(assistant: assistant)
+  lazy var carPlayAssistantSession = makeAssistantConversationSession(
+    assistant: carPlayAssistant,
+    surface: .carPlay
+  )
   var assistantUnavailableReason: String? {
     assistantUnavailabilityMessage(assistant: assistant, repositoryError: repositoryError)
   }
   let repositoryError: String?
   let contactsResolver = DeviceContactsResolver()
   lazy var carPlayVoice = CarPlayVoiceCoordinator(
-    assistant: assistant,
-    repositoryError: repositoryError
+    session: carPlayAssistantSession,
+    unavailableReason: { [weak self] in
+      guard let self else { return "Your local library is unavailable." }
+      return assistantUnavailabilityMessage(
+        assistant: self.carPlayAssistant,
+        repositoryError: self.repositoryError
+      )
+    }
   )
 
   private init() {

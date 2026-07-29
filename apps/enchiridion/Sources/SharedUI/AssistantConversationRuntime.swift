@@ -1,15 +1,28 @@
 import EnchiridionCore
 import Foundation
 
+enum AssistantConversationSurface: Equatable {
+  case app
+  case carPlay
+}
+
 @MainActor
 func makeAssistantConversationSession(
-  assistant: FoundationModelAssistant?
+  assistant: FoundationModelAssistant?,
+  surface: AssistantConversationSurface = .app
 ) -> AssistantConversationSession? {
   guard let assistant else { return nil }
   if #available(iOS 26.0, macOS 26.0, *) {
+    let managesIOSAudioSession = surface != .carPlay
     return AssistantConversationSession(
-      transcriber: OnDeviceSpeechTranscriber(),
-      answerer: assistant
+      transcriber: OnDeviceSpeechTranscriber(
+        managesIOSAudioSession: managesIOSAudioSession
+      ),
+      answerer: assistant,
+      speaker: AppleSystemSpeechOutput(
+        managesIOSAudioSession: managesIOSAudioSession
+      ),
+      speaksResponses: true
     )
   }
   return AssistantConversationSession(answerer: assistant)

@@ -203,7 +203,7 @@ public final class AssistantConversationSession {
   }
 
   /// Starts voice only after an explicit user action. It never clears typed history.
-  public func startVoice() async {
+  public func startVoice(greeting: String? = nil) async {
     guard operation == nil, !isStopping, let transcriber else { return }
 
     var availability = await transcriber.availability()
@@ -216,14 +216,17 @@ public final class AssistantConversationSession {
     generation &+= 1
     let currentGeneration = generation
     voiceOperationIsActive = true
-    state = .listening
+    let spokenGreeting = greeting?.trimmingCharacters(in: .whitespacesAndNewlines)
+    state = spokenGreeting?.isEmpty == false && speaksResponses && speaker != nil
+      ? .speaking
+      : .listening
     operation = Task { [weak self] in
-      await self?.runVoice(generation: currentGeneration)
+      await self?.runVoice(generation: currentGeneration, greeting: spokenGreeting)
       self?.finishOperation(generation: currentGeneration)
     }
   }
 
-  /// Compatibility for the CarPlay surface; voice still starts only from its Start action.
+  /// Convenience for clients that do not need to await permission preflight.
   public func start() {
     Task { await startVoice() }
   }
@@ -297,8 +300,22 @@ public final class AssistantConversationSession {
     isStopping = false
   }
 
-  private func runVoice(generation currentGeneration: UInt64) async {
+  private func runVoice(
+    generation currentGeneration: UInt64,
+    greeting: String? = nil
+  ) async {
     guard let transcriber else { return }
+    if let greeting, !greeting.isEmpty, speaksResponses, let speaker {
+      do {
+        try await speaker.speak(greeting)
+        guard isCurrent(currentGeneration), !Task.isCancelled else { return }
+      } catch is CancellationError {
+        return
+      } catch {
+        fail(generation: currentGeneration, kind: .speaking, message: error.localizedDescription)
+        return
+      }
+    }
     while isCurrent(currentGeneration) {
       do {
         state = .listening
@@ -367,7 +384,10 @@ public final class AssistantConversationSession {
       break
     }
 
-    if speaksResponses, let speaker {
+    // Typed chat is deliberately silent. Speech output belongs to an active
+    // voice conversation, regardless of whether a speaker is configured for
+    // another surface such as CarPlay.
+    if voiceOperationIsActive, speaksResponses, let speaker {
       do {
         state = .speaking
         try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: presentedResponse))

@@ -49,6 +49,7 @@
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		748090CC891C45CC36173E26 /* ContactsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */; };
 		74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
 		7845169927C30F09425C0E77 /* CalendarAgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */; };
@@ -88,6 +89,7 @@
 		B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
 		B76DD4414F406489F799E798 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
 		BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
+		C1A5C5FFDB9223FB6049AAD8 /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */; };
 		C2E6F4E0C28B6135A015984F /* WhiteboardElementOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */; };
 		C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
@@ -185,6 +187,7 @@
 		8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTodayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSystemSpeechOutput.swift; sourceTree = "<group>"; };
 		96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
 		9AE19FE9B39E75CC38B2F324 /* Contacts.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Contacts.framework; path = System/Library/Frameworks/Contacts.framework; sourceTree = SDKROOT; };
 		9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceView.swift; sourceTree = "<group>"; };
@@ -332,6 +335,7 @@
 		6E9B1C9034899059B91D3C80 /* SharedUI */ = {
 			isa = PBXGroup;
 			children = (
+				948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */,
 				5B20EC98721AA71FBB0962DB /* Assets.xcassets */,
 				B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */,
 				BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */,
@@ -599,6 +603,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C1A5C5FFDB9223FB6049AAD8 /* AppleSystemSpeechOutput.swift in Sources */,
 				B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */,
 				74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */,
 				8D3BFF82189A26982F6CE954 /* AssistantConversationView.swift in Sources */,
@@ -640,6 +645,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */,
 				08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */,
 				1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */,
 				2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */,
