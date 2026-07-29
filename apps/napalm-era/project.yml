@@ -1,0 +1,160 @@
+name: NapalmEra
+
+options:
+  bundleIdPrefix: dev.rawkode
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "27.0"
+    watchOS: "27.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: 6KXCJGJ45W
+    ENABLE_PREVIEWS: YES
+    MARKETING_VERSION: 0.1.0
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_VERSION: 6.0
+
+targets:
+  NapalmEra-iOS:
+    type: application
+    platform: iOS
+    productName: Napalm Era
+    sources:
+      - Sources/Shared
+      - Sources/SharedWatch
+      - Sources/iOS
+    dependencies:
+      - target: NapalmEra-Watch
+        embed: true
+      - sdk: AVFoundation.framework
+      - sdk: FoundationModels.framework
+      - sdk: HealthKit.framework
+      - sdk: PhotosUI.framework
+      - sdk: Speech.framework
+      - sdk: SwiftData.framework
+      - sdk: WatchConnectivity.framework
+    info:
+      path: Config/NapalmEra-iOS-Info.plist
+      properties:
+        CFBundleDisplayName: Napalm Era
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Napalm Era analyzes meal and nutrition-label photos with Apple Foundation Models. Photos are discarded after analysis.
+        NSPhotoLibraryUsageDescription: Napalm Era analyzes a meal or nutrition-label photo you choose. The photo is discarded after analysis.
+        NSMicrophoneUsageDescription: Napalm Era records only while you dictate a nutrition entry and deletes the recording after transcription.
+        NSSpeechRecognitionUsageDescription: Napalm Era transcribes your dictated nutrition entry on device before analyzing it with Apple Foundation Models.
+        NSHealthShareUsageDescription: Napalm Era reads your workouts so today reflects your activity.
+        NSHealthUpdateUsageDescription: Napalm Era writes only nutrition you confirm and workouts you finish.
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.napalmera
+        PRODUCT_MODULE_NAME: NapalmEra
+        PRODUCT_NAME: Napalm Era
+        TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Config/NapalmEra-iOS-Debug.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Config/NapalmEra-iOS.entitlements
+    attributes:
+      SystemCapabilities:
+        com.apple.HealthKit:
+          enabled: 1
+
+  NapalmEra-Watch:
+    type: application
+    platform: watchOS
+    productName: Napalm Era Watch
+    sources:
+      - Sources/SharedWatch
+      - Sources/Watch
+    dependencies:
+      - sdk: HealthKit.framework
+      - sdk: WatchConnectivity.framework
+    info:
+      path: Config/NapalmEra-Watch-Info.plist
+      properties:
+        CFBundleDisplayName: Napalm Era
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: dev.rawkode.napalmera
+        WKRunsIndependentlyOfCompanionApp: true
+        WKBackgroundModes:
+          - workout-processing
+        NSHealthShareUsageDescription: Napalm Era reads heart rate and active energy during Gym Mode.
+        NSHealthUpdateUsageDescription: Napalm Era saves workouts you finish in Gym Mode.
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_ENTITLEMENTS: Config/NapalmEra-Watch.entitlements
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.napalmera.watchkitapp
+        PRODUCT_MODULE_NAME: NapalmEraWatch
+        PRODUCT_NAME: Napalm Era Watch
+        SKIP_INSTALL: YES
+    attributes:
+      SystemCapabilities:
+        com.apple.HealthKit:
+          enabled: 1
+
+  NapalmEraTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests/NapalmEraTests
+    dependencies:
+      - target: NapalmEra-iOS
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Napalm Era.app/Napalm Era
+
+  NapalmEraUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - Tests/NapalmEraUITests
+    dependencies:
+      - target: NapalmEra-iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Napalm Era iOS:
+    build:
+      targets:
+        NapalmEra-iOS: all
+        NapalmEraTests: [test]
+        NapalmEraUITests: [test]
+    run:
+      config: Debug
+    test:
+      targets:
+        - NapalmEraTests
+        - NapalmEraUITests
+  Napalm Era Watch:
+    build:
+      targets:
+        NapalmEra-Watch: all
+    run:
+      config: Debug

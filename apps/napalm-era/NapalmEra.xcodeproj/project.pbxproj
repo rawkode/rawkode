@@ -1,0 +1,893 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		059615CE5E426F1AA1C7A8AF /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0E31A9462A259C38E895DE /* AppRootView.swift */; };
+		0A3E050C0D58BBC36DC6BF3D /* PhotosUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89F158E225028936CCC59F4D /* PhotosUI.framework */; };
+		1029C08E27A99843B0CA5C5E /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7267DC231946D1B216FB76 /* CameraCaptureView.swift */; };
+		16B2F78461FE53D911A9E22E /* Nutrition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF3736DCF0EBE1C232FED96 /* Nutrition.swift */; };
+		1703DF7A828DF4238B8E993F /* Napalm Era Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 675B7A7771FAB27D6C4E800D /* Napalm Era Watch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		19087CC7EFC1323992620CCF /* NutritionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55D743B75FCD90496B4929 /* NutritionTests.swift */; };
+		1BFC1E5691E8034341F24864 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 968693044883E39E1DF9D0B8 /* HealthKit.framework */; };
+		1E0BC4F13FB87BF4727DBEFF /* WatchSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 693872E6D5401ADE080E4CAE /* WatchSync.swift */; };
+		23D8AB484A1B0B1AAE75EBB6 /* VoiceCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E925AF77122AD40138C3DA9 /* VoiceCaptureService.swift */; };
+		35126DD7F9ADAD1F4ADE503D /* NutritionCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C3B9D955A2C5DB78BEDC02A /* NutritionCaptureView.swift */; };
+		5582718F7A46445571B12C88 /* NutritionDraftRehydration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 593BB08D81B846BA1C93D510 /* NutritionDraftRehydration.swift */; };
+		5FD3E5A2EB51323784926936 /* WatchWorkoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057835C6993CB052E49FE345 /* WatchWorkoutManager.swift */; };
+		653D6F4DE603F5C27AA8FDE7 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB4A50D5B25926458A464944 /* Speech.framework */; };
+		849AC40C7F60E992C0EFD6D6 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C22A4F67E24D40D9DBACE2 /* SettingsView.swift */; };
+		8567FEA6E4C6D48668592A87 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD93B7AF59D2B9B601858331 /* TodayView.swift */; };
+		8945A3D2D6CAA5410228D46A /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 968693044883E39E1DF9D0B8 /* HealthKit.framework */; };
+		91EF48572ED17A829CDA3DC9 /* GymPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916B74D6C0BE757EEB7624BF /* GymPayloadTests.swift */; };
+		9E1A101A9A68BA1BAFB1FBC0 /* GymPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00370A354270D66798B84720 /* GymPayloads.swift */; };
+		A327BCDC205387FD31ABD865 /* NapalmEraUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F287B5F71DA1627FFA2CB4F /* NapalmEraUITests.swift */; };
+		AAD8F5FC74BD3CE3CC2F2F34 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A1DF07542D1D226891A63FF /* WatchConnectivity.framework */; };
+		ABCBBF183B294B7D620CD5CC /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 512845D1E95A057AC8290E1E /* WatchRootView.swift */; };
+		B0A8118D2590DBE1BC2195E1 /* AppPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9015DBA875B3054102D19C07 /* AppPersistence.swift */; };
+		B329275B7B8E11065FBDC249 /* NapalmEraWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDE4F6A9B62197CF3042D39 /* NapalmEraWatchApp.swift */; };
+		B45ABB0DFE1DE9AABA15674D /* WatchGymStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2F0D98A4162E0A4B369A95 /* WatchGymStore.swift */; };
+		B9D2B3C69698F0F6B03A025F /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 668035D687C6BEE397F8080E /* SwiftData.framework */; };
+		C079CB2EA63C6BA79EC1A51F /* NutritionAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF8B127A5CB6A4C50167991 /* NutritionAssistant.swift */; };
+		C0D86AF5F490CD92485F86A5 /* PhoneWatchSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88190BF5F7E1E17886C2E3B5 /* PhoneWatchSync.swift */; };
+		C735812A237DDB1D8D51F358 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40184EE95DB8A726F334AE82 /* AppEnvironment.swift */; };
+		D7189DD1344F158E8FE3AF22 /* GymPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00370A354270D66798B84720 /* GymPayloads.swift */; };
+		DAB56F4EE9BBE50E6F263456 /* HealthKitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B0A402C0A44483E418C1D5 /* HealthKitClient.swift */; };
+		DD6CE6B4B1C56263C58AB3A0 /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310A2268C84148D8705B8445 /* PersistenceModels.swift */; };
+		DFA137704123A35C9781A618 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 481053D297C316E272A8421E /* AVFoundation.framework */; };
+		EC434E305998747B19E4B8CE /* NapalmEraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E72CC6E218958D9439D9B9 /* NapalmEraApp.swift */; };
+		EEFD9DE15AAA177CEF0921D4 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E369A960DA5ADB6AA9786CE8 /* FoundationModels.framework */; };
+		EF86F7BDD6FECA5638DAAF75 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A1DF07542D1D226891A63FF /* WatchConnectivity.framework */; };
+		F143CB9FC195D54734F1954D /* MealDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4BD00A21B68CD7F2A5196A /* MealDetailView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		195417AD1A2279302BD23FD0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF3E06D6628ACB4A32120308 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F48E0D817D50D57B77862364;
+			remoteInfo = "NapalmEra-Watch";
+		};
+		436911199769BCF05A6C73FC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF3E06D6628ACB4A32120308 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 503683C6D91E439DF16983B1;
+			remoteInfo = "NapalmEra-iOS";
+		};
+		8724404B452B96FF9790544A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF3E06D6628ACB4A32120308 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 503683C6D91E439DF16983B1;
+			remoteInfo = "NapalmEra-iOS";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C07D0EC1D70E126AC9C90915 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				1703DF7A828DF4238B8E993F /* Napalm Era Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		00370A354270D66798B84720 /* GymPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymPayloads.swift; sourceTree = "<group>"; };
+		057835C6993CB052E49FE345 /* WatchWorkoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutManager.swift; sourceTree = "<group>"; };
+		0B6269DCF6E7AAE27969C6EB /* NapalmEraUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NapalmEraUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		19E72CC6E218958D9439D9B9 /* NapalmEraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NapalmEraApp.swift; sourceTree = "<group>"; };
+		1AF3736DCF0EBE1C232FED96 /* Nutrition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Nutrition.swift; sourceTree = "<group>"; };
+		1BDE4F6A9B62197CF3042D39 /* NapalmEraWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NapalmEraWatchApp.swift; sourceTree = "<group>"; };
+		1E2F0D98A4162E0A4B369A95 /* WatchGymStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchGymStore.swift; sourceTree = "<group>"; };
+		310A2268C84148D8705B8445 /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
+		3B4BD00A21B68CD7F2A5196A /* MealDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealDetailView.swift; sourceTree = "<group>"; };
+		3E925AF77122AD40138C3DA9 /* VoiceCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCaptureService.swift; sourceTree = "<group>"; };
+		40184EE95DB8A726F334AE82 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		481053D297C316E272A8421E /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		48B0A402C0A44483E418C1D5 /* HealthKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitClient.swift; sourceTree = "<group>"; };
+		512845D1E95A057AC8290E1E /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
+		593BB08D81B846BA1C93D510 /* NutritionDraftRehydration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionDraftRehydration.swift; sourceTree = "<group>"; };
+		62C22A4F67E24D40D9DBACE2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		668035D687C6BEE397F8080E /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
+		675B7A7771FAB27D6C4E800D /* Napalm Era Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Napalm Era Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		693872E6D5401ADE080E4CAE /* WatchSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSync.swift; sourceTree = "<group>"; };
+		6F7267DC231946D1B216FB76 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
+		7C3B9D955A2C5DB78BEDC02A /* NutritionCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionCaptureView.swift; sourceTree = "<group>"; };
+		7EF8B127A5CB6A4C50167991 /* NutritionAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionAssistant.swift; sourceTree = "<group>"; };
+		825CA8E72AFAEC5C569DC0DE /* Napalm Era.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Napalm Era.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		88190BF5F7E1E17886C2E3B5 /* PhoneWatchSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWatchSync.swift; sourceTree = "<group>"; };
+		89F158E225028936CCC59F4D /* PhotosUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PhotosUI.framework; path = System/Library/Frameworks/PhotosUI.framework; sourceTree = SDKROOT; };
+		8A1DF07542D1D226891A63FF /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
+		9015DBA875B3054102D19C07 /* AppPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPersistence.swift; sourceTree = "<group>"; };
+		916B74D6C0BE757EEB7624BF /* GymPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymPayloadTests.swift; sourceTree = "<group>"; };
+		968693044883E39E1DF9D0B8 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
+		9F287B5F71DA1627FFA2CB4F /* NapalmEraUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NapalmEraUITests.swift; sourceTree = "<group>"; };
+		AB3BD8D1D37D04E481EADB0C /* NapalmEraTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NapalmEraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF0E31A9462A259C38E895DE /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
+		BB4A50D5B25926458A464944 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
+		DD93B7AF59D2B9B601858331 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		DF55D743B75FCD90496B4929 /* NutritionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionTests.swift; sourceTree = "<group>"; };
+		E369A960DA5ADB6AA9786CE8 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1E683A837F5AEBDDE9525E2F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DFA137704123A35C9781A618 /* AVFoundation.framework in Frameworks */,
+				EEFD9DE15AAA177CEF0921D4 /* FoundationModels.framework in Frameworks */,
+				1BFC1E5691E8034341F24864 /* HealthKit.framework in Frameworks */,
+				0A3E050C0D58BBC36DC6BF3D /* PhotosUI.framework in Frameworks */,
+				653D6F4DE603F5C27AA8FDE7 /* Speech.framework in Frameworks */,
+				B9D2B3C69698F0F6B03A025F /* SwiftData.framework in Frameworks */,
+				EF86F7BDD6FECA5638DAAF75 /* WatchConnectivity.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		951164EA75C5ABEF51A22587 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8945A3D2D6CAA5410228D46A /* HealthKit.framework in Frameworks */,
+				AAD8F5FC74BD3CE3CC2F2F34 /* WatchConnectivity.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		048A46906C7BF4624B262006 /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				CD3A67A3AE47D9A004D37824 /* App */,
+				7DDA2F669E5CBE8B785FD239 /* Model */,
+				CBB15C159586755E031FE8D2 /* Services */,
+				46A33F5887056BE1E8B36482 /* Views */,
+			);
+			path = Watch;
+			sourceTree = "<group>";
+		};
+		1C922653904562380D016C17 = {
+			isa = PBXGroup;
+			children = (
+				D11CE7234CFDA9AF38C958E9 /* Sources */,
+				98CF6078F869845779552141 /* Tests */,
+				2A751F9C94039005F4783268 /* Frameworks */,
+				BAEB0233DFEBB8A6997ED016 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		212A36DEA81E8EB27B5010AD /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				3B4BD00A21B68CD7F2A5196A /* MealDetailView.swift */,
+				DD93B7AF59D2B9B601858331 /* TodayView.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		2A751F9C94039005F4783268 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				481053D297C316E272A8421E /* AVFoundation.framework */,
+				E369A960DA5ADB6AA9786CE8 /* FoundationModels.framework */,
+				968693044883E39E1DF9D0B8 /* HealthKit.framework */,
+				89F158E225028936CCC59F4D /* PhotosUI.framework */,
+				BB4A50D5B25926458A464944 /* Speech.framework */,
+				668035D687C6BEE397F8080E /* SwiftData.framework */,
+				8A1DF07542D1D226891A63FF /* WatchConnectivity.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		2A917A6683587037E85C3CC2 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				EB7CEB163136EE2E2CCC7540 /* AI */,
+				8D9D9C350C57A71577FACBC7 /* App */,
+				52104EBA7C61671EFCA1CBFB /* Services */,
+				2CC030AF64F5CB737A7EDCCB /* Settings */,
+				212A36DEA81E8EB27B5010AD /* Today */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		2CC030AF64F5CB737A7EDCCB /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				62C22A4F67E24D40D9DBACE2 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		317112C9B68ABAB69FF2D154 /* NapalmEraTests */ = {
+			isa = PBXGroup;
+			children = (
+				916B74D6C0BE757EEB7624BF /* GymPayloadTests.swift */,
+				DF55D743B75FCD90496B4929 /* NutritionTests.swift */,
+			);
+			path = NapalmEraTests;
+			sourceTree = "<group>";
+		};
+		445B7BAB36D5EEF8F6368A32 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				9015DBA875B3054102D19C07 /* AppPersistence.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		46A33F5887056BE1E8B36482 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				512845D1E95A057AC8290E1E /* WatchRootView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		52104EBA7C61671EFCA1CBFB /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				88190BF5F7E1E17886C2E3B5 /* PhoneWatchSync.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		5A1ACCB5F10745E393A9577D /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				695BB3EA9E155FFDF2369CC7 /* Domain */,
+				445B7BAB36D5EEF8F6368A32 /* Persistence */,
+				8C678B7FBA3E85FD464964F9 /* Services */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		695BB3EA9E155FFDF2369CC7 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				1AF3736DCF0EBE1C232FED96 /* Nutrition.swift */,
+				310A2268C84148D8705B8445 /* PersistenceModels.swift */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		74C9EFF7836D5FF1EAE94630 /* NapalmEraUITests */ = {
+			isa = PBXGroup;
+			children = (
+				9F287B5F71DA1627FFA2CB4F /* NapalmEraUITests.swift */,
+			);
+			path = NapalmEraUITests;
+			sourceTree = "<group>";
+		};
+		7DDA2F669E5CBE8B785FD239 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				1E2F0D98A4162E0A4B369A95 /* WatchGymStore.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		8C678B7FBA3E85FD464964F9 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				48B0A402C0A44483E418C1D5 /* HealthKitClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		8D9D9C350C57A71577FACBC7 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				40184EE95DB8A726F334AE82 /* AppEnvironment.swift */,
+				AF0E31A9462A259C38E895DE /* AppRootView.swift */,
+				19E72CC6E218958D9439D9B9 /* NapalmEraApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		98CF6078F869845779552141 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				317112C9B68ABAB69FF2D154 /* NapalmEraTests */,
+				74C9EFF7836D5FF1EAE94630 /* NapalmEraUITests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		9FAD42C34FD2A7602C87B9A8 /* SharedWatch */ = {
+			isa = PBXGroup;
+			children = (
+				00370A354270D66798B84720 /* GymPayloads.swift */,
+			);
+			path = SharedWatch;
+			sourceTree = "<group>";
+		};
+		BAEB0233DFEBB8A6997ED016 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				675B7A7771FAB27D6C4E800D /* Napalm Era Watch.app */,
+				825CA8E72AFAEC5C569DC0DE /* Napalm Era.app */,
+				AB3BD8D1D37D04E481EADB0C /* NapalmEraTests.xctest */,
+				0B6269DCF6E7AAE27969C6EB /* NapalmEraUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CBB15C159586755E031FE8D2 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				693872E6D5401ADE080E4CAE /* WatchSync.swift */,
+				057835C6993CB052E49FE345 /* WatchWorkoutManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		CD3A67A3AE47D9A004D37824 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				1BDE4F6A9B62197CF3042D39 /* NapalmEraWatchApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		D11CE7234CFDA9AF38C958E9 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				2A917A6683587037E85C3CC2 /* iOS */,
+				5A1ACCB5F10745E393A9577D /* Shared */,
+				9FAD42C34FD2A7602C87B9A8 /* SharedWatch */,
+				048A46906C7BF4624B262006 /* Watch */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		EB7CEB163136EE2E2CCC7540 /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				6F7267DC231946D1B216FB76 /* CameraCaptureView.swift */,
+				7EF8B127A5CB6A4C50167991 /* NutritionAssistant.swift */,
+				7C3B9D955A2C5DB78BEDC02A /* NutritionCaptureView.swift */,
+				593BB08D81B846BA1C93D510 /* NutritionDraftRehydration.swift */,
+				3E925AF77122AD40138C3DA9 /* VoiceCaptureService.swift */,
+			);
+			path = AI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		503683C6D91E439DF16983B1 /* NapalmEra-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9B6BDD350CCFBFD05628EC14 /* Build configuration list for PBXNativeTarget "NapalmEra-iOS" */;
+			buildPhases = (
+				6C44D37AA8C7FC994543FD37 /* Sources */,
+				1E683A837F5AEBDDE9525E2F /* Frameworks */,
+				C07D0EC1D70E126AC9C90915 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				91DD2A9B39A815509FC9CA51 /* PBXTargetDependency */,
+			);
+			name = "NapalmEra-iOS";
+			packageProductDependencies = (
+			);
+			productName = "NapalmEra-iOS";
+			productReference = 825CA8E72AFAEC5C569DC0DE /* Napalm Era.app */;
+			productType = "com.apple.product-type.application";
+		};
+		704214897B837CF5DF4F505C /* NapalmEraUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 60D0186CF95F2CC5CF44B3EA /* Build configuration list for PBXNativeTarget "NapalmEraUITests" */;
+			buildPhases = (
+				3306FA0B25CC5D120AA3841E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				45787C2D5BA201880941D9BF /* PBXTargetDependency */,
+			);
+			name = NapalmEraUITests;
+			packageProductDependencies = (
+			);
+			productName = NapalmEraUITests;
+			productReference = 0B6269DCF6E7AAE27969C6EB /* NapalmEraUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		8F986F70A7501DCAA7821810 /* NapalmEraTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B73EE9381A01C42EE2EC9A7 /* Build configuration list for PBXNativeTarget "NapalmEraTests" */;
+			buildPhases = (
+				AC2C20FA635581EF903E599B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E9280FE163495AAC3EC06EDE /* PBXTargetDependency */,
+			);
+			name = NapalmEraTests;
+			packageProductDependencies = (
+			);
+			productName = NapalmEraTests;
+			productReference = AB3BD8D1D37D04E481EADB0C /* NapalmEraTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F48E0D817D50D57B77862364 /* NapalmEra-Watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 157C09F84AB9358C70D9559C /* Build configuration list for PBXNativeTarget "NapalmEra-Watch" */;
+			buildPhases = (
+				E5E52CD51F49A3BB0CD30EF5 /* Sources */,
+				951164EA75C5ABEF51A22587 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "NapalmEra-Watch";
+			packageProductDependencies = (
+			);
+			productName = "NapalmEra-Watch";
+			productReference = 675B7A7771FAB27D6C4E800D /* Napalm Era Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AF3E06D6628ACB4A32120308 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					503683C6D91E439DF16983B1 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.HealthKit\": [\"enabled\": 1]]";
+					};
+					704214897B837CF5DF4F505C = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						TestTargetID = 503683C6D91E439DF16983B1;
+					};
+					8F986F70A7501DCAA7821810 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+					};
+					F48E0D817D50D57B77862364 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.HealthKit\": [\"enabled\": 1]]";
+					};
+				};
+			};
+			buildConfigurationList = A2A7897B21D2EDE12AB70081 /* Build configuration list for PBXProject "NapalmEra" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1C922653904562380D016C17;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BAEB0233DFEBB8A6997ED016 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				503683C6D91E439DF16983B1 /* NapalmEra-iOS */,
+				F48E0D817D50D57B77862364 /* NapalmEra-Watch */,
+				8F986F70A7501DCAA7821810 /* NapalmEraTests */,
+				704214897B837CF5DF4F505C /* NapalmEraUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3306FA0B25CC5D120AA3841E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A327BCDC205387FD31ABD865 /* NapalmEraUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6C44D37AA8C7FC994543FD37 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C735812A237DDB1D8D51F358 /* AppEnvironment.swift in Sources */,
+				B0A8118D2590DBE1BC2195E1 /* AppPersistence.swift in Sources */,
+				059615CE5E426F1AA1C7A8AF /* AppRootView.swift in Sources */,
+				1029C08E27A99843B0CA5C5E /* CameraCaptureView.swift in Sources */,
+				9E1A101A9A68BA1BAFB1FBC0 /* GymPayloads.swift in Sources */,
+				DAB56F4EE9BBE50E6F263456 /* HealthKitClient.swift in Sources */,
+				F143CB9FC195D54734F1954D /* MealDetailView.swift in Sources */,
+				EC434E305998747B19E4B8CE /* NapalmEraApp.swift in Sources */,
+				16B2F78461FE53D911A9E22E /* Nutrition.swift in Sources */,
+				C079CB2EA63C6BA79EC1A51F /* NutritionAssistant.swift in Sources */,
+				35126DD7F9ADAD1F4ADE503D /* NutritionCaptureView.swift in Sources */,
+				5582718F7A46445571B12C88 /* NutritionDraftRehydration.swift in Sources */,
+				DD6CE6B4B1C56263C58AB3A0 /* PersistenceModels.swift in Sources */,
+				C0D86AF5F490CD92485F86A5 /* PhoneWatchSync.swift in Sources */,
+				849AC40C7F60E992C0EFD6D6 /* SettingsView.swift in Sources */,
+				8567FEA6E4C6D48668592A87 /* TodayView.swift in Sources */,
+				23D8AB484A1B0B1AAE75EBB6 /* VoiceCaptureService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AC2C20FA635581EF903E599B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				91EF48572ED17A829CDA3DC9 /* GymPayloadTests.swift in Sources */,
+				19087CC7EFC1323992620CCF /* NutritionTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E5E52CD51F49A3BB0CD30EF5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D7189DD1344F158E8FE3AF22 /* GymPayloads.swift in Sources */,
+				B329275B7B8E11065FBDC249 /* NapalmEraWatchApp.swift in Sources */,
+				B45ABB0DFE1DE9AABA15674D /* WatchGymStore.swift in Sources */,
+				ABCBBF183B294B7D620CD5CC /* WatchRootView.swift in Sources */,
+				1E0BC4F13FB87BF4727DBEFF /* WatchSync.swift in Sources */,
+				5FD3E5A2EB51323784926936 /* WatchWorkoutManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		45787C2D5BA201880941D9BF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 503683C6D91E439DF16983B1 /* NapalmEra-iOS */;
+			targetProxy = 8724404B452B96FF9790544A /* PBXContainerItemProxy */;
+		};
+		91DD2A9B39A815509FC9CA51 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F48E0D817D50D57B77862364 /* NapalmEra-Watch */;
+			targetProxy = 195417AD1A2279302BD23FD0 /* PBXContainerItemProxy */;
+		};
+		E9280FE163495AAC3EC06EDE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 503683C6D91E439DF16983B1 /* NapalmEra-iOS */;
+			targetProxy = 436911199769BCF05A6C73FC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		12F4CF053DA8AB21FCC74C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.NapalmEraUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "NapalmEra-iOS";
+			};
+			name = Debug;
+		};
+		13232028218C3C5A4DAF751B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.NapalmEraUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "NapalmEra-iOS";
+			};
+			name = Release;
+		};
+		22730AB8D8D7224463560B06 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.NapalmEraTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Napalm Era.app/Napalm Era";
+			};
+			name = Debug;
+		};
+		29E34DAAF239225AEADD5512 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "Config/NapalmEra-iOS-Debug.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Config/NapalmEra-iOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.napalmera;
+				PRODUCT_MODULE_NAME = NapalmEra;
+				PRODUCT_NAME = "Napalm Era";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		37337704AA763DF55696AC0D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.NapalmEraTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Napalm Era.app/Napalm Era";
+			};
+			name = Release;
+		};
+		48D511696D2A1DE51CC1435A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		4ACDF332C053A736B55B468F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "Config/NapalmEra-Watch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Config/NapalmEra-Watch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.napalmera.watchkitapp;
+				PRODUCT_MODULE_NAME = NapalmEraWatch;
+				PRODUCT_NAME = "Napalm Era Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		7B6ADBD08423038EC46EC4E3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6KXCJGJ45W;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
+		8FF5CCDD01757D772A035FC5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "Config/NapalmEra-Watch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Config/NapalmEra-Watch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.napalmera.watchkitapp;
+				PRODUCT_MODULE_NAME = NapalmEraWatch;
+				PRODUCT_NAME = "Napalm Era Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		D59F818E50C2EC1DB1E2B9A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = "Config/NapalmEra-iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Config/NapalmEra-iOS-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.napalmera;
+				PRODUCT_MODULE_NAME = NapalmEra;
+				PRODUCT_NAME = "Napalm Era";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		157C09F84AB9358C70D9559C /* Build configuration list for PBXNativeTarget "NapalmEra-Watch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4ACDF332C053A736B55B468F /* Debug */,
+				8FF5CCDD01757D772A035FC5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2B73EE9381A01C42EE2EC9A7 /* Build configuration list for PBXNativeTarget "NapalmEraTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22730AB8D8D7224463560B06 /* Debug */,
+				37337704AA763DF55696AC0D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		60D0186CF95F2CC5CF44B3EA /* Build configuration list for PBXNativeTarget "NapalmEraUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				12F4CF053DA8AB21FCC74C30 /* Debug */,
+				13232028218C3C5A4DAF751B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9B6BDD350CCFBFD05628EC14 /* Build configuration list for PBXNativeTarget "NapalmEra-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				29E34DAAF239225AEADD5512 /* Debug */,
+				D59F818E50C2EC1DB1E2B9A6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A2A7897B21D2EDE12AB70081 /* Build configuration list for PBXProject "NapalmEra" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48D511696D2A1DE51CC1435A /* Debug */,
+				7B6ADBD08423038EC46EC4E3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AF3E06D6628ACB4A32120308 /* Project object */;
+}
