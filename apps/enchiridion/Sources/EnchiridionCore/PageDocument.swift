@@ -105,6 +105,20 @@ public enum PageDocument {
     )
   }
 
+  /// Forks a page while retaining its Automerge history. Recurring-task successors created on
+  /// different replicas can then merge from shared ancestry without duplicating text content.
+  public static func fork(
+    _ snapshot: Data,
+    to pageID: PageID,
+    message: String
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    try document.put(obj: .ROOT, key: "pageID", value: .String(pageID.rawValue))
+    document.commitWith(message: message, timestamp: Date())
+    return (document.save(), heads(document), try projection(document, pageID: pageID))
+  }
+
   public static func setPinned(
     _ pinned: Bool,
     in snapshot: Data

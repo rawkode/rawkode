@@ -233,6 +233,7 @@ public enum BuiltInSupertags {
       selectField("status", "Status", ["To do", "In progress", "Blocked", "Done", "Cancelled"]),
       selectField("placement", "List", ["Inbox", "Anytime", "Someday"]),
       field("scheduled", "When", .dateTime),
+      selectField("schedule-granularity", "Schedule granularity", ["Date only", "Date time"]),
       field("deadline", "Deadline", .date),
       field("reminder", "Reminder", .dateTime),
       field("project", "Project", .entityReference, allowed: [project]),

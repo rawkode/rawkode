@@ -658,8 +658,9 @@ public actor LibraryRepository {
     guard !title.isEmpty else { throw LibraryRepositoryError.invalidRecord }
     return try database.write { db in
       let page = try Self.createPage(db, id: .free(), kind: .free, title: title, now: now)
+      let data = Self.normalizedTaskData(draft.data, pageID: page.id)
       var result = try PageDocument.setProperties(
-        TaskFields.properties(for: draft.data),
+        TaskFields.properties(for: data),
         ensuring: BuiltInSupertags.task,
         message: "Create task",
         in: page.document
@@ -687,8 +688,13 @@ public actor LibraryRepository {
       guard current.hasSupertag(BuiltInSupertags.task) else {
         throw LibraryRepositoryError.invalidRecord
       }
+      let normalizedData = Self.normalizedTaskData(
+        data,
+        pageID: pageID,
+        previous: current.taskData
+      )
       var result = try PageDocument.setProperties(
-        TaskFields.properties(for: data),
+        TaskFields.properties(for: normalizedData),
         ensuring: BuiltInSupertags.task,
         message: "Update task",
         in: current.document
@@ -719,9 +725,13 @@ public actor LibraryRepository {
         throw LibraryRepositoryError.invalidRecord
       }
       guard data.state == .active else {
-        return TaskCompletionResult(completed: current, successor: nil)
+        let successor = data.state == .completed
+          ? try Self.existingRecurrenceSuccessor(db, data: data)
+          : nil
+        return TaskCompletionResult(completed: current, successor: successor)
       }
 
+      data = Self.normalizedTaskData(data, pageID: pageID, previous: data)
       data.state = .completed
       data.completedAt = now
       let completedResult = try PageDocument.setProperties(
@@ -768,25 +778,48 @@ public actor LibraryRepository {
       }
       if successorData.placement == .inbox { successorData.placement = .anytime }
 
-      let successorBase = try Self.createPage(
-        db,
-        id: .free(),
-        kind: .free,
-        title: current.title,
-        now: now
+      guard let seriesID = data.recurrenceSeriesID,
+        let sequence = data.recurrenceSequence
+      else { throw LibraryRepositoryError.invalidRecord }
+      let (nextSequence, overflow) = sequence.addingReportingOverflow(1)
+      guard !overflow else { throw LibraryRepositoryError.invalidRecord }
+      successorData.recurrenceSeriesID = seriesID
+      successorData.recurrenceSequence = nextSequence
+      let successorID = PageID.taskOccurrence(seriesID: seriesID, sequence: nextSequence)
+
+      if let existing = try Self.fetchPage(db, id: successorID) {
+        guard let existingData = existing.taskData,
+          existingData.recurrenceSeriesID == seriesID,
+          existingData.recurrenceSequence == nextSequence
+        else { throw LibraryRepositoryError.invalidRecord }
+        return TaskCompletionResult(completed: completed, successor: existing)
+      }
+
+      // Fork before applying completion so independently-created successors share the original
+      // Automerge ancestry and do not inherit a concurrent completed-at write from their parent.
+      let fork = try PageDocument.fork(
+        current.document,
+        to: successorID,
+        message: "Fork recurring task occurrence"
       )
-      var successorResult = try PageDocument.setProperties(
+      let successorBase = PageSnapshot(
+        id: successorID,
+        kind: .free,
+        title: fork.projection.title,
+        plainText: fork.projection.plainText,
+        document: fork.document,
+        heads: fork.heads,
+        createdAt: now,
+        modifiedAt: now,
+        dirtyGeneration: 0,
+        objectMetadata: fork.projection.objectMetadata
+      )
+      let successorResult = try PageDocument.setProperties(
         TaskFields.properties(for: successorData),
         ensuring: BuiltInSupertags.task,
         message: "Create recurring task",
         in: successorBase.document
       )
-      if !current.plainText.isEmpty {
-        successorResult = try PageDocument.replaceBody(
-          with: current.plainText,
-          in: successorResult.document
-        )
-      }
       let successor = Self.updatedPage(successorBase, with: successorResult, now: now)
       try Self.writePage(db, page: successor, cloudDirty: true)
       try Self.replaceReferences(
@@ -796,6 +829,56 @@ public actor LibraryRepository {
       )
       return TaskCompletionResult(completed: completed, successor: successor)
     }
+  }
+
+  private static func normalizedTaskData(
+    _ data: TaskData,
+    pageID: PageID,
+    previous: TaskData? = nil
+  ) -> TaskData {
+    var normalized = data
+
+    // Once established, a page's series cannot be reassigned and its sequence cannot move
+    // backwards through an ordinary task edit.
+    if let existingSeriesID = previous?.recurrenceSeriesID {
+      normalized.recurrenceSeriesID = existingSeriesID
+    }
+    if let existingSequence = previous?.recurrenceSequence {
+      normalized.recurrenceSequence = max(
+        existingSequence,
+        normalized.recurrenceSequence ?? existingSequence
+      )
+    } else if let sequence = normalized.recurrenceSequence {
+      normalized.recurrenceSequence = max(0, sequence)
+    }
+
+    guard normalized.recurrence != nil else { return normalized }
+    if normalized.recurrenceSeriesID == nil {
+      normalized.recurrenceSeriesID = .derived(from: pageID)
+    }
+    if normalized.recurrenceSequence == nil {
+      normalized.recurrenceSequence = 0
+    }
+    return normalized
+  }
+
+  private static func existingRecurrenceSuccessor(
+    _ db: Database,
+    data: TaskData
+  ) throws -> PageSnapshot? {
+    guard data.recurrence != nil,
+      let seriesID = data.recurrenceSeriesID,
+      let sequence = data.recurrenceSequence
+    else { return nil }
+    let (nextSequence, overflow) = sequence.addingReportingOverflow(1)
+    guard !overflow else { return nil }
+    let successorID = PageID.taskOccurrence(seriesID: seriesID, sequence: nextSequence)
+    guard let successor = try fetchPage(db, id: successorID) else { return nil }
+    guard let successorData = successor.taskData,
+      successorData.recurrenceSeriesID == seriesID,
+      successorData.recurrenceSequence == nextSequence
+    else { throw LibraryRepositoryError.invalidRecord }
+    return successor
   }
 
   @discardableResult
@@ -3172,6 +3255,32 @@ public actor LibraryRepository {
           ]
         )
       }
+    }
+    migrator.registerMigration("v14-task-schedule-granularity") { db in
+      guard let definition = BuiltInSupertags.all.first(where: { $0.id == BuiltInSupertags.task })
+      else { return }
+      try db.execute(
+        sql: """
+          INSERT INTO supertag_schemas
+            (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty)
+          VALUES (?,?,?,?,?,?,1,1)
+          ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            definition_json=excluded.definition_json,
+            deleted=0,
+            modified_at=excluded.modified_at,
+            dirty_generation=supertag_schemas.dirty_generation + 1,
+            cloud_dirty=1
+          """,
+        arguments: [
+          definition.id.rawValue,
+          definition.name,
+          try JSONEncoder.enchiridion.encode(definition),
+          false,
+          BuiltInSupertags.all.firstIndex(where: { $0.id == definition.id }) ?? 0,
+          Date().timeIntervalSince1970,
+        ]
+      )
     }
     return migrator
   }()

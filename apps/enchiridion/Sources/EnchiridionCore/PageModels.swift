@@ -37,11 +37,39 @@ public struct PageID: RawRepresentable, Codable, Hashable, Sendable, Identifiabl
     Self(rawValue: "person_\(digest(email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()))")
   }
 
-  private static func digest(_ value: String) -> String {
+  public static func taskOccurrence(
+    seriesID: TaskRecurrenceSeriesID,
+    sequence: Int
+  ) -> Self {
+    let canonicalKey = "task-recurrence-occurrence-v1\u{0}\(seriesID.rawValue)\u{0}\(sequence)"
+    return Self(rawValue: "task_occurrence_\(digest(canonicalKey))")
+  }
+
+  fileprivate static func digest(_ value: String) -> String {
     SHA256.hash(data: Data(value.utf8))
       .prefix(20)
       .map { String(format: "%02x", $0) }
       .joined()
+  }
+}
+
+public struct TaskRecurrenceSeriesID: RawRepresentable, Codable, Hashable, Sendable,
+  Identifiable, CustomStringConvertible
+{
+  public let rawValue: String
+
+  public var id: String { rawValue }
+  public var description: String { rawValue }
+
+  public init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+
+  /// Gives a legacy recurring task a stable series identity without a database migration.
+  /// Every replica that has the same original page derives the same value.
+  public static func derived(from rootPageID: PageID) -> Self {
+    let canonicalKey = "task-recurrence-series-v1\u{0}\(rootPageID.rawValue)"
+    return Self(rawValue: "task_series_\(PageID.digest(canonicalKey))")
   }
 }
 

@@ -46,6 +46,18 @@ public enum TaskPriority: String, Codable, CaseIterable, Hashable, Sendable, Com
   }
 }
 
+public enum TaskScheduleGranularity: String, Codable, CaseIterable, Hashable, Sendable {
+  case dateOnly = "date-only"
+  case dateTime = "date-time"
+
+  public var title: String {
+    switch self {
+    case .dateOnly: "Date Only"
+    case .dateTime: "Date & Time"
+    }
+  }
+}
+
 public enum TaskRecurrenceMode: String, Codable, CaseIterable, Hashable, Sendable {
   case fixedSchedule
   case afterCompletion
@@ -152,6 +164,7 @@ public struct TaskData: Codable, Hashable, Sendable {
   public var state: TaskState
   public var placement: TaskPlacement
   public var scheduledAt: Date?
+  public var scheduleGranularity: TaskScheduleGranularity
   public var deadline: Date?
   public var reminder: Date?
   public var priority: TaskPriority
@@ -160,6 +173,8 @@ public struct TaskData: Codable, Hashable, Sendable {
   public var parentTaskID: PageID?
   public var tags: [String]
   public var recurrence: TaskRecurrenceRule?
+  public var recurrenceSeriesID: TaskRecurrenceSeriesID?
+  public var recurrenceSequence: Int?
   public var completedAt: Date?
   public var estimatedMinutes: Int?
 
@@ -167,6 +182,7 @@ public struct TaskData: Codable, Hashable, Sendable {
     state: TaskState = .active,
     placement: TaskPlacement = .inbox,
     scheduledAt: Date? = nil,
+    scheduleGranularity: TaskScheduleGranularity = .dateTime,
     deadline: Date? = nil,
     reminder: Date? = nil,
     priority: TaskPriority = .none,
@@ -175,12 +191,15 @@ public struct TaskData: Codable, Hashable, Sendable {
     parentTaskID: PageID? = nil,
     tags: [String] = [],
     recurrence: TaskRecurrenceRule? = nil,
+    recurrenceSeriesID: TaskRecurrenceSeriesID? = nil,
+    recurrenceSequence: Int? = nil,
     completedAt: Date? = nil,
     estimatedMinutes: Int? = nil
   ) {
     self.state = state
     self.placement = placement
     self.scheduledAt = scheduledAt
+    self.scheduleGranularity = scheduleGranularity
     self.deadline = deadline
     self.reminder = reminder
     self.priority = priority
@@ -189,8 +208,57 @@ public struct TaskData: Codable, Hashable, Sendable {
     self.parentTaskID = parentTaskID
     self.tags = Self.normalizedTags(tags)
     self.recurrence = recurrence
+    self.recurrenceSeriesID = recurrenceSeriesID
+    self.recurrenceSequence = recurrenceSequence.map { max(0, $0) }
     self.completedAt = completedAt
     self.estimatedMinutes = estimatedMinutes
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case state
+    case placement
+    case scheduledAt
+    case scheduleGranularity
+    case deadline
+    case reminder
+    case priority
+    case projectID
+    case areaID
+    case parentTaskID
+    case tags
+    case recurrence
+    case recurrenceSeriesID
+    case recurrenceSequence
+    case completedAt
+    case estimatedMinutes
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      state: try values.decode(TaskState.self, forKey: .state),
+      placement: try values.decode(TaskPlacement.self, forKey: .placement),
+      scheduledAt: try values.decodeIfPresent(Date.self, forKey: .scheduledAt),
+      scheduleGranularity: try values.decodeIfPresent(
+        TaskScheduleGranularity.self,
+        forKey: .scheduleGranularity
+      ) ?? .dateTime,
+      deadline: try values.decodeIfPresent(Date.self, forKey: .deadline),
+      reminder: try values.decodeIfPresent(Date.self, forKey: .reminder),
+      priority: try values.decode(TaskPriority.self, forKey: .priority),
+      projectID: try values.decodeIfPresent(PageID.self, forKey: .projectID),
+      areaID: try values.decodeIfPresent(PageID.self, forKey: .areaID),
+      parentTaskID: try values.decodeIfPresent(PageID.self, forKey: .parentTaskID),
+      tags: try values.decode([String].self, forKey: .tags),
+      recurrence: try values.decodeIfPresent(TaskRecurrenceRule.self, forKey: .recurrence),
+      recurrenceSeriesID: try values.decodeIfPresent(
+        TaskRecurrenceSeriesID.self,
+        forKey: .recurrenceSeriesID
+      ),
+      recurrenceSequence: try values.decodeIfPresent(Int.self, forKey: .recurrenceSequence),
+      completedAt: try values.decodeIfPresent(Date.self, forKey: .completedAt),
+      estimatedMinutes: try values.decodeIfPresent(Int.self, forKey: .estimatedMinutes)
+    )
   }
 
   public var isActive: Bool { state == .active }
@@ -387,6 +455,7 @@ public enum TaskFields {
   public static let status = key("status")
   public static let placement = key("placement")
   public static let scheduled = key("scheduled")
+  public static let scheduleGranularity = key("schedule-granularity")
   public static let deadline = key("deadline")
   public static let reminder = key("reminder")
   public static let priority = key("priority")
@@ -395,6 +464,8 @@ public enum TaskFields {
   public static let parent = key("parent")
   public static let tags = key("tags")
   public static let recurrence = key("recurrence")
+  public static let recurrenceSeriesID = key("recurrence-series-id")
+  public static let recurrenceSequence = key("recurrence-sequence")
   public static let completedAt = key("completed-at")
   public static let estimatedMinutes = key("estimated-minutes")
   public static let legacyDue = key("due")
@@ -406,6 +477,7 @@ public enum TaskFields {
       tags: data.tags.map(SupertagValue.text),
     ]
     values[scheduled] = data.scheduledAt.map { [.dateTime($0)] } ?? []
+    values[scheduleGranularity] = [.select(data.scheduleGranularity.rawValue)]
     values[deadline] = data.deadline.map { [.date($0)] } ?? []
     values[reminder] = data.reminder.map { [.dateTime($0)] } ?? []
     values[priority] = data.priority == .none ? [] : [.select(data.priority.rawValue)]
@@ -414,6 +486,8 @@ public enum TaskFields {
     values[parent] = data.parentTaskID.map { [.page($0)] } ?? []
     values[completedAt] = data.completedAt.map { [.dateTime($0)] } ?? []
     values[estimatedMinutes] = data.estimatedMinutes.map { [.number(Double($0))] } ?? []
+    values[recurrenceSeriesID] = data.recurrenceSeriesID.map { [.text($0.rawValue)] } ?? []
+    values[recurrenceSequence] = data.recurrenceSequence.map { [.number(Double($0))] } ?? []
     if let recurrence = data.recurrence,
       let encoded = try? JSONEncoder.enchiridion.encode(recurrence)
     {
@@ -449,6 +523,9 @@ extension PageSnapshot {
     }
     let rawPlacement = values[TaskFields.placement]?.first.flatMap(\.selectValue)
     let placement = rawPlacement.flatMap(TaskPlacement.init(rawValue:)) ?? .inbox
+    let rawScheduleGranularity = values[TaskFields.scheduleGranularity]?.first.flatMap(\.selectValue)
+    let scheduleGranularity = rawScheduleGranularity.flatMap(TaskScheduleGranularity.init(rawValue:))
+      ?? .dateTime
     let rawPriority = values[TaskFields.priority]?.first.flatMap(\.selectValue)
     let priority = rawPriority.flatMap(TaskPriority.init(rawValue:)) ?? .none
     let recurrence = values[TaskFields.recurrence]?.first.flatMap(\.textValue).flatMap { value in
@@ -459,6 +536,7 @@ extension PageSnapshot {
       placement: placement,
       scheduledAt: values[TaskFields.scheduled]?.first.flatMap(\.dateValue)
         ?? values[TaskFields.legacyDue]?.first.flatMap(\.dateValue),
+      scheduleGranularity: scheduleGranularity,
       deadline: values[TaskFields.deadline]?.first.flatMap(\.dateValue),
       reminder: values[TaskFields.reminder]?.first.flatMap(\.dateValue),
       priority: priority,
@@ -467,6 +545,10 @@ extension PageSnapshot {
       parentTaskID: values[TaskFields.parent]?.first.flatMap(\.pageValue),
       tags: values[TaskFields.tags, default: []].compactMap(\.textValue),
       recurrence: recurrence,
+      recurrenceSeriesID: values[TaskFields.recurrenceSeriesID]?.first.flatMap(\.textValue)
+        .map(TaskRecurrenceSeriesID.init(rawValue:)),
+      recurrenceSequence: values[TaskFields.recurrenceSequence]?.first.flatMap(\.numberValue)
+        .flatMap(Int.init(exactly:)),
       completedAt: values[TaskFields.completedAt]?.first.flatMap(\.dateValue),
       estimatedMinutes: values[TaskFields.estimatedMinutes]?.first.flatMap(\.numberValue).map(Int.init)
     )
