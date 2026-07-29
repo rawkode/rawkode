@@ -103,6 +103,7 @@ targets:
                 UISceneConfigurationName: CarPlay Voice
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
         UIBackgroundModes:
+          - audio
           - remote-notification
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.

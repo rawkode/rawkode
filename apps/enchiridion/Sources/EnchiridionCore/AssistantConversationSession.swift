@@ -52,11 +52,11 @@ public protocol AssistantConversationTranscribing: Sendable {
   func stop() async
 }
 
-public extension AssistantConversationTranscribing {
-  func availability() async -> AssistantVoiceAvailability { .available }
-  func requestPermission() async -> AssistantVoiceAvailability { await availability() }
-  func installAssets() async throws {}
-  func stop() async {}
+extension AssistantConversationTranscribing {
+  public func availability() async -> AssistantVoiceAvailability { .available }
+  public func requestPermission() async -> AssistantVoiceAvailability { await availability() }
+  public func installAssets() async throws {}
+  public func stop() async {}
 }
 
 public protocol AssistantConversationAnswering: Sendable {
@@ -64,8 +64,8 @@ public protocol AssistantConversationAnswering: Sendable {
   func resetConversation() async
 }
 
-public extension AssistantConversationAnswering {
-  func resetConversation() async {}
+extension AssistantConversationAnswering {
+  public func resetConversation() async {}
 }
 
 public protocol AssistantConversationSpeaking: Sendable {
@@ -156,6 +156,7 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var surfaceOwnerID: UUID?
   @ObservationIgnored private var isStopping = false
   @ObservationIgnored private var voiceOperationIsActive = false
+  @ObservationIgnored private var voiceStartAttemptID: UUID?
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
@@ -176,7 +177,8 @@ public final class AssistantConversationSession {
     self.interTurnDelay = interTurnDelay
     self.locale = locale
     self.now = now
-    voiceAvailability = transcriber == nil
+    voiceAvailability =
+      transcriber == nil
       ? .unavailable("Voice input is unavailable on this device.")
       : .checking
   }
@@ -204,20 +206,42 @@ public final class AssistantConversationSession {
 
   /// Starts voice only after an explicit user action. It never clears typed history.
   public func startVoice(greeting: String? = nil) async {
-    guard operation == nil, !isStopping, let transcriber else { return }
+    guard operation == nil, !isStopping, voiceStartAttemptID == nil, let transcriber else {
+      return
+    }
+    let startAttemptID = UUID()
+    voiceStartAttemptID = startAttemptID
+    defer {
+      if voiceStartAttemptID == startAttemptID { voiceStartAttemptID = nil }
+    }
+    let preflightGeneration = generation
 
     var availability = await transcriber.availability()
+    guard !Task.isCancelled, voiceStartAttemptID == startAttemptID,
+      generation == preflightGeneration
+    else { return }
     if availability == .permissionRequired {
       availability = await transcriber.requestPermission()
+      guard !Task.isCancelled, voiceStartAttemptID == startAttemptID,
+        generation == preflightGeneration
+      else { return }
     }
     voiceAvailability = availability
-    guard availability == .available else { return }
+    guard !Task.isCancelled, availability == .available else { return }
+
+    // Availability and permission checks are suspension points. A second tap
+    // can arrive while the first one is waiting, so commit at most one voice
+    // operation after those checks complete.
+    guard voiceStartAttemptID == startAttemptID, generation == preflightGeneration,
+      operation == nil, !isStopping
+    else { return }
 
     generation &+= 1
     let currentGeneration = generation
     voiceOperationIsActive = true
     let spokenGreeting = greeting?.trimmingCharacters(in: .whitespacesAndNewlines)
-    state = spokenGreeting?.isEmpty == false && speaksResponses && speaker != nil
+    state =
+      spokenGreeting?.isEmpty == false && speaksResponses && speaker != nil
       ? .speaking
       : .listening
     operation = Task { [weak self] in
@@ -279,6 +303,7 @@ public final class AssistantConversationSession {
   }
 
   private func stop(preservingTurns: Bool) async {
+    voiceStartAttemptID = nil
     generation &+= 1
     let stopGeneration = generation
     isStopping = true
@@ -360,7 +385,8 @@ public final class AssistantConversationSession {
     let response = await answerer.respond(to: request)
     guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
 
-    let presentedResponse = response.status == .ungrounded
+    let presentedResponse =
+      response.status == .ungrounded
       ? GroundedAssistantResponse(
         answer: "I couldn't answer that confidently. Try asking more specifically.",
         status: .ungrounded

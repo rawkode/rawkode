@@ -66,19 +66,19 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     }
 
     #if os(macOS)
-    switch AVCaptureDevice.authorizationStatus(for: .audio) {
-    case .authorized: return .available
-    case .notDetermined: return .permissionRequired
-    case .denied, .restricted: return .permissionDenied
-    @unknown default: return .unavailable("Microphone permission could not be determined.")
-    }
+      switch AVCaptureDevice.authorizationStatus(for: .audio) {
+      case .authorized: return .available
+      case .notDetermined: return .permissionRequired
+      case .denied, .restricted: return .permissionDenied
+      @unknown default: return .unavailable("Microphone permission could not be determined.")
+      }
     #else
-    switch AVAudioApplication.shared.recordPermission {
-    case .granted: return .available
-    case .undetermined: return .permissionRequired
-    case .denied: return .permissionDenied
-    @unknown default: return .unavailable("Microphone permission could not be determined.")
-    }
+      switch AVAudioApplication.shared.recordPermission {
+      case .granted: return .available
+      case .undetermined: return .permissionRequired
+      case .denied: return .permissionDenied
+      @unknown default: return .unavailable("Microphone permission could not be determined.")
+      }
     #endif
   }
 
@@ -93,31 +93,31 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
 
   func requestMicrophonePermission() async -> Bool {
     #if os(macOS)
-    switch AVCaptureDevice.authorizationStatus(for: .audio) {
-    case .authorized:
-      return true
-    case .denied, .restricted:
-      return false
-    case .notDetermined:
-      return await AVCaptureDevice.requestAccess(for: .audio)
-    @unknown default:
-      return false
-    }
-    #else
-    switch AVAudioApplication.shared.recordPermission {
-    case .granted:
-      return true
-    case .denied:
-      return false
-    case .undetermined:
-      return await withCheckedContinuation { continuation in
-        AVAudioApplication.requestRecordPermission { granted in
-          continuation.resume(returning: granted)
-        }
+      switch AVCaptureDevice.authorizationStatus(for: .audio) {
+      case .authorized:
+        return true
+      case .denied, .restricted:
+        return false
+      case .notDetermined:
+        return await AVCaptureDevice.requestAccess(for: .audio)
+      @unknown default:
+        return false
       }
-    @unknown default:
-      return false
-    }
+    #else
+      switch AVAudioApplication.shared.recordPermission {
+      case .granted:
+        return true
+      case .denied:
+        return false
+      case .undetermined:
+        return await withCheckedContinuation { continuation in
+          AVAudioApplication.requestRecordPermission { granted in
+            continuation.resume(returning: granted)
+          }
+        }
+      @unknown default:
+        return false
+      }
     #endif
   }
 
@@ -134,16 +134,21 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     maximumDuration: Duration,
     silenceDuration: Duration
   ) async throws -> String {
-    guard let selectedModule = await AssistantSpeechAssets.shared.selectedModule(locale: locale) else {
+    let selectedModule = await AssistantSpeechAssets.shared.selectedModule(locale: locale)
+    try Task.checkCancellation()
+    guard let selectedModule else {
       throw OnDeviceSpeechError.unavailable(
         "Neither on-device transcription path supports the current language."
       )
     }
-    switch await AssetInventory.status(forModules: [selectedModule.module]) {
+    let assetStatus = await AssetInventory.status(forModules: [selectedModule.module])
+    try Task.checkCancellation()
+    switch assetStatus {
     case .installed:
       break
     case .supported:
-      throw OnDeviceSpeechError.unavailable("Install the current language's on-device speech model first.")
+      throw OnDeviceSpeechError.unavailable(
+        "Install the current language's on-device speech model first.")
     case .downloading:
       throw OnDeviceSpeechError.unavailable("The on-device speech model is still downloading.")
     case .unsupported:
@@ -151,21 +156,26 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     @unknown default:
       throw OnDeviceSpeechError.unavailable("On-device speech transcription is unavailable.")
     }
-    guard await requestMicrophonePermission() else {
+    let hasMicrophonePermission = await requestMicrophonePermission()
+    try Task.checkCancellation()
+    guard hasMicrophonePermission else {
       throw OnDeviceSpeechError.microphonePermissionDenied
     }
-    guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(
+    let format = await SpeechAnalyzer.bestAvailableAudioFormat(
       compatibleWith: [selectedModule.module]
-    ) else {
+    )
+    try Task.checkCancellation()
+    guard let format else {
       throw OnDeviceSpeechError.noAudioInput
     }
 
-    #if os(iOS)
-    if managesIOSAudioSession {
-      try await HandheldConversationAudioSession.activate()
-    }
-    #endif
     do {
+      #if os(iOS)
+        if managesIOSAudioSession {
+          try await HandheldConversationAudioSession.activate()
+          try Task.checkCancellation()
+        }
+      #endif
       let text: String
       switch selectedModule {
       case .speech(let transcriber):
@@ -186,13 +196,13 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
         )
       }
       #if os(iOS)
-      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
       #endif
       guard !text.isEmpty else { throw OnDeviceSpeechError.noSpeech }
       return text
     } catch {
       #if os(iOS)
-      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
       #endif
       throw error
     }
@@ -205,9 +215,25 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     silenceDuration: Duration,
     text: @escaping @Sendable (Module.Result) -> String
   ) async throws -> String {
-    let source = MicrophoneAnalyzerInputSource(targetFormat: format)
-    let inputSequence = try source.start()
     let analyzer = SpeechAnalyzer(modules: [transcriber])
+    do {
+      try await analyzer.prepareToAnalyze(in: format)
+      try Task.checkCancellation()
+    } catch {
+      await analyzer.cancelAndFinishNow()
+      throw error
+    }
+
+    let source = MicrophoneAnalyzerInputSource(targetFormat: format)
+    let inputSequence: AsyncStream<AnalyzerInput>
+    do {
+      inputSequence = try source.start()
+      try Task.checkCancellation()
+    } catch {
+      source.stop()
+      await analyzer.cancelAndFinishNow()
+      throw error
+    }
     let activity = TranscriptionActivity()
     let resultTask = Task { () throws -> String in
       var finalText = ""
@@ -225,8 +251,8 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     activeResultTask = resultTask
 
     do {
-      try await analyzer.prepareToAnalyze(in: format)
       try await analyzer.start(inputSequence: inputSequence)
+      try Task.checkCancellation()
       try await activity.waitForEndpoint(
         maximumDuration: maximumDuration,
         silenceDuration: silenceDuration
@@ -245,7 +271,7 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   func stop() async {
     guard let source = activeSource else {
       #if os(iOS)
-      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
       #endif
       return
     }
@@ -257,7 +283,7 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     if let resultTask { _ = try? await resultTask.value }
     clearCaptureIfCurrent(source)
     #if os(iOS)
-    if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
+      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
     #endif
   }
 
@@ -322,9 +348,11 @@ actor AssistantSpeechAssets {
       )
     }
     do {
-      guard let request = try await AssetInventory.assetInstallationRequest(
-        supporting: [selection.module]
-      ) else {
+      guard
+        let request = try await AssetInventory.assetInstallationRequest(
+          supporting: [selection.module]
+        )
+      else {
         throw OnDeviceSpeechError.unavailable(
           "The preferred on-device speech model cannot be installed on this device."
         )
@@ -342,9 +370,11 @@ actor AssistantSpeechAssets {
       case .installed:
         return
       case .supported, .downloading:
-        guard let fallbackRequest = try await AssetInventory.assetInstallationRequest(
-          supporting: [fallback.module]
-        ) else {
+        guard
+          let fallbackRequest = try await AssetInventory.assetInstallationRequest(
+            supporting: [fallback.module]
+          )
+        else {
           throw OnDeviceSpeechError.unavailable(
             "Neither local speech model can be installed on this device."
           )
@@ -379,7 +409,8 @@ actor AssistantSpeechAssets {
   }
 
   private func dictationModule(locale: Locale) async -> SelectedSpeechModule? {
-    guard let supportedLocale = await DictationTranscriber.supportedLocale(equivalentTo: locale) else {
+    guard let supportedLocale = await DictationTranscriber.supportedLocale(equivalentTo: locale)
+    else {
       return nil
     }
     return .dictation(
@@ -406,26 +437,26 @@ private enum SelectedSpeechModule: Sendable {
 }
 
 #if os(iOS)
-@available(iOS 26.0, *)
-@MainActor
-private enum HandheldConversationAudioSession {
-  static func activate() throws {
-    let session = AVAudioSession.sharedInstance()
-    try session.setCategory(
-      .playAndRecord,
-      mode: .default,
-      options: [.defaultToSpeaker, .allowBluetoothHFP]
-    )
-    try session.setActive(true)
-  }
+  @available(iOS 26.0, *)
+  @MainActor
+  private enum HandheldConversationAudioSession {
+    static func activate() throws {
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(
+        .playAndRecord,
+        mode: .default,
+        options: [.defaultToSpeaker, .allowBluetoothHFP]
+      )
+      try session.setActive(true)
+    }
 
-  static func deactivate() {
-    try? AVAudioSession.sharedInstance().setActive(
-      false,
-      options: .notifyOthersOnDeactivation
-    )
+    static func deactivate() {
+      try? AVAudioSession.sharedInstance().setActive(
+        false,
+        options: .notifyOthersOnDeactivation
+      )
+    }
   }
-}
 #endif
 
 @available(iOS 26.0, macOS 26.0, *)
@@ -462,6 +493,7 @@ private final class MicrophoneAnalyzerInputSource: @unchecked Sendable {
   private let targetFormat: AVAudioFormat
   private let lock = NSLock()
   private var continuation: AsyncStream<AnalyzerInput>.Continuation?
+  private var hasInstalledTap = false
   private var isRunning = false
 
   init(targetFormat: AVAudioFormat) {
@@ -508,22 +540,29 @@ private final class MicrophoneAnalyzerInputSource: @unchecked Sendable {
       guard conversionError == nil else { return }
       self.yield(converted)
     }
+    lock.withLock { hasInstalledTap = true }
 
-    engine.prepare()
-    try engine.start()
-    lock.withLock { isRunning = true }
-    return stream
+    do {
+      engine.prepare()
+      try engine.start()
+      lock.withLock { isRunning = true }
+      return stream
+    } catch {
+      stop()
+      throw error
+    }
   }
 
   func stop() {
-    let shouldStop = lock.withLock { () -> Bool in
-      guard isRunning else { return false }
+    let cleanup = lock.withLock { () -> (removeTap: Bool, stopEngine: Bool) in
+      let cleanup = (hasInstalledTap, isRunning)
+      hasInstalledTap = false
       isRunning = false
-      return true
+      return cleanup
     }
-    guard shouldStop else { return }
-    engine.inputNode.removeTap(onBus: 0)
-    engine.stop()
+    guard cleanup.removeTap || cleanup.stopEngine else { return }
+    if cleanup.removeTap { engine.inputNode.removeTap(onBus: 0) }
+    if cleanup.stopEngine { engine.stop() }
     lock.withLock {
       continuation?.finish()
       continuation = nil

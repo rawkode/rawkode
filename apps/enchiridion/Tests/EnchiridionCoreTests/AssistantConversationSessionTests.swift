@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import EnchiridionCore
 
 final class AssistantConversationSessionTests: XCTestCase {
@@ -98,12 +99,16 @@ final class AssistantConversationSessionTests: XCTestCase {
 
     let requests = await answerer.requests
     XCTAssertEqual(requests.count, 5)
-    XCTAssertEqual(requests[4].priorTurns.map(\.utterance), [
-      "question 1", "question 2", "question 3", "question 4",
-    ])
-    XCTAssertEqual(session.turns.map(\.utterance), [
-      "question 2", "question 3", "question 4", "question 5",
-    ])
+    XCTAssertEqual(
+      requests[4].priorTurns.map(\.utterance),
+      [
+        "question 1", "question 2", "question 3", "question 4",
+      ])
+    XCTAssertEqual(
+      session.turns.map(\.utterance),
+      [
+        "question 2", "question 3", "question 4", "question 5",
+      ])
     let spokenValues = await speaker.spoken
     XCTAssertEqual(spokenValues.count, 5)
 
@@ -250,6 +255,70 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
+  func testConcurrentVoiceStartsCommitOnlyOneOperationAfterAvailabilityCheck() async throws {
+    let transcriber = SuspendedAvailabilityTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    async let first: Void = session.startVoice()
+    async let second: Void = session.startVoice()
+    try await waitUntil { await transcriber.availabilityCheckCount == 1 }
+    await transcriber.resumeAvailabilityChecks()
+    _ = await (first, second)
+    try await waitUntil { await transcriber.captureCount == 1 }
+
+    XCTAssertTrue(session.isVoiceRunning)
+    let captureCount = await transcriber.captureCount
+    XCTAssertEqual(captureCount, 1)
+    await session.stop()
+  }
+
+  @MainActor
+  func testStopInvalidatesAVoiceStartWaitingOnPreflight() async throws {
+    let transcriber = SuspendedAvailabilityTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    async let start: Void = session.startVoice()
+    try await waitUntil { await transcriber.availabilityCheckCount == 1 }
+    await session.stop()
+    await transcriber.resumeAvailabilityChecks()
+    _ = await start
+
+    XCTAssertEqual(session.state, .stopped)
+    XCTAssertFalse(session.isVoiceRunning)
+    let captureCount = await transcriber.captureCount
+    XCTAssertEqual(captureCount, 0)
+  }
+
+  @MainActor
+  func testStopInvalidatesAVoiceStartWaitingOnPermission() async throws {
+    let transcriber = SuspendedPermissionTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    async let start: Void = session.startVoice()
+    try await waitUntil { await transcriber.permissionRequestCount == 1 }
+    await session.stop()
+    await transcriber.resumePermissionRequest()
+    _ = await start
+
+    XCTAssertEqual(session.state, .stopped)
+    XCTAssertFalse(session.isVoiceRunning)
+    let captureCount = await transcriber.captureCount
+    XCTAssertEqual(captureCount, 0)
+  }
+
+  @MainActor
   func testResetClearsVisibleAndModelConversationContext() async {
     let answerer = ResetRecordingAnswerer()
     let session = AssistantConversationSession(answerer: answerer)
@@ -287,6 +356,74 @@ private actor DeniedTranscriber: AssistantConversationTranscribing {
   func transcribe() async throws -> String {
     captureCount += 1
     return "should not capture"
+  }
+}
+
+private actor SuspendedAvailabilityTranscriber: AssistantConversationTranscribing {
+  private var availabilityContinuations: [CheckedContinuation<AssistantVoiceAvailability, Never>] =
+    []
+  private var captureContinuation: CheckedContinuation<String, any Error>?
+  private(set) var availabilityCheckCount = 0
+  private(set) var captureCount = 0
+
+  func availability() async -> AssistantVoiceAvailability {
+    availabilityCheckCount += 1
+    return await withCheckedContinuation { continuation in
+      availabilityContinuations.append(continuation)
+    }
+  }
+
+  func transcribe() async throws -> String {
+    captureCount += 1
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        captureContinuation = continuation
+      }
+    } onCancel: {
+      Task { await self.cancelCapture() }
+    }
+  }
+
+  func stop() {
+    cancelCapture()
+  }
+
+  func resumeAvailabilityChecks() {
+    let continuations = availabilityContinuations
+    availabilityContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume(returning: .available)
+    }
+  }
+
+  private func cancelCapture() {
+    captureContinuation?.resume(throwing: CancellationError())
+    captureContinuation = nil
+  }
+}
+
+private actor SuspendedPermissionTranscriber: AssistantConversationTranscribing {
+  private var permissionContinuation: CheckedContinuation<AssistantVoiceAvailability, Never>?
+  private(set) var permissionRequestCount = 0
+  private(set) var captureCount = 0
+
+  func availability() -> AssistantVoiceAvailability { .permissionRequired }
+
+  func requestPermission() async -> AssistantVoiceAvailability {
+    permissionRequestCount += 1
+    return await withCheckedContinuation { continuation in
+      permissionContinuation = continuation
+    }
+  }
+
+  func transcribe() -> String {
+    captureCount += 1
+    return "should not capture"
+  }
+
+  func resumePermissionRequest() {
+    permissionContinuation?.resume(returning: .available)
+    permissionContinuation = nil
   }
 }
 

@@ -13,21 +13,36 @@ enum CarPlaySafetyPauseReason: String, Sendable {
   case disconnected
 }
 
+private final class CarPlayNotificationObserverBag: @unchecked Sendable {
+  private var tokens: [NSObjectProtocol] = []
+
+  func append(_ token: NSObjectProtocol) {
+    tokens.append(token)
+  }
+
+  deinit {
+    for token in tokens {
+      NotificationCenter.default.removeObserver(token)
+    }
+  }
+}
+
 /// Presents the same ephemeral conversation session used by the iPhone app.
 /// CarPlay owns only lifecycle, safety, and the constrained five-state UI.
 @MainActor
 final class CarPlayVoiceCoordinator: NSObject {
   private enum VoiceState: String {
     case ready
+    case starting
     case listening
-    case thinking
-    case speaking
-    case error
+    case responding
+    case setup
   }
 
   private let session: AssistantConversationSession?
   private let unavailableReason: @MainActor () -> String?
   private let audioSession = AVAudioSession.sharedInstance()
+  private let safetyObservers = CarPlayNotificationObserverBag()
   private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
     category: "CarPlayVoice"
@@ -38,6 +53,8 @@ final class CarPlayVoiceCoordinator: NSObject {
   private var connectionID: UUID?
   private var surfaceID: UUID?
   private var observationGeneration: UInt64 = 0
+  private var startAttemptID: UUID?
+  private var setupReason: String?
   private var isConnected = false
   private var isTemplatePresented = false
 
@@ -51,10 +68,6 @@ final class CarPlayVoiceCoordinator: NSObject {
     observeSafetyEvents()
   }
 
-  deinit {
-    NotificationCenter.default.removeObserver(self)
-  }
-
   func connect(to interfaceController: CPInterfaceController) {
     disconnect()
     let connectionID = UUID()
@@ -64,18 +77,23 @@ final class CarPlayVoiceCoordinator: NSObject {
     isConnected = true
     self.interfaceController = interfaceController
     observationGeneration &+= 1
+    startAttemptID = nil
+    setupReason = nil
 
     let template = makeVoiceTemplate()
     voiceTemplate = template
-    interfaceController.setRootTemplate(template, animated: false) { [weak self] success, error in
-      Task { @MainActor in
+    interfaceController.setRootTemplate(
+      template,
+      animated: false,
+      completion: Self.makeNonisolatedTemplateCompletion {
+        [weak self] success, errorCode in
         guard let self,
           self.isCurrentConnection(connectionID, surfaceID: surfaceID),
           self.voiceTemplate === template
         else { return }
         guard success else {
           self.logger.error(
-            "template_presentation_failed code=\(error?._code ?? -1, privacy: .public)"
+            "template_presentation_failed code=\(errorCode, privacy: .public)"
           )
           return
         }
@@ -83,7 +101,7 @@ final class CarPlayVoiceCoordinator: NSObject {
         self.logger.info("carplay_connected")
         _ = await self.prepareConversation(connectionID: connectionID, surfaceID: surfaceID)
       }
-    }
+    )
   }
 
   func disconnect() {
@@ -91,14 +109,21 @@ final class CarPlayVoiceCoordinator: NSObject {
     isConnected = false
     isTemplatePresented = false
     observationGeneration &+= 1
+    startAttemptID = nil
+    setupReason = nil
     connectionID = nil
     interfaceController = nil
     voiceTemplate = nil
     let closingSurfaceID = surfaceID
     surfaceID = nil
-    deactivateCarPlayAudioSession()
     if let session, let closingSurfaceID {
-      Task { await session.stopSurface(closingSurfaceID) }
+      Task { [weak self] in
+        await session.stopSurface(closingSurfaceID)
+        guard let self, !self.isConnected else { return }
+        self.deactivateCarPlayAudioSession()
+      }
+    } else {
+      deactivateCarPlayAudioSession()
     }
     logger.info("carplay_disconnected")
   }
@@ -112,6 +137,7 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   func pauseForSafety(reason: CarPlaySafetyPauseReason) {
     guard let connectionID, let surfaceID else { return }
+    startAttemptID = nil
     Task { [weak self] in
       guard let self else { return }
       guard self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
@@ -151,11 +177,16 @@ final class CarPlayVoiceCoordinator: NSObject {
     }
     observationGeneration &+= 1
     observeSession(session, generation: observationGeneration)
-    present(session.state, availability: session.voiceAvailability)
     switch session.voiceAvailability {
-    case .available, .permissionRequired:
+    case .available:
+      setupReason = nil
+      present(session.state, availability: session.voiceAvailability)
       return true
+    case .permissionRequired:
+      showError(reason: "microphone_permission_required")
+      return false
     case .checking, .installing, .installationRequired, .permissionDenied, .unavailable:
+      present(session.state, availability: session.voiceAvailability)
       return false
     }
   }
@@ -163,6 +194,12 @@ final class CarPlayVoiceCoordinator: NSObject {
   private func startConversation(connectionID: UUID, surfaceID: UUID) async {
     guard isCurrentConnection(connectionID, surfaceID: surfaceID), isTemplatePresented else {
       return
+    }
+    guard startAttemptID == nil, session?.isVoiceRunning != true else { return }
+    let attemptID = UUID()
+    startAttemptID = attemptID
+    defer {
+      if startAttemptID == attemptID { startAttemptID = nil }
     }
     guard CarPlayAssistantPrivacySettings.isEnabled() else {
       showError(reason: "disabled_in_settings")
@@ -176,19 +213,38 @@ final class CarPlayVoiceCoordinator: NSObject {
       showError(reason: "assistant_unavailable")
       return
     }
+    guard session.voiceAvailability == .available else {
+      presentIdle(session.voiceAvailability)
+      return
+    }
 
+    setupReason = nil
+    transition(to: .starting, reason: "starting_conversation")
     do {
       try configureCarPlayAudioSession()
     } catch {
       showError(reason: "audio_session_unavailable")
-      return
-    }
-    await session.startVoice(greeting: "Hello. What can I help with?")
-    guard isCurrentConnection(connectionID, surfaceID: surfaceID) else {
+      await session.stop()
+      guard isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
       deactivateCarPlayAudioSession()
       return
     }
+    guard !Task.isCancelled, startAttemptID == attemptID,
+      isCurrentConnection(connectionID, surfaceID: surfaceID)
+    else {
+      if !isConnected { deactivateCarPlayAudioSession() }
+      return
+    }
+    await session.startVoice(greeting: "Hello. What can I help with?")
+    guard !Task.isCancelled, startAttemptID == attemptID,
+      isCurrentConnection(connectionID, surfaceID: surfaceID)
+    else {
+      if !isConnected { deactivateCarPlayAudioSession() }
+      return
+    }
     guard session.isVoiceRunning else {
+      await session.stop()
+      guard isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
       deactivateCarPlayAudioSession()
       present(session.state, availability: session.voiceAvailability)
       return
@@ -198,6 +254,7 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   private func stopConversation(connectionID: UUID, surfaceID: UUID) {
     guard let session, isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
+    startAttemptID = nil
     Task { [weak self] in
       await session.stop()
       guard let self, self.isCurrentConnection(connectionID, surfaceID: surfaceID) else {
@@ -208,27 +265,16 @@ final class CarPlayVoiceCoordinator: NSObject {
     }
   }
 
-  private func retryConversation() {
-    guard let connectionID, let surfaceID else { return }
-    Task { [weak self] in
-      guard let self else { return }
-      guard await self.prepareConversation(connectionID: connectionID, surfaceID: surfaceID) else {
-        return
-      }
-      guard self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
-      await self.startConversation(connectionID: connectionID, surfaceID: surfaceID)
-    }
-  }
-
   private func observeSession(
     _ session: AssistantConversationSession,
     generation: UInt64
   ) {
-    withObservationTracking {
-      _ = session.state
-      _ = session.voiceAvailability
-    } onChange: { [weak self, weak session] in
-      Task { @MainActor in
+    withObservationTracking(
+      {
+        _ = session.state
+        _ = session.voiceAvailability
+      },
+      onChange: Self.makeNonisolatedVoidHandler { [weak self, weak session] in
         guard let self, let session,
           self.isConnected,
           self.connectionID != nil,
@@ -238,7 +284,7 @@ final class CarPlayVoiceCoordinator: NSObject {
         self.present(session.state, availability: session.voiceAvailability)
         self.observeSession(session, generation: generation)
       }
-    }
+    )
   }
 
   private func present(
@@ -253,23 +299,28 @@ final class CarPlayVoiceCoordinator: NSObject {
     case .listening:
       transition(to: .listening, reason: "listening")
     case .thinking:
-      transition(to: .thinking, reason: "thinking")
+      transition(to: .responding, reason: "thinking")
     case .speaking:
-      transition(to: .speaking, reason: "speaking")
+      transition(to: .responding, reason: "speaking")
     case .error(let failure):
-      deactivateCarPlayAudioSession()
-      showError(reason: "session_\(failure.kind.rawValue)")
+      stopForSetup(reason: "session_\(failure.kind.rawValue)")
     case .idle, .stopped:
       presentIdle(availability)
     }
   }
 
   private func presentIdle(_ availability: AssistantVoiceAvailability) {
+    if let setupReason {
+      transition(to: .setup, reason: setupReason)
+      return
+    }
     switch availability {
-    case .available, .permissionRequired:
+    case .available:
       transition(to: .ready, reason: "ready")
+    case .permissionRequired:
+      showError(reason: "microphone_permission_required")
     case .checking:
-      transition(to: .thinking, reason: "checking_voice")
+      transition(to: .starting, reason: "checking_voice")
     case .installing:
       showError(reason: "speech_installing")
     case .installationRequired:
@@ -282,7 +333,24 @@ final class CarPlayVoiceCoordinator: NSObject {
   }
 
   private func showError(reason: String) {
-    transition(to: .error, reason: reason)
+    setupReason = reason
+    startAttemptID = nil
+    transition(to: .setup, reason: reason)
+  }
+
+  private func stopForSetup(reason: String) {
+    let isNewFailure = setupReason != reason
+    showError(reason: reason)
+    guard isNewFailure, let connectionID, let surfaceID else { return }
+    Task { [weak self] in
+      guard let self else { return }
+      await self.session?.stop()
+      guard self.isCurrentConnection(connectionID, surfaceID: surfaceID),
+        self.setupReason == reason
+      else { return }
+      self.deactivateCarPlayAudioSession()
+      self.transition(to: .setup, reason: reason)
+    }
   }
 
   private func transition(to state: VoiceState, reason: String) {
@@ -295,40 +363,16 @@ final class CarPlayVoiceCoordinator: NSObject {
   }
 
   private func makeVoiceTemplate() -> CPVoiceControlTemplate {
-    let ready = CPVoiceControlState(
-      identifier: VoiceState.ready.rawValue,
-      titleVariants: ["Ready when you are", "Ready"],
-      image: UIImage(systemName: "mic.circle"),
-      repeats: false
-    )
-    let listening = CPVoiceControlState(
-      identifier: VoiceState.listening.rawValue,
-      titleVariants: ["Listening for your request", "Listening"],
-      image: UIImage(systemName: "waveform"),
-      repeats: true
-    )
-    let thinking = CPVoiceControlState(
-      identifier: VoiceState.thinking.rawValue,
-      titleVariants: ["Checking your private library", "Thinking"],
-      image: UIImage(systemName: "sparkles"),
-      repeats: true
-    )
-    let speaking = CPVoiceControlState(
-      identifier: VoiceState.speaking.rawValue,
-      titleVariants: ["Answering your request", "Answering"],
-      image: UIImage(systemName: "speaker.wave.2.fill"),
-      repeats: true
-    )
-    let error = CPVoiceControlState(
-      identifier: VoiceState.error.rawValue,
-      titleVariants: ["Check Enchiridion on your iPhone", "Check iPhone"],
-      image: UIImage(systemName: "exclamationmark.circle"),
-      repeats: false
-    )
+    let ready = makeState(.ready, repeats: false)
+    let starting = makeState(.starting, repeats: true)
+    let listening = makeState(.listening, repeats: true)
+    let responding = makeState(.responding, repeats: true)
+    let setup = makeState(.setup, repeats: false)
 
     if #available(iOS 26.4, *) {
-      ready.actionButtons = [
-        makeButton(title: "Start", symbol: "mic.fill") { [weak self] in
+      ready.actionButtons = compactButtons(
+        makeButton(title: CarPlayAssistantPhase.ready.actionTitle, symbol: "mic.fill") {
+          [weak self] in
           guard let self, let connectionID = self.connectionID, let surfaceID = self.surfaceID
           else {
             return
@@ -337,25 +381,34 @@ final class CarPlayVoiceCoordinator: NSObject {
             await self.startConversation(connectionID: connectionID, surfaceID: surfaceID)
           }
         }
-      ]
-      listening.actionButtons = [makeStopButton()]
-      thinking.actionButtons = [makeStopButton()]
-      speaking.actionButtons = [makeStopButton()]
-      error.actionButtons = [
-        makeButton(title: "Retry", symbol: "arrow.clockwise") { [weak self] in
-          self?.retryConversation()
-        }
-      ]
+      )
+      listening.actionButtons = compactButtons(makeStopButton())
+      starting.actionButtons = compactButtons(makeStopButton())
+      responding.actionButtons = compactButtons(makeStopButton())
+      setup.actionButtons = []
     }
 
     return CPVoiceControlTemplate(
-      voiceControlStates: [ready, listening, thinking, speaking, error]
+      voiceControlStates: [ready, starting, listening, responding, setup]
+    )
+  }
+
+  private func makeState(
+    _ phase: CarPlayAssistantPhase,
+    repeats: Bool
+  ) -> CPVoiceControlState {
+    CPVoiceControlState(
+      identifier: phase.rawValue,
+      titleVariants: phase.titleVariants,
+      image: UIImage(systemName: phase.systemImageName),
+      repeats: repeats
     )
   }
 
   @available(iOS 26.4, *)
-  private func makeStopButton() -> CPButton {
-    makeButton(title: "Stop", symbol: "stop.fill") { [weak self] in
+  private func makeStopButton() -> CPButton? {
+    makeButton(title: CarPlayAssistantPhase.listening.actionTitle, symbol: "stop.fill") {
+      [weak self] in
       guard let self, let connectionID = self.connectionID, let surfaceID = self.surfaceID else {
         return
       }
@@ -367,46 +420,111 @@ final class CarPlayVoiceCoordinator: NSObject {
   private func makeButton(
     title: String,
     symbol: String,
-    action: @escaping @MainActor () -> Void
-  ) -> CPButton {
-    let button = CPButton(image: UIImage(systemName: symbol)!) { _ in
-      Task { @MainActor in action() }
+    action: @escaping @MainActor @Sendable () -> Void
+  ) -> CPButton? {
+    guard let image = UIImage(systemName: symbol) else {
+      logger.error("missing_system_image symbol=\(symbol, privacy: .public)")
+      return nil
     }
+    let button = CPButton(image: image, handler: Self.makeNonisolatedButtonHandler(action))
     button.title = title
     return button
   }
 
+  nonisolated private static func makeNonisolatedButtonHandler(
+    _ action: @escaping @MainActor @Sendable () -> Void
+  ) -> (CPButton) -> Void {
+    { _ in
+      Task { @MainActor in action() }
+    }
+  }
+
+  nonisolated private static func makeNonisolatedTemplateCompletion(
+    _ action: @escaping @MainActor @Sendable (Bool, Int) async -> Void
+  ) -> (Bool, (any Error)?) -> Void {
+    { success, error in
+      let errorCode = (error as NSError?)?.code ?? -1
+      Task { @MainActor in await action(success, errorCode) }
+    }
+  }
+
+  nonisolated private static func makeNonisolatedVoidHandler(
+    _ action: @escaping @MainActor @Sendable () -> Void
+  ) -> @Sendable () -> Void {
+    { Task { @MainActor in action() } }
+  }
+
+  nonisolated private static func makeNonisolatedAudioInterruptionHandler(
+    _ action: @escaping @MainActor @Sendable (UInt?) -> Void
+  ) -> @Sendable (Notification) -> Void {
+    { notification in
+      let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+      Task { @MainActor in action(rawType) }
+    }
+  }
+
+  nonisolated private static func makeNonisolatedAudioRouteChangeHandler(
+    _ action: @escaping @MainActor @Sendable (UInt?) -> Void
+  ) -> @Sendable (Notification) -> Void {
+    { notification in
+      let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+      Task { @MainActor in action(rawReason) }
+    }
+  }
+
+  nonisolated private static func makeNonisolatedNotificationHandler(
+    _ action: @escaping @MainActor @Sendable () -> Void
+  ) -> @Sendable (Notification) -> Void {
+    { _ in
+      Task { @MainActor in action() }
+    }
+  }
+
+  @available(iOS 26.4, *)
+  private func compactButtons(_ buttons: CPButton?...) -> [CPButton] {
+    buttons.compactMap { $0 }
+  }
+
   private func observeSafetyEvents() {
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(audioInterrupted(_:)),
-      name: AVAudioSession.interruptionNotification,
-      object: audioSession
+    safetyObservers.append(
+      NotificationCenter.default.addObserver(
+        forName: AVAudioSession.interruptionNotification,
+        object: audioSession,
+        queue: .main,
+        using: Self.makeNonisolatedAudioInterruptionHandler { [weak self] rawType in
+          self?.handleAudioInterruption(rawType: rawType)
+        })
     )
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(audioRouteChanged(_:)),
-      name: AVAudioSession.routeChangeNotification,
-      object: audioSession
+    safetyObservers.append(
+      NotificationCenter.default.addObserver(
+        forName: AVAudioSession.routeChangeNotification,
+        object: audioSession,
+        queue: .main,
+        using: Self.makeNonisolatedAudioRouteChangeHandler { [weak self] rawReason in
+          self?.handleAudioRouteChange(rawReason: rawReason)
+        })
     )
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(settingsChanged(_:)),
-      name: UserDefaults.didChangeNotification,
-      object: UserDefaults.standard
+    safetyObservers.append(
+      NotificationCenter.default.addObserver(
+        forName: UserDefaults.didChangeNotification,
+        object: UserDefaults.standard,
+        queue: .main,
+        using: Self.makeNonisolatedNotificationHandler { [weak self] in
+          self?.handleSettingsChange()
+        })
     )
   }
 
-  @objc private func audioInterrupted(_ notification: Notification) {
-    guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+  private func handleAudioInterruption(rawType: UInt?) {
+    guard let rawType,
       AVAudioSession.InterruptionType(rawValue: rawType) == .began
     else { return }
     pauseForSafety(reason: .audioInterruption)
   }
 
-  @objc private func audioRouteChanged(_ notification: Notification) {
-    guard session?.isVoiceRunning == true,
-      let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+  private func handleAudioRouteChange(rawReason: UInt?) {
+    guard session?.isVoiceRunning == true || startAttemptID != nil,
+      let rawReason,
       let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason)
     else { return }
     switch reason {
@@ -422,7 +540,7 @@ final class CarPlayVoiceCoordinator: NSObject {
     }
   }
 
-  @objc private func settingsChanged(_ notification: Notification) {
+  private func handleSettingsChange() {
     guard isConnected else { return }
     if CarPlayAssistantPrivacySettings.isEnabled() {
       if session?.isVoiceRunning != true { resumeAfterBecomingActive() }
