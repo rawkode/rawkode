@@ -3,13 +3,15 @@ import SwiftUI
 
 struct MobileTaskHomeScreen: View {
   let store: LibraryStore
+  @Binding var requestedSelection: TaskListSelection?
 
   @State private var query = ""
+  @State private var path: [TaskListSelection] = []
   @State private var showsQuickCapture = false
   @State private var collectionDraft: TaskCollectionDraft?
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       List {
         Section {
           ForEach(TaskSmartList.allCases) { list in
@@ -101,6 +103,11 @@ struct MobileTaskHomeScreen: View {
       .sheet(item: $collectionDraft) { draft in
         TaskCollectionCreator(store: store, draft: draft)
       }
+      .onChange(of: requestedSelection) { _, selection in
+        guard let selection else { return }
+        path = [selection]
+        requestedSelection = nil
+      }
     }
   }
 
@@ -185,6 +192,7 @@ struct TaskListContent: View {
   private func taskRows(_ tasks: [TaskItem]) -> some View {
     ForEach(tasks) { task in
       TaskRow(store: store, task: task, open: { openTask(task.id) })
+        .padding(.leading, task.data.parentTaskID == nil ? 0 : 18)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
           if task.data.state == .active {
             Button {
@@ -502,6 +510,12 @@ private struct TaskMetadataEditor: View {
               Text(area.displayTitle).tag(PageID?.some(area.id))
             }
           }
+          Picker("Parent Task", selection: $data.parentTaskID) {
+            Text("None").tag(PageID?.none)
+            ForEach(parentCandidates) { task in
+              Text(task.page.displayTitle).tag(PageID?.some(task.id))
+            }
+          }
           TextField("Tags, separated by commas", text: $tags)
           TextField("Estimate in minutes", text: $estimate)
         }
@@ -544,6 +558,12 @@ private struct TaskMetadataEditor: View {
       get: { data.recurrence ?? TaskRecurrenceRule() },
       set: { data.recurrence = $0 }
     )
+  }
+
+  private var parentCandidates: [TaskItem] {
+    store.pages.compactMap(TaskItem.init(page:)).filter {
+      $0.id != page.id && $0.data.state == .active
+    }
   }
 
   private func save() {
@@ -755,7 +775,7 @@ private struct TaskNavigationLabel: View {
   }
 }
 
-private struct TaskCollectionDraft: Identifiable {
+struct TaskCollectionDraft: Identifiable {
   enum Kind: Equatable {
     case project
     case area
@@ -768,7 +788,7 @@ private struct TaskCollectionDraft: Identifiable {
   var kind: Kind
 }
 
-private struct TaskCollectionCreator: View {
+struct TaskCollectionCreator: View {
   let store: LibraryStore
   let draft: TaskCollectionDraft
 

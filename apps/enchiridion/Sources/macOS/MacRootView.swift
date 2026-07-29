@@ -10,6 +10,7 @@ struct MacRootView: View {
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
   @State private var showsQuickTaskCapture = false
+  @State private var taskCollectionDraft: TaskCollectionDraft?
   @State private var todayPresentedPageID: PageID?
   @State private var selectedDay = Calendar.current.startOfDay(for: Date())
   @State private var editorFlushController = EditorFlushController()
@@ -42,21 +43,25 @@ struct MacRootView: View {
           }
           .buttonStyle(.plain)
         }
-        if !store.taskProjects.isEmpty {
-          Section("Projects") {
-            ForEach(store.taskProjects) { project in
-              Label(project.displayTitle, systemImage: "folder")
-                .tag(MacSidebarSelection.task(.project(project.id)))
-            }
+        Section("Projects") {
+          ForEach(store.taskProjects) { project in
+            Label(project.displayTitle, systemImage: "folder")
+              .tag(MacSidebarSelection.task(.project(project.id)))
           }
+          Button { taskCollectionDraft = .init(kind: .project) } label: {
+            Label("New Project", systemImage: "plus")
+          }
+          .buttonStyle(.plain)
         }
-        if !store.taskAreas.isEmpty {
-          Section("Areas") {
-            ForEach(store.taskAreas) { area in
-              Label(area.displayTitle, systemImage: "square.grid.2x2")
-                .tag(MacSidebarSelection.task(.area(area.id)))
-            }
+        Section("Areas") {
+          ForEach(store.taskAreas) { area in
+            Label(area.displayTitle, systemImage: "square.grid.2x2")
+              .tag(MacSidebarSelection.task(.area(area.id)))
           }
+          Button { taskCollectionDraft = .init(kind: .area) } label: {
+            Label("New Area", systemImage: "plus")
+          }
+          .buttonStyle(.plain)
         }
         Section {
           ForEach(LibrarySection.allCases) { item in
@@ -301,6 +306,9 @@ struct MacRootView: View {
     .sheet(isPresented: $showsQuickTaskCapture) {
       TaskQuickCaptureSheet(store: store, selection: selection.taskSelection ?? .smart(.inbox))
     }
+    .sheet(item: $taskCollectionDraft) { draft in
+      TaskCollectionCreator(store: store, draft: draft)
+    }
     .onChange(of: store.savedViews) { _, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
         selectSidebar(.section(.allPages))
@@ -309,6 +317,11 @@ struct MacRootView: View {
     .task(id: selectedDay) {
       guard isTodaySelection else { return }
       _ = await store.openDailyPage(for: selectedDay)
+    }
+    .onOpenURL { url in
+      guard url.scheme == "enchiridion", url.host == "tasks" else { return }
+      let rawList = url.pathComponents.dropFirst().first ?? "inbox"
+      openTaskList(TaskSmartList(rawValue: rawList) ?? .inbox)
     }
   }
 

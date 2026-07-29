@@ -22,6 +22,14 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
+			<string>Enchiridion Tasks</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>enchiridion</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
 			<string>Google Calendar OAuth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
