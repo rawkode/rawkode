@@ -39,6 +39,15 @@ struct TodayWorkspaceView: View {
             flushController: flushController,
             onOpenPage: navigate
           )
+          .safeAreaInset(edge: .top, spacing: 0) {
+            DailyTaskContext(
+              store: store,
+              day: day,
+              includingOverdue: calendar.isDateInToday(day),
+              openTask: openPage,
+              viewAll: showTodayTasks
+            )
+          }
         } else if store.isLoading || isOpeningDay {
           ProgressView("Opening daily note")
         } else {
@@ -155,7 +164,11 @@ struct TodayWorkspaceView: View {
     }
     .sheet(isPresented: $isTodayTasksPresented) {
       NavigationStack {
-        TaskListScreen(store: store, selection: .smart(.today))
+        DailyTaskListScreen(
+          store: store,
+          day: day,
+          includingOverdue: calendar.isDateInToday(day)
+        )
           .toolbar {
             ToolbarItem(placement: .cancellationAction) {
               Button("Done") { isTodayTasksPresented = false }

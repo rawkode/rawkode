@@ -274,7 +274,7 @@ struct TaskListContent: View {
   }
 }
 
-private struct TaskRow: View {
+struct TaskRow: View {
   let store: LibraryStore
   let task: TaskItem
   let open: () -> Void
