@@ -21,6 +21,7 @@ public struct PageDocumentProjection: Hashable, Sendable {
   public var deletedAt: Date?
   public var isPinned: Bool
   public var references: [PageReference]
+  public var graphEdges: [KnowledgeEdge]
   public var objectMetadata: PageObjectMetadata
 }
 
@@ -58,6 +59,7 @@ public enum PageDocument {
     try document.put(obj: metadata, key: "version", value: .Int(1))
     _ = try document.putObject(obj: metadata, key: "tags", ty: .Map)
     _ = try document.putObject(obj: metadata, key: "values", ty: .Map)
+    _ = try document.putObject(obj: .ROOT, key: "edges", ty: .Map)
     let titleObject = try document.putObject(obj: .ROOT, key: "title", ty: .Text)
     try document.spliceText(obj: titleObject, start: 0, delete: 0, value: title)
     _ = try document.putObject(obj: .ROOT, key: "body", ty: .Text)
@@ -215,9 +217,13 @@ public enum PageDocument {
     values: [SupertagValue],
     in snapshot: Data
   ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
-    try mutateMetadata(in: snapshot, message: "Set \(key.fieldID.rawValue)") { document, tags, properties in
+    if !values.isEmpty && values.allSatisfy({ if case .page = $0 { true } else { false } }) {
+      return try setRelationship(key: key, values: values, in: snapshot)
+    }
+    return try mutateMetadata(in: snapshot, message: "Set \(key.fieldID.rawValue)") { document, tags, properties in
       try document.put(obj: tags, key: key.supertagID.rawValue, value: .Boolean(true))
       if values.isEmpty {
+        try replaceRelationshipEdges(document, key: key, targets: [])
         try document.delete(obj: properties, key: key.storageKey)
       } else {
         let data = try JSONEncoder.enchiridion.encode(values)
@@ -240,7 +246,24 @@ public enum PageDocument {
       try document.put(obj: tags, key: supertagID.rawValue, value: .Boolean(true))
       for key in updates.keys.sorted(by: { $0.storageKey < $1.storageKey }) {
         let values = updates[key] ?? []
+        if values.allSatisfy({ if case .page = $0 { true } else { false } }),
+          values.contains(where: { if case .page = $0 { true } else { false } })
+        {
+          try replaceRelationshipEdges(
+            document,
+            key: key,
+            targets: values.compactMap { value in
+              guard case .page(let pageID) = value else { return nil }
+              return pageID
+            }
+          )
+          if try document.get(obj: properties, key: key.storageKey) != nil {
+            try document.delete(obj: properties, key: key.storageKey)
+          }
+          continue
+        }
         if values.isEmpty {
+          try replaceRelationshipEdges(document, key: key, targets: [])
           if try document.get(obj: properties, key: key.storageKey) != nil {
             try document.delete(obj: properties, key: key.storageKey)
           }
@@ -262,6 +285,39 @@ public enum PageDocument {
     in snapshot: Data
   ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
     try setProperty(key: key, values: values, in: snapshot)
+  }
+
+  public static func upsertEdge(
+    _ edge: KnowledgeEdge,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    let pageID = try resolvedPageID(document)
+    guard edge.sourceNodeID == pageID else { throw PageDocumentError.invalidSchema }
+    let edges = try edgesObject(document)
+    let encoded = try JSONEncoder.enchiridion.encode(edge)
+    try document.put(
+      obj: edges,
+      key: edge.id.rawValue,
+      value: .String(String(decoding: encoded, as: UTF8.self))
+    )
+    document.commitWith(message: "Add \(edge.relationID.rawValue)", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
+  }
+
+  public static func removeEdge(
+    _ edgeID: EdgeID,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    let edges = try edgesObject(document)
+    if try document.get(obj: edges, key: edgeID.rawValue) != nil {
+      try document.delete(obj: edges, key: edgeID.rawValue)
+    }
+    document.commitWith(message: "Remove relationship", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
   }
 
   public static func setPersonClassification(
@@ -345,10 +401,8 @@ public enum PageDocument {
     let resolvedPageID: PageID
     if let pageID {
       resolvedPageID = pageID
-    } else if case .Scalar(.String(let value))? = try document.get(obj: .ROOT, key: "pageID") {
-      resolvedPageID = PageID(rawValue: value)
     } else {
-      throw PageDocumentError.invalidSchema
+      resolvedPageID = try Self.resolvedPageID(document)
     }
 
     let deletedAt: Date?
@@ -383,14 +437,66 @@ public enum PageDocument {
       )
     }
 
+    let edges = try graphEdges(document, pageID: resolvedPageID)
     return PageDocumentProjection(
       title: try document.text(obj: titleObject),
       plainText: try document.text(obj: bodyObject),
       deletedAt: deletedAt,
       isPinned: isPinned,
       references: references,
-      objectMetadata: try metadataProjection(document)
+      graphEdges: edges,
+      objectMetadata: try metadataProjection(document, pageID: resolvedPageID, edges: edges)
     )
+  }
+
+  private static func setRelationship(
+    key: SupertagPropertyKey,
+    values: [SupertagValue],
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    try mutateMetadata(in: snapshot, message: "Set \(key.fieldID.rawValue)") { document, tags, properties in
+      try document.put(obj: tags, key: key.supertagID.rawValue, value: .Boolean(true))
+      if try document.get(obj: properties, key: key.storageKey) != nil {
+        try document.delete(obj: properties, key: key.storageKey)
+      }
+      try replaceRelationshipEdges(
+        document,
+        key: key,
+        targets: values.compactMap { value in
+          guard case .page(let pageID) = value else { return nil }
+          return pageID
+        }
+      )
+    }
+  }
+
+  private static func replaceRelationshipEdges(
+    _ document: Document,
+    key: SupertagPropertyKey,
+    targets: [PageID]
+  ) throws {
+    let edges = try edgesObject(document)
+    let relationID = BuiltInRelations.relationID(for: key)
+    let sourceID = try resolvedPageID(document)
+    for (edgeID, _) in try document.mapEntries(obj: edges) {
+      guard let edge = try decodedEdge(document, edges: edges, key: edgeID),
+        edge.relationID == relationID
+      else { continue }
+      try document.delete(obj: edges, key: edgeID)
+    }
+    for target in targets {
+      let edge = KnowledgeEdge(
+        relationID: relationID,
+        sourceNodeID: sourceID,
+        targetNodeID: target
+      )
+      let encoded = try JSONEncoder.enchiridion.encode(edge)
+      try document.put(
+        obj: edges,
+        key: edge.id.rawValue,
+        value: .String(String(decoding: encoded, as: UTF8.self))
+      )
+    }
   }
 
   private static func mutateMetadata(
@@ -432,7 +538,11 @@ public enum PageDocument {
     return (tags, values)
   }
 
-  private static func metadataProjection(_ document: Document) throws -> PageObjectMetadata {
+  private static func metadataProjection(
+    _ document: Document,
+    pageID: PageID,
+    edges: [KnowledgeEdge]
+  ) throws -> PageObjectMetadata {
     guard case .Object(let metadata, .Map)? = try document.get(obj: .ROOT, key: "objectMetadata") else {
       return .init()
     }
@@ -466,6 +576,24 @@ public enum PageDocument {
         if candidates.count > 1 { conflicts.append(.init(key: key, candidates: candidates)) }
       }
     }
+    for edge in edges where edge.sourceNodeID == pageID {
+      guard let key = BuiltInRelations.propertyKey(for: edge.relationID) else { continue }
+      projected[key, default: []].append(.page(edge.targetNodeID))
+    }
+    for key in projected.keys {
+      projected[key] = Array(Set(projected[key] ?? [])).sorted { $0.id < $1.id }
+    }
+    for key in projected.keys {
+      guard let field = BuiltInSupertags.all
+        .first(where: { $0.id == key.supertagID })?
+        .fields.first(where: { $0.id == key.fieldID }),
+        !field.allowsMultiple,
+        let values = projected[key],
+        values.count > 1,
+        values.allSatisfy({ if case .page = $0 { true } else { false } })
+      else { continue }
+      conflicts.append(.init(key: key, candidates: values.map { [$0] }))
+    }
     let personVisibility: PersonVisibility?
     if case .Scalar(.String(let value))? = try document.get(
       obj: metadata,
@@ -491,6 +619,51 @@ public enum PageDocument {
       personVisibility: personVisibility,
       personOrigin: personOrigin
     )
+  }
+
+  private static func resolvedPageID(_ document: Document) throws -> PageID {
+    guard case .Scalar(.String(let value))? = try document.get(obj: .ROOT, key: "pageID")
+    else { throw PageDocumentError.invalidSchema }
+    return PageID(rawValue: value)
+  }
+
+  private static func edgesObject(_ document: Document) throws -> ObjId {
+    if case .Object(let object, .Map)? = try document.get(obj: .ROOT, key: "edges") {
+      return object
+    }
+    return try document.putObject(obj: .ROOT, key: "edges", ty: .Map)
+  }
+
+  private static func decodedEdge(
+    _ document: Document,
+    edges: ObjId,
+    key: String
+  ) throws -> KnowledgeEdge? {
+    let candidates: [KnowledgeEdge] = try document.getAll(obj: edges, key: key).compactMap { value in
+      guard case .Scalar(.String(let json)) = value,
+        let data = json.data(using: .utf8)
+      else { return nil }
+      return try? JSONDecoder.enchiridion.decode(KnowledgeEdge.self, from: data)
+    }
+    return candidates.sorted { lhs, rhs in
+      let left = (try? String(data: JSONEncoder.enchiridion.encode(lhs), encoding: .utf8)) ?? ""
+      let right = (try? String(data: JSONEncoder.enchiridion.encode(rhs), encoding: .utf8)) ?? ""
+      return left < right
+    }.first
+  }
+
+  private static func graphEdges(
+    _ document: Document,
+    pageID: PageID
+  ) throws -> [KnowledgeEdge] {
+    guard case .Object(let edges, .Map)? = try document.get(obj: .ROOT, key: "edges") else {
+      return []
+    }
+    return try document.mapEntries(obj: edges).compactMap { key, _ in
+      guard var edge = try decodedEdge(document, edges: edges, key: key) else { return nil }
+      edge.sourceNodeID = pageID
+      return edge
+    }.sorted { $0.id.rawValue < $1.id.rawValue }
   }
 
   private static func heads(_ document: Document) -> AutomergeHeads {

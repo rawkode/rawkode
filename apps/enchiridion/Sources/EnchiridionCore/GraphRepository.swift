@@ -1,0 +1,304 @@
+import Foundation
+import GRDB
+
+extension LibraryRepository {
+  public func relationDefinitions() throws -> [RelationDefinition] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT definition_json
+          FROM _graph_relation_definitions
+          WHERE is_deleted = 0
+          ORDER BY is_system DESC, forward_name COLLATE NOCASE
+          """
+      ).compactMap(Self.decodeRelation)
+    }
+  }
+
+  public func saveRelationDefinition(
+    _ definition: RelationDefinition,
+    now: Date = Date()
+  ) throws {
+    let forward = definition.forwardName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let inverse = definition.inverseName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !forward.isEmpty, !inverse.isEmpty else { throw GraphModelError.invalidEndpoint }
+    try database.write { db in
+      if let existing = try Row.fetchOne(
+        db,
+        sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ?",
+        arguments: [definition.id.rawValue]
+      ).flatMap(Self.decodeRelation), existing.isSystem, existing != definition {
+        throw GraphModelError.immutableSystemDefinition
+      }
+      let availableTags = Set(try String.fetchAll(
+        db,
+        sql: "SELECT id FROM supertag_schemas WHERE deleted = 0"
+      ).map(TagID.init(rawValue:)))
+      guard Set(definition.sourceTagIDs).isSubset(of: availableTags),
+        Set(definition.targetTagIDs).isSubset(of: availableTags)
+      else { throw GraphModelError.invalidEndpoint }
+      var normalized = definition
+      normalized.forwardName = forward
+      normalized.inverseName = inverse
+      try GraphDatabaseSchema.saveRelation(normalized, in: db, modifiedAt: now)
+      try GraphProjectionStore.refreshIssues(in: db)
+    }
+  }
+
+  public func deleteRelationDefinition(
+    _ id: RelationID,
+    now: Date = Date()
+  ) throws {
+    try database.write { db in
+      guard var existing = try Row.fetchOne(
+        db,
+        sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ?",
+        arguments: [id.rawValue]
+      ).flatMap(Self.decodeRelation) else { throw GraphModelError.unknownRelation(id) }
+      guard !existing.isSystem else { throw GraphModelError.immutableSystemDefinition }
+      existing.isDeleted = true
+      try GraphDatabaseSchema.saveRelation(existing, in: db, modifiedAt: now)
+      try GraphProjectionStore.refreshIssues(in: db)
+    }
+  }
+
+  @discardableResult
+  public func createEdge(
+    relationID: RelationID,
+    from sourceID: NodeID,
+    to targetID: NodeID,
+    origin: GraphEdgeOrigin = .user,
+    now: Date = Date()
+  ) throws -> KnowledgeEdge {
+    try database.write { db in
+      guard let relation = try Row.fetchOne(
+        db,
+        sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ? AND is_deleted = 0",
+        arguments: [relationID.rawValue]
+      ).flatMap(Self.decodeRelation) else { throw GraphModelError.unknownRelation(relationID) }
+      guard let source = try Self.fetchPage(db, id: sourceID), source.deletedAt == nil,
+        let target = try Self.fetchPage(db, id: targetID), target.deletedAt == nil
+      else { throw GraphModelError.invalidEndpoint }
+      let sourceTags = try Self.effectiveTagIDs(db, nodeID: sourceID)
+      let targetTags = try Self.effectiveTagIDs(db, nodeID: targetID)
+      guard relation.sourceTagIDs.isEmpty
+        || !sourceTags.isDisjoint(with: relation.sourceTagIDs),
+        relation.targetTagIDs.isEmpty
+        || !targetTags.isDisjoint(with: relation.targetTagIDs)
+      else { throw GraphModelError.invalidEndpoint }
+
+      if relation.cardinality.targetsPerSource == .one,
+        try Int.fetchOne(
+          db,
+          sql: "SELECT COUNT(DISTINCT target_node_id) FROM _graph_edges WHERE relation_id = ? AND source_node_id = ? AND target_node_id <> ?",
+          arguments: [relationID.rawValue, sourceID.rawValue, targetID.rawValue]
+        ) ?? 0 > 0
+      {
+        throw GraphModelError.cardinalityViolation(relationID)
+      }
+      if relation.cardinality.sourcesPerTarget == .one,
+        try Int.fetchOne(
+          db,
+          sql: "SELECT COUNT(DISTINCT source_node_id) FROM _graph_edges WHERE relation_id = ? AND target_node_id = ? AND source_node_id <> ?",
+          arguments: [relationID.rawValue, targetID.rawValue, sourceID.rawValue]
+        ) ?? 0 > 0
+      {
+        throw GraphModelError.cardinalityViolation(relationID)
+      }
+
+      if let existing = try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM _graph_edges WHERE relation_id = ? AND source_node_id = ? AND target_node_id = ?",
+        arguments: [relationID.rawValue, sourceID.rawValue, targetID.rawValue]
+      ).flatMap(Self.decodeEdge) {
+        return existing
+      }
+
+      let edge = KnowledgeEdge(
+        relationID: relationID,
+        sourceNodeID: sourceID,
+        targetNodeID: targetID,
+        origin: origin,
+        createdAt: now
+      )
+      let mutation = try PageDocument.upsertEdge(edge, in: source.document)
+      let updated = Self.updatedPage(source, with: mutation, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: origin != .provider)
+      try GraphProjectionStore.refreshIssues(in: db)
+      return edge
+    }
+  }
+
+  public func removeEdge(_ edgeID: EdgeID, now: Date = Date()) throws {
+    try database.write { db in
+      guard let edge = try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM _graph_edges WHERE edge_id = ?",
+        arguments: [edgeID.rawValue]
+      ).flatMap(Self.decodeEdge),
+        let source = try Self.fetchPage(db, id: edge.sourceNodeID)
+      else { throw GraphModelError.invalidEndpoint }
+      guard edge.origin != .provider, edge.origin != .inlineReference else {
+        throw GraphModelError.immutableSystemDefinition
+      }
+
+      let explicit = (try? PageDocument.inspect(source.document, pageID: source.id).graphEdges) ?? []
+      let mutation: (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection)
+      if explicit.contains(where: { $0.id == edgeID }) {
+        mutation = try PageDocument.removeEdge(edgeID, in: source.document)
+      } else if let key = BuiltInRelations.propertyKey(for: edge.relationID) {
+        let retained = (source.objectMetadata.properties[key] ?? []).filter { value in
+          guard case .page(let pageID) = value else { return true }
+          return pageID != edge.targetNodeID
+        }
+        mutation = try PageDocument.setProperty(key: key, values: retained, in: source.document)
+      } else {
+        throw GraphModelError.invalidEndpoint
+      }
+      let updated = Self.updatedPage(source, with: mutation, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try GraphProjectionStore.refreshIssues(in: db)
+    }
+  }
+
+  public func outgoingEdges(from nodeID: NodeID) throws -> [KnowledgeEdge] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM _graph_edges WHERE source_node_id = ? ORDER BY created_at, edge_id",
+        arguments: [nodeID.rawValue]
+      ).compactMap(Self.decodeEdge)
+    }
+  }
+
+  public func graphBacklinks(to nodeID: NodeID) throws -> [GraphBacklink] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT edge.*,
+                 relation.definition_json,
+                 source.title AS source_title
+          FROM _graph_edges edge
+          JOIN _graph_relation_definitions relation ON relation.id = edge.relation_id
+          JOIN pages source ON source.id = edge.source_node_id
+          WHERE edge.target_node_id = ?
+            AND source.deleted_at IS NULL
+            AND relation.is_deleted = 0
+          ORDER BY source.modified_at DESC, edge.edge_id
+          """,
+        arguments: [nodeID.rawValue]
+      ).compactMap { row in
+        guard let edge = Self.decodeEdge(row),
+          let relation = Self.decodeRelation(row),
+          let title: String = row["source_title"]
+        else { return nil }
+        return GraphBacklink(edge: edge, relation: relation, sourceTitle: title)
+      }
+    }
+  }
+
+  public func graphIssues() throws -> [GraphIssue] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM _graph_issues ORDER BY created_at, issue_id"
+      ).compactMap(Self.decodeIssue)
+    }
+  }
+
+  /// Resolves a merge-created max-one conflict without inventing last-writer-wins semantics.
+  public func resolveCardinalityConflict(
+    relationID: RelationID,
+    keeping edgeID: EdgeID,
+    now: Date = Date()
+  ) throws {
+    let conflicts = try database.read { db in
+      guard let keep = try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM _graph_edges WHERE edge_id = ? AND relation_id = ?",
+        arguments: [edgeID.rawValue, relationID.rawValue]
+      ).flatMap(Self.decodeEdge),
+        let relation = try Row.fetchOne(
+          db,
+          sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ?",
+          arguments: [relationID.rawValue]
+        ).flatMap(Self.decodeRelation)
+      else { throw GraphModelError.invalidEndpoint }
+      return try Row.fetchAll(
+        db,
+        sql: """
+          SELECT * FROM _graph_edges
+          WHERE relation_id = ? AND edge_id <> ?
+            AND ((? = 'one' AND source_node_id = ?)
+              OR (? = 'one' AND target_node_id = ?))
+          """,
+        arguments: [
+          relationID.rawValue,
+          edgeID.rawValue,
+          relation.cardinality.targetsPerSource.rawValue,
+          keep.sourceNodeID.rawValue,
+          relation.cardinality.sourcesPerTarget.rawValue,
+          keep.targetNodeID.rawValue,
+        ]
+      ).compactMap(Self.decodeEdge)
+    }
+    for edge in conflicts { try removeEdge(edge.id, now: now) }
+  }
+
+  public func effectiveTagIDs(for nodeID: NodeID) throws -> Set<TagID> {
+    try database.read { db in try Self.effectiveTagIDs(db, nodeID: nodeID) }
+  }
+
+  private static func effectiveTagIDs(_ db: Database, nodeID: NodeID) throws -> Set<TagID> {
+    Set(try String.fetchAll(
+      db,
+      sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
+      arguments: [nodeID.rawValue]
+    ).map(TagID.init(rawValue:)))
+  }
+
+  private static func decodeRelation(_ row: Row) -> RelationDefinition? {
+    guard let data: Data = row["definition_json"] else { return nil }
+    return try? JSONDecoder.enchiridion.decode(RelationDefinition.self, from: data)
+  }
+
+  private static func decodeEdge(_ row: Row) -> KnowledgeEdge? {
+    guard let edgeID: String = row["edge_id"],
+      let relationID: String = row["relation_id"],
+      let sourceID: String = row["source_node_id"],
+      let targetID: String = row["target_node_id"],
+      let originRaw: String = row["origin"],
+      let origin = GraphEdgeOrigin(rawValue: originRaw),
+      let createdAt: Double = row["created_at"]
+    else { return nil }
+    return .init(
+      id: .init(rawValue: edgeID),
+      relationID: .init(rawValue: relationID),
+      sourceNodeID: .init(rawValue: sourceID),
+      targetNodeID: .init(rawValue: targetID),
+      origin: origin,
+      createdAt: Date(timeIntervalSince1970: createdAt)
+    )
+  }
+
+  private static func decodeIssue(_ row: Row) -> GraphIssue? {
+    guard let issueID: String = row["issue_id"],
+      let kindRaw: String = row["kind"],
+      let kind = GraphIssueKind(rawValue: kindRaw),
+      let nodeID: String = row["node_id"],
+      let message: String = row["message"],
+      let createdAt: Double = row["created_at"]
+    else { return nil }
+    return .init(
+      id: .init(rawValue: issueID),
+      kind: kind,
+      nodeID: .init(rawValue: nodeID),
+      edgeID: (row["edge_id"] as String?).map(EdgeID.init(rawValue:)),
+      relationID: (row["relation_id"] as String?).map(RelationID.init(rawValue:)),
+      message: message,
+      createdAt: Date(timeIntervalSince1970: createdAt)
+    )
+  }
+}
