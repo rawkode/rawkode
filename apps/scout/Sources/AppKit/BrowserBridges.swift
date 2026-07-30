@@ -9,12 +9,18 @@ struct MillerColumnsView: NSViewRepresentable {
   func makeNSView(context: Context) -> NSBrowser {
     let browser = NSBrowser()
     browser.delegate = context.coordinator
+    browser.backgroundColor = ScoutTheme.canvasNS
     browser.allowsMultipleSelection = true
     browser.allowsEmptySelection = true
-    browser.minColumnWidth = 220
+    browser.minColumnWidth = 214
     browser.maxVisibleColumns = 12
     browser.hasHorizontalScroller = true
     browser.takesTitleFromPreviousColumn = false
+    browser.prefersAllColumnUserResizing = true
+    let prototype = NSBrowserCell(textCell: "")
+    prototype.font = .systemFont(ofSize: 12.5)
+    prototype.lineBreakMode = .byTruncatingMiddle
+    browser.cellPrototype = prototype
     browser.setAccessibilityLabel(String(localized: "File columns"))
     browser.loadColumnZero()
     return browser
@@ -22,12 +28,21 @@ struct MillerColumnsView: NSViewRepresentable {
 
   func updateNSView(_ browser: NSBrowser, context: Context) {
     context.coordinator.session = session
+    context.coordinator.isApplyingState = true
+    defer { context.coordinator.isApplyingState = false }
     browser.reloadColumn(0)
-    for column in 1..<session.columns.count { browser.reloadColumn(column) }
+    for column in 1..<session.columns.count {
+      browser.reloadColumn(column)
+    }
+    for (index, column) in session.columns.enumerated() {
+      let selectedRows = IndexSet(column.items.enumerated().compactMap { column.selectedIDs.contains($0.element.id) ? $0.offset : nil })
+      browser.selectRowIndexes(selectedRows, inColumn: index)
+    }
   }
 
   final class Coordinator: NSObject, NSBrowserDelegate {
     var session: BrowserSession
+    var isApplyingState = false
     init(session: BrowserSession) { self.session = session }
 
     func browser(_ browser: NSBrowser, numberOfRowsInColumn column: Int) -> Int {
@@ -42,9 +57,12 @@ struct MillerColumnsView: NSViewRepresentable {
       else { return }
       let item = session.columns[column].items[row]
       cell.title = item.name
-      cell.image = NSImage(systemSymbolName: item.systemImage, accessibilityDescription: item.kindDescription)
+      let icon = NSWorkspace.shared.icon(forFile: item.url.path)
+      icon.size = NSSize(width: 16, height: 16)
+      cell.image = icon
       cell.isLeaf = !item.isTraversableDirectory
       cell.isEnabled = item.isReadable
+      cell.font = .systemFont(ofSize: 12.5)
     }
 
     func browser(_ sender: NSBrowser, titleOfColumn column: Int) -> String? {
@@ -54,6 +72,7 @@ struct MillerColumnsView: NSViewRepresentable {
 
     @MainActor
     func browserSelectionDidChange(_ notification: Notification) {
+      guard !isApplyingState else { return }
       guard let browser = notification.object as? NSBrowser else { return }
       let column = browser.selectedColumn
       guard session.columns.indices.contains(column) else { return }
@@ -80,8 +99,14 @@ struct FileListView: NSViewRepresentable {
     table.delegate = context.coordinator
     table.dataSource = context.coordinator
     table.allowsMultipleSelection = true
-    table.usesAlternatingRowBackgroundColors = true
+    table.usesAlternatingRowBackgroundColors = false
+    table.backgroundColor = ScoutTheme.canvasNS
+    table.gridColor = ScoutTheme.separatorNS
+    table.style = .sourceList
     table.rowSizeStyle = .medium
+    table.rowHeight = 27
+    table.intercellSpacing = NSSize(width: 0, height: 1)
+    table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
     table.registerForDraggedTypes([.fileURL])
     table.doubleAction = #selector(Coordinator.openSelection)
     table.target = context.coordinator
@@ -94,38 +119,91 @@ struct FileListView: NSViewRepresentable {
     let scroll = NSScrollView()
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
+    scroll.drawsBackground = true
+    scroll.backgroundColor = ScoutTheme.canvasNS
     scroll.documentView = table
     return scroll
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     context.coordinator.session = session
-    (scroll.documentView as? NSTableView)?.reloadData()
+    guard let table = scroll.documentView as? NSTableView else { return }
+    table.reloadData()
+    let selectedRows = IndexSet(session.displayedItems.enumerated().compactMap { session.selectedIDs.contains($0.element.id) ? $0.offset : nil })
+    if table.selectedRowIndexes != selectedRows {
+      context.coordinator.isApplyingState = true
+      table.selectRowIndexes(selectedRows, byExtendingSelection: false)
+      context.coordinator.isApplyingState = false
+    }
   }
 
   final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var session: BrowserSession
+    var isApplyingState = false
     init(session: BrowserSession) { self.session = session }
     func numberOfRows(in tableView: NSTableView) -> Int { session.displayedItems.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
       guard session.displayedItems.indices.contains(row), let tableColumn else { return nil }
       let item = session.displayedItems[row]
+      let cell = reusableCell(for: tableColumn, in: tableView)
+      let value = switch tableColumn.identifier.rawValue {
+      case "name": item.name
+      case "date": item.formattedModificationDate
+      default: item.formattedSize
+      }
+      cell.textField?.stringValue = value
+      cell.textField?.textColor = tableColumn.identifier.rawValue == "name" ? .labelColor : .secondaryLabelColor
+      if tableColumn.identifier.rawValue == "name" {
+        let icon = NSWorkspace.shared.icon(forFile: item.url.path)
+        icon.size = NSSize(width: 18, height: 18)
+        cell.imageView?.image = icon
+        cell.imageView?.setAccessibilityLabel(item.kindDescription)
+      }
+      cell.setAccessibilityLabel(item.name)
+      cell.setAccessibilityValue(item.kindDescription)
+      return cell
+    }
+
+    @MainActor
+    private func reusableCell(for column: NSTableColumn, in tableView: NSTableView) -> NSTableCellView {
+      if let cell = tableView.makeView(withIdentifier: column.identifier, owner: nil) as? NSTableCellView {
+        return cell
+      }
+
       let cell = NSTableCellView()
-      let text = NSTextField(labelWithString: tableColumn.identifier.rawValue == "name" ? item.name : tableColumn.identifier.rawValue == "date" ? item.formattedModificationDate : item.formattedSize)
+      cell.identifier = column.identifier
+      let text = NSTextField(labelWithString: "")
+      text.font = .systemFont(ofSize: 12.5)
       text.lineBreakMode = .byTruncatingMiddle
       text.translatesAutoresizingMaskIntoConstraints = false
+      cell.textField = text
       cell.addSubview(text)
-      NSLayoutConstraint.activate([text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6), text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6), text.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
-      if tableColumn.identifier.rawValue == "name" {
-        let image = NSImageView(image: NSImage(systemSymbolName: item.systemImage, accessibilityDescription: item.kindDescription) ?? NSImage())
+
+      if column.identifier.rawValue == "name" {
+        let image = NSImageView()
+        image.imageScaling = .scaleProportionallyUpOrDown
         image.translatesAutoresizingMaskIntoConstraints = false
+        cell.imageView = image
         cell.addSubview(image)
-        NSLayoutConstraint.activate([image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 5), image.centerYAnchor.constraint(equalTo: cell.centerYAnchor), image.widthAnchor.constraint(equalToConstant: 18), image.heightAnchor.constraint(equalToConstant: 18), text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 7)])
+        NSLayoutConstraint.activate([
+          image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+          image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+          image.widthAnchor.constraint(equalToConstant: 18),
+          image.heightAnchor.constraint(equalToConstant: 18),
+          text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 7),
+        ])
+      } else {
+        text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6).isActive = true
       }
+      NSLayoutConstraint.activate([
+        text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+        text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+      ])
       return cell
     }
     @MainActor
     func tableViewSelectionDidChange(_ notification: Notification) {
+      guard !isApplyingState else { return }
       guard let table = notification.object as? NSTableView else { return }
       let ids = Set(table.selectedRowIndexes.compactMap { session.displayedItems.indices.contains($0) ? session.displayedItems[$0].id : nil })
       Task { await session.select(ids) }
@@ -179,7 +257,7 @@ struct FileIconGridView: NSViewRepresentable {
     collection.dataSource = context.coordinator
     collection.isSelectable = true
     collection.allowsMultipleSelection = true
-    collection.backgroundColors = [.controlBackgroundColor]
+    collection.backgroundColors = [ScoutTheme.canvasNS]
     collection.register(ScoutIconItem.self, forItemWithIdentifier: ScoutIconItem.identifier)
     collection.registerForDraggedTypes([.fileURL])
     collection.doubleClickHandler = { [weak coordinator = context.coordinator] in
@@ -191,16 +269,28 @@ struct FileIconGridView: NSViewRepresentable {
     scroll.documentView = collection
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
+    scroll.drawsBackground = true
+    scroll.backgroundColor = ScoutTheme.canvasNS
     return scroll
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     context.coordinator.session = session
-    (scroll.documentView as? NSCollectionView)?.reloadData()
+    guard let collection = scroll.documentView as? NSCollectionView else { return }
+    collection.reloadData()
+    let selectedIndexPaths = Set(session.displayedItems.enumerated().compactMap {
+      session.selectedIDs.contains($0.element.id) ? IndexPath(item: $0.offset, section: 0) : nil
+    })
+    if collection.selectionIndexPaths != selectedIndexPaths {
+      context.coordinator.isApplyingState = true
+      collection.selectionIndexPaths = selectedIndexPaths
+      context.coordinator.isApplyingState = false
+    }
   }
 
   final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
     var session: BrowserSession
+    var isApplyingState = false
     init(session: BrowserSession) { self.session = session }
 
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -217,7 +307,20 @@ struct FileIconGridView: NSViewRepresentable {
 
     @MainActor
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-      let ids = Set(indexPaths.compactMap { session.displayedItems.indices.contains($0.item) ? session.displayedItems[$0.item].id : nil })
+      syncSelection(from: collectionView)
+    }
+
+    @MainActor
+    func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
+      syncSelection(from: collectionView)
+    }
+
+    @MainActor
+    private func syncSelection(from collectionView: NSCollectionView) {
+      guard !isApplyingState else { return }
+      let ids = Set(collectionView.selectionIndexPaths.compactMap {
+        session.displayedItems.indices.contains($0.item) ? session.displayedItems[$0.item].id : nil
+      })
       Task { await session.select(ids) }
     }
 
@@ -282,8 +385,8 @@ private final class ScoutIconItem: NSCollectionViewItem {
 
   override var isSelected: Bool {
     didSet {
-      view.layer?.backgroundColor = isSelected ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor : NSColor.clear.cgColor
-      view.layer?.cornerRadius = 8
+      view.layer?.backgroundColor = isSelected ? ScoutTheme.selectionNS.cgColor : NSColor.clear.cgColor
+      view.layer?.cornerRadius = 7
     }
   }
 
