@@ -28,7 +28,7 @@ public struct VaultDescriptor: Codable, Hashable, Sendable, Identifiable {
     self.deletedAt = deletedAt
   }
 
-  public var cloudZoneName: String { "EnchiridionGraph-\(id.rawValue)" }
+  public var cloudZoneName: String { id.cloudZoneName }
 }
 
 public struct VaultRegistrySnapshot: Equatable, Sendable {
@@ -256,7 +256,7 @@ public final class VaultRegistry: @unchecked Sendable {
   private func bootstrapIfNeeded() throws {
     try database.write { db in
       if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM vaults WHERE deleted_at IS NULL") == 0 {
-        let personal = VaultDescriptor(name: Self.personalVaultName)
+        let personal = VaultDescriptor(id: .personal, name: Self.personalVaultName)
         try Self.insert(personal, db: db)
         try Self.setPreference(db, key: "selected-vault-id", value: personal.id.rawValue)
         try Self.setPreference(db, key: "default-capture-vault-id", value: personal.id.rawValue)
