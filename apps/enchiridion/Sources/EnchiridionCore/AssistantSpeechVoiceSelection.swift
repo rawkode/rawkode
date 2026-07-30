@@ -29,9 +29,12 @@ public enum AssistantSpeechVoiceSelection {
   /// Selects a predictable system voice without crossing language boundaries.
   /// Voice quality wins before an exact regional locale match so an installed
   /// premium or enhanced voice is never displaced by a compact legacy voice.
+  /// Within the same quality and locale tier, Apple's requested-language voice
+  /// wins before the deterministic identifier fallback.
   public static func selectIdentifier(
     for locale: Locale,
-    from candidates: [AssistantSpeechVoiceCandidate]
+    from candidates: [AssistantSpeechVoiceCandidate],
+    frameworkPreferredIdentifier: String? = nil
   ) -> String? {
     let requestedTag = normalizedLanguageTag(locale.identifier(.bcp47))
     let requestedLanguage = languageCode(in: requestedTag)
@@ -55,6 +58,13 @@ public enum AssistantSpeechVoiceSelection {
         }
         if lhs.isExactLocaleMatch != rhs.isExactLocaleMatch {
           return lhs.isExactLocaleMatch
+        }
+        let lhsIsFrameworkPreferred =
+          lhs.candidate.identifier == frameworkPreferredIdentifier
+        let rhsIsFrameworkPreferred =
+          rhs.candidate.identifier == frameworkPreferredIdentifier
+        if lhsIsFrameworkPreferred != rhsIsFrameworkPreferred {
+          return lhsIsFrameworkPreferred
         }
         return lhs.candidate.identifier < rhs.candidate.identifier
       }

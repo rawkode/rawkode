@@ -72,7 +72,7 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     XCTAssertNil(select(from: candidates))
   }
 
-  func testTieBreakIsDeterministic() {
+  func testTieBreakRemainsDeterministicWithoutFrameworkPreference() {
     let candidates = [
       voice("z-voice", language: "en-GB", quality: .enhanced),
       voice("a-voice", language: "en_GB", quality: .enhanced),
@@ -81,10 +81,72 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     XCTAssertEqual(select(from: candidates), "a-voice")
   }
 
-  private func select(from candidates: [AssistantSpeechVoiceCandidate]) -> String? {
+  func testFrameworkPreferredBasicVoiceWinsWithinItsQualityAndLocaleTier() {
+    let daniel = "com.apple.voice.compact.en-GB.Daniel"
+    let candidates = [
+      voice("com.apple.eloquence.en-GB.Eddy", language: "en-GB", quality: .default),
+      voice(daniel, language: "en-GB", quality: .default),
+    ]
+
+    XCTAssertEqual(select(from: candidates, preferred: daniel), daniel)
+  }
+
+  func testHigherQualityVoiceBeatsFrameworkPreferredBasicVoice() {
+    let preferredBasic = voice("preferred-basic", language: "en-GB", quality: .default)
+
+    XCTAssertEqual(
+      select(
+        from: [preferredBasic, voice("enhanced", language: "en-GB", quality: .enhanced)],
+        preferred: preferredBasic.identifier
+      ),
+      "enhanced"
+    )
+    XCTAssertEqual(
+      select(
+        from: [preferredBasic, voice("premium", language: "en-GB", quality: .premium)],
+        preferred: preferredBasic.identifier
+      ),
+      "premium"
+    )
+  }
+
+  func testAbsentFrameworkPreferredIdentifierUsesDeterministicFallback() {
+    let candidates = [
+      voice("z-voice", language: "en-GB", quality: .default),
+      voice("a-voice", language: "en-GB", quality: .default),
+    ]
+
+    XCTAssertEqual(select(from: candidates, preferred: "not-installed"), "a-voice")
+  }
+
+  func testFrameworkPreferredNoveltyOrWrongLanguageVoiceIsIgnored() {
+    let standard = voice("standard", language: "en-GB", quality: .default)
+    let novelty = voice(
+      "novelty",
+      language: "en-GB",
+      quality: .premium,
+      isNovelty: true
+    )
+    let french = voice("french", language: "fr-FR", quality: .premium)
+
+    XCTAssertEqual(
+      select(from: [standard, novelty], preferred: novelty.identifier),
+      standard.identifier
+    )
+    XCTAssertEqual(
+      select(from: [standard, french], preferred: french.identifier),
+      standard.identifier
+    )
+  }
+
+  private func select(
+    from candidates: [AssistantSpeechVoiceCandidate],
+    preferred: String? = nil
+  ) -> String? {
     AssistantSpeechVoiceSelection.selectIdentifier(
       for: Locale(identifier: "en_GB"),
-      from: candidates
+      from: candidates,
+      frameworkPreferredIdentifier: preferred
     )
   }
 

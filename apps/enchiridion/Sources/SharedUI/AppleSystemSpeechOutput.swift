@@ -1,6 +1,10 @@
 import AVFoundation
+#if os(macOS)
+  import CoreAudio
+#endif
 import EnchiridionCore
 import Foundation
+import OSLog
 
 enum AppleSystemSpeechOutputError: Error, LocalizedError {
   case voiceUnavailable(String)
@@ -21,6 +25,10 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   private let locale: Locale
   private let synthesizer: AVSpeechSynthesizer
   private let managesIOSAudioSession: Bool
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
+    category: "AssistantSpeechOutput"
+  )
   private var activeUtterance: AVSpeechUtterance?
   private var continuation: CheckedContinuation<Void, any Error>?
 
@@ -55,6 +63,8 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
       if managesIOSAudioSession { try AssistantSpeechAudioSession.activate() }
     #endif
 
+    logSelection(voice)
+
     let utterance = AVSpeechUtterance(string: spokenText)
     utterance.voice = voice
     activeUtterance = utterance
@@ -86,6 +96,9 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
 
   private func selectedVoice(for locale: Locale) -> AVSpeechSynthesisVoice? {
     let voices = AVSpeechSynthesisVoice.speechVoices()
+    let requestedTag = locale.identifier(.bcp47)
+    let frameworkPreferredIdentifier =
+      AVSpeechSynthesisVoice(language: requestedTag)?.identifier
     let candidates = voices.map { voice in
       AssistantSpeechVoiceCandidate(
         identifier: voice.identifier,
@@ -97,7 +110,8 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     guard
       let identifier = AssistantSpeechVoiceSelection.selectIdentifier(
         for: locale,
-        from: candidates
+        from: candidates,
+        frameworkPreferredIdentifier: frameworkPreferredIdentifier
       )
     else {
       return nil
@@ -115,6 +129,103 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
       return .default
     }
   }
+
+  private func logSelection(_ voice: AVSpeechSynthesisVoice) {
+    logger.info(
+      "speech_voice_selected identifier=\(voice.identifier, privacy: .public) name=\(voice.name, privacy: .public) language=\(voice.language, privacy: .public) quality=\(self.qualityDescription(of: voice), privacy: .public) output_route=\(self.currentOutputRouteDescription(), privacy: .public)"
+    )
+  }
+
+  private func qualityDescription(of voice: AVSpeechSynthesisVoice) -> String {
+    switch voice.quality {
+    case .premium:
+      return "premium"
+    case .enhanced:
+      return "enhanced"
+    default:
+      return "default"
+    }
+  }
+
+  private func currentOutputRouteDescription() -> String {
+    #if os(iOS)
+      let outputTypes = AVAudioSession.sharedInstance().currentRoute.outputs.map {
+        $0.portType.rawValue
+      }
+      return outputTypes.isEmpty ? "none" : outputTypes.sorted().joined(separator: ",")
+    #elseif os(macOS)
+      return Self.macOSOutputRouteDescription()
+    #else
+      return "unknown"
+    #endif
+  }
+
+  #if os(macOS)
+    private static func macOSOutputRouteDescription() -> String {
+      var outputDevice = AudioDeviceID(kAudioObjectUnknown)
+      var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+      var propertyAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+      )
+      let outputDeviceStatus = AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject),
+        &propertyAddress,
+        0,
+        nil,
+        &propertySize,
+        &outputDevice
+      )
+      guard outputDeviceStatus == noErr, outputDevice != kAudioObjectUnknown else {
+        return "unavailable"
+      }
+
+      var transportType: UInt32 = 0
+      propertySize = UInt32(MemoryLayout<UInt32>.size)
+      propertyAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyTransportType,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+      )
+      let transportStatus = AudioObjectGetPropertyData(
+        outputDevice,
+        &propertyAddress,
+        0,
+        nil,
+        &propertySize,
+        &transportType
+      )
+      guard transportStatus == noErr else { return "unknown" }
+
+      switch transportType {
+      case kAudioDeviceTransportTypeBuiltIn:
+        return "built-in"
+      case kAudioDeviceTransportTypeAggregate:
+        return "aggregate"
+      case kAudioDeviceTransportTypeVirtual:
+        return "virtual"
+      case kAudioDeviceTransportTypePCI:
+        return "pci"
+      case kAudioDeviceTransportTypeUSB:
+        return "usb"
+      case kAudioDeviceTransportTypeBluetooth:
+        return "bluetooth"
+      case kAudioDeviceTransportTypeBluetoothLE:
+        return "bluetooth-le"
+      case kAudioDeviceTransportTypeHDMI:
+        return "hdmi"
+      case kAudioDeviceTransportTypeDisplayPort:
+        return "display-port"
+      case kAudioDeviceTransportTypeAirPlay:
+        return "airplay"
+      case kAudioDeviceTransportTypeThunderbolt:
+        return "thunderbolt"
+      default:
+        return "other"
+      }
+    }
+  #endif
 
   private func cancelCurrentSpeech() {
     guard activeUtterance != nil || continuation != nil else { return }
