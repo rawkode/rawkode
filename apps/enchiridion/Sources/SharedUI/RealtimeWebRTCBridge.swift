@@ -1,0 +1,707 @@
+import EnchiridionCore
+import Foundation
+import OSLog
+@preconcurrency import WebKit
+
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+@MainActor
+protocol RealtimeWebRTCBridgeDelegate: AnyObject {
+  func realtimeBridgeDidBecomeReady(_ bridge: RealtimeWebRTCBridge)
+  func realtimeBridge(_ bridge: RealtimeWebRTCBridge, didReceive message: RealtimeWebRTCBridge.Message)
+}
+
+@MainActor
+final class RealtimeWebRTCBridge: NSObject {
+  static let ownedOrigin = RealtimeWebRTCBridgeSecurityPolicy.ownedOrigin
+
+  enum Message: Equatable, Sendable {
+    case offer(generation: UInt64, sdp: String)
+    case connectionState(generation: UInt64, state: String)
+    case dataChannelState(generation: UInt64, state: String)
+    case serverEvent(generation: UInt64, json: String)
+    case answerApplied(generation: UInt64)
+    #if DEBUG
+      case probeResult(
+        generation: UInt64,
+        peerConnection: Bool,
+        userMedia: Bool,
+        error: String?
+      )
+    #endif
+    case error(generation: UInt64, code: String)
+  }
+
+  enum BridgeError: Error, Equatable {
+    case resourceUnavailable
+    case resourceTooLarge
+    case invalidCommand
+    case unavailable
+    #if DEBUG
+      case probeTimedOut
+    #endif
+  }
+
+  private enum Limit {
+    static let resource = 64 * 1024
+    static let sdp = 128 * 1024
+    static let event = 64 * 1024
+    static let error = 512
+  }
+
+  weak var delegate: RealtimeWebRTCBridgeDelegate?
+
+  private let contentController: WKUserContentController
+  private var webView: WKWebView?
+  private var authorizationState = RealtimeWebRTCBridgeAuthorizationState()
+  private var lifecycle = RealtimeWebRTCBridgeLifecycleState()
+  #if DEBUG
+    private static let debugProbeDeliveryTimeout: Duration = .seconds(5)
+    private var debugProbeGeneration: UInt64?
+    private var debugProbeDeliveredGeneration: UInt64?
+    private var debugProbeCompletion: CheckedContinuation<Void, Error>?
+    private var debugProbeTimeoutTask: Task<Void, Never>?
+  #endif
+  private var isReady = false
+  private var stopped = false
+
+  override init() {
+    let contentController = WKUserContentController()
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .nonPersistent()
+    configuration.userContentController = contentController
+    configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+    configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+    configuration.mediaTypesRequiringUserActionForPlayback = []
+    #if os(iOS)
+    configuration.allowsInlineMediaPlayback = true
+    #endif
+
+    self.contentController = contentController
+    let webView = WKWebView(frame: .zero, configuration: configuration)
+    self.webView = webView
+    super.init()
+
+    webView.navigationDelegate = self
+    webView.uiDelegate = self
+    webView.isInspectable = false
+    #if os(iOS)
+    webView.isOpaque = false
+    webView.backgroundColor = .clear
+    webView.scrollView.isScrollEnabled = false
+    #endif
+    contentController.add(WeakScriptMessageHandler(target: self), name: "realtime")
+  }
+
+  func load() throws {
+    guard !stopped, lifecycle.currentEpoch != nil, let webView else {
+      throw BridgeError.unavailable
+    }
+    guard
+      let resourceURL = Bundle.main.url(
+        forResource: "index",
+        withExtension: "html",
+        subdirectory: "RealtimeBridge"
+      ),
+      let data = try? Data(contentsOf: resourceURL),
+      data.count <= Limit.resource,
+      let html = String(data: data, encoding: .utf8)
+    else {
+      throw BridgeError.resourceUnavailable
+    }
+    attachNonvisibleWebViewIfNeeded()
+    webView.loadHTMLString(html, baseURL: Self.ownedOrigin)
+  }
+
+  func authorize(
+    _ capability: RealtimeWebRTCBridgeAuthorization,
+    generation: UInt64
+  ) async throws {
+    guard
+      !stopped,
+      capability.authorizes(generation: generation),
+      let operationEpoch = lifecycle.beginAuthorization(),
+      let webView
+    else { throw BridgeError.unavailable }
+    let oldGeneration = authorizationState.activeGeneration
+    authorizationState.revoke()
+    #if DEBUG
+      resolveDebugProbeDelivery(throwing: BridgeError.unavailable)
+      debugProbeGeneration = nil
+    #endif
+    do {
+      if let oldGeneration {
+        try await call(
+          function: "stop",
+          argument: ["generation": oldGeneration],
+          epoch: operationEpoch,
+          webView: webView
+        )
+        guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+          throw BridgeError.unavailable
+        }
+      }
+      try await call(
+        function: "authorize",
+        argument: ["generation": generation],
+        epoch: operationEpoch,
+        webView: webView
+      )
+      guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+        throw BridgeError.unavailable
+      }
+      try authorizationState.activate(capability, generation: generation)
+    } catch {
+      if lifecycle.isCurrent(operationEpoch) {
+        await stop()
+        guard lifecycle.isStopped else { throw BridgeError.unavailable }
+      }
+      throw BridgeError.unavailable
+    }
+  }
+
+  #if DEBUG
+  func runProbe(generation: UInt64) async throws {
+    guard
+      !stopped,
+      isReady,
+      generation > 0,
+      let operationEpoch = lifecycle.beginAuthorization(),
+      let webView
+    else { throw BridgeError.unavailable }
+    authorizationState.revoke()
+    resolveDebugProbeDelivery(throwing: BridgeError.unavailable)
+    debugProbeGeneration = generation
+    debugProbeDeliveredGeneration = nil
+    let script = """
+      const generation = nativeGeneration;
+      let peer = null;
+      let stream = null;
+      try {
+        peer = new RTCPeerConnection({ iceServers: [] });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const audioTracks = stream.getAudioTracks();
+        const videoTracks = stream.getVideoTracks();
+        window.webkit.messageHandlers.realtime.postMessage({
+          version: 1,
+          generation,
+          type: "probeResult",
+          payload: {
+            peerConnection: peer instanceof RTCPeerConnection,
+            userMedia: audioTracks.length === 1 && audioTracks[0].kind === "audio" && videoTracks.length === 0
+          }
+        });
+      } catch (error) {
+        window.webkit.messageHandlers.realtime.postMessage({
+          version: 1,
+          generation,
+          type: "probeResult",
+          payload: {
+            peerConnection: Boolean(peer),
+            userMedia: false,
+            error: String(error && error.name || "mediaFailure").slice(0, 512)
+          }
+        });
+      } finally {
+        if (stream) for (const track of stream.getTracks()) track.stop();
+        if (peer) peer.close();
+      }
+      return true;
+      """
+    do {
+      _ = try await webView.callAsyncJavaScript(
+        script,
+        arguments: ["nativeGeneration": generation],
+        in: nil,
+        contentWorld: .page
+      )
+      guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+        throw BridgeError.unavailable
+      }
+      try await awaitProbeDelivery(
+        generation: generation,
+        epoch: operationEpoch,
+        webView: webView
+      )
+      guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+        throw BridgeError.unavailable
+      }
+    } catch {
+      if lifecycle.isCurrent(operationEpoch) {
+        debugProbeGeneration = nil
+        debugProbeDeliveredGeneration = nil
+      }
+      throw error
+    }
+  }
+
+  private func awaitProbeDelivery(
+    generation: UInt64,
+    epoch: UInt64,
+    webView: WKWebView
+  ) async throws {
+    try Task.checkCancellation()
+    guard lifecycle.isCurrent(epoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+    if debugProbeDeliveredGeneration == generation { return }
+    try await withTaskCancellationHandler(
+      operation: {
+        try await withCheckedThrowingContinuation {
+          (continuation: CheckedContinuation<Void, Error>) in
+        guard lifecycle.isCurrent(epoch), self.webView === webView else {
+          continuation.resume(throwing: BridgeError.unavailable)
+          return
+        }
+        if debugProbeDeliveredGeneration == generation {
+          continuation.resume()
+          return
+        }
+        debugProbeCompletion = continuation
+        debugProbeTimeoutTask?.cancel()
+        debugProbeTimeoutTask = Task { @MainActor [weak self] in
+          do {
+            try await Task.sleep(for: Self.debugProbeDeliveryTimeout)
+          } catch {
+            return
+          }
+          guard
+            let self,
+            self.debugProbeGeneration == generation,
+            self.lifecycle.isCurrent(epoch)
+          else { return }
+          self.resolveDebugProbeDelivery(throwing: BridgeError.probeTimedOut)
+          self.debugProbeGeneration = nil
+          self.debugProbeDeliveredGeneration = nil
+        }
+        }
+      },
+      onCancel: {
+        Task { @MainActor [weak self] in
+          guard self?.debugProbeGeneration == generation else { return }
+          self?.resolveDebugProbeDelivery(throwing: CancellationError())
+          self?.debugProbeGeneration = nil
+          self?.debugProbeDeliveredGeneration = nil
+        }
+      }
+    )
+  }
+
+  private func resolveDebugProbeDelivery(throwing error: Error? = nil) {
+    debugProbeTimeoutTask?.cancel()
+    debugProbeTimeoutTask = nil
+    let completion = debugProbeCompletion
+    debugProbeCompletion = nil
+    if let error {
+      completion?.resume(throwing: error)
+    } else {
+      completion?.resume()
+    }
+  }
+  #endif
+
+  func start(generation: UInt64) async throws {
+    guard
+      !stopped,
+      isReady,
+      authorizationState.authorizes(generation: generation),
+      let operationEpoch = lifecycle.currentEpoch,
+      let webView
+    else {
+      throw BridgeError.unavailable
+    }
+    try await call(
+      function: "start",
+      argument: ["generation": generation],
+      epoch: operationEpoch,
+      webView: webView
+    )
+    guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+  }
+
+  func applyAnswer(_ sdp: String, generation: UInt64) async throws {
+    guard
+      !stopped,
+      authorizationState.authorizes(generation: generation),
+      sdp.utf8.count <= Limit.sdp,
+      let operationEpoch = lifecycle.currentEpoch,
+      let webView
+    else {
+      throw BridgeError.invalidCommand
+    }
+    try await call(
+      function: "setAnswer",
+      argument: ["generation": generation, "sdp": sdp],
+      epoch: operationEpoch,
+      webView: webView
+    )
+    guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+  }
+
+  func sendEvent(_ json: String, generation: UInt64) async throws {
+    guard
+      !stopped,
+      authorizationState.authorizes(generation: generation),
+      json.utf8.count <= Limit.event,
+      let operationEpoch = lifecycle.currentEpoch,
+      let webView
+    else {
+      throw BridgeError.invalidCommand
+    }
+    try await call(
+      function: "sendEvent",
+      argument: ["generation": generation, "json": json],
+      epoch: operationEpoch,
+      webView: webView
+    )
+    guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+  }
+
+  func setInputEnabled(_ enabled: Bool, generation: UInt64) async throws {
+    guard
+      !stopped,
+      authorizationState.authorizes(generation: generation),
+      let operationEpoch = lifecycle.currentEpoch,
+      let webView
+    else {
+      throw BridgeError.invalidCommand
+    }
+    try await call(
+      function: "setInputEnabled",
+      argument: ["generation": generation, "enabled": enabled],
+      epoch: operationEpoch,
+      webView: webView
+    )
+    guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+  }
+
+  func stop() async {
+    guard !stopped, let teardownEpoch = lifecycle.stop() else { return }
+    stopped = true
+    let activeGeneration = authorizationState.activeGeneration
+    authorizationState.revoke()
+    #if DEBUG
+      resolveDebugProbeDelivery(throwing: BridgeError.unavailable)
+      debugProbeGeneration = nil
+      debugProbeDeliveredGeneration = nil
+    #endif
+    isReady = false
+    delegate = nil
+
+    guard let capturedWebView = webView else { return }
+    let dataStore = capturedWebView.configuration.websiteDataStore
+    contentController.removeScriptMessageHandler(forName: "realtime")
+    destroyWebView(capturedWebView, activeGeneration: activeGeneration)
+    webView = nil
+    await clearNonpersistentData(in: dataStore)
+    guard lifecycle.isStopped, lifecycle.epoch == teardownEpoch else { return }
+  }
+
+  private func destroyWebView(_ webView: WKWebView, activeGeneration: UInt64?) {
+    if let activeGeneration {
+      webView.evaluateJavaScript(
+        "window.EnchiridionRealtimeBridge?.stop({generation: \(activeGeneration)});"
+      ) { _, _ in }
+    }
+    webView.stopLoading()
+    webView.navigationDelegate = nil
+    webView.uiDelegate = nil
+    webView.removeFromSuperview()
+    webView.loadHTMLString("<!doctype html><html><body></body></html>", baseURL: nil)
+  }
+
+  private func call(
+    function: String,
+    argument: [String: Any],
+    epoch: UInt64,
+    webView: WKWebView
+  ) async throws {
+    guard !stopped, lifecycle.isCurrent(epoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+    let data = try JSONSerialization.data(withJSONObject: argument)
+    guard data.count <= Limit.sdp else {
+      throw BridgeError.invalidCommand
+    }
+    let allowed = ["authorize", "start", "setAnswer", "sendEvent", "setInputEnabled", "stop"]
+    guard allowed.contains(function) else { throw BridgeError.invalidCommand }
+    _ = try await webView.callAsyncJavaScript(
+      """
+      await window.EnchiridionRealtimeBridge[operation](argument);
+      return true;
+      """,
+      arguments: ["operation": function, "argument": argument],
+      in: nil,
+      contentWorld: .page
+    )
+    guard !stopped, lifecycle.isCurrent(epoch), self.webView === webView else {
+      throw BridgeError.unavailable
+    }
+  }
+
+  private func attachNonvisibleWebViewIfNeeded() {
+    guard !stopped, let webView, webView.superview == nil else { return }
+    #if os(iOS)
+    let windows = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap(\.windows)
+    guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return }
+    webView.frame = CGRect(x: -2, y: -2, width: 1, height: 1)
+    webView.alpha = 0.01
+    webView.isUserInteractionEnabled = false
+    window.addSubview(webView)
+    #elseif os(macOS)
+    guard let contentView = NSApplication.shared.keyWindow?.contentView else { return }
+    webView.frame = NSRect(x: -2, y: -2, width: 1, height: 1)
+    webView.alphaValue = 0.01
+    contentView.addSubview(webView)
+    #endif
+  }
+
+  private func clearNonpersistentData(in store: WKWebsiteDataStore) async {
+    let types = WKWebsiteDataStore.allWebsiteDataTypes()
+    await withCheckedContinuation { continuation in
+      store.fetchDataRecords(ofTypes: types) { records in
+        store.removeData(ofTypes: types, for: records) {
+          continuation.resume()
+        }
+      }
+    }
+  }
+
+  private func originIsOwned(_ origin: WKSecurityOrigin) -> Bool {
+    RealtimeWebRTCBridgeSecurityPolicy.isOwnedOrigin(
+      scheme: origin.protocol,
+      host: origin.host,
+      port: origin.port
+    )
+  }
+
+  fileprivate func receive(_ message: WKScriptMessage) {
+    guard
+      !stopped,
+      let body = message.body as? [String: Any],
+      let type = body["type"] as? String,
+      let version = RealtimeWebRTCBridgeMessageGenerationParser.parse(
+        body["version"],
+        allowsZero: false
+      ),
+      version == 1,
+      let generation = RealtimeWebRTCBridgeMessageGenerationParser.parse(
+        body["generation"],
+        allowsZero: type == "ready"
+      ),
+      let payload = body["payload"] as? [String: Any],
+      let payloadData = try? JSONSerialization.data(withJSONObject: payload),
+      RealtimeWebRTCBridgeSecurityPolicy.acceptsMessageEnvelope(
+        fieldCount: body.count,
+        version: Int(version),
+        generation: generation,
+        type: type,
+        isMainFrame: message.frameInfo.isMainFrame,
+        isOwnedOrigin: originIsOwned(message.frameInfo.securityOrigin),
+        payloadIsDictionary: true,
+        payloadByteCount: payloadData.count
+      ),
+      RealtimeWebRTCBridgeSecurityPolicy.acceptsPayload(
+        type: type,
+        keys: Set(payload.keys)
+      )
+    else { return }
+
+    if type == "ready", generation == 0, payload.isEmpty {
+      isReady = true
+      delegate?.realtimeBridgeDidBecomeReady(self)
+      return
+    }
+    #if DEBUG
+      if type == "probeResult", debugProbeGeneration == generation {
+        guard
+          let peer = payload["peerConnection"] as? Bool,
+          let media = payload["userMedia"] as? Bool
+        else { return }
+        debugProbeGeneration = nil
+        debugProbeDeliveredGeneration = generation
+        delegate?.realtimeBridge(
+          self,
+          didReceive: .probeResult(
+            generation: generation,
+            peerConnection: peer,
+            userMedia: media,
+            error: boundedString(payload["error"], maximum: Limit.error)
+          )
+        )
+        resolveDebugProbeDelivery()
+        return
+      }
+    #endif
+    guard generation > 0, authorizationState.authorizes(generation: generation) else { return }
+
+    let parsed: Message?
+    switch type {
+    case "offer":
+      parsed = boundedString(payload["sdp"], maximum: Limit.sdp).map { .offer(generation: generation, sdp: $0) }
+    case "connectionState":
+      parsed = boundedString(payload["state"], maximum: 32).map { .connectionState(generation: generation, state: $0) }
+    case "dataChannelState":
+      parsed = boundedString(payload["state"], maximum: 16).map { .dataChannelState(generation: generation, state: $0) }
+    case "serverEvent":
+      parsed = boundedString(payload["json"], maximum: Limit.event).map { .serverEvent(generation: generation, json: $0) }
+    case "answerApplied":
+      parsed = payload.isEmpty ? .answerApplied(generation: generation) : nil
+    case "error":
+      parsed = boundedString(payload["code"], maximum: Limit.error).map { .error(generation: generation, code: $0) }
+    default:
+      parsed = nil
+    }
+    if let parsed { delegate?.realtimeBridge(self, didReceive: parsed) }
+  }
+
+  private func boundedString(_ value: Any?, maximum: Int) -> String? {
+    guard let value = value as? String, value.utf8.count <= maximum else { return nil }
+    return value
+  }
+}
+
+extension RealtimeWebRTCBridge: WKNavigationDelegate {
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+  ) {
+    guard !stopped, self.webView === webView else {
+      decisionHandler(.cancel)
+      return
+    }
+    let allowed = RealtimeWebRTCBridgeSecurityPolicy.allowsMainFrameNavigation(
+      to: navigationAction.request.url,
+      isMainFrame: navigationAction.targetFrame?.isMainFrame == true
+    )
+    decisionHandler(allowed ? .allow : .cancel)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationResponse: WKNavigationResponse,
+    decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+  ) {
+    guard !stopped, self.webView === webView else {
+      decisionHandler(.cancel)
+      return
+    }
+    let allowed = navigationResponse.isForMainFrame
+      && navigationResponse.canShowMIMEType
+      && RealtimeWebRTCBridgeSecurityPolicy.allowsMainFrameNavigation(
+        to: navigationResponse.response.url,
+        isMainFrame: true
+      )
+    decisionHandler(allowed ? .allow : .cancel)
+  }
+}
+
+extension RealtimeWebRTCBridge: WKUIDelegate {
+  func webView(
+    _ webView: WKWebView,
+    createWebViewWith configuration: WKWebViewConfiguration,
+    for navigationAction: WKNavigationAction,
+    windowFeatures: WKWindowFeatures
+  ) -> WKWebView? {
+    guard !stopped, self.webView === webView else { return nil }
+    assert(!RealtimeWebRTCBridgeSecurityPolicy.allowsPopup())
+    return nil
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+    initiatedByFrame frame: WKFrameInfo,
+    type: WKMediaCaptureType,
+    decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+  ) {
+    guard !stopped, self.webView === webView else {
+      decisionHandler(.deny)
+      return
+    }
+    let productionAuthorized = authorizationState.activeGeneration.map {
+      authorizationState.authorizes(generation: $0)
+    } == true
+    #if DEBUG
+      let debugProbeAuthorized = debugProbeGeneration != nil
+    #else
+      let debugProbeAuthorized = false
+    #endif
+    let allowed = RealtimeWebRTCBridgeSecurityPolicy.allowsMediaCapture(
+      isMicrophoneOnly: type == .microphone,
+      isMainFrame: frame.isMainFrame,
+      isOwnedOrigin: originIsOwned(origin),
+      isProductionAuthorized: productionAuthorized,
+      isDebugProbeAuthorized: debugProbeAuthorized
+    )
+    decisionHandler(allowed ? .grant : .deny)
+  }
+}
+
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+  weak var target: RealtimeWebRTCBridge?
+
+  init(target: RealtimeWebRTCBridge) {
+    self.target = target
+  }
+
+  func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    MainActor.assumeIsolated {
+      target?.receive(message)
+    }
+  }
+}
+
+#if DEBUG && os(iOS)
+@MainActor
+@objc(RealtimeBridgeGateProbe)
+final class RealtimeBridgeGateProbe: NSObject, RealtimeWebRTCBridgeDelegate {
+  private static var retainedProbe: RealtimeBridgeGateProbe?
+  private let bridge = RealtimeWebRTCBridge()
+  private let logger = Logger(subsystem: "dev.rawkode.enchiridion", category: "RealtimeBridgeGate")
+
+  @objc static func run() {
+    let probe = RealtimeBridgeGateProbe()
+    retainedProbe = probe
+    probe.bridge.delegate = probe
+    do {
+      try probe.bridge.load()
+      probe.logger.notice("gate bridge bundle loaded")
+    } catch {
+      probe.logger.error("gate bridge bundle failed")
+    }
+  }
+
+  func realtimeBridgeDidBecomeReady(_ bridge: RealtimeWebRTCBridge) {
+    logger.notice("gate bridge ready")
+    Task { @MainActor in
+      do {
+        try await bridge.runProbe(generation: 1)
+        await bridge.stop()
+      } catch {
+        logger.error("gate probe invocation failed")
+      }
+    }
+  }
+
+  func realtimeBridge(_ bridge: RealtimeWebRTCBridge, didReceive message: RealtimeWebRTCBridge.Message) {
+    guard case let .probeResult(_, peerConnection, userMedia, error) = message else { return }
+    logger.notice("gate result peer_connection=\(peerConnection) user_media=\(userMedia) error=\(error ?? "none", privacy: .public)")
+  }
+}
+#endif

@@ -94,6 +94,11 @@ public final class AssistantProviderSettingsController {
   public private(set) var selectedTextModelID: String?
   public private(set) var verifiedTextOptions: [OpenAIModelOption]
   public private(set) var hasTextConsent: Bool
+  public private(set) var selectedVoiceProvider: AssistantVoiceProvider
+  public private(set) var selectedRealtimeModelID: String?
+  public private(set) var selectedRealtimeVoice: OpenAIRealtimeVoice?
+  public private(set) var verifiedRealtimeOptions: [OpenAIModelOption]
+  public private(set) var hasVoiceConsent: Bool
   public private(set) var isCredentialStateResolved = false
 
   private let preferences: AssistantProviderPreferencesStore
@@ -114,10 +119,22 @@ public final class AssistantProviderSettingsController {
     selectedTextModelID = preferences.selectedTextModelID
     verifiedTextOptions = preferences.verifiedTextOptions
     hasTextConsent = preferences.hasCurrentTextConsent
+    selectedVoiceProvider = preferences.selectedVoiceProvider
+    selectedRealtimeModelID = preferences.selectedRealtimeModelID
+    selectedRealtimeVoice = preferences.selectedRealtimeVoice
+    verifiedRealtimeOptions = preferences.verifiedRealtimeOptions
+    hasVoiceConsent = preferences.hasCurrentVoiceConsent
   }
 
   public var canSelectOpenAI: Bool {
     preferences.canSelect(.openAI, hasSavedCredential: hasSavedCredential)
+  }
+
+  public var canSelectOpenAIRealtimeVoice: Bool {
+    preferences.canSelectVoiceProvider(
+      .openAIRealtime,
+      hasSavedCredential: hasSavedCredential
+    )
   }
 
   public func retrySecondsRemaining(at date: Date = Date()) -> Int? {
@@ -144,6 +161,7 @@ public final class AssistantProviderSettingsController {
           credentialState = preferences.credentialState(matching: binding)
         } else {
           persistAndPublishVerificationFallback(hasSavedCredential: true)
+          isCredentialStateResolved = true
           return
         }
       case .missing:
@@ -272,14 +290,40 @@ public final class AssistantProviderSettingsController {
     synchronizePreferences()
   }
 
+  public func selectVoiceProvider(_ provider: AssistantVoiceProvider) {
+    preferences.selectVoiceProvider(provider, hasSavedCredential: hasSavedCredential)
+    synchronizePreferences()
+  }
+
   public func setTextConsent(_ isGranted: Bool) {
     guard credentialState == .savedAndVerified else { return }
     preferences.setTextConsent(isGranted)
     synchronizePreferences()
   }
 
+  public func setVoiceConsent(_ isGranted: Bool) {
+    guard !isGranted || credentialState == .savedAndVerified else { return }
+    guard
+      !isGranted
+        || (preferences.hasValidSelectedRealtimeModel
+          && preferences.hasValidSelectedRealtimeVoice)
+    else { return }
+    preferences.setVoiceConsent(isGranted)
+    synchronizePreferences()
+  }
+
   public func selectTextModel(id: String?) {
     preferences.selectTextModel(id: id)
+    synchronizePreferences()
+  }
+
+  public func selectRealtimeModel(id: String?) {
+    preferences.selectRealtimeModel(id: id)
+    synchronizePreferences()
+  }
+
+  public func selectRealtimeVoice(id: String?) {
+    preferences.selectRealtimeVoice(id: id)
     synchronizePreferences()
   }
 
@@ -293,6 +337,23 @@ public final class AssistantProviderSettingsController {
     preferences.selectProvider(.openAI, hasSavedCredential: hasSavedCredential)
     synchronizePreferences()
     return selectedProvider == .openAI && hasTextConsent
+  }
+
+  @discardableResult
+  public func authorizeOpenAIRealtimeVoiceAndSelect(
+    modelID: String,
+    voiceID: String
+  ) -> Bool {
+    guard credentialState == .savedAndVerified,
+      verifiedRealtimeOptions.contains(where: { $0.id == modelID }),
+      OpenAIRealtimeVoiceCatalog.contains(voiceID)
+    else { return false }
+    preferences.selectRealtimeModel(id: modelID)
+    preferences.selectRealtimeVoice(id: voiceID)
+    preferences.setVoiceConsent(true)
+    preferences.selectVoiceProvider(.openAIRealtime, hasSavedCredential: hasSavedCredential)
+    synchronizePreferences()
+    return selectedVoiceProvider == .openAIRealtime && hasVoiceConsent
   }
 
   public func clearError() {
@@ -315,6 +376,17 @@ public final class AssistantProviderSettingsController {
     return preferences.textRouteSnapshot(for: routeOverride)
   }
 
+  public func voiceRouteSnapshot() -> RealtimeVoiceRouteSnapshot {
+    if selectedVoiceProvider == .openAIRealtime, !isCredentialStateResolved {
+      return .failedOpenAIRealtime(
+        modelID: selectedRealtimeModelID,
+        voiceID: selectedRealtimeVoice?.id,
+        failure: .credentialVerificationRequired
+      )
+    }
+    return preferences.voiceRouteSnapshot()
+  }
+
   private func synchronizePreferences() {
     // Once explicitly selected, an OpenAI route remains visible even if its
     // credential, consent, or model later needs recovery. Inference fails
@@ -323,6 +395,11 @@ public final class AssistantProviderSettingsController {
     selectedTextModelID = preferences.selectedTextModelID
     verifiedTextOptions = preferences.verifiedTextOptions
     hasTextConsent = preferences.hasCurrentTextConsent
+    selectedVoiceProvider = preferences.selectedVoiceProvider
+    selectedRealtimeModelID = preferences.selectedRealtimeModelID
+    selectedRealtimeVoice = preferences.selectedRealtimeVoice
+    verifiedRealtimeOptions = preferences.verifiedRealtimeOptions
+    hasVoiceConsent = preferences.hasCurrentVoiceConsent
   }
 
   private func persistAndPublishVerificationFallback(hasSavedCredential: Bool) {

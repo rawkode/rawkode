@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'sha256-1U2kymFq4YkesF1IIuAmc7jXjKWZVcrvnqtxY+/CJSU='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
+  >
+  <meta name="referrer" content="no-referrer">
+  <title>Enchiridion Realtime Audio</title>
+</head>
+<body>
+<audio id="remote-audio" autoplay></audio>
+<script>
+(() => {
+  "use strict";
+
+  const MAX_SDP_BYTES = 131072;
+  const MAX_EVENT_BYTES = 65536;
+  const MAX_ERROR_BYTES = 512;
+  const bridge = window.webkit.messageHandlers.realtime;
+  const remoteAudio = document.getElementById("remote-audio");
+  let generation = 0;
+  let transportEpoch = 0;
+  let peer = null;
+  let channel = null;
+  let microphone = null;
+
+  function byteLength(value) {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  function post(messageGeneration, type, payload = {}) {
+    bridge.postMessage(Object.freeze({ version: 1, generation: messageGeneration, type, payload }));
+  }
+
+  function boundedString(value, maximum, name) {
+    if (typeof value !== "string" || byteLength(value) > maximum) {
+      throw new Error(`${name} is invalid`);
+    }
+    return value;
+  }
+
+  function validGeneration(value) {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  function requireCurrentGeneration(options) {
+    if (!validGeneration(options.generation) || generation === 0 || options.generation !== generation) {
+      throw new Error("generation is invalid");
+    }
+    return generation;
+  }
+
+  function staleTransportError() {
+    const error = new Error("transport is stale");
+    error.isStaleTransport = true;
+    return error;
+  }
+
+  function isAttemptCurrent(sessionGeneration, sessionEpoch) {
+    return generation === sessionGeneration && transportEpoch === sessionEpoch;
+  }
+
+  function isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream) {
+    return isAttemptCurrent(sessionGeneration, sessionEpoch)
+      && peer === sessionPeer
+      && channel === sessionChannel
+      && microphone === sessionStream;
+  }
+
+  function requireAttemptCurrent(sessionGeneration, sessionEpoch) {
+    if (!isAttemptCurrent(sessionGeneration, sessionEpoch)) throw staleTransportError();
+  }
+
+  function cleanupTransport(sessionPeer, sessionChannel, sessionStream, clearAudio) {
+    if (sessionChannel) {
+      sessionChannel.onopen = null;
+      sessionChannel.onclose = null;
+      sessionChannel.onerror = null;
+      sessionChannel.onmessage = null;
+      sessionChannel.close();
+    }
+    if (sessionStream) {
+      for (const track of sessionStream.getTracks()) track.stop();
+    }
+    if (sessionPeer) {
+      sessionPeer.onconnectionstatechange = null;
+      sessionPeer.ontrack = null;
+      sessionPeer.close();
+    }
+    if (clearAudio) {
+      remoteAudio.pause();
+      remoteAudio.srcObject = null;
+    }
+  }
+
+  function invalidateCurrentTransport() {
+    transportEpoch += 1;
+    const previousPeer = peer;
+    const previousChannel = channel;
+    const previousStream = microphone;
+    peer = null;
+    channel = null;
+    microphone = null;
+    cleanupTransport(previousPeer, previousChannel, previousStream, true);
+    return transportEpoch;
+  }
+
+  function authorize(options) {
+    if (!validGeneration(options.generation)) throw new Error("generation is invalid");
+    invalidateCurrentTransport();
+    generation = options.generation;
+  }
+
+  function stop(options) {
+    requireCurrentGeneration(options);
+    generation = 0;
+    invalidateCurrentTransport();
+  }
+
+  async function start(options) {
+    const sessionGeneration = requireCurrentGeneration(options);
+    const sessionEpoch = invalidateCurrentTransport();
+    let sessionPeer = null;
+    let sessionChannel = null;
+    let sessionStream = null;
+    try {
+      sessionPeer = new RTCPeerConnection({
+        bundlePolicy: "max-bundle",
+        rtcpMuxPolicy: "require",
+        iceServers: []
+      });
+      sessionPeer.onconnectionstatechange = () => {
+        if (!isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) return;
+        post(sessionGeneration, "connectionState", { state: sessionPeer.connectionState });
+      };
+      sessionPeer.ontrack = (event) => {
+        if (!isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) return;
+        if (event.track.kind !== "audio" || event.streams.length !== 1) {
+          post(sessionGeneration, "error", { code: "unexpectedRemoteMedia" });
+          return;
+        }
+        remoteAudio.srcObject = event.streams[0];
+        void remoteAudio.play().catch(() => {
+          if (isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+            post(sessionGeneration, "error", { code: "remoteAudioPlaybackFailed" });
+          }
+        });
+      };
+
+      sessionChannel = sessionPeer.createDataChannel("oai-events", { ordered: true });
+      sessionChannel.onopen = () => {
+        if (isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+          post(sessionGeneration, "dataChannelState", { state: "open" });
+        }
+      };
+      sessionChannel.onclose = () => {
+        if (isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+          post(sessionGeneration, "dataChannelState", { state: "closed" });
+        }
+      };
+      sessionChannel.onerror = () => {
+        if (isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+          post(sessionGeneration, "error", { code: "dataChannelFailed" });
+        }
+      };
+      sessionChannel.onmessage = (event) => {
+        if (!isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) return;
+        if (typeof event.data !== "string" || byteLength(event.data) > MAX_EVENT_BYTES) {
+          post(sessionGeneration, "error", { code: "serverEventRejected" });
+          return;
+        }
+        post(sessionGeneration, "serverEvent", { json: event.data });
+      };
+
+      sessionStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      requireAttemptCurrent(sessionGeneration, sessionEpoch);
+      for (const track of sessionStream.getTracks()) track.enabled = false;
+      const audioTracks = sessionStream.getAudioTracks();
+      const videoTracks = sessionStream.getVideoTracks();
+      if (audioTracks.length !== 1 || videoTracks.length !== 0) {
+        throw new Error("microphone track is unavailable");
+      }
+      sessionPeer.addTrack(audioTracks[0], sessionStream);
+
+      const offer = await sessionPeer.createOffer({ offerToReceiveAudio: true });
+      requireAttemptCurrent(sessionGeneration, sessionEpoch);
+      await sessionPeer.setLocalDescription(offer);
+      requireAttemptCurrent(sessionGeneration, sessionEpoch);
+      peer = sessionPeer;
+      channel = sessionChannel;
+      microphone = sessionStream;
+      const sdp = boundedString(sessionPeer.localDescription.sdp, MAX_SDP_BYTES, "offer SDP");
+      post(sessionGeneration, "offer", { sdp });
+    } catch (error) {
+      const attemptWasCurrent = isAttemptCurrent(sessionGeneration, sessionEpoch);
+      cleanupTransport(sessionPeer, sessionChannel, sessionStream, attemptWasCurrent);
+      if (attemptWasCurrent) {
+        peer = null;
+        channel = null;
+        microphone = null;
+        transportEpoch += 1;
+        throw error;
+      }
+      throw staleTransportError();
+    }
+  }
+
+  async function setAnswer(answer) {
+    const messageGeneration = requireCurrentGeneration(answer);
+    const sessionEpoch = transportEpoch;
+    const sessionPeer = peer;
+    const sessionChannel = channel;
+    const sessionStream = microphone;
+    if (!sessionPeer || sessionPeer.signalingState === "closed") throw new Error("peer is unavailable");
+    const sdp = boundedString(answer.sdp, MAX_SDP_BYTES, "answer SDP");
+    try {
+      await sessionPeer.setRemoteDescription({ type: "answer", sdp });
+    } catch (error) {
+      if (!isTransportCurrent(messageGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+        throw staleTransportError();
+      }
+      throw error;
+    }
+    if (!isTransportCurrent(messageGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
+      throw staleTransportError();
+    }
+    post(messageGeneration, "answerApplied");
+  }
+
+  function sendEvent(message) {
+    const messageGeneration = requireCurrentGeneration(message);
+    const sessionEpoch = transportEpoch;
+    const sessionPeer = peer;
+    const sessionChannel = channel;
+    const sessionStream = microphone;
+    const json = boundedString(message.json, MAX_EVENT_BYTES, "client event");
+    if (!sessionPeer || !sessionChannel || !sessionStream
+      || !isTransportCurrent(messageGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)
+      || sessionPeer.connectionState === "closed"
+      || sessionChannel.readyState !== "open") {
+      throw new Error("data channel is unavailable");
+    }
+    sessionChannel.send(json);
+  }
+
+  function setInputEnabled(message) {
+    const messageGeneration = requireCurrentGeneration(message);
+    const sessionEpoch = transportEpoch;
+    const sessionPeer = peer;
+    const sessionChannel = channel;
+    const sessionStream = microphone;
+    if (typeof message.enabled !== "boolean") throw new Error("enabled is invalid");
+    if (!sessionPeer || !sessionChannel || !sessionStream
+      || !isTransportCurrent(messageGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)
+      || sessionPeer.connectionState === "closed") {
+      throw new Error("microphone is unavailable");
+    }
+    const audioTracks = sessionStream.getAudioTracks();
+    const videoTracks = sessionStream.getVideoTracks();
+    if (audioTracks.length !== 1 || videoTracks.length !== 0) {
+      throw new Error("microphone track is invalid");
+    }
+    audioTracks[0].enabled = message.enabled;
+  }
+
+  function expose(operation) {
+    return async (argument = {}) => {
+      try {
+        return await operation(argument);
+      } catch (error) {
+        if (error?.isStaleTransport !== true && argument.generation === generation && generation > 0) {
+          post(generation, "error", { code: "bridgeOperationFailed" });
+        }
+        throw error;
+      }
+    };
+  }
+
+  window.EnchiridionRealtimeBridge = Object.freeze({
+    authorize: expose(authorize),
+    start: expose(start),
+    setAnswer: expose(setAnswer),
+    sendEvent: expose(sendEvent),
+    setInputEnabled: expose(setInputEnabled),
+    stop: expose(stop)
+  });
+  post(0, "ready");
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,8 @@ struct AssistantProviderSettingsSection: View {
       }
       LabeledContent("OpenAI key", value: controller.credentialState.title)
         .foregroundStyle(.secondary)
+      LabeledContent("Default voice provider", value: controller.selectedVoiceProvider.title)
+        .foregroundStyle(.secondary)
     }
     .task { await controller.refreshCredentialState() }
   }
@@ -28,6 +30,7 @@ struct AssistantProviderSettingsView: View {
   @State private var candidate = ""
   @State private var showsDeleteConfirmation = false
   @State private var showsTextConsentConfirmation = false
+  @State private var showsVoiceConsentConfirmation = false
 
   var body: some View {
     Form {
@@ -76,6 +79,29 @@ struct AssistantProviderSettingsView: View {
     } message: {
       Text(openAIConsentDisclosure)
     }
+    .confirmationDialog(
+      OpenAIRealtimeVoiceConsentCopy.title,
+      isPresented: $showsVoiceConsentConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button(OpenAIRealtimeVoiceConsentCopy.startActionTitle) {
+        let voiceID = controller.selectedRealtimeVoice?.id
+          ?? OpenAIRealtimeVoiceCatalog.preferredDefault.id
+        guard
+          let modelID = controller.selectedRealtimeModelID
+            ?? controller.verifiedRealtimeOptions.first?.id
+        else { return }
+        _ = controller.authorizeOpenAIRealtimeVoiceAndSelect(
+          modelID: modelID,
+          voiceID: voiceID
+        )
+      }
+      Button(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle, role: .cancel) {
+        controller.selectVoiceProvider(.appleOnDevice)
+      }
+    } message: {
+      Text(OpenAIRealtimeVoiceConsentCopy.body)
+    }
   }
 
   private var providerSection: some View {
@@ -100,7 +126,7 @@ struct AssistantProviderSettingsView: View {
       )
 
       Text(
-        "Text chat uses the selected provider. Voice, CarPlay, and App Intents always use Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
+        "Text chat and voice use separate defaults. CarPlay and App Intents always use Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
@@ -257,13 +283,71 @@ struct AssistantProviderSettingsView: View {
 
   private var voiceSection: some View {
     Section("OpenAI Voice") {
-      LabeledContent("Realtime", value: "Not available")
+      Picker("Default voice provider", selection: voiceProviderBinding) {
+        Text(AssistantVoiceProvider.appleOnDevice.title)
+          .tag(AssistantVoiceProvider.appleOnDevice)
+        Text(AssistantVoiceProvider.openAIRealtime.title)
+          .tag(AssistantVoiceProvider.openAIRealtime)
+      }
+
+      if controller.credentialState == .savedAndVerified {
+        if controller.verifiedRealtimeOptions.isEmpty {
+          ContentUnavailableView(
+            "No verified Realtime model",
+            systemImage: "waveform.slash",
+            description: Text(
+              "This key did not list a Realtime model in Enchiridion's reviewed catalog."
+            )
+          )
+        } else {
+          Picker("Verified Realtime model", selection: realtimeModelBinding) {
+            Text("Choose a model").tag(String?.none)
+            ForEach(controller.verifiedRealtimeOptions) { model in
+              Text(model.title).tag(Optional(model.id))
+            }
+          }
+        }
+
+        Picker("Official OpenAI voice", selection: realtimeVoiceBinding) {
+          ForEach(OpenAIRealtimeVoiceCatalog.reviewed) { voice in
+            Text(voice.title).tag(Optional(voice.id))
+          }
+        }
+
+        LabeledContent(
+          "Voice consent",
+          value: controller.hasVoiceConsent ? "Current" : "Required"
+        )
+
+        if controller.hasVoiceConsent {
+          Button("Revoke OpenAI Voice Consent", role: .destructive) {
+            controller.setVoiceConsent(false)
+            controller.selectVoiceProvider(.appleOnDevice)
+          }
+        } else {
+          Button("Review OpenAI Voice Consent") {
+            showsVoiceConsentConfirmation = true
+          }
+          .disabled(
+            controller.selectedRealtimeModelID == nil
+              || controller.selectedRealtimeVoice == nil
+          )
+        }
+      }
+
+      LabeledContent("Connection", value: "Unavailable in this build")
+        .foregroundStyle(.secondary)
       Text(
-        "A reviewed Realtime catalog is maintained separately, but there is no Realtime, WebRTC, audio upload, or voice model selection in Enchiridion yet."
+        "You can review the exact model, official voice, and credential-bound consent. The native OpenAI connection executor is unavailable, so this screen does not request microphone access, use the saved key for a connection, upload audio, or connect. Apple On Device voice remains available."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
+
+      Text(OpenAIRealtimeVoiceConsentCopy.body)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 
@@ -303,6 +387,38 @@ struct AssistantProviderSettingsView: View {
     )
   }
 
+  private var voiceProviderBinding: Binding<AssistantVoiceProvider> {
+    Binding(
+      get: { controller.selectedVoiceProvider },
+      set: { provider in
+        switch provider {
+        case .appleOnDevice:
+          controller.selectVoiceProvider(.appleOnDevice)
+        case .openAIRealtime:
+          if controller.hasVoiceConsent, controller.canSelectOpenAIRealtimeVoice {
+            controller.selectVoiceProvider(.openAIRealtime)
+          } else {
+            showsVoiceConsentConfirmation = true
+          }
+        }
+      }
+    )
+  }
+
+  private var realtimeModelBinding: Binding<String?> {
+    Binding(
+      get: { controller.selectedRealtimeModelID },
+      set: { controller.selectRealtimeModel(id: $0) }
+    )
+  }
+
+  private var realtimeVoiceBinding: Binding<String?> {
+    Binding(
+      get: { controller.selectedRealtimeVoice?.id },
+      set: { controller.selectRealtimeVoice(id: $0) }
+    )
+  }
+
   private var deviceStorageCopy: String {
     #if os(iOS)
       "The key stays in this iPhone's passcode-protected Keychain. It does not sync or migrate to another device, and saving is refused without a passcode. Protected Keychain material may still be present in a same-device backup."
@@ -313,7 +429,7 @@ struct AssistantProviderSettingsView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion sends the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Microphone audio, Enchiridion Voice, CarPlay, and App Intents remain Apple On Device.
+    Enchiridion sends the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
     """
   }
 }

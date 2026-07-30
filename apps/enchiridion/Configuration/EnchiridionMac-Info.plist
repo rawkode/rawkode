@@ -54,7 +54,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Enchiridion uses the microphone only while you are talking to its on-device assistant.</string>
+	<string>Enchiridion uses the microphone for Apple On Device voice and, only after you explicitly select and consent to OpenAI Voice, sends live audio and transcripts directly to OpenAI.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.</string>
 </dict>

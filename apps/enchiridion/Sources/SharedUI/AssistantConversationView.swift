@@ -25,6 +25,7 @@ struct AssistantConversationView: View {
   @State private var surfaceID = UUID()
   @State private var draft = ""
   @State private var pendingOpenAIConsent: PendingOpenAIConsent?
+  @State private var realtimeVoiceLobby: RealtimeVoiceLobbyRoute?
   @FocusState private var composerIsFocused: Bool
 
   private static let starterPrompts = [
@@ -45,6 +46,19 @@ struct AssistantConversationView: View {
     self.presentation = presentation
     self.providerSettings = providerSettings
     self.onOpenProviderSettings = onOpenProviderSettings
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("-ShowRealtimeVoiceLobby") {
+        _realtimeVoiceLobby = State(
+          initialValue: RealtimeVoiceLobbyRoute(
+            snapshot: .failedOpenAIRealtime(
+              modelID: OpenAIModelCatalog.preferredDefaultRealtimeModelID,
+              voiceID: OpenAIRealtimeVoiceCatalog.preferredDefault.id,
+              failure: .credentialVerificationRequired
+            )
+          )
+        )
+      }
+    #endif
   }
 
   var body: some View {
@@ -108,6 +122,25 @@ struct AssistantConversationView: View {
     } message: {
       Text(openAIConsentDisclosure)
     }
+    #if os(iOS)
+      .fullScreenCover(item: $realtimeVoiceLobby) { lobby in
+        realtimeVoiceLobby(lobby)
+      }
+    #else
+      .sheet(item: $realtimeVoiceLobby) { lobby in
+        realtimeVoiceLobby(lobby)
+      }
+    #endif
+  }
+
+  private func realtimeVoiceLobby(_ lobby: RealtimeVoiceLobbyRoute) -> some View {
+    RealtimeVoiceLobbyView(
+      route: lobby.snapshot,
+      onKeepApple: {
+        providerSettings?.selectVoiceProvider(.appleOnDevice)
+      },
+      onOpenSettings: openAppSettings
+    )
   }
 
   private func conversation(_ session: AssistantConversationSession) -> some View {
@@ -235,7 +268,12 @@ struct AssistantConversationView: View {
 
   private func voiceButton(_ session: AssistantConversationSession) -> some View {
     Button {
-      if session.isVoiceRunning {
+      if providerSettings?.selectedVoiceProvider == .openAIRealtime {
+        guard let providerSettings else { return }
+        realtimeVoiceLobby = RealtimeVoiceLobbyRoute(
+          snapshot: providerSettings.voiceRouteSnapshot()
+        )
+      } else if session.isVoiceRunning {
         Task { await session.stop() }
       } else {
         Task { await session.startVoice() }
@@ -258,11 +296,9 @@ struct AssistantConversationView: View {
     .tint(session.isVoiceRunning ? .red : .accentColor)
     .frame(minWidth: 44, minHeight: 44)
     .disabled(voiceButtonIsDisabled(session))
-    .accessibilityLabel(session.isVoiceRunning ? "Stop voice conversation" : "Listen")
+    .accessibilityLabel(voiceButtonAccessibilityLabel(session))
     .accessibilityHint(
-      session.isVoiceRunning
-        ? "Stops listening and speech"
-        : "Starts an Apple On Device voice conversation. Microphone audio never goes to OpenAI."
+      voiceButtonAccessibilityHint(session)
     )
   }
 
@@ -429,8 +465,27 @@ struct AssistantConversationView: View {
   }
 
   private func voiceButtonIsDisabled(_ session: AssistantConversationSession) -> Bool {
+    if providerSettings?.selectedVoiceProvider == .openAIRealtime {
+      return session.isRunning || providerSettings == nil
+    }
     if session.isVoiceRunning { return false }
     return session.isRunning || !canStartVoice(session.voiceAvailability)
+  }
+
+  private func voiceButtonAccessibilityLabel(_ session: AssistantConversationSession) -> String {
+    if providerSettings?.selectedVoiceProvider == .openAIRealtime {
+      return "Open OpenAI Voice lobby"
+    }
+    return session.isVoiceRunning ? "Stop voice conversation" : "Listen"
+  }
+
+  private func voiceButtonAccessibilityHint(_ session: AssistantConversationSession) -> String {
+    if providerSettings?.selectedVoiceProvider == .openAIRealtime {
+      return "Opens a lobby without requesting microphone access, reading the key, or connecting."
+    }
+    return session.isVoiceRunning
+      ? "Stops listening and speech"
+      : "Starts an Apple On Device voice conversation. Microphone audio never goes to OpenAI."
   }
 
   private func prepareSurface() async {
@@ -579,7 +634,7 @@ struct AssistantConversationView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion will send the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Microphone audio, Enchiridion Voice, CarPlay, and App Intents remain Apple On Device.
+    Enchiridion will send the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
     """
   }
 

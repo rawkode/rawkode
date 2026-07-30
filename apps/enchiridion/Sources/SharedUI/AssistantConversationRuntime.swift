@@ -39,7 +39,7 @@ import Foundation
 
   @MainActor
   final class HandheldConversationAudioSessionController:
-    AssistantConversationAudioSessionControlling
+    AssistantConversationAudioSessionControlling, RealtimeAudioSessionControlling
   {
     private let backend: any HandheldConversationAudioSessionBacking
     private var lifecycle = AssistantAudioSessionLifecycleState()
@@ -56,7 +56,7 @@ import Foundation
       if !lifecycle.isConfigured {
         try backend.setCategory(
           .playAndRecord,
-          mode: .default,
+          mode: .voiceChat,
           options: [.allowBluetoothHFP]
         )
         lifecycle.didConfigure()
@@ -195,6 +195,62 @@ import Foundation
       }
     }
   }
+#elseif os(macOS)
+  import AVFoundation
+
+  private final class MacNotificationObserverLifetime: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let lock = NSLock()
+    private var observer: NSObjectProtocol?
+
+    init(notificationCenter: NotificationCenter) {
+      self.notificationCenter = notificationCenter
+    }
+
+    func store(_ observer: NSObjectProtocol) {
+      lock.withLock { self.observer = observer }
+    }
+
+    func cancel() {
+      let removed = lock.withLock {
+        defer { observer = nil }
+        return observer
+      }
+      if let removed {
+        notificationCenter.removeObserver(removed)
+      }
+    }
+
+    deinit {
+      cancel()
+    }
+  }
+
+  final class MacVoiceDeviceChangeEventSource:
+    AssistantVoiceSafetyEventSource, @unchecked Sendable
+  {
+    private let notificationCenter: NotificationCenter
+
+    init(notificationCenter: NotificationCenter = .default) {
+      self.notificationCenter = notificationCenter
+    }
+
+    func events() -> AsyncStream<AssistantVoiceSafetyEvent> {
+      AsyncStream { continuation in
+        let lifetime = MacNotificationObserverLifetime(notificationCenter: notificationCenter)
+        lifetime.store(
+          notificationCenter.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: nil,
+            queue: nil
+          ) { _ in
+            continuation.yield(.mediaServicesReset)
+          }
+        )
+        continuation.onTermination = { _ in lifetime.cancel() }
+      }
+    }
+  }
 #endif
 
 enum AssistantConversationSurface: Equatable {
@@ -217,7 +273,8 @@ func makeAssistantConversationSession(
         surface == .app ? HandheldConversationAudioEventSource() : nil
     #else
       let audioSessionController: (any AssistantConversationAudioSessionControlling)? = nil
-      let voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)? = nil
+      let voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)? =
+        surface == .app ? MacVoiceDeviceChangeEventSource() : nil
     #endif
     return AssistantConversationSession(
       transcriber: OnDeviceSpeechTranscriber(),

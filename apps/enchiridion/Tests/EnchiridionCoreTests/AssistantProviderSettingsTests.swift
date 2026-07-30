@@ -184,6 +184,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(snapshot.appliedReplaceCount, 1)
     XCTAssertTrue(controller.hasSavedCredential)
     XCTAssertEqual(controller.credentialState, .savedAndVerified)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedTextModelID, "gpt-5.6-terra")
     XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
   }
@@ -555,6 +556,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     XCTAssertTrue(controller.hasSavedCredential)
     XCTAssertEqual(controller.credentialState, .needsVerification)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertNil(controller.selectedTextModelID)
     let persisted = preferences.storedPayloadForTesting
@@ -584,6 +586,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     await controller.refreshCredentialState()
 
     XCTAssertEqual(controller.credentialState, .needsVerification)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
     XCTAssertFalse(controller.canSelectOpenAI)
   }
@@ -604,6 +607,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     await controller.refreshCredentialState()
 
     XCTAssertEqual(controller.credentialState, .needsVerification)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
     XCTAssertFalse(controller.canSelectOpenAI)
     XCTAssertNil(preferences.storedPayloadForTesting.credentialFingerprint)
@@ -628,6 +632,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     await controller.refreshCredentialState()
 
     XCTAssertEqual(controller.credentialState, .notConfigured)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertFalse(controller.hasSavedCredential)
     XCTAssertFalse(controller.hasTextConsent)
@@ -655,6 +660,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     XCTAssertEqual(controller.error, .credentialStorageUnavailable)
     XCTAssertEqual(controller.credentialState, .needsVerification)
+    XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertEqual(preferences.storedPayloadForTesting.selectedProvider, .openAI)
     XCTAssertNil(preferences.storedPayloadForTesting.credentialFingerprint)
