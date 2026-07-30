@@ -48,6 +48,20 @@ final class GraphModelTests: XCTestCase {
     }
   }
 
+  func testEffectiveTagIDsTerminateAndIncludeEveryTagInACycle() {
+    var first = SupertagDefinition.draft(name: "First")
+    var second = SupertagDefinition.draft(name: "Second")
+    first.parentIDs = [second.id]
+    second.parentIDs = [first.id]
+
+    let effectiveTagIDs = SupertagInheritance.effectiveTagIDs(
+      for: [first.id],
+      definitions: [first, second]
+    )
+
+    XCTAssertEqual(effectiveTagIDs, [first.id, second.id])
+  }
+
   func testVaultScopedNodeIdentityCannotCollideAcrossVaults() {
     let nodeID = PageID.free(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!)
     let first = VaultScopedNodeID(vaultID: .init(rawValue: "vault_one"), nodeID: nodeID)

@@ -1,5 +1,26 @@
 import Foundation
 
+public enum SupertagInheritance {
+  public static func effectiveTagIDs(
+    for directTagIDs: Set<TagID>,
+    definitions: [SupertagDefinition]
+  ) -> Set<TagID> {
+    let definitionsByID = definitions.reduce(into: [TagID: SupertagDefinition]()) {
+      $0[$1.id] = $1
+    }
+    var effectiveTagIDs = directTagIDs
+    var pendingTagIDs = Array(directTagIDs)
+
+    while let tagID = pendingTagIDs.popLast() {
+      guard let definition = definitionsByID[tagID] else { continue }
+      for parentID in definition.parentIDs where effectiveTagIDs.insert(parentID).inserted {
+        pendingTagIDs.append(parentID)
+      }
+    }
+    return effectiveTagIDs
+  }
+}
+
 public enum BuiltInRelations {
   public static let personOrganization = RelationID(rawValue: "person.organization")
   public static let projectArea = RelationID(rawValue: "project.area")
