@@ -89,9 +89,10 @@ struct GraphRelationshipsView: View {
   private var availableRelations: [RelationDefinition] {
     guard let page = store.page(id: pageID) else { return [] }
     let directTags = Set(page.objectMetadata.supertagIDs)
-    let effectiveTags = store.supertags.reduce(into: directTags) { result, tag in
-      if directTags.contains(tag.id) { result.formUnion(ancestors(of: tag.id)) }
-    }
+    let effectiveTags = SupertagInheritance.effectiveTagIDs(
+      for: directTags,
+      definitions: store.supertags
+    )
     return relations.filter {
       $0.sourceTagIDs.isEmpty || !effectiveTags.isDisjoint(with: $0.sourceTagIDs)
     }
@@ -99,13 +100,6 @@ struct GraphRelationshipsView: View {
 
   private var pageIssues: [GraphIssue] {
     issues.filter { $0.nodeID == pageID }
-  }
-
-  private func ancestors(of tagID: TagID) -> Set<TagID> {
-    guard let tag = store.supertags.first(where: { $0.id == tagID }) else { return [] }
-    return tag.parentIDs.reduce(into: Set(tag.parentIDs)) { result, parent in
-      result.formUnion(ancestors(of: parent))
-    }
   }
 
   @ViewBuilder
@@ -257,19 +251,11 @@ private struct GraphRelationshipTargetPicker: View {
 
   private func isCompatibleTarget(_ page: PageSnapshot) -> Bool {
     guard !relation.targetTagIDs.isEmpty else { return true }
-    let effectiveTags = page.objectMetadata.supertagIDs.reduce(into: Set<TagID>()) {
-      result, tagID in
-      result.insert(tagID)
-      result.formUnion(ancestors(of: tagID))
-    }
+    let effectiveTags = SupertagInheritance.effectiveTagIDs(
+      for: Set(page.objectMetadata.supertagIDs),
+      definitions: store.supertags
+    )
     return !effectiveTags.isDisjoint(with: relation.targetTagIDs)
-  }
-
-  private func ancestors(of tagID: TagID) -> Set<TagID> {
-    guard let tag = store.supertags.first(where: { $0.id == tagID }) else { return [] }
-    return tag.parentIDs.reduce(into: Set(tag.parentIDs)) { result, parent in
-      result.formUnion(ancestors(of: parent))
-    }
   }
 
   private func typeNames(for page: PageSnapshot) -> String {
