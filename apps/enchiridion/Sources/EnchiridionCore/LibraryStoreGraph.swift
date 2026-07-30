@@ -98,4 +98,32 @@ extension LibraryStore {
     }
     return try repository.runGraphQuery(definition)
   }
+
+  public func savedGraphQueries() async throws -> [SavedGraphQuery] {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await repository.savedGraphQueries()
+  }
+
+  public func runGraphQuery(_ query: SavedGraphQuery) throws -> GraphQueryResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try repository.runGraphQuery(query)
+  }
+
+  public func saveGraphQuery(_ query: SavedGraphQuery) async throws {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    try await repository.saveGraphQuery(query)
+  }
+
+  public func deleteGraphQuery(_ id: GraphQueryID) async throws {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    try await repository.deleteGraphQuery(id)
+  }
 }

@@ -251,6 +251,11 @@ final class GraphRepositoryTests: XCTestCase {
 
     let savedQueries = try await reopened.savedGraphQueries()
     XCTAssertEqual(Set(savedQueries), Set([builder, sql]))
+
+    XCTAssertEqual(try reopened.runGraphQuery(sql).columns.map(\.name), ["count"])
+    try await reopened.deleteGraphQuery(builder.id)
+    let remainingQueries = try await reopened.savedGraphQueries()
+    XCTAssertEqual(remainingQueries, [sql])
   }
 }
 
