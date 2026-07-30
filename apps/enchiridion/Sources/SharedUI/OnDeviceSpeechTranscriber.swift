@@ -344,6 +344,13 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     clearCaptureIfCurrent(source)
   }
 
+  func resetAfterMediaServicesReset() async {
+    await stop()
+    activeSource = nil
+    activeAnalyzer = nil
+    activeResultTask = nil
+  }
+
   private func stopCapture(
     source: MicrophoneAnalyzerInputSource,
     analyzer: SpeechAnalyzer,

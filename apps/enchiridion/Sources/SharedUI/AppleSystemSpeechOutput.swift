@@ -23,9 +23,12 @@ enum AppleSystemSpeechOutputError: Error, LocalizedError {
 /// process-global UI concerns on Apple platforms.
 @MainActor
 final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
+  typealias SynthesizerFactory = @MainActor @Sendable () -> AVSpeechSynthesizer
+
   private let locale: Locale
   private let voicePreferences: AssistantVoicePreferences
-  private let synthesizer: AVSpeechSynthesizer
+  private let synthesizerFactory: SynthesizerFactory
+  private var synthesizer: AVSpeechSynthesizer
   private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
     category: "AssistantSpeechOutput"
@@ -37,16 +40,14 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   init(
     voicePreferences: AssistantVoicePreferences,
     locale: Locale = .current,
-    synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
+    synthesizerFactory: @escaping SynthesizerFactory = { AVSpeechSynthesizer() }
   ) {
     self.voicePreferences = voicePreferences
     self.locale = locale
-    self.synthesizer = synthesizer
+    self.synthesizerFactory = synthesizerFactory
+    self.synthesizer = synthesizerFactory()
     super.init()
-    synthesizer.delegate = self
-    #if os(iOS)
-      synthesizer.usesApplicationAudioSession = true
-    #endif
+    configureSynthesizer()
   }
 
   func speak(_ text: String) async throws {
@@ -87,6 +88,20 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
 
   func stop() async {
     cancelCurrentSpeech()
+  }
+
+  func resetAfterMediaServicesReset() async {
+    cancelCurrentSpeech()
+    synthesizer.delegate = nil
+    synthesizer = synthesizerFactory()
+    configureSynthesizer()
+  }
+
+  private func configureSynthesizer() {
+    synthesizer.delegate = self
+    #if os(iOS)
+      synthesizer.usesApplicationAudioSession = true
+    #endif
   }
 
   private func selectedVoice(for locale: Locale) -> AVSpeechSynthesisVoice? {

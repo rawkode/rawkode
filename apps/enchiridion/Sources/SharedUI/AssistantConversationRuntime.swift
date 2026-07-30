@@ -42,7 +42,7 @@ import Foundation
     AssistantConversationAudioSessionControlling
   {
     private let backend: any HandheldConversationAudioSessionBacking
-    private var isActive = false
+    private var lifecycle = AssistantAudioSessionLifecycleState()
 
     init(
       backend: any HandheldConversationAudioSessionBacking =
@@ -52,20 +52,147 @@ import Foundation
     }
 
     func activate() async throws {
-      guard !isActive else { return }
-      try backend.setCategory(
-        .playAndRecord,
-        mode: .default,
-        options: [.defaultToSpeaker, .allowBluetoothHFP]
-      )
+      guard !lifecycle.isActive else { return }
+      if !lifecycle.isConfigured {
+        try backend.setCategory(
+          .playAndRecord,
+          mode: .default,
+          options: [.allowBluetoothHFP]
+        )
+        lifecycle.didConfigure()
+      }
       try backend.setActive(true, options: [])
-      isActive = true
+      lifecycle.didActivate()
     }
 
     func deactivate() async {
-      guard isActive else { return }
-      isActive = false
+      guard lifecycle.isActive else { return }
+      lifecycle.didDeactivate()
       try? backend.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    func resetAfterMediaServicesReset() async {
+      lifecycle.resetAfterMediaServicesReset()
+    }
+  }
+
+  private final class NotificationObserverLifetime: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let lock = NSLock()
+    private var observers: [NSObjectProtocol] = []
+
+    init(notificationCenter: NotificationCenter) {
+      self.notificationCenter = notificationCenter
+    }
+
+    func append(_ observer: NSObjectProtocol) {
+      lock.withLock { observers.append(observer) }
+    }
+
+    func cancel() {
+      let removed = lock.withLock {
+        let removed = observers
+        observers.removeAll()
+        return removed
+      }
+      for observer in removed {
+        notificationCenter.removeObserver(observer)
+      }
+    }
+
+    deinit {
+      cancel()
+    }
+  }
+
+  final class HandheldConversationAudioEventSource:
+    AssistantVoiceSafetyEventSource, @unchecked Sendable
+  {
+    private let notificationCenter: NotificationCenter
+    private let audioSession: AVAudioSession
+
+    init(
+      notificationCenter: NotificationCenter = .default,
+      audioSession: AVAudioSession = .sharedInstance()
+    ) {
+      self.notificationCenter = notificationCenter
+      self.audioSession = audioSession
+    }
+
+    func events() -> AsyncStream<AssistantVoiceSafetyEvent> {
+      AsyncStream { continuation in
+        let lifetime = NotificationObserverLifetime(notificationCenter: notificationCenter)
+        observe(AVAudioSession.interruptionNotification, lifetime: lifetime) { notification in
+          guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let event = AssistantVoiceSafetyNotificationParser.interruption(rawType: rawType)
+          else { return }
+          continuation.yield(event)
+        }
+        observe(AVAudioSession.routeChangeNotification, lifetime: lifetime) {
+          [weak self] notification in
+          guard let self,
+            let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+          else { return }
+          let previous =
+            (notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey]
+            as? AVAudioSessionRouteDescription).map(Self.snapshot)
+          let current = Self.snapshot(audioSession.currentRoute)
+          if let event = AssistantVoiceSafetyNotificationParser.routeChange(
+            rawReason: rawReason,
+            previous: previous,
+            current: current
+          ) {
+            continuation.yield(event)
+          }
+        }
+        observe(AVAudioSession.mediaServicesWereLostNotification, lifetime: lifetime) { _ in
+          continuation.yield(.mediaServicesLost)
+        }
+        observe(AVAudioSession.mediaServicesWereResetNotification, lifetime: lifetime) { _ in
+          continuation.yield(.mediaServicesReset)
+        }
+        continuation.onTermination = { _ in lifetime.cancel() }
+      }
+    }
+
+    private func observe(
+      _ name: Notification.Name,
+      lifetime: NotificationObserverLifetime,
+      using block: @escaping @Sendable (Notification) -> Void
+    ) {
+      lifetime.append(
+        notificationCenter.addObserver(
+          forName: name, object: audioSession, queue: nil, using: block)
+      )
+    }
+
+    private static func snapshot(
+      _ route: AVAudioSessionRouteDescription
+    ) -> AssistantAudioRouteSnapshot {
+      AssistantAudioRouteSnapshot(
+        inputs: route.inputs.map { port($0.portType) },
+        outputs: route.outputs.map { port($0.portType) }
+      )
+    }
+
+    private static func port(_ type: AVAudioSession.Port) -> AssistantAudioPort {
+      switch type {
+      case .builtInMic: .builtInMic
+      case .builtInReceiver: .builtInReceiver
+      case .builtInSpeaker: .builtInSpeaker
+      case .headphones: .headphones
+      case .headsetMic: .headsetMic
+      case .bluetoothA2DP: .bluetoothA2DP
+      case .bluetoothHFP: .bluetoothHFP
+      case .bluetoothLE: .bluetoothLE
+      case .usbAudio: .usbAudio
+      case .airPlay: .airPlay
+      case .carAudio: .carAudio
+      case .HDMI: .hdmi
+      case .lineIn: .lineIn
+      case .lineOut: .lineOut
+      default: .other
+      }
     }
   }
 #endif
@@ -86,8 +213,11 @@ func makeAssistantConversationSession(
     #if os(iOS)
       let audioSessionController: (any AssistantConversationAudioSessionControlling)? =
         surface == .app ? HandheldConversationAudioSessionController() : nil
+      let voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)? =
+        surface == .app ? HandheldConversationAudioEventSource() : nil
     #else
       let audioSessionController: (any AssistantConversationAudioSessionControlling)? = nil
+      let voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)? = nil
     #endif
     return AssistantConversationSession(
       transcriber: OnDeviceSpeechTranscriber(),
@@ -96,6 +226,7 @@ func makeAssistantConversationSession(
         voicePreferences: voicePreferences
       ),
       audioSessionController: audioSessionController,
+      voiceSafetyEventSource: voiceSafetyEventSource,
       speaksResponses: true
     )
   }

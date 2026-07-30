@@ -653,6 +653,260 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(resetCount, 1)
   }
 
+  @MainActor
+  func testInterruptionWhileListeningPausesOnceAndPreservesCommittedTurns() async throws {
+    let events = ManualVoiceSafetyEventSource()
+    let transcriber = ControlledTranscriber()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      audioSessionController: audioSession,
+      voiceSafetyEventSource: events,
+      interTurnDelay: .zero
+    )
+    await session.submit("keep this turn")
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+
+    events.emit(.interruptionBegan)
+    try await waitUntil { session.voicePauseReason == .interruption }
+    events.emit(.interruptionBegan)
+    try await Task.sleep(for: .milliseconds(20))
+
+    XCTAssertEqual(session.state, .stopped)
+    XCTAssertEqual(session.turns.map(\.utterance), ["keep this turn"])
+    XCTAssertFalse(session.isVoiceRunning)
+    let cancellationCount = await transcriber.cancellationCount
+    let deactivationCount = await audioSession.deactivationCount
+    XCTAssertEqual(cancellationCount, 1)
+    XCTAssertEqual(deactivationCount, 1)
+  }
+
+  @MainActor
+  func testUnsafeRouteWhileThinkingFencesLateAnswerAndSpeech() async throws {
+    let transcriber = ControlledTranscriber()
+    let answerer = ControlledAnswerer()
+    let speaker = ControlledSpeaker()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      speaker: speaker,
+      audioSessionController: audioSession,
+      speaksResponses: true,
+      interTurnDelay: .zero
+    )
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.succeedNext(with: "unsafe pending request")
+    try await waitUntil { await answerer.requests.count == 1 }
+
+    let pause = Task {
+      await session.handleVoiceSafetyEvent(
+        .routeChanged(
+          reason: .oldDeviceUnavailable,
+          previous: AssistantAudioRouteSnapshot(inputs: [.headsetMic], outputs: [.headphones]),
+          current: AssistantAudioRouteSnapshot(
+            inputs: [.builtInMic],
+            outputs: [.builtInSpeaker]
+          )
+        )
+      )
+    }
+    try await waitUntil { !session.isVoiceRunning }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "late private answer", status: .answered)
+    )
+    await pause.value
+
+    XCTAssertEqual(session.voicePauseReason, .routeChanged)
+    XCTAssertTrue(session.turns.isEmpty)
+    let spoken = await speaker.spoken
+    let deactivationCount = await audioSession.deactivationCount
+    XCTAssertTrue(spoken.isEmpty)
+    XCTAssertEqual(deactivationCount, 1)
+  }
+
+  @MainActor
+  func testMediaResetWhileSpeakingStopsSpeechPreservesTurnAndRunsResetHooks() async throws {
+    let transcriber = ControlledTranscriber()
+    let speaker = ControlledSpeaker()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      speaker: speaker,
+      audioSessionController: audioSession,
+      speaksResponses: true,
+      interTurnDelay: .zero
+    )
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.succeedNext(with: "committed request")
+    try await waitUntil { await speaker.spoken.count == 1 }
+
+    await session.handleVoiceSafetyEvent(.mediaServicesReset)
+
+    XCTAssertEqual(session.voicePauseReason, .mediaServicesRestarted)
+    XCTAssertEqual(session.turns.map(\.utterance), ["committed request"])
+    let speakerStopCount = await speaker.stopCount
+    let speakerResetCount = await speaker.resetCount
+    let transcriberResetCount = await transcriber.resetCount
+    let audioResetCount = await audioSession.resetCount
+    let deactivationCount = await audioSession.deactivationCount
+    XCTAssertEqual(speakerStopCount, 1)
+    XCTAssertEqual(speakerResetCount, 1)
+    XCTAssertEqual(transcriberResetCount, 1)
+    XCTAssertEqual(audioResetCount, 1)
+    XCTAssertEqual(deactivationCount, 1)
+  }
+
+  @MainActor
+  func testSafetyEventsNeverCancelTypedAnswer() async throws {
+    let events = ManualVoiceSafetyEventSource()
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(
+      transcriber: ControlledTranscriber(),
+      answerer: answerer,
+      voiceSafetyEventSource: events
+    )
+
+    async let submission: Void = session.submit("typed request")
+    try await waitUntil { await answerer.requests.count == 1 }
+    events.emit(.interruptionBegan)
+    try await Task.sleep(for: .milliseconds(20))
+    XCTAssertEqual(session.state, .thinking)
+    XCTAssertNil(session.voicePauseReason)
+
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "typed answer", status: .answered)
+    )
+    _ = await submission
+    XCTAssertEqual(session.turns.map(\.answer), ["typed answer"])
+  }
+
+  @MainActor
+  func testBenignRouteEventsNeverPauseOrResumeVoice() async throws {
+    let transcriber = ControlledTranscriber()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      audioSessionController: audioSession,
+      interTurnDelay: .zero
+    )
+    let builtIn = AssistantAudioRouteSnapshot(
+      inputs: [.builtInMic],
+      outputs: [.builtInSpeaker]
+    )
+    let external = AssistantAudioRouteSnapshot(
+      inputs: [.bluetoothHFP],
+      outputs: [.bluetoothHFP]
+    )
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+
+    await session.handleVoiceSafetyEvent(
+      .routeChanged(reason: .newDeviceAvailable, previous: builtIn, current: external)
+    )
+    XCTAssertEqual(session.state, .listening)
+    XCTAssertNil(session.voicePauseReason)
+    let activeDeactivationCount = await audioSession.deactivationCount
+    XCTAssertEqual(activeDeactivationCount, 0)
+
+    await session.handleVoiceSafetyEvent(.interruptionBegan)
+    XCTAssertEqual(session.state, .stopped)
+    await session.handleVoiceSafetyEvent(
+      .routeChanged(reason: .newDeviceAvailable, previous: builtIn, current: external)
+    )
+    XCTAssertEqual(session.state, .stopped)
+    let captureCount = await transcriber.callCount
+    XCTAssertEqual(captureCount, 1)
+  }
+
+  @MainActor
+  func testExplicitMicStartClearsPauseAndRestartsExactlyOnce() async throws {
+    let transcriber = ControlledTranscriber()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      audioSessionController: audioSession,
+      interTurnDelay: .zero
+    )
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await session.handleVoiceSafetyEvent(.appInactive)
+    XCTAssertEqual(session.voicePauseReason, .appInactive)
+
+    await session.startVoice()
+    try await waitUntil { await transcriber.callCount == 2 }
+
+    XCTAssertNil(session.voicePauseReason)
+    XCTAssertTrue(session.isVoiceRunning)
+    let activationCount = await audioSession.activationCount
+    XCTAssertEqual(activationCount, 2)
+    await session.stop()
+  }
+
+  @MainActor
+  func testMediaResetHooksRunWhileIdleAndStoppedAndDuplicatesAreIdempotent() async throws {
+    let transcriber = ControlledTranscriber()
+    let speaker = ControlledSpeaker()
+    let audioSession = RecordingAudioSessionController()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      speaker: speaker,
+      audioSessionController: audioSession,
+      interTurnDelay: .zero
+    )
+
+    await session.handleVoiceSafetyEvent(.mediaServicesReset)
+    await session.handleVoiceSafetyEvent(.mediaServicesReset)
+    var transcriberResetCount = await transcriber.resetCount
+    var speakerResetCount = await speaker.resetCount
+    var audioResetCount = await audioSession.resetCount
+    XCTAssertEqual(transcriberResetCount, 1)
+    XCTAssertEqual(speakerResetCount, 1)
+    XCTAssertEqual(audioResetCount, 1)
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    let activationCount = await audioSession.activationCount
+    XCTAssertEqual(activationCount, 1)
+    await session.handleVoiceSafetyEvent(.appInactive)
+    await session.handleVoiceSafetyEvent(.mediaServicesLost)
+    transcriberResetCount = await transcriber.resetCount
+    speakerResetCount = await speaker.resetCount
+    audioResetCount = await audioSession.resetCount
+    XCTAssertEqual(transcriberResetCount, 2)
+    XCTAssertEqual(speakerResetCount, 2)
+    XCTAssertEqual(audioResetCount, 2)
+  }
+
+  @MainActor
+  func testInactiveThenForegroundRefreshNeverRestartsVoice() async throws {
+    let transcriber = ControlledTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await session.handleVoiceSafetyEvent(.appInactive)
+
+    await session.refreshVoiceAvailability()
+    try await Task.sleep(for: .milliseconds(20))
+
+    XCTAssertEqual(session.state, .stopped)
+    XCTAssertEqual(session.voicePauseReason, .appInactive)
+    let captureCount = await transcriber.callCount
+    XCTAssertEqual(captureCount, 1)
+  }
+
   func testTranscriptStabilityUsesExactNoSpeechAndStableBoundaries() {
     var tracker = AssistantTranscriptStabilityTracker()
 
@@ -1136,9 +1390,31 @@ private enum AssistantConversationTestFailure: Error {
   case speaking
 }
 
+private final class ManualVoiceSafetyEventSource:
+  AssistantVoiceSafetyEventSource, @unchecked Sendable
+{
+  private let stream: AsyncStream<AssistantVoiceSafetyEvent>
+  private let continuation: AsyncStream<AssistantVoiceSafetyEvent>.Continuation
+
+  init() {
+    let pair = AsyncStream.makeStream(of: AssistantVoiceSafetyEvent.self)
+    stream = pair.stream
+    continuation = pair.continuation
+  }
+
+  func events() -> AsyncStream<AssistantVoiceSafetyEvent> {
+    stream
+  }
+
+  func emit(_ event: AssistantVoiceSafetyEvent) {
+    continuation.yield(event)
+  }
+}
+
 private actor RecordingAudioSessionController: AssistantConversationAudioSessionControlling {
   private(set) var activationCount = 0
   private(set) var deactivationCount = 0
+  private(set) var resetCount = 0
 
   func activate() {
     activationCount += 1
@@ -1146,6 +1422,10 @@ private actor RecordingAudioSessionController: AssistantConversationAudioSession
 
   func deactivate() {
     deactivationCount += 1
+  }
+
+  func resetAfterMediaServicesReset() {
+    resetCount += 1
   }
 
   func counts() -> (activations: Int, deactivations: Int) {
@@ -1307,6 +1587,7 @@ private actor ControlledTranscriber: AssistantConversationTranscribing {
   private var pending: [Pending] = []
   private(set) var callCount = 0
   private(set) var cancellationCount = 0
+  private(set) var resetCount = 0
 
   func transcribe() async throws -> String {
     let id = UUID()
@@ -1323,6 +1604,10 @@ private actor ControlledTranscriber: AssistantConversationTranscribing {
   func succeedNext(with utterance: String) {
     guard !pending.isEmpty else { return }
     pending.removeFirst().continuation.resume(returning: utterance)
+  }
+
+  func resetAfterMediaServicesReset() {
+    resetCount += 1
   }
 
   private func cancel(id: UUID) {
@@ -1462,6 +1747,7 @@ private actor ControlledSpeaker: AssistantConversationSpeaking {
   private var pending: [CheckedContinuation<Void, any Error>] = []
   private(set) var spoken: [String] = []
   private(set) var stopCount = 0
+  private(set) var resetCount = 0
 
   func speak(_ text: String) async throws {
     spoken.append(text)
@@ -1477,6 +1763,10 @@ private actor ControlledSpeaker: AssistantConversationSpeaking {
   func stop() {
     stopCount += 1
     cancelPending()
+  }
+
+  func resetAfterMediaServicesReset() {
+    resetCount += 1
   }
 
   func finishNext() {

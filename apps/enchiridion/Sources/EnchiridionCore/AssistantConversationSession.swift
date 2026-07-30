@@ -61,6 +61,7 @@ public protocol AssistantConversationTranscribing: Sendable {
     reportingProgress: @escaping AssistantTranscriptionProgressHandler
   ) async throws -> AssistantTranscriptionOutcome
   func stop() async
+  func resetAfterMediaServicesReset() async
 }
 
 extension AssistantConversationTranscribing {
@@ -74,6 +75,7 @@ extension AssistantConversationTranscribing {
     return utterance.isEmpty ? .noSpeech : .utterance(utterance)
   }
   public func stop() async {}
+  public func resetAfterMediaServicesReset() async {}
 }
 
 /// Pure transcript-stability policy used to stop a live transcription turn.
@@ -158,6 +160,11 @@ extension AssistantConversationAnswering {
 public protocol AssistantConversationSpeaking: Sendable {
   func speak(_ text: String) async throws
   func stop() async
+  func resetAfterMediaServicesReset() async
+}
+
+extension AssistantConversationSpeaking {
+  public func resetAfterMediaServicesReset() async {}
 }
 
 /// Owns the process audio session for one complete voice conversation.
@@ -165,6 +172,11 @@ public protocol AssistantConversationSpeaking: Sendable {
 public protocol AssistantConversationAudioSessionControlling: Sendable {
   func activate() async throws
   func deactivate() async
+  func resetAfterMediaServicesReset() async
+}
+
+extension AssistantConversationAudioSessionControlling {
+  public func resetAfterMediaServicesReset() async {}
 }
 
 public enum AssistantConversationFailureKind: String, Equatable, Sendable {
@@ -512,6 +524,7 @@ public final class AssistantConversationSession {
   public private(set) var voiceAvailability: AssistantVoiceAvailability
   public private(set) var liveTranscript = ""
   public private(set) var voiceInputNotice: String?
+  public private(set) var voicePauseReason: AssistantVoicePauseReason?
   public var speaksResponses: Bool
 
   public var isRunning: Bool {
@@ -531,6 +544,7 @@ public final class AssistantConversationSession {
   @ObservationIgnored private let speaker: (any AssistantConversationSpeaking)?
   @ObservationIgnored private let audioSessionController:
     (any AssistantConversationAudioSessionControlling)?
+  @ObservationIgnored private let voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)?
   @ObservationIgnored private let maximumContextTurns: Int
   @ObservationIgnored private let interTurnDelay: Duration
   @ObservationIgnored private let locale: Locale
@@ -543,12 +557,15 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var voiceInputGeneration: UInt64 = 0
   @ObservationIgnored private var audioSessionActivation: AudioSessionActivation?
   @ObservationIgnored private var ownsAudioSession = false
+  @ObservationIgnored private var voiceSafetyEventTask: Task<Void, Never>?
+  @ObservationIgnored private var lastVoiceSafetyEvent: AssistantVoiceSafetyEvent?
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
     answerer: any AssistantConversationAnswering,
     speaker: (any AssistantConversationSpeaking)? = nil,
     audioSessionController: (any AssistantConversationAudioSessionControlling)? = nil,
+    voiceSafetyEventSource: (any AssistantVoiceSafetyEventSource)? = nil,
     speaksResponses: Bool = false,
     maximumContextTurns: Int = AssistantConversationSession.defaultMaximumContextTurns,
     interTurnDelay: Duration = .milliseconds(500),
@@ -560,6 +577,7 @@ public final class AssistantConversationSession {
     self.answerer = answerer
     self.speaker = speaker
     self.audioSessionController = audioSessionController
+    self.voiceSafetyEventSource = voiceSafetyEventSource
     self.speaksResponses = speaksResponses
     self.maximumContextTurns = maximumContextTurns
     self.interTurnDelay = interTurnDelay
@@ -569,11 +587,20 @@ public final class AssistantConversationSession {
       transcriber == nil
       ? .unavailable("Voice input is unavailable on this device.")
       : .checking
+    if let voiceSafetyEventSource {
+      voiceSafetyEventTask = Task { [weak self] in
+        for await event in voiceSafetyEventSource.events() {
+          guard !Task.isCancelled else { return }
+          await self?.handleVoiceSafetyEvent(event)
+        }
+      }
+    }
   }
 
   deinit {
     operation?.cancel()
     audioSessionActivation?.task.cancel()
+    voiceSafetyEventTask?.cancel()
     guard let audioSessionController else { return }
     if let audioSessionActivation {
       Task {
@@ -590,6 +617,7 @@ public final class AssistantConversationSession {
     let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !utterance.isEmpty, operation == nil, !isStopping else { return }
 
+    clearVoicePause()
     resetVoiceInput()
     generation &+= 1
     let currentGeneration = generation
@@ -610,6 +638,7 @@ public final class AssistantConversationSession {
     }
     let startAttemptID = UUID()
     voiceStartAttemptID = startAttemptID
+    clearVoicePause()
     defer {
       if voiceStartAttemptID == startAttemptID { voiceStartAttemptID = nil }
     }
@@ -705,6 +734,26 @@ public final class AssistantConversationSession {
     }
   }
 
+  /// Pauses only an in-flight voice preflight or operation. Typed chat is not
+  /// cancelled, and no event can restart capture or speech.
+  public func handleVoiceSafetyEvent(_ event: AssistantVoiceSafetyEvent) async {
+    guard lastVoiceSafetyEvent != event else { return }
+    lastVoiceSafetyEvent = event
+
+    if hasActiveVoiceWork, let reason = pauseReason(for: event) {
+      await pauseVoice(for: reason)
+    }
+
+    switch event {
+    case .mediaServicesLost, .mediaServicesReset:
+      await transcriber?.resetAfterMediaServicesReset()
+      await speaker?.resetAfterMediaServicesReset()
+      await audioSessionController?.resetAfterMediaServicesReset()
+    case .interruptionBegan, .routeChanged, .appInactive:
+      break
+    }
+  }
+
   /// Stops active capture/generation/speech while retaining visible conversation.
   public func stop() async {
     await stop(preservingTurns: true)
@@ -762,6 +811,58 @@ public final class AssistantConversationSession {
 
     guard generation == stopGeneration else { return }
     if !preservingTurns { turns.removeAll(keepingCapacity: true) }
+    state = .stopped
+    isStopping = false
+  }
+
+  private var hasActiveVoiceWork: Bool {
+    isVoiceRunning || voiceStartAttemptID != nil || audioSessionActivation != nil
+  }
+
+  private func pauseReason(for event: AssistantVoiceSafetyEvent) -> AssistantVoicePauseReason? {
+    switch event {
+    case .interruptionBegan:
+      return .interruption
+    case .routeChanged(let reason, let previous, let current):
+      return AssistantAudioRouteSafetyClassifier.pauseReason(
+        reason: reason,
+        previous: previous,
+        current: current
+      )
+    case .mediaServicesLost, .mediaServicesReset:
+      return .mediaServicesRestarted
+    case .appInactive:
+      return .appInactive
+    }
+  }
+
+  private func pauseVoice(for reason: AssistantVoicePauseReason) async {
+    voiceStartAttemptID = nil
+    generation &+= 1
+    resetVoiceInput()
+    let pauseGeneration = generation
+    isStopping = true
+    finishVoiceOperationIfNeeded()
+    let pendingAudioSessionActivation = audioSessionActivation
+    pendingAudioSessionActivation?.task.cancel()
+    let activeOperation = operation
+    operation = nil
+    activeOperation?.cancel()
+
+    await transcriber?.stop()
+    await speaker?.stop()
+    await activeOperation?.value
+    if let pendingAudioSessionActivation {
+      let didActivate = (try? await pendingAudioSessionActivation.task.value) != nil
+      if audioSessionActivation?.id == pendingAudioSessionActivation.id {
+        audioSessionActivation = nil
+        if didActivate { await audioSessionController?.deactivate() }
+      }
+    }
+    await releaseAudioSessionIfNeeded()
+
+    guard generation == pauseGeneration else { return }
+    voicePauseReason = reason
     state = .stopped
     isStopping = false
   }
@@ -912,6 +1013,11 @@ public final class AssistantConversationSession {
     voiceInputGeneration &+= 1
     liveTranscript = ""
     voiceInputNotice = nil
+  }
+
+  private func clearVoicePause() {
+    voicePauseReason = nil
+    lastVoiceSafetyEvent = nil
   }
 
   private func finishVoiceInputTurn(_ inputGeneration: UInt64) {

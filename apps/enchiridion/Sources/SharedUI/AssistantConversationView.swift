@@ -70,7 +70,11 @@ struct AssistantConversationView: View {
         if phase == .active {
           await session.refreshVoiceAvailability()
         } else {
-          await session.stop()
+          #if os(iOS)
+            await session.handleVoiceSafetyEvent(.appInactive)
+          #else
+            await session.stop()
+          #endif
         }
       }
     }
@@ -199,7 +203,15 @@ struct AssistantConversationView: View {
 
   @ViewBuilder
   private func composerStatus(_ session: AssistantConversationSession) -> some View {
-    if let notice = session.voiceInputNotice {
+    if let pauseReason = session.voicePauseReason,
+      session.state == .idle || session.state == .stopped
+    {
+      Label(pauseReason.message, systemImage: "mic.slash")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    } else if let notice = session.voiceInputNotice {
       Label(notice, systemImage: "mic.slash")
         .font(.caption)
         .foregroundStyle(.secondary)
