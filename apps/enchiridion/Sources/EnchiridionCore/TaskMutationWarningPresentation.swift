@@ -7,10 +7,11 @@ public enum TaskMutationWarningRecovery: Equatable, Sendable {
 
 /// A small, deterministic policy for turning side-effect failures from one persisted
 /// task change (or one outbox drain) into a single user-facing warning.
-public struct TaskMutationWarningPresentation: Equatable, Sendable {
+public struct TaskMutationWarningPresentation: Equatable, Sendable, Identifiable {
   public let title: String
   public let message: String
   public let recovery: TaskMutationWarningRecovery?
+  public var id: String { "\(title)\u{0}\(message)" }
 
   public init(
     title: String,

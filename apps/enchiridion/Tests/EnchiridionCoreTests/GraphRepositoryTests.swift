@@ -55,6 +55,13 @@ final class GraphRepositoryTests: XCTestCase {
     ) { error in
       XCTAssertEqual(error as? GraphQueryError, .multipleStatements)
     }
+    XCTAssertThrowsError(
+      try fixture.repository.runGraphSQL("SELECT * FROM 'graph_text_search_content'")
+    ) { error in
+      guard case .unauthorized = error as? GraphQueryError else {
+        return XCTFail("Expected an authorization error, got \(error)")
+      }
+    }
   }
 
   func testMultipleInheritanceClosureIsQueryVisibleAndCyclesRollback() async throws {
@@ -139,6 +146,57 @@ final class GraphRepositoryTests: XCTestCase {
     }
   }
 
+  func testEventReferencePropertiesRoundTripThroughCanonicalEdges() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    let event = try await fixture.repository.createTaggedPage(
+      title: "Graph review",
+      supertagID: BuiltInSupertags.event
+    )
+    let organizer = try await fixture.repository.createTaggedPage(
+      title: "Ada",
+      supertagID: BuiltInSupertags.person
+    )
+    let attendee = try await fixture.repository.createTaggedPage(
+      title: "Grace",
+      supertagID: BuiltInSupertags.person
+    )
+    let place = try await fixture.repository.createTaggedPage(
+      title: "Studio",
+      supertagID: BuiltInSupertags.place
+    )
+    let properties: [(String, [SupertagValue])] = [
+      ("organizer", [.page(organizer.id)]),
+      ("attendees", [.page(organizer.id), .page(attendee.id)]),
+      ("place", [.page(place.id)]),
+    ]
+
+    for (fieldID, values) in properties {
+      try await fixture.repository.setProperty(
+        pageID: event.id,
+        key: .init(
+          supertagID: BuiltInSupertags.event,
+          fieldID: .init(rawValue: fieldID)
+        ),
+        values: values
+      )
+    }
+
+    let reloadedPage = try await fixture.repository.page(id: event.id)
+    let reloaded = try XCTUnwrap(reloadedPage)
+    for (fieldID, values) in properties {
+      let key = SupertagPropertyKey(
+        supertagID: BuiltInSupertags.event,
+        fieldID: .init(rawValue: fieldID)
+      )
+      let reloadedValues = reloaded.objectMetadata.properties[key]
+      if values.count > 1 {
+        XCTAssertEqual(Set(reloadedValues ?? []), Set(values))
+      } else {
+        XCTAssertEqual(reloadedValues, values)
+      }
+    }
+  }
+
   func testConcurrentMaxOneEdgesArePreservedFlaggedAndExplicitlyResolved() async throws {
     let fixture = try GraphRepositoryFixture(testCase: self)
     let task = try await fixture.repository.createTaggedPage(
@@ -190,6 +248,39 @@ final class GraphRepositoryTests: XCTestCase {
     let resolvedIssues = try await fixture.repository.graphIssues()
     XCTAssertEqual(resolvedEdges, [firstEdge])
     XCTAssertTrue(resolvedIssues.isEmpty)
+  }
+
+  func testChangingRelationSourceConstraintProjectsAnIssueForExistingEdge() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    let task = try await fixture.repository.createTaggedPage(
+      title: "Prepare launch",
+      supertagID: BuiltInSupertags.task
+    )
+    let project = try await fixture.repository.createTaggedPage(
+      title: "Launch",
+      supertagID: BuiltInSupertags.project
+    )
+    var relation = RelationDefinition(
+      id: .random(),
+      sourceTagIDs: [BuiltInSupertags.task],
+      targetTagIDs: [BuiltInSupertags.project],
+      forwardName: "Contributes to",
+      inverseName: "Contributions"
+    )
+    try await fixture.repository.saveRelationDefinition(relation)
+    let edge = try await fixture.repository.createEdge(
+      relationID: relation.id,
+      from: task.id,
+      to: project.id
+    )
+
+    relation.sourceTagIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveRelationDefinition(relation)
+
+    let issues = try await fixture.repository.graphIssues()
+    XCTAssertTrue(issues.contains {
+      $0.kind == .invalidSourceType && $0.edgeID == edge.id && $0.relationID == relation.id
+    })
   }
 
   func testVisualQueryCompilerTraversesMultipleHopsAndSQLCanUseFTS() async throws {

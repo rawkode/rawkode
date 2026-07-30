@@ -31,6 +31,23 @@ final class GraphModelTests: XCTestCase {
     XCTAssertEqual(BuiltInRelations.propertyKey(for: BuiltInRelations.taskProject), key)
   }
 
+  func testEventReferenceFieldsMapBackFromCanonicalRelations() {
+    let mappings: [(String, RelationID)] = [
+      ("organizer", BuiltInRelations.eventOrganizer),
+      ("attendees", BuiltInRelations.eventAttendees),
+      ("place", BuiltInRelations.eventPlace),
+    ]
+
+    for (fieldID, relationID) in mappings {
+      let key = SupertagPropertyKey(
+        supertagID: BuiltInSupertags.event,
+        fieldID: .init(rawValue: fieldID)
+      )
+      XCTAssertEqual(BuiltInRelations.relationID(for: key), relationID)
+      XCTAssertEqual(BuiltInRelations.propertyKey(for: relationID), key)
+    }
+  }
+
   func testVaultScopedNodeIdentityCannotCollideAcrossVaults() {
     let nodeID = PageID.free(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!)
     let first = VaultScopedNodeID(vaultID: .init(rawValue: "vault_one"), nodeID: nodeID)
@@ -38,6 +55,13 @@ final class GraphModelTests: XCTestCase {
 
     XCTAssertNotEqual(first, second)
     XCTAssertNotEqual(first.id, second.id)
+  }
+
+  func testLegacyUnscopedNodeIdentityDefaultsToPersonalVault() throws {
+    let nodeID = PageID(rawValue: "page_legacy")
+    let identity = try XCTUnwrap(VaultScopedNodeID(serialized: nodeID.rawValue))
+
+    XCTAssertEqual(identity, .init(vaultID: .personal, nodeID: nodeID))
   }
 
   func testLocalDateRejectsInstantsAndRetainsCalendarIdentity() {

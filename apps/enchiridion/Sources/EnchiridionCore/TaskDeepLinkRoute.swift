@@ -22,11 +22,16 @@ public enum TaskDeepLinkRoute: Hashable, Sendable {
     }
 
     let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    guard let rawVaultID = queryItems.first(where: { $0.name == "vault" })?.value?
-      .trimmingCharacters(in: .whitespacesAndNewlines),
-      rawVaultID.hasPrefix("vault_"), !rawVaultID.isEmpty
-    else { return nil }
-    let vaultID = VaultID(rawValue: rawVaultID)
+    let vaultID: VaultID
+    if let rawVaultID = queryItems.first(where: { $0.name == "vault" })?.value?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    {
+      guard rawVaultID.hasPrefix("vault_"), !rawVaultID.isEmpty else { return nil }
+      vaultID = VaultID(rawValue: rawVaultID)
+    } else {
+      // Notifications, widgets, and Spotlight links created before vault support are Personal.
+      vaultID = .personal
+    }
 
     if let rawTaskID = queryItems.first(where: { $0.name == "task" })?.value {
       let taskID = rawTaskID.trimmingCharacters(in: .whitespacesAndNewlines)
