@@ -8,7 +8,7 @@ import { inputRules, smartQuotes, textblockTypeInputRule, wrappingInputRule, typ
 import { keymap } from "prosemirror-keymap"
 import type { DOMOutputSpec, MarkType, Node as PMNode, Schema } from "prosemirror-model"
 import { liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list"
-import { EditorState, Plugin } from "prosemirror-state"
+import { EditorState, Plugin, type SelectionBookmark, type Transaction } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import {
   exitCodeBlockOnEmptyLine,
@@ -32,6 +32,13 @@ import {
   type SearchableCommand,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
+import {
+  createFindInPagePlugin,
+  findDecorationTransaction,
+  findPageMatches,
+  moveFindSelection,
+  type FindMatch,
+} from "./findInPage"
 import { inlineCodeInputRules } from "./inlineCode"
 import { markdownEmphasisInputRules, reversibleMarkdownKeymap } from "./markdownEmphasis"
 import "./style.css"
@@ -99,6 +106,19 @@ type LinkEditorState = {
   target: LinkEditTarget
   selection: EditorState["selection"]
 }
+type FindRestoreTarget =
+  | { kind: "title"; start: number; end: number; direction: "forward" | "backward" | "none" }
+  | { kind: "body"; bookmark: SelectionBookmark }
+type FindInPageState = {
+  queryInput: HTMLInputElement
+  counter: HTMLElement
+  announcement: HTMLElement
+  previousButton: HTMLButtonElement
+  nextButton: HTMLButtonElement
+  matches: FindMatch[]
+  activeIndex: number
+  restoreTarget: FindRestoreTarget
+}
 
 declare global {
   interface Window {
@@ -112,6 +132,7 @@ declare global {
       focus: () => void
       flush: () => Promise<void>
       dismissKeyboard: () => void
+      find: () => void
     }
   }
 }
@@ -121,6 +142,7 @@ const titleInput = requiredElement<HTMLTextAreaElement>("title")
 const editorElement = requiredElement<HTMLDivElement>("editor")
 const statusElement = requiredElement<HTMLDivElement>("status")
 const contextElement = requiredElement<HTMLElement>("page-context")
+const findBar = requiredElement<HTMLElement>("find-bar")
 const slashMenu = requiredElement<HTMLDivElement>("slash-menu")
 const pageMenu = requiredElement<HTMLDivElement>("page-menu")
 const linkMenu = requiredElement<HTMLDivElement>("link-menu")
@@ -139,6 +161,7 @@ let reportedEditorFocus = false
 let slashPaletteState: SlashPaletteState | undefined
 let pendingTaskReference: PendingTaskReference | undefined
 let linkEditorState: LinkEditorState | undefined
+let findInPageState: FindInPageState | undefined
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -272,6 +295,7 @@ window.EnchiridionEditor = {
   focus: () => view?.focus(),
   flush: flushPendingChanges,
   dismissKeyboard,
+  find: openFindInPage,
 }
 
 void notifyNative({ type: "ready", protocolVersion: PROTOCOL_VERSION }).catch(showError)
@@ -289,6 +313,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   loadGeneration = request.loadGeneration
   closeSlashPalette()
   closeLinkEditor(false)
+  closeFindInPage(false)
   view?.destroy()
   view = undefined
   handle = undefined
@@ -311,6 +336,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   const plugins = [
     binding.plugin,
     interactionPlugin(),
+    createFindInPagePlugin(),
     history(),
     inputRules({ rules: editorInputRules(binding.schema) }),
     reversibleMarkdownKeymap,
@@ -341,6 +367,10 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       if (!view) return
       if (transaction.docChanged && linkEditorState) closeLinkEditor(false)
       view.updateState(view.state.apply(transaction))
+      if (transaction.docChanged && findInPageState) {
+        findInPageState.restoreTarget = mapFindRestoreTarget(findInPageState.restoreTarget, transaction)
+        refreshFindInPage(false)
+      }
       updateMobileCommandBar()
       updateSlashPaletteFromEditor()
     },
@@ -420,9 +450,223 @@ function pageActionButton(action: EditorPageAction): HTMLButtonElement {
   return button
 }
 
+function openFindInPage(): void {
+  if (!view) return
+  if (findInPageState) {
+    closeTransientPalettesForFind()
+    findInPageState.queryInput.focus()
+    findInPageState.queryInput.select()
+    return
+  }
+
+  const restoreTarget = captureFindRestoreTarget()
+  closeTransientPalettesForFind()
+
+  const queryInput = document.createElement("input")
+  queryInput.id = "find-in-page-query"
+  queryInput.type = "search"
+  queryInput.placeholder = "Find on this page"
+  queryInput.setAttribute("aria-label", "Find on this page")
+  queryInput.setAttribute("autocomplete", "off")
+  queryInput.setAttribute("autocapitalize", "off")
+  queryInput.spellcheck = false
+
+  const counter = document.createElement("output")
+  counter.className = "find-counter"
+  counter.htmlFor = queryInput.id
+  counter.textContent = "0 of 0"
+
+  const announcement = document.createElement("span")
+  announcement.className = "visually-hidden"
+  announcement.setAttribute("role", "status")
+  announcement.setAttribute("aria-live", "polite")
+  announcement.textContent = "Enter text to find."
+
+  const previousButton = findButton("↑", "Previous match")
+  const nextButton = findButton("↓", "Next match")
+  const doneButton = findButton("Done", "Done finding")
+  doneButton.classList.add("find-done")
+
+  findInPageState = {
+    queryInput,
+    counter,
+    announcement,
+    previousButton,
+    nextButton,
+    matches: [],
+    activeIndex: -1,
+    restoreTarget,
+  }
+  findBar.replaceChildren(queryInput, counter, previousButton, nextButton, doneButton, announcement)
+  findBar.hidden = false
+  positionFindBar()
+  updateFindControls()
+
+  queryInput.addEventListener("input", () => refreshFindInPage(false, true))
+  queryInput.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeFindInPage()
+      return
+    }
+    if (event.key !== "Enter") return
+    event.preventDefault()
+    navigateFindMatch(event.shiftKey ? -1 : 1)
+  })
+  previousButton.addEventListener("click", () => navigateFindMatch(-1))
+  nextButton.addEventListener("click", () => navigateFindMatch(1))
+  doneButton.addEventListener("click", () => closeFindInPage())
+
+  window.requestAnimationFrame(() => {
+    positionFindBar()
+    queryInput.focus()
+  })
+}
+
+function findButton(label: string, ariaLabel: string): HTMLButtonElement {
+  const button = document.createElement("button")
+  button.type = "button"
+  button.textContent = label
+  button.setAttribute("aria-label", ariaLabel)
+  button.addEventListener("pointerdown", event => event.preventDefault())
+  return button
+}
+
+function captureFindRestoreTarget(): FindRestoreTarget {
+  if (document.activeElement === titleInput) {
+    return {
+      kind: "title",
+      start: titleInput.selectionStart,
+      end: titleInput.selectionEnd,
+      direction: titleInput.selectionDirection ?? "none",
+    }
+  }
+  const selection = linkEditorState?.selection ?? view!.state.selection
+  return { kind: "body", bookmark: selection.getBookmark() }
+}
+
+function closeTransientPalettesForFind(): void {
+  closeSlashPalette()
+  pageMenu.hidden = true
+  pageMenu.removeAttribute("aria-busy")
+  pageMenu.replaceChildren()
+  closeLinkEditor(false)
+  updateMobileCommandBar()
+}
+
+function refreshFindInPage(selectActive: boolean, resetActive = false): void {
+  const active = findInPageState
+  if (!active || !view) return
+  active.matches = findPageMatches(titleInput.value, view.state.doc, active.queryInput.value)
+  if (resetActive) {
+    active.activeIndex = active.matches.length > 0 ? 0 : -1
+  } else if (active.matches.length === 0) {
+    active.activeIndex = -1
+  } else {
+    active.activeIndex = Math.min(Math.max(active.activeIndex, 0), active.matches.length - 1)
+  }
+  updateFindDecorations()
+  updateFindControls()
+  if (selectActive) revealActiveFindMatch()
+}
+
+function navigateFindMatch(direction: -1 | 1): void {
+  const active = findInPageState
+  if (!active) return
+  active.activeIndex = moveFindSelection(active.activeIndex, active.matches.length, direction)
+  updateFindDecorations()
+  updateFindControls()
+  revealActiveFindMatch()
+}
+
+function updateFindDecorations(): void {
+  const active = findInPageState
+  if (!active || !view) return
+  const match = active.matches[active.activeIndex]
+  const activeBodyIndex = match?.source === "body" ? match.bodyIndex ?? -1 : -1
+  view.dispatch(findDecorationTransaction(view.state, active.queryInput.value, activeBodyIndex))
+}
+
+function updateFindControls(): void {
+  const active = findInPageState
+  if (!active) return
+  const total = active.matches.length
+  const current = active.activeIndex >= 0 ? active.activeIndex + 1 : 0
+  active.counter.textContent = `${current} of ${total}`
+  active.previousButton.disabled = total === 0
+  active.nextButton.disabled = total === 0
+  active.announcement.textContent = !active.queryInput.value
+    ? "Enter text to find."
+    : total === 0
+      ? `No matches for ${active.queryInput.value}.`
+      : `${current} of ${total} matches.`
+}
+
+function revealActiveFindMatch(): void {
+  const active = findInPageState
+  if (!active) return
+  const match = active.matches[active.activeIndex]
+  if (!match) {
+    active.queryInput.focus()
+    return
+  }
+  if (match.source === "title") {
+    titleInput.focus()
+    titleInput.setSelectionRange(match.from, match.to)
+    titleInput.scrollIntoView({ block: "nearest" })
+    return
+  }
+  active.queryInput.focus()
+  window.requestAnimationFrame(() => {
+    view?.dom.querySelector<HTMLElement>("[data-find-active='true']")
+      ?.scrollIntoView({ block: "center" })
+  })
+}
+
+function closeFindInPage(restoreFocus = true): void {
+  const active = findInPageState
+  if (!active) return
+  findInPageState = undefined
+  findBar.hidden = true
+  findBar.replaceChildren()
+  findBar.style.removeProperty("top")
+  findBar.style.removeProperty("right")
+  if (view) view.dispatch(findDecorationTransaction(view.state, "", -1))
+  if (!restoreFocus) return
+
+  if (active.restoreTarget.kind === "title") {
+    titleInput.focus()
+    titleInput.setSelectionRange(
+      active.restoreTarget.start,
+      active.restoreTarget.end,
+      active.restoreTarget.direction,
+    )
+  } else if (view) {
+    const selection = active.restoreTarget.bookmark.resolve(view.state.doc)
+    view.dispatch(view.state.tr.setSelection(selection).setMeta("addToHistory", false))
+    view.focus()
+  }
+  updateMobileCommandBar()
+}
+
+function mapFindRestoreTarget(target: FindRestoreTarget, transaction: Transaction): FindRestoreTarget {
+  if (target.kind === "title") return target
+  return { kind: "body", bookmark: target.bookmark.map(transaction.mapping) }
+}
+
+function positionFindBar(): void {
+  if (findBar.hidden) return
+  const viewport = window.visualViewport
+  const top = (viewport?.offsetTop ?? 0) + 8
+  const visibleRight = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth)
+  findBar.style.top = `${top}px`
+  findBar.style.right = `${Math.max(8, window.innerWidth - visibleRight + 8)}px`
+}
+
 titleInput.addEventListener("input", () => {
   resizeTitle()
   handle?.change(doc => A.updateText(doc, ["title"], titleInput.value))
+  if (findInPageState) refreshFindInPage(false)
 })
 
 titleInput.addEventListener("keydown", event => {
@@ -437,10 +681,28 @@ window.addEventListener("resize", () => {
   resizeTitle()
   positionSlashPalette()
   positionLinkEditor()
+  positionFindBar()
 })
 window.addEventListener("scroll", () => {
   positionSlashPalette()
   positionLinkEditor()
+  positionFindBar()
+}, true)
+window.visualViewport?.addEventListener("resize", positionFindBar)
+window.visualViewport?.addEventListener("scroll", positionFindBar)
+
+window.addEventListener("keydown", event => {
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "f") {
+    event.preventDefault()
+    event.stopPropagation()
+    openFindInPage()
+    return
+  }
+  if (event.key === "Escape" && findInPageState) {
+    event.preventDefault()
+    event.stopPropagation()
+    closeFindInPage()
+  }
 }, true)
 
 for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {

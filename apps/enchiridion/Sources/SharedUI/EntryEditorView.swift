@@ -37,11 +37,31 @@ final class EditorFlushController {
   }
 }
 
+@MainActor
+final class EditorFindController {
+  typealias Finder = @MainActor () -> Void
+
+  private var finders: [UUID: Finder] = [:]
+
+  func register(_ id: UUID, finder: @escaping Finder) {
+    finders[id] = finder
+  }
+
+  func unregister(_ id: UUID) {
+    finders[id] = nil
+  }
+
+  func openFind() {
+    Array(finders.values).first?()
+  }
+}
+
 struct PageDestinationView: View {
   let store: LibraryStore
   let pageID: PageID
   private let onOpenPage: ((PageID) -> Void)?
   @State private var flushController: EditorFlushController
+  @State private var findController: EditorFindController
 
   init(
     store: LibraryStore,
@@ -53,6 +73,7 @@ struct PageDestinationView: View {
     self.pageID = pageID
     self.onOpenPage = onOpenPage
     _flushController = State(initialValue: flushController ?? EditorFlushController())
+    _findController = State(initialValue: EditorFindController())
   }
 
   var body: some View {
@@ -69,6 +90,7 @@ struct PageDestinationView: View {
           store: store,
           page: page,
           flushController: flushController,
+          findController: findController,
           onOpenPage: onOpenPage
         )
       }
@@ -77,6 +99,7 @@ struct PageDestinationView: View {
         store: store,
         pageID: pageID,
         flushController: flushController,
+        findController: findController,
         onOpenPage: onOpenPage
       )
     }
@@ -95,6 +118,7 @@ struct EntityDetailView: View {
   let store: LibraryStore
   let page: PageSnapshot
   let flushController: EditorFlushController
+  let findController: EditorFindController
   let onOpenPage: ((PageID) -> Void)?
 
   @State private var selectedSection = EntityDetailSection.properties
@@ -146,6 +170,7 @@ struct EntityDetailView: View {
           store: store,
           pageID: page.id,
           flushController: flushController,
+          findController: findController,
           onOpenPage: onOpenPage,
           showsPropertiesAction: false,
           showsPageActions: false
@@ -156,6 +181,14 @@ struct EntityDetailView: View {
     .toolbar {
       ToolbarItem(placement: .secondaryAction) {
         Menu {
+          if selectedSection == .notes {
+            Button {
+              findController.openFind()
+            } label: {
+              Label("Find in Page", systemImage: "magnifyingglass")
+            }
+          }
+
           if page.deletedAt == nil {
             Button {
               store.togglePinned(pageID: page.id)
@@ -235,6 +268,7 @@ struct PageEditorView: View {
   private let showsPropertiesAction: Bool
   private let showsPageActions: Bool
   @State private var flushController: EditorFlushController
+  @State private var findController: EditorFindController
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
   @State private var pagePendingPermanentDeletion: PageSnapshot?
@@ -246,6 +280,7 @@ struct PageEditorView: View {
     store: LibraryStore,
     pageID: PageID,
     flushController: EditorFlushController? = nil,
+    findController: EditorFindController? = nil,
     onOpenPage: ((PageID) -> Void)? = nil,
     showsPropertiesAction: Bool = true,
     showsPageActions: Bool = true
@@ -256,6 +291,7 @@ struct PageEditorView: View {
     self.showsPropertiesAction = showsPropertiesAction
     self.showsPageActions = showsPageActions
     _flushController = State(initialValue: flushController ?? EditorFlushController())
+    _findController = State(initialValue: findController ?? EditorFindController())
   }
 
   var body: some View {
@@ -295,6 +331,7 @@ struct PageEditorView: View {
         calendarContext: store.calendarPageContext(for: pageID),
         store: store,
         flushController: flushController,
+        findController: findController,
         openPage: openPage
       )
         .navigationTitle("")
@@ -335,6 +372,12 @@ struct PageEditorView: View {
             }
 
             Menu {
+              Button {
+                findController.openFind()
+              } label: {
+                Label("Find in Page", systemImage: "magnifyingglass")
+              }
+
               PageLifecycleMenuActions(
                 store: store,
                 page: page,
@@ -415,10 +458,16 @@ private struct RichPageEditor: NSViewRepresentable {
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
   let flushController: EditorFlushController
+  let findController: EditorFindController
   let openPage: (PageID) -> Void
 
   func makeCoordinator() -> EditorBridge {
-    EditorBridge(store: store, flushController: flushController, openPage: openPage)
+    EditorBridge(
+      store: store,
+      flushController: flushController,
+      findController: findController,
+      openPage: openPage
+    )
   }
 
   func makeNSView(context: Context) -> WKWebView {
@@ -439,10 +488,16 @@ private struct RichPageEditor: UIViewRepresentable {
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
   let flushController: EditorFlushController
+  let findController: EditorFindController
   let openPage: (PageID) -> Void
 
   func makeCoordinator() -> EditorBridge {
-    EditorBridge(store: store, flushController: flushController, openPage: openPage)
+    EditorBridge(
+      store: store,
+      flushController: flushController,
+      findController: findController,
+      openPage: openPage
+    )
   }
 
   func makeUIView(context: Context) -> WKWebView {
@@ -463,8 +518,10 @@ private struct RichPageEditor: UIViewRepresentable {
 private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
   private let store: LibraryStore
   private let flushController: EditorFlushController
+  private let findController: EditorFindController
   private let openPageHandler: (PageID) -> Void
   private let flushRegistrationID = UUID()
+  private let findRegistrationID = UUID()
   private weak var webView: WKWebView?
   private var page: PageSnapshot?
   private var calendarContext: CalendarPageContext?
@@ -476,10 +533,12 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
   init(
     store: LibraryStore,
     flushController: EditorFlushController,
+    findController: EditorFindController,
     openPage: @escaping (PageID) -> Void
   ) {
     self.store = store
     self.flushController = flushController
+    self.findController = findController
     openPageHandler = openPage
   }
 
@@ -497,6 +556,10 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     flushController.register(flushRegistrationID) { [weak self] in
       guard let self else { return true }
       return await self.flush()
+    }
+    findController.register(findRegistrationID) { [weak self, weak webView] in
+      guard let self, let webView else { return }
+      self.openFind(in: webView)
     }
     webView.navigationDelegate = self
     #if os(macOS)
@@ -534,6 +597,7 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
 
   private func stop() {
     flushController.unregister(flushRegistrationID)
+    findController.unregister(findRegistrationID)
     #if !os(macOS)
     NotificationCenter.default.removeObserver(
       self,
@@ -574,6 +638,10 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
       print("[Enchiridion editor] flush failed: \(error)")
       return false
     }
+  }
+
+  private func openFind(in webView: WKWebView) {
+    webView.evaluateJavaScript("window.EnchiridionEditor?.find()")
   }
 
   private func loadEditor(in webView: WKWebView) {

@@ -119,4 +119,16 @@ describe("packaged editor", () => {
     expect(html).not.toContain("cursor:grab");
     expect(html).not.toContain("⠿");
   });
+
+  test("packages accessible, non-mutating find in page", () => {
+    expect(html.match(/id="find-bar"/g)).toHaveLength(1);
+    expect(html).toContain("Find on this page");
+    expect(html).toContain("Previous match");
+    expect(html).toContain("Next match");
+    expect(html).toContain("Done finding");
+    expect(html).toContain("data-find-active");
+    expect(html).toContain("addToHistory");
+    expect(html).toContain("No matches for");
+    expect(html).not.toContain("window.find");
+  });
 });
