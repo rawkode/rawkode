@@ -160,6 +160,13 @@ public protocol AssistantConversationSpeaking: Sendable {
   func stop() async
 }
 
+/// Owns the process audio session for one complete voice conversation.
+/// Capture and speech adapters deliberately do not configure audio routing.
+public protocol AssistantConversationAudioSessionControlling: Sendable {
+  func activate() async throws
+  func deactivate() async
+}
+
 public enum AssistantConversationFailureKind: String, Equatable, Sendable {
   case transcription
   case speaking
@@ -493,6 +500,11 @@ public enum AssistantSpokenResponseFormatter {
 @MainActor
 @Observable
 public final class AssistantConversationSession {
+  private struct AudioSessionActivation {
+    var id: UUID
+    var task: Task<Void, any Error>
+  }
+
   public nonisolated static let defaultMaximumContextTurns = 4
 
   public private(set) var state: AssistantConversationState = .idle
@@ -517,6 +529,8 @@ public final class AssistantConversationSession {
   @ObservationIgnored private let transcriber: (any AssistantConversationTranscribing)?
   @ObservationIgnored private let answerer: any AssistantConversationAnswering
   @ObservationIgnored private let speaker: (any AssistantConversationSpeaking)?
+  @ObservationIgnored private let audioSessionController:
+    (any AssistantConversationAudioSessionControlling)?
   @ObservationIgnored private let maximumContextTurns: Int
   @ObservationIgnored private let interTurnDelay: Duration
   @ObservationIgnored private let locale: Locale
@@ -527,11 +541,14 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var isStopping = false
   @ObservationIgnored private var voiceStartAttemptID: UUID?
   @ObservationIgnored private var voiceInputGeneration: UInt64 = 0
+  @ObservationIgnored private var audioSessionActivation: AudioSessionActivation?
+  @ObservationIgnored private var ownsAudioSession = false
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
     answerer: any AssistantConversationAnswering,
     speaker: (any AssistantConversationSpeaking)? = nil,
+    audioSessionController: (any AssistantConversationAudioSessionControlling)? = nil,
     speaksResponses: Bool = false,
     maximumContextTurns: Int = AssistantConversationSession.defaultMaximumContextTurns,
     interTurnDelay: Duration = .milliseconds(500),
@@ -542,6 +559,7 @@ public final class AssistantConversationSession {
     self.transcriber = transcriber
     self.answerer = answerer
     self.speaker = speaker
+    self.audioSessionController = audioSessionController
     self.speaksResponses = speaksResponses
     self.maximumContextTurns = maximumContextTurns
     self.interTurnDelay = interTurnDelay
@@ -555,6 +573,16 @@ public final class AssistantConversationSession {
 
   deinit {
     operation?.cancel()
+    audioSessionActivation?.task.cancel()
+    guard let audioSessionController else { return }
+    if let audioSessionActivation {
+      Task {
+        guard (try? await audioSessionActivation.task.value) != nil else { return }
+        await audioSessionController.deactivate()
+      }
+    } else if ownsAudioSession {
+      Task { await audioSessionController.deactivate() }
+    }
   }
 
   /// Sends typed text through the grounded assistant regardless of voice state.
@@ -569,7 +597,7 @@ public final class AssistantConversationSession {
     state = .thinking
     let task = Task { [weak self] in
       await self?.answer(utterance, generation: currentGeneration)
-      self?.finishOperation(generation: currentGeneration)
+      await self?.finishOperation(generation: currentGeneration)
     }
     operation = task
     await task.value
@@ -607,6 +635,36 @@ public final class AssistantConversationSession {
       operation == nil, !isStopping
     else { return }
 
+    if let audioSessionController {
+      let activationID = UUID()
+      let activationTask = Task { try await audioSessionController.activate() }
+      audioSessionActivation = AudioSessionActivation(id: activationID, task: activationTask)
+      do {
+        try await activationTask.value
+      } catch {
+        guard audioSessionActivation?.id == activationID else { return }
+        audioSessionActivation = nil
+        guard !Task.isCancelled, voiceStartAttemptID == startAttemptID,
+          generation == preflightGeneration, !isStopping
+        else { return }
+        voiceAvailability = .unavailable(error.localizedDescription)
+        state = .error(
+          AssistantConversationFailure(kind: .unavailable, message: error.localizedDescription)
+        )
+        return
+      }
+
+      guard audioSessionActivation?.id == activationID else { return }
+      audioSessionActivation = nil
+      guard !Task.isCancelled, voiceStartAttemptID == startAttemptID,
+        generation == preflightGeneration, operation == nil, !isStopping
+      else {
+        await audioSessionController.deactivate()
+        return
+      }
+      ownsAudioSession = true
+    }
+
     generation &+= 1
     let currentGeneration = generation
     resetVoiceInput()
@@ -618,7 +676,7 @@ public final class AssistantConversationSession {
       : .listening
     operation = Task { [weak self] in
       await self?.runVoice(generation: currentGeneration, greeting: spokenGreeting)
-      self?.finishOperation(generation: currentGeneration)
+      await self?.finishOperation(generation: currentGeneration)
     }
   }
 
@@ -681,6 +739,8 @@ public final class AssistantConversationSession {
     let stopGeneration = generation
     isStopping = true
     finishVoiceOperationIfNeeded()
+    let pendingAudioSessionActivation = audioSessionActivation
+    pendingAudioSessionActivation?.task.cancel()
     let activeOperation = operation
     operation = nil
     activeOperation?.cancel()
@@ -690,6 +750,14 @@ public final class AssistantConversationSession {
     await transcriber?.stop()
     await speaker?.stop()
     await activeOperation?.value
+    if let pendingAudioSessionActivation {
+      let didActivate = (try? await pendingAudioSessionActivation.task.value) != nil
+      if audioSessionActivation?.id == pendingAudioSessionActivation.id {
+        audioSessionActivation = nil
+        if didActivate { await audioSessionController?.deactivate() }
+      }
+    }
+    await releaseAudioSessionIfNeeded()
     if !preservingTurns { await answerer.resetConversation() }
 
     guard generation == stopGeneration else { return }
@@ -815,11 +883,18 @@ public final class AssistantConversationSession {
     return true
   }
 
-  private func finishOperation(generation candidate: UInt64) {
+  private func finishOperation(generation candidate: UInt64) async {
     guard candidate == generation else { return }
     operation = nil
     finishVoiceOperationIfNeeded()
+    await releaseAudioSessionIfNeeded()
     if state == .thinking || state == .speaking || state == .listening { state = .idle }
+  }
+
+  private func releaseAudioSessionIfNeeded() async {
+    guard ownsAudioSession else { return }
+    ownsAudioSession = false
+    await audioSessionController?.deactivate()
   }
 
   private func finishVoiceOperationIfNeeded() {

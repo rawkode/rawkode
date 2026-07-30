@@ -50,14 +50,9 @@ enum OnDeviceSpeechError: Error, LocalizedError {
 
 @available(iOS 26.0, macOS 26.0, *)
 actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
-  private let managesIOSAudioSession: Bool
   private var activeSource: MicrophoneAnalyzerInputSource?
   private var activeAnalyzer: SpeechAnalyzer?
   private var activeResultTask: Task<Void, any Error>?
-
-  init(managesIOSAudioSession: Bool = true) {
-    self.managesIOSAudioSession = managesIOSAudioSession
-  }
 
   func availability() async -> AssistantVoiceAvailability {
     await availability(locale: .current)
@@ -253,45 +248,27 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       throw OnDeviceSpeechError.noAudioInput
     }
 
-    do {
-      #if os(iOS)
-        if managesIOSAudioSession {
-          try await HandheldConversationAudioSession.activate()
-          try Task.checkCancellation()
-        }
-      #endif
-      let outcome: AssistantTranscriptionOutcome
-      switch selectedModule {
-      case .speech(let transcriber):
-        outcome = try await capture(
-          with: transcriber,
-          format: format,
-          reportingProgress: reportingProgress,
-          firstHypothesisTimeout: firstHypothesisTimeout,
-          maximumDuration: maximumDuration,
-          stabilityDuration: stabilityDuration,
-          text: { String($0.text.characters) }
-        )
-      case .dictation(let transcriber):
-        outcome = try await capture(
-          with: transcriber,
-          format: format,
-          reportingProgress: reportingProgress,
-          firstHypothesisTimeout: firstHypothesisTimeout,
-          maximumDuration: maximumDuration,
-          stabilityDuration: stabilityDuration,
-          text: { String($0.text.characters) }
-        )
-      }
-      #if os(iOS)
-        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
-      #endif
-      return outcome
-    } catch {
-      #if os(iOS)
-        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
-      #endif
-      throw error
+    switch selectedModule {
+    case .speech(let transcriber):
+      return try await capture(
+        with: transcriber,
+        format: format,
+        reportingProgress: reportingProgress,
+        firstHypothesisTimeout: firstHypothesisTimeout,
+        maximumDuration: maximumDuration,
+        stabilityDuration: stabilityDuration,
+        text: { String($0.text.characters) }
+      )
+    case .dictation(let transcriber):
+      return try await capture(
+        with: transcriber,
+        format: format,
+        reportingProgress: reportingProgress,
+        firstHypothesisTimeout: firstHypothesisTimeout,
+        maximumDuration: maximumDuration,
+        stabilityDuration: stabilityDuration,
+        text: { String($0.text.characters) }
+      )
     }
   }
 
@@ -357,12 +334,7 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   }
 
   func stop() async {
-    guard let source = activeSource else {
-      #if os(iOS)
-        if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
-      #endif
-      return
-    }
+    guard let source = activeSource else { return }
     let analyzer = activeAnalyzer
     let resultTask = activeResultTask
     source.stop()
@@ -370,9 +342,6 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     if let analyzer { await analyzer.cancelAndFinishNow() }
     if let resultTask { _ = try? await resultTask.value }
     clearCaptureIfCurrent(source)
-    #if os(iOS)
-      if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
-    #endif
   }
 
   private func stopCapture(
@@ -527,29 +496,6 @@ private enum SelectedSpeechModule: Sendable {
     }
   }
 }
-
-#if os(iOS)
-  @available(iOS 26.0, *)
-  @MainActor
-  private enum HandheldConversationAudioSession {
-    static func activate() throws {
-      let session = AVAudioSession.sharedInstance()
-      try session.setCategory(
-        .playAndRecord,
-        mode: .default,
-        options: [.defaultToSpeaker, .allowBluetoothHFP]
-      )
-      try session.setActive(true)
-    }
-
-    static func deactivate() {
-      try? AVAudioSession.sharedInstance().setActive(
-        false,
-        options: .notifyOthersOnDeactivation
-      )
-    }
-  }
-#endif
 
 @available(iOS 26.0, macOS 26.0, *)
 private actor TranscriptionActivity {

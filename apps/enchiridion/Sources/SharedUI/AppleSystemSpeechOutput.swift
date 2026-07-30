@@ -26,7 +26,6 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   private let locale: Locale
   private let voicePreferences: AssistantVoicePreferences
   private let synthesizer: AVSpeechSynthesizer
-  private let managesIOSAudioSession: Bool
   private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
     category: "AssistantSpeechOutput"
@@ -38,13 +37,11 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   init(
     voicePreferences: AssistantVoicePreferences,
     locale: Locale = .current,
-    synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer(),
-    managesIOSAudioSession: Bool = true
+    synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
   ) {
     self.voicePreferences = voicePreferences
     self.locale = locale
     self.synthesizer = synthesizer
-    self.managesIOSAudioSession = managesIOSAudioSession
     super.init()
     synthesizer.delegate = self
     #if os(iOS)
@@ -62,10 +59,6 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     guard let voice = selectedVoice(for: locale) else {
       throw AppleSystemSpeechOutputError.voiceUnavailable(language)
     }
-
-    #if os(iOS)
-      if managesIOSAudioSession { try AssistantSpeechAudioSession.activate() }
-    #endif
 
     logSelection(voice)
 
@@ -225,14 +218,7 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     let pendingContinuation = continuation
     continuation = nil
     continuationBatchID = nil
-    finishAudioSession()
     pendingContinuation?.resume(with: result)
-  }
-
-  private func finishAudioSession() {
-    #if os(iOS)
-      if managesIOSAudioSession { AssistantSpeechAudioSession.deactivate() }
-    #endif
   }
 }
 
@@ -255,25 +241,3 @@ extension AppleSystemSpeechOutput: @preconcurrency AVSpeechSynthesizerDelegate {
     cancelCurrentSpeech()
   }
 }
-
-#if os(iOS)
-  @MainActor
-  private enum AssistantSpeechAudioSession {
-    static func activate() throws {
-      let session = AVAudioSession.sharedInstance()
-      try session.setCategory(
-        .playAndRecord,
-        mode: .default,
-        options: [.defaultToSpeaker, .allowBluetoothHFP]
-      )
-      try session.setActive(true)
-    }
-
-    static func deactivate() {
-      try? AVAudioSession.sharedInstance().setActive(
-        false,
-        options: .notifyOthersOnDeactivation
-      )
-    }
-  }
-#endif
