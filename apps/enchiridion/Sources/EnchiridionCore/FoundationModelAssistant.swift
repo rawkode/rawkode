@@ -103,36 +103,15 @@ public actor FoundationModelAssistant {
           options: GenerationOptions(temperature: 0.4, maximumResponseTokens: 320)
         )
         let collected = await collector.snapshot()
-        if collected.didUseTools || result.content.usesLocalSources {
-          guard !collected.facts.isEmpty else {
-            return GroundedAssistantResponse(
-              answer: collected.trustedEmptyAnswer ?? AssistantGroundingPolicy.noResults().answer,
-              status: .noResults
-            )
-          }
-          do {
-            return try AssistantGroundingPolicy.groundedResponse(
-              selectedFactIDs: result.content.factIDs,
-              availableFacts: collected.facts,
-              availableSources: collected.sources,
-              ambiguousTitles: collected.ambiguousTitles
-            )
-          } catch {
-            // The repository facts are already trusted and ordered. A malformed
-            // model-selected ID must not turn a valid local answer into an error.
-            return (try? AssistantGroundingPolicy.groundedResponseUsingTrustedFacts(
-              availableFacts: collected.facts,
-              availableSources: collected.sources,
-              ambiguousTitles: collected.ambiguousTitles
-            )) ?? GroundedAssistantResponse(
-              answer: "I couldn't read that local result just now.",
-              status: .noResults
-            )
-          }
-        }
-        return GroundedAssistantResponse(
-          answer: Self.boundedAnswer(result.content.answer),
-          status: .answered
+        return Self.resolveModelTurn(
+          answer: result.content.answer,
+          usesLocalSources: result.content.usesLocalSources,
+          selectedFactIDs: result.content.factIDs,
+          availableFacts: collected.facts,
+          availableSources: collected.sources,
+          ambiguousTitles: collected.ambiguousTitles,
+          didUseTools: collected.didUseTools,
+          trustedEmptyAnswer: collected.trustedEmptyAnswer
         )
       } catch {
         return GroundedAssistantResponse(
@@ -158,6 +137,51 @@ public actor FoundationModelAssistant {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "How can I help?" }
     return String(trimmed.prefix(1_200))
+  }
+
+  nonisolated static func resolveModelTurn(
+    answer: String,
+    usesLocalSources: Bool,
+    selectedFactIDs: [String],
+    availableFacts: [AssistantEvidenceFact],
+    availableSources: [AssistantSource],
+    ambiguousTitles: [String] = [],
+    didUseTools: Bool,
+    trustedEmptyAnswer: String? = nil
+  ) -> GroundedAssistantResponse {
+    // Provenance is observed at the collector boundary. Model-authored routing
+    // metadata cannot turn a conversational response into a local-data result.
+    _ = usesLocalSources
+    guard didUseTools else {
+      return GroundedAssistantResponse(answer: boundedAnswer(answer), status: .answered)
+    }
+
+    guard !availableFacts.isEmpty else {
+      return GroundedAssistantResponse(
+        answer: trustedEmptyAnswer ?? AssistantGroundingPolicy.noResults().answer,
+        status: .noResults
+      )
+    }
+
+    do {
+      return try AssistantGroundingPolicy.groundedResponse(
+        selectedFactIDs: selectedFactIDs,
+        availableFacts: availableFacts,
+        availableSources: availableSources,
+        ambiguousTitles: ambiguousTitles
+      )
+    } catch {
+      // The repository facts are already trusted and ordered. A malformed
+      // model-selected ID must not turn a valid local answer into an error.
+      return (try? AssistantGroundingPolicy.groundedResponseUsingTrustedFacts(
+        availableFacts: availableFacts,
+        availableSources: availableSources,
+        ambiguousTitles: ambiguousTitles
+      )) ?? GroundedAssistantResponse(
+        answer: "I couldn't read that local result just now.",
+        status: .noResults
+      )
+    }
   }
 
   /// A deliberately narrow reliability route for explicit task-list requests.
