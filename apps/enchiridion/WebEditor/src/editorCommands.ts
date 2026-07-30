@@ -19,6 +19,33 @@ export type PaletteGeometry = {
 
 export type CaretGeometry = Pick<PaletteGeometry, "left" | "top"> & { bottom: number }
 
+export type SupertagIdentity = {
+  id: string
+  name: string
+}
+
+export type SelectedTextTaskPlan<T extends SupertagIdentity> = {
+  title: string | undefined
+  createLabel: string | undefined
+  linkLabel: "Link existing task…"
+  taskTag: T | undefined
+  genericSupertags: T[]
+}
+
+export function selectedTextTaskPlan<T extends SupertagIdentity>(
+  selectedText: string,
+  supertags: readonly T[],
+): SelectedTextTaskPlan<T> {
+  const title = selectedText.trim() || undefined
+  return {
+    title,
+    createLabel: title ? `Create task “${title}”` : undefined,
+    linkLabel: "Link existing task…",
+    taskTag: supertags.find(tag => tag.id === "task"),
+    genericSupertags: supertags.filter(tag => tag.id !== "task"),
+  }
+}
+
 export function filterCommands<T extends SearchableCommand>(commands: readonly T[], query: string): T[] {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   if (terms.length === 0) return [...commands]

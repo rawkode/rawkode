@@ -31,6 +31,11 @@ describe("packaged editor", () => {
     expect(html).toContain('id="supertag-command"');
     expect(html).toContain("Find a page");
     expect(html).toContain("New page");
+    expect(html).toMatch(/Create task (?:“|\\u201C)/);
+    expect(html).toMatch(/Link existing task(?:…|\\u2026)/);
+    expect(html).toContain("Task created in Inbox, but the link was not added.");
+    expect(html).toContain("Retry task link");
+    expect(html).toContain("min-height:2.75rem");
   });
 
   test("packages one unified editor command bar", () => {

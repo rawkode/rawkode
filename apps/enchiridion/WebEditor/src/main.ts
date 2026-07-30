@@ -17,6 +17,7 @@ import {
   moveBelowCodeBlock,
   placePalette,
   persistSelectedMark,
+  selectedTextTaskPlan,
   showsEditorCommandBar,
   slashCommandQuery,
   type SearchableCommand,
@@ -60,7 +61,7 @@ type ReferenceSuggestion = PageSuggestion | DateSuggestion
 type SupertagSuggestion = { id: string; name: string; symbol?: string }
 type PageReferenceTarget =
   | { kind: "insert"; position: number; trigger?: "[[" | "@" }
-  | { kind: "selection"; from: number; to: number; query: string }
+  | { kind: "selection"; from: number; to: number; query: string; selectedText: string }
 type CommitReply = { ok: boolean; journalID?: string; message?: string }
 type MetadataReply = { ok: boolean; title?: string; summary?: string; imageURL?: string }
 type PaletteItem = SearchableCommand & { action: () => void }
@@ -72,6 +73,11 @@ type SlashPaletteState = {
   visibleItems: PaletteItem[]
   activeIndex: number
   query?: string
+}
+type PendingTaskReference = {
+  sourcePageID: string
+  target: Extract<PageReferenceTarget, { kind: "selection" }>
+  task: PageSuggestion
 }
 
 declare global {
@@ -110,6 +116,7 @@ let commitTimer: number | undefined
 let recoveredJournalIDs: string[] = []
 let reportedEditorFocus = false
 let slashPaletteState: SlashPaletteState | undefined
+let pendingTaskReference: PendingTaskReference | undefined
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -255,6 +262,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   loading = true
   setStatus("Opening…")
   pageID = request.pageID
+  if (pendingTaskReference?.sourcePageID !== pageID) pendingTaskReference = undefined
   loadGeneration = request.loadGeneration
   closeSlashPalette()
   view?.destroy()
@@ -406,6 +414,14 @@ for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>
   commandButton.addEventListener("click", () => runMobileCommand(commandButton.dataset.command ?? ""))
 }
 
+pageMenu.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return
+  event.preventDefault()
+  pageMenu.hidden = true
+  view?.focus()
+  updateMobileCommandBar()
+})
+
 function runMobileCommand(command: string): void {
   if (!view) return
   switch (command) {
@@ -417,15 +433,27 @@ function runMobileCommand(command: string): void {
       void showPageMenu(view, { kind: "insert", position: view.state.selection.from })
     } else {
       const { from, to } = view.state.selection
-      const query = view.state.doc.textBetween(from, to, " ").trim()
-      void showPageMenu(view, { kind: "selection", from, to, query })
+      const selectedText = view.state.doc.textBetween(from, to, " ")
+      void showPageMenu(view, {
+        kind: "selection",
+        from,
+        to,
+        query: selectedText.trim(),
+        selectedText,
+      })
     }
     break
   case "supertag": {
     if (view.state.selection.empty) break
     const { from, to } = view.state.selection
-    const query = view.state.doc.textBetween(from, to, " ").trim()
-    void showSupertagMenu(view, { kind: "selection", from, to, query })
+    const selectedText = view.state.doc.textBetween(from, to, " ")
+    void showSupertagMenu(view, {
+      kind: "selection",
+      from,
+      to,
+      query: selectedText.trim(),
+      selectedText,
+    })
     break
   }
   case "bold":
@@ -673,8 +701,14 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
       void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
     } else {
       const { from, to } = editorView.state.selection
-      const query = editorView.state.doc.textBetween(from, to, " ").trim()
-      void showPageMenu(editorView, { kind: "selection", from, to, query })
+      const selectedText = editorView.state.doc.textBetween(from, to, " ")
+      void showPageMenu(editorView, {
+        kind: "selection",
+        from,
+        to,
+        query: selectedText.trim(),
+        selectedText,
+      })
     }
   }
   const applyMark = (mark: MarkType) => () => {
@@ -725,8 +759,14 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
           detail: "Find or create a typed page",
           action: () => {
             const { from, to } = editorView.state.selection
-            const query = editorView.state.doc.textBetween(from, to, " ").trim()
-            void showSupertagMenu(editorView, { kind: "selection", from, to, query })
+            const selectedText = editorView.state.doc.textBetween(from, to, " ")
+            void showSupertagMenu(editorView, {
+              kind: "selection",
+              from,
+              to,
+              query: selectedText.trim(),
+              selectedText,
+            })
           },
         }, {
           label: "Link",
@@ -800,26 +840,64 @@ async function showPageMenu(editorView: EditorView, target: PageReferenceTarget)
 }
 
 async function showSupertagMenu(editorView: EditorView, target: Extract<PageReferenceTarget, { kind: "selection" }>): Promise<void> {
+  setPageMenuBusy(false)
   pageMenu.hidden = false
   pageMenu.replaceChildren()
   const heading = document.createElement("div")
   heading.className = "palette-heading"
-  heading.textContent = `Tag “${target.query}” as…`
+  heading.textContent = "Use selected text"
   const results = document.createElement("div")
   pageMenu.append(heading, results)
-  const reply = await notifyNative({ type: "listSupertags" }) as { supertags?: SupertagSuggestion[] }
-  renderPalette(results, (reply.supertags ?? []).map(tag => ({
-    label: `#${tag.name}`,
-    detail: "Find or create a typed page",
-    action: () => { void showTaggedPageMenu(editorView, target, tag) },
-  })), false)
+  try {
+    const reply = await notifyNative({ type: "listSupertags" }) as { supertags?: SupertagSuggestion[] }
+    const plan = selectedTextTaskPlan(target.selectedText, reply.supertags ?? [])
+    const pending = pendingTaskFor(target)
+    const taskItems: PaletteItem[] = []
+    if (pending) {
+      taskItems.push({
+        label: "Retry task link",
+        detail: `Task “${pending.task.title}” already exists in Inbox`,
+        action: () => retryPendingTaskLink(editorView, pending),
+      })
+    } else if (plan.taskTag && plan.title && plan.createLabel) {
+      taskItems.push({
+        label: plan.createLabel,
+        detail: "Create an active task in Inbox and link this text",
+        action: () => { void createAndInsertTaggedPage(editorView, target, plan.title!, plan.taskTag!) },
+      })
+    }
+    if (plan.taskTag) {
+      taskItems.push({
+        label: plan.linkLabel,
+        detail: "Choose a Task page without changing the selected text",
+        action: () => { void showTaggedPageMenu(editorView, target, plan.taskTag!, false) },
+      })
+    }
+    const groups: PaletteGroup[] = [
+      { label: "Task", items: taskItems },
+      {
+        label: "Supertags",
+        items: plan.genericSupertags.map(tag => ({
+          label: `#${tag.name}`,
+          detail: "Find or create a typed page",
+          action: () => { void showTaggedPageMenu(editorView, target, tag) },
+        })),
+      },
+    ].filter(group => group.items.length > 0)
+    renderPageMenuGroups(results, groups)
+    focusFirstPageMenuControl()
+  } catch (error) {
+    showError(error)
+  }
 }
 
 async function showTaggedPageMenu(
   editorView: EditorView,
   target: Extract<PageReferenceTarget, { kind: "selection" }>,
   tag: SupertagSuggestion,
+  allowsCreation = true,
 ): Promise<void> {
+  setPageMenuBusy(false)
   pageMenu.replaceChildren()
   const input = document.createElement("input")
   input.placeholder = `Find a ${tag.name.toLowerCase()}…`
@@ -837,17 +915,29 @@ async function showTaggedPageMenu(
     const choices = suggestions.map(suggestion => ({
       label: suggestion.title || "Untitled",
       detail: `Existing #${tag.name}`,
-      action: () => insertPageReference(editorView, target, suggestion),
+      action: () => {
+        if (!insertPageReference(editorView, target, suggestion)) {
+          setStatus(`Could not link the selected text to #${tag.name}. Reselect it and try again.`)
+        }
+      },
     }))
     const title = input.value.trim()
     const exactMatch = suggestions.some(suggestion =>
       suggestion.title.localeCompare(title, undefined, { sensitivity: "accent" }) === 0)
-    if (title && !exactMatch) choices.unshift({
+    if (allowsCreation && title && !exactMatch) choices.unshift({
       label: `Create “${title}” as #${tag.name}`,
       detail: "New typed page",
       action: () => { void createAndInsertTaggedPage(editorView, target, title, tag) },
     })
-    renderPalette(results, choices, false)
+    if (choices.length === 0) {
+      const empty = document.createElement("div")
+      empty.className = "palette-empty"
+      empty.setAttribute("role", "status")
+      empty.textContent = tag.id === "task" ? "No matching tasks" : `No matching #${tag.name} pages`
+      results.replaceChildren(empty)
+    } else {
+      renderPalette(results, choices, false)
+    }
   }
   input.addEventListener("input", () => void update())
   input.addEventListener("keydown", event => {
@@ -866,17 +956,93 @@ async function createAndInsertTaggedPage(
   title: string,
   tag: SupertagSuggestion,
 ): Promise<void> {
-  const reply = await notifyNative({ type: "createTaggedPage", title, supertagID: tag.id }) as {
-    ok?: boolean
-    pageID?: string
-    title?: string
-    message?: string
-  }
-  if (!reply.ok || !reply.pageID) {
-    setStatus(reply.message ?? `Could not create #${tag.name}`)
+  const normalizedTitle = title.trim()
+  if (!normalizedTitle) {
+    setStatus(tag.id === "task"
+      ? "Select text with a title before creating a task."
+      : `Select text with a title before creating #${tag.name}.`)
     return
   }
-  insertPageReference(editorView, target, { pageID: reply.pageID, title: reply.title ?? title })
+  setPageMenuBusy(true)
+  setStatus(tag.id === "task" ? "Creating task in Inbox…" : `Creating #${tag.name} page…`)
+  let reply: { ok?: boolean; pageID?: string; title?: string; message?: string }
+  try {
+    reply = await notifyNative({
+      type: "createTaggedPage",
+      title: normalizedTitle,
+      supertagID: tag.id,
+    }) as typeof reply
+  } catch (error) {
+    setPageMenuBusy(false)
+    setStatus(creationFailureMessage(tag, error))
+    return
+  }
+  setPageMenuBusy(false)
+  if (!reply.ok || !reply.pageID) {
+    setStatus(creationFailureMessage(tag, reply.message))
+    return
+  }
+  const created = { pageID: reply.pageID, title: reply.title ?? normalizedTitle }
+  if (insertPageReference(editorView, target, created)) {
+    if (pendingTaskReference?.task.pageID === created.pageID) pendingTaskReference = undefined
+    return
+  }
+  if (tag.id === "task") {
+    pendingTaskReference = { sourcePageID: pageID, target, task: created }
+    showPendingTaskLink(editorView, pendingTaskReference)
+    return
+  }
+  setStatus(`#${tag.name} page created, but the link was not added.`)
+}
+
+function creationFailureMessage(tag: SupertagSuggestion, error: unknown): string {
+  const detail = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+  if (tag.id === "task") {
+    const message = "Could not create the task in Inbox."
+    return detail && detail !== "Could not create the tagged page" ? `${message} ${detail}` : message
+  }
+  return detail || `Could not create #${tag.name}.`
+}
+
+function pendingTaskFor(
+  target: Extract<PageReferenceTarget, { kind: "selection" }>,
+): PendingTaskReference | undefined {
+  const pending = pendingTaskReference
+  if (!pending || pending.sourcePageID !== pageID) return undefined
+  return pending.target.from === target.from
+    && pending.target.to === target.to
+    && pending.target.selectedText === target.selectedText
+    ? pending
+    : undefined
+}
+
+function showPendingTaskLink(editorView: EditorView, pending: PendingTaskReference): void {
+  const heading = document.createElement("div")
+  heading.className = "palette-heading"
+  heading.textContent = "Task link needs attention"
+  const message = document.createElement("div")
+  message.className = "palette-empty"
+  message.setAttribute("role", "status")
+  message.textContent = "Task created in Inbox, but the link was not added."
+  const actions = document.createElement("div")
+  renderPalette(actions, [{
+    label: "Retry task link",
+    detail: `Use the existing Inbox task “${pending.task.title}”`,
+    action: () => retryPendingTaskLink(editorView, pending),
+  }], false)
+  pageMenu.replaceChildren(heading, message, actions)
+  pageMenu.hidden = false
+  setStatus(message.textContent)
+  focusFirstPageMenuControl()
+}
+
+function retryPendingTaskLink(editorView: EditorView, pending: PendingTaskReference): void {
+  if (insertPageReference(editorView, pending.target, pending.task)) {
+    if (pendingTaskReference?.task.pageID === pending.task.pageID) pendingTaskReference = undefined
+    return
+  }
+  pendingTaskReference = pending
+  showPendingTaskLink(editorView, pending)
 }
 
 async function createAndInsertPageReference(
@@ -900,12 +1066,15 @@ async function createAndInsertPageReference(
   })
 }
 
-function insertPageReference(editorView: EditorView, target: PageReferenceTarget, suggestion: PageSuggestion): void {
+function insertPageReference(editorView: EditorView, target: PageReferenceTarget, suggestion: PageSuggestion): boolean {
   const state = editorView.state
   const mark = state.schema.marks.page_reference!.create({ pageID: suggestion.pageID, label: suggestion.title })
   if (target.kind === "selection") {
-    if (!handle) return
-    persistSelectedMark(
+    if (!handle) return false
+    if (target.from === target.to || target.from < 0 || target.to > state.doc.content.size) return false
+    const currentText = state.doc.textBetween(target.from, target.to, " ")
+    if (currentText !== target.selectedText) return false
+    const marked = persistSelectedMark(
       handle,
       ["body"],
       schemaAdapter,
@@ -914,6 +1083,7 @@ function insertPageReference(editorView: EditorView, target: PageReferenceTarget
       mark.attrs,
       { from: target.from, to: target.to },
     )
+    if (!marked) return false
   } else {
     const triggerLength = target.trigger?.length ?? 0
     const candidateFrom = Math.max(0, target.position - triggerLength)
@@ -923,6 +1093,7 @@ function insertPageReference(editorView: EditorView, target: PageReferenceTarget
   }
   pageMenu.hidden = true
   editorView.focus()
+  return true
 }
 
 async function resolveAndInsertDateReference(
@@ -1202,6 +1373,37 @@ function embedNode(block: string, tag: string, attributes: string[]): MappedNode
 function parseJSONAttributes(value: unknown, fallback: Record<string, unknown>): Record<string, unknown> {
   if (typeof value !== "string") return fallback
   try { return { ...fallback, ...JSON.parse(value) } } catch { return fallback }
+}
+
+function renderPageMenuGroups(container: HTMLElement, groups: PaletteGroup[]): void {
+  const sections = groups.map((group, groupIndex) => {
+    const section = document.createElement("section")
+    section.className = "palette-group"
+    section.setAttribute("role", "group")
+    const heading = document.createElement("div")
+    heading.className = "palette-group-label"
+    heading.id = `selected-text-group-${groupIndex}`
+    heading.textContent = group.label
+    section.setAttribute("aria-labelledby", heading.id)
+    const items = document.createElement("div")
+    renderPalette(items, group.items, false)
+    section.append(heading, items)
+    return section
+  })
+  container.replaceChildren(...sections)
+}
+
+function focusFirstPageMenuControl(): void {
+  window.requestAnimationFrame(() => {
+    pageMenu.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled])")?.focus()
+  })
+}
+
+function setPageMenuBusy(isBusy: boolean): void {
+  if (isBusy) pageMenu.setAttribute("aria-busy", "true")
+  else pageMenu.removeAttribute("aria-busy")
+  pageMenu.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
+    .forEach(control => { control.disabled = isBusy })
 }
 
 function renderPalette(container: HTMLElement, items: PaletteItem[], reveal = true): void {

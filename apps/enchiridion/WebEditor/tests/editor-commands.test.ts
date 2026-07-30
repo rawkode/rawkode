@@ -11,6 +11,7 @@ import {
   moveBelowCodeBlock,
   placePalette,
   persistSelectedMark,
+  selectedTextTaskPlan,
   showsEditorCommandBar,
   slashCommandQuery,
 } from "../src/editorCommands"
@@ -89,6 +90,28 @@ describe("slash command palette", () => {
 })
 
 describe("selected text supertags", () => {
+  test("puts explicit task actions before generic supertags", () => {
+    const task = { id: "task", name: "Task" }
+    const person = { id: "person", name: "Person" }
+    const project = { id: "project", name: "Project" }
+
+    const plan = selectedTextTaskPlan("  Book dentist\n", [person, task, project])
+
+    expect(plan.title).toBe("Book dentist")
+    expect(plan.createLabel).toBe("Create task “Book dentist”")
+    expect(plan.linkLabel).toBe("Link existing task…")
+    expect(plan.taskTag).toBe(task)
+    expect(plan.genericSupertags).toEqual([person, project])
+  })
+
+  test("never offers task creation for whitespace-only text", () => {
+    const plan = selectedTextTaskPlan(" \n\t ", [{ id: "task", name: "Task" }])
+
+    expect(plan.title).toBeUndefined()
+    expect(plan.createLabel).toBeUndefined()
+    expect(plan.linkLabel).toBe("Link existing task…")
+  })
+
   test("marks the selection without replacing its visible text", () => {
     const paragraph = schema.nodes.paragraph!.create(null, schema.text("Personal training"))
     const doc = schema.nodes.doc!.create(null, paragraph)
@@ -179,6 +202,14 @@ describe("selected text supertags", () => {
     const mark = A.marks(automergeDocument, ["body"]).find(candidate => candidate.name === referenceMarkName)
     expect(mark).toBeDefined()
     expect(mark?.value).toBe(JSON.stringify({ pageID: "person:rossbottom", label: "Dr. Rosbottom" }))
+
+    const reloadedDocument = A.load(A.save(automergeDocument))
+    const reloadedMark = A.marks(reloadedDocument, ["body"])
+      .find(candidate => candidate.name === referenceMarkName)
+    expect(reloadedMark?.value).toBe(JSON.stringify({
+      pageID: "person:rossbottom",
+      label: "Dr. Rosbottom",
+    }))
   })
 })
 
