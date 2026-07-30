@@ -62,6 +62,10 @@ mkApp {
             source = ./AGENTS.md;
             force = true;
           };
+          ".codex/AGENTS.md" = {
+            source = ./AGENTS.md;
+            force = true;
+          };
         };
 
         programs.fish.shellAliases = lib.optionalAttrs cfg.cliPackages.enable {
