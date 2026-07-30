@@ -14,6 +14,10 @@ enum GraphDatabaseSchema {
       table.column("is_deleted", .boolean).notNull().defaults(to: false)
       table.column("definition_json", .blob).notNull()
       table.column("modified_at", .double).notNull()
+      table.column("dirty_generation", .integer).notNull().defaults(to: 1)
+      table.column("cloud_dirty", .boolean).notNull().defaults(to: true).indexed()
+      table.column("cloud_synced_generation", .integer).notNull().defaults(to: 0)
+      table.column("cloud_record", .blob)
     }
     try db.create(table: "_graph_relation_source_tags") { table in
       table.column("relation_id", .text).notNull()
@@ -238,8 +242,8 @@ enum GraphDatabaseSchema {
       sql: """
         INSERT INTO _graph_relation_definitions
           (id,forward_name,inverse_name,targets_per_source,sources_per_target,
-           is_system,is_deleted,definition_json,modified_at)
-        VALUES (?,?,?,?,?,?,?,?,?)
+           is_system,is_deleted,definition_json,modified_at,dirty_generation,cloud_dirty)
+        VALUES (?,?,?,?,?,?,?,?,?,1,?)
         ON CONFLICT(id) DO UPDATE SET
           forward_name=excluded.forward_name,
           inverse_name=excluded.inverse_name,
@@ -248,7 +252,9 @@ enum GraphDatabaseSchema {
           is_system=excluded.is_system,
           is_deleted=excluded.is_deleted,
           definition_json=excluded.definition_json,
-          modified_at=excluded.modified_at
+          modified_at=excluded.modified_at,
+          dirty_generation=_graph_relation_definitions.dirty_generation + 1,
+          cloud_dirty=excluded.cloud_dirty
         """,
       arguments: [
         relation.id.rawValue,
@@ -260,6 +266,7 @@ enum GraphDatabaseSchema {
         relation.isDeleted,
         encoded,
         modifiedAt.timeIntervalSince1970,
+        !relation.isSystem,
       ]
     )
     try db.execute(

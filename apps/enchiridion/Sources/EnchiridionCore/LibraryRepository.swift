@@ -4220,6 +4220,20 @@ public actor LibraryRepository {
           """
       )
       try db.execute(
+        sql: """
+          UPDATE _graph_relation_definitions
+          SET cloud_dirty = CASE WHEN is_system = 1 THEN 0 ELSE 1 END,
+              cloud_record = NULL,
+              cloud_synced_generation = 0
+          """
+      )
+      try db.execute(
+        sql: """
+          UPDATE _saved_graph_queries
+          SET cloud_dirty = 1, cloud_record = NULL, cloud_synced_generation = 0
+          """
+      )
+      try db.execute(
         sql: "UPDATE purge_markers SET cloud_dirty = 1, cloud_record = NULL"
       )
     }
@@ -5344,6 +5358,20 @@ public actor LibraryRepository {
     }
     migrator.registerMigration("v19-knowledge-graph") { db in
       try GraphDatabaseSchema.install(in: db)
+    }
+    migrator.registerMigration("v20-synced-graph-metadata") { db in
+      let columns = try db.columns(in: "_graph_relation_definitions")
+      if !columns.contains(where: { $0.name == "dirty_generation" }) {
+        try db.alter(table: "_graph_relation_definitions") { table in
+          table.add(column: "dirty_generation", .integer).notNull().defaults(to: 1)
+          table.add(column: "cloud_dirty", .boolean).notNull().defaults(to: true).indexed()
+          table.add(column: "cloud_synced_generation", .integer).notNull().defaults(to: 0)
+          table.add(column: "cloud_record", .blob)
+        }
+        try db.execute(
+          sql: "UPDATE _graph_relation_definitions SET cloud_dirty = 0 WHERE is_system = 1"
+        )
+      }
     }
     return migrator
   }()

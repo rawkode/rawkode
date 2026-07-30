@@ -257,6 +257,109 @@ final class GraphRepositoryTests: XCTestCase {
     let remainingQueries = try await reopened.savedGraphQueries()
     XCTAssertEqual(remainingQueries, [sql])
   }
+
+  func testGraphMetadataCloudRoundTripPreservesDirtyLocalChangesAndTombstones() async throws {
+    let source = try GraphRepositoryFixture(testCase: self)
+    var relation = RelationDefinition(
+      id: .random(),
+      forwardName: "Mentors",
+      inverseName: "Mentored by"
+    )
+    var query = SavedGraphQuery(
+      name: "Mentorship",
+      source: .sql("SELECT node_id, title FROM graph_nodes")
+    )
+    try await source.repository.saveRelationDefinition(
+      relation,
+      now: Date(timeIntervalSince1970: 10)
+    )
+    try await source.repository.saveGraphQuery(query, now: Date(timeIntervalSince1970: 10))
+
+    let loadedRelationRecord = try await source.repository.relationDefinitionCloudRecord(
+      id: relation.id
+    )
+    let loadedQueryRecord = try await source.repository.savedGraphQueryCloudRecord(id: query.id)
+    let relationRecord = try XCTUnwrap(loadedRelationRecord)
+    let queryRecord = try XCTUnwrap(loadedQueryRecord)
+
+    relation.forwardName = "Coaches"
+    query.name = "Coaching"
+    try await source.repository.saveRelationDefinition(
+      relation,
+      now: Date(timeIntervalSince1970: 20)
+    )
+    try await source.repository.saveGraphQuery(query, now: Date(timeIntervalSince1970: 20))
+    let relationStillDirty = try await source.repository.markRelationDefinitionCloudSaved(
+      id: relation.id,
+      sentGeneration: relationRecord.dirtyGeneration,
+      systemFields: Data([1])
+    )
+    let queryStillDirty = try await source.repository.markGraphQueryCloudSaved(
+      id: query.id,
+      sentGeneration: queryRecord.dirtyGeneration,
+      systemFields: Data([2])
+    )
+    XCTAssertTrue(relationStillDirty)
+    XCTAssertTrue(queryStillDirty)
+
+    let target = try GraphRepositoryFixture(testCase: self)
+    let relationNeedsUpload = try await target.repository.mergeCloudRelationDefinition(
+      id: relationRecord.definition.id,
+      definition: relationRecord.definition,
+      isDeleted: relationRecord.definition.isDeleted,
+      modifiedAt: relationRecord.modifiedAt,
+      dirtyGeneration: relationRecord.dirtyGeneration,
+      systemFields: Data([3])
+    )
+    let queryNeedsUpload = try await target.repository.mergeCloudGraphQuery(
+      id: queryRecord.query.id,
+      query: queryRecord.query,
+      isDeleted: queryRecord.isDeleted,
+      sortOrder: queryRecord.sortOrder,
+      modifiedAt: queryRecord.modifiedAt,
+      dirtyGeneration: queryRecord.dirtyGeneration,
+      systemFields: Data([4])
+    )
+    let dirtyRelations = try await target.repository.dirtyRelationDefinitions()
+    let dirtyQueries = try await target.repository.dirtyGraphQueries()
+    let targetRelations = try await target.repository.relationDefinitions()
+    let targetQueries = try await target.repository.savedGraphQueries()
+    XCTAssertFalse(relationNeedsUpload)
+    XCTAssertFalse(queryNeedsUpload)
+    XCTAssertTrue(dirtyRelations.isEmpty)
+    XCTAssertTrue(dirtyQueries.isEmpty)
+    XCTAssertTrue(targetRelations.contains {
+      $0.id == relationRecord.definition.id
+    })
+    XCTAssertEqual(targetQueries, [queryRecord.query])
+
+    let relationDeletionNeedsUpload = try await target.repository.applyCloudRelationDefinitionRecordDeletion(
+      id: relationRecord.definition.id
+    )
+    let queryDeletionNeedsUpload = try await target.repository.applyCloudGraphQueryRecordDeletion(
+      id: queryRecord.query.id
+    )
+    let remainingRelations = try await target.repository.relationDefinitions()
+    let remainingQueries = try await target.repository.savedGraphQueries()
+    XCTAssertFalse(relationDeletionNeedsUpload)
+    XCTAssertFalse(queryDeletionNeedsUpload)
+    XCTAssertFalse(remainingRelations.contains {
+      $0.id == relationRecord.definition.id
+    })
+    XCTAssertTrue(remainingQueries.isEmpty)
+
+    try await target.repository.markAllCloudDataForZoneRecovery()
+    let recoveredRelations = try await target.repository.dirtyRelationDefinitions()
+    let recoveredQueries = try await target.repository.dirtyGraphQueries()
+    XCTAssertEqual(
+      recoveredRelations.map(\.definition.id),
+      [relationRecord.definition.id]
+    )
+    XCTAssertEqual(
+      recoveredQueries.map(\.query.id),
+      [queryRecord.query.id]
+    )
+  }
 }
 
 private struct GraphRepositoryFixture {
