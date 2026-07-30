@@ -188,7 +188,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
   }
 
-  func testDeleteCancelsValidationIgnoresLateResultAndResetsAllChoices() async {
+  func testDeleteCancelsValidationIgnoresLateResultAndKeepsBlockedRequestedRoute() async {
     let credentialStore = MemoryCredentialStore()
     let validator = GatedCredentialValidator()
     let controller = makeController(credentialStore: credentialStore, validator: validator)
@@ -212,7 +212,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     let snapshot = await credentialStore.snapshot()
     XCTAssertNil(snapshot.credential)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertFalse(controller.hasTextConsent)
     XCTAssertNil(controller.selectedTextModelID)
     XCTAssertEqual(controller.credentialState, .notConfigured)
@@ -242,7 +242,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(requestCount, 0)
   }
 
-  func testNoCredentialForcesAppleDefaultAndClearsLegacyOpenAIChoices() async throws {
+  func testNoCredentialKeepsRequestedOpenAIRouteBlockedAndClearsAuthority() async throws {
     let defaults = makeDefaults()
     let payload = AssistantProviderPreferencesPayload(
       selectedProvider: .openAI,
@@ -263,7 +263,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     await controller.refreshCredentialState()
 
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertEqual(controller.credentialState, .notConfigured)
     XCTAssertFalse(controller.hasTextConsent)
     XCTAssertNil(controller.selectedTextModelID)
@@ -299,18 +299,125 @@ final class AssistantProviderSettingsTests: XCTestCase {
     controller.selectProvider(.openAI)
     XCTAssertEqual(controller.selectedProvider, .openAI)
     controller.selectTextModel(id: nil)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
   }
 
-  func testFutureProviderPresentationNeverClaimsOpenAIIsActive() {
+  func testProviderPresentationUsesActiveRouteLabels() {
     XCTAssertEqual(AssistantProvider.appleOnDevice.futureSettingsTitle, "Apple On Device")
     XCTAssertEqual(
       AssistantProvider.openAI.futureSettingsTitle,
-      "OpenAI (not active in this version)"
+      "OpenAI"
     )
   }
 
-  func testPersistedInvalidModelCannotKeepOpenAISelected() throws {
+  func testTextConsentV1IsInvalidatedAndOpenAIRouteFailsClosed() {
+    let defaults = makeDefaults()
+    let binding = credentialBinding("saved-placeholder", revision: "saved-revision")
+    let payload = AssistantProviderPreferencesPayload(
+      selectedProvider: .openAI,
+      credentialRevision: binding.revision,
+      credentialFingerprint: binding.fingerprint,
+      verifiedCatalogVersion: OpenAIModelCatalog.version,
+      verifiedTextModelIDs: ["gpt-5.6-terra"],
+      selectedTextModelID: "gpt-5.6-terra",
+      textConsentVersion: 1,
+      textConsentCredentialRevision: binding.revision,
+      textConsentCredentialFingerprint: binding.fingerprint
+    )
+    defaults.set(
+      try! JSONEncoder().encode(payload),
+      forKey: AssistantProviderPreferencesStore.defaultKey
+    )
+
+    let preferences = AssistantProviderPreferencesStore(defaults: defaults)
+
+    XCTAssertFalse(preferences.hasCurrentTextConsent)
+    XCTAssertEqual(preferences.selectedProvider, .openAI)
+    XCTAssertEqual(preferences.textRouteSnapshot().authorizationFailure, .consentRequired)
+  }
+
+  func testTextConsentIsBoundToExactCredentialIdentity() {
+    let preferences = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    let firstBinding = credentialBinding("first-placeholder", revision: "first-revision")
+    preferences.markVerified(
+      validationResult().capabilities,
+      binding: firstBinding,
+      selectDefaultTextModel: true
+    )
+    preferences.setTextConsent(true)
+    preferences.selectProvider(.openAI, hasSavedCredential: true)
+    XCTAssertTrue(preferences.hasCurrentTextConsent)
+
+    preferences.markVerified(
+      validationResult().capabilities,
+      binding: credentialBinding("second-placeholder", revision: "second-revision")
+    )
+
+    XCTAssertFalse(preferences.hasCurrentTextConsent)
+    XCTAssertEqual(preferences.selectedProvider, .openAI)
+    XCTAssertEqual(preferences.textRouteSnapshot().authorizationFailure, .consentRequired)
+  }
+
+  func testOpenAIRouteIsUnavailableUntilLaunchCredentialRefreshResolves() async {
+    let defaults = makeDefaults()
+    let binding = credentialBinding("saved-placeholder", revision: "saved-revision")
+    let preferences = AssistantProviderPreferencesStore(defaults: defaults)
+    preferences.markVerified(
+      validationResult().capabilities,
+      binding: binding,
+      selectDefaultTextModel: true
+    )
+    preferences.setTextConsent(true)
+    preferences.selectProvider(.openAI, hasSavedCredential: true)
+    let controller = AssistantProviderSettingsController(
+      preferences: preferences,
+      credentialStore: FixedReadCredentialStore(outcome: .available(binding: binding)),
+      validator: ImmediateCredentialValidator(result: validationResult())
+    )
+
+    XCTAssertFalse(controller.isCredentialStateResolved)
+    XCTAssertEqual(
+      controller.textRouteSnapshot().authorizationFailure,
+      .credentialVerificationRequired
+    )
+
+    await controller.refreshCredentialState()
+
+    XCTAssertTrue(controller.isCredentialStateResolved)
+    XCTAssertNil(controller.textRouteSnapshot().authorizationFailure)
+    XCTAssertEqual(controller.textRouteSnapshot().modelID, "gpt-5.6-terra")
+  }
+
+  func testExplicitRetrySnapshotKeepsOriginalAuthorizedModelWhenDefaultIsApple() async {
+    let binding = credentialBinding("saved-placeholder", revision: "saved-revision")
+    let preferences = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    preferences.markVerified(
+      validationResult().capabilities,
+      binding: binding,
+      selectDefaultTextModel: true
+    )
+    preferences.setTextConsent(true)
+    preferences.selectProvider(.openAI, hasSavedCredential: true)
+    preferences.selectProvider(.appleOnDevice, hasSavedCredential: true)
+    let controller = AssistantProviderSettingsController(
+      preferences: preferences,
+      credentialStore: FixedReadCredentialStore(outcome: .available(binding: binding)),
+      validator: ImmediateCredentialValidator(result: validationResult())
+    )
+    await controller.refreshCredentialState()
+
+    let retry = controller.textRouteSnapshot(
+      for: AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+    )
+
+    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(retry.provider, .openAI)
+    XCTAssertEqual(retry.modelID, "gpt-5.6-terra")
+    XCTAssertEqual(retry.credentialBinding, binding)
+    XCTAssertNil(retry.authorizationFailure)
+  }
+
+  func testPersistedInvalidModelKeepsRequestedOpenAIRouteButCannotAuthorize() throws {
     let defaults = makeDefaults()
     let payload = AssistantProviderPreferencesPayload(
       selectedProvider: .openAI,
@@ -326,7 +433,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     let preferences = AssistantProviderPreferencesStore(defaults: defaults)
 
-    XCTAssertEqual(preferences.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(preferences.selectedProvider, .openAI)
     XCTAssertNil(preferences.selectedTextModelID)
     XCTAssertFalse(preferences.hasValidSelectedTextModel)
     XCTAssertFalse(preferences.canSelect(.openAI, hasSavedCredential: true))
@@ -349,7 +456,8 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(preferences.selectedTextModelID, "gpt-5.6-terra")
   }
 
-  func testReverificationRemovingSelectedModelFallsBackToAppleAndRequiresChoice() async {
+  func testReverificationRemovingSelectedModelKeepsOpenAIRouteBlockedAndRequiresFreshConsent() async
+  {
     let credentialStore = MemoryCredentialStore()
     let validator = SequencedCredentialValidator(
       results: [
@@ -370,11 +478,11 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     XCTAssertEqual(controller.verifiedTextOptions.map(\.id), ["gpt-5.6-luna"])
     XCTAssertNil(controller.selectedTextModelID)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertFalse(controller.canSelectOpenAI)
     controller.selectTextModel(id: "gpt-5.6-luna")
-    XCTAssertTrue(controller.canSelectOpenAI)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertFalse(controller.canSelectOpenAI)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
   }
 
   func testRateLimitExposesRetryCountdownWithoutReplacingCredential() async {
@@ -447,10 +555,10 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     XCTAssertTrue(controller.hasSavedCredential)
     XCTAssertEqual(controller.credentialState, .needsVerification)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertNil(controller.selectedTextModelID)
     let persisted = preferences.storedPayloadForTesting
-    XCTAssertEqual(persisted.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(persisted.selectedProvider, .openAI)
     XCTAssertNil(persisted.credentialRevision)
     XCTAssertNil(persisted.credentialFingerprint)
     XCTAssertNil(persisted.verifiedCatalogVersion)
@@ -520,14 +628,14 @@ final class AssistantProviderSettingsTests: XCTestCase {
     await controller.refreshCredentialState()
 
     XCTAssertEqual(controller.credentialState, .notConfigured)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
     XCTAssertFalse(controller.hasSavedCredential)
     XCTAssertFalse(controller.hasTextConsent)
     XCTAssertNil(controller.selectedTextModelID)
     XCTAssertFalse(controller.canSelectOpenAI)
   }
 
-  func testRefreshStorageErrorPersistsAppleFallback() async {
+  func testRefreshStorageErrorKeepsRequestedOpenAIRouteBlocked() async {
     let defaults = makeDefaults()
     let preferences = AssistantProviderPreferencesStore(defaults: defaults)
     preferences.markVerified(
@@ -547,8 +655,8 @@ final class AssistantProviderSettingsTests: XCTestCase {
 
     XCTAssertEqual(controller.error, .credentialStorageUnavailable)
     XCTAssertEqual(controller.credentialState, .needsVerification)
-    XCTAssertEqual(controller.selectedProvider, .appleOnDevice)
-    XCTAssertEqual(preferences.storedPayloadForTesting.selectedProvider, .appleOnDevice)
+    XCTAssertEqual(controller.selectedProvider, .openAI)
+    XCTAssertEqual(preferences.storedPayloadForTesting.selectedProvider, .openAI)
     XCTAssertNil(preferences.storedPayloadForTesting.credentialFingerprint)
   }
 

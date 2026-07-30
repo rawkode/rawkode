@@ -14,17 +14,26 @@ public struct AssistantConversationTurn: Equatable, Sendable {
   public var answer: String
   public var status: AssistantResponseStatus
   public var provenance: AssistantConversationTurnProvenance
+  public var sources: [AssistantSource]
+  public var metadata: AssistantResponseMetadata?
+  public var modality: AssistantRequestModality
 
   public init(
     utterance: String,
     answer: String,
     status: AssistantResponseStatus,
-    provenance: AssistantConversationTurnProvenance
+    provenance: AssistantConversationTurnProvenance,
+    sources: [AssistantSource] = [],
+    metadata: AssistantResponseMetadata? = nil,
+    modality: AssistantRequestModality = .text
   ) {
     self.utterance = utterance
     self.answer = answer
     self.status = status
     self.provenance = provenance
+    self.sources = sources
+    self.metadata = metadata
+    self.modality = modality
   }
 }
 
@@ -33,17 +42,23 @@ public struct AssistantConversationRequest: Equatable, Sendable {
   public var priorTurns: [AssistantConversationTurn]
   public var locale: Locale
   public var now: Date
+  public var modality: AssistantRequestModality
+  public var routeOverride: AssistantConversationRoute?
 
   public init(
     utterance: String,
     priorTurns: [AssistantConversationTurn],
     locale: Locale,
-    now: Date
+    now: Date,
+    modality: AssistantRequestModality = .text,
+    routeOverride: AssistantConversationRoute? = nil
   ) {
     self.utterance = utterance
     self.priorTurns = priorTurns
     self.locale = locale
     self.now = now
+    self.modality = modality
+    self.routeOverride = routeOverride
   }
 }
 
@@ -537,6 +552,8 @@ public final class AssistantConversationSession {
   public private(set) var liveTranscript = ""
   public private(set) var voiceInputNotice: String?
   public private(set) var voicePauseReason: AssistantVoicePauseReason?
+  public private(set) var pendingUtterance: String?
+  public private(set) var pendingRoute: AssistantConversationRoute?
   public var speaksResponses: Bool
 
   public var isRunning: Bool {
@@ -571,6 +588,8 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var ownsAudioSession = false
   @ObservationIgnored private var voiceSafetyEventTask: Task<Void, Never>?
   @ObservationIgnored private var lastVoiceSafetyEvent: AssistantVoiceSafetyEvent?
+  @ObservationIgnored private var contextStartIndex = 0
+  @ObservationIgnored private var resetsContextAfterCurrentOperation = false
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
@@ -626,6 +645,13 @@ public final class AssistantConversationSession {
 
   /// Sends typed text through the grounded assistant regardless of voice state.
   public func submit(_ text: String) async {
+    await submit(text, routeOverride: nil)
+  }
+
+  private func submit(
+    _ text: String,
+    routeOverride: AssistantConversationRoute?
+  ) async {
     let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !utterance.isEmpty, operation == nil, !isStopping else { return }
 
@@ -634,6 +660,8 @@ public final class AssistantConversationSession {
     generation &+= 1
     let currentGeneration = generation
     finishVoiceOperationIfNeeded()
+    pendingUtterance = utterance
+    pendingRoute = routeOverride
     state = .thinking
     let task = Task { [weak self] in
       await self?.answer(utterance, generation: currentGeneration)
@@ -641,6 +669,59 @@ public final class AssistantConversationSession {
     }
     operation = task
     await task.value
+  }
+
+  public func retryLastFailedTurn() async {
+    guard let index = turns.indices.last else { return }
+    await retryFailedTurn(at: index)
+  }
+
+  /// Appends a new attempt for the exact failed receipt selected by the user.
+  public func retryFailedTurn(at index: Int) async {
+    guard operation == nil, !isStopping, turns.indices.contains(index) else { return }
+    let turn = turns[index]
+    guard
+      turn.metadata?.recoveryAction == .retry,
+      turn.metadata?.completion != .completed
+    else { return }
+    let route = AssistantConversationRoute(
+      provider: turn.metadata?.requestedProvider ?? .appleOnDevice,
+      modelID: turn.metadata?.requestedModelID
+    )
+    await submit(turn.utterance, routeOverride: route)
+  }
+
+  /// Appends a distinct Apple attempt while preserving the failed OpenAI turn
+  /// and its billing/disclosure receipt exactly as presented.
+  public func retryLastFailedTurnOnApple() async {
+    guard let index = turns.indices.last else { return }
+    await retryFailedTurnOnApple(at: index)
+  }
+
+  /// Appends a distinct Apple attempt for the exact failed receipt selected
+  /// by the user, without mutating any prior attempt.
+  public func retryFailedTurnOnApple(at index: Int) async {
+    guard operation == nil, !isStopping, turns.indices.contains(index) else { return }
+    let turn = turns[index]
+    guard
+      turn.metadata?.recoveryAction == .retry,
+      turn.metadata?.completion != .completed
+    else { return }
+    await submit(turn.utterance, routeOverride: .appleOnDevice)
+  }
+
+  /// Starts a fresh provider context without cancelling an already-snapshotted
+  /// request that may be billable. An in-flight attempt finishes into its old
+  /// context; the new route begins after its immutable receipt.
+  public func startNewRouteContext() async {
+    guard !isStopping else { return }
+    if operation != nil {
+      resetsContextAfterCurrentOperation = true
+      return
+    }
+    resetsContextAfterCurrentOperation = false
+    contextStartIndex = turns.count
+    state = .idle
   }
 
   /// Starts voice only after an explicit user action. It never clears typed history.
@@ -797,6 +878,9 @@ public final class AssistantConversationSession {
     voiceStartAttemptID = nil
     generation &+= 1
     resetVoiceInput()
+    pendingUtterance = nil
+    pendingRoute = nil
+    resetsContextAfterCurrentOperation = false
     let stopGeneration = generation
     isStopping = true
     finishVoiceOperationIfNeeded()
@@ -822,7 +906,10 @@ public final class AssistantConversationSession {
     if !preservingTurns { await answerer.resetConversation() }
 
     guard generation == stopGeneration else { return }
-    if !preservingTurns { turns.removeAll(keepingCapacity: true) }
+    if !preservingTurns {
+      turns.removeAll(keepingCapacity: true)
+      contextStartIndex = 0
+    }
     state = .stopped
     isStopping = false
   }
@@ -945,9 +1032,11 @@ public final class AssistantConversationSession {
     state = .thinking
     let request = AssistantConversationRequest(
       utterance: utterance,
-      priorTurns: turns,
+      priorTurns: Array(turns.dropFirst(min(contextStartIndex, turns.count))),
       locale: locale,
-      now: now()
+      now: now(),
+      modality: isVoiceRunning ? .voice : .text,
+      routeOverride: pendingRoute
     )
     let response = await answerer.respond(to: request)
     guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
@@ -964,7 +1053,10 @@ public final class AssistantConversationSession {
         utterance: utterance,
         answer: presentedResponse.answer,
         status: presentedResponse.status,
-        provenance: Self.provenance(for: presentedResponse)
+        provenance: Self.provenance(for: presentedResponse),
+        sources: presentedResponse.sources,
+        metadata: presentedResponse.metadata,
+        modality: request.modality
       )
     )
     switch presentedResponse.status {
@@ -1012,8 +1104,14 @@ public final class AssistantConversationSession {
   private func finishOperation(generation candidate: UInt64) async {
     guard candidate == generation else { return }
     operation = nil
+    pendingUtterance = nil
+    pendingRoute = nil
     finishVoiceOperationIfNeeded()
     await releaseAudioSessionIfNeeded()
+    if resetsContextAfterCurrentOperation {
+      contextStartIndex = turns.count
+      resetsContextAfterCurrentOperation = false
+    }
     if state == .thinking || state == .speaking || state == .listening { state = .idle }
   }
 
@@ -1065,7 +1163,9 @@ public final class AssistantConversationSession {
   private func appendTurn(_ turn: AssistantConversationTurn) {
     turns.append(turn)
     if turns.count > maximumContextTurns {
-      turns.removeFirst(turns.count - maximumContextTurns)
+      let removedCount = turns.count - maximumContextTurns
+      turns.removeFirst(removedCount)
+      contextStartIndex = max(0, contextStartIndex - removedCount)
     }
   }
 

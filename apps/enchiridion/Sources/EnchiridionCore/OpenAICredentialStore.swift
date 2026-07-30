@@ -26,6 +26,7 @@ public enum OpenAICredentialStoreError: Error, Equatable, Sendable {
   case passcodeRequired
   case unavailable
   case invalidStoredValue
+  case bindingMismatch
 }
 
 public enum OpenAICredentialMutationOutcome: Equatable, Sendable {
@@ -184,6 +185,32 @@ public actor OpenAICredentialStore {
       return .invalid
     }
     return .available(binding: binding(for: payload))
+  }
+
+  /// Reads a credential only for an already-authorized inference turn. This
+  /// API is module-internal so UI and settings controllers can never obtain
+  /// the secret. The caller must present the exact verified Keychain binding.
+  func runtimeCredential(matching expectedBinding: OpenAICredentialBinding) throws -> String {
+    var result: CFTypeRef?
+    let status = client.copyMatching(
+      OpenAIKeychainQuery.read() as CFDictionary,
+      result: &result
+    )
+    guard status == errSecSuccess else {
+      if status == errSecItemNotFound { throw OpenAICredentialStoreError.bindingMismatch }
+      throw map(status)
+    }
+    guard
+      let data = result as? Data,
+      let payload = try? JSONDecoder().decode(OpenAIKeychainCredentialPayload.self, from: data),
+      payload.version == OpenAIKeychainCredentialPayload.currentVersion,
+      !payload.credential.isEmpty,
+      !payload.revision.isEmpty,
+      binding(for: payload) == expectedBinding
+    else {
+      throw OpenAICredentialStoreError.bindingMismatch
+    }
+    return payload.credential
   }
 
   public func replace(

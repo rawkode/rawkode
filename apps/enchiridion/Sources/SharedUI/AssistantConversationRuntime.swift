@@ -204,7 +204,7 @@ enum AssistantConversationSurface: Equatable {
 
 @MainActor
 func makeAssistantConversationSession(
-  assistant: FoundationModelAssistant?,
+  assistant: (any AssistantConversationAnswering)?,
   voicePreferences: AssistantVoicePreferences,
   surface: AssistantConversationSurface = .app
 ) -> AssistantConversationSession? {

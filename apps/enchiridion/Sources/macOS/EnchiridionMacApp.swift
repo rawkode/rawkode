@@ -19,11 +19,11 @@ struct EnchiridionMacApp: App {
         vaultSession: runtime.vaultSession,
         selectVault: runtime.selectVault
       )
-        .frame(minWidth: 820, minHeight: 520)
-        .managesDeviceContacts(
-          store: runtime.store,
-          resolver: runtime.contactsResolver
-        )
+      .frame(minWidth: 820, minHeight: 520)
+      .managesDeviceContacts(
+        store: runtime.store,
+        resolver: runtime.contactsResolver
+      )
     }
     .commands {
       CommandGroup(after: .newItem) {
@@ -64,7 +64,8 @@ struct EnchiridionMacApp: App {
     Window("Assistant", id: "assistant") {
       AssistantConversationView(
         session: runtime.assistantSession,
-        unavailableReason: runtime.assistantUnavailableReason
+        unavailableReason: runtime.assistantUnavailableReason,
+        providerSettings: runtime.assistantProviderSettings
       )
       .frame(minWidth: 480, minHeight: 560)
     }
@@ -96,18 +97,26 @@ final class EnchiridionMacRuntime {
   let vaultSession: VaultSession?
   let contactsResolver = DeviceContactsResolver()
   let assistantVoicePreferences = AssistantVoicePreferences()
-  let assistantProviderSettings = AssistantProviderSettingsController()
+  let openAICredentialStore: OpenAICredentialStore
+  let assistantProviderSettings: AssistantProviderSettingsController
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
+  private(set) var textAssistant: OpenAIResponsesAssistant?
   private(set) var assistantSession: AssistantConversationSession?
   private(set) var repositoryError: String?
 
   var repository: LibraryRepository? { vaultSession?.repository }
   var store: LibraryStore { vaultSession?.store ?? fallbackStore }
   var assistantUnavailableReason: String? {
-    assistantUnavailabilityMessage(assistant: assistant, repositoryError: repositoryError)
+    if let repositoryError { return "Your local library could not be opened: \(repositoryError)" }
+    return assistantSession == nil ? "Your local library is unavailable." : nil
   }
   private init() {
+    let credentialStore = OpenAICredentialStore()
+    openAICredentialStore = credentialStore
+    assistantProviderSettings = AssistantProviderSettingsController(
+      credentialStore: credentialStore
+    )
     do {
       let session = try VaultSession(contactResolver: contactsResolver)
       vaultSession = session
@@ -118,6 +127,7 @@ final class EnchiridionMacRuntime {
       repositoryError = error.localizedDescription
     }
     rebuildWorkspaceDependents()
+    Task { await assistantProviderSettings.refreshCredentialState() }
   }
 
   func selectVault(_ id: VaultID) throws {
@@ -147,8 +157,20 @@ final class EnchiridionMacRuntime {
 
   private func rebuildWorkspaceDependents() {
     assistant = repository.map { FoundationModelAssistant(repository: $0) }
+    textAssistant = repository.flatMap { repository in
+      assistant.map { appleAssistant in
+        OpenAIResponsesAssistant(
+          repository: repository,
+          appleAnswerer: appleAssistant,
+          credentialStore: openAICredentialStore,
+          routeSnapshot: { [assistantProviderSettings] routeOverride in
+            await assistantProviderSettings.textRouteSnapshot(for: routeOverride)
+          }
+        )
+      }
+    }
     assistantSession = makeAssistantConversationSession(
-      assistant: assistant,
+      assistant: textAssistant,
       voicePreferences: assistantVoicePreferences
     )
   }

@@ -220,15 +220,131 @@ public enum AssistantResponseStatus: String, Codable, Hashable, Sendable {
   case ungrounded
 }
 
+public enum AssistantRequestModality: String, Equatable, Sendable {
+  case text
+  case voice
+}
+
+public enum AssistantRouteProvider: String, Codable, Hashable, Sendable {
+  case appleOnDevice
+  case openAI
+}
+
+/// An immutable route selected for one assistant attempt. Retries carry this
+/// value forward so a settings change cannot silently alter the provider or
+/// model attached to the original user action.
+public struct AssistantConversationRoute: Equatable, Hashable, Sendable {
+  public var provider: AssistantRouteProvider
+  public var modelID: String?
+
+  public init(provider: AssistantRouteProvider, modelID: String? = nil) {
+    self.provider = provider
+    self.modelID = modelID
+  }
+
+  public static let appleOnDevice = AssistantConversationRoute(provider: .appleOnDevice)
+}
+
+public struct AssistantTokenUsage: Codable, Hashable, Sendable {
+  public var input: Int
+  public var cachedInput: Int
+  public var cacheWrite: Int
+  public var output: Int
+  public var reasoning: Int
+  public var total: Int
+
+  public init(
+    input: Int = 0,
+    cachedInput: Int = 0,
+    cacheWrite: Int = 0,
+    output: Int = 0,
+    reasoning: Int = 0,
+    total: Int = 0
+  ) {
+    self.input = max(0, input)
+    self.cachedInput = max(0, cachedInput)
+    self.cacheWrite = max(0, cacheWrite)
+    self.output = max(0, output)
+    self.reasoning = max(0, reasoning)
+    self.total = max(0, total)
+  }
+}
+
+public enum AssistantRecoveryAction: String, Codable, Hashable, Sendable {
+  case retry
+  case openSettings
+}
+
+public enum AssistantResponseCompletion: String, Codable, Hashable, Sendable {
+  case completed
+  case failed
+  case incomplete
+}
+
+/// Ephemeral presentation metadata for one completed assistant turn. It is
+/// deliberately attached to in-memory conversation values, never persisted.
+public struct AssistantResponseMetadata: Codable, Hashable, Sendable {
+  public var requestedProvider: AssistantRouteProvider
+  public var requestedModelID: String?
+  public var actualModelID: String?
+  public var routeLabel: String
+  public var usage: AssistantTokenUsage?
+  public var requestIDs: [String]
+  public var completion: AssistantResponseCompletion
+  public var priorOpenAITurnCount: Int
+  public var localContextCount: Int
+  public var recoveryAction: AssistantRecoveryAction?
+
+  public init(
+    requestedProvider: AssistantRouteProvider,
+    requestedModelID: String? = nil,
+    actualModelID: String? = nil,
+    routeLabel: String,
+    usage: AssistantTokenUsage? = nil,
+    requestID: String? = nil,
+    requestIDs: [String] = [],
+    completion: AssistantResponseCompletion = .completed,
+    priorOpenAITurnCount: Int = 0,
+    localContextCount: Int = 0,
+    recoveryAction: AssistantRecoveryAction? = nil
+  ) {
+    self.requestedProvider = requestedProvider
+    self.requestedModelID = requestedModelID
+    self.actualModelID = actualModelID
+    self.routeLabel = routeLabel
+    self.usage = usage
+    self.requestIDs = (requestIDs + [requestID].compactMap { $0 }).reduce(into: []) {
+      if !$0.contains($1) { $0.append($1) }
+    }
+    self.completion = completion
+    self.priorOpenAITurnCount = max(0, priorOpenAITurnCount)
+    self.localContextCount = max(0, localContextCount)
+    self.recoveryAction = recoveryAction
+  }
+
+  public var requestID: String? { requestIDs.last }
+
+  public var routeContextIdentity: AssistantConversationRoute {
+    AssistantConversationRoute(provider: requestedProvider, modelID: requestedModelID)
+  }
+}
+
 public struct GroundedAssistantResponse: Codable, Hashable, Sendable {
   public var answer: String
   public var status: AssistantResponseStatus
   public var sources: [AssistantSource]
+  public var metadata: AssistantResponseMetadata?
 
-  public init(answer: String, status: AssistantResponseStatus, sources: [AssistantSource] = []) {
+  public init(
+    answer: String,
+    status: AssistantResponseStatus,
+    sources: [AssistantSource] = [],
+    metadata: AssistantResponseMetadata? = nil
+  ) {
     self.answer = answer
     self.status = status
     self.sources = sources
+    self.metadata = metadata
   }
 }
 
@@ -313,7 +429,9 @@ public enum AssistantGroundingPolicy {
       if !result.contains(id) { result.append(id) }
     }
     guard !uniqueFactIDs.isEmpty else { throw AssistantGroundingError.noSources }
-    guard uniqueFactIDs.count <= maximumSelectedFacts else { throw AssistantGroundingError.tooManyFacts }
+    guard uniqueFactIDs.count <= maximumSelectedFacts else {
+      throw AssistantGroundingError.tooManyFacts
+    }
     for id in uniqueFactIDs where factByID[id] == nil {
       throw AssistantGroundingError.unknownFact(id)
     }
@@ -364,12 +482,15 @@ public enum AssistantGroundingPolicy {
     )
   }
 
-  public static func unavailable(_ availability: AssistantAvailability) -> GroundedAssistantResponse {
+  public static func unavailable(_ availability: AssistantAvailability) -> GroundedAssistantResponse
+  {
     GroundedAssistantResponse(answer: availability.message, status: .unavailable)
   }
 
   private static func hasAmbiguousTitles(_ sources: [AssistantSource]) -> Bool {
-    let normalized = sources.map { $0.title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
+    let normalized = sources.map {
+      $0.title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
     return Set(normalized).count < normalized.count
   }
 

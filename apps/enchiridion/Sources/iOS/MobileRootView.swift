@@ -17,6 +17,7 @@ struct MobileRootView: View {
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
   @State private var isEditorFocused = false
   @State private var isKeyboardVisible = false
+  @State private var settingsDestination: MobileSettingsDestination?
   private let contactsResolver: DeviceContactsResolver
   private let vaultSession: VaultSession?
   private let selectVault: @MainActor (VaultID) throws -> Void
@@ -63,11 +64,15 @@ struct MobileRootView: View {
       AssistantConversationView(
         session: assistantSession,
         unavailableReason: assistantUnavailableReason,
-        presentation: .embedded
+        presentation: .embedded,
+        providerSettings: assistantProviderSettings,
+        onOpenProviderSettings: {
+          settingsDestination = .assistantProviders
+        }
       )
       .tabItem { Label("Assistant", systemImage: "waveform") }
-        .tag(MobileTab.assistant)
-        .toolbar(tabBarVisibility, for: .tabBar)
+      .tag(MobileTab.assistant)
+      .toolbar(tabBarVisibility, for: .tabBar)
 
       CalendarScreen(store: store)
         .tabItem { Label("Calendar", systemImage: "calendar") }
@@ -83,9 +88,9 @@ struct MobileRootView: View {
         assistantVoicePreferences: assistantVoicePreferences,
         assistantProviderSettings: assistantProviderSettings
       )
-        .tabItem { Label("Library", systemImage: "books.vertical") }
-        .tag(MobileTab.library)
-        .toolbar(tabBarVisibility, for: .tabBar)
+      .tabItem { Label("Library", systemImage: "books.vertical") }
+      .tag(MobileTab.library)
+      .toolbar(tabBarVisibility, for: .tabBar)
     }
     .sheet(isPresented: $showsQuickTaskCapture) {
       TaskQuickCaptureSheet(store: store, selection: quickTaskSelection)
@@ -93,6 +98,14 @@ struct MobileRootView: View {
     .sheet(item: $requestedTaskID) { pageID in
       NavigationStack {
         TaskDetailScreen(store: routedTaskStore ?? store, pageID: pageID)
+      }
+    }
+    .sheet(item: $settingsDestination) { destination in
+      NavigationStack {
+        switch destination {
+        case .assistantProviders:
+          AssistantProviderSettingsView(controller: assistantProviderSettings)
+        }
       }
     }
     .alert("Unable to Open Task", isPresented: routeErrorBinding) {
@@ -111,13 +124,16 @@ struct MobileRootView: View {
     .task { await refreshForActivation() }
     .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
-    .onReceive(NotificationCenter.default.publisher(for: .enchiridionEditorFocusDidChange)) { notification in
+    .onReceive(NotificationCenter.default.publisher(for: .enchiridionEditorFocusDidChange)) {
+      notification in
       isEditorFocused = notification.userInfo?["isFocused"] as? Bool ?? false
     }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification))
+    { _ in
       isKeyboardVisible = true
     }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification))
+    { _ in
       isKeyboardVisible = false
     }
   }
@@ -141,6 +157,7 @@ struct MobileRootView: View {
   }
 
   private func refreshForActivation() async {
+    await assistantProviderSettings.refreshCredentialState()
     let outcome = await systemHandoffCoordinator.activate {
       await store.reload()
     }
@@ -191,4 +208,10 @@ private enum MobileTab: Hashable {
   case assistant
   case calendar
   case library
+}
+
+private enum MobileSettingsDestination: String, Identifiable {
+  case assistantProviders
+
+  var id: String { rawValue }
 }

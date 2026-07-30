@@ -94,6 +94,7 @@ public final class AssistantProviderSettingsController {
   public private(set) var selectedTextModelID: String?
   public private(set) var verifiedTextOptions: [OpenAIModelOption]
   public private(set) var hasTextConsent: Bool
+  public private(set) var isCredentialStateResolved = false
 
   private let preferences: AssistantProviderPreferencesStore
   private let credentialStore: any OpenAICredentialPersisting
@@ -109,7 +110,7 @@ public final class AssistantProviderSettingsController {
     self.preferences = preferences
     self.credentialStore = credentialStore
     self.validator = validator
-    selectedProvider = .appleOnDevice
+    selectedProvider = preferences.selectedProvider
     selectedTextModelID = preferences.selectedTextModelID
     verifiedTextOptions = preferences.verifiedTextOptions
     hasTextConsent = preferences.hasCurrentTextConsent
@@ -132,6 +133,7 @@ public final class AssistantProviderSettingsController {
     validationTask?.cancel()
     validationTask = nil
     isValidating = false
+    isCredentialStateResolved = false
     do {
       let outcome = try await credentialStore.readBinding(generation: operationGeneration)
       guard operationGeneration == generation else { return }
@@ -146,19 +148,23 @@ public final class AssistantProviderSettingsController {
         }
       case .missing:
         persistAndPublishMissingCredentialFallback()
+        isCredentialStateResolved = true
         return
       case .invalid:
         persistAndPublishVerificationFallback(hasSavedCredential: true)
+        isCredentialStateResolved = true
         return
       case .superseded:
         return
       }
       error = nil
       synchronizePreferences()
+      isCredentialStateResolved = true
     } catch {
       guard operationGeneration == generation else { return }
       persistAndPublishVerificationFallback(hasSavedCredential: false)
       self.error = .credentialStorageUnavailable
+      isCredentialStateResolved = true
     }
   }
 
@@ -213,6 +219,7 @@ public final class AssistantProviderSettingsController {
       retryUntil = nil
       isValidating = false
       validationTask = nil
+      isCredentialStateResolved = true
       return true
     } catch is CancellationError {
       guard operationGeneration == generation else { return false }
@@ -251,6 +258,7 @@ public final class AssistantProviderSettingsController {
       hasSavedCredential = false
       credentialState = .notConfigured
       synchronizePreferences()
+      isCredentialStateResolved = true
       return true
     } catch {
       guard operationGeneration == generation else { return false }
@@ -275,14 +283,43 @@ public final class AssistantProviderSettingsController {
     synchronizePreferences()
   }
 
+  @discardableResult
+  public func authorizeOpenAITextAndSelect(modelID: String) -> Bool {
+    guard credentialState == .savedAndVerified,
+      verifiedTextOptions.contains(where: { $0.id == modelID })
+    else { return false }
+    preferences.selectTextModel(id: modelID)
+    preferences.setTextConsent(true)
+    preferences.selectProvider(.openAI, hasSavedCredential: hasSavedCredential)
+    synchronizePreferences()
+    return selectedProvider == .openAI && hasTextConsent
+  }
+
   public func clearError() {
     error = nil
   }
 
+  public func textRouteSnapshot(
+    for routeOverride: AssistantConversationRoute? = nil
+  ) -> AssistantTextRouteSnapshot {
+    let requestsOpenAI =
+      routeOverride?.provider == .openAI
+      || (routeOverride == nil && selectedProvider == .openAI)
+    if requestsOpenAI, !isCredentialStateResolved {
+      return AssistantTextRouteSnapshot(
+        provider: .openAI,
+        modelID: routeOverride?.modelID ?? selectedTextModelID,
+        authorizationFailure: .credentialVerificationRequired
+      )
+    }
+    return preferences.textRouteSnapshot(for: routeOverride)
+  }
+
   private func synchronizePreferences() {
-    selectedProvider =
-      preferences.canSelect(.openAI, hasSavedCredential: hasSavedCredential)
-      ? preferences.selectedProvider : .appleOnDevice
+    // Once explicitly selected, an OpenAI route remains visible even if its
+    // credential, consent, or model later needs recovery. Inference fails
+    // closed instead of silently crossing back to Apple.
+    selectedProvider = preferences.selectedProvider
     selectedTextModelID = preferences.selectedTextModelID
     verifiedTextOptions = preferences.verifiedTextOptions
     hasTextConsent = preferences.hasCurrentTextConsent

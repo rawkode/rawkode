@@ -12,10 +12,33 @@ public enum AssistantProvider: String, Codable, CaseIterable, Sendable {
   }
 
   public var futureSettingsTitle: String {
-    switch self {
-    case .appleOnDevice: "Apple On Device"
-    case .openAI: "OpenAI (not active in this version)"
-    }
+    title
+  }
+}
+
+public enum OpenAITextAuthorizationFailure: String, Equatable, Sendable {
+  case consentRequired
+  case credentialVerificationRequired
+  case modelSelectionRequired
+  case modelUnavailable
+}
+
+public struct AssistantTextRouteSnapshot: Equatable, Sendable {
+  public let provider: AssistantProvider
+  public let modelID: String?
+  public let credentialBinding: OpenAICredentialBinding?
+  public let authorizationFailure: OpenAITextAuthorizationFailure?
+
+  public init(
+    provider: AssistantProvider,
+    modelID: String? = nil,
+    credentialBinding: OpenAICredentialBinding? = nil,
+    authorizationFailure: OpenAITextAuthorizationFailure? = nil
+  ) {
+    self.provider = provider
+    self.modelID = modelID
+    self.credentialBinding = credentialBinding
+    self.authorizationFailure = authorizationFailure
   }
 }
 
@@ -81,7 +104,7 @@ public enum OpenAIModelCatalog {
   public static let shipped: [OpenAIModelOption] = [
     .init(
       id: "gpt-5.6-luna",
-      title: "Efficient",
+      title: "Economy",
       detail: "Lower-cost text tier for focused requests.",
       capability: .text
     ),
@@ -93,7 +116,7 @@ public enum OpenAIModelCatalog {
     ),
     .init(
       id: "gpt-5.6-sol",
-      title: "Highest capability",
+      title: "Best",
       detail: "Frontier text tier with the highest API cost in this catalog.",
       capability: .text
     ),
@@ -133,8 +156,8 @@ public enum OpenAIModelCatalog {
 }
 
 public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable {
-  public static let currentVersion = 2
-  public static let currentTextConsentVersion = 1
+  public static let currentVersion = 3
+  public static let currentTextConsentVersion = 2
   public static let currentVoiceConsentVersion = 1
 
   public var version: Int
@@ -146,6 +169,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
   public var verifiedRealtimeModelIDs: [String]
   public var selectedTextModelID: String?
   public var textConsentVersion: Int?
+  public var textConsentCredentialRevision: String?
+  public var textConsentCredentialFingerprint: String?
   public var voiceConsentVersion: Int?
 
   public init(
@@ -158,6 +183,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     verifiedRealtimeModelIDs: [String] = [],
     selectedTextModelID: String? = nil,
     textConsentVersion: Int? = nil,
+    textConsentCredentialRevision: String? = nil,
+    textConsentCredentialFingerprint: String? = nil,
     voiceConsentVersion: Int? = nil
   ) {
     self.version = version
@@ -169,6 +196,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     self.verifiedRealtimeModelIDs = verifiedRealtimeModelIDs
     self.selectedTextModelID = selectedTextModelID
     self.textConsentVersion = textConsentVersion
+    self.textConsentCredentialRevision = textConsentCredentialRevision
+    self.textConsentCredentialFingerprint = textConsentCredentialFingerprint
     self.voiceConsentVersion = voiceConsentVersion
   }
 
@@ -196,6 +225,10 @@ public final class AssistantProviderPreferencesStore {
   public var selectedTextModelID: String? { payload.selectedTextModelID }
   public var hasCurrentTextConsent: Bool {
     payload.textConsentVersion == AssistantProviderPreferencesPayload.currentTextConsentVersion
+      && payload.textConsentCredentialRevision == payload.credentialRevision
+      && payload.textConsentCredentialFingerprint == payload.credentialFingerprint
+      && payload.credentialRevision != nil
+      && payload.credentialFingerprint != nil
   }
   public var wasVerifiedForCurrentCatalog: Bool {
     payload.credentialRevision != nil
@@ -248,7 +281,8 @@ public final class AssistantProviderPreferencesStore {
     payload.textConsentVersion =
       isGranted
       ? AssistantProviderPreferencesPayload.currentTextConsentVersion : nil
-    enforceStoredProviderRequirements()
+    payload.textConsentCredentialRevision = isGranted ? payload.credentialRevision : nil
+    payload.textConsentCredentialFingerprint = isGranted ? payload.credentialFingerprint : nil
     persist()
   }
 
@@ -259,12 +293,10 @@ public final class AssistantProviderPreferencesStore {
       OpenAIModelCatalog.textOptions.contains(where: { $0.id == id })
     else {
       payload.selectedTextModelID = nil
-      enforceStoredProviderRequirements()
       persist()
       return
     }
     payload.selectedTextModelID = id
-    enforceStoredProviderRequirements()
     persist()
   }
 
@@ -296,18 +328,18 @@ public final class AssistantProviderPreferencesStore {
     } else {
       payload.selectedTextModelID = nil
     }
-    enforceStoredProviderRequirements()
     persist()
   }
 
   public func markNeedsVerification() {
+    let selectedProvider = payload.selectedProvider
     payload.credentialRevision = nil
     payload.credentialFingerprint = nil
     payload.verifiedCatalogVersion = nil
     payload.verifiedTextModelIDs = []
     payload.verifiedRealtimeModelIDs = []
     payload.selectedTextModelID = nil
-    payload.selectedProvider = .appleOnDevice
+    payload.selectedProvider = selectedProvider
     persist()
   }
 
@@ -317,8 +349,62 @@ public final class AssistantProviderPreferencesStore {
   }
 
   public func resetAfterCredentialDeletion() {
+    let selectedProvider = payload.selectedProvider
     payload = .defaults
+    payload.selectedProvider = selectedProvider
     persist()
+  }
+
+  public func textRouteSnapshot(
+    for routeOverride: AssistantConversationRoute? = nil
+  ) -> AssistantTextRouteSnapshot {
+    let requestedProvider =
+      routeOverride?.provider
+      ?? (payload.selectedProvider == .openAI ? .openAI : .appleOnDevice)
+    guard requestedProvider == .openAI else {
+      return AssistantTextRouteSnapshot(provider: .appleOnDevice)
+    }
+    let requestedModelID = routeOverride?.modelID ?? payload.selectedTextModelID
+    guard hasCurrentTextConsent else {
+      return AssistantTextRouteSnapshot(
+        provider: .openAI,
+        modelID: requestedModelID,
+        authorizationFailure: .consentRequired
+      )
+    }
+    guard wasVerifiedForCurrentCatalog,
+      let revision = payload.credentialRevision,
+      let fingerprint = payload.credentialFingerprint
+    else {
+      return AssistantTextRouteSnapshot(
+        provider: .openAI,
+        modelID: requestedModelID,
+        authorizationFailure: .credentialVerificationRequired
+      )
+    }
+    guard let modelID = requestedModelID else {
+      return AssistantTextRouteSnapshot(
+        provider: .openAI,
+        authorizationFailure: .modelSelectionRequired
+      )
+    }
+    guard verifiedTextModelIDs.contains(modelID),
+      OpenAIModelCatalog.textOptions.contains(where: { $0.id == modelID })
+    else {
+      return AssistantTextRouteSnapshot(
+        provider: .openAI,
+        modelID: modelID,
+        authorizationFailure: .modelUnavailable
+      )
+    }
+    return AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: modelID,
+      credentialBinding: OpenAICredentialBinding(
+        revision: revision,
+        fingerprint: fingerprint
+      )
+    )
   }
 
   public var storedPayloadForTesting: AssistantProviderPreferencesPayload { payload }
@@ -359,16 +445,7 @@ public final class AssistantProviderPreferencesStore {
     {
       payload.selectedTextModelID = nil
     }
-    enforceStoredProviderRequirements()
     persist()
-  }
-
-  private func enforceStoredProviderRequirements() {
-    guard payload.selectedProvider == .openAI else { return }
-    guard wasVerifiedForCurrentCatalog, hasCurrentTextConsent, hasValidSelectedTextModel else {
-      payload.selectedProvider = .appleOnDevice
-      return
-    }
   }
 
   private func persist() {

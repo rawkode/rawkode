@@ -10,8 +10,8 @@ struct AssistantProviderSettingsSection: View {
         AssistantProviderSettingsView(controller: controller)
       } label: {
         LabeledContent(
-          "Future provider",
-          value: controller.selectedProvider.futureSettingsTitle
+          "Default text provider",
+          value: controller.selectedProvider.title
         )
       }
       LabeledContent("OpenAI key", value: controller.credentialState.title)
@@ -27,14 +27,15 @@ struct AssistantProviderSettingsView: View {
   @Environment(\.openURL) private var openURL
   @State private var candidate = ""
   @State private var showsDeleteConfirmation = false
+  @State private var showsTextConsentConfirmation = false
 
   var body: some View {
     Form {
       providerSection
       openAICredentialSection
       if controller.credentialState == .savedAndVerified {
-        consentSection
         textModelSection
+        consentSection
       }
       voiceSection
       securitySection
@@ -59,27 +60,47 @@ struct AssistantProviderSettingsView: View {
         "This resets OpenAI provider, consent, and model choices. It does not revoke the key at OpenAI."
       )
     }
+    .confirmationDialog(
+      "Use OpenAI for Text?",
+      isPresented: $showsTextConsentConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Use OpenAI for Text") {
+        guard
+          let modelID = controller.selectedTextModelID
+            ?? controller.verifiedTextOptions.first?.id
+        else { return }
+        _ = controller.authorizeOpenAITextAndSelect(modelID: modelID)
+      }
+      Button("Keep Apple", role: .cancel) {}
+    } message: {
+      Text(openAIConsentDisclosure)
+    }
   }
 
   private var providerSection: some View {
     Section("Assistant Routing") {
-      LabeledContent("Current assistant", value: "Apple On Device")
+      LabeledContent("Default text provider", value: controller.selectedProvider.title)
 
-      Picker("Future provider", selection: providerBinding) {
-        Text(AssistantProvider.appleOnDevice.title).tag(AssistantProvider.appleOnDevice)
-        Text(AssistantProvider.openAI.futureSettingsTitle)
-          .tag(AssistantProvider.openAI)
-          .disabled(!controller.canSelectOpenAI)
+      Button("Use Apple On Device") {
+        controller.selectProvider(.appleOnDevice)
       }
-      .pickerStyle(.inline)
-      .accessibilityHint(
-        controller.canSelectOpenAI
-          ? "Saves a provider preference for a future version. The current assistant remains on device."
-          : "Verify a key and grant OpenAI Text consent to prepare OpenAI for a future version."
+      .disabled(controller.selectedProvider == .appleOnDevice)
+
+      Button("Use OpenAI for Text") {
+        if controller.hasTextConsent, controller.canSelectOpenAI {
+          controller.selectProvider(.openAI)
+        } else {
+          showsTextConsentConfirmation = true
+        }
+      }
+      .disabled(
+        controller.credentialState != .savedAndVerified
+          || controller.verifiedTextOptions.isEmpty
       )
 
       Text(
-        "OpenAI is not active in this version. Assistant requests continue to use Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
+        "Text chat uses the selected provider. Voice, CarPlay, and App Intents always use Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
@@ -187,13 +208,16 @@ struct AssistantProviderSettingsView: View {
 
   private var consentSection: some View {
     Section("OpenAI Text Consent") {
-      Toggle("OpenAI Text", isOn: textConsentBinding)
-      Text(
-        "If you later choose OpenAI for text, content you submit and the context you approve may be sent to OpenAI. This version does not make assistant inference requests."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .fixedSize(horizontal: false, vertical: true)
+      LabeledContent("Status", value: controller.hasTextConsent ? "Granted" : "Required")
+      if controller.hasTextConsent {
+        Button("Revoke OpenAI Text Consent", role: .destructive) {
+          controller.setTextConsent(false)
+        }
+      }
+      Text(openAIConsentDisclosure)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
 
     }
   }
@@ -272,20 +296,6 @@ struct AssistantProviderSettingsView: View {
     .foregroundStyle(.secondary)
   }
 
-  private var providerBinding: Binding<AssistantProvider> {
-    Binding(
-      get: { controller.selectedProvider },
-      set: { controller.selectProvider($0) }
-    )
-  }
-
-  private var textConsentBinding: Binding<Bool> {
-    Binding(
-      get: { controller.hasTextConsent },
-      set: { controller.setTextConsent($0) }
-    )
-  }
-
   private var modelBinding: Binding<String?> {
     Binding(
       get: { controller.selectedTextModelID },
@@ -299,5 +309,11 @@ struct AssistantProviderSettingsView: View {
     #else
       "The key stays in this Mac's device-only Keychain and is available only while the Mac is unlocked. It does not sync or migrate to another device. Protected Keychain material may still be present in a same-device backup."
     #endif
+  }
+
+  private var openAIConsentDisclosure: String {
+    """
+    Enchiridion sends the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Microphone audio, Enchiridion Voice, CarPlay, and App Intents remain Apple On Device.
+    """
   }
 }

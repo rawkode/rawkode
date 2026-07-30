@@ -37,9 +37,11 @@ final class EnchiridionAppRuntime {
   let vaultSession: VaultSession?
   let contactsResolver = DeviceContactsResolver()
   let assistantVoicePreferences = AssistantVoicePreferences()
-  let assistantProviderSettings = AssistantProviderSettingsController()
+  let openAICredentialStore: OpenAICredentialStore
+  let assistantProviderSettings: AssistantProviderSettingsController
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
+  private(set) var textAssistant: OpenAIResponsesAssistant?
   private(set) var carPlayAssistant: FoundationModelAssistant?
   private(set) var assistantSession: AssistantConversationSession?
   private(set) var carPlayAssistantSession: AssistantConversationSession?
@@ -49,10 +51,16 @@ final class EnchiridionAppRuntime {
   var repository: LibraryRepository? { vaultSession?.repository }
   var store: LibraryStore { vaultSession?.store ?? fallbackStore }
   var assistantUnavailableReason: String? {
-    assistantUnavailabilityMessage(assistant: assistant, repositoryError: repositoryError)
+    if let repositoryError { return "Your local library could not be opened: \(repositoryError)" }
+    return assistantSession == nil ? "Your local library is unavailable." : nil
   }
 
   private init() {
+    let credentialStore = OpenAICredentialStore()
+    openAICredentialStore = credentialStore
+    assistantProviderSettings = AssistantProviderSettingsController(
+      credentialStore: credentialStore
+    )
     do {
       let session = try VaultSession(contactResolver: contactsResolver)
       vaultSession = session
@@ -63,6 +71,7 @@ final class EnchiridionAppRuntime {
       repositoryError = error.localizedDescription
     }
     rebuildWorkspaceDependents()
+    Task { await assistantProviderSettings.refreshCredentialState() }
   }
 
   func selectVault(_ id: VaultID) throws {
@@ -92,9 +101,21 @@ final class EnchiridionAppRuntime {
 
   private func rebuildWorkspaceDependents() {
     assistant = repository.map { FoundationModelAssistant(repository: $0) }
+    textAssistant = repository.flatMap { repository in
+      assistant.map { appleAssistant in
+        OpenAIResponsesAssistant(
+          repository: repository,
+          appleAnswerer: appleAssistant,
+          credentialStore: openAICredentialStore,
+          routeSnapshot: { [assistantProviderSettings] routeOverride in
+            await assistantProviderSettings.textRouteSnapshot(for: routeOverride)
+          }
+        )
+      }
+    }
     carPlayAssistant = repository.map { FoundationModelAssistant(repository: $0) }
     assistantSession = makeAssistantConversationSession(
-      assistant: assistant,
+      assistant: textAssistant,
       voicePreferences: assistantVoicePreferences
     )
     carPlayAssistantSession = makeAssistantConversationSession(
@@ -103,12 +124,12 @@ final class EnchiridionAppRuntime {
       surface: .carPlay
     )
     let unavailableReason: @MainActor () -> String? = { [weak self] in
-        guard let self else { return "Your local library is unavailable." }
-        return assistantUnavailabilityMessage(
-          assistant: self.carPlayAssistant,
-          repositoryError: self.repositoryError
-        )
-      }
+      guard let self else { return "Your local library is unavailable." }
+      return assistantUnavailabilityMessage(
+        assistant: self.carPlayAssistant,
+        repositoryError: self.repositoryError
+      )
+    }
     if let carPlayVoice {
       carPlayVoice.update(
         session: carPlayAssistantSession,
