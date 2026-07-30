@@ -1,8 +1,8 @@
 import { next as A } from "@automerge/automerge"
 import { pmNodeToSpans, type DocHandle, type SchemaAdapter } from "@automerge/prosemirror"
 import { exitCode } from "prosemirror-commands"
-import type { Attrs, MarkType } from "prosemirror-model"
-import { TextSelection, type Command, type EditorState } from "prosemirror-state"
+import type { Attrs, Mark, MarkType, ResolvedPos } from "prosemirror-model"
+import { TextSelection, type Command, type EditorState, type Transaction } from "prosemirror-state"
 
 export type SearchableCommand = {
   label: string
@@ -18,6 +18,24 @@ export type PaletteGeometry = {
 }
 
 export type CaretGeometry = Pick<PaletteGeometry, "left" | "top"> & { bottom: number }
+
+export type LinkEditTarget = {
+  kind: "add" | "edit"
+  from: number
+  to: number
+  href?: string
+}
+
+export type LinkEditResolution =
+  | { ok: true; target: LinkEditTarget }
+  | {
+    ok: false
+    reason: "selection-required" | "non-text-selection" | "identity-mark" | "ambiguous-link-range"
+  }
+
+export type HTTPURLValidation =
+  | { ok: true; href: string }
+  | { ok: false; message: string }
 
 export type SupertagIdentity = {
   id: string
@@ -86,8 +104,112 @@ export function placePalette(
   }
 }
 
+export function validateHTTPURL(value: string): HTTPURLValidation {
+  const href = value.trim()
+  if (!href) return { ok: false, message: "Enter a web address." }
+  try {
+    const url = new URL(href)
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.hostname) {
+      return { ok: false, message: "Use a complete http:// or https:// address." }
+    }
+    return { ok: true, href }
+  } catch {
+    return { ok: false, message: "Use a complete http:// or https:// address." }
+  }
+}
+
+export function resolveLinkEditTarget(
+  state: EditorState,
+  linkType: MarkType,
+  identityMarkTypes: readonly MarkType[] = [],
+): LinkEditResolution {
+  const { selection } = state
+  if (!selection.empty) {
+    if (!(selection instanceof TextSelection) || !selection.$from.sameParent(selection.$to)) {
+      return { ok: false, reason: "non-text-selection" }
+    }
+
+    let sawText = false
+    let sawLink = false
+    let sawIdentity = false
+    state.doc.nodesBetween(selection.from, selection.to, (node, position) => {
+      if (!node.isText) return
+      const overlapFrom = Math.max(selection.from, position)
+      const overlapTo = Math.min(selection.to, position + node.nodeSize)
+      if (overlapFrom >= overlapTo) return
+      sawText = true
+      sawLink ||= Boolean(linkType.isInSet(node.marks))
+      sawIdentity ||= identityMarkTypes.some(markType => Boolean(markType.isInSet(node.marks)))
+    })
+
+    if (!sawText) return { ok: false, reason: "non-text-selection" }
+    if (sawIdentity) return { ok: false, reason: "identity-mark" }
+    if (sawLink) return { ok: false, reason: "ambiguous-link-range" }
+    return {
+      ok: true,
+      target: { kind: "add", from: selection.from, to: selection.to },
+    }
+  }
+
+  const link = linkType.isInSet(selection.$from.marks())
+  if (!link) return { ok: false, reason: "selection-required" }
+  if (identityMarkTypes.some(markType => Boolean(markType.isInSet(selection.$from.marks())))) {
+    return { ok: false, reason: "identity-mark" }
+  }
+  const range = contiguousMarkRange(selection.$from, link)
+  if (!range) return { ok: false, reason: "ambiguous-link-range" }
+
+  let sawIdentity = false
+  state.doc.nodesBetween(range.from, range.to, node => {
+    if (!node.isText) return
+    sawIdentity ||= identityMarkTypes.some(markType => Boolean(markType.isInSet(node.marks)))
+  })
+  if (sawIdentity) return { ok: false, reason: "identity-mark" }
+  return {
+    ok: true,
+    target: {
+      kind: "edit",
+      from: range.from,
+      to: range.to,
+      href: typeof link.attrs.href === "string" ? link.attrs.href : "",
+    },
+  }
+}
+
+export function linkEditTransaction(
+  state: EditorState,
+  target: LinkEditTarget,
+  linkType: MarkType,
+  href?: string,
+): Transaction | undefined {
+  if (target.from < 0 || target.from >= target.to || target.to > state.doc.content.size) return undefined
+  const transaction = state.tr.removeMark(target.from, target.to, linkType)
+  if (href !== undefined) transaction.addMark(target.from, target.to, linkType.create({ href }))
+  return transaction.scrollIntoView()
+}
+
 export function showsEditorCommandBar(editorHasFocus: boolean): boolean {
   return editorHasFocus
+}
+
+function contiguousMarkRange($position: ResolvedPos, mark: Mark): { from: number; to: number } | undefined {
+  const parent = $position.parent
+  let seed = parent.childAfter($position.parentOffset)
+  if (!seed.node || !mark.isInSet(seed.node.marks)) seed = parent.childBefore($position.parentOffset)
+  if (!seed.node || !mark.isInSet(seed.node.marks)) return undefined
+
+  let startIndex = seed.index
+  let endIndex = seed.index + 1
+  let from = $position.start() + seed.offset
+  let to = from + seed.node.nodeSize
+  while (startIndex > 0 && mark.isInSet(parent.child(startIndex - 1).marks)) {
+    const previous = parent.child(--startIndex)
+    from -= previous.nodeSize
+  }
+  while (endIndex < parent.childCount && mark.isInSet(parent.child(endIndex).marks)) {
+    to += parent.child(endIndex++).nodeSize
+  }
+  return { from, to }
 }
 
 export function markSelectedText(

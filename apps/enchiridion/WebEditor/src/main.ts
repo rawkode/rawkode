@@ -13,13 +13,18 @@ import { EditorView } from "prosemirror-view"
 import {
   exitCodeBlockOnEmptyLine,
   filterCommands,
+  linkEditTransaction,
   movePaletteSelection,
   moveBelowCodeBlock,
   placePalette,
   persistSelectedMark,
+  resolveLinkEditTarget,
   selectedTextTaskPlan,
   showsEditorCommandBar,
   slashCommandQuery,
+  validateHTTPURL,
+  type LinkEditResolution,
+  type LinkEditTarget,
   type SearchableCommand,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
@@ -79,6 +84,11 @@ type PendingTaskReference = {
   target: Extract<PageReferenceTarget, { kind: "selection" }>
   task: PageSuggestion
 }
+type LinkEditorState = {
+  editorView: EditorView
+  target: LinkEditTarget
+  selection: EditorState["selection"]
+}
 
 declare global {
   interface Window {
@@ -103,6 +113,7 @@ const statusElement = requiredElement<HTMLDivElement>("status")
 const contextElement = requiredElement<HTMLElement>("page-context")
 const slashMenu = requiredElement<HTMLDivElement>("slash-menu")
 const pageMenu = requiredElement<HTMLDivElement>("page-menu")
+const linkMenu = requiredElement<HTMLDivElement>("link-menu")
 const mobileCommandBar = requiredElement<HTMLDivElement>("mobile-command-bar")
 
 let handle: DocHandle<PageDoc> | undefined
@@ -117,6 +128,7 @@ let recoveredJournalIDs: string[] = []
 let reportedEditorFocus = false
 let slashPaletteState: SlashPaletteState | undefined
 let pendingTaskReference: PendingTaskReference | undefined
+let linkEditorState: LinkEditorState | undefined
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -265,6 +277,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   if (pendingTaskReference?.sourcePageID !== pageID) pendingTaskReference = undefined
   loadGeneration = request.loadGeneration
   closeSlashPalette()
+  closeLinkEditor(false)
   view?.destroy()
   view = undefined
   handle = undefined
@@ -310,6 +323,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     state: EditorState.create({ schema: binding.schema, doc: binding.pmDoc, plugins }),
     dispatchTransaction(transaction) {
       if (!view) return
+      if (transaction.docChanged && linkEditorState) closeLinkEditor(false)
       view.updateState(view.state.apply(transaction))
       updateMobileCommandBar()
       updateSlashPaletteFromEditor()
@@ -406,8 +420,12 @@ titleInput.addEventListener("focusout", () => window.setTimeout(updateEditorFocu
 window.addEventListener("resize", () => {
   resizeTitle()
   positionSlashPalette()
+  positionLinkEditor()
 })
-window.addEventListener("scroll", positionSlashPalette, true)
+window.addEventListener("scroll", () => {
+  positionSlashPalette()
+  positionLinkEditor()
+}, true)
 
 for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
   commandButton.addEventListener("pointerdown", event => event.preventDefault())
@@ -420,6 +438,12 @@ pageMenu.addEventListener("keydown", event => {
   pageMenu.hidden = true
   view?.focus()
   updateMobileCommandBar()
+})
+
+linkMenu.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return
+  event.preventDefault()
+  closeLinkEditor()
 })
 
 function runMobileCommand(command: string): void {
@@ -666,11 +690,33 @@ function interactionPlugin(): Plugin {
       },
       handlePaste(editorView, event) {
         const text = event.clipboardData?.getData("text/plain").trim()
-        if (!text || !isURL(text) || !editorView.state.selection.empty) return false
+        const url = text ? validateHTTPURL(text) : undefined
+        if (!url?.ok) return false
+        if (!editorView.state.selection.empty) {
+          const target = resolveWebLinkTarget(editorView.state)
+          event.preventDefault()
+          if (!target.ok) {
+            setStatus(linkTargetMessage(target))
+            return true
+          }
+          const transaction = linkEditTransaction(
+            editorView.state,
+            target.target,
+            editorView.state.schema.marks.link!,
+            url.href,
+          )
+          if (!transaction) {
+            setStatus("The selection changed. Reselect the text and try again.")
+            return true
+          }
+          editorView.dispatch(transaction)
+          editorView.focus()
+          return true
+        }
         const parent = editorView.state.selection.$from.parent
         if (parent.textContent.length > 0) return false
         event.preventDefault()
-        showURLChoices(editorView, text)
+        showURLChoices(editorView, url.href)
         return true
       },
       handleClick(editorView, _position, event) {
@@ -1152,12 +1198,173 @@ function insertYouTube(editorView: EditorView, url: string, videoID: string): vo
 }
 
 function openLinkEditor(state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView): boolean {
-  if (!dispatch || !editorView || state.selection.empty) return false
-  const href = window.prompt("Link URL")
-  if (!href) return false
-  dispatch(state.tr.addMark(state.selection.from, state.selection.to, state.schema.marks.link!.create({ href })))
-  editorView.focus()
+  if (!dispatch || !editorView) return false
+  const target = resolveWebLinkTarget(state)
+  if (!target.ok) {
+    setStatus(linkTargetMessage(target))
+    return true
+  }
+  showLinkEditor(editorView, target.target)
   return true
+}
+
+function resolveWebLinkTarget(state: EditorState): LinkEditResolution {
+  const identityMark = state.schema.marks.page_reference
+  return resolveLinkEditTarget(state, state.schema.marks.link!, identityMark ? [identityMark] : [])
+}
+
+function linkTargetMessage(resolution: Extract<LinkEditResolution, { ok: false }>): string {
+  switch (resolution.reason) {
+  case "identity-mark":
+    return "Page references keep their identity. Select plain text instead."
+  case "ambiguous-link-range":
+    return "Select one unlinked text range, or place the cursor inside one link."
+  case "non-text-selection":
+    return "Links can only be added within one text block."
+  case "selection-required":
+    return "Select text, or place the cursor inside a link."
+  }
+}
+
+function showLinkEditor(editorView: EditorView, target: LinkEditTarget): void {
+  closeSlashPalette()
+  pageMenu.hidden = true
+  closeLinkEditor(false)
+  linkEditorState = { editorView, target, selection: editorView.state.selection }
+
+  const heading = document.createElement("div")
+  heading.id = "link-editor-heading"
+  heading.className = "palette-heading"
+  heading.textContent = target.kind === "edit" ? "Edit link" : "Add link"
+
+  const form = document.createElement("form")
+  form.className = "link-editor-form"
+  const label = document.createElement("label")
+  label.className = "palette-group-label"
+  label.htmlFor = "link-editor-url"
+  label.textContent = "Web address"
+  const input = document.createElement("input")
+  input.id = "link-editor-url"
+  input.type = "url"
+  input.inputMode = "url"
+  input.setAttribute("autocomplete", "url")
+  input.spellcheck = false
+  input.placeholder = "https://example.com"
+  input.value = target.href ?? ""
+  input.setAttribute("aria-describedby", "link-editor-error")
+  const error = document.createElement("div")
+  error.id = "link-editor-error"
+  error.className = "link-editor-error"
+  error.setAttribute("role", "status")
+  error.setAttribute("aria-live", "polite")
+
+  const actions = document.createElement("div")
+  actions.className = "link-editor-actions"
+  if (target.kind === "edit") {
+    const remove = document.createElement("button")
+    remove.type = "button"
+    remove.textContent = "Remove link"
+    remove.addEventListener("click", () => applyLinkEditor())
+    actions.append(remove)
+  }
+  const submit = document.createElement("button")
+  submit.type = "submit"
+  submit.className = "link-editor-submit"
+  submit.textContent = target.kind === "edit" ? "Update link" : "Add link"
+  actions.append(submit)
+  form.append(label, input, error, actions)
+  form.addEventListener("submit", event => {
+    event.preventDefault()
+    const validation = validateHTTPURL(input.value)
+    if (!validation.ok) {
+      input.setAttribute("aria-invalid", "true")
+      error.textContent = validation.message
+      input.focus()
+      return
+    }
+    input.removeAttribute("aria-invalid")
+    error.textContent = ""
+    applyLinkEditor(validation.href)
+  })
+
+  linkMenu.replaceChildren(heading, form)
+  linkMenu.hidden = false
+  linkMenu.setAttribute("role", "dialog")
+  linkMenu.setAttribute("aria-labelledby", heading.id)
+  editorView.dom.setAttribute("aria-controls", linkMenu.id)
+  editorView.dom.setAttribute("aria-expanded", "true")
+  editorView.dom.setAttribute("aria-haspopup", "dialog")
+  positionLinkEditor()
+  window.requestAnimationFrame(() => {
+    positionLinkEditor()
+    input.focus()
+    if (target.kind === "edit") input.select()
+  })
+}
+
+function applyLinkEditor(href?: string): void {
+  const active = linkEditorState
+  if (!active) return
+  const { editorView, target } = active
+  const transaction = linkEditTransaction(
+    editorView.state,
+    target,
+    editorView.state.schema.marks.link!,
+    href,
+  )
+  if (!transaction) {
+    const error = linkMenu.querySelector<HTMLElement>("#link-editor-error")
+    if (error) error.textContent = "The selection changed. Reselect the text and try again."
+    return
+  }
+  hideLinkEditor()
+  editorView.dispatch(transaction)
+  editorView.focus()
+}
+
+function closeLinkEditor(restoreSelection = true): void {
+  const active = linkEditorState
+  hideLinkEditor()
+  if (!active || !restoreSelection) return
+  if (!active.editorView.state.selection.eq(active.selection)) {
+    active.editorView.dispatch(active.editorView.state.tr.setSelection(active.selection))
+  }
+  active.editorView.focus()
+}
+
+function hideLinkEditor(): void {
+  const active = linkEditorState
+  if (active) {
+    active.editorView.dom.setAttribute("aria-expanded", "false")
+    active.editorView.dom.removeAttribute("aria-controls")
+    active.editorView.dom.removeAttribute("aria-haspopup")
+  }
+  linkEditorState = undefined
+  linkMenu.hidden = true
+  linkMenu.removeAttribute("role")
+  linkMenu.removeAttribute("aria-labelledby")
+  linkMenu.replaceChildren()
+  linkMenu.style.removeProperty("left")
+  linkMenu.style.removeProperty("top")
+}
+
+function positionLinkEditor(): void {
+  const active = linkEditorState
+  if (!active || linkMenu.hidden) return
+  const caret = active.editorView.coordsAtPos(active.target.from)
+  const visualViewport = window.visualViewport
+  const viewport = {
+    left: visualViewport?.offsetLeft ?? 0,
+    top: visualViewport?.offsetTop ?? 0,
+    width: visualViewport?.width ?? window.innerWidth,
+    height: visualViewport?.height ?? window.innerHeight,
+  }
+  const position = placePalette(caret, {
+    width: linkMenu.offsetWidth,
+    height: linkMenu.offsetHeight,
+  }, viewport)
+  linkMenu.style.left = `${position.left}px`
+  linkMenu.style.top = `${position.top}px`
 }
 
 function editorInputRules(schema: Schema): InputRule[] {
@@ -1452,10 +1659,6 @@ function setStatus(message: string): void {
 
 function showError(error: unknown): void {
   setStatus(error instanceof Error ? error.message : String(error))
-}
-
-function isURL(value: string): boolean {
-  try { return ["http:", "https:"].includes(new URL(value).protocol) } catch { return false }
 }
 
 function youtubeVideoID(value: string): string | undefined {

@@ -1,19 +1,23 @@
 import { describe, expect, test } from "bun:test"
 import { next as A } from "@automerge/automerge"
 import { SchemaAdapter } from "@automerge/prosemirror"
+import { history, redo, undo } from "prosemirror-history"
 import { Schema } from "prosemirror-model"
 import { EditorState, TextSelection } from "prosemirror-state"
 import {
   exitCodeBlockOnEmptyLine,
   filterCommands,
+  linkEditTransaction,
   markSelectedText,
   movePaletteSelection,
   moveBelowCodeBlock,
   placePalette,
   persistSelectedMark,
+  resolveLinkEditTarget,
   selectedTextTaskPlan,
   showsEditorCommandBar,
   slashCommandQuery,
+  validateHTTPURL,
 } from "../src/editorCommands"
 
 const referenceMarkName = "__ext__dev.rawkode.enchiridion.page-reference"
@@ -26,10 +30,210 @@ const schema = new Schema({
     text: {},
   },
   marks: {
+    link: {
+      attrs: { href: {}, title: { default: null } },
+      inclusive: false,
+    },
     page_reference: {
       attrs: { pageID: {}, label: { default: "" } },
     },
   },
+})
+
+describe("web link editing", () => {
+  test("accepts only complete HTTP and HTTPS addresses", () => {
+    expect(validateHTTPURL("  https://example.com/path  ")).toEqual({
+      ok: true,
+      href: "https://example.com/path",
+    })
+    expect(validateHTTPURL("http://localhost:8080").ok).toBeTrue()
+    expect(validateHTTPURL("mailto:hello@example.com")).toEqual({
+      ok: false,
+      message: "Use a complete http:// or https:// address.",
+    })
+    expect(validateHTTPURL("example.com").ok).toBeFalse()
+    expect(validateHTTPURL("   ")).toEqual({ ok: false, message: "Enter a web address." })
+  })
+
+  test("marks selected prose without changing its text or selection", () => {
+    const paragraph = schema.nodes.paragraph!.create(null, schema.text("Read the reference"))
+    const doc = schema.nodes.doc!.create(null, paragraph)
+    let state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 19) })
+    const resolution = resolveLinkEditTarget(
+      state,
+      schema.marks.link!,
+      [schema.marks.page_reference!],
+    )
+
+    expect(resolution.ok).toBeTrue()
+    if (!resolution.ok) return
+    const transaction = linkEditTransaction(
+      state,
+      resolution.target,
+      schema.marks.link!,
+      "https://example.com/reference",
+    )
+    expect(transaction).toBeDefined()
+    state = state.apply(transaction!)
+
+    expect(state.doc.textContent).toBe("Read the reference")
+    expect({ from: state.selection.from, to: state.selection.to }).toEqual({ from: 1, to: 19 })
+    const marks = state.doc.nodeAt(1)?.marks.filter(mark => mark.type === schema.marks.link)
+    expect(marks).toHaveLength(1)
+    expect(marks?.[0]?.attrs.href).toBe("https://example.com/reference")
+  })
+
+  test("finds the whole existing link from a caret inside it", () => {
+    const link = schema.marks.link!.create({ href: "https://old.example" })
+    const paragraph = schema.nodes.paragraph!.create(null, schema.text("Linked prose", [link]))
+    const doc = schema.nodes.doc!.create(null, paragraph)
+    const state = EditorState.create({ doc, selection: TextSelection.create(doc, 5) })
+
+    expect(resolveLinkEditTarget(state, schema.marks.link!, [schema.marks.page_reference!])).toEqual({
+      ok: true,
+      target: {
+        kind: "edit",
+        from: 1,
+        to: 13,
+        href: "https://old.example",
+      },
+    })
+  })
+
+  test("updates and removes a link as one undoable transaction", () => {
+    const link = schema.marks.link!.create({ href: "https://old.example" })
+    const paragraph = schema.nodes.paragraph!.create(null, schema.text("Linked prose", [link]))
+    const doc = schema.nodes.doc!.create(null, paragraph)
+    let state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 5),
+      plugins: [history()],
+    })
+    const resolution = resolveLinkEditTarget(state, schema.marks.link!)
+    expect(resolution.ok).toBeTrue()
+    if (!resolution.ok) return
+
+    state = state.apply(linkEditTransaction(
+      state,
+      resolution.target,
+      schema.marks.link!,
+      "https://new.example",
+    )!)
+    expect(schema.marks.link!.isInSet(state.doc.nodeAt(1)!.marks)?.attrs.href).toBe("https://new.example")
+    expect(undo(state, transaction => { state = state.apply(transaction) })).toBeTrue()
+    expect(schema.marks.link!.isInSet(state.doc.nodeAt(1)!.marks)?.attrs.href).toBe("https://old.example")
+    expect(redo(state, transaction => { state = state.apply(transaction) })).toBeTrue()
+
+    const editAgain = resolveLinkEditTarget(state, schema.marks.link!)
+    expect(editAgain.ok).toBeTrue()
+    if (!editAgain.ok) return
+    state = state.apply(linkEditTransaction(state, editAgain.target, schema.marks.link!)!)
+    expect(schema.marks.link!.isInSet(state.doc.nodeAt(1)!.marks)).toBeUndefined()
+    expect(state.doc.textContent).toBe("Linked prose")
+  })
+
+  test("rejects mixed link ranges and page-reference identity marks", () => {
+    const link = schema.marks.link!.create({ href: "https://example.com" })
+    const reference = schema.marks.page_reference!.create({ pageID: "page:one", label: "One" })
+    const mixedParagraph = schema.nodes.paragraph!.create(null, [
+      schema.text("Linked", [link]),
+      schema.text(" and plain"),
+    ])
+    const mixedDoc = schema.nodes.doc!.create(null, mixedParagraph)
+    const mixedState = EditorState.create({
+      doc: mixedDoc,
+      selection: TextSelection.create(mixedDoc, 1, 17),
+    })
+    expect(resolveLinkEditTarget(mixedState, schema.marks.link!, [schema.marks.page_reference!])).toEqual({
+      ok: false,
+      reason: "ambiguous-link-range",
+    })
+
+    const referenceParagraph = schema.nodes.paragraph!.create(null, schema.text("Identity", [reference]))
+    const referenceDoc = schema.nodes.doc!.create(null, referenceParagraph)
+    const referenceState = EditorState.create({
+      doc: referenceDoc,
+      selection: TextSelection.create(referenceDoc, 1, 9),
+    })
+    expect(resolveLinkEditTarget(referenceState, schema.marks.link!, [schema.marks.page_reference!])).toEqual({
+      ok: false,
+      reason: "identity-mark",
+    })
+  })
+
+  test("persists links through saved snapshots and replayed recovery changes", () => {
+    const adapter = new SchemaAdapter({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: {
+          automerge: { block: "paragraph" },
+          content: "inline*",
+          group: "block",
+          toDOM: () => ["p", 0],
+        },
+        unknownBlock: {
+          automerge: { unknownBlock: true },
+          content: "block+",
+          group: "block",
+          toDOM: () => ["div", 0],
+        },
+        unknownLeaf: {
+          automerge: { unknownBlock: true },
+          inline: true,
+          group: "inline",
+          atom: true,
+          toDOM: () => ["span", "Unsupported content"],
+        },
+        text: { group: "inline" },
+      },
+      marks: {
+        link: {
+          automerge: {
+            markName: "link",
+            parsers: {
+              fromAutomerge: value => typeof value === "string" ? JSON.parse(value) : {},
+              fromProsemirror: mark => JSON.stringify(mark.attrs),
+            },
+          },
+          attrs: { href: {}, title: { default: null } },
+        },
+        unknownMark: {
+          automerge: { markName: "__unknown__" },
+          attrs: { unknownMarks: { default: {} } },
+        },
+      },
+    })
+    const paragraph = adapter.schema.nodes.paragraph!.create(null, adapter.schema.text("Durable link"))
+    const doc = adapter.schema.nodes.doc!.create(null, paragraph)
+    const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 13) })
+    const baseline = A.from({ body: "" })
+    let edited = A.clone(baseline)
+    const handle = {
+      change: (change: (document: { body: string }) => void) => {
+        edited = A.change(edited, change)
+      },
+    }
+
+    expect(persistSelectedMark(
+      handle,
+      ["body"],
+      adapter,
+      state,
+      adapter.schema.marks.link!,
+      { href: "https://example.com/durable" },
+    )).toBeTrue()
+
+    const saved = A.load(A.save(edited))
+    expect(A.marks(saved, ["body"])[0]?.value).toBe(JSON.stringify({
+      href: "https://example.com/durable",
+      title: null,
+    }))
+    const [recovered] = A.applyChanges(A.clone(baseline), A.getChanges(baseline, edited))
+    expect(A.marks(recovered, ["body"])[0]?.value).toBe(JSON.stringify({
+      href: "https://example.com/durable",
+      title: null,
+    }))
+  })
 })
 
 describe("unified editor chrome", () => {

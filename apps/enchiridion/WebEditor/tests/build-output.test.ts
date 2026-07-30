@@ -67,4 +67,17 @@ describe("packaged editor", () => {
     expect(html).toContain("No matching commands");
     expect(html).toContain("horizontal rule");
   });
+
+  test("packages first-class inline web-link editing", () => {
+    expect(html.match(/id="link-menu"/g)).toHaveLength(1);
+    expect(html).toContain("Edit link");
+    expect(html).toContain("Remove link");
+    expect(html).toContain("Use a complete http:// or https:// address.");
+    expect(html).toContain("Page references keep their identity.");
+    expect(html).toContain('setAttribute("role", "dialog")');
+    expect(html).toContain("aria-invalid");
+    expect(html).toContain('rel: "noreferrer"');
+    expect(html).not.toContain("window.prompt");
+    expect(html).not.toContain("Link URL");
+  });
 });

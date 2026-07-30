@@ -460,9 +460,7 @@ private struct RichPageEditor: UIViewRepresentable {
 #endif
 
 @MainActor
-private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate,
-  WKUIDelegate
-{
+private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
   private let store: LibraryStore
   private let flushController: EditorFlushController
   private let openPageHandler: (PageID) -> Void
@@ -501,7 +499,6 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
       return await self.flush()
     }
     webView.navigationDelegate = self
-    webView.uiDelegate = self
     #if os(macOS)
     webView.setValue(false, forKey: "drawsBackground")
     #else
@@ -547,7 +544,6 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     #endif
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "enchiridion", contentWorld: .page)
     webView?.navigationDelegate = nil
-    webView?.uiDelegate = nil
   }
 
   #if !os(macOS)
@@ -1012,33 +1008,6 @@ private final class EditorBridge: NSObject, WKScriptMessageHandlerWithReply, WKN
     NSWorkspace.shared.open(url)
     #else
     UIApplication.shared.open(url)
-    #endif
-  }
-
-  func webView(
-    _ webView: WKWebView,
-    runJavaScriptTextInputPanelWithPrompt prompt: String,
-    defaultText: String?,
-    initiatedByFrame frame: WKFrameInfo,
-    completionHandler: @escaping @MainActor @Sendable (String?) -> Void
-  ) {
-    #if os(macOS)
-    let alert = NSAlert()
-    alert.messageText = prompt
-    let field = NSTextField(string: defaultText ?? "")
-    field.placeholderString = "https://"
-    alert.accessoryView = field
-    alert.addButton(withTitle: "Add Link")
-    alert.addButton(withTitle: "Cancel")
-    completionHandler(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
-    #else
-    let alert = UIAlertController(title: prompt, message: nil, preferredStyle: .alert)
-    alert.addTextField { $0.text = defaultText; $0.placeholder = "https://" }
-    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
-    alert.addAction(UIAlertAction(title: "Add Link", style: .default) { _ in
-      completionHandler(alert.textFields?.first?.text)
-    })
-    webView.window?.rootViewController?.present(alert, animated: true)
     #endif
   }
 
