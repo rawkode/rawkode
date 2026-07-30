@@ -19,7 +19,12 @@ public struct VaultID: RawRepresentable, Codable, Hashable, Sendable, Identifiab
   /// Identity used only by explicitly standalone repositories, such as isolated tests.
   public static let standalone = Self(rawValue: "vault_standalone")
 
-  public var cloudZoneName: String { "EnchiridionGraph-\(rawValue)" }
+  /// Existing installations already synchronize the built-in vault through this zone.
+  public static let personalCloudZoneName = "EnchiridionVault"
+
+  public var cloudZoneName: String {
+    self == .personal ? Self.personalCloudZoneName : "EnchiridionGraph-\(rawValue)"
+  }
 }
 
 /// Nodes are the durable identities in an Enchiridion knowledge graph. PageID remains the
@@ -88,7 +93,12 @@ public struct VaultScopedNodeID: Codable, Hashable, Sendable, Identifiable {
   }
 
   public init?(serialized: String) {
-    guard let separator = serialized.firstIndex(of: "/") else { return nil }
+    guard !serialized.isEmpty else { return nil }
+    guard let separator = serialized.firstIndex(of: "/") else {
+      // AppEntity identifiers created before vault support stored only the page identity.
+      self.init(vaultID: .personal, nodeID: .init(rawValue: serialized))
+      return
+    }
     let vault = String(serialized[..<separator])
     let node = String(serialized[serialized.index(after: separator)...])
     guard vault.hasPrefix("vault_"), !node.isEmpty else { return nil }

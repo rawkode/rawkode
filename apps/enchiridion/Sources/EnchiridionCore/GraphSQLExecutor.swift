@@ -307,18 +307,24 @@ enum GraphSQLExecutor {
       switch bytes[index] {
       case 39: // String literal.
         index += 1
+        var literal: [UInt8] = []
         while index < bytes.count {
           if bytes[index] == 39 {
             if index + 1 < bytes.count, bytes[index + 1] == 39 {
+              literal.append(39)
               index += 2
             } else {
               index += 1
               break
             }
           } else {
+            literal.append(bytes[index])
             index += 1
           }
         }
+        // SQLite accepts single-quoted table names in FROM clauses for compatibility.
+        let identifier = String(decoding: literal, as: UTF8.self).lowercased()
+        if ftsShadowSources.contains(identifier) { return identifier }
       case 34, 96, 91: // Quoted identifier.
         let terminator: UInt8 = bytes[index] == 91 ? 93 : bytes[index]
         index += 1

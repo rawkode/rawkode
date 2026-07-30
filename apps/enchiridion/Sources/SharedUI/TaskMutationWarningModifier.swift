@@ -24,21 +24,27 @@ private struct TaskMutationWarningModifier: ViewModifier {
         guard next != presentedWarning else { return }
         presentedWarning = next
       }
-      .alert(
-        presentedWarning?.title ?? "Task Change Saved with Warnings",
-        item: warningBinding
-      ) { warning in
+      .alert(item: warningBinding) { warning in
         if let recovery = warning.recovery {
-          Button(recovery.title) {
+          return Alert(
+            title: Text(warning.title),
+            message: Text(warning.message),
+            primaryButton: .default(Text(recovery.title)) {
+              store.acknowledgeTaskMutationWarnings()
+              perform(recovery)
+            },
+            secondaryButton: .cancel(Text("OK")) {
+              store.acknowledgeTaskMutationWarnings()
+            }
+          )
+        }
+        return Alert(
+          title: Text(warning.title),
+          message: Text(warning.message),
+          dismissButton: .cancel(Text("OK")) {
             store.acknowledgeTaskMutationWarnings()
-            perform(recovery)
           }
-        }
-        Button("OK", role: .cancel) {
-          store.acknowledgeTaskMutationWarnings()
-        }
-      } message: { warning in
-        Text(warning.message)
+        )
       }
   }
 

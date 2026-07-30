@@ -99,13 +99,20 @@ public final class VaultRegistry: @unchecked Sendable {
 
   public static func defaultCatalogPath() throws -> String {
     let manager = FileManager.default
+    let catalogURL: URL
     #if os(iOS) || os(macOS)
     if let container = manager.containerURL(
       forSecurityApplicationGroupIdentifier: LibraryRepository.applicationGroupIdentifier
     ) {
       let directory = container.appendingPathComponent("vaults", isDirectory: true)
       try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-      return directory.appendingPathComponent("catalog.sqlite").path
+      catalogURL = directory.appendingPathComponent("catalog.sqlite")
+      try migrateLegacyPersonalVaultIfNeeded(
+        catalogPath: catalogURL.path,
+        legacyDatabaseURLs: LibraryRepository.legacyDefaultDatabaseURLs(manager: manager),
+        manager: manager
+      )
+      return catalogURL.path
     }
     #endif
     let base = try manager.url(
@@ -118,7 +125,34 @@ public final class VaultRegistry: @unchecked Sendable {
       .appendingPathComponent("dev.rawkode.enchiridion", isDirectory: true)
       .appendingPathComponent("vaults", isDirectory: true)
     try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appendingPathComponent("catalog.sqlite").path
+    catalogURL = directory.appendingPathComponent("catalog.sqlite")
+    try migrateLegacyPersonalVaultIfNeeded(
+      catalogPath: catalogURL.path,
+      legacyDatabaseURLs: LibraryRepository.legacyDefaultDatabaseURLs(manager: manager),
+      manager: manager
+    )
+    return catalogURL.path
+  }
+
+  static func migrateLegacyPersonalVaultIfNeeded(
+    catalogPath: String,
+    legacyDatabaseURLs: [URL],
+    manager: FileManager = .default
+  ) throws {
+    let destinationDirectory = URL(fileURLWithPath: catalogPath)
+      .deletingLastPathComponent()
+      .appendingPathComponent(VaultID.personal.rawValue, isDirectory: true)
+    try manager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+    let destinationDatabase = destinationDirectory.appendingPathComponent("graph.sqlite")
+
+    for sourceDatabase in legacyDatabaseURLs {
+      guard !manager.fileExists(atPath: destinationDatabase.path) else { return }
+      try LibraryRepository.migrateSQLiteDatabaseIfNeeded(
+        from: sourceDatabase,
+        to: destinationDatabase,
+        manager: manager
+      )
+    }
   }
 
   public static func defaultGraphPath(

@@ -209,6 +209,7 @@ public struct GraphBacklink: Codable, Hashable, Sendable, Identifiable {
 public enum GraphIssueKind: String, Codable, CaseIterable, Hashable, Sendable {
   case cardinalityViolation
   case unresolvedTarget
+  case invalidSourceType
   case invalidTargetType
   case inheritanceCycle
 }

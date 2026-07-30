@@ -480,20 +480,37 @@ enum GraphProjectionStore {
           }
         }
       }
-      guard !relation.targetTagIDs.isEmpty else { continue }
-      for edge in relationEdges where existingNodes.contains(edge.targetNodeID.rawValue) {
-        let targetTags = Set(try String.fetchAll(
-          db,
-          sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
-          arguments: [edge.targetNodeID.rawValue]
-        ).map(TagID.init(rawValue:)))
-        guard targetTags.isDisjoint(with: relation.targetTagIDs) else { continue }
-        try insertIssue(
-          kind: .invalidTargetType,
-          edge: edge,
-          message: "The target does not have a type allowed by \(relation.forwardName).",
-          in: db
-        )
+      if !relation.sourceTagIDs.isEmpty {
+        for edge in relationEdges where existingNodes.contains(edge.sourceNodeID.rawValue) {
+          let sourceTags = Set(try String.fetchAll(
+            db,
+            sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
+            arguments: [edge.sourceNodeID.rawValue]
+          ).map(TagID.init(rawValue:)))
+          guard sourceTags.isDisjoint(with: relation.sourceTagIDs) else { continue }
+          try insertIssue(
+            kind: .invalidSourceType,
+            edge: edge,
+            message: "The source does not have a type allowed by \(relation.forwardName).",
+            in: db
+          )
+        }
+      }
+      if !relation.targetTagIDs.isEmpty {
+        for edge in relationEdges where existingNodes.contains(edge.targetNodeID.rawValue) {
+          let targetTags = Set(try String.fetchAll(
+            db,
+            sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
+            arguments: [edge.targetNodeID.rawValue]
+          ).map(TagID.init(rawValue:)))
+          guard targetTags.isDisjoint(with: relation.targetTagIDs) else { continue }
+          try insertIssue(
+            kind: .invalidTargetType,
+            edge: edge,
+            message: "The target does not have a type allowed by \(relation.forwardName).",
+            in: db
+          )
+        }
       }
     }
   }

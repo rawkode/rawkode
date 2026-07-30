@@ -58,7 +58,7 @@ struct CloudAssetRegistry {
 
 public actor CloudSyncCoordinator: CKSyncEngineDelegate {
   public static let containerIdentifier = "iCloud.dev.rawkode.enchiridion"
-  public static let zoneName = "EnchiridionVault"
+  public static let zoneName = VaultID.personalCloudZoneName
   static let codeSignEntitlementsInfoKey = "EnchiridionCodeSignEntitlements"
   static let codeSigningAllowedInfoKey = "EnchiridionCodeSigningAllowed"
 

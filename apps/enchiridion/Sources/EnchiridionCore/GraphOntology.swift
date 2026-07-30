@@ -61,6 +61,9 @@ public enum BuiltInRelations {
     case taskArea: return .init(supertagID: BuiltInSupertags.task, fieldID: .init(rawValue: "area"))
     case taskParent: return .init(supertagID: BuiltInSupertags.task, fieldID: .init(rawValue: "parent"))
     case taskAssignees: return .init(supertagID: BuiltInSupertags.task, fieldID: .init(rawValue: "assignee"))
+    case eventOrganizer: return .init(supertagID: BuiltInSupertags.event, fieldID: .init(rawValue: "organizer"))
+    case eventAttendees: return .init(supertagID: BuiltInSupertags.event, fieldID: .init(rawValue: "attendees"))
+    case eventPlace: return .init(supertagID: BuiltInSupertags.event, fieldID: .init(rawValue: "place"))
     default:
       guard relationID.rawValue.hasPrefix("property-relation:") else { return nil }
       let parts = relationID.rawValue.split(separator: ":", omittingEmptySubsequences: false)

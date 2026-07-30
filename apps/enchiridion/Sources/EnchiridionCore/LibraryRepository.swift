@@ -356,7 +356,25 @@ public actor LibraryRepository {
     }
   }
 
-  private static func legacyLocalPath(manager: FileManager) throws -> String {
+  static func legacyDefaultDatabaseURLs(manager: FileManager = .default) throws -> [URL] {
+    var databases: [URL] = []
+    #if os(iOS)
+    if let container = manager.containerURL(
+      forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
+    ) {
+      databases.append(
+        container
+          .appendingPathComponent("vaults", isDirectory: true)
+          .appendingPathComponent("local", isDirectory: true)
+          .appendingPathComponent("library.sqlite")
+      )
+    }
+    #endif
+    databases.append(try legacyLocalDatabaseURL(manager: manager))
+    return databases
+  }
+
+  private static func legacyLocalDatabaseURL(manager: FileManager) throws -> URL {
     let base = try manager.url(
       for: .applicationSupportDirectory,
       in: .userDomainMask,
@@ -374,22 +392,8 @@ public actor LibraryRepository {
       ofItemAtPath: directory.path
     )
 #endif
-    return directory.appendingPathComponent("library.sqlite").path
+    return directory.appendingPathComponent("library.sqlite")
   }
-
-#if os(iOS)
-  private static func migrateLegacyDatabaseIfNeeded(
-    to sharedDatabase: URL,
-    manager: FileManager
-  ) throws {
-    let legacyDatabase = URL(fileURLWithPath: try legacyLocalPath(manager: manager))
-    try migrateSQLiteDatabaseIfNeeded(
-      from: legacyDatabase,
-      to: sharedDatabase,
-      manager: manager
-    )
-  }
-#endif
 
   /// Publishes the main database file last, so its presence is a durable
   /// completion marker even if copying a WAL-backed database is interrupted.

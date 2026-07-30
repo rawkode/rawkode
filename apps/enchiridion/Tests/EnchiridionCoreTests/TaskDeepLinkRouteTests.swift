@@ -53,13 +53,22 @@ final class TaskDeepLinkRouteTests: XCTestCase {
     XCTAssertEqual(TaskDeepLinkRoute(url: url), .list(.inbox, vaultID: vaultID))
   }
 
+  func testLegacyRouteWithoutVaultDefaultsToPersonal() throws {
+    let url = try XCTUnwrap(URL(string: "enchiridion://tasks/today?task=task-123"))
+
+    XCTAssertEqual(
+      TaskDeepLinkRoute(url: url),
+      .task(scoped("task-123"), list: .today)
+    )
+  }
+
   func testRejectsForeignAndMalformedRoutes() throws {
     let routes = try [
       XCTUnwrap(URL(string: "https://tasks/today")),
       XCTUnwrap(URL(string: "enchiridion://calendar/today")),
       XCTUnwrap(URL(string: "enchiridion://tasks/unknown")),
       XCTUnwrap(URL(string: "enchiridion://tasks/today/extra")),
-      XCTUnwrap(URL(string: "enchiridion://tasks/today")),
+      XCTUnwrap(URL(string: "enchiridion://tasks/today?vault=personal")),
     ]
 
     for url in routes {

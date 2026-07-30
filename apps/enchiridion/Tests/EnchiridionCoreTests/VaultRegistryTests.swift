@@ -10,7 +10,7 @@ final class VaultRegistryTests: XCTestCase {
     XCTAssertEqual(snapshot.vaults.map(\.name), ["Personal"])
     XCTAssertEqual(snapshot.vaults.map(\.id), [.personal])
     XCTAssertEqual(snapshot.selectedVaultID, snapshot.defaultCaptureVaultID)
-    XCTAssertEqual(snapshot.vaults[0].cloudZoneName, "EnchiridionGraph-vault_personal")
+    XCTAssertEqual(snapshot.vaults[0].cloudZoneName, "EnchiridionVault")
     XCTAssertEqual(
       URL(fileURLWithPath: try fixture.registry.graphPath(selection: .selected)).lastPathComponent,
       "graph.sqlite"
@@ -65,6 +65,32 @@ final class VaultRegistryTests: XCTestCase {
     ) { error in
       XCTAssertEqual(error as? VaultRegistryError, .invalidIdentifier)
     }
+  }
+
+  func testCustomVaultUsesIndependentCloudZone() {
+    let vault = VaultID(rawValue: "vault_work")
+
+    XCTAssertEqual(vault.cloudZoneName, "EnchiridionGraph-vault_work")
+  }
+
+  func testLegacyLibraryMigratesToPersonalGraphBeforeCatalogOpens() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("VaultRegistryMigrationTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let legacyDatabase = directory.appendingPathComponent("legacy-library.sqlite")
+    let catalogPath = directory.appendingPathComponent("vaults/catalog.sqlite").path
+    let contents = Data("legacy-library".utf8)
+    try contents.write(to: legacyDatabase)
+
+    try VaultRegistry.migrateLegacyPersonalVaultIfNeeded(
+      catalogPath: catalogPath,
+      legacyDatabaseURLs: [legacyDatabase]
+    )
+
+    let personalGraph = directory
+      .appendingPathComponent("vaults/vault_personal/graph.sqlite")
+    XCTAssertEqual(try Data(contentsOf: personalGraph), contents)
   }
 
   private func makeFixture() throws -> (
