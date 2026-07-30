@@ -237,6 +237,54 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
+  func testVoiceKeepsFullVisibleAnswerWhileSpeakingComposedAnswer() async throws {
+    let fullAnswer = """
+      ## Today
+      Read the [project plan](https://example.com/private-plan). The design review starts at ten. \
+      Bring the draft so the team can compare both options.
+
+      ## Sources
+      - Design review
+      - Private project plan
+      """
+    let transcriber = ScriptedTranscriber(utterances: ["What is next?"])
+    let speaker = RecordingSpeaker()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: FixedAnswerer(
+        response: GroundedAssistantResponse(
+          answer: fullAnswer,
+          status: .answered,
+          sources: [
+            AssistantSource(
+              id: "event:design-review",
+              kind: .calendarEvent,
+              title: "Design review"
+            )
+          ]
+        )
+      ),
+      speaker: speaker,
+      speaksResponses: true,
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 2 }
+
+    XCTAssertEqual(session.turns.first?.answer, fullAnswer)
+    let spokenValues = await speaker.spoken
+    XCTAssertEqual(
+      spokenValues,
+      [
+        "Today: Read the project plan. The design review starts at ten. "
+          + "You can ask me to keep going."
+      ]
+    )
+    await session.stop()
+  }
+
+  @MainActor
   func testDeniedVoiceDoesNotEraseTypedConversationOrStartCapture() async {
     let transcriber = DeniedTranscriber()
     let session = AssistantConversationSession(
@@ -568,17 +616,267 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .idle)
   }
 
-  func testSpokenFormatterKeepsSafetyCaveatAndDeduplicatesSources() {
-    let source = AssistantSource(id: "event:one", kind: .calendarEvent, title: "Design review")
+  func testSpokenFormatterKeepsConversationalResponseNatural() {
     let response = GroundedAssistantResponse(
-      answer: "It starts at ten.",
-      status: .stale,
-      sources: [source, source]
+      answer: "Hello! How can I help?",
+      status: .answered
     )
 
     XCTAssertEqual(
       AssistantSpokenResponseFormatter.spokenText(for: response),
-      "Your local calendar information may be out of date. It starts at ten. Sources: Design review."
+      "Hello! How can I help?"
+    )
+  }
+
+  func testSpokenFormatterOmitsDuplicateAndMultipleSources() {
+    let first = AssistantSource(id: "event:one", kind: .calendarEvent, title: "Design review")
+    let second = AssistantSource(id: "page:two", kind: .page, title: "Private project plan")
+    let response = GroundedAssistantResponse(
+      answer: "It starts at ten. Sources: Design review, Private project plan.",
+      status: .answered,
+      sources: [first, first, second]
+    )
+
+    let spoken = AssistantSpokenResponseFormatter.spokenText(for: response)
+    XCTAssertEqual(spoken, "It starts at ten.")
+    XCTAssertFalse(spoken.contains("Sources:"))
+    XCTAssertFalse(spoken.contains("Design review"))
+    XCTAssertFalse(spoken.contains("Private project plan"))
+  }
+
+  func testSpokenFormatterNormalizesDecoratedSourceSectionsBeforeOmittingThem() {
+    let answers = [
+      """
+      The review starts at ten.
+
+      ## **Sources**
+      - Secret calendar title
+      - event:secret-source
+      """,
+      """
+      The review starts at ten.
+
+      **Sources:** Secret calendar title
+      - event:secret-source
+      """,
+      """
+      The review starts at ten.
+
+      **Source:** Secret calendar title
+      - event:secret-source
+      """,
+      """
+      The review starts at ten.
+
+      - **Sources:**
+        - Secret calendar title
+        - event:secret-source
+      """,
+      """
+      The review starts at ten.
+
+      > ### **Source**
+      > - Secret calendar title
+      > - event:secret-source
+      """,
+    ]
+
+    for answer in answers {
+      let spoken = AssistantSpokenResponseFormatter.spokenText(
+        for: GroundedAssistantResponse(answer: answer, status: .answered)
+      )
+      XCTAssertEqual(spoken, "The review starts at ten.")
+      XCTAssertFalse(spoken.localizedCaseInsensitiveContains("sources"))
+      XCTAssertFalse(spoken.contains("Secret calendar title"))
+      XCTAssertFalse(spoken.contains("event:secret-source"))
+    }
+  }
+
+  func testSpokenFormatterOmitsFencedCodeAndURLLikeIdentifiers() {
+    let response = GroundedAssistantResponse(
+      answer: """
+        Your report is ready.
+        ```text
+        event:fenced-secret-source
+        file:///private/fenced-report
+        ```
+        event:outside-secret-source
+        file:///private/report
+        ftp://files.example.com/private-report
+        enchiridion://page/private-report
+        Open [the private page](enchiridion://page/private-report).
+        """,
+      status: .answered
+    )
+
+    let spoken = AssistantSpokenResponseFormatter.spokenText(for: response)
+    XCTAssertEqual(spoken, "Your report is ready. Open the private page.")
+    XCTAssertFalse(spoken.contains("secret-source"))
+    XCTAssertFalse(spoken.contains("private-report"))
+    XCTAssertFalse(spoken.contains("://"))
+  }
+
+  func testSpokenFormatterOmitsQuotedFencedContent() {
+    let response = GroundedAssistantResponse(
+      answer: """
+        Your report is ready.
+        > ```text
+        > event:quoted-secret-source
+        > file:///private/quoted-report
+        > ```
+        Keep the visible summary.
+        """,
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "Your report is ready. Keep the visible summary."
+    )
+  }
+
+  func testSpokenFormatterRemovesBoundedURIsWithoutRemovingColonProse() {
+    let privateTokens = [
+      "https://example.com/private(secret)",
+      "https://example.com/private(secret",
+      "http://example.com/private",
+      "ftp://files.example.com/private",
+      "file:///private/report",
+      "enchiridion://page/private",
+      "mailto:secret@example.com",
+      "tel:+441234567890",
+      "www.example.com/private",
+      "calendar:private-event",
+      "event:private-event",
+      "page:private-page",
+      "task:private-task",
+    ]
+
+    for token in privateTokens {
+      let response = GroundedAssistantResponse(
+        answer: "Version:v2 is ready. \(token) Keep this private.",
+        status: .answered
+      )
+      let spoken = AssistantSpokenResponseFormatter.spokenText(for: response)
+      XCTAssertEqual(spoken, "Version:v2 is ready. Keep this private.", token)
+      XCTAssertFalse(spoken.contains("(secret)"), token)
+    }
+
+    let parenthesized = GroundedAssistantResponse(
+      answer: "Version:v2 is ready. (https://example.com/private) Keep this private.",
+      status: .answered
+    )
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: parenthesized),
+      "Version:v2 is ready. Keep this private."
+    )
+  }
+
+  func testSpokenFormatterDoesNotTreatOrdinaryColonProseAsAURL() {
+    let response = GroundedAssistantResponse(
+      answer: "Note: bring lunch. The file is attached.",
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "Note: bring lunch. The file is attached."
+    )
+  }
+
+  func testSpokenFormatterKeepsSafetyCaveatExactlyOnce() {
+    let caveat = "Your local notes contain conflicting information."
+    let response = GroundedAssistantResponse(
+      answer: "\(caveat) The newer note says eleven. \(caveat)",
+      status: .conflicting
+    )
+
+    let spoken = AssistantSpokenResponseFormatter.spokenText(for: response)
+    XCTAssertEqual(spoken, "\(caveat) The newer note says eleven.")
+    XCTAssertEqual(spoken.components(separatedBy: caveat).count - 1, 1)
+  }
+
+  func testSpokenFormatterRendersMarkdownAsPlainSpeech() {
+    let response = GroundedAssistantResponse(
+      answer: """
+        # Plan
+        - Read [the project plan](https://example.com/private-plan).
+        - Review **today's** `draft`.
+        """,
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "Plan: Read the project plan. Review today's draft."
+    )
+  }
+
+  func testSpokenFormatterStopsAtCompleteSentencesAndOffersContinuation() {
+    let response = GroundedAssistantResponse(
+      answer: "First, review the plan. Second, compare the drafts. Third, share the decision.",
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "First, review the plan. Second, compare the drafts. You can ask me to keep going."
+    )
+  }
+
+  func testSpokenFormatterUsesReadableFallbackWhenNoSentenceFits() {
+    let longSentence = Array(repeating: "detail", count: 56).joined(separator: " ") + "."
+    let response = GroundedAssistantResponse(answer: longSentence, status: .answered)
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "I have a longer answer ready. You can ask me to keep going."
+    )
+  }
+
+  func testSpokenFormatterHandlesEmptyAndFormattingOnlyAnswers() {
+    for answer in ["", "   ", "#\n***\n**"] {
+      XCTAssertEqual(
+        AssistantSpokenResponseFormatter.spokenText(
+          for: GroundedAssistantResponse(answer: answer, status: .answered)
+        ),
+        "I don't have an answer to read aloud."
+      )
+    }
+  }
+
+  func testSpokenFormatterRecognizesUnicodeSentencePunctuation() {
+    let response = GroundedAssistantResponse(
+      answer: "第一句话！第二句话？第三句话。",
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "第一句话！ 第二句话？ You can ask me to keep going."
+    )
+  }
+
+  func testSpokenFormatterKeepsAbbreviationsInitialsAndDecimalsInTheirSentences() {
+    let response = GroundedAssistantResponse(
+      answer: "Meet Dr. A. Smith at 10.30, e.g. by the desk. Bring notes. Leave early.",
+      status: .answered
+    )
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "Meet Dr. A. Smith at 10.30, e.g. by the desk. Bring notes. "
+        + "You can ask me to keep going."
+    )
+  }
+
+  func testSpokenFormatterAppliesLexicalUnitLimitToUnspacedCJKText() {
+    let longSentence = Array(repeating: "细节", count: 56).joined(separator: "，") + "。"
+    let response = GroundedAssistantResponse(answer: longSentence, status: .answered)
+
+    XCTAssertEqual(
+      AssistantSpokenResponseFormatter.spokenText(for: response),
+      "I have a longer answer ready. You can ask me to keep going."
     )
   }
 }

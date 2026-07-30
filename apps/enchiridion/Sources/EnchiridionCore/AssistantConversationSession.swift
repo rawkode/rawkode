@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import Observation
 
 /// A single, in-memory exchange with the assistant. This type is deliberately not
@@ -186,24 +187,304 @@ public enum AssistantConversationState: Equatable, Sendable {
 }
 
 public enum AssistantSpokenResponseFormatter {
+  private struct MarkdownFence {
+    var marker: Character
+    var length: Int
+    var hasTrailingContent: Bool
+  }
+
+  private static let continuationCue = "You can ask me to keep going."
+  private static let emptyAnswerFallback = "I don't have an answer to read aloud."
+  private static let longAnswerFallback = "I have a longer answer ready."
+  private static let maximumSentenceCount = 2
+  private static let maximumWordCount = 55
+
   public static func spokenText(for response: GroundedAssistantResponse) -> String {
-    let caveat: String
-    switch response.status {
-    case .ambiguous:
-      caveat = "I found more than one possible match. "
-    case .stale:
-      caveat = "Your local calendar information may be out of date. "
-    case .conflicting:
-      caveat = "Your local notes contain conflicting information. "
-    default:
-      caveat = ""
+    let caveat = safetyCaveat(for: response.status)
+    var answer = plainSpeech(from: response.answer)
+    if let caveat {
+      answer = removingRepeatedCaveat(caveat, from: answer)
     }
 
-    let titles = response.sources.reduce(into: [String]()) { result, source in
-      if !result.contains(source.title) { result.append(source.title) }
+    let answerSentences = sentences(in: answer)
+    var candidates = caveat.map { [$0] } ?? []
+    candidates.append(contentsOf: answerSentences)
+    guard !candidates.isEmpty else { return emptyAnswerFallback }
+
+    var selected: [String] = []
+    var selectedWordCount = 0
+    for sentence in candidates {
+      let sentenceWordCount = wordCount(in: sentence)
+      guard selected.count < maximumSentenceCount,
+        selectedWordCount + sentenceWordCount <= maximumWordCount
+      else {
+        let prefix = selected.isEmpty ? longAnswerFallback : selected.joined(separator: " ")
+        return "\(prefix) \(continuationCue)"
+      }
+      selected.append(sentence)
+      selectedWordCount += sentenceWordCount
     }
-    guard !titles.isEmpty else { return caveat + response.answer }
-    return "\(caveat)\(response.answer) Sources: \(titles.joined(separator: ", "))."
+
+    return selected.joined(separator: " ")
+  }
+
+  private static func safetyCaveat(for status: AssistantResponseStatus) -> String? {
+    switch status {
+    case .ambiguous:
+      "I found more than one possible match."
+    case .stale:
+      "Your local calendar information may be out of date."
+    case .conflicting:
+      "Your local notes contain conflicting information."
+    default:
+      nil
+    }
+  }
+
+  private static func plainSpeech(from markdown: String) -> String {
+    let lines = markdownWithoutSources(markdown)
+      .split(omittingEmptySubsequences: false, whereSeparator: \Character.isNewline)
+      .compactMap { speechContent(from: String($0)) }
+    let inlineMarkdown = lines.joined(separator: " ")
+    let options = AttributedString.MarkdownParsingOptions(
+      interpretedSyntax: .inlineOnlyPreservingWhitespace
+    )
+    let rendered = renderInlineMarkdown(inlineMarkdown, options: options)
+    let withoutURLs = removingURILikeTokens(from: rendered)
+    return normalizeWhitespace(withoutURLs)
+  }
+
+  private static func markdownWithoutSources(_ markdown: String) -> String {
+    var keptLines: [String] = []
+    var omittingSourceBlock = false
+    var activeFence: MarkdownFence?
+
+    for originalLine in markdown.split(
+      omittingEmptySubsequences: false,
+      whereSeparator: \Character.isNewline
+    ) {
+      let line = String(originalLine)
+      let structuralLine = markdownStructureContent(from: line)
+      if let fence = markdownFence(in: structuralLine) {
+        if let openingFence = activeFence {
+          if fence.marker == openingFence.marker, fence.length >= openingFence.length,
+            !fence.hasTrailingContent
+          {
+            activeFence = nil
+          }
+        } else {
+          activeFence = fence
+        }
+        continue
+      }
+      if activeFence != nil { continue }
+
+      if let heading = markdownHeading(in: structuralLine) {
+        if isSourceHeading(heading) {
+          omittingSourceBlock = true
+          continue
+        }
+        if omittingSourceBlock { omittingSourceBlock = false }
+      }
+      if omittingSourceBlock { continue }
+
+      let renderedLine = renderInlineMarkdown(structuralLine)
+      if let sourceRange = sourceLabelRange(in: renderedLine) {
+        let answerPrefix = String(renderedLine[..<sourceRange.lowerBound])
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !answerPrefix.isEmpty { keptLines.append(answerPrefix) }
+        omittingSourceBlock = true
+        continue
+      }
+      keptLines.append(line)
+    }
+
+    return keptLines.joined(separator: "\n")
+  }
+
+  private static func markdownFence(in line: String) -> MarkdownFence? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard let marker = trimmed.first, marker == "`" || marker == "~" else { return nil }
+    let length = trimmed.prefix(while: { $0 == marker }).count
+    guard length >= 3 else { return nil }
+    let contentStart = trimmed.index(trimmed.startIndex, offsetBy: length)
+    let trailingContent = trimmed[contentStart...]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return MarkdownFence(
+      marker: marker,
+      length: length,
+      hasTrailingContent: !trailingContent.isEmpty
+    )
+  }
+
+  private static func isSourceHeading(_ heading: String) -> Bool {
+    let normalized = renderInlineMarkdown(heading)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+    return normalized.caseInsensitiveCompare("source") == .orderedSame
+      || normalized.caseInsensitiveCompare("sources") == .orderedSame
+  }
+
+  private static func sourceLabelRange(in line: String) -> Range<String.Index>? {
+    guard let expression = try? NSRegularExpression(pattern: #"(?i)\bsources?\s*:"#),
+      let match = expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+      let range = Range(match.range, in: line)
+    else { return nil }
+    let prefix = line[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard prefix.isEmpty || prefix.last.map(isSentenceTerminator) == true else { return nil }
+    return range
+  }
+
+  private static func markdownHeading(in line: String) -> String? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let markerCount = trimmed.prefix(while: { $0 == "#" }).count
+    guard (1...6).contains(markerCount) else { return nil }
+    let contentStart = trimmed.index(trimmed.startIndex, offsetBy: markerCount)
+    guard contentStart == trimmed.endIndex || trimmed[contentStart].isWhitespace else { return nil }
+    return trimmed[contentStart...]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+  }
+
+  private static func speechContent(from line: String) -> String? {
+    var content = markdownStructureContent(from: line)
+    guard !content.isEmpty else { return nil }
+    if content.hasPrefix("```") || content.hasPrefix("~~~") { return nil }
+    if content.allSatisfy({ "-*_".contains($0) }) { return nil }
+
+    if let heading = markdownHeading(in: content) {
+      content = heading
+      if !content.isEmpty, content.last.map(isSentenceTerminator) != true,
+        !content.hasSuffix(":")
+      {
+        content.append(":")
+      }
+    }
+    if content.first == "[", let definitionEnd = content.range(of: "]:")?.upperBound,
+      content[definitionEnd...].trimmingCharacters(in: .whitespaces).hasPrefix("http")
+    {
+      return nil
+    }
+    return content.isEmpty ? nil : content
+  }
+
+  private static func markdownStructureContent(from line: String) -> String {
+    var content = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    var previous = ""
+    while content != previous {
+      previous = content
+      while content.hasPrefix(">") {
+        content.removeFirst()
+        content = content.trimmingCharacters(in: .whitespaces)
+      }
+      if content.hasPrefix("- ") || content.hasPrefix("* ") || content.hasPrefix("+ ") {
+        content.removeFirst(2)
+        content = content.trimmingCharacters(in: .whitespaces)
+      } else if let orderedContent = removingOrderedListMarker(from: content) {
+        content = orderedContent.trimmingCharacters(in: .whitespaces)
+      }
+      if content.hasPrefix("[ ] ") || content.hasPrefix("[x] ") || content.hasPrefix("[X] ") {
+        content.removeFirst(4)
+        content = content.trimmingCharacters(in: .whitespaces)
+      }
+    }
+    return content
+  }
+
+  private static func removingOrderedListMarker(from content: String) -> String? {
+    let numberEnd = content.prefix(while: \Character.isNumber).endIndex
+    guard numberEnd != content.startIndex, numberEnd != content.endIndex,
+      content[numberEnd] == "." || content[numberEnd] == ")"
+    else { return nil }
+    let space = content.index(after: numberEnd)
+    guard space != content.endIndex, content[space].isWhitespace else { return nil }
+    return String(content[content.index(after: space)...])
+  }
+
+  private static func removingRepeatedCaveat(_ caveat: String, from answer: String) -> String {
+    var result = answer
+    while let range = result.range(of: caveat, options: .caseInsensitive) {
+      result.removeSubrange(range)
+    }
+    return normalizeWhitespace(result)
+  }
+
+  private static func sentences(in text: String) -> [String] {
+    guard !text.isEmpty else { return [] }
+    let tokenizer = NLTokenizer(unit: .sentence)
+    tokenizer.string = text
+    var result: [String] = []
+    tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+      let sentence = text[range]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if !sentence.isEmpty { result.append(sentence) }
+      return true
+    }
+    return result
+  }
+
+  private static func isSentenceTerminator(_ character: Character) -> Bool {
+    ".!?…。！？".contains(character)
+  }
+
+  private static func wordCount(in text: String) -> Int {
+    let tokenizer = NLTokenizer(unit: .word)
+    tokenizer.string = text
+    var count = 0
+    tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { _, _ in
+      count += 1
+      return true
+    }
+    return count
+  }
+
+  private static func normalizeWhitespace(_ text: String) -> String {
+    text.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+  }
+
+  private static func removingURILikeTokens(from text: String) -> String {
+    let pattern =
+      #"(?i)(?<![\p{L}\p{N}_])(?:[a-z][a-z0-9+.-]*://|(?:mailto|tel|calendar|event|page|task):|www\.)[^\s<>\"\[\]{}]+"#
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
+
+    let source = text as NSString
+    let result = NSMutableString(string: text)
+    let terminalPunctuation = CharacterSet(charactersIn: ".,;!?…。！？，；")
+    let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
+    for match in matches.reversed() {
+      var removalRange = match.range
+      while removalRange.length > 0 {
+        let trailingRange = NSRange(
+          location: removalRange.location + removalRange.length - 1,
+          length: 1
+        )
+        let trailing = source.substring(with: trailingRange)
+        guard trailing.rangeOfCharacter(from: terminalPunctuation) != nil else { break }
+        removalRange.length -= 1
+      }
+
+      guard removalRange.length > 0 else { continue }
+      let token = source.substring(with: removalRange)
+      if removalRange.location > 0,
+        source.substring(with: NSRange(location: removalRange.location - 1, length: 1)) == "(",
+        token.filter({ $0 == ")" }).count > token.filter({ $0 == "(" }).count
+      {
+        removalRange.location -= 1
+        removalRange.length += 1
+      }
+      result.replaceCharacters(in: removalRange, with: "")
+    }
+    return result as String
+  }
+
+  private static func renderInlineMarkdown(
+    _ markdown: String,
+    options: AttributedString.MarkdownParsingOptions = AttributedString.MarkdownParsingOptions(
+      interpretedSyntax: .inlineOnlyPreservingWhitespace
+    )
+  ) -> String {
+    (try? AttributedString(markdown: markdown, options: options))
+      .map { String($0.characters) } ?? markdown
   }
 }
 
