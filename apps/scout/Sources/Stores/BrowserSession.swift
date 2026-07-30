@@ -43,6 +43,7 @@ final class BrowserSession: Identifiable {
   private let logger = Logger(subsystem: "dev.rawkode.scout", category: "BrowserSession")
   private var hasStarted = false
   private var openingGrantID: AccessGrant.ID?
+  private var selectionRevision = 0
 
   init(
     grantStore: AccessGrantStore,
@@ -109,6 +110,7 @@ final class BrowserSession: Identifiable {
     }
     presentationController.stop()
     search.stopSearch()
+    selectionRevision += 1
 
     if let previousID = activeGrant?.id { await scopeBroker.release(grantID: previousID) }
     activeGrant = nil
@@ -156,6 +158,8 @@ final class BrowserSession: Identifiable {
   }
 
   func select(_ ids: Set<FileItem.ID>, in directory: URL? = nil) async {
+    selectionRevision += 1
+    let revision = selectionRevision
     selectedIDs = ids
     if let directory, let index = columns.firstIndex(where: { $0.directoryURL == directory }) {
       columns[index].selectedIDs = ids
@@ -163,7 +167,7 @@ final class BrowserSession: Identifiable {
          let selectedID = ids.first,
          let item = columns[index].items.first(where: { $0.id == selectedID }),
          item.isTraversableDirectory {
-        await loadDirectory(item.url, afterColumn: index)
+        await loadDirectory(item.url, afterColumn: index, selectedID: item.id, revision: revision)
       } else {
         columns.removeSubrange((index + 1)..<columns.endIndex)
       }
@@ -422,10 +426,19 @@ final class BrowserSession: Identifiable {
     }
   }
 
-  private func loadDirectory(_ directory: URL, afterColumn index: Int) async {
+  private func loadDirectory(
+    _ directory: URL,
+    afterColumn index: Int,
+    selectedID: FileItem.ID,
+    revision: Int
+  ) async {
     guard let rootURL else { return }
     do {
       let snapshot = try await fileSystem.snapshot(of: directory, root: rootURL, sort: sort, showHidden: showHiddenItems)
+      guard revision == selectionRevision,
+            columns.indices.contains(index),
+            columns[index].selectedIDs == [selectedID]
+      else { return }
       if index + 1 < columns.count { columns.removeSubrange((index + 1)..<columns.endIndex) }
       columns.append(BrowserColumn(directoryURL: directory, items: snapshot.items))
       updatePresentation()

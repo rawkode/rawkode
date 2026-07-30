@@ -7,10 +7,18 @@ struct MillerColumnsView: NSViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
   func makeNSView(context: Context) -> NSBrowser {
-    let browser = NSBrowser()
+    let browser = ScoutBrowser()
     browser.delegate = context.coordinator
     browser.target = context.coordinator
     browser.action = #selector(Coordinator.selectionChanged(_:))
+    browser.moveIntoNextColumnHandler = { [weak browser, weak coordinator = context.coordinator] in
+      guard let browser, let coordinator else { return false }
+      return coordinator.moveIntoNextColumn(in: browser)
+    }
+    browser.moveIntoPreviousColumnHandler = { [weak browser, weak coordinator = context.coordinator] in
+      guard let browser, let coordinator else { return false }
+      return coordinator.moveIntoPreviousColumn(in: browser)
+    }
     browser.backgroundColor = ScoutTheme.canvasNS
     browser.allowsMultipleSelection = true
     browser.allowsEmptySelection = true
@@ -56,7 +64,13 @@ struct MillerColumnsView: NSViewRepresentable {
 
     if !nextItems.isEmpty, !context.coordinator.didRequestInitialFocus {
       context.coordinator.didRequestInitialFocus = true
-      DispatchQueue.main.async { browser.window?.makeFirstResponder(browser) }
+      Task { @MainActor [weak browser] in
+        for _ in 0..<3 {
+          try? await Task.sleep(for: .milliseconds(120))
+          guard let browser else { return }
+          browser.window?.makeFirstResponder(browser)
+        }
+      }
     }
   }
 
@@ -104,9 +118,76 @@ struct MillerColumnsView: NSViewRepresentable {
       Task { await session.select(ids, in: directory) }
     }
 
+    @MainActor
+    func moveIntoNextColumn(in browser: NSBrowser) -> Bool {
+      guard let currentColumn = session.columns.lastIndex(where: { !$0.selectedIDs.isEmpty }) else { return true }
+      guard let selectedID = session.columns[currentColumn].selectedIDs.first,
+            let selectedItem = session.columns[currentColumn].items.first(where: { $0.id == selectedID }),
+            selectedItem.isTraversableDirectory
+      else { return false }
+
+      let nextColumn = currentColumn + 1
+      guard session.columns.indices.contains(nextColumn) else { return true }
+      guard let item = session.columns[nextColumn].items.first else { return true }
+
+      if browser.lastColumn >= nextColumn {
+        browser.selectRow(0, inColumn: nextColumn)
+        browser.scrollColumnToVisible(nextColumn)
+      }
+      let directory = session.columns[nextColumn].directoryURL
+      Task { await session.select([item.id], in: directory) }
+      return true
+    }
+
+    @MainActor
+    func moveIntoPreviousColumn(in browser: NSBrowser) -> Bool {
+      guard let currentColumn = session.columns.lastIndex(where: { !$0.selectedIDs.isEmpty }) else { return false }
+      let previousColumn = currentColumn - 1
+      guard session.columns.indices.contains(previousColumn),
+            let selectedID = session.columns[previousColumn].selectedIDs.first,
+            let selectedRow = session.columns[previousColumn].items.firstIndex(where: { $0.id == selectedID })
+      else { return false }
+
+      browser.selectRow(selectedRow, inColumn: previousColumn)
+      browser.scrollColumnToVisible(previousColumn)
+      let directory = session.columns[previousColumn].directoryURL
+      Task { await session.select([selectedID], in: directory) }
+      return true
+    }
+
     func browser(_ browser: NSBrowser, isColumnValid column: Int) -> Bool {
       session.columns.indices.contains(column)
     }
+  }
+}
+
+private final class ScoutBrowser: NSBrowser {
+  var moveIntoNextColumnHandler: (() -> Bool)?
+  var moveIntoPreviousColumnHandler: (() -> Bool)?
+
+  override func keyDown(with event: NSEvent) {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard modifiers.isEmpty else {
+      super.keyDown(with: event)
+      return
+    }
+
+    switch event.keyCode {
+    case 124 where moveIntoNextColumn():
+      return
+    case 123 where moveIntoPreviousColumn():
+      return
+    default:
+      super.keyDown(with: event)
+    }
+  }
+
+  private func moveIntoNextColumn() -> Bool {
+    moveIntoNextColumnHandler?() ?? false
+  }
+
+  private func moveIntoPreviousColumn() -> Bool {
+    moveIntoPreviousColumnHandler?() ?? false
   }
 }
 
