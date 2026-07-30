@@ -24,6 +24,7 @@ struct MacRootView: View {
   @State private var showsGraphQuery = false
   @State private var showsGraphIssues = false
   @State private var showsGraphRelationDefinitions = false
+  @State private var routeErrorMessage: String?
 
   init(
     store: LibraryStore = LibraryStore(),
@@ -501,6 +502,11 @@ struct MacRootView: View {
     } message: {
       Text("The perspective will disappear on every synced device. Your tasks are not deleted.")
     }
+    .alert("Unable to Open Task", isPresented: routeErrorBinding) {
+      Button("Dismiss Error", role: .cancel) {}
+    } message: {
+      Text(routeErrorMessage ?? "The linked vault could not be opened.")
+    }
     .onChange(of: store.savedViews) { oldViews, views in
       if case .view(let id) = selection, !views.contains(where: { $0.id == id }) {
         let removedView = oldViews.first { $0.id == id }
@@ -812,12 +818,17 @@ struct MacRootView: View {
 
   private func receive(_ route: TaskDeepLinkRoute) async {
     guard await editorFlushController.flush() else { return }
-    guard let workspaceStore = workspaceStore(for: route.vaultID) else { return }
-    let outcome = await systemHandoffCoordinator.open(route) {
-      await workspaceStore.reload()
+    do {
+      let workspaceStore = try workspaceStore(for: route.vaultID)
+      let outcome = await systemHandoffCoordinator.open(route) {
+        await workspaceStore.reload()
+      }
+      guard let route = outcome?.route else { return }
+      routeErrorMessage = nil
+      apply(route, store: workspaceStore)
+    } catch {
+      routeErrorMessage = error.localizedDescription
     }
-    guard let route = outcome?.route else { return }
-    apply(route)
   }
 
   private func refreshForActivation() async {
@@ -826,10 +837,10 @@ struct MacRootView: View {
       return await store.reload()
     }
     guard let route = outcome?.route else { return }
-    apply(route)
+    apply(route, store: store)
   }
 
-  private func apply(_ route: TaskDeepLinkRoute) {
+  private func apply(_ route: TaskDeepLinkRoute, store: LibraryStore) {
     query = ""
     selection = .task(.smart(route.list))
 
@@ -846,16 +857,19 @@ struct MacRootView: View {
     }
   }
 
-  private func workspaceStore(for vaultID: VaultID) -> LibraryStore? {
-    guard let vaultSession else { return store.vaultID == vaultID ? store : nil }
-    do {
-      if vaultSession.selectedVault.id != vaultID {
-        try selectVault(vaultID)
-      }
-      return vaultSession.store
-    } catch {
-      return nil
+  private func workspaceStore(for vaultID: VaultID) throws -> LibraryStore {
+    guard let vaultSession else {
+      guard store.vaultID == vaultID else { throw VaultRegistryError.vaultNotFound }
+      return store
     }
+    return try vaultSession.store(forVault: vaultID, selectingWith: selectVault)
+  }
+
+  private var routeErrorBinding: Binding<Bool> {
+    Binding(
+      get: { routeErrorMessage != nil },
+      set: { if !$0 { routeErrorMessage = nil } }
+    )
   }
 
   private func selectPage(_ pageID: PageID) {

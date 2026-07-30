@@ -167,6 +167,10 @@ public actor LibraryRepository {
     }
   }
 
+  public func closeDatabase() throws {
+    try database.close()
+  }
+
   func pendingTaskEffectOutboxIdentities() throws -> [TaskEffectOutboxIdentity] {
     try database.read { db in
       try Row.fetchAll(

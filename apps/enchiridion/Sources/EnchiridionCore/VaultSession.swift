@@ -29,6 +29,7 @@ public final class VaultSession {
   @ObservationIgnored private let calendar: Calendar
   @ObservationIgnored private let contactResolver: (any DeviceContactResolving)?
   @ObservationIgnored private let startsStoresImmediately: Bool
+  @ObservationIgnored private var backgroundStores: [VaultID: LibraryStore] = [:]
 
   public convenience init(
     calendar: Calendar = .current,
@@ -124,8 +125,10 @@ public final class VaultSession {
     snapshot = try registry.snapshot()
   }
 
-  public func deleteVault(_ id: VaultID) throws {
+  public func deleteVault(_ id: VaultID) async throws {
     let name = snapshot.vaults.first(where: { $0.id == id })?.name ?? "selected"
+    let removedStore = id == selectedVault.id ? store : backgroundStores.removeValue(forKey: id)
+    let removedRepository = removedStore?.repository
     let path = try registry.deleteVault(id)
     let refreshed = try registry.snapshot()
     if id == selectedVault.id {
@@ -133,6 +136,8 @@ public final class VaultSession {
     } else {
       snapshot = refreshed
     }
+    await removedStore?.stop()
+    try await removedRepository?.closeDatabase()
 
     let directory = URL(fileURLWithPath: path).deletingLastPathComponent()
     guard FileManager.default.fileExists(atPath: directory.path) else { return }
@@ -149,6 +154,39 @@ public final class VaultSession {
     errorMessage = nil
   }
 
+  public func store(
+    forVault id: VaultID,
+    selectingWith select: @MainActor (VaultID) throws -> Void
+  ) throws -> LibraryStore {
+    if selectedVault.id != id {
+      try select(id)
+    }
+    return store
+  }
+
+  public func backgroundStore(forVault id: VaultID) async throws -> LibraryStore {
+    if selectedVault.id == id { return store }
+    if let existing = backgroundStores[id] { return existing }
+    guard let descriptor = snapshot.vaults.first(where: {
+      $0.id == id && $0.isDownloaded && $0.deletedAt == nil
+    }) else {
+      throw VaultRegistryError.vaultNotFound
+    }
+    let path = try registry.graphPath(for: id)
+    let repository = try await Task.detached(priority: .userInitiated) {
+      try LibraryRepository(path: path)
+    }.value
+    let store = LibraryStore(
+      vaultID: descriptor.id,
+      repository: repository,
+      calendar: calendar,
+      contactResolver: contactResolver,
+      startImmediately: false
+    )
+    backgroundStores[id] = store
+    return store
+  }
+
   private func replaceWorkspace(
     with id: VaultID,
     snapshot: VaultRegistrySnapshot
@@ -157,14 +195,24 @@ public final class VaultSession {
       throw VaultRegistryError.vaultNotFound
     }
     do {
-      let repository = try LibraryRepository(path: registry.graphPath(for: id))
-      let store = LibraryStore(
-        vaultID: descriptor.id,
-        repository: repository,
-        calendar: calendar,
-        contactResolver: contactResolver,
-        startImmediately: startsStoresImmediately
-      )
+      let repository: LibraryRepository
+      let store: LibraryStore
+      if let cachedStore = backgroundStores.removeValue(forKey: id),
+        let cachedRepository = cachedStore.repository
+      {
+        repository = cachedRepository
+        store = cachedStore
+        if startsStoresImmediately { Task { await store.start() } }
+      } else {
+        repository = try LibraryRepository(path: registry.graphPath(for: id))
+        store = LibraryStore(
+          vaultID: descriptor.id,
+          repository: repository,
+          calendar: calendar,
+          contactResolver: contactResolver,
+          startImmediately: startsStoresImmediately
+        )
+      }
       self.snapshot = snapshot
       selectedVault = descriptor
       self.repository = repository

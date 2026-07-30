@@ -20,6 +20,11 @@ final class VaultSessionTests: XCTestCase {
     let personalPages = try await session.repository.pages(in: .allPages)
     XCTAssertEqual(personalPages.map(\.title), ["Personal note"])
     XCTAssertEqual(session.snapshot.selectedVaultID, personalID)
+
+    try session.selectVault(work.id)
+    let workPages = try await session.repository.pages(in: .allPages)
+    XCTAssertEqual(workPages.map(\.title), ["Work note"])
+    XCTAssertEqual(session.snapshot.selectedVaultID, work.id)
   }
 
   func testDefaultCaptureSelectionDoesNotChangeActiveWorkspace() throws {
@@ -38,7 +43,23 @@ final class VaultSessionTests: XCTestCase {
     )
   }
 
-  func testDeletingActiveVaultSwitchesToFallbackAndRemovesOnlyItsDirectory() throws {
+  func testBackgroundStoreOpensAnotherVaultWithoutChangingSelection() async throws {
+    let fixture = try VaultSessionFixture(testCase: self)
+    let session = try VaultSession(registry: fixture.registry, startImmediately: false)
+    let personalID = session.selectedVault.id
+    let work = try session.createVault(name: "Work", select: false)
+
+    let backgroundStore = try await session.backgroundStore(forVault: work.id)
+    let backgroundRepository = try XCTUnwrap(backgroundStore.repository)
+    _ = try await backgroundRepository.createFreePage(title: "Background mutation")
+    let backgroundPages = try await backgroundRepository.pages(in: .allPages)
+
+    XCTAssertEqual(session.selectedVault.id, personalID)
+    XCTAssertEqual(backgroundStore.vaultID, work.id)
+    XCTAssertEqual(backgroundPages.map(\.title), ["Background mutation"])
+  }
+
+  func testDeletingActiveVaultSwitchesToFallbackAndRemovesOnlyItsDirectory() async throws {
     let fixture = try VaultSessionFixture(testCase: self)
     let session = try VaultSession(registry: fixture.registry, startImmediately: false)
     let personalID = session.selectedVault.id
@@ -50,7 +71,7 @@ final class VaultSessionTests: XCTestCase {
       fileURLWithPath: try fixture.registry.graphPath(for: personalID)
     ).deletingLastPathComponent()
 
-    try session.deleteVault(temporary.id)
+    try await session.deleteVault(temporary.id)
 
     XCTAssertEqual(session.selectedVault.id, personalID)
     XCTAssertFalse(FileManager.default.fileExists(atPath: removedDirectory.path))

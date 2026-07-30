@@ -1,17 +1,22 @@
 import EnchiridionCore
 import Foundation
+import OSLog
 @preconcurrency import UserNotifications
 
 @MainActor
 final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
   static let shared = TaskReminderNotificationCoordinator()
 
-  private var resolveStore: (@MainActor @Sendable (VaultID) throws -> LibraryStore?)?
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
+    category: "TaskReminders"
+  )
+  private var resolveStore: (@MainActor @Sendable (VaultID) async throws -> LibraryStore?)?
   private var openURL: (@MainActor @Sendable (URL) -> Void)?
 
   func configure(
     store: LibraryStore,
-    resolveStore: (@MainActor @Sendable (VaultID) throws -> LibraryStore?)? = nil,
+    resolveStore: (@MainActor @Sendable (VaultID) async throws -> LibraryStore?)? = nil,
     openURL: @escaping @MainActor @Sendable (URL) -> Void
   ) {
     self.resolveStore = resolveStore ?? { vaultID in
@@ -43,24 +48,37 @@ final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCen
   }
 
   private func handle(route: TaskReminderNotificationRoute) async {
-    guard let resolveStore,
-      let store = try? resolveStore(route.identity.vaultID),
-      let task = await task(for: route.identity.nodeID, in: store),
-      let data = task.taskData
-    else { return }
-
     let plan = TaskReminderActionPlan.make(route: route, now: Date())
-    switch plan {
-    case .complete(let identity):
-      guard data.state == .active else { return }
-      await store.completeTask(identity.nodeID)
-    case .snooze(let identity, let until):
-      guard data.state == .active else { return }
-      var updatedData = data
-      updatedData.reminder = until
-      await store.updateTask(pageID: identity.nodeID, data: updatedData)
-    case .open(let identity):
+    if case .open(let identity) = plan {
       openTask(identity)
+      return
+    }
+
+    guard let resolveStore else { return }
+    do {
+      guard let store = try await resolveStore(route.identity.vaultID),
+        let task = await task(for: route.identity.nodeID, in: store),
+        let data = task.taskData
+      else {
+        logger.error("reminder_action_unavailable")
+        return
+      }
+
+      guard data.state == .active else { return }
+      let applied: Bool
+      switch plan {
+      case .complete(let identity):
+        applied = await store.completeTask(identity.nodeID) != nil
+      case .snooze(let identity, let until):
+        var updatedData = data
+        updatedData.reminder = until
+        applied = await store.updateTask(pageID: identity.nodeID, data: updatedData) != nil
+      case .open:
+        return
+      }
+      if !applied { logger.error("reminder_action_failed") }
+    } catch {
+      logger.error("reminder_store_resolution_failed: \(error.localizedDescription, privacy: .public)")
     }
   }
 

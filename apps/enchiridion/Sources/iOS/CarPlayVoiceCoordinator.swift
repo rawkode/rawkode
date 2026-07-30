@@ -39,8 +39,8 @@ final class CarPlayVoiceCoordinator: NSObject {
     case setup
   }
 
-  private let session: AssistantConversationSession?
-  private let unavailableReason: @MainActor () -> String?
+  private var session: AssistantConversationSession?
+  private var unavailableReason: @MainActor () -> String?
   private let audioSession = AVAudioSession.sharedInstance()
   private let safetyObservers = CarPlayNotificationObserverBag()
   private let logger = Logger(
@@ -66,6 +66,19 @@ final class CarPlayVoiceCoordinator: NSObject {
     self.unavailableReason = unavailableReason
     super.init()
     observeSafetyEvents()
+  }
+
+  func update(
+    session: AssistantConversationSession?,
+    unavailableReason: @escaping @MainActor () -> String?
+  ) {
+    let connectedController = interfaceController
+    disconnect()
+    self.session = session
+    self.unavailableReason = unavailableReason
+    if let connectedController {
+      connect(to: connectedController)
+    }
   }
 
   func connect(to interfaceController: CPInterfaceController) {

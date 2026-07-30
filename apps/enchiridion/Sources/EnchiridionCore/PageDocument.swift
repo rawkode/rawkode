@@ -581,11 +581,13 @@ public enum PageDocument {
         if candidates.count > 1 { conflicts.append(.init(key: key, candidates: candidates)) }
       }
     }
+    var relationshipKeys: Set<SupertagPropertyKey> = []
     for edge in edges where edge.sourceNodeID == pageID {
       guard let key = BuiltInRelations.propertyKey(for: edge.relationID) else { continue }
+      relationshipKeys.insert(key)
       projected[key, default: []].append(.page(edge.targetNodeID))
     }
-    for key in projected.keys {
+    for key in relationshipKeys {
       projected[key] = Array(Set(projected[key] ?? [])).sorted { $0.id < $1.id }
     }
     for key in projected.keys {

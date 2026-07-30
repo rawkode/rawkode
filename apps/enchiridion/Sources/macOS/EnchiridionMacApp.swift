@@ -74,9 +74,13 @@ struct EnchiridionMacApp: App {
       MacSettingsView(
         store: runtime.store,
         contactsResolver: runtime.contactsResolver,
-        vaultSession: runtime.vaultSession,
-        selectVault: runtime.selectVault,
-        workspaceDidChange: runtime.workspaceDidChange
+        vaultContext: runtime.vaultSession.map { session in
+          VaultSettingsContext(
+            session: session,
+            selectVault: runtime.selectVault,
+            workspaceDidChange: runtime.workspaceDidChange
+          )
+        }
       )
     }
   }
@@ -119,12 +123,12 @@ final class EnchiridionMacRuntime {
   }
 
   func workspaceDidChange() {
-    repositoryError = nil
+    if vaultSession != nil { repositoryError = nil }
     rebuildWorkspaceDependents()
     TaskReminderNotificationCoordinator.shared.configure(
       store: store,
       resolveStore: { vaultID in
-        try EnchiridionMacRuntime.shared.store(for: vaultID)
+        try await EnchiridionMacRuntime.shared.vaultSession?.backgroundStore(forVault: vaultID)
       },
       openURL: { url in NSWorkspace.shared.open(url) }
     )
@@ -134,10 +138,7 @@ final class EnchiridionMacRuntime {
     guard let vaultSession else {
       return store.vaultID == vaultID ? store : nil
     }
-    if vaultSession.selectedVault.id != vaultID {
-      try selectVault(vaultID)
-    }
-    return vaultSession.store
+    return try vaultSession.store(forVault: vaultID, selectingWith: selectVault)
   }
 
   private func rebuildWorkspaceDependents() {

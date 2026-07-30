@@ -238,6 +238,7 @@ public final class VaultRegistry: @unchecked Sendable {
   /// repository before removing the returned SQLite files.
   @discardableResult
   public func deleteVault(_ id: VaultID, now: Date = Date()) throws -> String {
+    let graphPath = try graphPathWithoutCreating(for: id)
     try database.write { db in
       let active = try Self.fetchActiveVaults(db)
       guard active.contains(where: { $0.id == id }) else {
@@ -254,8 +255,8 @@ public final class VaultRegistry: @unchecked Sendable {
           try Self.setPreference(db, key: key, value: fallback.rawValue)
         }
       }
-      return try graphPath(for: id)
     }
+    return graphPath
   }
 
   public func graphPath(selection: VaultSelection) throws -> String {
@@ -273,10 +274,8 @@ public final class VaultRegistry: @unchecked Sendable {
   }
 
   public func graphPath(for id: VaultID) throws -> String {
-    guard Self.isSafe(id) else { throw VaultRegistryError.invalidIdentifier }
-    let catalogURL = URL(fileURLWithPath: path)
-    let directory = catalogURL.deletingLastPathComponent()
-      .appendingPathComponent(id.rawValue, isDirectory: true)
+    let graphPath = try graphPathWithoutCreating(for: id)
+    let directory = URL(fileURLWithPath: graphPath).deletingLastPathComponent()
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     #if os(iOS)
     try FileManager.default.setAttributes(
@@ -284,6 +283,14 @@ public final class VaultRegistry: @unchecked Sendable {
       ofItemAtPath: directory.path
     )
     #endif
+    return graphPath
+  }
+
+  func graphPathWithoutCreating(for id: VaultID) throws -> String {
+    guard Self.isSafe(id) else { throw VaultRegistryError.invalidIdentifier }
+    let catalogURL = URL(fileURLWithPath: path)
+    let directory = catalogURL.deletingLastPathComponent()
+      .appendingPathComponent(id.rawValue, isDirectory: true)
     return directory.appendingPathComponent("graph.sqlite").path
   }
 

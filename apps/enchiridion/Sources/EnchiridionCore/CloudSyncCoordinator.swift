@@ -275,6 +275,16 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     }
   }
 
+  public func stop() {
+    revalidationTask?.cancel()
+    revalidationTask = nil
+    engine = nil
+    isStarting = false
+    isAccountAuthorized = false
+    manualSyncInProgress = false
+    manualSyncRequested = false
+  }
+
   public func pageDidChange(_ pageID: PageID) async {
     guard isAccountAuthorized else { return }
     queueRecord(recordID(for: pageID), trigger: .localMutation)

@@ -136,7 +136,8 @@ extension LibraryRepository {
     }
   }
 
-  public func removeEdge(_ edgeID: EdgeID, now: Date = Date()) throws {
+  @discardableResult
+  public func removeEdge(_ edgeID: EdgeID, now: Date = Date()) throws -> NodeID {
     try database.write { db in
       guard let edge = try Row.fetchOne(
         db,
@@ -145,25 +146,9 @@ extension LibraryRepository {
       ).flatMap(Self.decodeEdge),
         let source = try Self.fetchPage(db, id: edge.sourceNodeID)
       else { throw GraphModelError.invalidEndpoint }
-      guard edge.origin != .provider, edge.origin != .inlineReference else {
-        throw GraphModelError.immutableSystemDefinition
-      }
-
-      let explicit = (try? PageDocument.inspect(source.document, pageID: source.id).graphEdges) ?? []
-      let mutation: (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection)
-      if explicit.contains(where: { $0.id == edgeID }) {
-        mutation = try PageDocument.removeEdge(edgeID, in: source.document)
-      } else if let key = BuiltInRelations.propertyKey(for: edge.relationID) {
-        let retained = (source.objectMetadata.properties[key] ?? []).filter { value in
-          guard case .page(let pageID) = value else { return true }
-          return pageID != edge.targetNodeID
-        }
-        mutation = try PageDocument.setProperty(key: key, values: retained, in: source.document)
-      } else {
-        throw GraphModelError.invalidEndpoint
-      }
-      let updated = Self.updatedPage(source, with: mutation, now: now)
+      let updated = try Self.removingEdge(edge, from: source, now: now)
       try Self.writePage(db, page: updated, cloudDirty: true)
+      return edge.sourceNodeID
     }
   }
 
@@ -359,7 +344,7 @@ extension LibraryRepository {
     keeping edgeID: EdgeID,
     now: Date = Date()
   ) throws {
-    let conflicts = try database.read { db in
+    try database.write { db in
       guard let keep = try Row.fetchOne(
         db,
         sql: "SELECT * FROM _graph_edges WHERE edge_id = ? AND relation_id = ?",
@@ -371,7 +356,7 @@ extension LibraryRepository {
           arguments: [relationID.rawValue]
         ).flatMap(Self.decodeRelation)
       else { throw GraphModelError.invalidEndpoint }
-      return try Row.fetchAll(
+      let conflicts = try Row.fetchAll(
         db,
         sql: """
           SELECT * FROM _graph_edges
@@ -388,8 +373,22 @@ extension LibraryRepository {
           keep.targetNodeID.rawValue,
         ]
       ).compactMap(Self.decodeEdge)
+      var updatedPages: [NodeID: PageSnapshot] = [:]
+      for edge in conflicts {
+        let source: PageSnapshot
+        if let updated = updatedPages[edge.sourceNodeID] {
+          source = updated
+        } else if let fetched = try Self.fetchPage(db, id: edge.sourceNodeID) {
+          source = fetched
+        } else {
+          throw GraphModelError.invalidEndpoint
+        }
+        updatedPages[edge.sourceNodeID] = try Self.removingEdge(edge, from: source, now: now)
+      }
+      for page in updatedPages.values.sorted(by: { $0.id.rawValue < $1.id.rawValue }) {
+        try Self.writePage(db, page: page, cloudDirty: true)
+      }
     }
-    for edge in conflicts { try removeEdge(edge.id, now: now) }
   }
 
   public func effectiveTagIDs(for nodeID: NodeID) throws -> Set<TagID> {
@@ -402,6 +401,30 @@ extension LibraryRepository {
       sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
       arguments: [nodeID.rawValue]
     ).map(TagID.init(rawValue:)))
+  }
+
+  private static func removingEdge(
+    _ edge: KnowledgeEdge,
+    from source: PageSnapshot,
+    now: Date
+  ) throws -> PageSnapshot {
+    guard edge.origin != .provider, edge.origin != .inlineReference else {
+      throw GraphModelError.immutableSystemDefinition
+    }
+    let explicit = (try? PageDocument.inspect(source.document, pageID: source.id).graphEdges) ?? []
+    let mutation: (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection)
+    if explicit.contains(where: { $0.id == edge.id }) {
+      mutation = try PageDocument.removeEdge(edge.id, in: source.document)
+    } else if let key = BuiltInRelations.propertyKey(for: edge.relationID) {
+      let retained = (source.objectMetadata.properties[key] ?? []).filter { value in
+        guard case .page(let pageID) = value else { return true }
+        return pageID != edge.targetNodeID
+      }
+      mutation = try PageDocument.setProperty(key: key, values: retained, in: source.document)
+    } else {
+      throw GraphModelError.invalidEndpoint
+    }
+    return Self.updatedPage(source, with: mutation, now: now)
   }
 
   private static func decodeRelation(_ row: Row) -> RelationDefinition? {

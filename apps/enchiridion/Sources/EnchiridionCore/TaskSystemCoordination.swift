@@ -148,7 +148,8 @@ public actor TaskSystemReconciliationCoordinator {
   }
 
   private let operation: Operation
-  private var pendingSnapshot: (vaultID: VaultID, pages: [PageSnapshot])?
+  private var pendingSnapshots: [VaultID: [PageSnapshot]] = [:]
+  private var pendingVaultIDs: [VaultID] = []
   private var isDraining = false
   private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -157,23 +158,27 @@ public actor TaskSystemReconciliationCoordinator {
   }
 
   public func submit(vaultID: VaultID, pages: [PageSnapshot]) {
-    pendingSnapshot = (vaultID, pages)
+    if pendingSnapshots[vaultID] == nil {
+      pendingVaultIDs.append(vaultID)
+    }
+    pendingSnapshots[vaultID] = pages
     guard !isDraining else { return }
     isDraining = true
     Task { await drain() }
   }
 
   func waitUntilIdle() async {
-    guard isDraining || pendingSnapshot != nil else { return }
+    guard isDraining || !pendingVaultIDs.isEmpty else { return }
     await withCheckedContinuation { continuation in
       idleWaiters.append(continuation)
     }
   }
 
   private func drain() async {
-    while let snapshot = pendingSnapshot {
-      pendingSnapshot = nil
-      await operation(snapshot.vaultID, snapshot.pages)
+    while let vaultID = pendingVaultIDs.first {
+      pendingVaultIDs.removeFirst()
+      guard let pages = pendingSnapshots.removeValue(forKey: vaultID) else { continue }
+      await operation(vaultID, pages)
     }
     isDraining = false
     let waiters = idleWaiters

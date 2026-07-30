@@ -126,10 +126,18 @@ public struct LocalDate: RawRepresentable, Codable, Hashable, Sendable, Identifi
       let month = Int(pieces[1]),
       let day = Int(pieces[2]),
       (1...12).contains(month),
-      (1...31).contains(day),
-      year > 0
+      year > 0,
+      (1...Self.daysInMonth(month: month, year: year)).contains(day)
     else { return nil }
     self.rawValue = rawValue
+  }
+
+  private static func daysInMonth(month: Int, year: Int) -> Int {
+    let isLeapYear = (year.isMultiple(of: 4) && !year.isMultiple(of: 100))
+      || year.isMultiple(of: 400)
+    return [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][
+      month - 1
+    ]
   }
 
   public init(date: Date, calendar: Calendar = .current) {

@@ -62,6 +62,7 @@ extension LibraryStore {
       to: targetID
     )
     await reload(policy: .refreshOnly)
+    await synchronizePage(sourceID)
     return edge
   }
 
@@ -69,8 +70,9 @@ extension LibraryStore {
     guard let repository else {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
     }
-    try await repository.removeEdge(edgeID)
+    let sourceID = try await repository.removeEdge(edgeID)
     await reload(policy: .refreshOnly)
+    await synchronizePage(sourceID)
   }
 
   public func resolveGraphCardinalityConflict(
@@ -113,6 +115,38 @@ extension LibraryStore {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
     }
     return try repository.runGraphQuery(query)
+  }
+
+  public func runGraphSQLAsync(
+    _ sql: String,
+    arguments: [String: GraphSQLValue] = [:]
+  ) async throws -> GraphQueryResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await Task.detached(priority: .userInitiated) {
+      try repository.runGraphSQL(sql, arguments: arguments)
+    }.value
+  }
+
+  public func runGraphQueryAsync(
+    _ definition: GraphQueryDefinition
+  ) async throws -> GraphQueryResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await Task.detached(priority: .userInitiated) {
+      try repository.runGraphQuery(definition)
+    }.value
+  }
+
+  public func runGraphQueryAsync(_ query: SavedGraphQuery) async throws -> GraphQueryResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await Task.detached(priority: .userInitiated) {
+      try repository.runGraphQuery(query)
+    }.value
   }
 
   public func saveGraphQuery(_ query: SavedGraphQuery) async throws {

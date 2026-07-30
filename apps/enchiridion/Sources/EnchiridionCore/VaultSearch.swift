@@ -44,50 +44,26 @@ public struct VaultSearch: Sendable {
     guard !expression.isEmpty else { return [] }
     let boundedLimit = min(max(limit, 1), 200)
     let snapshot = try registry.snapshot()
-    var results: [VaultSearchResult] = []
-
-    for vault in snapshot.vaults where vault.isDownloaded {
-      let repository = try LibraryRepository(path: registry.graphPath(for: vault.id))
-      let queryResult = try repository.runGraphSQL(
-        """
-        SELECT node_id,
-               title,
-               snippet(graph_text_search, 2, '', '', ' … ', 18) AS excerpt,
-               bm25(graph_text_search) AS score
-        FROM graph_text_search
-        WHERE graph_text_search MATCH :query
-        ORDER BY score, title COLLATE NOCASE
-        LIMIT \(boundedLimit)
-        """,
-        arguments: ["query": .text(expression)],
-        limits: .init(maximumRows: boundedLimit)
-      )
-      for row in queryResult.rows {
-        guard case .text(let nodeID) = queryResult.value(column: "node_id", in: row),
-          case .text(let title) = queryResult.value(column: "title", in: row)
-        else { continue }
-        let excerpt: String
-        if case .text(let value) = queryResult.value(column: "excerpt", in: row) {
-          excerpt = value
-        } else {
-          excerpt = ""
-        }
-        let score: Double
-        switch queryResult.value(column: "score", in: row) {
-        case .real(let value): score = value
-        case .integer(let value): score = Double(value)
-        default: score = 0
-        }
-        results.append(
-          .init(
-            scopedNodeID: .init(vaultID: vault.id, nodeID: .init(rawValue: nodeID)),
-            vaultName: vault.name,
-            title: title,
-            excerpt: excerpt,
-            score: score
+    let downloadedVaults = snapshot.vaults.filter(\.isDownloaded)
+    let results = try await withThrowingTaskGroup(
+      of: [VaultSearchResult].self,
+      returning: [VaultSearchResult].self
+    ) { group in
+      for vault in downloadedVaults {
+        group.addTask {
+          try Self.search(
+            vault: vault,
+            registry: registry,
+            expression: expression,
+            limit: boundedLimit
           )
-        )
+        }
       }
+      var combined: [VaultSearchResult] = []
+      for try await vaultResults in group {
+        combined.append(contentsOf: vaultResults)
+      }
+      return combined
     }
 
     return Array(results.sorted {
@@ -102,11 +78,67 @@ public struct VaultSearch: Sendable {
   private static func matchExpression(_ text: String) -> String {
     text
       .split(whereSeparator: { $0.isWhitespace })
+      .filter { token in token.contains { $0.isLetter || $0.isNumber } }
       .prefix(12)
       .map { token in
         let escaped = token.replacingOccurrences(of: "\"", with: "\"\"")
         return "\"\(escaped)\""
       }
       .joined(separator: " AND ")
+  }
+
+  private static func search(
+    vault: VaultDescriptor,
+    registry: VaultRegistry,
+    expression: String,
+    limit: Int
+  ) throws -> [VaultSearchResult] {
+    let repository = try LibraryRepository(path: registry.graphPath(for: vault.id))
+    let queryResult = try repository.runGraphSQL(
+      """
+      SELECT node_id,
+             title,
+             snippet(graph_text_search, 2, '', '', ' … ', 18) AS excerpt,
+             bm25(graph_text_search) AS score
+      FROM graph_text_search
+      WHERE graph_text_search MATCH :query
+      ORDER BY score, title COLLATE NOCASE
+      LIMIT \(limit)
+      """,
+      arguments: ["query": .text(expression)],
+      limits: .init(maximumRows: limit)
+    )
+    var results: [VaultSearchResult] = []
+    for row in queryResult.rows {
+      guard case .text(let nodeID) = queryResult.value(column: "node_id", in: row),
+        case .text(let title) = queryResult.value(column: "title", in: row)
+      else { continue }
+
+      let excerpt: String
+      if case .text(let value) = queryResult.value(column: "excerpt", in: row) {
+        excerpt = value
+      } else {
+        excerpt = ""
+      }
+
+      let score: Double
+      switch queryResult.value(column: "score", in: row) {
+      case .real(let value):
+        score = value
+      case .integer(let value):
+        score = Double(value)
+      default:
+        score = 0
+      }
+
+      results.append(.init(
+        scopedNodeID: .init(vaultID: vault.id, nodeID: .init(rawValue: nodeID)),
+        vaultName: vault.name,
+        title: title,
+        excerpt: excerpt,
+        score: score
+      ))
+    }
+    return results
   }
 }

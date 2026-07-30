@@ -68,12 +68,12 @@ final class EnchiridionAppRuntime {
   }
 
   func workspaceDidChange() {
-    repositoryError = nil
+    if vaultSession != nil { repositoryError = nil }
     rebuildWorkspaceDependents()
     TaskReminderNotificationCoordinator.shared.configure(
       store: store,
       resolveStore: { vaultID in
-        try EnchiridionAppRuntime.shared.store(for: vaultID)
+        try await EnchiridionAppRuntime.shared.vaultSession?.backgroundStore(forVault: vaultID)
       },
       openURL: { url in UIApplication.shared.open(url) }
     )
@@ -83,14 +83,10 @@ final class EnchiridionAppRuntime {
     guard let vaultSession else {
       return store.vaultID == vaultID ? store : nil
     }
-    if vaultSession.selectedVault.id != vaultID {
-      try selectVault(vaultID)
-    }
-    return vaultSession.store
+    return try vaultSession.store(forVault: vaultID, selectingWith: selectVault)
   }
 
   private func rebuildWorkspaceDependents() {
-    carPlayVoice?.disconnect()
     assistant = repository.map { FoundationModelAssistant(repository: $0) }
     carPlayAssistant = repository.map { FoundationModelAssistant(repository: $0) }
     assistantSession = makeAssistantConversationSession(assistant: assistant)
@@ -98,15 +94,23 @@ final class EnchiridionAppRuntime {
       assistant: carPlayAssistant,
       surface: .carPlay
     )
-    carPlayVoice = CarPlayVoiceCoordinator(
-      session: carPlayAssistantSession,
-      unavailableReason: { [weak self] in
+    let unavailableReason: @MainActor () -> String? = { [weak self] in
         guard let self else { return "Your local library is unavailable." }
         return assistantUnavailabilityMessage(
           assistant: self.carPlayAssistant,
           repositoryError: self.repositoryError
         )
       }
-    )
+    if let carPlayVoice {
+      carPlayVoice.update(
+        session: carPlayAssistantSession,
+        unavailableReason: unavailableReason
+      )
+    } else {
+      carPlayVoice = CarPlayVoiceCoordinator(
+        session: carPlayAssistantSession,
+        unavailableReason: unavailableReason
+      )
+    }
   }
 }
