@@ -47,7 +47,8 @@ final class AssistantVoicePreferences: NSObject {
   @ObservationIgnored private let store: AssistantVoicePreferenceDefaultsStore
   @ObservationIgnored private let previewSynthesizer: AVSpeechSynthesizer
   @ObservationIgnored private var availableVoicesObservation: AssistantVoiceNotificationObservation?
-  @ObservationIgnored private var activePreviewUtterance: AVSpeechUtterance?
+  @ObservationIgnored private var previewBatch =
+    AssistantSpeechBatchLifecycle<AVSpeechUtterance>()
   @ObservationIgnored private var previewVoiceIdentifier: String?
 
   init(
@@ -138,20 +139,28 @@ final class AssistantVoicePreferences: NSObject {
       return
     }
     guard let voice = selectedSystemVoice(for: locale) else { return }
-    let utterance = AVSpeechUtterance(string: Self.previewPhrase)
-    utterance.voice = voice
-    activePreviewUtterance = utterance
+    let utterances = AssistantSpeechUtteranceFactory.makeUtterances(
+      for: Self.previewPhrase,
+      voice: voice
+    )
+    guard previewBatch.begin(utterances) != nil else { return }
     previewVoiceIdentifier = voice.identifier
     isPreviewing = true
-    previewSynthesizer.speak(utterance)
+    for utterance in utterances {
+      previewSynthesizer.speak(utterance)
+    }
   }
 
   func stopPreview() {
-    guard isPreviewing || previewSynthesizer.isSpeaking else { return }
-    previewSynthesizer.stopSpeaking(at: .immediate)
-    activePreviewUtterance = nil
+    guard
+      previewBatch.cancel() != nil || isPreviewing || previewSynthesizer.isSpeaking
+        || previewSynthesizer.isPaused
+    else {
+      return
+    }
     previewVoiceIdentifier = nil
     isPreviewing = false
+    previewSynthesizer.stopSpeaking(at: .immediate)
   }
 
   private func selectableSystemVoices() -> [AVSpeechSynthesisVoice] {
@@ -214,9 +223,8 @@ extension AssistantVoicePreferences: @preconcurrency AVSpeechSynthesizerDelegate
   ) {
     guard
       synthesizer === previewSynthesizer,
-      utterance === activePreviewUtterance
+      previewBatch.finish(utterance) != nil
     else { return }
-    activePreviewUtterance = nil
     previewVoiceIdentifier = nil
     isPreviewing = false
   }
@@ -227,10 +235,8 @@ extension AssistantVoicePreferences: @preconcurrency AVSpeechSynthesizerDelegate
   ) {
     guard
       synthesizer === previewSynthesizer,
-      utterance === activePreviewUtterance
+      previewBatch.contains(utterance)
     else { return }
-    activePreviewUtterance = nil
-    previewVoiceIdentifier = nil
-    isPreviewing = false
+    stopPreview()
   }
 }

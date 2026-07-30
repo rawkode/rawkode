@@ -32,7 +32,9 @@ let package = Package(
         .linkedFramework("CloudKit"),
         .linkedFramework("EventKit"),
         .linkedFramework("AuthenticationServices"),
+        .linkedFramework("AVFoundation"),
         .linkedFramework("Security"),
+        .linkedFramework("NaturalLanguage"),
         .linkedFramework("UserNotifications"),
         .linkedFramework("WidgetKit"),
       ]

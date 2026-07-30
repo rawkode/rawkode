@@ -1,10 +1,11 @@
 import AVFoundation
-#if os(macOS)
-  import CoreAudio
-#endif
 import EnchiridionCore
 import Foundation
 import OSLog
+
+#if os(macOS)
+  import CoreAudio
+#endif
 
 enum AppleSystemSpeechOutputError: Error, LocalizedError {
   case voiceUnavailable(String)
@@ -30,8 +31,9 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion",
     category: "AssistantSpeechOutput"
   )
-  private var activeUtterance: AVSpeechUtterance?
+  private var activeBatch = AssistantSpeechBatchLifecycle<AVSpeechUtterance>()
   private var continuation: CheckedContinuation<Void, any Error>?
+  private var continuationBatchID: UUID?
 
   init(
     voicePreferences: AssistantVoicePreferences,
@@ -51,8 +53,7 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   }
 
   func speak(_ text: String) async throws {
-    let spokenText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !spokenText.isEmpty else { return }
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
     cancelCurrentSpeech()
     try Task.checkCancellation()
@@ -68,28 +69,26 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
 
     logSelection(voice)
 
-    let utterance = AVSpeechUtterance(string: spokenText)
-    utterance.voice = voice
-    activeUtterance = utterance
+    let utterances = AssistantSpeechUtteranceFactory.makeUtterances(for: text, voice: voice)
+    guard !utterances.isEmpty else { return }
+    guard let batchID = activeBatch.begin(utterances) else { return }
 
-    do {
-      try await withTaskCancellationHandler {
-        try await withCheckedThrowingContinuation { continuation in
-          self.continuation = continuation
-          if Task.isCancelled {
-            completeCurrentSpeech(with: .failure(CancellationError()))
-          } else {
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        self.continuation = continuation
+        continuationBatchID = batchID
+        if Task.isCancelled {
+          cancelCurrentSpeech(batchID: batchID)
+        } else {
+          for utterance in utterances {
             synthesizer.speak(utterance)
           }
         }
-      } onCancel: {
-        Task { @MainActor [weak self] in
-          self?.cancelCurrentSpeech()
-        }
       }
-    } catch {
-      finishAudioSession()
-      throw error
+    } onCancel: {
+      Task { @MainActor [weak self] in
+        self?.cancelCurrentSpeech(batchID: batchID)
+      }
     }
   }
 
@@ -209,16 +208,23 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     }
   #endif
 
-  private func cancelCurrentSpeech() {
-    guard activeUtterance != nil || continuation != nil else { return }
+  private func cancelCurrentSpeech(batchID expectedBatchID: UUID? = nil) {
+    guard
+      let batchID = activeBatch.cancel(batchID: expectedBatchID) ?? continuationBatchID,
+      expectedBatchID == nil || batchID == expectedBatchID
+    else { return }
     synthesizer.stopSpeaking(at: .immediate)
-    completeCurrentSpeech(with: .failure(CancellationError()))
+    completeContinuation(for: batchID, with: .failure(CancellationError()))
   }
 
-  private func completeCurrentSpeech(with result: Result<Void, any Error>) {
-    activeUtterance = nil
+  private func completeContinuation(
+    for batchID: UUID,
+    with result: Result<Void, any Error>
+  ) {
+    guard continuationBatchID == batchID else { return }
     let pendingContinuation = continuation
     continuation = nil
+    continuationBatchID = nil
     finishAudioSession()
     pendingContinuation?.resume(with: result)
   }
@@ -235,16 +241,18 @@ extension AppleSystemSpeechOutput: @preconcurrency AVSpeechSynthesizerDelegate {
     _ synthesizer: AVSpeechSynthesizer,
     didFinish utterance: AVSpeechUtterance
   ) {
-    guard utterance === activeUtterance else { return }
-    completeCurrentSpeech(with: .success(()))
+    guard synthesizer === self.synthesizer, let batchID = activeBatch.finish(utterance) else {
+      return
+    }
+    completeContinuation(for: batchID, with: .success(()))
   }
 
   func speechSynthesizer(
     _ synthesizer: AVSpeechSynthesizer,
     didCancel utterance: AVSpeechUtterance
   ) {
-    guard utterance === activeUtterance else { return }
-    completeCurrentSpeech(with: .failure(CancellationError()))
+    guard synthesizer === self.synthesizer, activeBatch.contains(utterance) else { return }
+    cancelCurrentSpeech()
   }
 }
 
