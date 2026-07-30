@@ -254,7 +254,7 @@ public final class LibraryStore {
       if CloudSyncCoordinator.hasRequiredEntitlement {
         let coordinator = CloudSyncCoordinator(
           repository: repository,
-          zoneName: "EnchiridionGraph-\(vaultID.rawValue)",
+          zoneName: vaultID.cloudZoneName,
           statusHandler: { [weak self] status in
             Task { @MainActor in self?.syncStatus = status }
           },

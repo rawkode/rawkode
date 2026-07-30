@@ -8,7 +8,9 @@ final class VaultRegistryTests: XCTestCase {
     let snapshot = try fixture.registry.snapshot()
 
     XCTAssertEqual(snapshot.vaults.map(\.name), ["Personal"])
+    XCTAssertEqual(snapshot.vaults.map(\.id), [.personal])
     XCTAssertEqual(snapshot.selectedVaultID, snapshot.defaultCaptureVaultID)
+    XCTAssertEqual(snapshot.vaults[0].cloudZoneName, "EnchiridionGraph-vault_personal")
     XCTAssertEqual(
       URL(fileURLWithPath: try fixture.registry.graphPath(selection: .selected)).lastPathComponent,
       "graph.sqlite"

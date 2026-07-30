@@ -13,8 +13,13 @@ public struct VaultID: RawRepresentable, Codable, Hashable, Sendable, Identifiab
     .init(rawValue: "vault_\(UUID().uuidString.lowercased())")
   }
 
+  /// Stable identity shared by fresh installations so the built-in graph uses one CloudKit zone.
+  public static let personal = Self(rawValue: "vault_personal")
+
   /// Identity used only by explicitly standalone repositories, such as isolated tests.
   public static let standalone = Self(rawValue: "vault_standalone")
+
+  public var cloudZoneName: String { "EnchiridionGraph-\(rawValue)" }
 }
 
 /// Nodes are the durable identities in an Enchiridion knowledge graph. PageID remains the

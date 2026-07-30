@@ -65,8 +65,10 @@ queries are vault metadata with generation-safe CloudKit acknowledgements and to
 Base Tags and system relationship definitions ship with the application and are not uploaded.
 
 The vault catalog remains local device configuration: selected/default-capture vault choices and
-local database locations are not graph knowledge. Global search opens each local vault and returns
-vault-scoped identities; it does not create cross-vault edges.
+local database locations are not graph knowledge. The built-in Personal vault has a fixed identity,
+so fresh devices using the same iCloud account address the same graph zone; custom vault identities
+remain catalogued locally until explicitly transferred or synchronized. Global search opens each
+local vault and returns vault-scoped identities; it does not create cross-vault edges.
 
 ## Evolution rules
 
