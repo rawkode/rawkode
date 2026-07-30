@@ -11,6 +11,16 @@ A local-first, native SwiftUI knowledge journal for macOS and iOS.
 
 Edits are journaled in the editor before Swift receives them, committed atomically to SQLite, and only then acknowledged. CloudKit is a transport; the local database remains authoritative offline.
 
+## Knowledge graph
+
+Pages are vault-local graph nodes. Supertags provide multiple-inheritance types and typed facts;
+canonical relationships provide one-to-one, one-to-many, many-to-one, and many-to-many edges with
+inverse backlinks. The visual query builder compiles to bounded, read-only SQLite over stable
+`graph_*` views, and advanced users can run SQL against the same allowlisted surface.
+
+See [Knowledge graph data model](Documentation/GraphDataModel.md) for the semantic contract, vault
+and sync boundaries, and the SQL-versus-Cypher decision.
+
 ## Supertags
 
 Supertags turn ordinary pages into typed objects while keeping the page editable and linkable:
