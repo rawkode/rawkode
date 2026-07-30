@@ -80,7 +80,10 @@ final class GraphModelTests: XCTestCase {
 
   func testLocalDateRejectsInstantsAndRetainsCalendarIdentity() {
     XCTAssertEqual(LocalDate(rawValue: "2026-07-30")?.rawValue, "2026-07-30")
+    XCTAssertEqual(LocalDate(rawValue: "2028-02-29")?.rawValue, "2028-02-29")
     XCTAssertNil(LocalDate(rawValue: "2026-07-30T12:00:00Z"))
     XCTAssertNil(LocalDate(rawValue: "2026-13-30"))
+    XCTAssertNil(LocalDate(rawValue: "2026-02-29"))
+    XCTAssertNil(LocalDate(rawValue: "2026-04-31"))
   }
 }

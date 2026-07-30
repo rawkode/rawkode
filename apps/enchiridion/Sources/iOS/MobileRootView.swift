@@ -10,6 +10,8 @@ struct MobileRootView: View {
   @State private var selectedTab: MobileTab = .today
   @State private var requestedTaskSelection: TaskListSelection?
   @State private var requestedTaskID: PageID?
+  @State private var routedTaskStore: LibraryStore?
+  @State private var routeErrorMessage: String?
   @State private var showsQuickTaskCapture = false
   @State private var quickTaskSelection: TaskListSelection = .smart(.inbox)
   @State private var systemHandoffCoordinator = TaskSystemHandoffCoordinator()
@@ -82,8 +84,13 @@ struct MobileRootView: View {
     }
     .sheet(item: $requestedTaskID) { pageID in
       NavigationStack {
-        TaskDetailScreen(store: store, pageID: pageID)
+        TaskDetailScreen(store: routedTaskStore ?? store, pageID: pageID)
       }
+    }
+    .alert("Unable to Open Task", isPresented: routeErrorBinding) {
+      Button("Dismiss Error", role: .cancel) {}
+    } message: {
+      Text(routeErrorMessage ?? "The linked vault could not be opened.")
     }
     .onOpenURL { url in
       guard let route = TaskDeepLinkRoute(url: url) else { return }
@@ -112,12 +119,17 @@ struct MobileRootView: View {
   }
 
   private func receive(_ route: TaskDeepLinkRoute) async {
-    guard let workspaceStore = workspaceStore(for: route.vaultID) else { return }
-    let outcome = await systemHandoffCoordinator.open(route) {
-      await workspaceStore.reload()
+    do {
+      let workspaceStore = try workspaceStore(for: route.vaultID)
+      let outcome = await systemHandoffCoordinator.open(route) {
+        await workspaceStore.reload()
+      }
+      guard let route = outcome?.route else { return }
+      routeErrorMessage = nil
+      apply(route, store: workspaceStore)
+    } catch {
+      routeErrorMessage = error.localizedDescription
     }
-    guard let route = outcome?.route else { return }
-    apply(route)
   }
 
   private func refreshForActivation() async {
@@ -125,37 +137,43 @@ struct MobileRootView: View {
       await store.reload()
     }
     guard let route = outcome?.route else { return }
-    apply(route)
+    apply(route, store: store)
   }
 
-  private func apply(_ route: TaskDeepLinkRoute) {
+  private func apply(_ route: TaskDeepLinkRoute, store: LibraryStore) {
     selectedTab = .tasks
     requestedTaskSelection = .smart(route.list)
 
     switch route {
     case .list:
       requestedTaskID = nil
+      routedTaskStore = nil
       showsQuickTaskCapture = false
     case .task(let identity, list: _):
       showsQuickTaskCapture = false
+      routedTaskStore = store
       requestedTaskID = identity.nodeID
     case .quickAdd(let list, vaultID: _):
       requestedTaskID = nil
+      routedTaskStore = nil
       quickTaskSelection = .smart(list)
       showsQuickTaskCapture = true
     }
   }
 
-  private func workspaceStore(for vaultID: VaultID) -> LibraryStore? {
-    guard let vaultSession else { return store.vaultID == vaultID ? store : nil }
-    do {
-      if vaultSession.selectedVault.id != vaultID {
-        try selectVault(vaultID)
-      }
-      return vaultSession.store
-    } catch {
-      return nil
+  private func workspaceStore(for vaultID: VaultID) throws -> LibraryStore {
+    guard let vaultSession else {
+      guard store.vaultID == vaultID else { throw VaultRegistryError.vaultNotFound }
+      return store
     }
+    return try vaultSession.store(forVault: vaultID, selectingWith: selectVault)
+  }
+
+  private var routeErrorBinding: Binding<Bool> {
+    Binding(
+      get: { routeErrorMessage != nil },
+      set: { if !$0 { routeErrorMessage = nil } }
+    )
   }
 }
 

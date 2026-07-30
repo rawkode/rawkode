@@ -57,7 +57,7 @@ public enum TaskClarificationMutationResponse: Sendable {
 @MainActor
 @Observable
 public final class LibraryStore {
-  public let vaultID: VaultID
+  public private(set) var vaultID: VaultID
   public private(set) var pages: [PageSnapshot] = []
   public private(set) var calendarEvents: [CalendarEventSnapshot] = []
   public private(set) var calendarPageContexts: [PageID: CalendarPageContext] = [:]
@@ -83,7 +83,7 @@ public final class LibraryStore {
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
 
-  @ObservationIgnored let repository: LibraryRepository?
+  @ObservationIgnored var repository: LibraryRepository?
   @ObservationIgnored private var syncCoordinator: CloudSyncCoordinator?
   @ObservationIgnored private var calendarProvider: EventKitCalendarProvider?
   @ObservationIgnored private var googleCalendarProvider: GoogleCalendarProvider?
@@ -95,6 +95,10 @@ public final class LibraryStore {
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
+  @ObservationIgnored private let requestedVaultID: VaultID?
+  @ObservationIgnored private let taskMutationEffects: TaskMutationEffectExecutor?
+  @ObservationIgnored private let shouldOpenRepository: Bool
+  @ObservationIgnored private var isOpeningRepository = false
 
   public init(
     vaultID: VaultID? = nil,
@@ -106,61 +110,17 @@ public final class LibraryStore {
     taskMutationEffects: TaskMutationEffectExecutor? = nil,
     taskInterpreter: any TaskInputInterpreting = FoundationTaskInterpreter()
   ) {
-    let resolvedRepository: LibraryRepository?
-    let resolvedVaultID: VaultID
-    var repositoryStartupError: String?
-    if let repository {
-      resolvedRepository = repository
-      resolvedVaultID = vaultID ?? .standalone
-    } else {
-      do {
-        let context = try VaultRepositoryContext.open(.selected)
-        resolvedRepository = context.repository
-        resolvedVaultID = context.vault.id
-      } catch {
-        resolvedRepository = nil
-        resolvedVaultID = vaultID ?? .standalone
-        repositoryStartupError = error.localizedDescription
-      }
-    }
-
-    self.vaultID = resolvedVaultID
+    self.vaultID = vaultID ?? .standalone
     self.calendar = calendar
     self.taskInterpreter = taskInterpreter
     self.contactResolver = contactResolver
     self.taskSystemReconciliationCoordinator = taskSystemReconciliationCoordinator
-    self.repository = resolvedRepository
-    startupError = repositoryStartupError
-    if let repository = self.repository {
-      let effects =
-        taskMutationEffects
-        ?? TaskMutationEffectExecutor.live(
-          surface: .application,
-          vaultID: resolvedVaultID,
-          reload: { [weak self] in
-            guard let self else { return .failed("The library is unavailable.") }
-            guard await self.reload(policy: .refreshOnly) != nil else {
-              return .failed(self.startupError ?? "The library could not be refreshed.")
-            }
-            return .applied
-          },
-          sync: { [weak self] pageID in
-            guard let coordinator = self?.syncCoordinator else { return .notNeeded }
-            await coordinator.pageDidChange(pageID)
-            return .applied
-          },
-          purgeSync: { [weak self] pageID in
-            guard let coordinator = self?.syncCoordinator else { return .notNeeded }
-            await coordinator.pageWasPurged(pageID)
-            return .applied
-          }
-        )
-      taskMutationCoordinator = TaskMutationCoordinator(
-        repository: repository,
-        calendar: calendar,
-        effects: effects
-      )
-    }
+    self.repository = repository
+    requestedVaultID = vaultID
+    self.taskMutationEffects = taskMutationEffects
+    shouldOpenRepository = repository == nil
+    startupError = nil
+    if let repository { configureTaskMutationCoordinator(repository: repository) }
     if startImmediately {
       Task { await start() }
     }
@@ -236,6 +196,23 @@ public final class LibraryStore {
   }
 
   public func start() async {
+    if repository == nil, shouldOpenRepository {
+      guard !isOpeningRepository else { return }
+      isOpeningRepository = true
+      do {
+        let selection = requestedVaultID.map(VaultSelection.vault) ?? .selected
+        let context = try await Task.detached(priority: .userInitiated) {
+          try VaultRepositoryContext.open(selection)
+        }.value
+        repository = context.repository
+        vaultID = context.vault.id
+        configureTaskMutationCoordinator(repository: context.repository)
+      } catch {
+        startupError = error.localizedDescription
+        isLoading = false
+      }
+      isOpeningRepository = false
+    }
     guard let repository else {
       isLoading = false
       return
@@ -271,6 +248,44 @@ public final class LibraryStore {
       startupError = error.localizedDescription
       isLoading = false
     }
+  }
+
+  public func stop() async {
+    reloadGeneration &+= 1
+    await syncCoordinator?.stop()
+    syncCoordinator = nil
+    taskMutationCoordinator = nil
+  }
+
+  private func configureTaskMutationCoordinator(repository: LibraryRepository) {
+    let effects =
+      taskMutationEffects
+      ?? TaskMutationEffectExecutor.live(
+        surface: .application,
+        vaultID: vaultID,
+        reload: { [weak self] in
+          guard let self else { return .failed("The library is unavailable.") }
+          guard await self.reload(policy: .refreshOnly) != nil else {
+            return .failed(self.startupError ?? "The library could not be refreshed.")
+          }
+          return .applied
+        },
+        sync: { [weak self] pageID in
+          guard let coordinator = self?.syncCoordinator else { return .notNeeded }
+          await coordinator.pageDidChange(pageID)
+          return .applied
+        },
+        purgeSync: { [weak self] pageID in
+          guard let coordinator = self?.syncCoordinator else { return .notNeeded }
+          await coordinator.pageWasPurged(pageID)
+          return .applied
+        }
+      )
+    taskMutationCoordinator = TaskMutationCoordinator(
+      repository: repository,
+      calendar: calendar,
+      effects: effects
+    )
   }
 
   /// Dismisses the current presentation only. Durable side effects remain queued.
@@ -1085,6 +1100,10 @@ public final class LibraryStore {
 
   func synchronizeGraphQuery(_ id: GraphQueryID) async {
     await syncCoordinator?.graphQueryDidChange(id)
+  }
+
+  func synchronizePage(_ id: PageID) async {
+    await syncCoordinator?.pageDidChange(id)
   }
 
   public func saveView(_ definition: LiveQueryDefinition) {

@@ -110,6 +110,27 @@ final class TaskSystemCoordinationTests: XCTestCase {
     XCTAssertEqual(snapshot.maximumConcurrentOperations, 1)
   }
 
+  func testReconciliationRetainsPendingSnapshotsForEveryVault() async {
+    let gate = OneShotGate()
+    let probe = MultiVaultReconciliationProbe(gate: gate)
+    let coordinator = TaskSystemReconciliationCoordinator { vaultID, pages in
+      await probe.reconcile(vaultID: vaultID, pages: pages)
+    }
+    let firstVault = VaultID(rawValue: "vault-a")
+    let secondVault = VaultID(rawValue: "vault-b")
+    let thirdVault = VaultID(rawValue: "vault-c")
+
+    await coordinator.submit(vaultID: firstVault, pages: [page("a")])
+    await gate.waitUntilEntered()
+    await coordinator.submit(vaultID: secondVault, pages: [page("b")])
+    await coordinator.submit(vaultID: thirdVault, pages: [page("c")])
+    await gate.release()
+    await coordinator.waitUntilIdle()
+
+    let reconciledVaultIDs = await probe.vaultIDs()
+    XCTAssertEqual(reconciledVaultIDs, [firstVault, secondVault, thirdVault])
+  }
+
   private func scoped(_ pageID: PageID) -> VaultScopedNodeID {
     .init(vaultID: vaultID, nodeID: pageID)
   }
@@ -203,6 +224,24 @@ private actor OneShotGate {
     let waiters = releaseWaiters
     releaseWaiters.removeAll()
     for waiter in waiters { waiter.resume() }
+  }
+}
+
+private actor MultiVaultReconciliationProbe {
+  private let gate: OneShotGate
+  private var reconciledVaultIDs: [VaultID] = []
+
+  init(gate: OneShotGate) {
+    self.gate = gate
+  }
+
+  func reconcile(vaultID: VaultID, pages: [PageSnapshot]) async {
+    if reconciledVaultIDs.isEmpty { await gate.enterAndWait() }
+    reconciledVaultIDs.append(vaultID)
+  }
+
+  func vaultIDs() -> [VaultID] {
+    reconciledVaultIDs
   }
 }
 

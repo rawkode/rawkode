@@ -306,12 +306,16 @@ public enum GraphQueryCompiler {
           return "EXISTS (SELECT 1 FROM graph_facts fact WHERE fact.node_id = \(nodeAlias).node_id AND fact.predicate_id = \(predicate))"
         }
         guard let expected else { return "0" }
-        let (column, argument) = factOperand(expected)
+        let (column, argument) = factOperand(
+          expected,
+          escapingLikeWildcards: comparison == .contains
+        )
         let operation: String
         switch comparison {
         case .equals: operation = "= \(argument)"
         case .notEquals: operation = "= \(argument)"
-        case .contains: operation = "LIKE '%' || \(argument) || '%' COLLATE NOCASE"
+        case .contains:
+          operation = "LIKE '%' || \(argument) || '%' ESCAPE '\\' COLLATE NOCASE"
         case .before: operation = "< \(argument)"
         case .after: operation = "> \(argument)"
         case .isEmpty, .isNotEmpty: operation = "= \(argument)"
@@ -375,14 +379,24 @@ public enum GraphQueryCompiler {
       case .modifiedAt: return "\(nodeAlias).modified_at \(direction)"
       case .fact(let predicateID):
         let predicate = bind(.text(predicateID.rawValue))
-        return "(SELECT COALESCE(fact.text_value, fact.number_value, fact.local_date_value, fact.date_time_value) FROM graph_facts fact WHERE fact.node_id = \(nodeAlias).node_id AND fact.predicate_id = \(predicate) ORDER BY fact.value_index LIMIT 1) \(direction)"
+        return "(SELECT COALESCE(fact.text_value, fact.number_value, fact.boolean_value, fact.local_date_value, fact.date_time_value) FROM graph_facts fact WHERE fact.node_id = \(nodeAlias).node_id AND fact.predicate_id = \(predicate) ORDER BY fact.value_index LIMIT 1) \(direction)"
       }
     }
 
-    mutating func factOperand(_ value: GraphFactValue) -> (String, String) {
+    mutating func factOperand(
+      _ value: GraphFactValue,
+      escapingLikeWildcards: Bool = false
+    ) -> (String, String) {
       switch value {
       case .text(let value), .select(let value), .url(let value), .email(let value),
-        .phone(let value): return ("text_value", bind(.text(value)))
+        .phone(let value):
+        let boundValue = escapingLikeWildcards
+          ? value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+          : value
+        return ("text_value", bind(.text(boundValue)))
       case .number(let value): return ("number_value", bind(.real(value)))
       case .boolean(let value): return ("boolean_value", bind(.integer(value ? 1 : 0)))
       case .localDate(let value): return ("local_date_value", bind(.text(value.rawValue)))

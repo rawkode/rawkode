@@ -52,11 +52,8 @@ struct EnchiridionTaskEntity: AppEntity {
 
 struct EnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [EnchiridionTaskEntity] {
-    let requested = Set(identifiers)
-    return try await intentTaskPages(in: .active).compactMap { item in
-      let entity = EnchiridionTaskEntity(page: item.page, vault: item.vault)
-      return requested.contains(entity.id) ? entity : nil
-    }
+    try await intentTaskPages(for: identifiers, in: .active)
+      .map { EnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func entities(matching string: String) async throws -> [EnchiridionTaskEntity] {
@@ -117,11 +114,8 @@ struct ClosedEnchiridionTaskEntity: AppEntity {
 
 struct ClosedEnchiridionTaskEntityQuery: EntityStringQuery, EnumerableEntityQuery {
   func entities(for identifiers: [String]) async throws -> [ClosedEnchiridionTaskEntity] {
-    let requested = Set(identifiers)
-    return try await intentTaskPages(in: .closed).compactMap { item in
-      let entity = ClosedEnchiridionTaskEntity(page: item.page, vault: item.vault)
-      return requested.contains(entity.id) ? entity : nil
-    }
+    try await intentTaskPages(for: identifiers, in: .closed)
+      .map { ClosedEnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
   }
 
   func entities(matching string: String) async throws -> [ClosedEnchiridionTaskEntity] {
@@ -469,12 +463,13 @@ struct FindEnchiridionTasksIntent: AppIntent {
     & ProvidesDialog
   {
     let contexts = try VaultRepositoryContext.openAll()
-    let tasks = try await contexts.asyncFlatMap { context in
+    let taskPages = try await contexts.asyncFlatMap { context in
       let pages = try await context.repository.pages(with: BuiltInSupertags.task)
       return TaskQuery.items(from: pages, selection: .smart(list.smartList))
-        .map { EnchiridionTaskEntity(page: $0.page, vault: context.vault) }
+        .map { IntentTaskPage(vault: context.vault, page: $0.page) }
     }
-    await TaskSpotlightIndex.index(tasks)
+    let tasks = taskPages.map { EnchiridionTaskEntity(page: $0.page, vault: $0.vault) }
+    await TaskSpotlightIndex.index(taskPages)
     return .result(
       value: tasks,
       dialog: tasks.isEmpty
@@ -496,7 +491,9 @@ struct OpenEnchiridionTaskListIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & OpensIntent {
     let context = try VaultRepositoryContext.open(.selected)
-    let url = TaskDeepLinkRoute.url(vaultID: context.vault.id, list: list.smartList)!
+    guard let url = TaskDeepLinkRoute.url(vaultID: context.vault.id, list: list.smartList) else {
+      throw EnchiridionTaskIntentError.taskNotActive
+    }
     return .result(opensIntent: OpenURLIntent(url))
   }
 }
@@ -623,6 +620,26 @@ private func intentTaskPages(in lifecycle: TaskLifecycleScope) async throws -> [
   }
 }
 
+private func intentTaskPages(
+  for identifiers: [String],
+  in lifecycle: TaskLifecycleScope
+) async throws -> [IntentTaskPage] {
+  let identities = identifiers.compactMap(VaultScopedNodeID.init(serialized:))
+  let identitiesByVault = Dictionary(grouping: identities, by: \.vaultID)
+  var pagesByIdentity: [VaultScopedNodeID: IntentTaskPage] = [:]
+  for (vaultID, vaultIdentities) in identitiesByVault {
+    let context = try VaultRepositoryContext.open(.vault(vaultID))
+    for identity in vaultIdentities {
+      guard let page = try await context.repository.page(id: identity.nodeID),
+        let state = page.taskData?.state,
+        lifecycle.contains(state)
+      else { continue }
+      pagesByIdentity[identity] = .init(vault: context.vault, page: page)
+    }
+  }
+  return identities.compactMap { pagesByIdentity[$0] }
+}
+
 private func intentCreationContext(_ selection: VaultSelection) throws -> IntentCreationContext {
   let context = try VaultRepositoryContext.open(selection)
   return .init(
@@ -664,13 +681,9 @@ private func intentMutationValue<Value: Sendable>(
 }
 
 private enum TaskSpotlightIndex {
-  static func index(_ entities: [EnchiridionTaskEntity]) async {
-    for entity in entities {
-      guard let identity = VaultScopedNodeID(serialized: entity.id),
-        let context = try? VaultRepositoryContext.open(.vault(identity.vaultID)),
-        let page = try? await context.repository.page(id: identity.nodeID)
-      else { continue }
-      await TaskSystemSpotlight.index(page, vaultID: identity.vaultID)
+  static func index(_ items: [IntentTaskPage]) async {
+    for item in items {
+      await TaskSystemSpotlight.index(item.page, vaultID: item.vault.id)
     }
   }
 }

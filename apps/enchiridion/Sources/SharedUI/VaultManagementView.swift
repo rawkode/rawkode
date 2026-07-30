@@ -73,6 +73,9 @@ struct VaultManagementView: View {
       }
       .navigationTitle("Vaults")
       .toolbar {
+        #if os(iOS)
+          ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        #endif
         ToolbarItem(placement: .cancellationAction) {
           Button("Done") { dismiss() }
         }
@@ -110,7 +113,7 @@ struct VaultManagementView: View {
         Text("This permanently removes this vault's local graph. Other vaults are not affected.")
       }
       .alert("Vault Error", isPresented: errorBinding) {
-        Button("OK", role: .cancel) {}
+        Button("Dismiss Error", role: .cancel) {}
       } message: {
         Text(errorMessage ?? "The vault operation could not be completed.")
       }
@@ -181,9 +184,14 @@ struct VaultManagementView: View {
   private func deleteVault() {
     guard let vault = vaultToDelete else { return }
     let changedWorkspace = vault.id == session.selectedVault.id
-    perform {
-      try session.deleteVault(vault.id)
-      if changedWorkspace { workspaceDidChange() }
+    Task {
+      do {
+        try await session.deleteVault(vault.id)
+        if changedWorkspace { workspaceDidChange() }
+        errorMessage = nil
+      } catch {
+        errorMessage = error.localizedDescription
+      }
     }
     vaultToDelete = nil
   }

@@ -72,9 +72,11 @@ extension LibraryRepository {
     guard !name.isEmpty else { throw GraphQueryError.sqlite("Enter a query name.") }
     switch query.source {
     case .builder(let definition):
-      _ = try runGraphQuery(definition, limits: .init(maximumRows: 1))
+      let result = try runGraphQuery(definition, limits: .init(maximumRows: 1))
+      try Self.validate(result: result, presentation: query.presentation)
     case .sql(let sql):
-      _ = try runGraphSQL(sql, limits: .init(maximumRows: 1))
+      let result = try runGraphSQL(sql, limits: .init(maximumRows: 1))
+      try Self.validate(result: result, presentation: query.presentation)
     }
     try database.write { db in
       let sourceKind: String

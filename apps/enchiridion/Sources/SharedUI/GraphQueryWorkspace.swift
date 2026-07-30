@@ -18,6 +18,7 @@ struct GraphQueryWorkspace: View {
   @State private var errorMessage: String?
   @State private var showsSaveQuery = false
   @State private var queryName = ""
+  @State private var isRunning = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -57,7 +58,11 @@ struct GraphQueryWorkspace: View {
     .alert("Save Graph Query", isPresented: $showsSaveQuery) {
       TextField("Name", text: $queryName)
       Button("Cancel", role: .cancel) {}
-      Button("Save") { Task { await saveCurrentQuery() } }
+      Button("Save") {
+        let name = queryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        Task { await saveCurrentQuery(name: name) }
+      }
         .disabled(queryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     } message: {
       Text("Saved queries belong to this vault and retain their visual or SQL definition.")
@@ -77,7 +82,7 @@ struct GraphQueryWorkspace: View {
         ForEach(savedQueries) { query in
           Button {
             selectedSavedQueryID = query.id
-            perform { try store.runGraphQuery(query) }
+            Task { await perform { try await store.runGraphQueryAsync(query) } }
           } label: {
             Label(query.name, systemImage: query.source.systemImage)
           }
@@ -116,6 +121,9 @@ struct GraphQueryWorkspace: View {
             Text(relation.forwardName).tag(relation.id as RelationID?)
           }
         }
+        .onChange(of: traversalRelationID) { _, relationID in
+          if relationID == nil { targetTagID = nil }
+        }
         if traversalRelationID != nil {
           Picker("Target type", selection: $targetTagID) {
             Text("Any type").tag(nil as TagID?)
@@ -125,7 +133,10 @@ struct GraphQueryWorkspace: View {
         }
       }
       Section {
-        Button("Run Query", systemImage: "play.fill", action: runVisualQuery)
+        Button("Run Query", systemImage: "play.fill") {
+          Task { await runVisualQuery() }
+        }
+        .disabled(isRunning)
       }
     }
     .formStyle(.grouped)
@@ -143,7 +154,10 @@ struct GraphQueryWorkspace: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         Spacer()
-        Button("Run SQL", systemImage: "play.fill", action: runSQL)
+        Button("Run SQL", systemImage: "play.fill") {
+          Task { await runSQL() }
+        }
+          .disabled(isRunning)
           .keyboardShortcut(.return, modifiers: [.command])
       }
     }
@@ -188,14 +202,15 @@ struct GraphQueryWorkspace: View {
     }
   }
 
-  private func runVisualQuery() {
-    perform { try store.runGraphQuery(currentVisualDefinition) }
+  private func runVisualQuery() async {
+    let definition = currentVisualDefinition
+    await perform { try await store.runGraphQueryAsync(definition) }
   }
 
   private var currentVisualDefinition: GraphQueryDefinition {
     var expressions: [GraphExpression] = []
     if let selectedTagID { expressions.append(.tag(selectedTagID)) }
-    if traversalRelationID != nil || targetTagID != nil {
+    if traversalRelationID != nil {
       expressions.append(.traversal(.init(
         relationID: traversalRelationID,
         maximumDepth: maximumDepth,
@@ -210,26 +225,30 @@ struct GraphQueryWorkspace: View {
     return .init(expression: expression)
   }
 
-  private func runSQL() {
-    perform { try store.runGraphSQL(sql) }
+  private func runSQL() async {
+    let sql = sql
+    await perform { try await store.runGraphSQLAsync(sql) }
   }
 
-  private func perform(_ query: () throws -> GraphQueryResult) {
+  private func perform(_ query: () async throws -> GraphQueryResult) async {
+    guard !isRunning else { return }
+    isRunning = true
+    defer { isRunning = false }
     do {
-      result = try query()
+      result = try await query()
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
   }
 
-  private func saveCurrentQuery() async {
+  private func saveCurrentQuery(name: String) async {
     let source: SavedGraphQuery.Source = switch mode {
     case .visual: .builder(currentVisualDefinition)
     case .sql: .sql(sql)
     }
     let query = SavedGraphQuery(
-      name: queryName.trimmingCharacters(in: .whitespacesAndNewlines),
+      name: name,
       source: source,
       presentation: .init(kind: mode == .visual ? .list : .table)
     )
@@ -237,7 +256,7 @@ struct GraphQueryWorkspace: View {
       try await store.saveGraphQuery(query)
       selectedSavedQueryID = query.id
       await reloadSavedQueries()
-      perform { try store.runGraphQuery(query) }
+      await perform { try await store.runGraphQueryAsync(query) }
     } catch {
       errorMessage = error.localizedDescription
     }

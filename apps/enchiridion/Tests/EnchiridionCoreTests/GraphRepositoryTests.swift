@@ -90,6 +90,20 @@ final class GraphRepositoryTests: XCTestCase {
     XCTAssertFalse(compiled.sql.contains("FROM graph_nodes seed"))
   }
 
+  func testGraphQueryCompilerEscapesLiteralContainsAndSortsBooleanFacts() {
+    let predicate = PredicateID(rawValue: "predicate:test")
+    let definition = GraphQueryDefinition(
+      expression: .fact(predicate, .contains, .text(#"50%_off\today"#)),
+      sorts: [.init(key: .fact(predicate))]
+    )
+
+    let compiled = GraphQueryCompiler.compile(definition)
+
+    XCTAssertTrue(compiled.sql.contains("ESCAPE '\\'"))
+    XCTAssertTrue(compiled.sql.contains("fact.boolean_value"))
+    XCTAssertTrue(compiled.arguments.values.contains(.text(#"50\%\_off\\today"#)))
+  }
+
   func testMultipleInheritanceClosureIsQueryVisibleAndCyclesRollback() async throws {
     let fixture = try GraphRepositoryFixture(testCase: self)
     let company = try await fixture.repository.createTaggedPage(
@@ -114,6 +128,28 @@ final class GraphRepositoryTests: XCTestCase {
     }
     let persisted = try await fixture.repository.supertags().first { $0.id == parent.id }
     XCTAssertEqual(persisted?.parentIDs, [])
+  }
+
+  func testDeletingParentSupertagDoesNotBlockLaterSchemaWrites() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    var parent = SupertagDefinition.draft(name: "Parent")
+    var child = SupertagDefinition.draft(name: "Child")
+    child.parentIDs = [parent.id]
+    try await fixture.repository.saveSupertag(parent)
+    try await fixture.repository.saveSupertag(child)
+
+    parent.isDeleted = true
+    try await fixture.repository.saveSupertag(parent)
+    child.name = "Renamed Child"
+    try await fixture.repository.saveSupertag(child)
+
+    let page = try await fixture.repository.createTaggedPage(
+      title: "Child page",
+      supertagID: child.id
+    )
+    let effectiveTags = try await fixture.repository.effectiveTagIDs(for: page.id)
+    XCTAssertTrue(effectiveTags.contains(child.id))
+    XCTAssertFalse(effectiveTags.contains(parent.id))
   }
 
   func testCanonicalEdgeDrivesPropertyAdapterInverseBacklinkAndCardinality() async throws {
@@ -158,8 +194,9 @@ final class GraphRepositoryTests: XCTestCase {
       "SELECT from_node_id, to_node_id, relationship_name FROM graph_edges WHERE edge_id = :edge AND direction = 'inverse'",
       arguments: ["edge": .text(edge.id.rawValue)]
     )
-    XCTAssertEqual(inverse.value(column: "from_node_id", in: inverse.rows[0]), .text(firstProject.id.rawValue))
-    XCTAssertEqual(inverse.value(column: "relationship_name", in: inverse.rows[0]), .text("tasks"))
+    let inverseRow = try XCTUnwrap(inverse.rows.first)
+    XCTAssertEqual(inverse.value(column: "from_node_id", in: inverseRow), .text(firstProject.id.rawValue))
+    XCTAssertEqual(inverse.value(column: "relationship_name", in: inverseRow), .text("tasks"))
 
     await XCTAssertThrowsErrorAsync(
       try await fixture.repository.createEdge(
@@ -347,7 +384,8 @@ final class GraphRepositoryTests: XCTestCase {
       "SELECT node_id, title FROM graph_text_search WHERE graph_text_search MATCH :term",
       arguments: ["term": .text("backlinks")]
     )
-    XCTAssertEqual(search.value(column: "node_id", in: search.rows[0]), .text(task.id.rawValue))
+    let searchRow = try XCTUnwrap(search.rows.first)
+    XCTAssertEqual(search.value(column: "node_id", in: searchRow), .text(task.id.rawValue))
   }
 
   func testBuilderAndSQLSavedQueriesRoundTrip() async throws {
@@ -373,6 +411,24 @@ final class GraphRepositoryTests: XCTestCase {
     try await reopened.deleteGraphQuery(builder.id)
     let remainingQueries = try await reopened.savedGraphQueries()
     XCTAssertEqual(remainingQueries, [sql])
+  }
+
+  func testSavedQueryPresentationIsValidatedBeforePersistence() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    let query = SavedGraphQuery(
+      name: "Invalid list",
+      source: .sql("SELECT title FROM graph_nodes"),
+      presentation: .init(kind: .list)
+    )
+
+    await XCTAssertThrowsErrorAsync(try await fixture.repository.saveGraphQuery(query)) { error in
+      XCTAssertEqual(
+        error as? GraphQueryError,
+        .sqlite("This presentation requires a node_id column.")
+      )
+    }
+    let savedQueries = try await fixture.repository.savedGraphQueries()
+    XCTAssertTrue(savedQueries.isEmpty)
   }
 
   func testGraphMetadataCloudRoundTripPreservesDirtyLocalChangesAndTombstones() async throws {

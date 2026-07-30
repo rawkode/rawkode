@@ -29,7 +29,7 @@ public struct VaultRepositoryContext: Sendable {
 
   public static func openAll() throws -> [Self] {
     let registry = try VaultRegistry(path: VaultRegistry.defaultCatalogPath())
-    return try registry.snapshot().vaults.map { vault in
+    return try registry.snapshot().vaults.filter(\.isDownloaded).map { vault in
       try .init(
         vault: vault,
         repository: LibraryRepository(path: registry.graphPath(for: vault.id))

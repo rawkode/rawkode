@@ -21,6 +21,11 @@ struct GraphRelationDefinitionsView: View {
         Section("Custom") {
           ForEach(customDefinitions) { definition in
             definitionButton(definition)
+              .contextMenu {
+                Button("Delete Relationship Type", systemImage: "trash", role: .destructive) {
+                  definitionPendingDeletion = definition
+                }
+              }
               .swipeActions {
                 Button("Delete", systemImage: "trash", role: .destructive) {
                   definitionPendingDeletion = definition
@@ -120,9 +125,9 @@ struct GraphRelationDefinitionsView: View {
 
   private func deletePendingDefinition() async {
     guard let definition = definitionPendingDeletion else { return }
+    defer { definitionPendingDeletion = nil }
     do {
       try await store.deleteGraphRelationDefinition(definition.id)
-      definitionPendingDeletion = nil
       await load()
     } catch {
       errorMessage = error.localizedDescription

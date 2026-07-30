@@ -128,7 +128,25 @@ enum GraphDatabaseSchema {
 
     for row in try Row.fetchAll(db, sql: "SELECT * FROM pages") {
       let page = try LibraryRepository.decodePage(row)
-      try GraphProjectionStore.replacePage(page, references: nil, in: db)
+      let references = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT target_page_id, fallback_label
+          FROM page_references
+          WHERE source_page_id = ?
+          """,
+        arguments: [page.id.rawValue]
+      ).compactMap { referenceRow -> PageReference? in
+        guard let targetID: String = referenceRow["target_page_id"],
+          let fallbackLabel: String = referenceRow["fallback_label"]
+        else { return nil }
+        return .init(
+          sourcePageID: page.id,
+          targetPageID: .init(rawValue: targetID),
+          fallbackLabel: fallbackLabel
+        )
+      }
+      try GraphProjectionStore.replacePage(page, references: references, in: db)
     }
     try GraphProjectionStore.refreshIssues(in: db)
   }
@@ -304,10 +322,10 @@ enum GraphDatabaseSchema {
 
     func ancestors(of id: TagID, path: [TagID]) throws -> [TagID: Int] {
       if let cached = closure[id] { return cached }
-      guard let definition = byID[id] else { throw GraphModelError.unknownTag(id) }
+      guard let definition = byID[id] else { return [:] }
       guard !path.contains(id) else { throw GraphModelError.inheritanceCycle(path + [id]) }
       var result: [TagID: Int] = [id: 0]
-      for parentID in definition.parentIDs {
+      for parentID in definition.parentIDs where byID[parentID] != nil {
         for (ancestorID, parentDepth) in try ancestors(of: parentID, path: path + [id]) {
           result[ancestorID] = min(result[ancestorID] ?? .max, parentDepth + 1)
         }
@@ -320,7 +338,7 @@ enum GraphDatabaseSchema {
     try db.execute(sql: "DELETE FROM _graph_tag_parents")
     try db.execute(sql: "DELETE FROM _graph_tag_closure")
     for definition in definitions {
-      for parentID in definition.parentIDs {
+      for parentID in definition.parentIDs where byID[parentID] != nil {
         try db.execute(
           sql: "INSERT INTO _graph_tag_parents (tag_id,parent_tag_id) VALUES (?,?)",
           arguments: [definition.id.rawValue, parentID.rawValue]
@@ -499,6 +517,7 @@ enum GraphProjectionStore {
   ) throws {
     let nodeIDs = Set(edges.flatMap { [$0.sourceNodeID.rawValue, $0.targetNodeID.rawValue] })
     let existingNodes: Set<String>
+    var tagsByNodeID: [String: Set<TagID>] = [:]
     if nodeIDs.isEmpty {
       existingNodes = []
     } else {
@@ -509,6 +528,20 @@ enum GraphProjectionStore {
         sql: "SELECT id FROM pages WHERE deleted_at IS NULL AND id IN (\(placeholders))",
         arguments: StatementArguments(rawIDs)
       ))
+      for row in try Row.fetchAll(
+        db,
+        sql: """
+          SELECT node_id, tag_id
+          FROM graph_node_tags
+          WHERE node_id IN (\(placeholders))
+          """,
+        arguments: StatementArguments(rawIDs)
+      ) {
+        guard let nodeID: String = row["node_id"],
+          let tagID: String = row["tag_id"]
+        else { continue }
+        tagsByNodeID[nodeID, default: []].insert(.init(rawValue: tagID))
+      }
     }
 
     for edge in edges where !existingNodes.contains(edge.targetNodeID.rawValue) {
@@ -550,11 +583,7 @@ enum GraphProjectionStore {
       }
       if !relation.sourceTagIDs.isEmpty {
         for edge in relationEdges where existingNodes.contains(edge.sourceNodeID.rawValue) {
-          let sourceTags = Set(try String.fetchAll(
-            db,
-            sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
-            arguments: [edge.sourceNodeID.rawValue]
-          ).map(TagID.init(rawValue:)))
+          let sourceTags = tagsByNodeID[edge.sourceNodeID.rawValue] ?? []
           guard sourceTags.isDisjoint(with: relation.sourceTagIDs) else { continue }
           try insertIssue(
             kind: .invalidSourceType,
@@ -566,11 +595,7 @@ enum GraphProjectionStore {
       }
       if !relation.targetTagIDs.isEmpty {
         for edge in relationEdges where existingNodes.contains(edge.targetNodeID.rawValue) {
-          let targetTags = Set(try String.fetchAll(
-            db,
-            sql: "SELECT tag_id FROM graph_node_tags WHERE node_id = ?",
-            arguments: [edge.targetNodeID.rawValue]
-          ).map(TagID.init(rawValue:)))
+          let targetTags = tagsByNodeID[edge.targetNodeID.rawValue] ?? []
           guard targetTags.isDisjoint(with: relation.targetTagIDs) else { continue }
           try insertIssue(
             kind: .invalidTargetType,

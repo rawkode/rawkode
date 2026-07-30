@@ -26,12 +26,16 @@ final class VaultSearchTests: XCTestCase {
     let fixture = try VaultSearchFixture(testCase: self)
     let vault = try fixture.registry.snapshot().vaults[0]
     let repository = try LibraryRepository(path: fixture.registry.graphPath(for: vault.id))
-    _ = try await repository.createFreePage(title: "Quoted project")
+    let literalMatch = try await repository.createFreePage(title: "Quoted OR project")
     _ = try await repository.createFreePage(title: "Another quoted project")
 
-    let results = try await VaultSearch(registry: fixture.registry).search("quoted OR *", limit: 1)
+    let literalResults = try await VaultSearch(registry: fixture.registry).search("quoted OR *")
+    XCTAssertEqual(literalResults.map(\.scopedNodeID), [
+      .init(vaultID: vault.id, nodeID: literalMatch.id)
+    ])
 
-    XCTAssertLessThanOrEqual(results.count, 1)
+    let limitedResults = try await VaultSearch(registry: fixture.registry).search("quoted", limit: 1)
+    XCTAssertLessThanOrEqual(limitedResults.count, 1)
   }
 }
 
