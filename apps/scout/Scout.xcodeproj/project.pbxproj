@@ -28,6 +28,7 @@
 		8DD5BE57AA2738C52C387084 /* FileSystemClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F270E5B95A1ED588BC6DDE38 /* FileSystemClientTests.swift */; };
 		95403B930C26CA708DC8C1A8 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1690D9F793C5C235BAB8AA20 /* QuickLook.framework */; };
 		976F09B977DFE441ECDE2341 /* FileSystemClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2316FA1EBF3E05A9157DBE85 /* FileSystemClient.swift */; };
+		A15C520D3B9EE13285FF4BC1 /* ScoutTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C24E1EEA559B6467CEC694 /* ScoutTheme.swift */; };
 		ACA8E13CC7703FBC48A7200B /* URLSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370EA719118577388E2EBD95 /* URLSafety.swift */; };
 		AE9688A7EDFE85A769828F24 /* InspectorAndOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */; };
 		B4D8F70DD2562721EC57EA3D /* PathSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9079BBFF0DFFC4B64C0F3FEF /* PathSafetyTests.swift */; };
@@ -85,6 +86,7 @@
 		61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorAndOverlays.swift; sourceTree = "<group>"; };
 		6D0A30C2D972078B209475CE /* ScoutAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAppModel.swift; sourceTree = "<group>"; };
 		7021BF58AA559E71A58FE020 /* FileSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchClient.swift; sourceTree = "<group>"; };
+		79C24E1EEA559B6467CEC694 /* ScoutTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutTheme.swift; sourceTree = "<group>"; };
 		7BCAF8B990230A6104467963 /* OperationJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationJournal.swift; sourceTree = "<group>"; };
 		8BE1F819AEF03FEDEE6CBB5F /* ArchiveClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveClient.swift; sourceTree = "<group>"; };
 		9079BBFF0DFFC4B64C0F3FEF /* PathSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathSafetyTests.swift; sourceTree = "<group>"; };
@@ -191,6 +193,7 @@
 		65980A9FB2ECED00F29EB1EA /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				79C24E1EEA559B6467CEC694 /* ScoutTheme.swift */,
 				370EA719118577388E2EBD95 /* URLSafety.swift */,
 			);
 			path = Support;
@@ -411,6 +414,7 @@
 				8072B3FB84463FD1590C41A8 /* ScoutApp.swift in Sources */,
 				BA2DD30D63ADFD2EB2FFFCD5 /* ScoutAppModel.swift in Sources */,
 				3EBB2BCC5E9080DDA0A12444 /* ScoutSettingsView.swift in Sources */,
+				A15C520D3B9EE13285FF4BC1 /* ScoutTheme.swift in Sources */,
 				E2EAB9043C690924F3337574 /* ScoutWindowHost.swift in Sources */,
 				22FE38C733BF6F4D6F688F39 /* SecurityScopeBroker.swift in Sources */,
 				83595C401D3730876F6897FA /* ThumbnailClient.swift in Sources */,

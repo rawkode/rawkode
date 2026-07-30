@@ -81,7 +81,7 @@ struct ScoutCommands: Commands {
         .disabled(session?.selectedItems.count != 1)
     }
 
-    CommandMenu("View") {
+    CommandGroup(before: .toolbar) {
       ForEach(BrowserViewMode.allCases) { mode in
         Button(mode.title) { session?.changeViewMode(mode) }
           .keyboardShortcut(KeyEquivalent(Character(String(BrowserViewMode.allCases.firstIndex(of: mode)! + 1))), modifiers: .command)

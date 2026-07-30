@@ -2,7 +2,7 @@
 
 ## Direction
 
-Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser.
+Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser. Every pane belongs to one moss-toned workspace; toolbar, path bar, sidebar, browser, status bar, and inspector should never read as unrelated default controls.
 
 ## Physical Scene
 
@@ -10,11 +10,13 @@ A developer moves between bright daytime work and late-night focus while keeping
 
 ## Color
 
-The strategy is restrained. Native window, sidebar, text, separator, and semantic colors remain authoritative.
+The browsing strategy is restrained, with tinted native neutrals carrying the brand through the entire window. Onboarding may use a committed moss surface because it is a singular activation moment.
 
 - Light accent: `oklch(0.42 0.11 140)`, represented by the Scout Accent asset.
 - Dark accent: `oklch(0.72 0.12 140)`, represented by the dark Scout Accent asset.
 - Accent use: current selection, keyboard focus, and primary action only.
+- Canvas: a near-neutral green-black in Dark Mode and a cool green-white in Light Mode.
+- Chrome and side panels: one tonal step away from the canvas, separated with hairlines instead of floating cards.
 - Error, warning, success, and information states use semantic system colors and always include a symbol or label.
 
 ## Typography
@@ -35,7 +37,7 @@ The strategy is restrained. Native window, sidebar, text, separator, and semanti
 
 - Sidebar rows are flat source-list rows with one symbol and one title.
 - Browser rows use native selection and focus behavior with the Scout Accent.
-- The command palette is a functional overlay using a native material, one hairline boundary, and no decorative blur or shadow.
+- The command palette is a functional overlay using a tonal material, one hairline boundary, and a short defined shadow no wider than 8 points.
 - File operation feedback appears in a compact activity strip with a specific result and an Undo action only when the inverse operation is available.
 - Empty, permission, disconnected-volume, and stale-bookmark states explain the condition and provide one direct recovery action.
 

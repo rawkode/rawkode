@@ -17,6 +17,10 @@ struct ScoutWindowBridge: NSViewRepresentable {
   private func configure(_ window: NSWindow?) {
     guard let window else { return }
     window.title = title
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.toolbarStyle = .unifiedCompact
+    window.backgroundColor = ScoutTheme.canvasNS
     window.tabbingMode = .preferred
     window.tabbingIdentifier = "dev.rawkode.scout.browser"
     window.minSize = NSSize(width: 900, height: 560)
