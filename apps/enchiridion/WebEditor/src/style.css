@@ -124,6 +124,14 @@ html, body { margin: 0; min-height: 100%; background: transparent; }
   color: var(--muted);
 }
 .ProseMirror pre { overflow-x: auto; padding: 1rem; border-radius: 0.65rem; background: color-mix(in srgb, CanvasText 7%, transparent); }
+.ProseMirror :not(pre) > code {
+  padding: 0.08em 0.3em;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 0.3em;
+  color: color-mix(in srgb, CanvasText 88%, var(--accent) 12%);
+  background: color-mix(in srgb, CanvasText 8%, transparent);
+  font: 0.9em/1.45 ui-monospace, "SFMono-Regular", Menlo, Monaco, monospace;
+}
 .ProseMirror a, .page-reference { color: var(--accent); text-decoration: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
 .page-reference { cursor: pointer; text-decoration-style: dotted; }
 

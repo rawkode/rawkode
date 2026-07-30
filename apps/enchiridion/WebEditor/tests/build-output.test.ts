@@ -92,4 +92,11 @@ describe("packaged editor", () => {
     ]) expect(html).toContain(pattern);
     expect(html).toMatch(/Backspace:\s*[A-Za-z_$][\w$]*/);
   });
+
+  test("packages first-class inline code authoring", () => {
+    expect(html).toContain("([^`\\n]+)");
+    expect(html).toContain("Shift-Mod-j");
+    expect(html).toMatch(/\.ProseMirror\s+:not\(pre\)>\s*code/);
+    expect(html).toContain("SFMono-Regular");
+  });
 });

@@ -29,6 +29,7 @@ import {
   type SearchableCommand,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
+import { inlineCodeInputRules } from "./inlineCode"
 import { markdownEmphasisInputRules, reversibleMarkdownKeymap } from "./markdownEmphasis"
 import "./style.css"
 
@@ -313,6 +314,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       "Mod-y": redo,
       "Mod-b": toggleMark(binding.schema.marks.strong!),
       "Mod-i": toggleMark(binding.schema.marks.em!),
+      "Shift-Mod-j": toggleMark(binding.schema.marks.code!),
       "Mod-k": openLinkEditor,
       "Mod-Shift-7": wrapInList(binding.schema.nodes.ordered_list!),
       "Mod-Shift-8": wrapInList(binding.schema.nodes.bullet_list!),
@@ -1372,6 +1374,7 @@ function positionLinkEditor(): void {
 
 function editorInputRules(schema: Schema): InputRule[] {
   return [
+    ...inlineCodeInputRules(schema),
     ...smartQuotes,
     ...markdownEmphasisInputRules(schema),
     textblockTypeInputRule(/^#\s$/, schema.nodes.heading!, { level: 1 }),
