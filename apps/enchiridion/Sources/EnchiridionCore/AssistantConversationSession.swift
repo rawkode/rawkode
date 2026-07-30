@@ -4,15 +4,27 @@ import Observation
 
 /// A single, in-memory exchange with the assistant. This type is deliberately not
 /// `Codable`: conversation history is short-lived context, not library data.
+public enum AssistantConversationTurnProvenance: String, Equatable, Sendable {
+  case nonLocal
+  case localDataDerived
+}
+
 public struct AssistantConversationTurn: Equatable, Sendable {
   public var utterance: String
   public var answer: String
   public var status: AssistantResponseStatus
+  public var provenance: AssistantConversationTurnProvenance
 
-  public init(utterance: String, answer: String, status: AssistantResponseStatus) {
+  public init(
+    utterance: String,
+    answer: String,
+    status: AssistantResponseStatus,
+    provenance: AssistantConversationTurnProvenance
+  ) {
     self.utterance = utterance
     self.answer = answer
     self.status = status
+    self.provenance = provenance
   }
 }
 
@@ -951,7 +963,8 @@ public final class AssistantConversationSession {
       AssistantConversationTurn(
         utterance: utterance,
         answer: presentedResponse.answer,
-        status: presentedResponse.status
+        status: presentedResponse.status,
+        provenance: Self.provenance(for: presentedResponse)
       )
     )
     switch presentedResponse.status {
@@ -982,6 +995,18 @@ public final class AssistantConversationSession {
     }
     state = isVoiceRunning ? .listening : .idle
     return true
+  }
+
+  private static func provenance(
+    for response: GroundedAssistantResponse
+  ) -> AssistantConversationTurnProvenance {
+    if !response.sources.isEmpty { return .localDataDerived }
+    switch response.status {
+    case .noResults, .ambiguous, .stale, .conflicting:
+      return .localDataDerived
+    case .answered, .unavailable, .ungrounded:
+      return .nonLocal
+    }
   }
 
   private func finishOperation(generation candidate: UInt64) async {

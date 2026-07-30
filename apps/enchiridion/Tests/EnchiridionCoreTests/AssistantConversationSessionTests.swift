@@ -118,6 +118,64 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
+  func testTypedAndVoiceRequestsReceiveTheSameBoundedVisibleContext() async throws {
+    let typedAnswerer = RecordingAnswerer()
+    let typedSession = AssistantConversationSession(answerer: typedAnswerer)
+    for index in 1...5 {
+      await typedSession.submit("question \(index)")
+    }
+
+    let voiceAnswerer = RecordingAnswerer()
+    let transcriber = ScriptedTranscriber(
+      utterances: (1...5).map { "question \($0)" }
+    )
+    let voiceSession = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: voiceAnswerer,
+      interTurnDelay: .zero
+    )
+    voiceSession.start()
+    try await waitUntil { await transcriber.callCount == 6 }
+
+    let typedRequests = await typedAnswerer.requests
+    let voiceRequests = await voiceAnswerer.requests
+    XCTAssertEqual(typedRequests[4].priorTurns, voiceRequests[4].priorTurns)
+    XCTAssertEqual(
+      typedRequests[4].priorTurns.map(\.utterance),
+      ["question 1", "question 2", "question 3", "question 4"]
+    )
+    await voiceSession.stop()
+  }
+
+  @MainActor
+  func testStoppedSuspendedAnswerCannotEnterTheNextRequestContext() async throws {
+    let answerer = ControlledAnswerer()
+    let speaker = RecordingSpeaker()
+    let session = AssistantConversationSession(answerer: answerer, speaker: speaker)
+
+    let staleSubmission = Task { await session.submit("stale suspended request") }
+    try await waitUntil { await answerer.requests.count == 1 }
+    let stop = Task { await session.stop() }
+    try await waitUntil { await speaker.stopCount == 1 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "stale released answer", status: .answered)
+    )
+    await stop.value
+    await staleSubmission.value
+
+    let freshSubmission = Task { await session.submit("unrelated fresh request") }
+    try await waitUntil { await answerer.requests.count == 2 }
+    let requests = await answerer.requests
+    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertTrue(requests[1].priorTurns.isEmpty)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "fresh answer", status: .answered)
+    )
+    await freshSubmission.value
+    XCTAssertEqual(session.turns.map(\.utterance), ["unrelated fresh request"])
+  }
+
+  @MainActor
   func testStopCancelsActiveListeningAndPreservesContext() async throws {
     let transcriber = ControlledTranscriber()
     let answerer = RecordingAnswerer()
@@ -204,7 +262,8 @@ final class AssistantConversationSessionTests: XCTestCase {
         AssistantConversationTurn(
           utterance: "What is next?",
           answer: "Design review is at ten.",
-          status: .answered
+          status: .answered,
+          provenance: .nonLocal
         )
       ]
     )
@@ -651,6 +710,14 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .idle)
     let resetCount = await answerer.resetCount
     XCTAssertEqual(resetCount, 1)
+
+    await session.submit("Start over")
+    let requests = await answerer.requests
+    XCTAssertEqual(
+      requests.map(\.utterance),
+      ["Remember this only for this surface", "Start over"]
+    )
+    XCTAssertTrue(requests[1].priorTurns.isEmpty)
   }
 
   @MainActor
@@ -1568,9 +1635,11 @@ private actor SuspendedPermissionTranscriber: AssistantConversationTranscribing 
 
 private actor ResetRecordingAnswerer: AssistantConversationAnswering {
   private(set) var resetCount = 0
+  private(set) var requests: [AssistantConversationRequest] = []
 
   func respond(to request: AssistantConversationRequest) -> GroundedAssistantResponse {
-    GroundedAssistantResponse(answer: "Remembered for now", status: .answered)
+    requests.append(request)
+    return GroundedAssistantResponse(answer: "Remembered for now", status: .answered)
   }
 
   func resetConversation() {
