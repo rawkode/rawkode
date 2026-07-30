@@ -55,6 +55,8 @@ final class CarPlayVoiceCoordinator: NSObject {
   private var observationGeneration: UInt64 = 0
   private var startAttemptID: UUID?
   private var setupReason: String?
+  private var observedVoiceOperationCompletionGeneration: UInt64 = 0
+  private var ownsCarPlayAudioSession = false
   private var isConnected = false
   private var isTemplatePresented = false
 
@@ -92,6 +94,7 @@ final class CarPlayVoiceCoordinator: NSObject {
     observationGeneration &+= 1
     startAttemptID = nil
     setupReason = nil
+    observedVoiceOperationCompletionGeneration = 0
 
     let template = makeVoiceTemplate()
     voiceTemplate = template
@@ -124,6 +127,7 @@ final class CarPlayVoiceCoordinator: NSObject {
     observationGeneration &+= 1
     startAttemptID = nil
     setupReason = nil
+    observedVoiceOperationCompletionGeneration = 0
     connectionID = nil
     interfaceController = nil
     voiceTemplate = nil
@@ -280,12 +284,17 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   private func observeSession(
     _ session: AssistantConversationSession,
-    generation: UInt64
+    generation: UInt64,
+    resettingVoiceBaseline: Bool = true
   ) {
+    if resettingVoiceBaseline {
+      observedVoiceOperationCompletionGeneration = session.voiceOperationCompletionGeneration
+    }
     withObservationTracking(
       {
         _ = session.state
         _ = session.voiceAvailability
+        _ = session.voiceOperationCompletionGeneration
       },
       onChange: Self.makeNonisolatedVoidHandler { [weak self, weak session] in
         guard let self, let session,
@@ -294,8 +303,19 @@ final class CarPlayVoiceCoordinator: NSObject {
           self.observationGeneration == generation,
           self.session === session
         else { return }
+        let completionGeneration = session.voiceOperationCompletionGeneration
+        let voiceOperationEnded =
+          self.observedVoiceOperationCompletionGeneration != completionGeneration
+        self.observedVoiceOperationCompletionGeneration = completionGeneration
+        if voiceOperationEnded {
+          self.deactivateCarPlayAudioSession()
+        }
         self.present(session.state, availability: session.voiceAvailability)
-        self.observeSession(session, generation: generation)
+        self.observeSession(
+          session,
+          generation: generation,
+          resettingVoiceBaseline: false
+        )
       }
     )
   }
@@ -576,9 +596,12 @@ final class CarPlayVoiceCoordinator: NSObject {
   private func configureCarPlayAudioSession() throws {
     try audioSession.setCategory(.playAndRecord, mode: .default, options: [])
     try audioSession.setActive(true)
+    ownsCarPlayAudioSession = true
   }
 
   private func deactivateCarPlayAudioSession() {
+    guard ownsCarPlayAudioSession else { return }
+    ownsCarPlayAudioSession = false
     try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
   }
 }

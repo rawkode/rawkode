@@ -18,8 +18,16 @@ enum AssistantSpeechSetupState: Sendable, Equatable {
   case unavailable(String)
 }
 
+private enum SpeechPermissionState: Sendable, Equatable {
+  case authorized
+  case notDetermined
+  case denied
+  case unknown
+}
+
 enum OnDeviceSpeechError: Error, LocalizedError {
   case microphonePermissionDenied
+  case speechRecognitionPermissionDenied
   case noAudioInput
   case noSpeech
   case unavailable(String)
@@ -28,6 +36,8 @@ enum OnDeviceSpeechError: Error, LocalizedError {
     switch self {
     case .microphonePermissionDenied:
       return "Microphone access is off. Allow it in System Settings to talk to Enchiridion."
+    case .speechRecognitionPermissionDenied:
+      return "Speech Recognition access is off. Allow it in System Settings to talk to Enchiridion."
     case .noAudioInput:
       return "No microphone input is available on the current audio route."
     case .noSpeech:
@@ -43,7 +53,7 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   private let managesIOSAudioSession: Bool
   private var activeSource: MicrophoneAnalyzerInputSource?
   private var activeAnalyzer: SpeechAnalyzer?
-  private var activeResultTask: Task<String, any Error>?
+  private var activeResultTask: Task<Void, any Error>?
 
   init(managesIOSAudioSession: Bool = true) {
     self.managesIOSAudioSession = managesIOSAudioSession
@@ -65,25 +75,12 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       break
     }
 
-    #if os(macOS)
-      switch AVCaptureDevice.authorizationStatus(for: .audio) {
-      case .authorized: return .available
-      case .notDetermined: return .permissionRequired
-      case .denied, .restricted: return .permissionDenied
-      @unknown default: return .unavailable("Microphone permission could not be determined.")
-      }
-    #else
-      switch AVAudioApplication.shared.recordPermission {
-      case .granted: return .available
-      case .undetermined: return .permissionRequired
-      case .denied: return .permissionDenied
-      @unknown default: return .unavailable("Microphone permission could not be determined.")
-      }
-    #endif
+    return permissionAvailability()
   }
 
   func requestPermission() async -> AssistantVoiceAvailability {
     guard await requestMicrophonePermission() else { return .permissionDenied }
+    guard await requestSpeechRecognitionPermission() else { return .permissionDenied }
     return await availability()
   }
 
@@ -121,19 +118,105 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     #endif
   }
 
+  private var microphonePermissionIsAuthorized: Bool {
+    #if os(macOS)
+      AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    #else
+      AVAudioApplication.shared.recordPermission == .granted
+    #endif
+  }
+
+  private var speechRecognitionPermissionIsAuthorized: Bool {
+    SFSpeechRecognizer.authorizationStatus() == .authorized
+  }
+
+  private func requestSpeechRecognitionPermission() async -> Bool {
+    switch SFSpeechRecognizer.authorizationStatus() {
+    case .authorized:
+      return true
+    case .denied, .restricted:
+      return false
+    case .notDetermined:
+      return await withCheckedContinuation { continuation in
+        SFSpeechRecognizer.requestAuthorization { status in
+          continuation.resume(returning: status == .authorized)
+        }
+      }
+    @unknown default:
+      return false
+    }
+  }
+
+  private func permissionAvailability() -> AssistantVoiceAvailability {
+    let microphone: SpeechPermissionState
+    #if os(macOS)
+      microphone =
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: .authorized
+        case .notDetermined: .notDetermined
+        case .denied, .restricted: .denied
+        @unknown default: .unknown
+        }
+    #else
+      microphone =
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: .authorized
+        case .undetermined: .notDetermined
+        case .denied: .denied
+        @unknown default: .unknown
+        }
+    #endif
+
+    let speech: SpeechPermissionState =
+      switch SFSpeechRecognizer.authorizationStatus() {
+      case .authorized: .authorized
+      case .notDetermined: .notDetermined
+      case .denied, .restricted: .denied
+      @unknown default: .unknown
+      }
+
+    if microphone == .denied || speech == .denied { return .permissionDenied }
+    if microphone == .notDetermined || speech == .notDetermined { return .permissionRequired }
+    if microphone == .unknown || speech == .unknown {
+      return .unavailable("Voice permission could not be determined.")
+    }
+    return .available
+  }
+
   func transcribe() async throws -> String {
-    try await transcribe(
+    switch try await transcribe(
+      reportingProgress: { _ in },
       locale: .current,
+      firstHypothesisTimeout: .seconds(5),
       maximumDuration: .seconds(15),
-      silenceDuration: .milliseconds(1_200)
+      stabilityDuration: .milliseconds(1_200)
+    ) {
+    case .utterance(let utterance):
+      return utterance
+    case .noSpeech:
+      throw OnDeviceSpeechError.noSpeech
+    }
+  }
+
+  func transcribe(
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler
+  ) async throws -> AssistantTranscriptionOutcome {
+    try await transcribe(
+      reportingProgress: reportingProgress,
+      locale: .current,
+      firstHypothesisTimeout: .seconds(5),
+      maximumDuration: .seconds(15),
+      stabilityDuration: .milliseconds(1_200)
     )
   }
 
   func transcribe(
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler,
     locale: Locale,
+    firstHypothesisTimeout: Duration,
     maximumDuration: Duration,
-    silenceDuration: Duration
-  ) async throws -> String {
+    stabilityDuration: Duration
+  ) async throws -> AssistantTranscriptionOutcome {
     let selectedModule = await AssistantSpeechAssets.shared.selectedModule(locale: locale)
     try Task.checkCancellation()
     guard let selectedModule else {
@@ -156,10 +239,11 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     @unknown default:
       throw OnDeviceSpeechError.unavailable("On-device speech transcription is unavailable.")
     }
-    let hasMicrophonePermission = await requestMicrophonePermission()
-    try Task.checkCancellation()
-    guard hasMicrophonePermission else {
+    guard microphonePermissionIsAuthorized else {
       throw OnDeviceSpeechError.microphonePermissionDenied
+    }
+    guard speechRecognitionPermissionIsAuthorized else {
+      throw OnDeviceSpeechError.speechRecognitionPermissionDenied
     }
     let format = await SpeechAnalyzer.bestAvailableAudioFormat(
       compatibleWith: [selectedModule.module]
@@ -176,30 +260,33 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
           try Task.checkCancellation()
         }
       #endif
-      let text: String
+      let outcome: AssistantTranscriptionOutcome
       switch selectedModule {
       case .speech(let transcriber):
-        text = try await capture(
+        outcome = try await capture(
           with: transcriber,
           format: format,
+          reportingProgress: reportingProgress,
+          firstHypothesisTimeout: firstHypothesisTimeout,
           maximumDuration: maximumDuration,
-          silenceDuration: silenceDuration,
+          stabilityDuration: stabilityDuration,
           text: { String($0.text.characters) }
         )
       case .dictation(let transcriber):
-        text = try await capture(
+        outcome = try await capture(
           with: transcriber,
           format: format,
+          reportingProgress: reportingProgress,
+          firstHypothesisTimeout: firstHypothesisTimeout,
           maximumDuration: maximumDuration,
-          silenceDuration: silenceDuration,
+          stabilityDuration: stabilityDuration,
           text: { String($0.text.characters) }
         )
       }
       #if os(iOS)
         if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
       #endif
-      guard !text.isEmpty else { throw OnDeviceSpeechError.noSpeech }
-      return text
+      return outcome
     } catch {
       #if os(iOS)
         if managesIOSAudioSession { await HandheldConversationAudioSession.deactivate() }
@@ -211,10 +298,12 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   private func capture<Module: SpeechModule>(
     with transcriber: Module,
     format: AVAudioFormat,
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler,
+    firstHypothesisTimeout: Duration,
     maximumDuration: Duration,
-    silenceDuration: Duration,
+    stabilityDuration: Duration,
     text: @escaping @Sendable (Module.Result) -> String
-  ) async throws -> String {
+  ) async throws -> AssistantTranscriptionOutcome {
     let analyzer = SpeechAnalyzer(modules: [transcriber])
     do {
       try await analyzer.prepareToAnalyze(in: format)
@@ -234,17 +323,18 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       await analyzer.cancelAndFinishNow()
       throw error
     }
-    let activity = TranscriptionActivity()
-    let resultTask = Task { () throws -> String in
-      var finalText = ""
-      var latestText = ""
+    let activity = TranscriptionActivity(
+      firstHypothesisTimeout: firstHypothesisTimeout,
+      stabilityDuration: stabilityDuration,
+      hardLimit: maximumDuration
+    )
+    let resultTask = Task {
       for try await result in transcriber.results {
         let value = text(result)
-        latestText = value
-        await activity.record(value)
-        if result.isFinal { finalText = value }
+        if let progress = await activity.record(value) {
+          await reportingProgress(progress)
+        }
       }
-      return finalText.isEmpty ? latestText : finalText
     }
     activeSource = source
     activeAnalyzer = analyzer
@@ -253,15 +343,13 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     do {
       try await analyzer.start(inputSequence: inputSequence)
       try Task.checkCancellation()
-      try await activity.waitForEndpoint(
-        maximumDuration: maximumDuration,
-        silenceDuration: silenceDuration
-      )
+      let outcome = try await activity.waitForEndpoint()
       source.stop()
       try await analyzer.finalizeAndFinishThroughEndOfInput()
-      let result = try await resultTask.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      try await resultTask.value
+      let finalizedOutcome = await activity.finalizedOutcome(preserving: outcome)
       clearCaptureIfCurrent(source)
-      return result
+      return finalizedOutcome
     } catch {
       await stopCapture(source: source, analyzer: analyzer, resultTask: resultTask)
       throw error
@@ -290,7 +378,7 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   private func stopCapture(
     source: MicrophoneAnalyzerInputSource,
     analyzer: SpeechAnalyzer,
-    resultTask: Task<String, any Error>
+    resultTask: Task<Void, any Error>
   ) async {
     source.stop()
     resultTask.cancel()
@@ -315,6 +403,10 @@ actor AssistantSpeechAssets {
   func availability(locale: Locale = .current) async -> OnDeviceSpeechAvailability {
     guard Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil else {
       return .unavailable("This build is missing its microphone privacy description.")
+    }
+    guard Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil
+    else {
+      return .unavailable("This build is missing its speech recognition privacy description.")
     }
     guard let selectedModule = await selectedModule(locale: locale) else {
       return .unavailable(
@@ -462,28 +554,45 @@ private enum SelectedSpeechModule: Sendable {
 @available(iOS 26.0, macOS 26.0, *)
 private actor TranscriptionActivity {
   private let clock = ContinuousClock()
-  private var latestText = ""
-  private var lastChange: ContinuousClock.Instant?
+  private let startedAt: ContinuousClock.Instant
+  private var tracker: AssistantTranscriptStabilityTracker
 
-  func record(_ value: String) {
-    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !normalized.isEmpty, normalized != latestText else { return }
-    latestText = normalized
-    lastChange = clock.now
+  init(
+    firstHypothesisTimeout: Duration,
+    stabilityDuration: Duration,
+    hardLimit: Duration
+  ) {
+    let clock = ContinuousClock()
+    self.startedAt = clock.now
+    self.tracker = AssistantTranscriptStabilityTracker(
+      firstHypothesisTimeout: firstHypothesisTimeout,
+      stabilityDuration: stabilityDuration,
+      hardLimit: hardLimit
+    )
   }
 
-  func waitForEndpoint(
-    maximumDuration: Duration,
-    silenceDuration: Duration
-  ) async throws {
-    let startedAt = clock.now
-    while startedAt.duration(to: clock.now) < maximumDuration {
+  func record(_ value: String) -> String? {
+    tracker.record(value, at: startedAt.duration(to: clock.now))
+  }
+
+  func waitForEndpoint() async throws -> AssistantTranscriptionOutcome {
+    while true {
       try Task.checkCancellation()
-      if let lastChange, lastChange.duration(to: clock.now) >= silenceDuration {
-        return
+      switch tracker.decision(at: startedAt.duration(to: clock.now)) {
+      case .continueListening:
+        try await Task.sleep(for: .milliseconds(100))
+      case .finalize(let utterance):
+        return .utterance(utterance)
+      case .noSpeech:
+        return .noSpeech
       }
-      try await Task.sleep(for: .milliseconds(100))
     }
+  }
+
+  func finalizedOutcome(
+    preserving endpointOutcome: AssistantTranscriptionOutcome
+  ) -> AssistantTranscriptionOutcome {
+    tracker.finalizedOutcome(preserving: endpointOutcome)
   }
 }
 

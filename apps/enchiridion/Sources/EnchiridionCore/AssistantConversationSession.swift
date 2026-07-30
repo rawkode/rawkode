@@ -44,11 +44,21 @@ public enum AssistantVoiceAvailability: Equatable, Sendable {
   case unavailable(String)
 }
 
+public enum AssistantTranscriptionOutcome: Equatable, Sendable {
+  case utterance(String)
+  case noSpeech
+}
+
+public typealias AssistantTranscriptionProgressHandler = @Sendable (String) async -> Void
+
 public protocol AssistantConversationTranscribing: Sendable {
   func availability() async -> AssistantVoiceAvailability
   func requestPermission() async -> AssistantVoiceAvailability
   func installAssets() async throws
   func transcribe() async throws -> String
+  func transcribe(
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler
+  ) async throws -> AssistantTranscriptionOutcome
   func stop() async
 }
 
@@ -56,7 +66,83 @@ extension AssistantConversationTranscribing {
   public func availability() async -> AssistantVoiceAvailability { .available }
   public func requestPermission() async -> AssistantVoiceAvailability { await availability() }
   public func installAssets() async throws {}
+  public func transcribe(
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler
+  ) async throws -> AssistantTranscriptionOutcome {
+    let utterance = try await transcribe().trimmingCharacters(in: .whitespacesAndNewlines)
+    return utterance.isEmpty ? .noSpeech : .utterance(utterance)
+  }
   public func stop() async {}
+}
+
+/// Pure transcript-stability policy used to stop a live transcription turn.
+/// This observes text hypotheses, not acoustic voice activity.
+public struct AssistantTranscriptStabilityTracker: Sendable {
+  public enum Decision: Equatable, Sendable {
+    case continueListening
+    case finalize(String)
+    case noSpeech
+  }
+
+  public let firstHypothesisTimeout: Duration
+  public let stabilityDuration: Duration
+  public let hardLimit: Duration
+
+  private var latestText = ""
+  private var stableSince: Duration?
+
+  public init(
+    firstHypothesisTimeout: Duration = .seconds(5),
+    stabilityDuration: Duration = .milliseconds(1_200),
+    hardLimit: Duration = .seconds(15)
+  ) {
+    precondition(firstHypothesisTimeout > .zero)
+    precondition(stabilityDuration > .zero)
+    precondition(hardLimit >= firstHypothesisTimeout)
+    self.firstHypothesisTimeout = firstHypothesisTimeout
+    self.stabilityDuration = stabilityDuration
+    self.hardLimit = hardLimit
+  }
+
+  /// Returns a displayable hypothesis when a nonempty normalized value is new.
+  @discardableResult
+  public mutating func record(_ text: String, at elapsed: Duration) -> String? {
+    let normalized = Self.normalize(text)
+    guard !normalized.isEmpty, normalized != latestText else { return nil }
+    latestText = normalized
+    stableSince = elapsed
+    return normalized
+  }
+
+  public func decision(at elapsed: Duration) -> Decision {
+    if elapsed >= hardLimit {
+      return latestText.isEmpty ? .noSpeech : .finalize(latestText)
+    }
+    if latestText.isEmpty, elapsed >= firstHypothesisTimeout {
+      return .noSpeech
+    }
+    if let stableSince, elapsed >= stableSince + stabilityDuration {
+      return .finalize(latestText)
+    }
+    return .continueListening
+  }
+
+  /// Keeps a terminal no-speech decision, while allowing SpeechAnalyzer's
+  /// post-finalization hypothesis to refine an accepted utterance.
+  public func finalizedOutcome(
+    preserving endpointOutcome: AssistantTranscriptionOutcome
+  ) -> AssistantTranscriptionOutcome {
+    switch endpointOutcome {
+    case .noSpeech:
+      return .noSpeech
+    case .utterance(let endpointText):
+      return .utterance(latestText.isEmpty ? endpointText : latestText)
+    }
+  }
+
+  private static func normalize(_ text: String) -> String {
+    text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+  }
 }
 
 public protocol AssistantConversationAnswering: Sendable {
@@ -131,6 +217,8 @@ public final class AssistantConversationSession {
   public private(set) var state: AssistantConversationState = .idle
   public private(set) var turns: [AssistantConversationTurn] = []
   public private(set) var voiceAvailability: AssistantVoiceAvailability
+  public private(set) var liveTranscript = ""
+  public private(set) var voiceInputNotice: String?
   public var speaksResponses: Bool
 
   public var isRunning: Bool {
@@ -142,7 +230,8 @@ public final class AssistantConversationSession {
     }
   }
 
-  public var isVoiceRunning: Bool { voiceOperationIsActive }
+  public private(set) var isVoiceRunning = false
+  public private(set) var voiceOperationCompletionGeneration: UInt64 = 0
 
   @ObservationIgnored private let transcriber: (any AssistantConversationTranscribing)?
   @ObservationIgnored private let answerer: any AssistantConversationAnswering
@@ -155,8 +244,8 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var generation: UInt64 = 0
   @ObservationIgnored private var surfaceOwnerID: UUID?
   @ObservationIgnored private var isStopping = false
-  @ObservationIgnored private var voiceOperationIsActive = false
   @ObservationIgnored private var voiceStartAttemptID: UUID?
+  @ObservationIgnored private var voiceInputGeneration: UInt64 = 0
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
@@ -192,9 +281,10 @@ public final class AssistantConversationSession {
     let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !utterance.isEmpty, operation == nil, !isStopping else { return }
 
+    resetVoiceInput()
     generation &+= 1
     let currentGeneration = generation
-    voiceOperationIsActive = false
+    finishVoiceOperationIfNeeded()
     state = .thinking
     let task = Task { [weak self] in
       await self?.answer(utterance, generation: currentGeneration)
@@ -238,7 +328,8 @@ public final class AssistantConversationSession {
 
     generation &+= 1
     let currentGeneration = generation
-    voiceOperationIsActive = true
+    resetVoiceInput()
+    isVoiceRunning = true
     let spokenGreeting = greeting?.trimmingCharacters(in: .whitespacesAndNewlines)
     state =
       spokenGreeting?.isEmpty == false && speaksResponses && speaker != nil
@@ -305,9 +396,10 @@ public final class AssistantConversationSession {
   private func stop(preservingTurns: Bool) async {
     voiceStartAttemptID = nil
     generation &+= 1
+    resetVoiceInput()
     let stopGeneration = generation
     isStopping = true
-    voiceOperationIsActive = false
+    finishVoiceOperationIfNeeded()
     let activeOperation = operation
     operation = nil
     activeOperation?.cancel()
@@ -344,16 +436,29 @@ public final class AssistantConversationSession {
     while isCurrent(currentGeneration) {
       do {
         state = .listening
-        let utterance = try await transcriber.transcribe()
-          .trimmingCharacters(in: .whitespacesAndNewlines)
-        try Task.checkCancellation()
-        guard isCurrent(currentGeneration) else { return }
-        guard !utterance.isEmpty else {
-          fail(
+        let inputGeneration = beginVoiceInputTurn()
+        let outcome = try await transcriber.transcribe { [weak self] transcript in
+          await self?.receiveTranscript(
+            transcript,
             generation: currentGeneration,
-            kind: .transcription,
-            message: "I didn't hear a request."
+            inputGeneration: inputGeneration
           )
+        }
+        try Task.checkCancellation()
+        guard isCurrent(currentGeneration), inputGeneration == voiceInputGeneration else {
+          return
+        }
+        finishVoiceInputTurn(inputGeneration)
+
+        guard case .utterance(let value) = outcome else {
+          voiceInputNotice = "No speech detected. Tap the microphone to try again."
+          state = .idle
+          return
+        }
+        let utterance = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !utterance.isEmpty else {
+          voiceInputNotice = "No speech detected. Tap the microphone to try again."
+          state = .idle
           return
         }
 
@@ -413,7 +518,7 @@ public final class AssistantConversationSession {
     // Typed chat is deliberately silent. Speech output belongs to an active
     // voice conversation, regardless of whether a speaker is configured for
     // another surface such as CarPlay.
-    if voiceOperationIsActive, speaksResponses, let speaker {
+    if isVoiceRunning, speaksResponses, let speaker {
       do {
         state = .speaking
         try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: presentedResponse))
@@ -425,15 +530,49 @@ public final class AssistantConversationSession {
         return false
       }
     }
-    state = voiceOperationIsActive ? .listening : .idle
+    state = isVoiceRunning ? .listening : .idle
     return true
   }
 
   private func finishOperation(generation candidate: UInt64) {
     guard candidate == generation else { return }
     operation = nil
-    voiceOperationIsActive = false
+    finishVoiceOperationIfNeeded()
     if state == .thinking || state == .speaking || state == .listening { state = .idle }
+  }
+
+  private func finishVoiceOperationIfNeeded() {
+    guard isVoiceRunning else { return }
+    isVoiceRunning = false
+    voiceOperationCompletionGeneration &+= 1
+  }
+
+  private func beginVoiceInputTurn() -> UInt64 {
+    resetVoiceInput()
+    return voiceInputGeneration
+  }
+
+  private func resetVoiceInput() {
+    voiceInputGeneration &+= 1
+    liveTranscript = ""
+    voiceInputNotice = nil
+  }
+
+  private func finishVoiceInputTurn(_ inputGeneration: UInt64) {
+    guard inputGeneration == voiceInputGeneration else { return }
+    voiceInputGeneration &+= 1
+    liveTranscript = ""
+  }
+
+  private func receiveTranscript(
+    _ transcript: String,
+    generation candidate: UInt64,
+    inputGeneration: UInt64
+  ) {
+    guard isCurrent(candidate), inputGeneration == voiceInputGeneration else { return }
+    let value = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return }
+    liveTranscript = value
   }
 
   private func appendTurn(_ turn: AssistantConversationTurn) {

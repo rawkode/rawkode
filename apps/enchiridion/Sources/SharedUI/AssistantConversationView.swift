@@ -1,9 +1,10 @@
 import EnchiridionCore
 import SwiftUI
+
 #if os(macOS)
-import AppKit
+  import AppKit
 #else
-import UIKit
+  import UIKit
 #endif
 
 enum AssistantConversationPresentation: Equatable, Sendable {
@@ -64,8 +65,14 @@ struct AssistantConversationView: View {
     .task(id: surfaceID) { await prepareSurface() }
     .onDisappear(perform: stopSurface)
     .onChange(of: scenePhase) { _, phase in
-      guard phase != .active, let session else { return }
-      Task { await session.stop() }
+      guard let session else { return }
+      Task {
+        if phase == .active {
+          await session.refreshVoiceAvailability()
+        } else {
+          await session.stop()
+        }
+      }
     }
   }
 
@@ -110,6 +117,17 @@ struct AssistantConversationView: View {
 
   private func composer(_ session: AssistantConversationSession) -> some View {
     VStack(alignment: .leading, spacing: 6) {
+      if session.state == .listening, !session.liveTranscript.isEmpty {
+        Text(session.liveTranscript)
+          .font(.body)
+          .lineLimit(2...3)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .privacySensitive()
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Live transcription")
+          .accessibilityValue(session.liveTranscript)
+      }
+
       composerStatus(session)
 
       HStack(alignment: .bottom, spacing: 8) {
@@ -181,22 +199,29 @@ struct AssistantConversationView: View {
 
   @ViewBuilder
   private func composerStatus(_ session: AssistantConversationSession) -> some View {
-    switch session.state {
-    case .listening:
-      activityStatus("Listening…", systemImage: "mic.fill")
-    case .thinking:
-      activityStatus("Thinking…")
-    case .speaking:
-      activityStatus("Speaking…", systemImage: "speaker.fill")
-    case .error(let failure):
-      if session.turns.last?.answer != failure.message {
-        Label(failure.message, systemImage: "exclamationmark.circle.fill")
-          .font(.caption)
-          .foregroundStyle(.orange)
-          .fixedSize(horizontal: false, vertical: true)
+    if let notice = session.voiceInputNotice {
+      Label(notice, systemImage: "mic.slash")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    } else {
+      switch session.state {
+      case .listening:
+        activityStatus("Listening…", systemImage: "mic.fill")
+      case .thinking:
+        activityStatus("Thinking…")
+      case .speaking:
+        activityStatus("Speaking…", systemImage: "speaker.fill")
+      case .error(let failure):
+        if session.turns.last?.answer != failure.message {
+          Label(failure.message, systemImage: "exclamationmark.circle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      case .idle, .stopped:
+        voiceAvailabilityStatus(session)
       }
-    case .idle, .stopped:
-      voiceAvailabilityStatus(session)
     }
   }
 
@@ -222,8 +247,8 @@ struct AssistantConversationView: View {
     case .permissionRequired:
       EmptyView()
     case .permissionDenied:
-      availabilityAction("Microphone access is off.") {
-        Button("Open Settings") { openMicrophoneSettings() }
+      availabilityAction("Microphone or Speech Recognition access is off.") {
+        Button("Open Settings") { openPrivacySettings() }
           .buttonStyle(.plain)
           .foregroundStyle(.tint)
       }
@@ -344,13 +369,14 @@ struct AssistantConversationView: View {
     }
   }
 
-  private func openMicrophoneSettings() {
+  private func openPrivacySettings() {
     #if os(macOS)
-    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else { return }
-    NSWorkspace.shared.open(url)
+      guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")
+      else { return }
+      NSWorkspace.shared.open(url)
     #else
-    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-    UIApplication.shared.open(url)
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+      UIApplication.shared.open(url)
     #endif
   }
 }

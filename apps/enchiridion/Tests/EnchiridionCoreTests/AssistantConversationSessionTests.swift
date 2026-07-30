@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import XCTest
 
 @testable import EnchiridionCore
@@ -319,6 +320,28 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
+  func testVoiceWaitsForPermissionBeforeStartingCapture() async throws {
+    let transcriber = SuspendedPermissionTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    async let start: Void = session.startVoice()
+    try await waitUntil { await transcriber.permissionRequestCount == 1 }
+    let captureCountBeforePermission = await transcriber.captureCount
+    XCTAssertEqual(captureCountBeforePermission, 0)
+
+    await transcriber.resumePermissionRequest()
+    _ = await start
+    try await waitUntil { await transcriber.captureCount == 1 }
+
+    XCTAssertTrue(session.isVoiceRunning)
+    await session.stop()
+  }
+
+  @MainActor
   func testResetClearsVisibleAndModelConversationContext() async {
     let answerer = ResetRecordingAnswerer()
     let session = AssistantConversationSession(answerer: answerer)
@@ -330,6 +353,219 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .idle)
     let resetCount = await answerer.resetCount
     XCTAssertEqual(resetCount, 1)
+  }
+
+  func testTranscriptStabilityUsesExactNoSpeechAndStableBoundaries() {
+    var tracker = AssistantTranscriptStabilityTracker()
+
+    XCTAssertEqual(tracker.decision(at: .milliseconds(4_999)), .continueListening)
+    XCTAssertEqual(tracker.decision(at: .seconds(5)), .noSpeech)
+
+    tracker = AssistantTranscriptStabilityTracker()
+    XCTAssertEqual(tracker.record("  review   today  ", at: .seconds(1)), "review today")
+    XCTAssertNil(tracker.record("review today", at: .seconds(2)))
+    XCTAssertNil(tracker.record("   ", at: .milliseconds(2_100)))
+    XCTAssertEqual(tracker.decision(at: .milliseconds(2_199)), .continueListening)
+    XCTAssertEqual(tracker.decision(at: .milliseconds(2_200)), .finalize("review today"))
+  }
+
+  func testTranscriptStabilityResetsOnlyForChangedNonemptyTextAndHonorsHardLimit() {
+    var tracker = AssistantTranscriptStabilityTracker()
+    tracker.record("review", at: .seconds(1))
+    tracker.record("review today", at: .seconds(2))
+
+    XCTAssertEqual(tracker.decision(at: .milliseconds(3_199)), .continueListening)
+    XCTAssertEqual(tracker.decision(at: .milliseconds(3_200)), .finalize("review today"))
+
+    tracker = AssistantTranscriptStabilityTracker()
+    tracker.record("hard limit", at: .milliseconds(14_900))
+    XCTAssertEqual(tracker.decision(at: .milliseconds(14_999)), .continueListening)
+    XCTAssertEqual(tracker.decision(at: .seconds(15)), .finalize("hard limit"))
+  }
+
+  func testFinalizationUsesCorrectedLatestTranscriptWithoutReversingNoSpeech() {
+    var tracker = AssistantTranscriptStabilityTracker()
+    tracker.record("review today", at: .seconds(1))
+    let endpointOutcome = AssistantTranscriptionOutcome.utterance("review today")
+    tracker.record("Review today.", at: .milliseconds(2_300))
+
+    XCTAssertEqual(
+      tracker.finalizedOutcome(preserving: endpointOutcome),
+      .utterance("Review today.")
+    )
+
+    tracker = AssistantTranscriptStabilityTracker()
+    tracker.record("late hypothesis", at: .milliseconds(5_100))
+    XCTAssertEqual(tracker.finalizedOutcome(preserving: .noSpeech), .noSpeech)
+  }
+
+  func testLegacyTranscriberReceivesOutcomeThroughCompatibilityBridge() async throws {
+    let transcriber = ScriptedTranscriber(utterances: ["  legacy request  "])
+
+    let outcome = try await transcriber.transcribe(reportingProgress: { _ in })
+
+    XCTAssertEqual(outcome, .utterance("legacy request"))
+  }
+
+  @MainActor
+  func testProgressIsVisibleButOnlyFinalOutcomeIsSubmitted() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let answerer = RecordingAnswerer()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emit("Review", forCall: 0)
+    await transcriber.emit("Review today", forCall: 0)
+    XCTAssertEqual(session.liveTranscript, "Review today")
+    XCTAssertTrue(session.turns.isEmpty)
+
+    await transcriber.finish(.utterance("Review today"), forCall: 0)
+    try await waitUntil { await transcriber.callCount == 2 }
+
+    XCTAssertTrue(session.isVoiceRunning, "CarPlay audio must stay active between turns")
+    XCTAssertEqual(session.voiceOperationCompletionGeneration, 0)
+    let requests = await answerer.requests
+    XCTAssertEqual(requests.map(\.utterance), ["Review today"])
+    XCTAssertEqual(session.turns.map(\.utterance), ["Review today"])
+    await session.stop()
+  }
+
+  @MainActor
+  func testProgressAfterFinalOutcomeCannotRepopulateTranscriptWhileThinking() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emit("accepted request", forCall: 0)
+    await transcriber.finish(.utterance("accepted request"), forCall: 0)
+    try await waitUntil { await answerer.requests.count == 1 }
+    XCTAssertEqual(session.state, .thinking)
+
+    await transcriber.emit("escaped final progress", forCall: 0)
+    XCTAssertTrue(session.liveTranscript.isEmpty)
+
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "answer", status: .answered)
+    )
+    try await waitUntil { await transcriber.callCount == 2 }
+    await session.stop()
+  }
+
+  @MainActor
+  func testStaleProgressCannotRepopulateTranscriptAfterStopOrNewTurn() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emit("first", forCall: 0)
+    XCTAssertEqual(session.liveTranscript, "first")
+
+    await session.stop()
+    await transcriber.emit("stale after stop", forCall: 0)
+    XCTAssertTrue(session.liveTranscript.isEmpty)
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 2 }
+    await transcriber.emit("second", forCall: 1)
+    await transcriber.emit("stale first turn", forCall: 0)
+    XCTAssertEqual(session.liveTranscript, "second")
+    await session.stop()
+  }
+
+  @MainActor
+  func testConsecutiveVoiceTurnsResetTheProvisionalTranscript() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emit("first request", forCall: 0)
+    await transcriber.finish(.utterance("first request"), forCall: 0)
+    try await waitUntil { await transcriber.callCount == 2 }
+
+    XCTAssertTrue(session.liveTranscript.isEmpty)
+    await transcriber.emit("second request", forCall: 1)
+    XCTAssertEqual(session.liveTranscript, "second request")
+    await session.stop()
+  }
+
+  @MainActor
+  func testNoSpeechReturnsToIdleWithoutAnErrorOrConversationTurn() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let answerer = RecordingAnswerer()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    let completionGeneration = session.voiceOperationCompletionGeneration
+    let operationEnded = expectation(description: "Voice operation lifecycle ended")
+    withObservationTracking(
+      { _ = session.voiceOperationCompletionGeneration },
+      onChange: { operationEnded.fulfill() }
+    )
+    await transcriber.finish(.noSpeech, forCall: 0)
+    await fulfillment(of: [operationEnded], timeout: 1)
+    try await waitUntil { !session.isVoiceRunning }
+    await transcriber.emit("escaped no-speech progress", forCall: 0)
+
+    XCTAssertEqual(session.state, .idle)
+    XCTAssertEqual(session.voiceOperationCompletionGeneration, completionGeneration + 1)
+    XCTAssertTrue(session.liveTranscript.isEmpty)
+    XCTAssertEqual(
+      session.voiceInputNotice,
+      "No speech detected. Tap the microphone to try again."
+    )
+    XCTAssertTrue(session.turns.isEmpty)
+    let requests = await answerer.requests
+    XCTAssertTrue(requests.isEmpty)
+  }
+
+  @MainActor
+  func testSurfaceReplacementClearsProgressAndFencesLateCallbacks() async throws {
+    let transcriber = ProgressiveTranscriber()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: RecordingAnswerer(),
+      interTurnDelay: .zero
+    )
+    let firstSurface = UUID()
+    await session.activateSurface(firstSurface)
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emit("private draft", forCall: 0)
+    XCTAssertEqual(session.liveTranscript, "private draft")
+
+    await session.activateSurface(UUID())
+    await transcriber.emit("late private draft", forCall: 0)
+
+    XCTAssertTrue(session.liveTranscript.isEmpty)
+    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.state, .idle)
   }
 
   func testSpokenFormatterKeepsSafetyCaveatAndDeduplicatesSources() {
@@ -470,6 +706,64 @@ private actor ControlledTranscriber: AssistantConversationTranscribing {
     guard let index = pending.firstIndex(where: { $0.id == id }) else { return }
     cancellationCount += 1
     pending.remove(at: index).continuation.resume(throwing: CancellationError())
+  }
+}
+
+private actor ProgressiveTranscriber: AssistantConversationTranscribing {
+  private struct Capture {
+    var progress: AssistantTranscriptionProgressHandler
+    var continuation: CheckedContinuation<AssistantTranscriptionOutcome, any Error>?
+  }
+
+  private var captures: [Capture] = []
+  private(set) var callCount = 0
+
+  func transcribe() async throws -> String {
+    switch try await transcribe(reportingProgress: { _ in }) {
+    case .utterance(let utterance): utterance
+    case .noSpeech: ""
+    }
+  }
+
+  func transcribe(
+    reportingProgress: @escaping AssistantTranscriptionProgressHandler
+  ) async throws -> AssistantTranscriptionOutcome {
+    let index = captures.count
+    callCount += 1
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        captures.append(Capture(progress: reportingProgress, continuation: continuation))
+      }
+    } onCancel: {
+      Task { await self.cancel(call: index) }
+    }
+  }
+
+  func emit(_ transcript: String, forCall index: Int) async {
+    guard captures.indices.contains(index) else { return }
+    await captures[index].progress(transcript)
+  }
+
+  func finish(_ outcome: AssistantTranscriptionOutcome, forCall index: Int) {
+    guard captures.indices.contains(index), let continuation = captures[index].continuation else {
+      return
+    }
+    captures[index].continuation = nil
+    continuation.resume(returning: outcome)
+  }
+
+  func stop() {
+    for index in captures.indices {
+      cancel(call: index)
+    }
+  }
+
+  private func cancel(call index: Int) {
+    guard captures.indices.contains(index), let continuation = captures[index].continuation else {
+      return
+    }
+    captures[index].continuation = nil
+    continuation.resume(throwing: CancellationError())
   }
 }
 
