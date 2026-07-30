@@ -36,6 +36,7 @@ private struct ScoutBrowserView: View {
   @Bindable var session: BrowserSession
   @Binding var columnVisibility: NavigationSplitViewVisibility
   @State private var exactPath = ""
+  @FocusState private var searchFocused: Bool
 
   var body: some View {
     ZStack {
@@ -86,6 +87,16 @@ private struct ScoutBrowserView: View {
         Task { await session.commitRename() }
       }
     }
+    .sheet(isPresented: $session.tagsPresented) {
+      TagEditorSheet(tags: $session.tagText) {
+        Task { await session.commitTags() }
+      }
+    }
+    .onChange(of: session.searchFieldRequested) { _, requested in
+      guard requested else { return }
+      searchFocused = true
+      session.searchFieldRequested = false
+    }
     .alert("Scout Couldn’t Complete That", isPresented: Binding(
       get: { session.errorMessage != nil },
       set: { if !$0 { session.errorMessage = nil } }
@@ -93,6 +104,21 @@ private struct ScoutBrowserView: View {
       Button("OK") { session.errorMessage = nil }
     } message: {
       Text(session.errorMessage ?? "")
+    }
+    .confirmationDialog(
+      "An Item Already Exists",
+      isPresented: Binding(
+        get: { session.pendingConflict != nil },
+        set: { if !$0 { session.pendingConflict = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Keep Both") { Task { await session.resolveConflict(.keepBoth) } }
+      Button("Replace", role: .destructive) { Task { await session.resolveConflict(.replace) } }
+      Button("Stop", role: .cancel) { session.pendingConflict = nil }
+    } message: {
+      let count = session.pendingConflict?.conflictingURLs.count ?? 1
+      Text(count == 1 ? "Choose how Scout should handle the existing item." : "Choose how Scout should handle all \(count) conflicts in this batch.")
     }
   }
 
@@ -171,6 +197,7 @@ private struct ScoutBrowserView: View {
       TextField("Search", text: $session.searchText)
         .textFieldStyle(.roundedBorder)
         .frame(width: 190)
+        .focused($searchFocused)
         .onSubmit { session.beginSearch() }
         .onChange(of: session.searchText) { _, text in
           if text.isEmpty { session.endSearch() }

@@ -14,6 +14,9 @@ struct CommandPaletteView: View {
       CommandDescriptor(id: "duplicate", title: "Duplicate", subtitle: nil, systemImage: "plus.square.on.square", keyEquivalent: "⌘D", keywords: ["copy"]),
       CommandDescriptor(id: "compress", title: "Compress", subtitle: "Create a ZIP archive", systemImage: "archivebox", keyEquivalent: nil, keywords: ["zip", "archive"]),
       CommandDescriptor(id: "extract", title: "Extract Archive", subtitle: nil, systemImage: "archivebox.fill", keyEquivalent: nil, keywords: ["zip", "unarchive"]),
+      CommandDescriptor(id: "tags", title: "Edit Tags", subtitle: nil, systemImage: "tag", keyEquivalent: nil, keywords: ["label", "color"]),
+      CommandDescriptor(id: "open-with", title: "Open With…", subtitle: nil, systemImage: "app.badge", keyEquivalent: nil, keywords: ["application", "app"]),
+      CommandDescriptor(id: "package", title: "Show Package Contents", subtitle: nil, systemImage: "shippingbox", keyEquivalent: nil, keywords: ["bundle", "folder"]),
       CommandDescriptor(id: "quick-look", title: "Quick Look", subtitle: nil, systemImage: "eye", keyEquivalent: "Space", keywords: ["preview"]),
       CommandDescriptor(id: "trash", title: "Move to Trash", subtitle: nil, systemImage: "trash", keyEquivalent: "⌘⌫", keywords: ["delete", "remove"]),
       CommandDescriptor(id: "icons", title: "Icon View", subtitle: nil, systemImage: "square.grid.2x2", keyEquivalent: "⌘1", keywords: ["view"]),
@@ -77,6 +80,9 @@ struct CommandPaletteView: View {
     case "duplicate": Task { await session.duplicateSelection() }
     case "compress": Task { await session.compressSelection() }
     case "extract": Task { await session.extractSelection() }
+    case "tags": session.beginEditingTags()
+    case "open-with": Task { await session.chooseApplicationForSelection() }
+    case "package": Task { await session.showPackageContents() }
     case "quick-look": QuickLookPanelController.shared.preview(session.selectedItems.map(\.url))
     case "trash": Task { await session.trashSelection() }
     case "icons": session.changeViewMode(.icons)

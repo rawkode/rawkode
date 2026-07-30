@@ -23,6 +23,7 @@
 		769A1AB4FF582EE347C25042 /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C21FD5817F56AADDC16D2722 /* CommandPaletteView.swift */; };
 		8072B3FB84463FD1590C41A8 /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F393D612E88BCB52023E34F /* ScoutApp.swift */; };
 		81071182B0E9404A6C362DD3 /* DirectoryPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39F5DB34BDAF1C6B68C3261 /* DirectoryPresenter.swift */; };
+		83595C401D3730876F6897FA /* ThumbnailClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5501BAD034B54D8D5DFC6606 /* ThumbnailClient.swift */; };
 		8925015A4AA22BAB38D86A5A /* FileSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7021BF58AA559E71A58FE020 /* FileSearchClient.swift */; };
 		8DD5BE57AA2738C52C387084 /* FileSystemClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F270E5B95A1ED588BC6DDE38 /* FileSystemClientTests.swift */; };
 		95403B930C26CA708DC8C1A8 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1690D9F793C5C235BAB8AA20 /* QuickLook.framework */; };
@@ -79,6 +80,7 @@
 		490C1D895BD887B84574EE47 /* ScoutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutSettingsView.swift; sourceTree = "<group>"; };
 		4ED3C27BBE57979FB01C67F8 /* AccessGrantStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessGrantStore.swift; sourceTree = "<group>"; };
 		4F393D612E88BCB52023E34F /* ScoutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutApp.swift; sourceTree = "<group>"; };
+		5501BAD034B54D8D5DFC6606 /* ThumbnailClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailClient.swift; sourceTree = "<group>"; };
 		5A6B90277C995CA327C6E5FE /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 		61A1F59A329D283F54FD5B4C /* InspectorAndOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorAndOverlays.swift; sourceTree = "<group>"; };
 		6D0A30C2D972078B209475CE /* ScoutAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAppModel.swift; sourceTree = "<group>"; };
@@ -161,6 +163,7 @@
 				7021BF58AA559E71A58FE020 /* FileSearchClient.swift */,
 				2316FA1EBF3E05A9157DBE85 /* FileSystemClient.swift */,
 				45ED6A4F2EC178A6302F6315 /* SecurityScopeBroker.swift */,
+				5501BAD034B54D8D5DFC6606 /* ThumbnailClient.swift */,
 				32AF9AF238B42D8B9247BA25 /* WorkspaceClient.swift */,
 			);
 			path = Services;
@@ -410,6 +413,7 @@
 				3EBB2BCC5E9080DDA0A12444 /* ScoutSettingsView.swift in Sources */,
 				E2EAB9043C690924F3337574 /* ScoutWindowHost.swift in Sources */,
 				22FE38C733BF6F4D6F688F39 /* SecurityScopeBroker.swift in Sources */,
+				83595C401D3730876F6897FA /* ThumbnailClient.swift in Sources */,
 				ACA8E13CC7703FBC48A7200B /* URLSafety.swift in Sources */,
 				5294E4001301FFB3749491F4 /* WindowBridge.swift in Sources */,
 				BE4C1CA2373C741EF4B28FB2 /* WorkspaceClient.swift in Sources */,

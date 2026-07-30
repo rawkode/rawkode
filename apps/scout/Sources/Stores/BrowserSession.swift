@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import os
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -22,6 +23,10 @@ final class BrowserSession: Identifiable {
   var pathNavigatorPresented = false
   var renamePresented = false
   var renameText = ""
+  var tagsPresented = false
+  var tagText = ""
+  var searchFieldRequested = false
+  var pendingConflict: PendingConflict?
 
   private(set) var activeGrant: AccessGrant?
   private(set) var rootURL: URL?
@@ -235,7 +240,8 @@ final class BrowserSession: Identifiable {
           !renameText.isEmpty,
           renameText != item.name
     else { return }
-    _ = await journal.perform(.rename(source: item.url, name: renameText, conflict: .stop), root: rootURL)
+    let request = FileOperationRequest.rename(source: item.url, name: renameText, conflict: .stop)
+    guard await performCheckingConflicts(request, root: rootURL) else { return }
     await refresh()
   }
 
@@ -272,6 +278,36 @@ final class BrowserSession: Identifiable {
     await refresh()
   }
 
+  func beginEditingTags() {
+    guard !selectedItems.isEmpty else { return }
+    tagText = selectedItems.first?.tags.joined(separator: ", ") ?? ""
+    tagsPresented = true
+  }
+
+  func commitTags() async {
+    let tags = tagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    tagsPresented = false
+    await setTags(tags)
+  }
+
+  func chooseApplicationForSelection() async {
+    guard selectedItems.count == 1, let item = selectedItems.first else { return }
+    let panel = NSOpenPanel()
+    panel.title = String(localized: "Open With")
+    panel.prompt = String(localized: "Open")
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.application]
+    panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+    guard await panel.begin() == .OK, let applicationURL = panel.url else { return }
+    do {
+      try await workspace.open(item.url, with: applicationURL)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   func copySelection() {
     let pasteboard = NSPasteboard.general
     pasteboard.clearContents()
@@ -289,6 +325,29 @@ final class BrowserSession: Identifiable {
     let request: FileOperationRequest = move
       ? .move(sources: contained, destination: currentDirectory, conflict: .stop)
       : .copy(sources: contained, destination: currentDirectory, conflict: .stop)
+    guard await performCheckingConflicts(request, root: rootURL) else { return }
+    await refresh()
+  }
+
+  func transfer(_ urls: [URL], move: Bool) async {
+    guard let rootURL, let currentDirectory else { return }
+    let contained = urls.filter { PathSafety.contains($0, within: rootURL) }
+    guard contained.count == urls.count else {
+      errorMessage = String(localized: "Scout can only transfer items inside the active granted location.")
+      return
+    }
+    let request: FileOperationRequest = move
+      ? .move(sources: contained, destination: currentDirectory, conflict: .stop)
+      : .copy(sources: contained, destination: currentDirectory, conflict: .stop)
+    guard await performCheckingConflicts(request, root: rootURL) else { return }
+    await refresh()
+  }
+
+  func resolveConflict(_ resolution: ConflictResolution) async {
+    guard let pendingConflict, let rootURL else { return }
+    self.pendingConflict = nil
+    guard resolution != .stop else { return }
+    let request = pendingConflict.request.withConflictResolution(resolution)
     _ = await journal.perform(request, root: rootURL)
     await refresh()
   }
@@ -368,6 +427,43 @@ final class BrowserSession: Identifiable {
     guard let currentDirectory else { return }
     presentationController.observe(currentDirectory) { [weak self] in
       Task { await self?.refresh() }
+    }
+  }
+
+  private func performCheckingConflicts(_ request: FileOperationRequest, root: URL) async -> Bool {
+    let conflicts = request.conflictingDestinations(fileManager: .default)
+    if !conflicts.isEmpty {
+      pendingConflict = PendingConflict(request: request, conflictingURLs: conflicts)
+      return false
+    }
+    _ = await journal.perform(request, root: root)
+    return true
+  }
+}
+
+private extension FileOperationRequest {
+  func conflictingDestinations(fileManager: FileManager) -> [URL] {
+    let destinations: [URL]
+    switch self {
+    case let .rename(source, name, _):
+      destinations = [source.deletingLastPathComponent().appending(path: name)]
+    case let .copy(sources, destination, _), let .move(sources, destination, _):
+      destinations = sources.map { destination.appending(path: $0.lastPathComponent) }
+    case let .movePairs(pairs, _):
+      destinations = pairs.map(\.destination)
+    default:
+      destinations = []
+    }
+    return destinations.filter { fileManager.fileExists(atPath: $0.path) }
+  }
+
+  func withConflictResolution(_ resolution: ConflictResolution) -> FileOperationRequest {
+    switch self {
+    case let .rename(source, name, _): .rename(source: source, name: name, conflict: resolution)
+    case let .copy(sources, destination, _): .copy(sources: sources, destination: destination, conflict: resolution)
+    case let .move(sources, destination, _): .move(sources: sources, destination: destination, conflict: resolution)
+    case let .movePairs(pairs, _): .movePairs(pairs, conflict: resolution)
+    default: self
     }
   }
 }

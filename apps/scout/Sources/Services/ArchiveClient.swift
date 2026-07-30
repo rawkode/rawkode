@@ -27,12 +27,13 @@ actor ZIPArchiveClient: ArchiveClient {
       progress.totalUnitCount = Int64(sources.count)
       for source in sources {
         if progress.isCancelled { throw CancellationError() }
+        let itemProgress = Progress(totalUnitCount: 1, parent: progress, pendingUnitCount: 1)
         try archive.addEntry(
           with: source.lastPathComponent,
           relativeTo: source.deletingLastPathComponent(),
-          compressionMethod: .deflate
+          compressionMethod: .deflate,
+          progress: itemProgress
         )
-        progress.completedUnitCount += 1
       }
     } catch {
       try? fileManager.removeItem(at: destination)
@@ -77,9 +78,9 @@ actor ZIPArchiveClient: ArchiveClient {
         guard let target = PathSafety.safeArchiveDestination(for: entry.path, within: destination) else {
           throw ArchiveSafetyError.unsafeEntry(entry.path)
         }
-        _ = try archive.extract(entry, to: target)
+        let entryProgress = Progress(totalUnitCount: 1, parent: progress, pendingUnitCount: 1)
+        _ = try archive.extract(entry, to: target, progress: entryProgress)
         completed.append(target)
-        progress.completedUnitCount += 1
       }
     } catch {
       for url in completed.sorted(by: { $0.pathComponents.count > $1.pathComponents.count }) {

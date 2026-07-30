@@ -44,7 +44,11 @@ struct ScoutCommands: Commands {
         .disabled(session?.currentDirectory == nil)
     }
 
-    CommandGroup(after: .pasteboard) {
+    CommandGroup(replacing: .pasteboard) {
+      Button("Copy") { session?.copySelection() }
+        .keyboardShortcut("c", modifiers: .command)
+      Button("Paste") { Task { await session?.paste() } }
+        .keyboardShortcut("v", modifiers: .command)
       Button("Paste and Move") { Task { await session?.paste(move: true) } }
         .keyboardShortcut("v", modifiers: [.command, .option])
       Divider()
@@ -63,11 +67,18 @@ struct ScoutCommands: Commands {
         .keyboardShortcut(.upArrow, modifiers: .command)
       Button("Go to Folder…") { session?.pathNavigatorPresented = true }
         .keyboardShortcut("g", modifiers: [.command, .shift])
+      Button("Search") { session?.searchFieldRequested = true }
+        .keyboardShortcut("f", modifiers: .command)
       Button("Quick Look") { QuickLookPanelController.shared.preview(session?.selectedItems.map(\.url) ?? []) }
         .keyboardShortcut(.space, modifiers: [])
       Divider()
       Button("Command Palette") { session?.commandPalettePresented = true }
         .keyboardShortcut("k", modifiers: .command)
+      Divider()
+      Button("Show Package Contents") { Task { await session?.showPackageContents() } }
+        .disabled(session?.selectedItems.first?.isPackage != true)
+      Button("Open With…") { Task { await session?.chooseApplicationForSelection() } }
+        .disabled(session?.selectedItems.count != 1)
     }
 
     CommandMenu("View") {

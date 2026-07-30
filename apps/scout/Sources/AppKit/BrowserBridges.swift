@@ -82,6 +82,7 @@ struct FileListView: NSViewRepresentable {
     table.allowsMultipleSelection = true
     table.usesAlternatingRowBackgroundColors = true
     table.rowSizeStyle = .medium
+    table.registerForDraggedTypes([.fileURL])
     table.doubleAction = #selector(Coordinator.openSelection)
     table.target = context.coordinator
     for (identifier, title, width) in [("name", String(localized: "Name"), 360.0), ("date", String(localized: "Date Modified"), 170.0), ("size", String(localized: "Size"), 90.0)] {
@@ -130,40 +131,175 @@ struct FileListView: NSViewRepresentable {
       Task { await session.select(ids) }
     }
     @MainActor @objc func openSelection() { Task { await session.openSelection() } }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+      guard session.displayedItems.indices.contains(row) else { return nil }
+      return session.displayedItems[row].url as NSURL
+    }
+
+    func tableView(
+      _ tableView: NSTableView,
+      validateDrop info: any NSDraggingInfo,
+      proposedRow row: Int,
+      proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+      .copy
+    }
+
+    func tableView(
+      _ tableView: NSTableView,
+      acceptDrop info: any NSDraggingInfo,
+      row: Int,
+      dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+      let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+      guard !urls.isEmpty else { return false }
+      let move = info.draggingSourceOperationMask.contains(.move)
+      Task { await session.transfer(urls, move: move) }
+      return true
+    }
   }
 }
 
-struct FileIconGridView: View {
+struct FileIconGridView: NSViewRepresentable {
   @Bindable var session: BrowserSession
 
-  var body: some View {
-    ScrollView {
-      LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 132), spacing: 10)], spacing: 14) {
-        ForEach(session.displayedItems) { item in
-          Button {
-            Task { await session.select([item.id]) }
-          } label: {
-            VStack(spacing: 7) {
-              Image(systemName: item.systemImage)
-                .font(.system(size: 40, weight: .light))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(item.isDirectory ? Color.accentColor : .secondary)
-              Text(item.name)
-                .font(.callout)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity, minHeight: 86)
-            .padding(8)
-            .background(session.selectedIDs.contains(item.id) ? Color.accentColor.opacity(0.18) : .clear, in: .rect(cornerRadius: 8))
-          }
-          .buttonStyle(.plain)
-          .simultaneousGesture(TapGesture(count: 2).onEnded { Task { await session.activate(item) } })
-          .accessibilityLabel(item.name)
-          .accessibilityValue(item.kindDescription)
-        }
-      }
-      .padding(14)
+  func makeCoordinator() -> Coordinator { Coordinator(session: session) }
+
+  func makeNSView(context: Context) -> NSScrollView {
+    let layout = NSCollectionViewFlowLayout()
+    layout.itemSize = NSSize(width: 116, height: 104)
+    layout.sectionInset = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+    layout.minimumInteritemSpacing = 8
+    layout.minimumLineSpacing = 10
+
+    let collection = ScoutCollectionView()
+    collection.collectionViewLayout = layout
+    collection.delegate = context.coordinator
+    collection.dataSource = context.coordinator
+    collection.isSelectable = true
+    collection.allowsMultipleSelection = true
+    collection.backgroundColors = [.controlBackgroundColor]
+    collection.register(ScoutIconItem.self, forItemWithIdentifier: ScoutIconItem.identifier)
+    collection.registerForDraggedTypes([.fileURL])
+    collection.doubleClickHandler = { [weak coordinator = context.coordinator] in
+      coordinator?.openSelection()
     }
+    collection.setAccessibilityLabel(String(localized: "File icons"))
+
+    let scroll = NSScrollView()
+    scroll.documentView = collection
+    scroll.hasVerticalScroller = true
+    scroll.autohidesScrollers = true
+    return scroll
+  }
+
+  func updateNSView(_ scroll: NSScrollView, context: Context) {
+    context.coordinator.session = session
+    (scroll.documentView as? NSCollectionView)?.reloadData()
+  }
+
+  final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
+    var session: BrowserSession
+    init(session: BrowserSession) { self.session = session }
+
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+      session.displayedItems.count
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+      let item = collectionView.makeItem(withIdentifier: ScoutIconItem.identifier, for: indexPath)
+      if let iconItem = item as? ScoutIconItem, session.displayedItems.indices.contains(indexPath.item) {
+        iconItem.configure(with: session.displayedItems[indexPath.item])
+      }
+      return item
+    }
+
+    @MainActor
+    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+      let ids = Set(indexPaths.compactMap { session.displayedItems.indices.contains($0.item) ? session.displayedItems[$0.item].id : nil })
+      Task { await session.select(ids) }
+    }
+
+    @MainActor @objc func openSelection() { Task { await session.openSelection() } }
+
+    func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {
+      guard session.displayedItems.indices.contains(indexPath.item) else { return nil }
+      return session.displayedItems[indexPath.item].url as NSURL
+    }
+
+    func collectionView(
+      _ collectionView: NSCollectionView,
+      validateDrop draggingInfo: any NSDraggingInfo,
+      proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
+      dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
+    ) -> NSDragOperation {
+      proposedDropOperation.pointee = .on
+      return .copy
+    }
+
+    func collectionView(
+      _ collectionView: NSCollectionView,
+      acceptDrop draggingInfo: any NSDraggingInfo,
+      indexPath: IndexPath,
+      dropOperation: NSCollectionView.DropOperation
+    ) -> Bool {
+      let urls = draggingInfo.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+      guard !urls.isEmpty else { return false }
+      let move = draggingInfo.draggingSourceOperationMask.contains(.move)
+      Task { await session.transfer(urls, move: move) }
+      return true
+    }
+  }
+}
+
+private final class ScoutIconItem: NSCollectionViewItem {
+  static let identifier = NSUserInterfaceItemIdentifier("ScoutIconItem")
+  private let iconView = NSImageView()
+  private let nameField = NSTextField(labelWithString: "")
+
+  override func loadView() {
+    view = NSView()
+    view.wantsLayer = true
+    iconView.imageScaling = .scaleProportionallyUpOrDown
+    iconView.translatesAutoresizingMaskIntoConstraints = false
+    nameField.alignment = .center
+    nameField.maximumNumberOfLines = 2
+    nameField.lineBreakMode = .byTruncatingMiddle
+    nameField.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(iconView)
+    view.addSubview(nameField)
+    NSLayoutConstraint.activate([
+      iconView.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+      iconView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      iconView.widthAnchor.constraint(equalToConstant: 48),
+      iconView.heightAnchor.constraint(equalToConstant: 48),
+      nameField.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 6),
+      nameField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
+      nameField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+    ])
+  }
+
+  override var isSelected: Bool {
+    didSet {
+      view.layer?.backgroundColor = isSelected ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor : NSColor.clear.cgColor
+      view.layer?.cornerRadius = 8
+    }
+  }
+
+  func configure(with item: FileItem) {
+    iconView.image = NSWorkspace.shared.icon(forFile: item.url.path)
+    nameField.stringValue = item.name
+    view.setAccessibilityLabel(item.name)
+    view.setAccessibilityValue(item.kindDescription)
+  }
+}
+
+private final class ScoutCollectionView: NSCollectionView {
+  var doubleClickHandler: (() -> Void)?
+
+  override func mouseDown(with event: NSEvent) {
+    super.mouseDown(with: event)
+    if event.clickCount == 2 { doubleClickHandler?() }
   }
 }

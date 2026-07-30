@@ -138,3 +138,19 @@ struct RenameSheet: View {
     .padding(20).frame(width: 420).onAppear { focused = true }
   }
 }
+
+struct TagEditorSheet: View {
+  @Binding var tags: String
+  let save: () -> Void
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Tags").font(.headline)
+      Text("Separate tags with commas.").font(.caption).foregroundStyle(.secondary)
+      TextField("work, important", text: $tags).focused($focused).onSubmit(save)
+      HStack { Spacer(); Button("Apply", action: save).keyboardShortcut(.defaultAction) }
+    }
+    .padding(20).frame(width: 420).onAppear { focused = true }
+  }
+}

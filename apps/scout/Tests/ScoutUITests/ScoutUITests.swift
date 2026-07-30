@@ -1,6 +1,5 @@
 import XCTest
 
-@MainActor
 final class ScoutUITests: XCTestCase {
   private var fixtureURL: URL!
 
@@ -15,6 +14,7 @@ final class ScoutUITests: XCTestCase {
     try? FileManager.default.removeItem(at: fixtureURL)
   }
 
+  @MainActor
   func testFixtureLaunchShowsColumnBrowserAndCommandPalette() {
     let app = XCUIApplication()
     app.launchArguments = ["--scout-ui-fixture"]
@@ -27,6 +27,7 @@ final class ScoutUITests: XCTestCase {
     XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 2))
   }
 
+  @MainActor
   func testViewSwitchingPreservesWindow() {
     let app = XCUIApplication()
     app.launchArguments = ["--scout-ui-fixture"]

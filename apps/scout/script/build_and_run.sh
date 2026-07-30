@@ -7,7 +7,7 @@ BUNDLE_ID="dev.rawkode.scout"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/Scout.xcodeproj"
-DERIVED_DATA="$ROOT_DIR/.build/DerivedData"
+DERIVED_DATA="${SCOUT_DERIVED_DATA:-$ROOT_DIR/.build/DerivedData}"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
@@ -79,13 +79,15 @@ case "$MODE" in
       -configuration Debug \
       -derivedDataPath "$DERIVED_DATA" \
       -destination "platform=macOS" \
+      -test-timeouts-enabled YES \
+      -default-test-execution-time-allowance 30 \
       "${SIGNING_ARGS[@]}" \
       test
     if [[ "${SCOUT_UNSIGNED:-0}" != "1" ]]; then
       codesign --verify --deep --strict "$APP_BUNDLE"
-      codesign -d --entitlements - "$APP_BUNDLE" | grep -q "com.apple.security.app-sandbox"
-      codesign -d --entitlements - "$APP_BUNDLE" | grep -q "com.apple.security.files.user-selected.read-write"
-      codesign -d --entitlements - "$APP_BUNDLE" | grep -q "com.apple.security.files.bookmarks.app-scope"
+      codesign -d --entitlements - "$APP_BUNDLE" 2>&1 | rg -q "com.apple.security.app-sandbox"
+      codesign -d --entitlements - "$APP_BUNDLE" 2>&1 | rg -q "com.apple.security.files.user-selected.read-write"
+      codesign -d --entitlements - "$APP_BUNDLE" 2>&1 | rg -q "com.apple.security.files.bookmarks.app-scope"
     fi
     ;;
 esac
