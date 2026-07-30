@@ -9,6 +9,7 @@ enum AssistantConversationSurface: Equatable {
 @MainActor
 func makeAssistantConversationSession(
   assistant: FoundationModelAssistant?,
+  voicePreferences: AssistantVoicePreferences,
   surface: AssistantConversationSurface = .app
 ) -> AssistantConversationSession? {
   guard let assistant else { return nil }
@@ -20,6 +21,7 @@ func makeAssistantConversationSession(
       ),
       answerer: assistant,
       speaker: AppleSystemSpeechOutput(
+        voicePreferences: voicePreferences,
         managesIOSAudioSession: managesIOSAudioSession
       ),
       speaksResponses: true

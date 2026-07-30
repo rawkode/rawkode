@@ -7,6 +7,7 @@ struct MobileSettingsView: View {
   let vaultSession: VaultSession?
   let selectVault: @MainActor (VaultID) throws -> Void
   let workspaceDidChange: @MainActor () -> Void
+  let assistantVoicePreferences: AssistantVoicePreferences
   @State private var showsVaultManager = false
   @AppStorage(CarPlayAssistantPrivacySettings.isEnabledKey)
   private var isCarPlayAssistantEnabled = true
@@ -16,13 +17,15 @@ struct MobileSettingsView: View {
     contactsResolver: DeviceContactsResolver = DeviceContactsResolver(),
     vaultSession: VaultSession? = nil,
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
-    workspaceDidChange: @escaping @MainActor () -> Void = {}
+    workspaceDidChange: @escaping @MainActor () -> Void = {},
+    assistantVoicePreferences: AssistantVoicePreferences
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
     self.vaultSession = vaultSession
     self.selectVault = selectVault
     self.workspaceDidChange = workspaceDidChange
+    self.assistantVoicePreferences = assistantVoicePreferences
   }
 
   var body: some View {
@@ -45,6 +48,7 @@ struct MobileSettingsView: View {
       }
       CalendarEventFilterSettingsSection(store: store)
       DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
+      AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
       Section("CarPlay") {
         Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)
         Text("When enabled, voice transcription, Apple Intelligence, calendar lookup, and note search run only on this iPhone. Diagnostics record operational state only—never transcripts or note content.")

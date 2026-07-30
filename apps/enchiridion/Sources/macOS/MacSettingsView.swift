@@ -11,16 +11,19 @@ struct MacSettingsView: View {
   let store: LibraryStore
   let contactsResolver: DeviceContactsResolver
   let vaultContext: VaultSettingsContext?
+  let assistantVoicePreferences: AssistantVoicePreferences
   @State private var showsVaultManager = false
 
   init(
     store: LibraryStore,
     contactsResolver: DeviceContactsResolver,
-    vaultContext: VaultSettingsContext? = nil
+    vaultContext: VaultSettingsContext? = nil,
+    assistantVoicePreferences: AssistantVoicePreferences
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
     self.vaultContext = vaultContext
+    self.assistantVoicePreferences = assistantVoicePreferences
   }
 
   var body: some View {
@@ -46,6 +49,7 @@ struct MacSettingsView: View {
         }
         CalendarEventFilterSettingsSection(store: store)
         DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
+        AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
       }
       .formStyle(.grouped)
       .navigationTitle("Settings")

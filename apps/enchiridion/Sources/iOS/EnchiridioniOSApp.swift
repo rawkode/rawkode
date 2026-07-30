@@ -17,7 +17,8 @@ struct EnchiridioniOSApp: App {
         selectVault: runtime.selectVault,
         workspaceDidChange: runtime.workspaceDidChange,
         assistantSession: runtime.assistantSession,
-        assistantUnavailableReason: runtime.assistantUnavailableReason
+        assistantUnavailableReason: runtime.assistantUnavailableReason,
+        assistantVoicePreferences: runtime.assistantVoicePreferences
       )
       .managesDeviceContacts(
         store: runtime.store,
@@ -34,6 +35,7 @@ final class EnchiridionAppRuntime {
 
   let vaultSession: VaultSession?
   let contactsResolver = DeviceContactsResolver()
+  let assistantVoicePreferences = AssistantVoicePreferences()
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
   private(set) var carPlayAssistant: FoundationModelAssistant?
@@ -89,9 +91,13 @@ final class EnchiridionAppRuntime {
   private func rebuildWorkspaceDependents() {
     assistant = repository.map { FoundationModelAssistant(repository: $0) }
     carPlayAssistant = repository.map { FoundationModelAssistant(repository: $0) }
-    assistantSession = makeAssistantConversationSession(assistant: assistant)
+    assistantSession = makeAssistantConversationSession(
+      assistant: assistant,
+      voicePreferences: assistantVoicePreferences
+    )
     carPlayAssistantSession = makeAssistantConversationSession(
       assistant: carPlayAssistant,
+      voicePreferences: assistantVoicePreferences,
       surface: .carPlay
     )
     let unavailableReason: @MainActor () -> String? = { [weak self] in

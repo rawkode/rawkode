@@ -95,7 +95,9 @@
 		B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
 		B76DD4414F406489F799E798 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
+		BA04289262FD553A0E4FD3BE /* AssistantVoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C4D4E013BBCF2B89BA9444 /* AssistantVoiceSettingsView.swift */; };
 		BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
+		BC8739C146641D258A35A088 /* AssistantVoicePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */; };
 		C1A5C5FFDB9223FB6049AAD8 /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */; };
 		C2E6F4E0C28B6135A015984F /* WhiteboardElementOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */; };
@@ -119,7 +121,9 @@
 		DEA5685EE7AD3986FB231BA2 /* GraphRelationDefinitionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C78A2A912D114CC56B0E63 /* GraphRelationDefinitionsView.swift */; };
 		E0A72D4016BA7AA4378D7796 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
 		E1933CD85E9587F250228CFE /* TaskManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */; };
+		E2B4AB01B0480F9BC5B2FC51 /* AssistantVoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C4D4E013BBCF2B89BA9444 /* AssistantVoiceSettingsView.swift */; };
 		E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
+		E737C444C0E1DA329396EA8D /* AssistantVoicePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */; };
 		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		E9508EB961677501422890A2 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
@@ -190,6 +194,7 @@
 		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
 		5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagementViews.swift; sourceTree = "<group>"; };
 		61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
+		69C4D4E013BBCF2B89BA9444 /* AssistantVoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantVoiceSettingsView.swift; sourceTree = "<group>"; };
 		6CF6E8BE5BBC7FC34821F6AB /* Editor */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Editor; path = Sources/SharedUI/Resources/Editor; sourceTree = SOURCE_ROOT; };
 		6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayVoiceCoordinator.swift; sourceTree = "<group>"; };
@@ -197,6 +202,7 @@
 		785C87A8657C874FF5403E84 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
 		797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactsResolver.swift; sourceTree = "<group>"; };
 		7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasGeometry.swift; sourceTree = "<group>"; };
+		825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantVoicePreferences.swift; sourceTree = "<group>"; };
 		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
@@ -358,6 +364,8 @@
 				B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */,
 				BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */,
 				D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */,
+				825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */,
+				69C4D4E013BBCF2B89BA9444 /* AssistantVoiceSettingsView.swift */,
 				DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */,
 				8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */,
 				1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */,
@@ -633,6 +641,8 @@
 				B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */,
 				74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */,
 				8D3BFF82189A26982F6CE954 /* AssistantConversationView.swift in Sources */,
+				E737C444C0E1DA329396EA8D /* AssistantVoicePreferences.swift in Sources */,
+				E2B4AB01B0480F9BC5B2FC51 /* AssistantVoiceSettingsView.swift in Sources */,
 				480093EC2D69E369EB3393B3 /* CalendarEventFilterSettingsSection.swift in Sources */,
 				68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */,
 				4D30CAB0FFC6C0FA2DEF9FB7 /* DeviceContactPicker.swift in Sources */,
@@ -683,6 +693,8 @@
 				08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */,
 				1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */,
 				2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */,
+				BC8739C146641D258A35A088 /* AssistantVoicePreferences.swift in Sources */,
+				BA04289262FD553A0E4FD3BE /* AssistantVoiceSettingsView.swift in Sources */,
 				DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */,
 				A5744F1937704BEFF5CD50DD /* CalendarAgendaRows.swift in Sources */,
 				7845169927C30F09425C0E77 /* CalendarAgendaView.swift in Sources */,

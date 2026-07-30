@@ -23,6 +23,7 @@ struct MobileRootView: View {
   private let workspaceDidChange: @MainActor () -> Void
   private let assistantSession: AssistantConversationSession?
   private let assistantUnavailableReason: String?
+  private let assistantVoicePreferences: AssistantVoicePreferences
 
   init(
     store: LibraryStore,
@@ -31,7 +32,8 @@ struct MobileRootView: View {
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
     workspaceDidChange: @escaping @MainActor () -> Void = {},
     assistantSession: AssistantConversationSession? = nil,
-    assistantUnavailableReason: String? = nil
+    assistantUnavailableReason: String? = nil,
+    assistantVoicePreferences: AssistantVoicePreferences
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -40,6 +42,7 @@ struct MobileRootView: View {
     self.workspaceDidChange = workspaceDidChange
     self.assistantSession = assistantSession
     self.assistantUnavailableReason = assistantUnavailableReason
+    self.assistantVoicePreferences = assistantVoicePreferences
   }
 
   var body: some View {
@@ -73,7 +76,8 @@ struct MobileRootView: View {
         contactsResolver: contactsResolver,
         vaultSession: vaultSession,
         selectVault: selectVault,
-        workspaceDidChange: workspaceDidChange
+        workspaceDidChange: workspaceDidChange,
+        assistantVoicePreferences: assistantVoicePreferences
       )
         .tabItem { Label("Library", systemImage: "books.vertical") }
         .tag(MobileTab.library)

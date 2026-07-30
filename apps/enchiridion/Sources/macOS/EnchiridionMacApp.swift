@@ -80,7 +80,8 @@ struct EnchiridionMacApp: App {
             selectVault: runtime.selectVault,
             workspaceDidChange: runtime.workspaceDidChange
           )
-        }
+        },
+        assistantVoicePreferences: runtime.assistantVoicePreferences
       )
     }
   }
@@ -93,6 +94,7 @@ final class EnchiridionMacRuntime {
 
   let vaultSession: VaultSession?
   let contactsResolver = DeviceContactsResolver()
+  let assistantVoicePreferences = AssistantVoicePreferences()
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
   private(set) var assistantSession: AssistantConversationSession?
@@ -143,6 +145,9 @@ final class EnchiridionMacRuntime {
 
   private func rebuildWorkspaceDependents() {
     assistant = repository.map { FoundationModelAssistant(repository: $0) }
-    assistantSession = makeAssistantConversationSession(assistant: assistant)
+    assistantSession = makeAssistantConversationSession(
+      assistant: assistant,
+      voicePreferences: assistantVoicePreferences
+    )
   }
 }

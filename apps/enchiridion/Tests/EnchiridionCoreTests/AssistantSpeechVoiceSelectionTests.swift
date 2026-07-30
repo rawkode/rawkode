@@ -63,6 +63,63 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     XCTAssertNil(select(from: [candidates[0]]))
   }
 
+  func testNeverAutomaticallySelectsPersonalVoice() {
+    let candidates = [
+      voice(
+        "personal",
+        language: "en-GB",
+        quality: .premium,
+        isPersonalVoice: true
+      ),
+      voice("standard", language: "en-GB", quality: .enhanced),
+    ]
+
+    XCTAssertEqual(select(from: candidates), "standard")
+    XCTAssertNil(select(from: [candidates[0]]))
+  }
+
+  func testExplicitInstalledPersonalVoiceWinsByExactIdentifier() {
+    let personal = voice(
+      "personal",
+      language: "cy-GB",
+      quality: .default,
+      isPersonalVoice: true
+    )
+    let automatic = voice("automatic", language: "en-GB", quality: .premium)
+
+    let resolution = AssistantSpeechVoiceSelection.resolve(
+      .specific(identifier: personal.identifier),
+      for: Locale(identifier: "en_GB"),
+      from: [automatic, personal]
+    )
+
+    XCTAssertEqual(resolution.effectiveIdentifier, personal.identifier)
+    XCTAssertFalse(resolution.isUsingAutomaticFallback)
+  }
+
+  func testMissingExplicitVoiceFallsBackWithoutMutatingPreferenceAndRestores() {
+    let preference = AssistantVoicePreference.specific(identifier: "returning")
+    let automatic = voice("automatic", language: "en-GB", quality: .enhanced)
+
+    let missing = AssistantSpeechVoiceSelection.resolve(
+      preference,
+      for: Locale(identifier: "en_GB"),
+      from: [automatic]
+    )
+    XCTAssertEqual(missing.effectiveIdentifier, automatic.identifier)
+    XCTAssertTrue(missing.isUsingAutomaticFallback)
+    XCTAssertEqual(preference, .specific(identifier: "returning"))
+
+    let restored = AssistantSpeechVoiceSelection.resolve(
+      preference,
+      for: Locale(identifier: "en_GB"),
+      from: [automatic, voice("returning", language: "fr-FR", quality: .default)]
+    )
+    XCTAssertEqual(restored.effectiveIdentifier, "returning")
+    XCTAssertFalse(restored.isUsingAutomaticFallback)
+    XCTAssertEqual(preference, .specific(identifier: "returning"))
+  }
+
   func testNeverCrossesLanguageBoundary() {
     let candidates = [
       voice("french", language: "fr-FR", quality: .premium),
@@ -154,13 +211,15 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     _ identifier: String,
     language: String,
     quality: AssistantSpeechVoiceQuality,
-    isNovelty: Bool = false
+    isNovelty: Bool = false,
+    isPersonalVoice: Bool = false
   ) -> AssistantSpeechVoiceCandidate {
     AssistantSpeechVoiceCandidate(
       identifier: identifier,
       language: language,
       quality: quality,
-      isNovelty: isNovelty
+      isNovelty: isNovelty,
+      isPersonalVoice: isPersonalVoice
     )
   }
 }

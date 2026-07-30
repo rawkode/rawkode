@@ -23,6 +23,7 @@ enum AppleSystemSpeechOutputError: Error, LocalizedError {
 @MainActor
 final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   private let locale: Locale
+  private let voicePreferences: AssistantVoicePreferences
   private let synthesizer: AVSpeechSynthesizer
   private let managesIOSAudioSession: Bool
   private let logger = Logger(
@@ -33,10 +34,12 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   private var continuation: CheckedContinuation<Void, any Error>?
 
   init(
+    voicePreferences: AssistantVoicePreferences,
     locale: Locale = .current,
     synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer(),
     managesIOSAudioSession: Bool = true
   ) {
+    self.voicePreferences = voicePreferences
     self.locale = locale
     self.synthesizer = synthesizer
     self.managesIOSAudioSession = managesIOSAudioSession
@@ -95,28 +98,7 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   }
 
   private func selectedVoice(for locale: Locale) -> AVSpeechSynthesisVoice? {
-    let voices = AVSpeechSynthesisVoice.speechVoices()
-    let requestedTag = locale.identifier(.bcp47)
-    let frameworkPreferredIdentifier =
-      AVSpeechSynthesisVoice(language: requestedTag)?.identifier
-    let candidates = voices.map { voice in
-      AssistantSpeechVoiceCandidate(
-        identifier: voice.identifier,
-        language: voice.language,
-        quality: quality(of: voice),
-        isNovelty: voice.voiceTraits.contains(.isNoveltyVoice)
-      )
-    }
-    guard
-      let identifier = AssistantSpeechVoiceSelection.selectIdentifier(
-        for: locale,
-        from: candidates,
-        frameworkPreferredIdentifier: frameworkPreferredIdentifier
-      )
-    else {
-      return nil
-    }
-    return voices.first { $0.identifier == identifier }
+    voicePreferences.selectedSystemVoice(for: locale)
   }
 
   private func quality(of voice: AVSpeechSynthesisVoice) -> AssistantSpeechVoiceQuality {
