@@ -8,6 +8,7 @@ struct MobileLibraryScreen: View {
   let selectVault: @MainActor (VaultID) throws -> Void
   let workspaceDidChange: @MainActor () -> Void
   let assistantVoicePreferences: AssistantVoicePreferences
+  let assistantProviderSettings: AssistantProviderSettingsController
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
@@ -18,7 +19,8 @@ struct MobileLibraryScreen: View {
     vaultSession: VaultSession? = nil,
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
     workspaceDidChange: @escaping @MainActor () -> Void = {},
-    assistantVoicePreferences: AssistantVoicePreferences
+    assistantVoicePreferences: AssistantVoicePreferences,
+    assistantProviderSettings: AssistantProviderSettingsController
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -26,6 +28,7 @@ struct MobileLibraryScreen: View {
     self.selectVault = selectVault
     self.workspaceDidChange = workspaceDidChange
     self.assistantVoicePreferences = assistantVoicePreferences
+    self.assistantProviderSettings = assistantProviderSettings
   }
 
   var body: some View {
@@ -122,7 +125,8 @@ struct MobileLibraryScreen: View {
               vaultSession: vaultSession,
               selectVault: selectVault,
               workspaceDidChange: workspaceDidChange,
-              assistantVoicePreferences: assistantVoicePreferences
+              assistantVoicePreferences: assistantVoicePreferences,
+              assistantProviderSettings: assistantProviderSettings
             )
           } label: {
             Label("Settings", systemImage: "gearshape")

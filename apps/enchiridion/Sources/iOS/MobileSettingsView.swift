@@ -8,6 +8,7 @@ struct MobileSettingsView: View {
   let selectVault: @MainActor (VaultID) throws -> Void
   let workspaceDidChange: @MainActor () -> Void
   let assistantVoicePreferences: AssistantVoicePreferences
+  let assistantProviderSettings: AssistantProviderSettingsController
   @State private var showsVaultManager = false
   @AppStorage(CarPlayAssistantPrivacySettings.isEnabledKey)
   private var isCarPlayAssistantEnabled = true
@@ -18,7 +19,8 @@ struct MobileSettingsView: View {
     vaultSession: VaultSession? = nil,
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
     workspaceDidChange: @escaping @MainActor () -> Void = {},
-    assistantVoicePreferences: AssistantVoicePreferences
+    assistantVoicePreferences: AssistantVoicePreferences,
+    assistantProviderSettings: AssistantProviderSettingsController
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -26,6 +28,7 @@ struct MobileSettingsView: View {
     self.selectVault = selectVault
     self.workspaceDidChange = workspaceDidChange
     self.assistantVoicePreferences = assistantVoicePreferences
+    self.assistantProviderSettings = assistantProviderSettings
   }
 
   var body: some View {
@@ -48,6 +51,7 @@ struct MobileSettingsView: View {
       }
       CalendarEventFilterSettingsSection(store: store)
       DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
+      AssistantProviderSettingsSection(controller: assistantProviderSettings)
       AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
       Section("CarPlay") {
         Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)

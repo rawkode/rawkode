@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		10A000000000000000000002 /* AssistantProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A000000000000000000001 /* AssistantProviderSettingsView.swift */; };
+		10A000000000000000000003 /* AssistantProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A000000000000000000001 /* AssistantProviderSettingsView.swift */; };
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
 		08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
@@ -172,6 +174,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		10A000000000000000000001 /* AssistantProviderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderSettingsView.swift; sourceTree = "<group>"; };
 		040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardTool.swift; sourceTree = "<group>"; };
 		0938AF7A6668F0079D01E68F /* GraphQueryWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphQueryWorkspace.swift; sourceTree = "<group>"; };
 		147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskWorkbench.swift; sourceTree = "<group>"; };
@@ -364,6 +367,7 @@
 				B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */,
 				BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */,
 				D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */,
+				10A000000000000000000001 /* AssistantProviderSettingsView.swift */,
 				825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */,
 				69C4D4E013BBCF2B89BA9444 /* AssistantVoiceSettingsView.swift */,
 				DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */,
@@ -641,6 +645,7 @@
 				B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */,
 				74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */,
 				8D3BFF82189A26982F6CE954 /* AssistantConversationView.swift in Sources */,
+				10A000000000000000000002 /* AssistantProviderSettingsView.swift in Sources */,
 				E737C444C0E1DA329396EA8D /* AssistantVoicePreferences.swift in Sources */,
 				E2B4AB01B0480F9BC5B2FC51 /* AssistantVoiceSettingsView.swift in Sources */,
 				480093EC2D69E369EB3393B3 /* CalendarEventFilterSettingsSection.swift in Sources */,
@@ -693,6 +698,7 @@
 				08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */,
 				1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */,
 				2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */,
+				10A000000000000000000003 /* AssistantProviderSettingsView.swift in Sources */,
 				BC8739C146641D258A35A088 /* AssistantVoicePreferences.swift in Sources */,
 				BA04289262FD553A0E4FD3BE /* AssistantVoiceSettingsView.swift in Sources */,
 				DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */,

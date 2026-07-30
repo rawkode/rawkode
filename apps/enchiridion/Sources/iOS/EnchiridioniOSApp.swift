@@ -18,7 +18,8 @@ struct EnchiridioniOSApp: App {
         workspaceDidChange: runtime.workspaceDidChange,
         assistantSession: runtime.assistantSession,
         assistantUnavailableReason: runtime.assistantUnavailableReason,
-        assistantVoicePreferences: runtime.assistantVoicePreferences
+        assistantVoicePreferences: runtime.assistantVoicePreferences,
+        assistantProviderSettings: runtime.assistantProviderSettings
       )
       .managesDeviceContacts(
         store: runtime.store,
@@ -36,6 +37,7 @@ final class EnchiridionAppRuntime {
   let vaultSession: VaultSession?
   let contactsResolver = DeviceContactsResolver()
   let assistantVoicePreferences = AssistantVoicePreferences()
+  let assistantProviderSettings = AssistantProviderSettingsController()
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
   private(set) var carPlayAssistant: FoundationModelAssistant?
