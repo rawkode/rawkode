@@ -1,9 +1,12 @@
 import SwiftUI
 
 struct FileInspectorView: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
 
   private var items: [FileItem] { session.selectedItems }
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     Group {
@@ -12,9 +15,9 @@ struct FileInspectorView: View {
           VStack(alignment: .leading, spacing: 15) {
             EmbeddedQuickLookView(url: item.url)
               .frame(minHeight: 190, idealHeight: 230, maxHeight: 280)
-              .background(ScoutTheme.quietFill)
+              .background(palette.quietFill)
               .clipShape(.rect(cornerRadius: 9))
-              .overlay { RoundedRectangle(cornerRadius: 9).stroke(ScoutTheme.separator) }
+              .overlay { RoundedRectangle(cornerRadius: 9).stroke(palette.separator) }
               .accessibilityLabel("Preview of \(item.name)")
 
             VStack(alignment: .leading, spacing: 4) {
@@ -23,7 +26,7 @@ struct FileInspectorView: View {
                 .lineLimit(3)
               Text(item.kindDescription)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.secondary)
             }
 
             HStack(spacing: 7) {
@@ -60,7 +63,7 @@ struct FileInspectorView: View {
             InspectorSection(title: "Location") {
               Text(item.url.deletingLastPathComponent().path(percentEncoded: false))
                 .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.secondary)
                 .textSelection(.enabled)
                 .lineLimit(4)
                 .truncationMode(.middle)
@@ -74,7 +77,7 @@ struct FileInspectorView: View {
                       .font(.caption)
                       .padding(.horizontal, 7)
                       .padding(.vertical, 3)
-                      .background(ScoutTheme.selection, in: .capsule)
+                      .background(palette.selection, in: .capsule)
                   }
                 }
               }
@@ -86,13 +89,14 @@ struct FileInspectorView: View {
         InspectorEmptyState(count: items.count)
       }
     }
-    .background(ScoutTheme.elevated)
+    .background(palette.elevated)
+    .foregroundStyle(palette.primary)
   }
 
   @ViewBuilder
   private func inspectorRow(_ label: LocalizedStringKey, _ value: String) -> some View {
     GridRow {
-      Text(label).foregroundStyle(.secondary)
+      Text(label).foregroundStyle(palette.secondary)
       Text(value).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
     }
     .font(.caption)
@@ -116,6 +120,8 @@ private struct InspectorAction: View {
 }
 
 private struct InspectorSection<Content: View>: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let title: LocalizedStringKey
   @ViewBuilder let content: () -> Content
 
@@ -124,11 +130,13 @@ private struct InspectorSection<Content: View>: View {
     self.content = content
   }
 
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(title)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(palette.secondary)
       content()
     }
     .padding(.top, 2)
@@ -136,18 +144,22 @@ private struct InspectorSection<Content: View>: View {
 }
 
 private struct InspectorEmptyState: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let count: Int
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     VStack(spacing: 10) {
       Image(systemName: count == 0 ? "sidebar.right" : "square.stack.3d.up")
         .font(.system(size: 27, weight: .light))
-        .foregroundStyle(ScoutTheme.accent)
+        .foregroundStyle(palette.accent)
       Text(count == 0 ? "Nothing Selected" : "\(count) Items Selected")
         .font(.headline)
       Text(count == 0 ? "Select a file to preview it and inspect its details." : "File actions apply to the entire selection.")
         .font(.callout)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(palette.secondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 220)
     }
@@ -192,17 +204,21 @@ private struct FlowLayout: Layout {
 }
 
 struct OperationNoticeView: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let notice: OperationNotice
   let undo: () -> Void
   let dismiss: () -> Void
 
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
+
   var body: some View {
     HStack(spacing: 10) {
       Image(systemName: notice.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-        .foregroundStyle(notice.isError ? Color.orange : ScoutTheme.accent)
+        .foregroundStyle(notice.isError ? Color.orange : palette.accent)
       VStack(alignment: .leading, spacing: 1) {
         Text(notice.title).font(.callout.weight(.medium))
-        Text(notice.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        Text(notice.detail).font(.caption).foregroundStyle(palette.secondary).lineLimit(2)
       }
       Spacer()
       if notice.canUndo { Button("Undo", action: undo) }
@@ -214,14 +230,18 @@ struct OperationNoticeView: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
-    .background(ScoutTheme.chrome)
+    .background(palette.chrome)
   }
 }
 
 struct PathNavigatorSheet: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Binding var path: String
   let navigate: () -> Void
   @FocusState private var focused: Bool
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -238,15 +258,19 @@ struct PathNavigatorSheet: View {
     }
     .padding(20)
     .frame(width: 520)
-    .background(ScoutTheme.elevated)
+    .background(palette.elevated)
     .onAppear { focused = true }
   }
 }
 
 struct RenameSheet: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Binding var name: String
   let rename: () -> Void
   @FocusState private var focused: Bool
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -259,20 +283,24 @@ struct RenameSheet: View {
     }
     .padding(20)
     .frame(width: 420)
-    .background(ScoutTheme.elevated)
+    .background(palette.elevated)
     .onAppear { focused = true }
   }
 }
 
 struct TagEditorSheet: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Binding var tags: String
   let save: () -> Void
   @FocusState private var focused: Bool
 
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text("Tags").font(.headline)
-      Text("Separate tags with commas.").font(.caption).foregroundStyle(.secondary)
+      Text("Separate tags with commas.").font(.caption).foregroundStyle(palette.secondary)
       TextField("work, important", text: $tags).focused($focused).onSubmit(save)
       HStack {
         Spacer()
@@ -281,7 +309,7 @@ struct TagEditorSheet: View {
     }
     .padding(20)
     .frame(width: 420)
-    .background(ScoutTheme.elevated)
+    .background(palette.elevated)
     .onAppear { focused = true }
   }
 }

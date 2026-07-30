@@ -40,6 +40,7 @@ final class BrowserSession: Identifiable {
   private let fileSystem: any FileSystemClient
   private let search: any FileSearchClient
   private let presentationController = DirectoryPresentationController()
+  private let iCloudDriveProvider: any ICloudDriveProviding
   private let logger = Logger(subsystem: "dev.rawkode.scout", category: "BrowserSession")
   private var hasStarted = false
   private var openingGrantID: AccessGrant.ID?
@@ -51,7 +52,8 @@ final class BrowserSession: Identifiable {
     fileSystem: any FileSystemClient,
     search: any FileSearchClient,
     workspace: any WorkspaceClient,
-    journal: OperationJournal
+    journal: OperationJournal,
+    iCloudDriveProvider: any ICloudDriveProviding = SystemICloudDriveProvider()
   ) {
     self.grantStore = grantStore
     self.scopeBroker = scopeBroker
@@ -59,6 +61,7 @@ final class BrowserSession: Identifiable {
     self.search = search
     self.workspace = workspace
     self.journal = journal
+    self.iCloudDriveProvider = iCloudDriveProvider
   }
 
   isolated deinit {
@@ -91,11 +94,41 @@ final class BrowserSession: Identifiable {
     currentDirectory?.lastPathComponent ?? activeGrant?.displayName ?? String(localized: "Scout")
   }
 
+  var iCloudDriveDestination: AccessGrant? {
+    guard let rootURL = iCloudDriveProvider.rootURL() else { return nil }
+    return .iCloudDrive(rootURL: rootURL)
+  }
+
+  var isICloudDriveAvailable: Bool {
+    iCloudDriveDestination != nil
+  }
+
   func start() async {
     guard !hasStarted else { return }
     hasStarted = true
-    if activeGrant == nil, let first = grantStore.orderedGrants.first {
-      await open(first)
+    if activeGrant == nil {
+      if iCloudDriveDestination != nil {
+        await openICloudDrive()
+      } else if let first = grantStore.orderedGrants.first {
+        await open(first)
+      }
+    }
+  }
+
+  func openICloudDrive(relativePathComponents: [String] = []) async {
+    guard let destination = iCloudDriveDestination else {
+      errorMessage = String(localized: "iCloud Drive is unavailable. Sign in to iCloud and try again.")
+      return
+    }
+
+    do {
+      try FileManager.default.createDirectory(
+        at: URL(fileURLWithPath: destination.lastKnownPath, isDirectory: true),
+        withIntermediateDirectories: true
+      )
+      await open(destination, relativePathComponents: relativePathComponents)
+    } catch {
+      errorMessage = error.localizedDescription
     }
   }
 
@@ -123,7 +156,9 @@ final class BrowserSession: Identifiable {
       activeGrant = grant
       rootURL = access.url.standardizedFileURL
       if let refreshedBookmarkData = access.refreshedBookmarkData {
-        try grantStore.update(grantID: grant.id, bookmarkData: refreshedBookmarkData, url: access.url)
+        try grantStore.updateLocalBookmark(
+          grantID: grant.id, bookmarkData: refreshedBookmarkData, url: access.url
+        )
       }
 
       var destination = access.url
@@ -395,10 +430,17 @@ final class BrowserSession: Identifiable {
     inspectorPresented = state.inspectorPresented
     sidebarPresented = state.sidebarPresented
     searchScopeAllRoots = state.searchScopeAllRoots
-    if let id = state.grantID, let grant = grantStore.grants.first(where: { $0.id == id }) {
+    if let id = state.grantID,
+       id == iCloudDriveDestination?.id {
+      await openICloudDrive(relativePathComponents: state.relativePathComponents)
+    } else if let id = state.grantID, let grant = grantStore.grants.first(where: { $0.id == id }) {
       await open(grant, relativePathComponents: state.relativePathComponents)
     } else {
-      if let first = grantStore.orderedGrants.first { await open(first) }
+      if iCloudDriveDestination != nil {
+        await openICloudDrive()
+      } else if let first = grantStore.orderedGrants.first {
+        await open(first)
+      }
     }
   }
 

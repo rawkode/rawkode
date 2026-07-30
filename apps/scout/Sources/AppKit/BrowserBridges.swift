@@ -3,11 +3,18 @@ import SwiftUI
 
 struct MillerColumnsView: NSViewRepresentable {
   @Bindable var session: BrowserSession
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
+
+  private var palette: ScoutThemePalette {
+    theme.palette(for: colorScheme)
+  }
 
   func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
   func makeNSView(context: Context) -> NSBrowser {
     let browser = ScoutBrowser()
+    context.coordinator.palette = palette
     browser.delegate = context.coordinator
     browser.target = context.coordinator
     browser.action = #selector(Coordinator.selectionChanged(_:))
@@ -19,7 +26,7 @@ struct MillerColumnsView: NSViewRepresentable {
       guard let browser, let coordinator else { return false }
       return coordinator.moveIntoPreviousColumn(in: browser)
     }
-    browser.backgroundColor = ScoutTheme.canvasNS
+    apply(palette, to: browser)
     browser.allowsMultipleSelection = true
     browser.allowsEmptySelection = true
     browser.minColumnWidth = 214
@@ -37,6 +44,8 @@ struct MillerColumnsView: NSViewRepresentable {
 
   func updateNSView(_ browser: NSBrowser, context: Context) {
     context.coordinator.session = session
+    context.coordinator.palette = palette
+    apply(palette, to: browser)
     context.coordinator.isApplyingState = true
     defer { context.coordinator.isApplyingState = false }
 
@@ -75,10 +84,14 @@ struct MillerColumnsView: NSViewRepresentable {
 
   final class Coordinator: NSObject, NSBrowserDelegate {
     var session: BrowserSession
+    var palette: ScoutThemePalette
     var isApplyingState = false
     var didRequestInitialFocus = false
     var renderedItems: [[FileItem]] = []
-    init(session: BrowserSession) { self.session = session }
+    init(session: BrowserSession) {
+      self.session = session
+      self.palette = ScoutThemeDefinition.named(.system).light
+    }
 
     func browser(_ browser: NSBrowser, numberOfRowsInColumn column: Int) -> Int {
       guard session.columns.indices.contains(column) else { return 0 }
@@ -98,6 +111,13 @@ struct MillerColumnsView: NSViewRepresentable {
       cell.isLeaf = !item.isTraversableDirectory
       cell.isEnabled = item.isReadable
       cell.font = .systemFont(ofSize: 12.5)
+      cell.attributedStringValue = NSAttributedString(
+        string: item.name,
+        attributes: [
+          .foregroundColor: item.isReadable ? palette.primaryNS : palette.secondaryNS,
+          .font: cell.font as Any,
+        ]
+      )
     }
 
     func browser(_ sender: NSBrowser, titleOfColumn column: Int) -> String? {
@@ -158,6 +178,25 @@ struct MillerColumnsView: NSViewRepresentable {
       session.columns.indices.contains(column)
     }
   }
+
+  private func apply(_ palette: ScoutThemePalette, to browser: NSBrowser) {
+    browser.appearance = nil
+    browser.backgroundColor = palette.canvasNS
+
+    for column in session.columns.indices {
+      for row in session.columns[column].items.indices {
+        guard let cell = browser.loadedCell(atRow: row, column: column) as? NSBrowserCell else { continue }
+        let item = session.columns[column].items[row]
+        cell.attributedStringValue = NSAttributedString(
+          string: item.name,
+          attributes: [
+            .foregroundColor: item.isReadable ? palette.primaryNS : palette.secondaryNS,
+            .font: cell.font as Any,
+          ]
+        )
+      }
+    }
+  }
 }
 
 private final class ScoutBrowser: NSBrowser {
@@ -192,17 +231,23 @@ private final class ScoutBrowser: NSBrowser {
 
 struct FileListView: NSViewRepresentable {
   @Bindable var session: BrowserSession
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
+
+  private var palette: ScoutThemePalette {
+    theme.palette(for: colorScheme)
+  }
 
   func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
   func makeNSView(context: Context) -> NSScrollView {
     let table = NSTableView()
+    context.coordinator.palette = palette
     table.delegate = context.coordinator
     table.dataSource = context.coordinator
     table.allowsMultipleSelection = true
     table.usesAlternatingRowBackgroundColors = false
-    table.backgroundColor = ScoutTheme.canvasNS
-    table.gridColor = ScoutTheme.separatorNS
+    apply(palette, to: table)
     table.style = .sourceList
     table.rowSizeStyle = .medium
     table.rowHeight = 27
@@ -221,14 +266,16 @@ struct FileListView: NSViewRepresentable {
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
     scroll.drawsBackground = true
-    scroll.backgroundColor = ScoutTheme.canvasNS
+    scroll.backgroundColor = palette.canvasNS
     scroll.documentView = table
     return scroll
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     context.coordinator.session = session
+    context.coordinator.palette = palette
     guard let table = scroll.documentView as? NSTableView else { return }
+    apply(palette, to: table)
     table.reloadData()
     let selectedRows = IndexSet(session.displayedItems.enumerated().compactMap { session.selectedIDs.contains($0.element.id) ? $0.offset : nil })
     if table.selectedRowIndexes != selectedRows {
@@ -240,9 +287,18 @@ struct FileListView: NSViewRepresentable {
 
   final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var session: BrowserSession
+    var palette: ScoutThemePalette
     var isApplyingState = false
-    init(session: BrowserSession) { self.session = session }
+    init(session: BrowserSession) {
+      self.session = session
+      self.palette = ScoutThemeDefinition.named(.system).light
+    }
     func numberOfRows(in tableView: NSTableView) -> Int { session.displayedItems.count }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+      let rowView = ScoutTableRowView()
+      rowView.palette = palette
+      return rowView
+    }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
       guard session.displayedItems.indices.contains(row), let tableColumn else { return nil }
       let item = session.displayedItems[row]
@@ -253,7 +309,7 @@ struct FileListView: NSViewRepresentable {
       default: item.formattedSize
       }
       cell.textField?.stringValue = value
-      cell.textField?.textColor = tableColumn.identifier.rawValue == "name" ? .labelColor : .secondaryLabelColor
+      cell.textField?.textColor = tableColumn.identifier.rawValue == "name" ? palette.primaryNS : palette.secondaryNS
       if tableColumn.identifier.rawValue == "name" {
         let icon = NSWorkspace.shared.icon(forFile: item.url.path)
         icon.size = NSSize(width: 18, height: 18)
@@ -338,10 +394,36 @@ struct FileListView: NSViewRepresentable {
       return true
     }
   }
+
+  private func apply(_ palette: ScoutThemePalette, to table: NSTableView) {
+    table.appearance = nil
+    table.backgroundColor = palette.canvasNS
+    table.gridColor = palette.separatorNS
+    for row in 0..<table.numberOfRows {
+      (table.rowView(atRow: row, makeIfNecessary: false) as? ScoutTableRowView)?.palette = palette
+    }
+    table.enclosingScrollView?.backgroundColor = palette.canvasNS
+  }
+}
+
+private final class ScoutTableRowView: NSTableRowView {
+  var palette = ScoutThemeDefinition.named(.system).light
+
+  override func drawSelection(in dirtyRect: NSRect) {
+    guard isSelected else { return }
+    palette.selectionNS.setFill()
+    NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 5, yRadius: 5).fill()
+  }
 }
 
 struct FileIconGridView: NSViewRepresentable {
   @Bindable var session: BrowserSession
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
+
+  private var palette: ScoutThemePalette {
+    theme.palette(for: colorScheme)
+  }
 
   func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
@@ -353,12 +435,13 @@ struct FileIconGridView: NSViewRepresentable {
     layout.minimumLineSpacing = 10
 
     let collection = ScoutCollectionView()
+    context.coordinator.palette = palette
     collection.collectionViewLayout = layout
     collection.delegate = context.coordinator
     collection.dataSource = context.coordinator
     collection.isSelectable = true
     collection.allowsMultipleSelection = true
-    collection.backgroundColors = [ScoutTheme.canvasNS]
+    apply(palette, to: collection)
     collection.register(ScoutIconItem.self, forItemWithIdentifier: ScoutIconItem.identifier)
     collection.registerForDraggedTypes([.fileURL])
     collection.doubleClickHandler = { [weak coordinator = context.coordinator] in
@@ -371,13 +454,15 @@ struct FileIconGridView: NSViewRepresentable {
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
     scroll.drawsBackground = true
-    scroll.backgroundColor = ScoutTheme.canvasNS
+    scroll.backgroundColor = palette.canvasNS
     return scroll
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     context.coordinator.session = session
+    context.coordinator.palette = palette
     guard let collection = scroll.documentView as? NSCollectionView else { return }
+    apply(palette, to: collection)
     collection.reloadData()
     let selectedIndexPaths = Set(session.displayedItems.enumerated().compactMap {
       session.selectedIDs.contains($0.element.id) ? IndexPath(item: $0.offset, section: 0) : nil
@@ -391,8 +476,12 @@ struct FileIconGridView: NSViewRepresentable {
 
   final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
     var session: BrowserSession
+    var palette: ScoutThemePalette
     var isApplyingState = false
-    init(session: BrowserSession) { self.session = session }
+    init(session: BrowserSession) {
+      self.session = session
+      self.palette = ScoutThemeDefinition.named(.system).light
+    }
 
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
       session.displayedItems.count
@@ -401,7 +490,7 @@ struct FileIconGridView: NSViewRepresentable {
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
       let item = collectionView.makeItem(withIdentifier: ScoutIconItem.identifier, for: indexPath)
       if let iconItem = item as? ScoutIconItem, session.displayedItems.indices.contains(indexPath.item) {
-        iconItem.configure(with: session.displayedItems[indexPath.item])
+        iconItem.configure(with: session.displayedItems[indexPath.item], palette: palette)
       }
       return item
     }
@@ -455,12 +544,19 @@ struct FileIconGridView: NSViewRepresentable {
       return true
     }
   }
+
+  private func apply(_ palette: ScoutThemePalette, to collection: NSCollectionView) {
+    collection.appearance = nil
+    collection.backgroundColors = [palette.canvasNS]
+    collection.enclosingScrollView?.backgroundColor = palette.canvasNS
+  }
 }
 
 private final class ScoutIconItem: NSCollectionViewItem {
   static let identifier = NSUserInterfaceItemIdentifier("ScoutIconItem")
   private let iconView = NSImageView()
   private let nameField = NSTextField(labelWithString: "")
+  private var palette = ScoutThemeDefinition.named(.system).light
 
   override func loadView() {
     view = NSView()
@@ -486,14 +582,17 @@ private final class ScoutIconItem: NSCollectionViewItem {
 
   override var isSelected: Bool {
     didSet {
-      view.layer?.backgroundColor = isSelected ? ScoutTheme.selectionNS.cgColor : NSColor.clear.cgColor
+      view.layer?.backgroundColor = isSelected ? palette.selectionNS.cgColor : NSColor.clear.cgColor
       view.layer?.cornerRadius = 7
     }
   }
 
-  func configure(with item: FileItem) {
+  func configure(with item: FileItem, palette: ScoutThemePalette) {
+    self.palette = palette
     iconView.image = NSWorkspace.shared.icon(forFile: item.url.path)
     nameField.stringValue = item.name
+    nameField.textColor = palette.primaryNS
+    view.layer?.backgroundColor = isSelected ? palette.selectionNS.cgColor : NSColor.clear.cgColor
     view.setAccessibilityLabel(item.name)
     view.setAccessibilityValue(item.kindDescription)
   }

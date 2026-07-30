@@ -1,9 +1,13 @@
 import SwiftUI
 
 struct ScoutWindowHost: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @State private var session: BrowserSession
   @SceneStorage("ScoutBrowserWindowState") private var restorationData: Data?
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   init(appModel: ScoutAppModel) {
     _session = State(initialValue: appModel.makeSession())
@@ -12,7 +16,7 @@ struct ScoutWindowHost: View {
   var body: some View {
     ScoutBrowserView(session: session, columnVisibility: $columnVisibility)
       .frame(minWidth: 900, minHeight: 560)
-      .tint(ScoutTheme.accent)
+      .tint(palette.accent)
       .focusedSceneValue(\.browserSession, session)
       .background(ScoutWindowBridge(title: session.windowTitle))
       .task {
@@ -33,16 +37,22 @@ struct ScoutWindowHost: View {
 }
 
 private struct ScoutBrowserView: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
   @Binding var columnVisibility: NavigationSplitViewVisibility
   @State private var exactPath = ""
   @FocusState private var searchFocused: Bool
 
-  private var isOnboarding: Bool { session.grantStore.grants.isEmpty }
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
+
+  private var isOnboarding: Bool {
+    session.grantStore.grants.isEmpty && !session.isICloudDriveAvailable
+  }
 
   var body: some View {
     ZStack {
-      ScoutTheme.canvas.ignoresSafeArea()
+      palette.canvas.ignoresSafeArea()
 
       if isOnboarding {
         FirstRunView(grantStore: session.grantStore) { grant in
@@ -69,6 +79,7 @@ private struct ScoutBrowserView: View {
           .transition(.scale(scale: 0.985).combined(with: .opacity))
       }
     }
+    .foregroundStyle(palette.primary)
     .animation(.snappy(duration: 0.14), value: session.commandPalettePresented)
     .toolbar { toolbarContent }
     .sheet(isPresented: $session.pathNavigatorPresented) {
@@ -123,13 +134,13 @@ private struct ScoutBrowserView: View {
         exactPath = session.currentDirectory?.path(percentEncoded: false) ?? ""
         session.pathNavigatorPresented = true
       }
-      Divider().overlay(ScoutTheme.separator)
+      Divider().overlay(palette.separator)
       browserContent
-      Divider().overlay(ScoutTheme.separator)
+      Divider().overlay(palette.separator)
       BrowserFooterBar(session: session)
 
       if let notice = session.journal.notice {
-        Divider().overlay(ScoutTheme.separator)
+        Divider().overlay(palette.separator)
         OperationNoticeView(notice: notice) {
           Task { await session.undo() }
         } dismiss: {
@@ -137,7 +148,7 @@ private struct ScoutBrowserView: View {
         }
       }
     }
-    .background(ScoutTheme.canvas)
+    .background(palette.canvas)
   }
 
   @ViewBuilder
@@ -152,7 +163,7 @@ private struct ScoutBrowserView: View {
       } else if session.isLoading {
         VStack(spacing: 10) {
           ProgressView()
-          Text("Opening Location…").font(.callout).foregroundStyle(.secondary)
+          Text("Opening Location…").font(.callout).foregroundStyle(palette.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -166,7 +177,7 @@ private struct ScoutBrowserView: View {
         }
       }
     }
-    .background(ScoutTheme.canvas)
+    .background(palette.canvas)
     .overlay(alignment: .topLeading) {
       if !session.searchText.isEmpty {
         Label(
@@ -174,11 +185,11 @@ private struct ScoutBrowserView: View {
           systemImage: "sparkle.magnifyingglass"
         )
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(palette.secondary)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(ScoutTheme.elevated, in: .capsule)
-        .overlay { Capsule().stroke(ScoutTheme.separator) }
+        .background(palette.elevated, in: .capsule)
+        .overlay { Capsule().stroke(palette.separator) }
         .padding(10)
       }
     }
@@ -204,7 +215,7 @@ private struct ScoutBrowserView: View {
       ToolbarItem(placement: .principal) {
         HStack(spacing: 7) {
           Image(systemName: "folder.fill")
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.secondary)
           Text(session.windowTitle)
             .font(.callout.weight(.semibold))
             .lineLimit(1)
@@ -258,8 +269,12 @@ private struct ScoutBrowserView: View {
 }
 
 private struct ScoutPathBar: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
   let showExactPath: () -> Void
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   private var breadcrumbURLs: [URL] {
     guard let root = session.rootURL?.standardizedFileURL,
@@ -284,7 +299,7 @@ private struct ScoutPathBar: View {
             if index > 0 {
               Image(systemName: "chevron.right")
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(palette.tertiary)
             }
             Button {
               Task { await session.navigate(to: url.path(percentEncoded: false)) }
@@ -292,16 +307,16 @@ private struct ScoutPathBar: View {
               HStack(spacing: 5) {
                 if index == 0 {
                   Image(systemName: "folder.fill")
-                    .foregroundStyle(ScoutTheme.accent)
+                    .foregroundStyle(palette.accent)
                 }
                 Text(index == 0 ? (session.activeGrant?.displayName ?? url.lastPathComponent) : url.lastPathComponent)
                   .lineLimit(1)
               }
               .font(.caption.weight(index == breadcrumbURLs.count - 1 ? .semibold : .regular))
-              .foregroundStyle(index == breadcrumbURLs.count - 1 ? .primary : .secondary)
+              .foregroundStyle(index == breadcrumbURLs.count - 1 ? palette.primary : palette.secondary)
               .padding(.horizontal, 6)
               .padding(.vertical, 3)
-              .background(index == breadcrumbURLs.count - 1 ? ScoutTheme.quietFill : .clear, in: .rect(cornerRadius: 5))
+              .background(index == breadcrumbURLs.count - 1 ? palette.quietFill : .clear, in: .rect(cornerRadius: 5))
             }
             .buttonStyle(.plain)
           }
@@ -312,58 +327,102 @@ private struct ScoutPathBar: View {
 
       Button(action: showExactPath) {
         Image(systemName: "text.magnifyingglass")
-          .foregroundStyle(.secondary)
+          .foregroundStyle(palette.secondary)
       }
       .buttonStyle(.plain)
       .help("Go to Folder (⇧⌘G)")
     }
     .padding(.horizontal, 10)
     .frame(height: 30)
-    .background(ScoutTheme.chrome)
+    .background(palette.chrome)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Current path")
   }
 }
 
 private struct BrowserFooterBar: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     HStack(spacing: 8) {
       let selectionCount = session.selectedItems.count
       Text(selectionCount > 0 ? "\(selectionCount) selected" : "\(session.displayedItems.count) items")
-      Text("•").foregroundStyle(.quaternary)
+      Text("•").foregroundStyle(palette.tertiary)
       Label(session.viewMode.title, systemImage: session.viewMode.systemImage)
       Spacer()
       Text("Space to preview")
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(palette.tertiary)
     }
     .font(.caption)
-    .foregroundStyle(.secondary)
+    .foregroundStyle(palette.secondary)
     .padding(.horizontal, 10)
     .frame(height: 28)
-    .background(ScoutTheme.chrome)
+    .background(palette.chrome)
   }
 }
 
 private struct ScoutSidebar: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     List {
       Section("Locations") {
+        Button {
+          Task { await session.openICloudDrive() }
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: "icloud")
+              .foregroundStyle(session.activeGrant?.id == session.iCloudDriveDestination?.id ? palette.accent : palette.secondary)
+            Text("iCloud Drive")
+              .lineLimit(1)
+            Spacer(minLength: 2)
+            if session.activeGrant?.id == session.iCloudDriveDestination?.id {
+              Circle().fill(palette.accent).frame(width: 5, height: 5)
+            }
+          }
+          .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.isICloudDriveAvailable)
+        .listRowBackground(
+          RoundedRectangle(cornerRadius: 6)
+            .fill(session.activeGrant?.id == session.iCloudDriveDestination?.id ? palette.selection : .clear)
+        )
+        .accessibilityValue(session.isICloudDriveAvailable ? "" : "Unavailable")
+
         ForEach(session.grantStore.orderedGrants) { grant in
           Button {
-            Task { await session.open(grant) }
+            Task {
+              if grant.needsLocalBookmark {
+                if let refreshed = try? await session.grantStore.reconnect(grant) {
+                  await session.open(refreshed)
+                }
+              } else {
+                await session.open(grant)
+              }
+            }
           } label: {
             HStack(spacing: 8) {
-              Image(systemName: "folder.fill")
-                .foregroundStyle(grant.id == session.activeGrant?.id ? ScoutTheme.accent : .secondary)
+              Image(systemName: grant.needsLocalBookmark ? "folder.badge.questionmark" : "folder.fill")
+                .foregroundStyle(grant.id == session.activeGrant?.id ? palette.accent : palette.secondary)
               Text(grant.displayName)
                 .lineLimit(1)
               Spacer(minLength: 2)
+              if grant.needsLocalBookmark {
+                Text("Reconnect")
+                  .font(.caption)
+                  .foregroundStyle(palette.secondary)
+              }
               if grant.id == session.activeGrant?.id {
-                Circle().fill(ScoutTheme.accent).frame(width: 5, height: 5)
+                Circle().fill(palette.accent).frame(width: 5, height: 5)
               }
             }
             .contentShape(.rect)
@@ -371,14 +430,14 @@ private struct ScoutSidebar: View {
           .buttonStyle(.plain)
           .listRowBackground(
             RoundedRectangle(cornerRadius: 6)
-              .fill(grant.id == session.activeGrant?.id ? ScoutTheme.selection : .clear)
+              .fill(grant.id == session.activeGrant?.id ? palette.selection : .clear)
           )
           .accessibilityValue(grant.id == session.activeGrant?.id ? "Current location" : "")
         }
       }
     }
     .scrollContentBackground(.hidden)
-    .background(ScoutTheme.sidebar)
+    .background(palette.sidebar)
     .listStyle(.sidebar)
     .safeAreaInset(edge: .bottom) {
       Button {
@@ -394,16 +453,20 @@ private struct ScoutSidebar: View {
       .font(.callout)
       .padding(.horizontal, 14)
       .frame(height: 38)
-      .background(ScoutTheme.chrome)
-      .overlay(alignment: .top) { Divider().overlay(ScoutTheme.separator) }
+      .background(palette.chrome)
+      .overlay(alignment: .top) { Divider().overlay(palette.separator) }
     }
     .navigationTitle("Scout")
   }
 }
 
 private struct FirstRunView: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let grantStore: AccessGrantStore
   let onGrant: (AccessGrant) async -> Void
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     HStack(spacing: 0) {
@@ -413,16 +476,16 @@ private struct FirstRunView: View {
         Text("Your files,\nin reach.")
           .font(.system(size: 42, weight: .semibold, design: .rounded))
           .tracking(-1.2)
-          .foregroundStyle(.primary)
+          .foregroundStyle(palette.primary)
         Text("A fast, spatial file manager made for the keyboard.")
           .font(.title3)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(palette.secondary)
           .frame(maxWidth: 360, alignment: .leading)
           .padding(.top, 14)
       }
       .padding(42)
       .frame(minWidth: 390, maxWidth: 470, maxHeight: .infinity, alignment: .leading)
-      .background(ScoutTheme.sidebar)
+      .background(palette.sidebar)
 
       VStack(alignment: .leading, spacing: 26) {
         VStack(alignment: .leading, spacing: 8) {
@@ -430,7 +493,7 @@ private struct FirstRunView: View {
             .font(.title2.weight(.semibold))
           Text("Scout is sandboxed by design. It can see only the folders you choose and securely remembers them for your next visit.")
             .font(.body)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
 
@@ -454,48 +517,56 @@ private struct FirstRunView: View {
 
         Text("Scout never requests Full Disk Access.")
           .font(.caption)
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(palette.tertiary)
       }
       .padding(48)
       .frame(maxWidth: 560, maxHeight: .infinity, alignment: .leading)
-      .background(ScoutTheme.elevated)
+      .background(palette.elevated)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
 
 private struct AccessStep: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let number: String
   let title: LocalizedStringKey
   let detail: LocalizedStringKey
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
       Text(number)
         .font(.caption.monospaced().weight(.bold))
-        .foregroundStyle(ScoutTheme.accent)
+        .foregroundStyle(palette.accent)
         .frame(width: 25, height: 25)
-        .background(ScoutTheme.quietFill, in: .circle)
+        .background(palette.quietFill, in: .circle)
       VStack(alignment: .leading, spacing: 2) {
         Text(title).font(.callout.weight(.semibold))
-        Text(detail).font(.callout).foregroundStyle(.secondary)
+        Text(detail).font(.callout).foregroundStyle(palette.secondary)
       }
     }
   }
 }
 
 private struct ScoutEmptyState: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   let title: LocalizedStringKey
   let message: LocalizedStringKey
   let systemImage: String
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   var body: some View {
     VStack(spacing: 8) {
       Image(systemName: systemImage)
         .font(.system(size: 28, weight: .light))
-        .foregroundStyle(ScoutTheme.accent)
+        .foregroundStyle(palette.accent)
       Text(title).font(.headline)
-      Text(message).font(.callout).foregroundStyle(.secondary)
+      Text(message).font(.callout).foregroundStyle(palette.secondary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }

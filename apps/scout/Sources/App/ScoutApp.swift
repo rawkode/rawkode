@@ -3,10 +3,20 @@ import SwiftUI
 @main
 struct ScoutApp: App {
   @State private var model = ScoutAppModel()
+  @AppStorage(ScoutThemeDefinition.preferenceKey) private var themeRawValue = ScoutThemeID.system.rawValue
+
+  private var selectedTheme: ScoutThemeID {
+    ScoutThemeID(rawValue: themeRawValue) ?? .system
+  }
+
+  private var theme: ScoutThemeDefinition {
+    ScoutThemeDefinition.named(selectedTheme)
+  }
 
   var body: some Scene {
     WindowGroup {
       ScoutWindowHost(appModel: model)
+        .environment(\.scoutTheme, theme)
     }
     .defaultSize(width: 1_280, height: 780)
     .windowResizability(.contentMinSize)
@@ -16,7 +26,8 @@ struct ScoutApp: App {
 
     Settings {
       ScoutSettingsView(grantStore: model.grantStore)
-        .frame(width: 520, height: 360)
+        .environment(\.scoutTheme, theme)
+        .frame(width: 600, height: 500)
     }
   }
 }

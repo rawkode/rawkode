@@ -27,6 +27,23 @@ struct AccessGrant: Codable, Identifiable, Hashable, Sendable {
     self.sortOrder = sortOrder
     self.requiresSecurityScope = requiresSecurityScope
   }
+
+  /// A synced location is intentionally unusable until this Mac is explicitly
+  /// given its own security-scoped bookmark for it.
+  var needsLocalBookmark: Bool {
+    requiresSecurityScope && bookmarkData.isEmpty
+  }
+
+  static func iCloudDrive(rootURL: URL) -> AccessGrant {
+    AccessGrant(
+      id: UUID(uuidString: "3DC35ACD-0F1E-48B2-8E30-5D7B6CF8A2FB")!,
+      displayName: String(localized: "iCloud Drive"),
+      bookmarkData: Data(),
+      lastKnownPath: rootURL.path(percentEncoded: false),
+      sortOrder: Int.min,
+      requiresSecurityScope: false
+    )
+  }
 }
 
 struct FileItem: Identifiable, Hashable, Sendable {

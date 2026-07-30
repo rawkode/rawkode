@@ -2,7 +2,7 @@
 
 ## Direction
 
-Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser. Native neutral surfaces establish the hierarchy; moss is reserved for selection, focus, and primary actions.
+Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser. Native neutral surfaces establish the hierarchy; the selected theme is reserved for selection, focus, and primary actions.
 
 ## Physical Scene
 
@@ -10,12 +10,13 @@ A developer moves between bright daytime work and late-night focus while keeping
 
 ## Color
 
-The browsing strategy is restrained, with system neutrals carrying the window in both appearances and moss acting as a precise accent.
+The browsing strategy is restrained, with each theme supplying a paired light and dark palette. The selected pair follows the macOS appearance automatically, while System keeps native macOS colors and accent behavior.
 
-- Light accent: `oklch(0.42 0.11 140)`, represented by the Scout Accent asset.
-- Dark accent: `oklch(0.72 0.12 140)`, represented by the dark Scout Accent asset.
+- Included themes: System, Rose Pine, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, Tokyo Night, Gruvbox, and Monokai.
+- Theme selection is persisted in Settings and changes the active window without discarding the current browsing session.
+- Light and dark variants are explicit theme data, not a forced app-wide `NSAppearance`.
 - Accent use: current selection, keyboard focus, and primary action only.
-- Canvas: the native text background, avoiding a full-window color wash.
+- Canvas: the theme's base surface, with elevated panels and chrome kept to nearby tonal steps instead of a full-window gradient or wash.
 - Chrome and side panels: one tonal step away from the canvas, separated with hairlines instead of floating cards.
 - Error, warning, success, and information states use semantic system colors and always include a symbol or label.
 
@@ -36,7 +37,7 @@ The browsing strategy is restrained, with system neutrals carrying the window in
 ## Components
 
 - Sidebar rows are flat source-list rows with one symbol and one title.
-- Browser rows use native selection and focus behavior with the Scout Accent.
+- Browser rows use native selection and focus behavior with the selected theme accent.
 - The command palette is a functional overlay using a tonal material, one hairline boundary, and a short defined shadow no wider than 8 points.
 - File operation feedback appears in a compact activity strip with a specific result and an Undo action only when the inverse operation is available.
 - Empty, permission, disconnected-volume, and stale-bookmark states explain the condition and provide one direct recovery action.

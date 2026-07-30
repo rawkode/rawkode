@@ -1,11 +1,15 @@
 import SwiftUI
 
 struct CommandPaletteView: View {
+  @Environment(\.scoutTheme) private var theme
+  @Environment(\.colorScheme) private var colorScheme
   @Bindable var session: BrowserSession
   @State private var query = ""
   @State private var selectedID: String?
   @State private var hoveredID: String?
   @FocusState private var searchFocused: Bool
+
+  private var palette: ScoutThemePalette { theme.palette(for: colorScheme) }
 
   private var commands: [CommandDescriptor] {
     [
@@ -31,29 +35,29 @@ struct CommandPaletteView: View {
     VStack(spacing: 0) {
       HStack(spacing: 9) {
         Image(systemName: "magnifyingglass")
-          .foregroundStyle(ScoutTheme.accent)
+          .foregroundStyle(palette.accent)
         TextField("Type a command", text: $query)
           .textFieldStyle(.plain)
           .font(.title3)
           .focused($searchFocused)
         Text("⌘K")
           .font(.caption.monospaced().weight(.medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(palette.tertiary)
           .padding(.horizontal, 6)
           .padding(.vertical, 3)
-          .background(ScoutTheme.quietFill, in: .rect(cornerRadius: 4))
+          .background(palette.quietFill, in: .rect(cornerRadius: 4))
       }
       .padding(.horizontal, 14)
       .frame(height: 50)
 
-      Divider().overlay(ScoutTheme.separator)
+      Divider().overlay(palette.separator)
 
       if commands.isEmpty {
         VStack(spacing: 7) {
           Image(systemName: "command")
             .font(.title2)
-            .foregroundStyle(.tertiary)
-          Text("No matching commands").font(.callout).foregroundStyle(.secondary)
+            .foregroundStyle(palette.tertiary)
+          Text("No matching commands").font(.callout).foregroundStyle(palette.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 150)
       } else {
@@ -66,23 +70,23 @@ struct CommandPaletteView: View {
                 HStack(spacing: 10) {
                   Image(systemName: command.systemImage)
                     .frame(width: 26, height: 26)
-                    .foregroundStyle(command.id == selectedID ? Color.white : ScoutTheme.accent)
+                    .foregroundStyle(command.id == selectedID ? palette.accentForeground : palette.accent)
                     .background(
-                      command.id == selectedID ? ScoutTheme.accent : ScoutTheme.quietFill,
+                      command.id == selectedID ? palette.accent : palette.quietFill,
                       in: .rect(cornerRadius: 6)
                     )
                   VStack(alignment: .leading, spacing: 1) {
                     Text(command.title)
                       .font(.callout.weight(.medium))
                     if let subtitle = command.subtitle {
-                      Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                      Text(subtitle).font(.caption).foregroundStyle(palette.secondary)
                     }
                   }
                   Spacer()
                   if let key = command.keyEquivalent {
                     Text(key)
                       .font(.caption.monospaced())
-                      .foregroundStyle(.tertiary)
+                      .foregroundStyle(palette.tertiary)
                   }
                 }
                 .padding(.horizontal, 9)
@@ -99,7 +103,7 @@ struct CommandPaletteView: View {
         .frame(maxHeight: 370)
       }
 
-      Divider().overlay(ScoutTheme.separator)
+      Divider().overlay(palette.separator)
 
       HStack(spacing: 12) {
         Label("Navigate", systemImage: "arrow.up.arrow.down")
@@ -108,14 +112,15 @@ struct CommandPaletteView: View {
         Text("Esc to close")
       }
       .font(.caption)
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(palette.tertiary)
       .padding(.horizontal, 12)
       .frame(height: 30)
-      .background(ScoutTheme.chrome)
+      .background(palette.chrome)
     }
     .frame(width: 520)
-    .background(ScoutTheme.elevated, in: .rect(cornerRadius: 12))
-    .overlay { RoundedRectangle(cornerRadius: 12).stroke(ScoutTheme.separator) }
+    .background(palette.elevated, in: .rect(cornerRadius: 12))
+    .overlay { RoundedRectangle(cornerRadius: 12).stroke(palette.separator) }
+    .foregroundStyle(palette.primary)
     .shadow(color: .black.opacity(0.20), radius: 8, y: 4)
     .onAppear {
       selectedID = commands.first?.id
@@ -141,8 +146,8 @@ struct CommandPaletteView: View {
   }
 
   private func rowBackground(for id: String) -> Color {
-    if id == selectedID { return ScoutTheme.selection }
-    if id == hoveredID { return ScoutTheme.quietFill }
+    if id == selectedID { return palette.selection }
+    if id == hoveredID { return palette.quietFill }
     return .clear
   }
 
