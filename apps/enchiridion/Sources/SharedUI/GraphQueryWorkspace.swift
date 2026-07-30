@@ -12,16 +12,30 @@ struct GraphQueryWorkspace: View {
   @State private var maximumDepth = 1
   @State private var sql = "SELECT node_id, title, kind FROM graph_nodes WHERE deleted_at IS NULL ORDER BY modified_at DESC LIMIT 100"
   @State private var relations: [RelationDefinition] = []
+  @State private var savedQueries: [SavedGraphQuery] = []
+  @State private var selectedSavedQueryID: GraphQueryID?
   @State private var result: GraphQueryResult?
   @State private var errorMessage: String?
+  @State private var showsSaveQuery = false
+  @State private var queryName = ""
 
   var body: some View {
     VStack(spacing: 0) {
-      Picker("Query editor", selection: $mode) {
-        ForEach(GraphQueryEditorMode.allCases) { mode in Text(mode.title).tag(mode) }
+      HStack(spacing: 12) {
+        Picker("Query editor", selection: $mode) {
+          ForEach(GraphQueryEditorMode.allCases) { mode in Text(mode.title).tag(mode) }
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 320)
+
+        savedQueryMenu
+
+        Button("Save", systemImage: "square.and.arrow.down") {
+          queryName = ""
+          showsSaveQuery = true
+        }
+        .disabled(mode == .sql && sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
-      .pickerStyle(.segmented)
-      .frame(maxWidth: 320)
       .padding()
 
       Divider()
@@ -38,11 +52,52 @@ struct GraphQueryWorkspace: View {
     .navigationTitle("Graph Query")
     .task {
       relations = (try? await store.graphRelationDefinitions()) ?? []
+      await reloadSavedQueries()
+    }
+    .alert("Save Graph Query", isPresented: $showsSaveQuery) {
+      TextField("Name", text: $queryName)
+      Button("Cancel", role: .cancel) {}
+      Button("Save") { Task { await saveCurrentQuery() } }
+        .disabled(queryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    } message: {
+      Text("Saved queries belong to this vault and retain their visual or SQL definition.")
     }
     .alert("Query Error", isPresented: errorBinding) {
       Button("OK", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "The query could not be run.")
+    }
+  }
+
+  private var savedQueryMenu: some View {
+    Menu {
+      if savedQueries.isEmpty {
+        Text("No saved queries")
+      } else {
+        ForEach(savedQueries) { query in
+          Button {
+            selectedSavedQueryID = query.id
+            perform { try store.runGraphQuery(query) }
+          } label: {
+            Label(query.name, systemImage: query.source.systemImage)
+          }
+        }
+        if let selectedSavedQueryID,
+          let selected = savedQueries.first(where: { $0.id == selectedSavedQueryID })
+        {
+          Divider()
+          Button("Delete \(selected.name)", systemImage: "trash", role: .destructive) {
+            Task { await deleteSavedQuery(selected) }
+          }
+        }
+      }
+    } label: {
+      Label(
+        selectedSavedQueryID.flatMap { id in
+          savedQueries.first(where: { $0.id == id })?.name
+        } ?? "Saved Queries",
+        systemImage: "tray.full"
+      )
     }
   }
 
@@ -134,6 +189,10 @@ struct GraphQueryWorkspace: View {
   }
 
   private func runVisualQuery() {
+    perform { try store.runGraphQuery(currentVisualDefinition) }
+  }
+
+  private var currentVisualDefinition: GraphQueryDefinition {
     var expressions: [GraphExpression] = []
     if let selectedTagID { expressions.append(.tag(selectedTagID)) }
     if traversalRelationID != nil || targetTagID != nil {
@@ -148,7 +207,7 @@ struct GraphQueryWorkspace: View {
     case 1: expressions[0]
     default: .and(expressions)
     }
-    perform { try store.runGraphQuery(.init(expression: expression)) }
+    return .init(expression: expression)
   }
 
   private func runSQL() {
@@ -159,6 +218,44 @@ struct GraphQueryWorkspace: View {
     do {
       result = try query()
       errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func saveCurrentQuery() async {
+    let source: SavedGraphQuery.Source = switch mode {
+    case .visual: .builder(currentVisualDefinition)
+    case .sql: .sql(sql)
+    }
+    let query = SavedGraphQuery(
+      name: queryName.trimmingCharacters(in: .whitespacesAndNewlines),
+      source: source,
+      presentation: .init(kind: mode == .visual ? .list : .table)
+    )
+    do {
+      try await store.saveGraphQuery(query)
+      selectedSavedQueryID = query.id
+      await reloadSavedQueries()
+      perform { try store.runGraphQuery(query) }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func deleteSavedQuery(_ query: SavedGraphQuery) async {
+    do {
+      try await store.deleteGraphQuery(query.id)
+      if selectedSavedQueryID == query.id { selectedSavedQueryID = nil }
+      await reloadSavedQueries()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func reloadSavedQueries() async {
+    do {
+      savedQueries = try await store.savedGraphQueries()
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -192,6 +289,15 @@ struct GraphQueryWorkspace: View {
       get: { errorMessage != nil },
       set: { if !$0 { errorMessage = nil } }
     )
+  }
+}
+
+private extension SavedGraphQuery.Source {
+  var systemImage: String {
+    switch self {
+    case .builder: "point.3.connected.trianglepath.dotted"
+    case .sql: "text.page"
+    }
   }
 }
 
