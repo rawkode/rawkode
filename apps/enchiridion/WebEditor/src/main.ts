@@ -41,6 +41,12 @@ import {
 } from "./findInPage"
 import { inlineCodeInputRules } from "./inlineCode"
 import { markdownEmphasisInputRules, reversibleMarkdownKeymap } from "./markdownEmphasis"
+import {
+  deriveCommandBarState,
+  isMarkUniformlyActive,
+  isSelectionUniformlyInNode,
+  type CommandBarCommand,
+} from "./commandBarState"
 import "./style.css"
 
 const PROTOCOL_VERSION = 2
@@ -162,6 +168,8 @@ let slashPaletteState: SlashPaletteState | undefined
 let pendingTaskReference: PendingTaskReference | undefined
 let linkEditorState: LinkEditorState | undefined
 let findInPageState: FindInPageState | undefined
+let editorIsComposing = false
+let mobileCommandSelection: SelectionBookmark | undefined
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -377,6 +385,8 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   })
   view.dom.addEventListener("focusin", updateEditorFocus)
   view.dom.addEventListener("focusout", () => window.setTimeout(updateEditorFocus, 0))
+  view.dom.addEventListener("compositionstart", () => setEditorComposing(true))
+  view.dom.addEventListener("compositionend", () => setEditorComposing(false))
   titleInput.disabled = false
   titleInput.value = A.toJS(handle.doc()).title.toString()
   resizeTitle()
@@ -676,12 +686,15 @@ titleInput.addEventListener("keydown", event => {
 })
 titleInput.addEventListener("focusin", updateEditorFocus)
 titleInput.addEventListener("focusout", () => window.setTimeout(updateEditorFocus, 0))
+titleInput.addEventListener("compositionstart", () => setEditorComposing(true))
+titleInput.addEventListener("compositionend", () => setEditorComposing(false))
 
 window.addEventListener("resize", () => {
   resizeTitle()
   positionSlashPalette()
   positionLinkEditor()
   positionFindBar()
+  positionMobileCommandBar()
 })
 window.addEventListener("scroll", () => {
   positionSlashPalette()
@@ -690,6 +703,8 @@ window.addEventListener("scroll", () => {
 }, true)
 window.visualViewport?.addEventListener("resize", positionFindBar)
 window.visualViewport?.addEventListener("scroll", positionFindBar)
+window.visualViewport?.addEventListener("resize", positionMobileCommandBar)
+window.visualViewport?.addEventListener("scroll", positionMobileCommandBar)
 
 window.addEventListener("keydown", event => {
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "f") {
@@ -706,8 +721,14 @@ window.addEventListener("keydown", event => {
 }, true)
 
 for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
-  commandButton.addEventListener("pointerdown", event => event.preventDefault())
-  commandButton.addEventListener("click", () => runMobileCommand(commandButton.dataset.command ?? ""))
+  commandButton.addEventListener("pointerdown", event => {
+    mobileCommandSelection = view?.state.selection.getBookmark()
+    if (event.pointerType !== "touch") event.preventDefault()
+  })
+  commandButton.addEventListener("click", () => {
+    restoreMobileCommandSelection()
+    runMobileCommand(commandButton.dataset.command as CommandBarCommand)
+  })
 }
 
 pageMenu.addEventListener("keydown", event => {
@@ -724,51 +745,89 @@ linkMenu.addEventListener("keydown", event => {
   closeLinkEditor()
 })
 
-function runMobileCommand(command: string): void {
+function runMobileCommand(command: CommandBarCommand): void {
   if (!view) return
   switch (command) {
+  case "undo":
+    undo(view.state, view.dispatch, view)
+    view.focus()
+    break
+  case "redo":
+    redo(view.state, view.dispatch, view)
+    view.focus()
+    break
   case "blocks":
     showSlashMenu(view)
     break
-  case "reference":
-    if (view.state.selection.empty) {
-      void showPageMenu(view, { kind: "insert", position: view.state.selection.from })
-    } else {
-      const { from, to } = view.state.selection
-      const selectedText = view.state.doc.textBetween(from, to, " ")
-      void showPageMenu(view, {
-        kind: "selection",
-        from,
-        to,
-        query: selectedText.trim(),
-        selectedText,
-      })
-    }
-    break
-  case "supertag": {
-    if (view.state.selection.empty) break
-    const { from, to } = view.state.selection
-    const selectedText = view.state.doc.textBetween(from, to, " ")
-    void showSupertagMenu(view, {
-      kind: "selection",
-      from,
-      to,
-      query: selectedText.trim(),
-      selectedText,
-    })
-    break
-  }
   case "bold":
-    toggleMark(view.state.schema.marks.strong!)(view.state, view.dispatch, view)
-    view.focus()
+    toggleCommandBarMark(view.state.schema.marks.strong!)
+    break
+  case "italic":
+    toggleCommandBarMark(view.state.schema.marks.em!)
+    break
+  case "inline-code":
+    toggleCommandBarMark(view.state.schema.marks.code!)
     break
   case "bullet-list":
-    wrapInList(view.state.schema.nodes.bullet_list!)(view.state, view.dispatch, view)
+    if (isSelectionUniformlyInNode(view.state, "bullet_list")) {
+      liftListItem(view.state.schema.nodes.list_item!)(view.state, view.dispatch, view)
+    } else {
+      wrapInList(view.state.schema.nodes.bullet_list!)(view.state, view.dispatch, view)
+    }
     view.focus()
     break
+  case "link-reference": {
+    const target = resolveWebLinkTarget(view.state)
+    if (target.ok) openLinkEditor(view.state, view.dispatch, view)
+    else openReferenceMenu(view)
+    break
+  }
   case "dismiss-keyboard":
     dismissKeyboard()
     break
+  }
+  mobileCommandSelection = undefined
+}
+
+function toggleCommandBarMark(markType: MarkType): void {
+  if (!view) return
+  const { state } = view
+  if (state.selection.empty) {
+    toggleMark(markType)(state, view.dispatch, view)
+  } else {
+    const transaction = isMarkUniformlyActive(state, markType)
+      ? state.tr.removeMark(state.selection.from, state.selection.to, markType)
+      : state.tr.addMark(state.selection.from, state.selection.to, markType.create())
+    view.dispatch(transaction.scrollIntoView())
+  }
+  view.focus()
+}
+
+function openReferenceMenu(editorView: EditorView): void {
+  if (editorView.state.selection.empty) {
+    void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
+    return
+  }
+  const { from, to } = editorView.state.selection
+  const selectedText = editorView.state.doc.textBetween(from, to, " ")
+  void showPageMenu(editorView, {
+    kind: "selection",
+    from,
+    to,
+    query: selectedText.trim(),
+    selectedText,
+  })
+}
+
+function restoreMobileCommandSelection(): void {
+  if (!view || !mobileCommandSelection) return
+  try {
+    const selection = mobileCommandSelection.resolve(view.state.doc)
+    if (!selection.eq(view.state.selection)) {
+      view.dispatch(view.state.tr.setSelection(selection).setMeta("addToHistory", false))
+    }
+  } catch {
+    mobileCommandSelection = undefined
   }
 }
 
@@ -781,7 +840,13 @@ function dismissKeyboard(): void {
 
 function updateEditorFocus(): void {
   updateMobileCommandBar()
+  positionMobileCommandBar()
   reportEditorFocus(document.activeElement === titleInput || view?.hasFocus() == true)
+}
+
+function setEditorComposing(isComposing: boolean): void {
+  editorIsComposing = isComposing
+  updateMobileCommandBar()
 }
 
 function reportEditorFocus(isFocused: boolean): void {
@@ -793,12 +858,32 @@ function reportEditorFocus(isFocused: boolean): void {
 function updateMobileCommandBar(): void {
   const titleHasFocus = document.activeElement === titleInput
   const bodyHasFocus = view?.hasFocus() == true
+  const state = deriveCommandBarState({
+    editorState: view?.state,
+    titleFocused: titleHasFocus,
+    bodyFocused: bodyHasFocus,
+    composing: editorIsComposing,
+  })
+  const itemByCommand = new Map(state.items.map(item => [item.command, item]))
   for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
-    const command = commandButton.dataset.command
-    commandButton.disabled = command !== "dismiss-keyboard"
-      && (titleHasFocus || (command === "supertag" && (view?.state.selection.empty ?? true)))
+    const item = itemByCommand.get(commandButton.dataset.command as CommandBarCommand)
+    if (!item) continue
+    commandButton.disabled = item.disabled
+    commandButton.setAttribute("aria-disabled", String(item.disabled))
+    commandButton.setAttribute("aria-label", item.label)
+    if (item.pressed !== undefined) {
+      commandButton.setAttribute("aria-pressed", String(item.pressed))
+      commandButton.classList.toggle("is-selected", item.pressed)
+    }
   }
-  mobileCommandBar.hidden = !showsEditorCommandBar(titleHasFocus || bodyHasFocus)
+  mobileCommandBar.hidden = !showsEditorCommandBar(state.visible)
+}
+
+function positionMobileCommandBar(): void {
+  const viewport = window.visualViewport
+  const visibleBottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
+  const inset = Math.max(0, window.innerHeight - visibleBottom)
+  document.documentElement.style.setProperty("--editor-keyboard-inset", `${inset}px`)
 }
 
 function onDocumentChange(): void {

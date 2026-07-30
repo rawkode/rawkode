@@ -28,7 +28,7 @@ describe("packaged editor", () => {
 
   test("packages selected-text supertagging", () => {
     expect(html).toContain("Supertag");
-    expect(html).toContain('id="supertag-command"');
+    expect(html).not.toContain('data-command="supertag"');
     expect(html).toContain("Find a page");
     expect(html).toContain("New page");
     expect(html).toMatch(/Create task (?:“|\\u201C)/);
@@ -56,6 +56,35 @@ describe("packaged editor", () => {
     expect(html).toContain("Text Style");
     expect(html).toContain("Indentation");
     expect(html).toContain("Find a page or date");
+  });
+
+  test("packages one selection-aware, keyboard-adjacent touch accessory", () => {
+    for (const command of [
+      "undo",
+      "redo",
+      "blocks",
+      "bold",
+      "italic",
+      "inline-code",
+      "bullet-list",
+      "link-reference",
+      "dismiss-keyboard",
+    ]) expect(html).toContain(`data-command=${JSON.stringify(command)}`);
+
+    expect(html.match(/role="toolbar"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Link or reference"');
+    expect(html).toContain("aria-pressed");
+    expect(html).toContain("aria-disabled");
+    expect(html).toContain("min-height:2.75rem");
+    expect(html).toContain("min-width:2.75rem");
+    expect(html).toContain("overflow-x:auto");
+    expect(html).toContain("touch-action:pan-x pan-y");
+    expect(html).toContain("overscroll-behavior-inline:contain");
+    expect(html).toContain("env(safe-area-inset-bottom)");
+    expect(html).toContain("--editor-keyboard-inset");
+    expect(html).toContain("visualViewport");
+    expect(html).toContain("compositionstart");
+    expect(html).toContain("compositionend");
   });
 
   test("packages an accessible keyboard-first slash command palette", () => {
