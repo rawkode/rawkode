@@ -14,6 +14,8 @@ import {
   exitCodeBlockOnEmptyLine,
   editorReturnCommand,
   filterCommands,
+  hardBreakNodeSpec,
+  insertSoftLineBreak,
   linkEditTransaction,
   moveBlock,
   movePaletteSelection,
@@ -175,6 +177,7 @@ const schemaAdapter = new SchemaAdapter({
       parseDOM: [{ tag: "pre", preserveWhitespace: "full" }],
       toDOM: () => ["pre", ["code", 0]],
     },
+    hard_break: hardBreakNodeSpec,
     bullet_list: {
       content: "list_item+",
       group: "block",
@@ -313,6 +316,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     reversibleMarkdownKeymap,
     keymap({
       "Enter": editorReturnCommand(binding.schema.nodes.list_item!),
+      "Shift-Enter": insertSoftLineBreak(binding.schema.nodes.hard_break!),
       "Mod-Alt-ArrowUp": moveBlock(-1),
       "Mod-Alt-ArrowDown": moveBlock(1),
       "ArrowDown": moveBelowCodeBlock,
@@ -754,6 +758,7 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
     editorView.dispatch(editorView.state.tr.replaceSelectionWith(divider).scrollIntoView())
     editorView.focus()
   }
+  const lineBreak = insertSoftLineBreak(editorView.state.schema.nodes.hard_break!)
   const mention = () => {
     if (editorView.state.selection.empty) {
       void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
@@ -829,6 +834,14 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
     {
       label: "Insert",
       items: [
+        {
+          label: "Line break",
+          detail: "Continue within this block",
+          keywords: ["soft break", "Shift Enter"],
+          ariaLabel: "Line break",
+          disabled: !lineBreak(editorView.state),
+          action: run(lineBreak),
+        },
         { label: "Page or date", detail: "Create a native reference", keywords: ["mention", "link", "@"], action: mention },
         ...(!editorView.state.selection.empty ? [{
           label: "Supertag",

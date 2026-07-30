@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge"
-import { pmNodeToSpans, type DocHandle, type SchemaAdapter } from "@automerge/prosemirror"
-import { chainCommands, exitCode } from "prosemirror-commands"
+import { pmNodeToSpans, type DocHandle, type MappedNodeSpec, type SchemaAdapter } from "@automerge/prosemirror"
+import { chainCommands, exitCode, newlineInCode } from "prosemirror-commands"
 import { Fragment, type Attrs, type Mark, type MarkType, type Node as PMNode, type NodeType, type ResolvedPos } from "prosemirror-model"
 import { splitListItemKeepMarks } from "prosemirror-schema-list"
 import { NodeSelection, TextSelection, type Command, type EditorState, type Selection, type Transaction } from "prosemirror-state"
@@ -191,6 +191,50 @@ export function linkEditTransaction(
 
 export function showsEditorCommandBar(editorHasFocus: boolean): boolean {
   return editorHasFocus
+}
+
+export const SOFT_LINE_BREAK_BLOCK = "soft-line-break"
+
+export const hardBreakNodeSpec: MappedNodeSpec = {
+  automerge: { block: SOFT_LINE_BREAK_BLOCK, isEmbed: true },
+  inline: true,
+  group: "inline",
+  selectable: false,
+  parseDOM: [{ tag: "br" }],
+  toDOM: () => ["br"],
+}
+
+/**
+ * Inserts an inline line break, except in code blocks where Shift-Enter must
+ * remain literal text. Non-inclusive identity marks intentionally stop at the
+ * break while compatible formatting marks stay active for subsequent input.
+ */
+export function insertSoftLineBreak(hardBreakType: NodeType): Command {
+  return chainCommands(newlineInCode, (state, dispatch) => {
+    const { selection } = state
+    if (!(selection instanceof TextSelection) || !selection.$from.sameParent(selection.$to)) return false
+    const parent = selection.$from.parent
+    if (!parent.isTextblock || !parent.canReplaceWith(
+      selection.$from.index(),
+      selection.$to.index(),
+      hardBreakType,
+    )) return false
+
+    if (dispatch) {
+      const activeMarks = state.storedMarks
+        ?? (selection.empty ? selection.$from.marks() : selection.$from.marksAcross(selection.$to))
+        ?? []
+      const continuingMarks = parent.type.allowedMarks(
+        activeMarks.filter(mark => mark.type.spec.inclusive !== false),
+      )
+      const transaction = state.tr
+        .replaceSelectionWith(hardBreakType.create(), false)
+        .setStoredMarks(continuingMarks)
+        .scrollIntoView()
+      dispatch(transaction)
+    }
+    return true
+  })
 }
 
 export type BlockMoveDirection = -1 | 1

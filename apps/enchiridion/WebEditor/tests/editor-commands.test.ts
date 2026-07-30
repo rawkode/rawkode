@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
 import { next as A } from "@automerge/automerge"
-import { SchemaAdapter } from "@automerge/prosemirror"
+import { pmDocFromSpans, pmNodeToSpans, SchemaAdapter } from "@automerge/prosemirror"
+import { baseKeymap } from "prosemirror-commands"
 import { history, redo, undo } from "prosemirror-history"
-import { Schema } from "prosemirror-model"
+import { Schema, type Node as PMNode } from "prosemirror-model"
 import { EditorState, TextSelection } from "prosemirror-state"
 import {
   exitCodeBlockOnEmptyLine,
   filterCommands,
+  hardBreakNodeSpec,
+  insertSoftLineBreak,
   linkEditTransaction,
   markSelectedText,
   movePaletteSelection,
@@ -16,6 +20,7 @@ import {
   resolveLinkEditTarget,
   selectedTextTaskPlan,
   showsEditorCommandBar,
+  SOFT_LINE_BREAK_BLOCK,
   slashCommandQuery,
   validateHTTPURL,
 } from "../src/editorCommands"
@@ -39,6 +44,95 @@ const schema = new Schema({
     },
   },
 })
+
+function softLineBreakAdapter(includeLineBreak = true): SchemaAdapter {
+  return new SchemaAdapter({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: {
+        automerge: { block: "paragraph" },
+        content: "inline*",
+        group: "block",
+        toDOM: () => ["p", 0],
+      },
+      heading: {
+        automerge: { block: "heading" },
+        attrs: { level: { default: 1 } },
+        content: "inline*",
+        group: "block",
+        toDOM: node => [`h${node.attrs.level}`, 0],
+      },
+      blockquote: {
+        automerge: { block: "blockquote" },
+        content: "block+",
+        group: "block",
+        toDOM: () => ["blockquote", 0],
+      },
+      code_block: {
+        automerge: { block: "code-block" },
+        content: "text*",
+        marks: "",
+        group: "block",
+        code: true,
+        toDOM: () => ["pre", ["code", 0]],
+      },
+      bullet_list: {
+        content: "list_item+",
+        group: "block",
+        toDOM: () => ["ul", 0],
+      },
+      ordered_list: {
+        content: "list_item+",
+        group: "block",
+        toDOM: () => ["ol", 0],
+      },
+      list_item: {
+        automerge: {
+          block: { within: { bullet_list: "unordered-list-item", ordered_list: "ordered-list-item" } },
+        },
+        content: "paragraph block*",
+        toDOM: () => ["li", 0],
+      },
+      ...(includeLineBreak ? { hard_break: hardBreakNodeSpec } : {}),
+      unknownBlock: {
+        automerge: { unknownBlock: true },
+        content: "block+",
+        group: "block",
+        toDOM: () => ["div", 0],
+      },
+      text: { group: "inline" },
+    },
+    marks: {
+      strong: { automerge: { markName: "strong" } },
+      link: {
+        automerge: { markName: "link" },
+        attrs: { href: {} },
+        inclusive: false,
+      },
+      page_reference: {
+        automerge: { markName: referenceMarkName },
+        attrs: { pageID: {} },
+        inclusive: false,
+      },
+    },
+  })
+}
+
+function firstTextPosition(doc: PMNode, offset: number): number {
+  let position: number | undefined
+  doc.descendants((node, nodePosition) => {
+    if (!node.isText || position !== undefined) return
+    position = nodePosition + offset
+  })
+  if (position === undefined) throw new Error("Expected text content")
+  return position
+}
+
+function countNodes(doc: PMNode, nodeName: string): number {
+  let count = 0
+  doc.descendants(node => { if (node.type.name === nodeName) count += 1 })
+  return count
+}
 
 describe("web link editing", () => {
   test("accepts only complete HTTP and HTTPS addresses", () => {
@@ -243,6 +337,265 @@ describe("unified editor chrome", () => {
 
   test("stays hidden while the editor is not focused", () => {
     expect(showsEditorCommandBar(false)).toBeFalse()
+  })
+})
+
+describe("soft line breaks", () => {
+  const adapter = softLineBreakAdapter()
+  const editorSchema = adapter.schema
+  const textblock = () => editorSchema.nodes.paragraph!.create(null, editorSchema.text("BeforeAfter"))
+  const cases = [
+    {
+      name: "paragraph",
+      path: ["paragraph"],
+      doc: () => editorSchema.nodes.doc!.create(null, textblock()),
+    },
+    {
+      name: "heading",
+      path: ["heading"],
+      doc: () => editorSchema.nodes.doc!.create(
+        null,
+        editorSchema.nodes.heading!.create({ level: 2 }, editorSchema.text("BeforeAfter")),
+      ),
+    },
+    {
+      name: "quote",
+      path: ["blockquote", "paragraph"],
+      doc: () => editorSchema.nodes.doc!.create(
+        null,
+        editorSchema.nodes.blockquote!.create(null, textblock()),
+      ),
+    },
+    {
+      name: "bulleted list item",
+      path: ["bullet_list", "list_item", "paragraph"],
+      doc: () => editorSchema.nodes.doc!.create(
+        null,
+        editorSchema.nodes.bullet_list!.create(
+          null,
+          editorSchema.nodes.list_item!.create(null, textblock()),
+        ),
+      ),
+    },
+    {
+      name: "numbered list item",
+      path: ["ordered_list", "list_item", "paragraph"],
+      doc: () => editorSchema.nodes.doc!.create(
+        null,
+        editorSchema.nodes.ordered_list!.create(
+          null,
+          editorSchema.nodes.list_item!.create(null, textblock()),
+        ),
+      ),
+    },
+  ]
+
+  for (const example of cases) {
+    test(`stays inside the same ${example.name}`, () => {
+      const doc = example.doc()
+      let state = EditorState.create({
+        doc,
+        selection: TextSelection.create(doc, firstTextPosition(doc, "Before".length)),
+      })
+      let dispatchCount = 0
+
+      expect(insertSoftLineBreak(editorSchema.nodes.hard_break!)(state, transaction => {
+        dispatchCount += 1
+        state = state.apply(transaction)
+      })).toBeTrue()
+
+      const path: string[] = []
+      let node = state.doc
+      while (!node.isTextblock) {
+        node = node.firstChild!
+        path.push(node.type.name)
+      }
+      expect(path).toEqual(example.path)
+      expect(countNodes(state.doc, "hard_break")).toBe(1)
+      expect(state.doc.textContent).toBe("BeforeAfter")
+      expect(dispatchCount).toBe(1)
+    })
+  }
+
+  test("replaces a text selection with one break in one transaction", () => {
+    const paragraph = editorSchema.nodes.paragraph!.create(
+      null,
+      editorSchema.text("Before selected after"),
+    )
+    const doc = editorSchema.nodes.doc!.create(null, paragraph)
+    const from = firstTextPosition(doc, "Before ".length)
+    let state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, from, from + "selected ".length),
+    })
+    let dispatchCount = 0
+
+    expect(insertSoftLineBreak(editorSchema.nodes.hard_break!)(state, transaction => {
+      dispatchCount += 1
+      state = state.apply(transaction)
+    })).toBeTrue()
+
+    expect(state.doc.textContent).toBe("Before after")
+    expect(countNodes(state.doc, "hard_break")).toBe(1)
+    expect(dispatchCount).toBe(1)
+  })
+
+  test("continues formatting but not web-link or page identity marks", () => {
+    const marks = [
+      editorSchema.marks.strong!.create(),
+      editorSchema.marks.link!.create({ href: "https://example.com" }),
+      editorSchema.marks.page_reference!.create({ pageID: "page:identity" }),
+    ]
+    const paragraph = editorSchema.nodes.paragraph!.create(
+      null,
+      editorSchema.text("Format here", marks),
+    )
+    const doc = editorSchema.nodes.doc!.create(null, paragraph)
+    let state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, firstTextPosition(doc, "Format".length)),
+    })
+
+    expect(insertSoftLineBreak(editorSchema.nodes.hard_break!)(state, transaction => {
+      state = state.apply(transaction)
+    })).toBeTrue()
+    expect(state.storedMarks?.map(mark => mark.type.name)).toEqual(["strong"])
+
+    state = state.apply(state.tr.insertText("next"))
+    let inserted: PMNode | undefined
+    state.doc.descendants(node => {
+      if (node.isText && node.text === "next") inserted = node
+    })
+    expect(inserted?.marks.map(mark => mark.type.name)).toEqual(["strong"])
+  })
+
+  test("uses a literal newline in code blocks", () => {
+    const code = editorSchema.nodes.code_block!.create(null, editorSchema.text("oneTWOtwo"))
+    const doc = editorSchema.nodes.doc!.create(null, code)
+    const from = firstTextPosition(doc, "one".length)
+    let state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, from, from + "TWO".length),
+    })
+    let dispatchCount = 0
+
+    expect(insertSoftLineBreak(editorSchema.nodes.hard_break!)(state, transaction => {
+      dispatchCount += 1
+      state = state.apply(transaction)
+    })).toBeTrue()
+
+    expect(state.doc.textContent).toBe("one\ntwo")
+    expect(countNodes(state.doc, "hard_break")).toBe(0)
+    expect(state.selection.$from.parent.type).toBe(editorSchema.nodes.code_block)
+    expect(dispatchCount).toBe(1)
+  })
+
+  test("undoes and redoes the break as one history event", () => {
+    const paragraph = editorSchema.nodes.paragraph!.create(null, editorSchema.text("BeforeAfter"))
+    const doc = editorSchema.nodes.doc!.create(null, paragraph)
+    let state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, firstTextPosition(doc, "Before".length)),
+      plugins: [history()],
+    })
+
+    insertSoftLineBreak(editorSchema.nodes.hard_break!)(state, transaction => {
+      state = state.apply(transaction)
+    })
+    expect(countNodes(state.doc, "hard_break")).toBe(1)
+    expect(undo(state, transaction => { state = state.apply(transaction) })).toBeTrue()
+    expect(countNodes(state.doc, "hard_break")).toBe(0)
+    expect(undo(state)).toBeFalse()
+    expect(redo(state, transaction => { state = state.apply(transaction) })).toBeTrue()
+    expect(countNodes(state.doc, "hard_break")).toBe(1)
+  })
+
+  test("leaves ordinary Backspace and Delete to the browser", () => {
+    const paragraph = editorSchema.nodes.paragraph!.create(null, [
+      editorSchema.text("a"),
+      editorSchema.nodes.hard_break!.create(),
+      editorSchema.text("b"),
+    ])
+    const doc = editorSchema.nodes.doc!.create(null, paragraph)
+
+    for (const [key, position] of [["Backspace", 3], ["Delete", 2]] as const) {
+      const state = EditorState.create({ doc, selection: TextSelection.create(doc, position) })
+      expect(baseKeymap[key](state)).toBeFalse()
+      expect(countNodes(state.doc, "hard_break")).toBe(1)
+      expect(state.doc.textContent).toBe("ab")
+    }
+  })
+
+  test("survives save/load and recovery replay", () => {
+    const paragraph = editorSchema.nodes.paragraph!.create(null, [
+      editorSchema.text("Before"),
+      editorSchema.nodes.hard_break!.create(),
+      editorSchema.text("After"),
+    ])
+    const pmDoc = editorSchema.nodes.doc!.create(null, paragraph)
+    const baseline = A.from({ body: "" })
+    const edited = A.change(baseline, document => {
+      A.updateSpans(document, ["body"], pmNodeToSpans(adapter, pmDoc), adapter.updateSpansConfig())
+    })
+
+    const saved = A.load(A.save(edited))
+    const reloaded = pmDocFromSpans(adapter, A.spans(saved, ["body"]))
+    expect(countNodes(reloaded, "hard_break")).toBe(1)
+    expect(reloaded.textContent).toBe("BeforeAfter")
+
+    const [recovered] = A.applyChanges(A.clone(baseline), A.getChanges(baseline, edited))
+    const replayed = pmDocFromSpans(adapter, A.spans(recovered, ["body"]))
+    expect(countNodes(replayed, "hard_break")).toBe(1)
+    expect(replayed.textContent).toBe("BeforeAfter")
+  })
+
+  test("round-trips through an older client as an unknown inline leaf without data loss", () => {
+    const paragraph = editorSchema.nodes.paragraph!.create(null, [
+      editorSchema.text("Before"),
+      editorSchema.nodes.hard_break!.create(),
+      editorSchema.text("After"),
+    ])
+    const pmDoc = editorSchema.nodes.doc!.create(null, paragraph)
+    const current = A.change(A.from({ body: "" }), document => {
+      A.updateSpans(document, ["body"], pmNodeToSpans(adapter, pmDoc), adapter.updateSpansConfig())
+    })
+
+    const legacyAdapter = softLineBreakAdapter(false)
+    const legacyDoc = pmDocFromSpans(legacyAdapter, A.spans(current, ["body"]))
+    expect(countNodes(legacyDoc, "unknownLeaf")).toBe(1)
+    let unknownLeaf: PMNode | undefined
+    legacyDoc.descendants(node => {
+      if (node.type.name === "unknownLeaf") unknownLeaf = node
+    })
+    expect(unknownLeaf?.attrs.unknownBlock.type).toBe(SOFT_LINE_BREAK_BLOCK)
+
+    const legacyState = EditorState.create({ doc: legacyDoc, selection: TextSelection.atEnd(legacyDoc) })
+    const legacyEdited = legacyState.apply(legacyState.tr.insertText("!"))
+    const resaved = A.change(current, document => {
+      A.updateSpans(
+        document,
+        ["body"],
+        pmNodeToSpans(legacyAdapter, legacyEdited.doc),
+        legacyAdapter.updateSpansConfig(),
+      )
+    })
+    const currentReload = pmDocFromSpans(
+      adapter,
+      A.spans(A.load(A.save(resaved)), ["body"]),
+    )
+    expect(countNodes(currentReload, "hard_break")).toBe(1)
+    expect(currentReload.textContent).toBe("BeforeAfter!")
+  })
+
+  test("uses the same command for Shift-Enter and the Aa palette, then restores focus", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8")
+
+    expect(source).toContain('"Enter": editorReturnCommand(binding.schema.nodes.list_item!)')
+    expect(source).toContain('"Shift-Enter": insertSoftLineBreak(binding.schema.nodes.hard_break!)')
+    expect(source).toContain("const lineBreak = insertSoftLineBreak(editorView.state.schema.nodes.hard_break!)")
+    expect(source).toContain("disabled: !lineBreak(editorView.state)")
+    expect(source).toContain("action: run(lineBreak)")
+    expect(source).toMatch(/command\(editorView\.state, editorView\.dispatch, editorView\)\s*\n\s*editorView\.focus\(\)/)
   })
 })
 

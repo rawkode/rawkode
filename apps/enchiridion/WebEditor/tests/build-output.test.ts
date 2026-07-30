@@ -100,6 +100,15 @@ describe("packaged editor", () => {
     expect(html).toContain("SFMono-Regular");
   });
 
+  test("packages durable soft line breaks for keyboard and touch", () => {
+    expect(html).toContain("soft-line-break");
+    expect(html).toContain("hard_break");
+    expect(html).toContain("Shift-Enter");
+    expect(html).toContain("Line break");
+    expect(html).toContain("Continue within this block");
+    expect(html).toContain("min-height:2.75rem");
+  });
+
   test("packages structural block movement without a fake pointer handle", () => {
     expect(html).toContain("Move block up");
     expect(html).toContain("Move block down");
