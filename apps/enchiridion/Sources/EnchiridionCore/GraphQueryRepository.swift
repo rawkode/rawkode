@@ -1,6 +1,15 @@
 import Foundation
 import GRDB
 
+public struct SavedGraphQueryCloudRecord: Sendable {
+  public var query: SavedGraphQuery
+  public var isDeleted: Bool
+  public var sortOrder: Int
+  public var modifiedAt: Date
+  public var dirtyGeneration: Int64
+  public var cloudRecord: Data?
+}
+
 extension LibraryRepository {
   public nonisolated func runGraphSQL(
     _ sql: String,
@@ -128,6 +137,126 @@ extension LibraryRepository {
     }
   }
 
+  public func dirtyGraphQueries() throws -> [SavedGraphQueryCloudRecord] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM _saved_graph_queries WHERE cloud_dirty = 1 ORDER BY modified_at, id"
+      ).compactMap(Self.decodeSavedGraphQueryCloudRecord)
+    }
+  }
+
+  public func savedGraphQueryCloudRecord(
+    id: GraphQueryID
+  ) throws -> SavedGraphQueryCloudRecord? {
+    try database.read { db in
+      try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM _saved_graph_queries WHERE id = ?",
+        arguments: [id.rawValue]
+      ).flatMap(Self.decodeSavedGraphQueryCloudRecord)
+    }
+  }
+
+  @discardableResult
+  public func markGraphQueryCloudSaved(
+    id: GraphQueryID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE _saved_graph_queries
+          SET cloud_record = ?,
+              cloud_synced_generation = MAX(cloud_synced_generation, ?),
+              cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
+          WHERE id = ?
+          """,
+        arguments: [systemFields, sentGeneration, sentGeneration, id.rawValue]
+      )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM _saved_graph_queries WHERE id = ?",
+        arguments: [id.rawValue]
+      ) ?? false
+    }
+  }
+
+  @discardableResult
+  public func mergeCloudGraphQuery(
+    id: GraphQueryID,
+    query: SavedGraphQuery,
+    isDeleted: Bool,
+    sortOrder: Int,
+    modifiedAt: Date,
+    dirtyGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      if let isDirty = try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM _saved_graph_queries WHERE id = ?",
+        arguments: [id.rawValue]
+      ), isDirty {
+        try db.execute(
+          sql: "UPDATE _saved_graph_queries SET cloud_record = ? WHERE id = ?",
+          arguments: [systemFields, id.rawValue]
+        )
+        return true
+      }
+      var normalized = query
+      normalized.id = id
+      try Self.writeCloudGraphQuery(
+        normalized,
+        isDeleted: isDeleted,
+        sortOrder: sortOrder,
+        modifiedAt: modifiedAt,
+        dirtyGeneration: dirtyGeneration,
+        systemFields: systemFields,
+        in: db
+      )
+      return false
+    }
+  }
+
+  @discardableResult
+  public func applyCloudGraphQueryRecordDeletion(id: GraphQueryID) throws -> Bool {
+    try database.write { db in
+      guard let isDirty = try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM _saved_graph_queries WHERE id = ?",
+        arguments: [id.rawValue]
+      ) else { return false }
+      if isDirty {
+        try db.execute(
+          sql: "UPDATE _saved_graph_queries SET cloud_record = NULL WHERE id = ?",
+          arguments: [id.rawValue]
+        )
+        return true
+      }
+      try db.execute(
+        sql: """
+          UPDATE _saved_graph_queries
+          SET deleted = 1, cloud_record = NULL, cloud_dirty = 0,
+              cloud_synced_generation = dirty_generation
+          WHERE id = ?
+          """,
+        arguments: [id.rawValue]
+      )
+      return false
+    }
+  }
+
+  public func clearGraphQueryCloudRecordMetadata(id: GraphQueryID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "UPDATE _saved_graph_queries SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
+        arguments: [id.rawValue]
+      )
+    }
+  }
+
   public func graphFacts(for nodeID: NodeID) throws -> [KnowledgeFact] {
     try database.read { db in
       try Row.fetchAll(
@@ -193,6 +322,84 @@ extension LibraryRepository {
       name: name,
       source: source,
       presentation: presentation
+    )
+  }
+
+  private static func decodeSavedGraphQueryCloudRecord(
+    _ row: Row
+  ) -> SavedGraphQueryCloudRecord? {
+    guard let query = decodeSavedGraphQuery(row),
+      let isDeleted: Bool = row["deleted"],
+      let sortOrder: Int = row["sort_order"],
+      let modifiedAt: Double = row["modified_at"],
+      let dirtyGeneration: Int64 = row["dirty_generation"]
+    else { return nil }
+    return .init(
+      query: query,
+      isDeleted: isDeleted,
+      sortOrder: sortOrder,
+      modifiedAt: Date(timeIntervalSince1970: modifiedAt),
+      dirtyGeneration: dirtyGeneration,
+      cloudRecord: row["cloud_record"]
+    )
+  }
+
+  private static func writeCloudGraphQuery(
+    _ query: SavedGraphQuery,
+    isDeleted: Bool,
+    sortOrder: Int,
+    modifiedAt: Date,
+    dirtyGeneration: Int64,
+    systemFields: Data,
+    in db: Database
+  ) throws {
+    let sourceKind: String
+    let builderJSON: Data?
+    let sqlText: String?
+    switch query.source {
+    case .builder(let definition):
+      sourceKind = "builder"
+      builderJSON = try JSONEncoder.enchiridion.encode(definition)
+      sqlText = nil
+    case .sql(let sql):
+      sourceKind = "sql"
+      builderJSON = nil
+      sqlText = sql
+    }
+    try db.execute(
+      sql: """
+        INSERT INTO _saved_graph_queries
+          (id,name,source_kind,builder_json,sql_text,presentation_json,modified_at,
+           sort_order,deleted,dirty_generation,cloud_dirty,cloud_synced_generation,cloud_record)
+        VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          name=excluded.name,
+          source_kind=excluded.source_kind,
+          builder_json=excluded.builder_json,
+          sql_text=excluded.sql_text,
+          presentation_json=excluded.presentation_json,
+          modified_at=excluded.modified_at,
+          sort_order=excluded.sort_order,
+          deleted=excluded.deleted,
+          dirty_generation=excluded.dirty_generation,
+          cloud_dirty=0,
+          cloud_synced_generation=excluded.cloud_synced_generation,
+          cloud_record=excluded.cloud_record
+        """,
+      arguments: [
+        query.id.rawValue,
+        query.name,
+        sourceKind,
+        builderJSON,
+        sqlText,
+        try JSONEncoder.enchiridion.encode(query.presentation),
+        modifiedAt.timeIntervalSince1970,
+        sortOrder,
+        isDeleted,
+        dirtyGeneration,
+        dirtyGeneration,
+        systemFields,
+      ]
     )
   }
 

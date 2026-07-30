@@ -1,6 +1,13 @@
 import Foundation
 import GRDB
 
+public struct RelationDefinitionCloudRecord: Sendable {
+  public var definition: RelationDefinition
+  public var modifiedAt: Date
+  public var dirtyGeneration: Int64
+  public var cloudRecord: Data?
+}
+
 extension LibraryRepository {
   public func relationDefinitions() throws -> [RelationDefinition] {
     try database.read { db in
@@ -208,6 +215,146 @@ extension LibraryRepository {
     }
   }
 
+  public func dirtyRelationDefinitions() throws -> [RelationDefinitionCloudRecord] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT * FROM _graph_relation_definitions
+          WHERE cloud_dirty = 1 AND is_system = 0
+          ORDER BY modified_at, id
+          """
+      ).compactMap(Self.decodeRelationCloudRecord)
+    }
+  }
+
+  public func relationDefinitionCloudRecord(
+    id: RelationID
+  ) throws -> RelationDefinitionCloudRecord? {
+    try database.read { db in
+      try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM _graph_relation_definitions WHERE id = ? AND is_system = 0",
+        arguments: [id.rawValue]
+      ).flatMap(Self.decodeRelationCloudRecord)
+    }
+  }
+
+  @discardableResult
+  public func markRelationDefinitionCloudSaved(
+    id: RelationID,
+    sentGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE _graph_relation_definitions
+          SET cloud_record = ?,
+              cloud_synced_generation = MAX(cloud_synced_generation, ?),
+              cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
+          WHERE id = ? AND is_system = 0
+          """,
+        arguments: [systemFields, sentGeneration, sentGeneration, id.rawValue]
+      )
+      return try Bool.fetchOne(
+        db,
+        sql: "SELECT cloud_dirty FROM _graph_relation_definitions WHERE id = ?",
+        arguments: [id.rawValue]
+      ) ?? false
+    }
+  }
+
+  @discardableResult
+  public func mergeCloudRelationDefinition(
+    id: RelationID,
+    definition: RelationDefinition,
+    isDeleted: Bool,
+    modifiedAt: Date,
+    dirtyGeneration: Int64,
+    systemFields: Data
+  ) throws -> Bool {
+    try database.write { db in
+      if let row = try Row.fetchOne(
+        db,
+        sql: "SELECT is_system, cloud_dirty FROM _graph_relation_definitions WHERE id = ?",
+        arguments: [id.rawValue]
+      ) {
+        let isSystem: Bool = row["is_system"] ?? false
+        guard !isSystem else { throw GraphModelError.immutableSystemDefinition }
+        let isDirty: Bool = row["cloud_dirty"] ?? false
+        if isDirty {
+          try db.execute(
+            sql: "UPDATE _graph_relation_definitions SET cloud_record = ? WHERE id = ?",
+            arguments: [systemFields, id.rawValue]
+          )
+          return true
+        }
+      }
+
+      var normalized = definition
+      normalized.id = id
+      normalized.isSystem = false
+      normalized.isDeleted = isDeleted
+      try Self.writeCloudRelationDefinition(
+        normalized,
+        modifiedAt: modifiedAt,
+        dirtyGeneration: dirtyGeneration,
+        systemFields: systemFields,
+        in: db
+      )
+      try GraphProjectionStore.refreshIssues(in: db)
+      return false
+    }
+  }
+
+  @discardableResult
+  public func applyCloudRelationDefinitionRecordDeletion(id: RelationID) throws -> Bool {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT definition_json,is_system,cloud_dirty FROM _graph_relation_definitions WHERE id = ?",
+        arguments: [id.rawValue]
+      ), !(row["is_system"] as Bool? ?? false)
+      else { return false }
+      if row["cloud_dirty"] as Bool? ?? false {
+        try db.execute(
+          sql: "UPDATE _graph_relation_definitions SET cloud_record = NULL WHERE id = ?",
+          arguments: [id.rawValue]
+        )
+        return true
+      }
+      guard let data: Data = row["definition_json"],
+        var definition = try? JSONDecoder.enchiridion.decode(RelationDefinition.self, from: data)
+      else { throw LibraryRepositoryError.invalidRecord }
+      definition.isDeleted = true
+      try db.execute(
+        sql: """
+          UPDATE _graph_relation_definitions
+          SET is_deleted = 1, definition_json = ?, cloud_record = NULL,
+              cloud_dirty = 0, cloud_synced_generation = dirty_generation
+          WHERE id = ?
+          """,
+        arguments: [try JSONEncoder.enchiridion.encode(definition), id.rawValue]
+      )
+      try GraphProjectionStore.refreshIssues(in: db)
+      return false
+    }
+  }
+
+  public func clearRelationDefinitionCloudRecordMetadata(id: RelationID) throws {
+    try database.write { db in
+      try db.execute(
+        sql: """
+          UPDATE _graph_relation_definitions
+          SET cloud_record = NULL, cloud_dirty = 1
+          WHERE id = ? AND is_system = 0
+          """,
+        arguments: [id.rawValue]
+      )
+    }
+  }
+
   /// Resolves a merge-created max-one conflict without inventing last-writer-wins semantics.
   public func resolveCardinalityConflict(
     relationID: RelationID,
@@ -262,6 +409,84 @@ extension LibraryRepository {
   private static func decodeRelation(_ row: Row) -> RelationDefinition? {
     guard let data: Data = row["definition_json"] else { return nil }
     return try? JSONDecoder.enchiridion.decode(RelationDefinition.self, from: data)
+  }
+
+  private static func decodeRelationCloudRecord(_ row: Row) -> RelationDefinitionCloudRecord? {
+    guard let definition = decodeRelation(row),
+      let modifiedAt: Double = row["modified_at"],
+      let dirtyGeneration: Int64 = row["dirty_generation"]
+    else { return nil }
+    return .init(
+      definition: definition,
+      modifiedAt: Date(timeIntervalSince1970: modifiedAt),
+      dirtyGeneration: dirtyGeneration,
+      cloudRecord: row["cloud_record"]
+    )
+  }
+
+  private static func writeCloudRelationDefinition(
+    _ definition: RelationDefinition,
+    modifiedAt: Date,
+    dirtyGeneration: Int64,
+    systemFields: Data,
+    in db: Database
+  ) throws {
+    try db.execute(
+      sql: """
+        INSERT INTO _graph_relation_definitions
+          (id,forward_name,inverse_name,targets_per_source,sources_per_target,
+           is_system,is_deleted,definition_json,modified_at,dirty_generation,
+           cloud_dirty,cloud_synced_generation,cloud_record)
+        VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          forward_name=excluded.forward_name,
+          inverse_name=excluded.inverse_name,
+          targets_per_source=excluded.targets_per_source,
+          sources_per_target=excluded.sources_per_target,
+          is_system=0,
+          is_deleted=excluded.is_deleted,
+          definition_json=excluded.definition_json,
+          modified_at=excluded.modified_at,
+          dirty_generation=excluded.dirty_generation,
+          cloud_dirty=0,
+          cloud_synced_generation=excluded.cloud_synced_generation,
+          cloud_record=excluded.cloud_record
+        """,
+      arguments: [
+        definition.id.rawValue,
+        definition.forwardName,
+        definition.inverseName,
+        definition.cardinality.targetsPerSource.rawValue,
+        definition.cardinality.sourcesPerTarget.rawValue,
+        false,
+        definition.isDeleted,
+        try JSONEncoder.enchiridion.encode(definition),
+        modifiedAt.timeIntervalSince1970,
+        dirtyGeneration,
+        dirtyGeneration,
+        systemFields,
+      ]
+    )
+    try db.execute(
+      sql: "DELETE FROM _graph_relation_source_tags WHERE relation_id = ?",
+      arguments: [definition.id.rawValue]
+    )
+    try db.execute(
+      sql: "DELETE FROM _graph_relation_target_tags WHERE relation_id = ?",
+      arguments: [definition.id.rawValue]
+    )
+    for tagID in definition.sourceTagIDs {
+      try db.execute(
+        sql: "INSERT INTO _graph_relation_source_tags (relation_id,tag_id) VALUES (?,?)",
+        arguments: [definition.id.rawValue, tagID.rawValue]
+      )
+    }
+    for tagID in definition.targetTagIDs {
+      try db.execute(
+        sql: "INSERT INTO _graph_relation_target_tags (relation_id,tag_id) VALUES (?,?)",
+        arguments: [definition.id.rawValue, tagID.rawValue]
+      )
+    }
   }
 
   private static func decodeEdge(_ row: Row) -> KnowledgeEdge? {
