@@ -158,7 +158,7 @@ struct SupertagSchemaEditor: View {
       }
       .disabled(isSaving)
       .alert("Cannot Save Supertag", isPresented: errorBinding) {
-        Button("OK", role: .cancel) {}
+        Button("Dismiss Error", role: .cancel) {}
       } message: {
         Text(errorMessage ?? "Check the inheritance and field definitions, then try again.")
       }

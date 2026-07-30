@@ -64,6 +64,32 @@ final class GraphRepositoryTests: XCTestCase {
     }
   }
 
+  func testDecodedAndCompiledGraphQueriesEnforceResourceBounds() throws {
+    var traversal = GraphTraversal()
+    traversal.minimumDepth = -100
+    traversal.maximumDepth = 10_000
+    let decodedTraversal = try JSONDecoder.enchiridion.decode(
+      GraphTraversal.self,
+      from: JSONEncoder.enchiridion.encode(traversal)
+    )
+    XCTAssertEqual(decodedTraversal.minimumDepth, 1)
+    XCTAssertEqual(decodedTraversal.maximumDepth, GraphTraversal.maximumAllowedDepth)
+
+    var definition = GraphQueryDefinition(expression: .traversal(traversal))
+    definition.limit = 100_000
+    let decodedDefinition = try JSONDecoder.enchiridion.decode(
+      GraphQueryDefinition.self,
+      from: JSONEncoder.enchiridion.encode(definition)
+    )
+    XCTAssertEqual(decodedDefinition.limit, GraphQueryDefinition.maximumAllowedLimit)
+
+    let compiled = GraphQueryCompiler.compile(definition)
+    XCTAssertTrue(compiled.sql.contains("walk.depth < 8"))
+    XCTAssertTrue(compiled.sql.contains("LIMIT 5000"))
+    XCTAssertTrue(compiled.sql.contains("SELECT node.node_id, 0"))
+    XCTAssertFalse(compiled.sql.contains("FROM graph_nodes seed"))
+  }
+
   func testMultipleInheritanceClosureIsQueryVisibleAndCyclesRollback() async throws {
     let fixture = try GraphRepositoryFixture(testCase: self)
     let company = try await fixture.repository.createTaggedPage(

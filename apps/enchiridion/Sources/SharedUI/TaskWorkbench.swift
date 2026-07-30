@@ -198,7 +198,7 @@ struct TaskWorkbenchChrome: ViewModifier {
           }
         )
       ) {
-        Button("OK") { selection.errorMessage = nil }
+        Button("Dismiss Error") { selection.errorMessage = nil }
       } message: {
         Text(selection.errorMessage ?? "The selected tasks were not changed.")
       }

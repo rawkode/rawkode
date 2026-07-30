@@ -5417,6 +5417,7 @@ public actor LibraryRepository {
     cloudDirty: Bool,
     cloudRecord: Data? = nil
   ) throws {
+    var affectedRelationIDs = try GraphProjectionStore.relationIDs(touching: page.id, in: db)
     let kindTag: String
     let dayKey: String?
     switch page.kind {
@@ -5479,7 +5480,10 @@ public actor LibraryRepository {
     )
     try replaceObjectProjection(db, pageID: page.id, metadata: page.objectMetadata)
     try GraphProjectionStore.replacePage(page, references: nil, in: db)
-    try GraphProjectionStore.refreshIssues(in: db)
+    affectedRelationIDs.formUnion(
+      try GraphProjectionStore.relationIDs(touching: page.id, in: db)
+    )
+    try GraphProjectionStore.refreshIssues(for: affectedRelationIDs, in: db)
     switch page.kind {
     case .calendarEvent(let identity):
       try mapOccurrencePage(
@@ -5540,7 +5544,7 @@ public actor LibraryRepository {
       )
     }
     try GraphProjectionStore.replaceMentions(from: pageID, references: references, in: db)
-    try GraphProjectionStore.refreshIssues(in: db)
+    try GraphProjectionStore.refreshIssues(for: [BuiltInRelations.mentions], in: db)
   }
 
   static func fetchPage(_ db: Database, id: PageID) throws -> PageSnapshot? {

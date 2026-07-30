@@ -63,7 +63,7 @@ struct GraphQueryWorkspace: View {
       Text("Saved queries belong to this vault and retain their visual or SQL definition.")
     }
     .alert("Query Error", isPresented: errorBinding) {
-      Button("OK", role: .cancel) {}
+      Button("Dismiss Error", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "The query could not be run.")
     }

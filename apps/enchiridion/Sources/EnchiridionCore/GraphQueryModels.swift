@@ -26,6 +26,8 @@ public enum GraphTraversalDirection: String, Codable, CaseIterable, Hashable, Se
 }
 
 public struct GraphTraversal: Codable, Hashable, Sendable {
+  public static let maximumAllowedDepth = 8
+
   public var relationID: RelationID?
   public var direction: GraphTraversalDirection
   public var minimumDepth: Int
@@ -41,9 +43,31 @@ public struct GraphTraversal: Codable, Hashable, Sendable {
   ) {
     self.relationID = relationID
     self.direction = direction
-    self.minimumDepth = min(max(minimumDepth, 1), 8)
-    self.maximumDepth = min(max(maximumDepth, self.minimumDepth), 8)
+    self.minimumDepth = min(max(minimumDepth, 1), Self.maximumAllowedDepth)
+    self.maximumDepth = min(
+      max(maximumDepth, self.minimumDepth),
+      Self.maximumAllowedDepth
+    )
     self.targetTagID = targetTagID
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case relationID
+    case direction
+    case minimumDepth
+    case maximumDepth
+    case targetTagID
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      relationID: try container.decodeIfPresent(RelationID.self, forKey: .relationID),
+      direction: try container.decode(GraphTraversalDirection.self, forKey: .direction),
+      minimumDepth: try container.decode(Int.self, forKey: .minimumDepth),
+      maximumDepth: try container.decode(Int.self, forKey: .maximumDepth),
+      targetTagID: try container.decodeIfPresent(TagID.self, forKey: .targetTagID)
+    )
   }
 }
 
@@ -74,6 +98,8 @@ public struct GraphSort: Codable, Hashable, Sendable {
 }
 
 public struct GraphQueryDefinition: Codable, Hashable, Sendable {
+  public static let maximumAllowedLimit = 5_000
+
   public var expression: GraphExpression?
   public var sorts: [GraphSort]
   public var includeDeleted: Bool
@@ -88,7 +114,24 @@ public struct GraphQueryDefinition: Codable, Hashable, Sendable {
     self.expression = expression
     self.sorts = sorts
     self.includeDeleted = includeDeleted
-    self.limit = min(max(limit, 1), 5_000)
+    self.limit = min(max(limit, 1), Self.maximumAllowedLimit)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case expression
+    case sorts
+    case includeDeleted
+    case limit
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      expression: try container.decodeIfPresent(GraphExpression.self, forKey: .expression),
+      sorts: try container.decode([GraphSort].self, forKey: .sorts),
+      includeDeleted: try container.decode(Bool.self, forKey: .includeDeleted),
+      limit: try container.decode(Int.self, forKey: .limit)
+    )
   }
 }
 
@@ -224,25 +267,22 @@ public enum GraphQueryCompiler {
     if let expression = definition.expression {
       predicates.append(context.expression(expression, nodeAlias: "node"))
     }
-    let withClause = context.ctes.isEmpty
-      ? ""
-      : "WITH RECURSIVE \(context.ctes.joined(separator: ",\n"))\n"
     let whereClause = predicates.isEmpty ? "" : "\nWHERE \(predicates.joined(separator: " AND "))"
     let orderClause = definition.sorts.isEmpty
       ? ""
       : "\nORDER BY " + definition.sorts.map { context.sort($0, nodeAlias: "node") }.joined(separator: ", ")
+    let limit = min(max(definition.limit, 1), GraphQueryDefinition.maximumAllowedLimit)
     let sql = """
-      \(withClause)SELECT node.node_id, node.title, node.plain_text, node.kind,
+      SELECT node.node_id, node.title, node.plain_text, node.kind,
              node.created_at, node.modified_at, node.deleted_at
       FROM graph_nodes node\(whereClause)\(orderClause)
-      LIMIT \(definition.limit)
+      LIMIT \(limit)
       """
     return .init(sql: sql, arguments: context.arguments)
   }
 
   private struct Context {
     var arguments: [String: GraphSQLValue] = [:]
-    var ctes: [String] = []
     var nextArgument = 0
     var nextTraversal = 0
 
@@ -281,6 +321,14 @@ public enum GraphQueryCompiler {
       case .traversal(let traversal):
         let cteName = "walk_\(nextTraversal)"
         nextTraversal += 1
+        let minimumDepth = min(
+          max(traversal.minimumDepth, 1),
+          GraphTraversal.maximumAllowedDepth
+        )
+        let maximumDepth = min(
+          max(traversal.maximumDepth, minimumDepth),
+          GraphTraversal.maximumAllowedDepth
+        )
         let directionPredicate: String
         switch traversal.direction {
         case .forward: directionPredicate = "edge.direction = 'forward'"
@@ -290,22 +338,24 @@ public enum GraphQueryCompiler {
         let relationPredicate = traversal.relationID.map {
           " AND edge.relation_id = \(bind(.text($0.rawValue)))"
         } ?? ""
-        ctes.append("""
-          \(cteName)(origin_id, current_id, depth) AS (
-            SELECT seed.node_id, seed.node_id, 0 FROM graph_nodes seed
-            UNION ALL
-            SELECT walk.origin_id, edge.to_node_id, walk.depth + 1
-            FROM \(cteName) walk
-            JOIN graph_edges edge ON edge.from_node_id = walk.current_id
-            WHERE walk.depth < \(traversal.maximumDepth)
-              AND \(directionPredicate)\(relationPredicate)
-          )
-          """)
-        var target = "walk.origin_id = \(nodeAlias).node_id AND walk.depth BETWEEN \(traversal.minimumDepth) AND \(traversal.maximumDepth)"
+        var target = "walk.depth BETWEEN \(minimumDepth) AND \(maximumDepth)"
         if let tagID = traversal.targetTagID {
           target += " AND EXISTS (SELECT 1 FROM graph_node_tags target_tag WHERE target_tag.node_id = walk.current_id AND target_tag.tag_id = \(bind(.text(tagID.rawValue))))"
         }
-        return "EXISTS (SELECT 1 FROM \(cteName) walk WHERE \(target))"
+        return """
+          EXISTS (
+            WITH RECURSIVE \(cteName)(current_id, depth) AS (
+              SELECT \(nodeAlias).node_id, 0
+              UNION ALL
+              SELECT edge.to_node_id, walk.depth + 1
+              FROM \(cteName) walk
+              JOIN graph_edges edge ON edge.from_node_id = walk.current_id
+              WHERE walk.depth < \(maximumDepth)
+                AND \(directionPredicate)\(relationPredicate)
+            )
+            SELECT 1 FROM \(cteName) walk WHERE \(target)
+          )
+          """
       case .and(let expressions):
         guard !expressions.isEmpty else { return "1" }
         return "(" + expressions.map { expression($0, nodeAlias: nodeAlias) }.joined(separator: " AND ") + ")"

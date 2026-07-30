@@ -30,7 +30,7 @@ struct VaultSwitcherMenu: View {
     .help("Switch vault")
     .accessibilityHint("Chooses which independent knowledge graph is open.")
     .alert("Vault Unavailable", isPresented: errorBinding) {
-      Button("OK", role: .cancel) {}
+      Button("Dismiss Error", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "The vault could not be opened.")
     }
