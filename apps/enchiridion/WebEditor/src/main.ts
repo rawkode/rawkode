@@ -28,6 +28,7 @@ import {
   type SearchableCommand,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
+import { markdownEmphasisInputRules, reversibleMarkdownKeymap } from "./markdownEmphasis"
 import "./style.css"
 
 const PROTOCOL_VERSION = 2
@@ -302,6 +303,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     interactionPlugin(),
     history(),
     inputRules({ rules: editorInputRules(binding.schema) }),
+    reversibleMarkdownKeymap,
     keymap({
       "Enter": exitCodeBlockOnEmptyLine,
       "ArrowDown": moveBelowCodeBlock,
@@ -1370,6 +1372,7 @@ function positionLinkEditor(): void {
 function editorInputRules(schema: Schema): InputRule[] {
   return [
     ...smartQuotes,
+    ...markdownEmphasisInputRules(schema),
     textblockTypeInputRule(/^#\s$/, schema.nodes.heading!, { level: 1 }),
     textblockTypeInputRule(/^##\s$/, schema.nodes.heading!, { level: 2 }),
     textblockTypeInputRule(/^###\s$/, schema.nodes.heading!, { level: 3 }),

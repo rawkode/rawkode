@@ -80,4 +80,16 @@ describe("packaged editor", () => {
     expect(html).not.toContain("window.prompt");
     expect(html).not.toContain("Link URL");
   });
+
+  test("packages reversible inline Markdown emphasis rules", () => {
+    expect(html).toContain(String.raw`pattern: /(^|[\s([{`);
+    for (const pattern of [
+      String.raw`(\*\*)([^*\s](?:[^*\n]*?[^*\s])?)\*\*$`,
+      String.raw`(__)([^_\s](?:[^_\n]*?[^_\s])?)__$`,
+      String.raw`(\*)([^*\s](?:[^*\n]*?[^*\s])?)\*$`,
+      String.raw`(_)([^_\s](?:[^_\n]*?[^_\s])?)_$`,
+      String.raw`(~~)([^~\s](?:[^~\n]*?[^~\s])?)~~$`,
+    ]) expect(html).toContain(pattern);
+    expect(html).toMatch(/Backspace:\s*[A-Za-z_$][\w$]*/);
+  });
 });
