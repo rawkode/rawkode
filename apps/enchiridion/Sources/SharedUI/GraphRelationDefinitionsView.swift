@@ -68,7 +68,7 @@ struct GraphRelationDefinitionsView: View {
       Text("The custom definition will no longer be available for new relationships.")
     }
     .alert("Relationship Type Error", isPresented: errorBinding) {
-      Button("OK", role: .cancel) {}
+      Button("Dismiss Error", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "The relationship type could not be changed.")
     }

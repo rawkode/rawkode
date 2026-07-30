@@ -80,7 +80,7 @@ struct GraphRelationshipsView: View {
       }
     }
     .alert("Relationship Error", isPresented: errorBinding) {
-      Button("OK", role: .cancel) {}
+      Button("Dismiss Error", role: .cancel) {}
     } message: {
       Text(errorMessage ?? "The relationship could not be changed.")
     }

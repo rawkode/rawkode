@@ -49,7 +49,7 @@ extension LibraryRepository {
       normalized.forwardName = forward
       normalized.inverseName = inverse
       try GraphDatabaseSchema.saveRelation(normalized, in: db, modifiedAt: now)
-      try GraphProjectionStore.refreshIssues(in: db)
+      try GraphProjectionStore.refreshIssues(for: [definition.id], in: db)
     }
   }
 
@@ -66,7 +66,7 @@ extension LibraryRepository {
       guard !existing.isSystem else { throw GraphModelError.immutableSystemDefinition }
       existing.isDeleted = true
       try GraphDatabaseSchema.saveRelation(existing, in: db, modifiedAt: now)
-      try GraphProjectionStore.refreshIssues(in: db)
+      try GraphProjectionStore.refreshIssues(for: [id], in: db)
     }
   }
 
@@ -132,7 +132,6 @@ extension LibraryRepository {
       let mutation = try PageDocument.upsertEdge(edge, in: source.document)
       let updated = Self.updatedPage(source, with: mutation, now: now)
       try Self.writePage(db, page: updated, cloudDirty: origin != .provider)
-      try GraphProjectionStore.refreshIssues(in: db)
       return edge
     }
   }
@@ -165,7 +164,6 @@ extension LibraryRepository {
       }
       let updated = Self.updatedPage(source, with: mutation, now: now)
       try Self.writePage(db, page: updated, cloudDirty: true)
-      try GraphProjectionStore.refreshIssues(in: db)
     }
   }
 
@@ -303,7 +301,7 @@ extension LibraryRepository {
         systemFields: systemFields,
         in: db
       )
-      try GraphProjectionStore.refreshIssues(in: db)
+      try GraphProjectionStore.refreshIssues(for: [id], in: db)
       return false
     }
   }
@@ -337,7 +335,7 @@ extension LibraryRepository {
           """,
         arguments: [try JSONEncoder.enchiridion.encode(definition), id.rawValue]
       )
-      try GraphProjectionStore.refreshIssues(in: db)
+      try GraphProjectionStore.refreshIssues(for: [id], in: db)
       return false
     }
   }

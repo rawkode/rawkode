@@ -441,7 +441,75 @@ enum GraphProjectionStore {
         return (definition.id, definition)
       }
     )
-    let existingNodes = Set(try String.fetchAll(db, sql: "SELECT id FROM pages WHERE deleted_at IS NULL"))
+    try insertIssues(for: edges, relations: relations, in: db)
+  }
+
+  static func refreshIssues(
+    for relationIDs: Set<RelationID>,
+    in db: Database
+  ) throws {
+    guard !relationIDs.isEmpty else { return }
+    let rawIDs = relationIDs.map(\.rawValue).sorted()
+    let placeholders = Array(repeating: "?", count: rawIDs.count).joined(separator: ",")
+    let arguments = StatementArguments(rawIDs)
+    try db.execute(
+      sql: "DELETE FROM _graph_issues WHERE relation_id IN (\(placeholders))",
+      arguments: arguments
+    )
+    let edges = try Row.fetchAll(
+      db,
+      sql: "SELECT * FROM _graph_edges WHERE relation_id IN (\(placeholders))",
+      arguments: arguments
+    ).compactMap(decodeEdge)
+    let relations = Dictionary(uniqueKeysWithValues:
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT definition_json
+          FROM _graph_relation_definitions
+          WHERE is_deleted = 0 AND id IN (\(placeholders))
+          """,
+        arguments: arguments
+      ).compactMap { row -> (RelationID, RelationDefinition)? in
+        guard let data: Data = row["definition_json"],
+          let definition = try? JSONDecoder.enchiridion.decode(RelationDefinition.self, from: data)
+        else { return nil }
+        return (definition.id, definition)
+      }
+    )
+    try insertIssues(for: edges, relations: relations, in: db)
+  }
+
+  static func relationIDs(touching nodeID: NodeID, in db: Database) throws -> Set<RelationID> {
+    Set(try String.fetchAll(
+      db,
+      sql: """
+        SELECT DISTINCT relation_id
+        FROM _graph_edges
+        WHERE source_node_id = ? OR target_node_id = ?
+        """,
+      arguments: [nodeID.rawValue, nodeID.rawValue]
+    ).map(RelationID.init(rawValue:)))
+  }
+
+  private static func insertIssues(
+    for edges: [KnowledgeEdge],
+    relations: [RelationID: RelationDefinition],
+    in db: Database
+  ) throws {
+    let nodeIDs = Set(edges.flatMap { [$0.sourceNodeID.rawValue, $0.targetNodeID.rawValue] })
+    let existingNodes: Set<String>
+    if nodeIDs.isEmpty {
+      existingNodes = []
+    } else {
+      let rawIDs = nodeIDs.sorted()
+      let placeholders = Array(repeating: "?", count: rawIDs.count).joined(separator: ",")
+      existingNodes = Set(try String.fetchAll(
+        db,
+        sql: "SELECT id FROM pages WHERE deleted_at IS NULL AND id IN (\(placeholders))",
+        arguments: StatementArguments(rawIDs)
+      ))
+    }
 
     for edge in edges where !existingNodes.contains(edge.targetNodeID.rawValue) {
       try insertIssue(
