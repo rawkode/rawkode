@@ -12,6 +12,7 @@ import { EditorState, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import {
   exitCodeBlockOnEmptyLine,
+  editorReturnCommand,
   filterCommands,
   linkEditTransaction,
   movePaletteSelection,
@@ -305,7 +306,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     inputRules({ rules: editorInputRules(binding.schema) }),
     reversibleMarkdownKeymap,
     keymap({
-      "Enter": exitCodeBlockOnEmptyLine,
+      "Enter": editorReturnCommand(binding.schema.nodes.list_item!),
       "ArrowDown": moveBelowCodeBlock,
       "Mod-z": undo,
       "Shift-Mod-z": redo,

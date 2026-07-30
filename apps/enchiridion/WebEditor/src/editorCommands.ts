@@ -1,7 +1,8 @@
 import { next as A } from "@automerge/automerge"
 import { pmNodeToSpans, type DocHandle, type SchemaAdapter } from "@automerge/prosemirror"
-import { exitCode } from "prosemirror-commands"
-import type { Attrs, Mark, MarkType, ResolvedPos } from "prosemirror-model"
+import { chainCommands, exitCode } from "prosemirror-commands"
+import type { Attrs, Mark, MarkType, NodeType, ResolvedPos } from "prosemirror-model"
+import { splitListItemKeepMarks } from "prosemirror-schema-list"
 import { TextSelection, type Command, type EditorState, type Transaction } from "prosemirror-state"
 
 export type SearchableCommand = {
@@ -255,6 +256,10 @@ export const exitCodeBlockOnEmptyLine: Command = (state, dispatch) => {
   const lineStart = $from.parent.textContent.lastIndexOf("\n") + 1
   if ($from.parent.textContent.slice(lineStart).length > 0) return false
   return exitCode(state, dispatch)
+}
+
+export function editorReturnCommand(listItemType: NodeType): Command {
+  return chainCommands(exitCodeBlockOnEmptyLine, splitListItemKeepMarks(listItemType))
 }
 
 export const moveBelowCodeBlock: Command = (state, dispatch) => {
