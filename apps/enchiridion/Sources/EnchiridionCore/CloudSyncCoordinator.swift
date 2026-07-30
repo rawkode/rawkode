@@ -152,9 +152,15 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       recordName.hasPrefix(viewRecordPrefix)
     case RecordType.supertag:
       recordName.hasPrefix(supertagRecordPrefix)
+    case RecordType.graphRelation:
+      recordName.hasPrefix(graphRelationRecordPrefix)
+    case RecordType.graphQuery:
+      recordName.hasPrefix(graphQueryRecordPrefix)
     case RecordType.page:
       !recordName.hasPrefix(viewRecordPrefix)
         && !recordName.hasPrefix(supertagRecordPrefix)
+        && !recordName.hasPrefix(graphRelationRecordPrefix)
+        && !recordName.hasPrefix(graphQueryRecordPrefix)
     default:
       false
     }
@@ -289,6 +295,16 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     queueRecord(recordID(for: supertagID), trigger: .localMutation)
   }
 
+  public func relationDefinitionDidChange(_ relationID: RelationID) async {
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: relationID), trigger: .localMutation)
+  }
+
+  public func graphQueryDidChange(_ queryID: GraphQueryID) async {
+    guard isAccountAuthorized else { return }
+    queueRecord(recordID(for: queryID), trigger: .localMutation)
+  }
+
   public func enqueueDirtyChanges() async {
     guard isAccountAuthorized, let engine else { return }
     do {
@@ -374,6 +390,8 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     let purges = try await repository.dirtyPurgeMarkers()
     let views = try await repository.dirtyViews()
     let supertags = try await repository.dirtySupertags()
+    let relations = try await repository.dirtyRelationDefinitions()
+    let graphQueries = try await repository.dirtyGraphQueries()
     let pageChanges = pages.map {
       CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.id))
     }
@@ -386,11 +404,18 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     let supertagChanges = supertags.map {
       CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.id))
     }
+    let relationChanges = relations.map {
+      CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.definition.id))
+    }
+    let graphQueryChanges = graphQueries.map {
+      CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.query.id))
+    }
     engine.state.add(
       pendingRecordZoneChanges: pageChanges + purgeChanges + viewChanges + supertagChanges
+        + relationChanges + graphQueryChanges
     )
     Self.logger.info(
-      "Queued local changes; pages=\(pages.count, privacy: .public), purges=\(purges.count, privacy: .public), views=\(views.count, privacy: .public), supertags=\(supertags.count, privacy: .public)"
+      "Queued local changes; pages=\(pages.count, privacy: .public), purges=\(purges.count, privacy: .public), views=\(views.count, privacy: .public), supertags=\(supertags.count, privacy: .public), relations=\(relations.count, privacy: .public), graphQueries=\(graphQueries.count, privacy: .public)"
     )
   }
 
@@ -502,6 +527,24 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
                   pendingRecordZoneChanges: [.saveRecord(deletion.recordID)]
                 )
               }
+            } else if deletion.recordID.recordName.hasPrefix(Self.graphRelationRecordPrefix) {
+              let shouldRetry = try await repository.applyCloudRelationDefinitionRecordDeletion(
+                id: relationID(for: deletion.recordID)
+              )
+              if shouldRetry {
+                syncEngine.state.add(
+                  pendingRecordZoneChanges: [.saveRecord(deletion.recordID)]
+                )
+              }
+            } else if deletion.recordID.recordName.hasPrefix(Self.graphQueryRecordPrefix) {
+              let shouldRetry = try await repository.applyCloudGraphQueryRecordDeletion(
+                id: graphQueryID(for: deletion.recordID)
+              )
+              if shouldRetry {
+                syncEngine.state.add(
+                  pendingRecordZoneChanges: [.saveRecord(deletion.recordID)]
+                )
+              }
             } else {
               let pageID = PageID(rawValue: deletion.recordID.recordName)
               let shouldRetry = try await repository.applyCloudPageRecordDeletion(pageID: pageID)
@@ -591,6 +634,20 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
               let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
               stillDirty = try await repository.markSupertagCloudSaved(
                 id: supertagID(for: record.recordID),
+                sentGeneration: generation,
+                systemFields: fields
+              )
+            } else if record.recordType == RecordType.graphRelation {
+              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+              stillDirty = try await repository.markRelationDefinitionCloudSaved(
+                id: relationID(for: record.recordID),
+                sentGeneration: generation,
+                systemFields: fields
+              )
+            } else if record.recordType == RecordType.graphQuery {
+              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+              stillDirty = try await repository.markGraphQueryCloudSaved(
+                id: graphQueryID(for: record.recordID),
                 sentGeneration: generation,
                 systemFields: fields
               )
@@ -797,6 +854,14 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       shouldRetry = try await repository.applyCloudSupertagRecordDeletion(
         id: supertagID(for: recordID)
       )
+    } else if recordID.recordName.hasPrefix(Self.graphRelationRecordPrefix) {
+      shouldRetry = try await repository.applyCloudRelationDefinitionRecordDeletion(
+        id: relationID(for: recordID)
+      )
+    } else if recordID.recordName.hasPrefix(Self.graphQueryRecordPrefix) {
+      shouldRetry = try await repository.applyCloudGraphQueryRecordDeletion(
+        id: graphQueryID(for: recordID)
+      )
     } else {
       shouldRetry = try await repository.applyCloudPageRecordDeletion(
         pageID: PageID(rawValue: recordID.recordName)
@@ -917,6 +982,40 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         record[Field.dirtyGeneration] = NSNumber(value: supertag.dirtyGeneration)
         return record
       }
+      if recordID.recordName.hasPrefix(Self.graphRelationRecordPrefix) {
+        let relationID = relationID(for: recordID)
+        guard let relation = try await repository.relationDefinitionCloudRecord(id: relationID)
+        else { return nil }
+        let record = try Self.record(
+          from: relation.cloudRecord,
+          recordType: RecordType.graphRelation,
+          recordID: recordID
+        )
+        record[Field.schemaVersion] = NSNumber(value: 1)
+        record[Field.definition] =
+          try JSONEncoder.enchiridion.encode(relation.definition) as NSData
+        record[Field.deleted] = NSNumber(value: relation.definition.isDeleted)
+        record[Field.modifiedAt] = relation.modifiedAt as NSDate
+        record[Field.dirtyGeneration] = NSNumber(value: relation.dirtyGeneration)
+        return record
+      }
+      if recordID.recordName.hasPrefix(Self.graphQueryRecordPrefix) {
+        let queryID = graphQueryID(for: recordID)
+        guard let query = try await repository.savedGraphQueryCloudRecord(id: queryID)
+        else { return nil }
+        let record = try Self.record(
+          from: query.cloudRecord,
+          recordType: RecordType.graphQuery,
+          recordID: recordID
+        )
+        record[Field.schemaVersion] = NSNumber(value: 1)
+        record[Field.definition] = try JSONEncoder.enchiridion.encode(query.query) as NSData
+        record[Field.deleted] = NSNumber(value: query.isDeleted)
+        record[Field.sortOrder] = NSNumber(value: query.sortOrder)
+        record[Field.modifiedAt] = query.modifiedAt as NSDate
+        record[Field.dirtyGeneration] = NSNumber(value: query.dirtyGeneration)
+        return record
+      }
       let pageID = PageID(rawValue: recordID.recordName)
       if let marker = try await repository.purgeMarker(pageID: pageID) {
         let record = try Self.record(from: marker.cloudRecord, recordType: RecordType.page, recordID: recordID)
@@ -1022,6 +1121,46 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       }
       return
     }
+    if record.recordType == RecordType.graphRelation {
+      guard let definitionData = record[Field.definition] as? Data else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      let definition = try JSONDecoder.enchiridion.decode(
+        RelationDefinition.self,
+        from: definitionData
+      )
+      let needsUpload = try await repository.mergeCloudRelationDefinition(
+        id: relationID(for: record.recordID),
+        definition: definition,
+        isDeleted: (record[Field.deleted] as? NSNumber)?.boolValue ?? false,
+        modifiedAt: record[Field.modifiedAt] as? Date ?? record.modificationDate ?? Date(),
+        dirtyGeneration: (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0,
+        systemFields: try Self.systemFields(for: record)
+      )
+      if needsUpload {
+        engine?.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+      }
+      return
+    }
+    if record.recordType == RecordType.graphQuery {
+      guard let definitionData = record[Field.definition] as? Data else {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      let query = try JSONDecoder.enchiridion.decode(SavedGraphQuery.self, from: definitionData)
+      let needsUpload = try await repository.mergeCloudGraphQuery(
+        id: graphQueryID(for: record.recordID),
+        query: query,
+        isDeleted: (record[Field.deleted] as? NSNumber)?.boolValue ?? false,
+        sortOrder: (record[Field.sortOrder] as? NSNumber)?.intValue ?? 999,
+        modifiedAt: record[Field.modifiedAt] as? Date ?? record.modificationDate ?? Date(),
+        dirtyGeneration: (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0,
+        systemFields: try Self.systemFields(for: record)
+      )
+      if needsUpload {
+        engine?.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+      }
+      return
+    }
     guard record.recordType == RecordType.page else { return }
     let pageID = PageID(rawValue: record.recordID.recordName)
     let systemFields = try Self.systemFields(for: record)
@@ -1073,6 +1212,17 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     CKRecord.ID(recordName: Self.supertagRecordPrefix + supertagID.rawValue, zoneID: zoneID)
   }
 
+  private func recordID(for relationID: RelationID) -> CKRecord.ID {
+    CKRecord.ID(
+      recordName: Self.graphRelationRecordPrefix + relationID.rawValue,
+      zoneID: zoneID
+    )
+  }
+
+  private func recordID(for queryID: GraphQueryID) -> CKRecord.ID {
+    CKRecord.ID(recordName: Self.graphQueryRecordPrefix + queryID.rawValue, zoneID: zoneID)
+  }
+
   private func viewID(for recordID: CKRecord.ID) -> LiveQueryID {
     .init(rawValue: String(recordID.recordName.dropFirst(Self.viewRecordPrefix.count)))
   }
@@ -1081,8 +1231,18 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     .init(rawValue: String(recordID.recordName.dropFirst(Self.supertagRecordPrefix.count)))
   }
 
+  private func relationID(for recordID: CKRecord.ID) -> RelationID {
+    .init(rawValue: String(recordID.recordName.dropFirst(Self.graphRelationRecordPrefix.count)))
+  }
+
+  private func graphQueryID(for recordID: CKRecord.ID) -> GraphQueryID {
+    .init(rawValue: String(recordID.recordName.dropFirst(Self.graphQueryRecordPrefix.count)))
+  }
+
   private static let viewRecordPrefix = "saved-view:"
   private static let supertagRecordPrefix = "supertag:"
+  private static let graphRelationRecordPrefix = "graph-relation:"
+  private static let graphQueryRecordPrefix = "graph-query:"
 
   private func cleanupAsset(for record: CKRecord) {
     let recordID = record.recordID
@@ -1107,6 +1267,16 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     }
     if record.recordType == RecordType.supertag {
       try await repository.clearSupertagCloudRecordMetadata(id: supertagID(for: record.recordID))
+      return
+    }
+    if record.recordType == RecordType.graphRelation {
+      try await repository.clearRelationDefinitionCloudRecordMetadata(
+        id: relationID(for: record.recordID)
+      )
+      return
+    }
+    if record.recordType == RecordType.graphQuery {
+      try await repository.clearGraphQueryCloudRecordMetadata(id: graphQueryID(for: record.recordID))
       return
     }
     guard record.recordType == RecordType.page else { return }
@@ -1141,11 +1311,15 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       let dirtyPurges = try await repository.dirtyPurgeMarkers()
       let dirtyViews = try await repository.dirtyViews()
       let dirtySupertags = try await repository.dirtySupertags()
+      let dirtyRelations = try await repository.dirtyRelationDefinitions()
+      let dirtyGraphQueries = try await repository.dirtyGraphQueries()
       let hasRepositoryChanges =
         !dirtyPages.isEmpty
         || !dirtyPurges.isEmpty
         || !dirtyViews.isEmpty
         || !dirtySupertags.isEmpty
+        || !dirtyRelations.isEmpty
+        || !dirtyGraphQueries.isEmpty
       if hasRepositoryChanges {
         statusHandler(
           .attentionRequired(
@@ -1283,4 +1457,6 @@ private enum RecordType {
   static let page = "Page"
   static let savedView = "SavedView"
   static let supertag = "Supertag"
+  static let graphRelation = "GraphRelation"
+  static let graphQuery = "GraphQuery"
 }

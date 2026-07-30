@@ -139,10 +139,34 @@ final class CloudSyncPolicyTests: XCTestCase {
         recordName: "saved-view:view-1"
       )
     )
+    XCTAssertTrue(
+      CloudSyncCoordinator.isValidRecordIdentity(
+        recordType: "GraphRelation",
+        recordName: "graph-relation:reports-to"
+      )
+    )
+    XCTAssertTrue(
+      CloudSyncCoordinator.isValidRecordIdentity(
+        recordType: "GraphQuery",
+        recordName: "graph-query:leadership"
+      )
+    )
     XCTAssertFalse(
       CloudSyncCoordinator.isValidRecordIdentity(
         recordType: "Page",
         recordName: "saved-view:view-1"
+      )
+    )
+    XCTAssertFalse(
+      CloudSyncCoordinator.isValidRecordIdentity(
+        recordType: "Page",
+        recordName: "graph-relation:reports-to"
+      )
+    )
+    XCTAssertFalse(
+      CloudSyncCoordinator.isValidRecordIdentity(
+        recordType: "GraphQuery",
+        recordName: "graph-relation:leadership"
       )
     )
     XCTAssertFalse(

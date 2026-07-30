@@ -14,6 +14,7 @@ extension LibraryStore {
     }
     try await repository.saveRelationDefinition(definition)
     await reload(policy: .refreshOnly)
+    await synchronizeRelationDefinition(definition.id)
   }
 
   public func deleteGraphRelationDefinition(_ id: RelationID) async throws {
@@ -22,6 +23,7 @@ extension LibraryStore {
     }
     try await repository.deleteRelationDefinition(id)
     await reload(policy: .refreshOnly)
+    await synchronizeRelationDefinition(id)
   }
 
   public func graphOutgoingEdges(from nodeID: NodeID) async throws -> [KnowledgeEdge] {
@@ -118,6 +120,7 @@ extension LibraryStore {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
     }
     try await repository.saveGraphQuery(query)
+    await synchronizeGraphQuery(query.id)
   }
 
   public func deleteGraphQuery(_ id: GraphQueryID) async throws {
@@ -125,5 +128,6 @@ extension LibraryStore {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
     }
     try await repository.deleteGraphQuery(id)
+    await synchronizeGraphQuery(id)
   }
 }

@@ -1079,6 +1079,14 @@ public final class LibraryStore {
     await syncCoordinator?.supertagDidChange(definition.id)
   }
 
+  func synchronizeRelationDefinition(_ id: RelationID) async {
+    await syncCoordinator?.relationDefinitionDidChange(id)
+  }
+
+  func synchronizeGraphQuery(_ id: GraphQueryID) async {
+    await syncCoordinator?.graphQueryDidChange(id)
+  }
+
   public func saveView(_ definition: LiveQueryDefinition) {
     Task {
       do {
