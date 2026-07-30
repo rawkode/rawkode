@@ -52,4 +52,14 @@ describe("packaged editor", () => {
     expect(html).toContain("Indentation");
     expect(html).toContain("Find a page or date");
   });
+
+  test("packages an accessible keyboard-first slash command palette", () => {
+    expect(html).toMatch(/setAttribute\("role",\s*"listbox"\)/);
+    expect(html).toContain("Slash commands");
+    expect(html).toMatch(/setAttribute\("role",\s*"option"\)/);
+    expect(html).toContain("aria-activedescendant");
+    expect(html).toContain("ArrowDown");
+    expect(html).toContain("No matching commands");
+    expect(html).toContain("horizontal rule");
+  });
 });

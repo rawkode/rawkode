@@ -12,9 +12,14 @@ import { EditorState, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import {
   exitCodeBlockOnEmptyLine,
+  filterCommands,
+  movePaletteSelection,
   moveBelowCodeBlock,
+  placePalette,
   persistSelectedMark,
   showsEditorCommandBar,
+  slashCommandQuery,
+  type SearchableCommand,
 } from "./editorCommands"
 import { createSerializedPageLoader, navigateAfterFlush } from "./editorLifecycle"
 import "./style.css"
@@ -58,8 +63,16 @@ type PageReferenceTarget =
   | { kind: "selection"; from: number; to: number; query: string }
 type CommitReply = { ok: boolean; journalID?: string; message?: string }
 type MetadataReply = { ok: boolean; title?: string; summary?: string; imageURL?: string }
-type PaletteItem = { label: string; detail?: string; action: () => void }
+type PaletteItem = SearchableCommand & { action: () => void }
 type PaletteGroup = { label: string; items: PaletteItem[] }
+type SlashPaletteState = {
+  editorView: EditorView
+  triggerFrom: number | undefined
+  groups: PaletteGroup[]
+  visibleItems: PaletteItem[]
+  activeIndex: number
+  query?: string
+}
 
 declare global {
   interface Window {
@@ -96,6 +109,7 @@ let loading = false
 let commitTimer: number | undefined
 let recoveredJournalIDs: string[] = []
 let reportedEditorFocus = false
+let slashPaletteState: SlashPaletteState | undefined
 
 const schemaAdapter = new SchemaAdapter({
   nodes: {
@@ -242,6 +256,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   setStatus("Opening…")
   pageID = request.pageID
   loadGeneration = request.loadGeneration
+  closeSlashPalette()
   view?.destroy()
   view = undefined
   handle = undefined
@@ -263,6 +278,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
   const binding = init(handle, ["body"], { schemaAdapter })
   const plugins = [
     binding.plugin,
+    interactionPlugin(),
     history(),
     inputRules({ rules: editorInputRules(binding.schema) }),
     keymap({
@@ -280,7 +296,6 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       "Shift-Tab": liftListItem(binding.schema.nodes.list_item!),
     }),
     keymap(baseKeymap),
-    interactionPlugin(),
   ]
 
   view = new EditorView(editorElement, {
@@ -289,6 +304,7 @@ async function loadDocument(request: LoadRequest): Promise<void> {
       if (!view) return
       view.updateState(view.state.apply(transaction))
       updateMobileCommandBar()
+      updateSlashPaletteFromEditor()
     },
   })
   view.dom.addEventListener("focusin", updateEditorFocus)
@@ -379,7 +395,11 @@ titleInput.addEventListener("keydown", event => {
 titleInput.addEventListener("focusin", updateEditorFocus)
 titleInput.addEventListener("focusout", () => window.setTimeout(updateEditorFocus, 0))
 
-window.addEventListener("resize", resizeTitle)
+window.addEventListener("resize", () => {
+  resizeTitle()
+  positionSlashPalette()
+})
+window.addEventListener("scroll", positionSlashPalette, true)
 
 for (const commandButton of mobileCommandBar.querySelectorAll<HTMLButtonElement>("button[data-command]")) {
   commandButton.addEventListener("pointerdown", event => event.preventDefault())
@@ -390,7 +410,7 @@ function runMobileCommand(command: string): void {
   if (!view) return
   switch (command) {
   case "blocks":
-    showSlashMenu(view, false)
+    showSlashMenu(view)
     break
   case "reference":
     if (view.state.selection.empty) {
@@ -570,8 +590,9 @@ function interactionPlugin(): Plugin {
     props: {
       handleTextInput(editorView, from, _to, text) {
         if (text === "/" && editorView.state.doc.resolve(from).parent.textContent.length === 0) {
-          window.setTimeout(() => showSlashMenu(editorView, true), 0)
+          window.setTimeout(() => showSlashMenu(editorView, from), 0)
         }
+        if (slashPaletteState) return false
         if (text === "[" && editorView.state.doc.textBetween(Math.max(0, from - 1), from) === "[") {
           window.setTimeout(() => void showPageMenu(editorView, {
             kind: "insert",
@@ -586,6 +607,32 @@ function interactionPlugin(): Plugin {
             position: from + 1,
             trigger: "@",
           }), 0)
+        }
+        return false
+      },
+      handleKeyDown(_editorView, event) {
+        const palette = slashPaletteState
+        if (!palette) return false
+        if (event.key === "Escape") {
+          event.preventDefault()
+          closeSlashPalette()
+          return true
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault()
+          const direction = event.key === "ArrowDown" ? 1 : -1
+          setActiveSlashOption(movePaletteSelection(
+            palette.activeIndex,
+            palette.visibleItems.length,
+            direction,
+          ), true)
+          return true
+        }
+        if (event.key === "Enter") {
+          event.preventDefault()
+          const item = palette.visibleItems[palette.activeIndex]
+          if (item) executeSlashCommand(item)
+          return true
         }
         return false
       },
@@ -611,23 +658,17 @@ function interactionPlugin(): Plugin {
   })
 }
 
-function showSlashMenu(editorView: EditorView, removesSlashTrigger: boolean): void {
-  const removeTriggerIfNeeded = () => {
-    if (removesSlashTrigger) removeSlashTrigger(editorView)
-  }
+function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
   const run = (command: ReturnType<typeof setBlockType>): (() => void) => () => {
-    removeTriggerIfNeeded()
     command(editorView.state, editorView.dispatch, editorView)
     editorView.focus()
   }
   const insertDivider = () => {
-    removeTriggerIfNeeded()
     const divider = editorView.state.schema.nodes.horizontal_rule!.create()
     editorView.dispatch(editorView.state.tr.replaceSelectionWith(divider).scrollIntoView())
     editorView.focus()
   }
   const mention = () => {
-    removeTriggerIfNeeded()
     if (editorView.state.selection.empty) {
       void showPageMenu(editorView, { kind: "insert", position: editorView.state.selection.from })
     } else {
@@ -637,7 +678,6 @@ function showSlashMenu(editorView: EditorView, removesSlashTrigger: boolean): vo
     }
   }
   const applyMark = (mark: MarkType) => () => {
-    removeTriggerIfNeeded()
     toggleMark(mark)(editorView.state, editorView.dispatch, editorView)
     editorView.focus()
   }
@@ -645,41 +685,41 @@ function showSlashMenu(editorView: EditorView, removesSlashTrigger: boolean): vo
     {
       label: "Text Style",
       items: [
-        { label: "Bold", detail: "Strong emphasis", action: applyMark(editorView.state.schema.marks.strong!) },
-        { label: "Italic", detail: "Emphasis", action: applyMark(editorView.state.schema.marks.em!) },
-        { label: "Strikethrough", detail: "Mark as no longer relevant", action: applyMark(editorView.state.schema.marks.strike!) },
-        { label: "Inline code", detail: "Technical text", action: applyMark(editorView.state.schema.marks.code!) },
+        { label: "Bold", detail: "Strong emphasis", keywords: ["weight"], action: applyMark(editorView.state.schema.marks.strong!) },
+        { label: "Italic", detail: "Emphasis", keywords: ["slant"], action: applyMark(editorView.state.schema.marks.em!) },
+        { label: "Strikethrough", detail: "Mark as no longer relevant", keywords: ["strike", "deleted"], action: applyMark(editorView.state.schema.marks.strike!) },
+        { label: "Inline code", detail: "Technical text", keywords: ["monospace"], action: applyMark(editorView.state.schema.marks.code!) },
       ],
     },
     {
       label: "Block Style",
       items: [
-        { label: "Text", detail: "Plain paragraph", action: run(setBlockType(editorView.state.schema.nodes.paragraph!)) },
-        { label: "Heading 1", detail: "Page section", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 1 })) },
-        { label: "Heading 2", detail: "Subsection", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 2 })) },
-        { label: "Heading 3", detail: "Small heading", action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 3 })) },
-        { label: "Quote", detail: "Quoted passage", action: run(wrapIn(editorView.state.schema.nodes.blockquote!)) },
-        { label: "Code", detail: "Code block", action: run(setBlockType(editorView.state.schema.nodes.code_block!)) },
+        { label: "Text", detail: "Plain paragraph", keywords: ["body"], action: run(setBlockType(editorView.state.schema.nodes.paragraph!)) },
+        { label: "Heading 1", detail: "Page section", keywords: ["h1", "title"], action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 1 })) },
+        { label: "Heading 2", detail: "Subsection", keywords: ["h2"], action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 2 })) },
+        { label: "Heading 3", detail: "Small heading", keywords: ["h3"], action: run(setBlockType(editorView.state.schema.nodes.heading!, { level: 3 })) },
+        { label: "Quote", detail: "Quoted passage", keywords: ["blockquote"], action: run(wrapIn(editorView.state.schema.nodes.blockquote!)) },
+        { label: "Code", detail: "Code block", keywords: ["preformatted"], action: run(setBlockType(editorView.state.schema.nodes.code_block!)) },
       ],
     },
     {
       label: "List",
       items: [
-        { label: "Bulleted list", detail: "Unordered items", action: run(wrapInList(editorView.state.schema.nodes.bullet_list!)) },
-        { label: "Numbered list", detail: "Ordered items", action: run(wrapInList(editorView.state.schema.nodes.ordered_list!)) },
+        { label: "Bulleted list", detail: "Unordered items", keywords: ["bullet"], action: run(wrapInList(editorView.state.schema.nodes.bullet_list!)) },
+        { label: "Numbered list", detail: "Ordered items", keywords: ["number"], action: run(wrapInList(editorView.state.schema.nodes.ordered_list!)) },
       ],
     },
     {
       label: "Indentation",
       items: [
-        { label: "Indent", detail: "Move list item inward", action: run(sinkListItem(editorView.state.schema.nodes.list_item!)) },
-        { label: "Outdent", detail: "Move list item outward", action: run(liftListItem(editorView.state.schema.nodes.list_item!)) },
+        { label: "Indent", detail: "Move list item inward", keywords: ["nest"], action: run(sinkListItem(editorView.state.schema.nodes.list_item!)) },
+        { label: "Outdent", detail: "Move list item outward", keywords: ["unnest"], action: run(liftListItem(editorView.state.schema.nodes.list_item!)) },
       ],
     },
     {
       label: "Insert",
       items: [
-        { label: "Page or date", detail: "Create a native reference", action: mention },
+        { label: "Page or date", detail: "Create a native reference", keywords: ["mention", "link", "@"], action: mention },
         ...(!editorView.state.selection.empty ? [{
           label: "Supertag",
           detail: "Find or create a typed page",
@@ -693,17 +733,24 @@ function showSlashMenu(editorView: EditorView, removesSlashTrigger: boolean): vo
           detail: "Add a web link to the selection",
           action: () => { openLinkEditor(editorView.state, editorView.dispatch, editorView) },
         }] : []),
-        { label: "Divider", detail: "Separate sections", action: insertDivider },
+        { label: "Divider", detail: "Separate sections", keywords: ["horizontal rule", "separator"], action: insertDivider },
       ],
     },
   ]
-  renderGroupedPalette(slashMenu, groups)
-}
-
-function removeSlashTrigger(editorView: EditorView): void {
-  const { from } = editorView.state.selection
-  const before = editorView.state.doc.textBetween(Math.max(0, from - 1), from)
-  if (before === "/") editorView.dispatch(editorView.state.tr.delete(from - 1, from))
+  slashPaletteState = {
+    editorView,
+    triggerFrom,
+    groups,
+    visibleItems: [],
+    activeIndex: -1,
+  }
+  slashMenu.classList.add("slash-command-palette")
+  slashMenu.setAttribute("role", "listbox")
+  slashMenu.setAttribute("aria-label", "Slash commands")
+  editorView.dom.setAttribute("aria-controls", slashMenu.id)
+  editorView.dom.setAttribute("aria-expanded", "true")
+  editorView.dom.setAttribute("aria-haspopup", "listbox")
+  updateSlashPaletteFromEditor(true)
 }
 
 async function showPageMenu(editorView: EditorView, target: PageReferenceTarget): Promise<void> {
@@ -955,19 +1002,157 @@ function editorInputRules(schema: Schema): InputRule[] {
   ]
 }
 
-function renderGroupedPalette(container: HTMLElement, groups: PaletteGroup[]): void {
-  container.replaceChildren(...groups.map(group => {
+function updateSlashPaletteFromEditor(force = false): void {
+  const palette = slashPaletteState
+  if (!palette) return
+  let query = ""
+  if (palette.triggerFrom !== undefined) {
+    const { from, empty, $from } = palette.editorView.state.selection
+    const $trigger = palette.editorView.state.doc.resolve(palette.triggerFrom)
+    if (!empty || from < palette.triggerFrom || !$trigger.sameParent($from)) {
+      closeSlashPalette()
+      return
+    }
+    const triggerAndQuery = palette.editorView.state.doc.textBetween(palette.triggerFrom, from)
+    const parsedQuery = slashCommandQuery(triggerAndQuery)
+    if (parsedQuery === undefined) {
+      closeSlashPalette()
+      return
+    }
+    query = parsedQuery
+  }
+  if (!force && query === palette.query) {
+    positionSlashPalette()
+    return
+  }
+  palette.query = query
+  const groups = palette.groups
+    .map(group => ({ ...group, items: filterCommands(group.items, query) }))
+    .filter(group => group.items.length > 0)
+  palette.visibleItems = groups.flatMap(group => group.items)
+  palette.activeIndex = palette.visibleItems.length > 0 ? 0 : -1
+  renderSlashPalette(groups)
+  positionSlashPalette()
+}
+
+function renderSlashPalette(groups: PaletteGroup[]): void {
+  const palette = slashPaletteState
+  if (!palette) return
+  const options: HTMLButtonElement[] = []
+  const sections = groups.map((group, groupIndex) => {
     const section = document.createElement("section")
     section.className = "palette-group"
+    section.setAttribute("role", "group")
     const heading = document.createElement("div")
     heading.className = "palette-group-label"
+    heading.id = `slash-command-group-${groupIndex}`
     heading.textContent = group.label
+    section.setAttribute("aria-labelledby", heading.id)
     const items = document.createElement("div")
-    items.replaceChildren(...group.items.map(item => button(item.label, item.action, item.detail)))
+    items.replaceChildren(...group.items.map(item => {
+      const optionIndex = options.length
+      const option = button(item.label, () => executeSlashCommand(item), item.detail)
+      option.id = `slash-command-option-${optionIndex}`
+      option.setAttribute("role", "option")
+      option.setAttribute("aria-selected", "false")
+      option.addEventListener("pointerdown", event => event.preventDefault())
+      option.addEventListener("pointerenter", () => setActiveSlashOption(optionIndex))
+      options.push(option)
+      return option
+    }))
     section.append(heading, items)
     return section
-  }))
-  container.hidden = false
+  })
+  if (sections.length === 0) {
+    const empty = document.createElement("div")
+    empty.className = "palette-empty"
+    empty.setAttribute("role", "status")
+    empty.textContent = "No matching commands"
+    slashMenu.replaceChildren(empty)
+  } else {
+    slashMenu.replaceChildren(...sections)
+  }
+  slashMenu.hidden = false
+  setActiveSlashOption(palette.activeIndex)
+}
+
+function setActiveSlashOption(index: number, scroll = false): void {
+  const palette = slashPaletteState
+  if (!palette) return
+  palette.activeIndex = index
+  const options = slashMenu.querySelectorAll<HTMLElement>("[role=option]")
+  let active: HTMLElement | undefined
+  options.forEach((option, optionIndex) => {
+    const selected = optionIndex === index
+    option.classList.toggle("is-selected", selected)
+    option.setAttribute("aria-selected", String(selected))
+    if (selected) active = option
+  })
+  if (active) {
+    slashMenu.setAttribute("aria-activedescendant", active.id)
+    palette.editorView.dom.setAttribute("aria-activedescendant", active.id)
+    if (scroll) active.scrollIntoView({ block: "nearest" })
+  } else {
+    slashMenu.removeAttribute("aria-activedescendant")
+    palette.editorView.dom.removeAttribute("aria-activedescendant")
+  }
+}
+
+function executeSlashCommand(item: PaletteItem): void {
+  const palette = slashPaletteState
+  if (!palette) return
+  const { editorView, triggerFrom } = palette
+  closeSlashPalette()
+  if (triggerFrom !== undefined) {
+    const { from, empty, $from } = editorView.state.selection
+    const $trigger = editorView.state.doc.resolve(triggerFrom)
+    if (empty && from >= triggerFrom && $trigger.sameParent($from)) {
+      const triggerAndQuery = editorView.state.doc.textBetween(triggerFrom, from)
+      if (slashCommandQuery(triggerAndQuery) !== undefined) {
+        editorView.dispatch(editorView.state.tr.delete(triggerFrom, from))
+      }
+    }
+  }
+  item.action()
+}
+
+function closeSlashPalette(): void {
+  const palette = slashPaletteState
+  if (palette) {
+    palette.editorView.dom.setAttribute("aria-expanded", "false")
+    palette.editorView.dom.removeAttribute("aria-activedescendant")
+    palette.editorView.dom.removeAttribute("aria-controls")
+    palette.editorView.dom.removeAttribute("aria-haspopup")
+  }
+  slashPaletteState = undefined
+  slashMenu.hidden = true
+  slashMenu.classList.remove("slash-command-palette")
+  slashMenu.removeAttribute("role")
+  slashMenu.removeAttribute("aria-label")
+  slashMenu.replaceChildren()
+  slashMenu.removeAttribute("aria-activedescendant")
+  slashMenu.style.removeProperty("left")
+  slashMenu.style.removeProperty("top")
+}
+
+function positionSlashPalette(): void {
+  const palette = slashPaletteState
+  if (!palette || slashMenu.hidden) return
+  const selectionPosition = palette.editorView.state.selection.from
+  const caret = palette.editorView.coordsAtPos(selectionPosition)
+  const visualViewport = window.visualViewport
+  const viewport = {
+    left: visualViewport?.offsetLeft ?? 0,
+    top: visualViewport?.offsetTop ?? 0,
+    width: visualViewport?.width ?? window.innerWidth,
+    height: visualViewport?.height ?? window.innerHeight,
+  }
+  const position = placePalette(caret, {
+    width: slashMenu.offsetWidth,
+    height: slashMenu.offsetHeight,
+  }, viewport)
+  slashMenu.style.left = `${position.left}px`
+  slashMenu.style.top = `${position.top}px`
 }
 
 function mappedTextBlock(block: string, tag: string): MappedNodeSpec {

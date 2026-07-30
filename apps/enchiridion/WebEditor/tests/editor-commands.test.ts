@@ -5,10 +5,14 @@ import { Schema } from "prosemirror-model"
 import { EditorState, TextSelection } from "prosemirror-state"
 import {
   exitCodeBlockOnEmptyLine,
+  filterCommands,
   markSelectedText,
+  movePaletteSelection,
   moveBelowCodeBlock,
+  placePalette,
   persistSelectedMark,
   showsEditorCommandBar,
+  slashCommandQuery,
 } from "../src/editorCommands"
 
 const referenceMarkName = "__ext__dev.rawkode.enchiridion.page-reference"
@@ -34,6 +38,53 @@ describe("unified editor chrome", () => {
 
   test("stays hidden while the editor is not focused", () => {
     expect(showsEditorCommandBar(false)).toBeFalse()
+  })
+})
+
+describe("slash command palette", () => {
+  const commands = [
+    { label: "Heading 1", detail: "Page section", keywords: ["h1", "title"] },
+    { label: "Bulleted list", detail: "Unordered items", keywords: ["bullet"] },
+    { label: "Divider", detail: "Separate sections", keywords: ["horizontal rule"] },
+  ]
+
+  test("filters across labels, details, and keywords", () => {
+    expect(filterCommands(commands, "heading").map(command => command.label)).toEqual(["Heading 1"])
+    expect(filterCommands(commands, "unordered").map(command => command.label)).toEqual(["Bulleted list"])
+    expect(filterCommands(commands, "HORIZONTAL rule").map(command => command.label)).toEqual(["Divider"])
+  })
+
+  test("keeps all commands for an empty query", () => {
+    expect(filterCommands(commands, "  ")).toEqual(commands)
+  })
+
+  test("moves the active option with wraparound", () => {
+    expect(movePaletteSelection(0, 3, -1)).toBe(2)
+    expect(movePaletteSelection(2, 3, 1)).toBe(0)
+    expect(movePaletteSelection(-1, 3, 1)).toBe(0)
+    expect(movePaletteSelection(-1, 3, -1)).toBe(2)
+    expect(movePaletteSelection(0, 0, 1)).toBe(-1)
+  })
+
+  test("reads only text following the slash trigger", () => {
+    expect(slashCommandQuery("/heading")).toBe("heading")
+    expect(slashCommandQuery("heading")).toBeUndefined()
+  })
+
+  test("places the palette below the caret when space is available", () => {
+    expect(placePalette(
+      { left: 100, top: 80, bottom: 100 },
+      { width: 240, height: 180 },
+      { left: 0, top: 0, width: 800, height: 600 },
+    )).toEqual({ left: 100, top: 106 })
+  })
+
+  test("places the palette above and clamps it inside a narrow viewport", () => {
+    expect(placePalette(
+      { left: 360, top: 500, bottom: 520 },
+      { width: 280, height: 240 },
+      { left: 0, top: 0, width: 390, height: 600 },
+    )).toEqual({ left: 102, top: 254 })
   })
 })
 

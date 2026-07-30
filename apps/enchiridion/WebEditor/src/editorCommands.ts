@@ -4,6 +4,61 @@ import { exitCode } from "prosemirror-commands"
 import type { Attrs, MarkType } from "prosemirror-model"
 import { TextSelection, type Command, type EditorState } from "prosemirror-state"
 
+export type SearchableCommand = {
+  label: string
+  detail?: string
+  keywords?: readonly string[]
+}
+
+export type PaletteGeometry = {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+export type CaretGeometry = Pick<PaletteGeometry, "left" | "top"> & { bottom: number }
+
+export function filterCommands<T extends SearchableCommand>(commands: readonly T[], query: string): T[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return [...commands]
+  return commands.filter(command => {
+    const searchable = [command.label, command.detail ?? "", ...(command.keywords ?? [])]
+      .join(" ")
+      .toLocaleLowerCase()
+    return terms.every(term => searchable.includes(term))
+  })
+}
+
+export function movePaletteSelection(activeIndex: number, itemCount: number, direction: -1 | 1): number {
+  if (itemCount <= 0) return -1
+  if (activeIndex < 0 || activeIndex >= itemCount) return direction === 1 ? 0 : itemCount - 1
+  return (activeIndex + direction + itemCount) % itemCount
+}
+
+export function slashCommandQuery(triggerAndQuery: string): string | undefined {
+  return triggerAndQuery.startsWith("/") ? triggerAndQuery.slice(1) : undefined
+}
+
+export function placePalette(
+  caret: CaretGeometry,
+  palette: Pick<PaletteGeometry, "width" | "height">,
+  viewport: PaletteGeometry,
+  gap = 6,
+  gutter = 8,
+): Pick<PaletteGeometry, "left" | "top"> {
+  const minimumLeft = viewport.left + gutter
+  const maximumLeft = Math.max(minimumLeft, viewport.left + viewport.width - palette.width - gutter)
+  const minimumTop = viewport.top + gutter
+  const maximumTop = Math.max(minimumTop, viewport.top + viewport.height - palette.height - gutter)
+  const below = caret.bottom + gap
+  const above = caret.top - palette.height - gap
+  return {
+    left: Math.min(Math.max(caret.left, minimumLeft), maximumLeft),
+    top: Math.min(Math.max(below + palette.height <= viewport.top + viewport.height - gutter ? below : above, minimumTop), maximumTop),
+  }
+}
+
 export function showsEditorCommandBar(editorHasFocus: boolean): boolean {
   return editorHasFocus
 }
