@@ -2,7 +2,7 @@
 
 ## Direction
 
-Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser. Every pane belongs to one moss-toned workspace; toolbar, path bar, sidebar, browser, status bar, and inspector should never read as unrelated default controls.
+Scout uses the approved **Spatial Columns** composition. A compact granted-location sidebar leads into persistent Miller columns. The stable trailing inspector is the destination of that spatial flow. A centered command palette accelerates navigation and file actions without replacing the browser. Native neutral surfaces establish the hierarchy; moss is reserved for selection, focus, and primary actions.
 
 ## Physical Scene
 
@@ -10,12 +10,12 @@ A developer moves between bright daytime work and late-night focus while keeping
 
 ## Color
 
-The browsing strategy is restrained, with tinted native neutrals carrying the brand through the entire window. Onboarding may use a committed moss surface because it is a singular activation moment.
+The browsing strategy is restrained, with system neutrals carrying the window in both appearances and moss acting as a precise accent.
 
 - Light accent: `oklch(0.42 0.11 140)`, represented by the Scout Accent asset.
 - Dark accent: `oklch(0.72 0.12 140)`, represented by the dark Scout Accent asset.
 - Accent use: current selection, keyboard focus, and primary action only.
-- Canvas: a near-neutral green-black in Dark Mode and a cool green-white in Light Mode.
+- Canvas: the native text background, avoiding a full-window color wash.
 - Chrome and side panels: one tonal step away from the canvas, separated with hairlines instead of floating cards.
 - Error, warning, success, and information states use semantic system colors and always include a symbol or label.
 

@@ -44,7 +44,7 @@ struct BrowserWindowState: Codable, Equatable, Sendable {
     grantID: nil,
     relativePathComponents: [],
     viewMode: .columns,
-    inspectorPresented: true,
+    inspectorPresented: false,
     sidebarPresented: true,
     searchScopeAllRoots: false
   )

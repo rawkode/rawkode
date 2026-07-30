@@ -12,7 +12,7 @@ final class BrowserSession: Identifiable {
   var columns: [BrowserColumn] = []
   var searchText = ""
   var searchResults: [FileItem] = []
-  var inspectorPresented = true
+  var inspectorPresented = false
   var sidebarPresented = true
   var searchScopeAllRoots = false
   var showHiddenItems = false

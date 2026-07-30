@@ -32,7 +32,6 @@ struct MillerColumnsView: NSViewRepresentable {
     prototype.lineBreakMode = .byTruncatingMiddle
     browser.cellPrototype = prototype
     browser.setAccessibilityLabel(String(localized: "File columns"))
-    browser.loadColumnZero()
     return browser
   }
 

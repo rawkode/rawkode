@@ -14,7 +14,7 @@ struct ScoutWindowHost: View {
       .frame(minWidth: 900, minHeight: 560)
       .tint(ScoutTheme.accent)
       .focusedSceneValue(\.browserSession, session)
-      .background(ScoutWindowBridge(title: session.windowTitle).frame(width: 0, height: 0))
+      .background(ScoutWindowBridge(title: session.windowTitle))
       .task {
         if let restorationData,
            let state = try? JSONDecoder().decode(BrowserWindowState.self, from: restorationData) {
@@ -203,7 +203,8 @@ private struct ScoutBrowserView: View {
 
       ToolbarItem(placement: .principal) {
         HStack(spacing: 7) {
-          ScoutBrandMark(size: 22)
+          Image(systemName: "folder.fill")
+            .foregroundStyle(.secondary)
           Text(session.windowTitle)
             .font(.callout.weight(.semibold))
             .lineLimit(1)
@@ -230,34 +231,14 @@ private struct ScoutBrowserView: View {
         }
         .help("Change View")
 
-        HStack(spacing: 6) {
-          Image(systemName: "magnifyingglass")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          TextField("Search", text: $session.searchText)
-            .textFieldStyle(.plain)
-            .frame(width: 142)
-            .focused($searchFocused)
-            .onSubmit { session.beginSearch() }
-            .onChange(of: session.searchText) { _, text in
-              if text.isEmpty { session.endSearch() }
-            }
-          if !session.searchText.isEmpty {
-            Button {
-              session.searchText = ""
-              session.endSearch()
-            } label: {
-              Image(systemName: "xmark.circle.fill")
-                .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Clear Search")
+        TextField("Search", text: $session.searchText)
+          .textFieldStyle(.roundedBorder)
+          .frame(width: 176)
+          .focused($searchFocused)
+          .onSubmit { session.beginSearch() }
+          .onChange(of: session.searchText) { _, text in
+            if text.isEmpty { session.endSearch() }
           }
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 26)
-        .background(ScoutTheme.quietFill, in: .rect(cornerRadius: 6))
-        .overlay { RoundedRectangle(cornerRadius: 6).stroke(ScoutTheme.separator) }
 
         Button { session.commandPalettePresented = true } label: {
           HStack(spacing: 5) {
@@ -337,7 +318,7 @@ private struct ScoutPathBar: View {
       .help("Go to Folder (⇧⌘G)")
     }
     .padding(.horizontal, 10)
-    .frame(height: 34)
+    .frame(height: 30)
     .background(ScoutTheme.chrome)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Current path")
@@ -432,16 +413,16 @@ private struct FirstRunView: View {
         Text("Your files,\nin reach.")
           .font(.system(size: 42, weight: .semibold, design: .rounded))
           .tracking(-1.2)
-          .foregroundStyle(.white)
+          .foregroundStyle(.primary)
         Text("A fast, spatial file manager made for the keyboard.")
           .font(.title3)
-          .foregroundStyle(.white.opacity(0.68))
+          .foregroundStyle(.secondary)
           .frame(maxWidth: 360, alignment: .leading)
           .padding(.top, 14)
       }
       .padding(42)
       .frame(minWidth: 390, maxWidth: 470, maxHeight: .infinity, alignment: .leading)
-      .background(Color(red: 0.055, green: 0.125, blue: 0.078))
+      .background(ScoutTheme.sidebar)
 
       VStack(alignment: .leading, spacing: 26) {
         VStack(alignment: .leading, spacing: 8) {
