@@ -99,4 +99,15 @@ describe("packaged editor", () => {
     expect(html).toMatch(/\.ProseMirror\s+:not\(pre\)>\s*code/);
     expect(html).toContain("SFMono-Regular");
   });
+
+  test("packages structural block movement without a fake pointer handle", () => {
+    expect(html).toContain("Move block up");
+    expect(html).toContain("Move block down");
+    expect(html).toContain("Mod-Alt-ArrowUp");
+    expect(html).toContain("Mod-Alt-ArrowDown");
+    expect(html).toContain("aria-disabled");
+    expect(html).toMatch(/button:disabled/);
+    expect(html).not.toContain("cursor:grab");
+    expect(html).not.toContain("⠿");
+  });
 });

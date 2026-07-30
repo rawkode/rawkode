@@ -15,6 +15,7 @@ import {
   editorReturnCommand,
   filterCommands,
   linkEditTransaction,
+  moveBlock,
   movePaletteSelection,
   moveBelowCodeBlock,
   placePalette,
@@ -72,7 +73,11 @@ type PageReferenceTarget =
   | { kind: "selection"; from: number; to: number; query: string; selectedText: string }
 type CommitReply = { ok: boolean; journalID?: string; message?: string }
 type MetadataReply = { ok: boolean; title?: string; summary?: string; imageURL?: string }
-type PaletteItem = SearchableCommand & { action: () => void }
+type PaletteItem = SearchableCommand & {
+  action: () => void
+  ariaLabel?: string
+  disabled?: boolean
+}
 type PaletteGroup = { label: string; items: PaletteItem[] }
 type SlashPaletteState = {
   editorView: EditorView
@@ -308,6 +313,8 @@ async function loadDocument(request: LoadRequest): Promise<void> {
     reversibleMarkdownKeymap,
     keymap({
       "Enter": editorReturnCommand(binding.schema.nodes.list_item!),
+      "Mod-Alt-ArrowUp": moveBlock(-1),
+      "Mod-Alt-ArrowDown": moveBlock(1),
       "ArrowDown": moveBelowCodeBlock,
       "Mod-z": undo,
       "Shift-Mod-z": redo,
@@ -766,6 +773,17 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
     toggleMark(mark)(editorView.state, editorView.dispatch, editorView)
     editorView.focus()
   }
+  const move = (direction: -1 | 1, label: string): PaletteItem => {
+    const command = moveBlock(direction)
+    return {
+      label,
+      detail: "Move within this level",
+      keywords: ["arrange", "reorder"],
+      ariaLabel: label,
+      disabled: !command(editorView.state),
+      action: run(command),
+    }
+  }
   const groups: PaletteGroup[] = [
     {
       label: "Text Style",
@@ -799,6 +817,13 @@ function showSlashMenu(editorView: EditorView, triggerFrom?: number): void {
       items: [
         { label: "Indent", detail: "Move list item inward", keywords: ["nest"], action: run(sinkListItem(editorView.state.schema.nodes.list_item!)) },
         { label: "Outdent", detail: "Move list item outward", keywords: ["unnest"], action: run(liftListItem(editorView.state.schema.nodes.list_item!)) },
+      ],
+    },
+    {
+      label: "Arrange",
+      items: [
+        move(-1, "Move block up"),
+        move(1, "Move block down"),
       ],
     },
     {
@@ -1436,7 +1461,7 @@ function renderSlashPalette(groups: PaletteGroup[]): void {
     const items = document.createElement("div")
     items.replaceChildren(...group.items.map(item => {
       const optionIndex = options.length
-      const option = button(item.label, () => executeSlashCommand(item), item.detail)
+      const option = button(item, () => executeSlashCommand(item))
       option.id = `slash-command-option-${optionIndex}`
       option.setAttribute("role", "option")
       option.setAttribute("aria-selected", "false")
@@ -1485,7 +1510,7 @@ function setActiveSlashOption(index: number, scroll = false): void {
 
 function executeSlashCommand(item: PaletteItem): void {
   const palette = slashPaletteState
-  if (!palette) return
+  if (!palette || item.disabled) return
   const { editorView, triggerFrom } = palette
   closeSlashPalette()
   if (triggerFrom !== undefined) {
@@ -1621,24 +1646,27 @@ function setPageMenuBusy(isBusy: boolean): void {
 }
 
 function renderPalette(container: HTMLElement, items: PaletteItem[], reveal = true): void {
-  const nodes = items.map(item => button(item.label, item.action, item.detail))
+  const nodes = items.map(item => button(item))
   container.replaceChildren(...nodes)
   if (reveal) container.hidden = false
 }
 
-function button(label: string, action: () => void, detail?: string): HTMLButtonElement {
+function button(item: PaletteItem, action = item.action): HTMLButtonElement {
   const element = document.createElement("button")
   element.type = "button"
-  if (detail) {
+  element.disabled = item.disabled ?? false
+  if (item.ariaLabel) element.setAttribute("aria-label", item.ariaLabel)
+  if (item.disabled) element.setAttribute("aria-disabled", "true")
+  if (item.detail) {
     const title = document.createElement("span")
     title.className = "palette-title"
-    title.textContent = label
+    title.textContent = item.label
     const subtitle = document.createElement("span")
     subtitle.className = "palette-subtitle"
-    subtitle.textContent = detail
+    subtitle.textContent = item.detail
     element.replaceChildren(title, subtitle)
   } else {
-    element.textContent = label
+    element.textContent = item.label
   }
   element.addEventListener("click", () => {
     slashMenu.hidden = true
