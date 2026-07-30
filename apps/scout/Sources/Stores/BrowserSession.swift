@@ -41,6 +41,8 @@ final class BrowserSession: Identifiable {
   private let search: any FileSearchClient
   private let presentationController = DirectoryPresentationController()
   private let logger = Logger(subsystem: "dev.rawkode.scout", category: "BrowserSession")
+  private var hasStarted = false
+  private var openingGrantID: AccessGrant.ID?
 
   init(
     grantStore: AccessGrantStore,
@@ -89,14 +91,22 @@ final class BrowserSession: Identifiable {
   }
 
   func start() async {
+    guard !hasStarted else { return }
+    hasStarted = true
     if activeGrant == nil, let first = grantStore.orderedGrants.first {
       await open(first)
     }
   }
 
   func open(_ grant: AccessGrant, relativePathComponents: [String] = []) async {
+    guard openingGrantID != grant.id else { return }
+    openingGrantID = grant.id
     isLoading = true
     errorMessage = nil
+    defer {
+      openingGrantID = nil
+      isLoading = false
+    }
     presentationController.stop()
     search.stopSearch()
 
@@ -125,11 +135,10 @@ final class BrowserSession: Identifiable {
       errorMessage = error.localizedDescription
       logger.error("Unable to open grant: \(error.localizedDescription, privacy: .public)")
     }
-    isLoading = false
   }
 
   func refresh() async {
-    guard let rootURL else { return }
+    guard !isLoading, let rootURL else { return }
     let directories = columns.map(\.directoryURL)
     for (index, directory) in directories.enumerated() {
       do {
@@ -376,6 +385,8 @@ final class BrowserSession: Identifiable {
   }
 
   func restore(_ state: BrowserWindowState) async {
+    guard !hasStarted else { return }
+    hasStarted = true
     viewMode = state.viewMode
     inspectorPresented = state.inspectorPresented
     sidebarPresented = state.sidebarPresented
@@ -383,7 +394,7 @@ final class BrowserSession: Identifiable {
     if let id = state.grantID, let grant = grantStore.grants.first(where: { $0.id == id }) {
       await open(grant, relativePathComponents: state.relativePathComponents)
     } else {
-      await start()
+      if let first = grantStore.orderedGrants.first { await open(first) }
     }
   }
 

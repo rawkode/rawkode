@@ -4,10 +4,14 @@ import Foundation
 final class DirectoryPresentationController {
   private var presenter: VisibleDirectoryPresenter?
   private var refreshTask: Task<Void, Never>?
+  private var observedURL: URL?
 
   func observe(_ url: URL, onChange: @escaping @MainActor () -> Void) {
+    let standardizedURL = url.standardizedFileURL
+    guard observedURL != standardizedURL else { return }
     stop()
-    let presenter = VisibleDirectoryPresenter(url: url) { [weak self] in
+    observedURL = standardizedURL
+    let presenter = VisibleDirectoryPresenter(url: standardizedURL) { [weak self] in
       self?.refreshTask?.cancel()
       self?.refreshTask = Task { @MainActor in
         try? await Task.sleep(for: .milliseconds(180))
@@ -24,6 +28,7 @@ final class DirectoryPresentationController {
     refreshTask = nil
     if let presenter { NSFileCoordinator.removeFilePresenter(presenter) }
     presenter = nil
+    observedURL = nil
   }
 
   deinit {

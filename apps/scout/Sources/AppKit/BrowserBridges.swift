@@ -9,6 +9,8 @@ struct MillerColumnsView: NSViewRepresentable {
   func makeNSView(context: Context) -> NSBrowser {
     let browser = NSBrowser()
     browser.delegate = context.coordinator
+    browser.target = context.coordinator
+    browser.action = #selector(Coordinator.selectionChanged(_:))
     browser.backgroundColor = ScoutTheme.canvasNS
     browser.allowsMultipleSelection = true
     browser.allowsEmptySelection = true
@@ -30,19 +32,39 @@ struct MillerColumnsView: NSViewRepresentable {
     context.coordinator.session = session
     context.coordinator.isApplyingState = true
     defer { context.coordinator.isApplyingState = false }
-    browser.reloadColumn(0)
-    for column in 1..<session.columns.count {
-      browser.reloadColumn(column)
+
+    let previousItems = context.coordinator.renderedItems
+    let nextItems = session.columns.map(\.items)
+    if session.columns.isEmpty {
+      if browser.lastColumn >= 0 { browser.reloadColumn(0) }
+    } else {
+      for column in session.columns.indices where !previousItems.indices.contains(column) || previousItems[column] != nextItems[column] {
+        browser.reloadColumn(column)
+      }
+      if browser.lastColumn >= session.columns.count {
+        browser.lastColumn = session.columns.count - 1
+      }
     }
+
     for (index, column) in session.columns.enumerated() {
       let selectedRows = IndexSet(column.items.enumerated().compactMap { column.selectedIDs.contains($0.element.id) ? $0.offset : nil })
-      browser.selectRowIndexes(selectedRows, inColumn: index)
+      if browser.selectedRowIndexes(inColumn: index) != selectedRows {
+        browser.selectRowIndexes(selectedRows, inColumn: index)
+      }
+    }
+    context.coordinator.renderedItems = nextItems
+
+    if !nextItems.isEmpty, !context.coordinator.didRequestInitialFocus {
+      context.coordinator.didRequestInitialFocus = true
+      DispatchQueue.main.async { browser.window?.makeFirstResponder(browser) }
     }
   }
 
   final class Coordinator: NSObject, NSBrowserDelegate {
     var session: BrowserSession
     var isApplyingState = false
+    var didRequestInitialFocus = false
+    var renderedItems: [[FileItem]] = []
     init(session: BrowserSession) { self.session = session }
 
     func browser(_ browser: NSBrowser, numberOfRowsInColumn column: Int) -> Int {
@@ -70,10 +92,9 @@ struct MillerColumnsView: NSViewRepresentable {
       return session.columns[column].directoryURL.lastPathComponent
     }
 
-    @MainActor
-    func browserSelectionDidChange(_ notification: Notification) {
+    @MainActor @objc
+    func selectionChanged(_ browser: NSBrowser) {
       guard !isApplyingState else { return }
-      guard let browser = notification.object as? NSBrowser else { return }
       let column = browser.selectedColumn
       guard session.columns.indices.contains(column) else { return }
       let ids = Set((browser.selectedRowIndexes(inColumn: column) ?? []).compactMap { row in
