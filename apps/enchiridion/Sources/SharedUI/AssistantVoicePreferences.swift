@@ -3,15 +3,34 @@ import EnchiridionCore
 import Foundation
 import Observation
 
-private final class AssistantVoiceNotificationObservation: @unchecked Sendable {
-  private let token: NSObjectProtocol
+@MainActor
+protocol AssistantSystemVoiceCatalog: AnyObject {
+  func installedVoices() -> [AVSpeechSynthesisVoice]
+  func observeChanges(
+    _ onChange: @escaping @MainActor @Sendable () -> Void
+  ) -> AssistantVoiceCatalogChangeObservation
+}
 
-  init(token: NSObjectProtocol) {
-    self.token = token
+@MainActor
+final class AppleAssistantSystemVoiceCatalog: AssistantSystemVoiceCatalog {
+  private let notificationCenter: NotificationCenter
+
+  init(notificationCenter: NotificationCenter = .default) {
+    self.notificationCenter = notificationCenter
   }
 
-  func cancel() {
-    NotificationCenter.default.removeObserver(token)
+  func installedVoices() -> [AVSpeechSynthesisVoice] {
+    AVSpeechSynthesisVoice.speechVoices()
+  }
+
+  func observeChanges(
+    _ onChange: @escaping @MainActor @Sendable () -> Void
+  ) -> AssistantVoiceCatalogChangeObservation {
+    AssistantVoiceCatalogChangeObservation(
+      notificationCenter: notificationCenter,
+      name: AVSpeechSynthesizer.availableVoicesDidChangeNotification,
+      onChange: onChange
+    )
   }
 }
 
@@ -42,36 +61,38 @@ final class AssistantVoicePreferences: NSObject {
   private(set) var preference: AssistantVoicePreference
   private(set) var availableVoices: [AssistantInstalledVoice] = []
   private(set) var isPreviewing = false
+  private(set) var isConversationSpeechActive = false
 
   @ObservationIgnored private let locale: Locale
   @ObservationIgnored private let store: AssistantVoicePreferenceDefaultsStore
+  @ObservationIgnored private let voiceCatalog: any AssistantSystemVoiceCatalog
+  @ObservationIgnored private let speechCoordinator: AssistantLocalSpeechCoordinator
   @ObservationIgnored private let previewSynthesizer: AVSpeechSynthesizer
-  @ObservationIgnored private var availableVoicesObservation: AssistantVoiceNotificationObservation?
+  @ObservationIgnored private var availableVoicesObservation:
+    AssistantVoiceCatalogChangeObservation?
   @ObservationIgnored private var previewBatch =
     AssistantSpeechBatchLifecycle<AVSpeechUtterance>()
   @ObservationIgnored private var previewVoiceIdentifier: String?
+  @ObservationIgnored private var previewSpeechLease: AssistantLocalSpeechLease?
 
   init(
     locale: Locale = .current,
     defaults: UserDefaults = .standard,
+    voiceCatalog: any AssistantSystemVoiceCatalog = AppleAssistantSystemVoiceCatalog(),
+    speechCoordinator: AssistantLocalSpeechCoordinator = AssistantLocalSpeechCoordinator(),
     previewSynthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
   ) {
     self.locale = locale
     store = AssistantVoicePreferenceDefaultsStore(defaults: defaults)
     preference = store.load()
+    self.voiceCatalog = voiceCatalog
+    self.speechCoordinator = speechCoordinator
     self.previewSynthesizer = previewSynthesizer
     super.init()
     previewSynthesizer.delegate = self
-    let token = NotificationCenter.default.addObserver(
-      forName: AVSpeechSynthesizer.availableVoicesDidChangeNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor [weak self] in
-        self?.refresh()
-      }
+    availableVoicesObservation = voiceCatalog.observeChanges { [weak self] in
+      self?.refresh()
     }
-    availableVoicesObservation = AssistantVoiceNotificationObservation(token: token)
     refresh()
   }
 
@@ -91,10 +112,20 @@ final class AssistantVoicePreferences: NSObject {
   var preferenceName: String {
     switch preference {
     case .automatic:
-      "Automatic"
+      "Best Available"
     case .specific(let identifier):
       availableVoices.first { $0.identifier == identifier }?.name ?? "Unavailable Voice"
     }
+  }
+
+  func isPreferredLanguage(_ language: String) -> Bool {
+    Locale.Language(identifier: language).languageCode
+      == Locale.Language(identifier: locale.identifier(.bcp47)).languageCode
+  }
+
+  func isPreferredLocale(_ language: String) -> Bool {
+    language.replacingOccurrences(of: "_", with: "-").lowercased()
+      == locale.identifier(.bcp47).lowercased()
   }
 
   func select(_ preference: AssistantVoicePreference) {
@@ -144,6 +175,17 @@ final class AssistantVoicePreferences: NSObject {
       voice: voice
     )
     guard previewBatch.begin(utterances) != nil else { return }
+    guard
+      let lease = speechCoordinator.acquire(
+        owner: .preview,
+        stop: { [weak self] in
+          self?.stopPreview()
+        })
+    else {
+      _ = previewBatch.cancel()
+      return
+    }
+    previewSpeechLease = lease
     previewVoiceIdentifier = voice.identifier
     isPreviewing = true
     for utterance in utterances {
@@ -158,15 +200,35 @@ final class AssistantVoicePreferences: NSObject {
     else {
       return
     }
+    if let previewSpeechLease {
+      _ = speechCoordinator.release(previewSpeechLease)
+    }
+    previewSpeechLease = nil
     previewVoiceIdentifier = nil
     isPreviewing = false
     previewSynthesizer.stopSpeaking(at: .immediate)
   }
 
+  func acquireConversationSpeech(
+    owner: AssistantLocalSpeechOwner,
+    stop: @escaping @MainActor () -> Void
+  ) -> AssistantLocalSpeechLease? {
+    guard let lease = speechCoordinator.acquire(owner: owner, stop: stop) else {
+      return nil
+    }
+    isConversationSpeechActive = true
+    return lease
+  }
+
+  func releaseConversationSpeech(_ lease: AssistantLocalSpeechLease) {
+    _ = speechCoordinator.release(lease)
+    isConversationSpeechActive = speechCoordinator.hasActiveConversationSpeech
+  }
+
   private func selectableSystemVoices() -> [AVSpeechSynthesisVoice] {
     let personalVoiceIsAuthorized =
       AVSpeechSynthesizer.personalVoiceAuthorizationStatus == .authorized
-    return AVSpeechSynthesisVoice.speechVoices()
+    return voiceCatalog.installedVoices()
       .filter { voice in
         guard !voice.voiceTraits.contains(.isNoveltyVoice) else { return false }
         return !voice.voiceTraits.contains(.isPersonalVoice) || personalVoiceIsAuthorized
@@ -174,6 +236,9 @@ final class AssistantVoicePreferences: NSObject {
       .sorted { lhs, rhs in
         if lhs.language != rhs.language {
           return lhs.language.localizedStandardCompare(rhs.language) == .orderedAscending
+        }
+        if lhs.quality != rhs.quality {
+          return lhs.quality.rawValue > rhs.quality.rawValue
         }
         let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
@@ -225,6 +290,10 @@ extension AssistantVoicePreferences: @preconcurrency AVSpeechSynthesizerDelegate
       synthesizer === previewSynthesizer,
       previewBatch.finish(utterance) != nil
     else { return }
+    if let previewSpeechLease {
+      _ = speechCoordinator.release(previewSpeechLease)
+    }
+    previewSpeechLease = nil
     previewVoiceIdentifier = nil
     isPreviewing = false
   }

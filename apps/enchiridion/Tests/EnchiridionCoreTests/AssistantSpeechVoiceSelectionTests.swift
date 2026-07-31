@@ -97,6 +97,35 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     XCTAssertFalse(resolution.isUsingAutomaticFallback)
   }
 
+  func testExplicitLowerQualityVoiceRemainsSelectedWhenPremiumIsInstalled() {
+    let selected = voice("chosen-enhanced", language: "en-GB", quality: .enhanced)
+    let premium = voice("available-premium", language: "en-GB", quality: .premium)
+
+    let resolution = AssistantSpeechVoiceSelection.resolve(
+      .specific(identifier: selected.identifier),
+      for: Locale(identifier: "en_GB"),
+      from: [premium, selected]
+    )
+
+    XCTAssertEqual(resolution.effectiveIdentifier, selected.identifier)
+    XCTAssertFalse(resolution.isUsingAutomaticFallback)
+  }
+
+  func testStoredPersonalVoiceFilteredFromSelectableCatalogUsesAutomaticFallback() {
+    let preference = AssistantVoicePreference.specific(identifier: "stored-personal")
+    let automatic = voice("automatic-premium", language: "en-GB", quality: .premium)
+
+    let resolution = AssistantSpeechVoiceSelection.resolve(
+      preference,
+      for: Locale(identifier: "en_GB"),
+      from: [automatic]
+    )
+
+    XCTAssertEqual(resolution.effectiveIdentifier, automatic.identifier)
+    XCTAssertTrue(resolution.isUsingAutomaticFallback)
+    XCTAssertEqual(preference, .specific(identifier: "stored-personal"))
+  }
+
   func testMissingExplicitVoiceFallsBackWithoutMutatingPreferenceAndRestores() {
     let preference = AssistantVoicePreference.specific(identifier: "returning")
     let automatic = voice("automatic", language: "en-GB", quality: .enhanced)
@@ -127,6 +156,49 @@ final class AssistantSpeechVoiceSelectionTests: XCTestCase {
     ]
 
     XCTAssertNil(select(from: candidates))
+  }
+
+  func testNeverCrossesChineseScriptBoundaryAfterLikelyScriptInference() {
+    let candidates = [
+      voice("simplified-premium", language: "zh-Hans-CN", quality: .premium),
+      voice("traditional-enhanced", language: "zh-Hant", quality: .enhanced),
+    ]
+
+    XCTAssertEqual(
+      AssistantSpeechVoiceSelection.selectIdentifier(
+        for: Locale(identifier: "zh_TW"),
+        from: candidates
+      ),
+      "traditional-enhanced"
+    )
+    XCTAssertNil(
+      AssistantSpeechVoiceSelection.selectIdentifier(
+        for: Locale(identifier: "zh_TW"),
+        from: [candidates[0]]
+      )
+    )
+  }
+
+  func testNeverCrossesSerbianScriptBoundaryAfterLikelyScriptInference() {
+    let candidates = [
+      voice("latin-premium", language: "sr-Latn-RS", quality: .premium),
+      voice("cyrillic-enhanced", language: "sr-Cyrl", quality: .enhanced),
+    ]
+
+    XCTAssertEqual(
+      AssistantSpeechVoiceSelection.selectIdentifier(
+        for: Locale(identifier: "sr_RS"),
+        from: candidates
+      ),
+      "cyrillic-enhanced"
+    )
+    XCTAssertEqual(
+      AssistantSpeechVoiceSelection.selectIdentifier(
+        for: Locale(identifier: "sr_Latn"),
+        from: candidates
+      ),
+      "latin-premium"
+    )
   }
 
   func testTieBreakRemainsDeterministicWithoutFrameworkPreference() {

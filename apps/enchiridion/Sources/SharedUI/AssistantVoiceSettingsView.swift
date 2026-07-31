@@ -16,7 +16,7 @@ struct AssistantVoiceSettingsSection: View {
       AssistantVoiceCurrentSummary(preferences: preferences)
       if preferences.isStoredSelectionUnavailable {
         Label(
-          "Your selected voice is unavailable. Enchiridion is using Automatic without changing your selection.",
+          "Your selected voice is unavailable right now. Best Available is being used until it becomes available again.",
           systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
         )
         .font(.caption)
@@ -41,8 +41,8 @@ struct AssistantVoiceSettingsView: View {
     List {
       Section {
         voiceButton(
-          title: "Automatic",
-          subtitle: "Uses the best installed voice for your language.",
+          title: "Best Available",
+          subtitle: "Prefers Premium, then Enhanced, then Basic for your language.",
           preference: .automatic,
           isSelected: preferences.preference == .automatic
         )
@@ -51,7 +51,7 @@ struct AssistantVoiceSettingsView: View {
       if preferences.isStoredSelectionUnavailable {
         Section("Selected Voice") {
           Label(
-            "The selected voice is not installed right now. Automatic is being used until that exact voice returns.",
+            "Your selected voice is unavailable right now. Best Available is being used until it becomes available again.",
             systemImage: "exclamationmark.circle"
           )
           .foregroundStyle(.secondary)
@@ -75,20 +75,26 @@ struct AssistantVoiceSettingsView: View {
 
       Section("Currently using") {
         AssistantVoiceCurrentSummary(preferences: preferences)
+        if preferences.preference == .automatic {
+          AssistantVoiceAutomaticQualitySummary(preferences: preferences)
+        }
       }
 
-      if let voice = preferences.effectiveVoice,
-        voice.quality == .default,
+      if preferences.preference == .automatic,
+        let voice = preferences.effectiveVoice,
+        voice.quality != .premium,
         !voice.isPersonalVoice
       {
         Section {
           Label {
             VStack(alignment: .leading, spacing: 6) {
-              Text("Enhanced or Premium voices may sound more natural.")
+              Text(fallbackGuidance(for: voice))
               Text(voiceDownloadGuidance)
                 .font(.caption)
-              Text("Apple downloads voices. Enchiridion refreshes after the download finishes.")
-                .font(.caption)
+              Text(
+                "Apple manages downloaded voices. Enchiridion refreshes automatically when the installed voices change."
+              )
+              .font(.caption)
             }
             .fixedSize(horizontal: false, vertical: true)
           } icon: {
@@ -110,7 +116,15 @@ struct AssistantVoiceSettingsView: View {
           )
           .frame(minHeight: 44)
         }
-        .disabled(preferences.effectiveVoice == nil)
+        .disabled(
+          preferences.effectiveVoice == nil || preferences.isConversationSpeechActive
+        )
+        .accessibilityHint(previewAccessibilityHint)
+        if preferences.isConversationSpeechActive {
+          Text("Preview is unavailable while the assistant is speaking.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
     }
     .navigationTitle("Assistant Voice")
@@ -159,7 +173,7 @@ struct AssistantVoiceSettingsView: View {
   }
 
   private func voiceDescription(_ voice: AssistantInstalledVoice) -> String {
-    var values = [voice.localizedLocaleName, voice.qualityName]
+    var values = [voice.qualityName, voice.localizedLocaleName]
     if voice.isPersonalVoice { values.append("Personal Voice") }
     return values.joined(separator: " · ")
   }
@@ -176,6 +190,16 @@ struct AssistantVoiceSettingsView: View {
         )
       }
       .sorted {
+        let lhsIsPreferredLocale = preferences.isPreferredLocale($0.language)
+        let rhsIsPreferredLocale = preferences.isPreferredLocale($1.language)
+        if lhsIsPreferredLocale != rhsIsPreferredLocale {
+          return lhsIsPreferredLocale
+        }
+        let lhsIsPreferred = preferences.isPreferredLanguage($0.language)
+        let rhsIsPreferred = preferences.isPreferredLanguage($1.language)
+        if lhsIsPreferred != rhsIsPreferred {
+          return lhsIsPreferred
+        }
         let order = $0.localizedName.localizedStandardCompare($1.localizedName)
         if order != .orderedSame { return order == .orderedAscending }
         return $0.language < $1.language
@@ -190,6 +214,26 @@ struct AssistantVoiceSettingsView: View {
     #else
       ""
     #endif
+  }
+
+  private var previewAccessibilityHint: String {
+    if preferences.isConversationSpeechActive {
+      return "Wait for the current assistant response to finish."
+    }
+    return preferences.isPreviewing
+      ? "Stops the current voice preview."
+      : "Speaks a short sample using the selected voice."
+  }
+
+  private func fallbackGuidance(for voice: AssistantInstalledVoice) -> String {
+    switch voice.quality {
+    case .premium:
+      ""
+    case .enhanced:
+      "No Premium voice is installed for \(voice.localizedLocaleName). Enchiridion is using Enhanced."
+    case .default:
+      "No Premium or Enhanced voice is installed for \(voice.localizedLocaleName). Enchiridion is using Basic."
+    }
   }
 }
 
@@ -216,5 +260,34 @@ private struct AssistantVoiceCurrentSummary: View {
           .foregroundStyle(.secondary)
       }
     }
+  }
+}
+
+private struct AssistantVoiceAutomaticQualitySummary: View {
+  let preferences: AssistantVoicePreferences
+
+  var body: some View {
+    if let voice = preferences.effectiveVoice {
+      Label(message(for: voice), systemImage: icon(for: voice))
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(message(for: voice))
+    }
+  }
+
+  private func message(for voice: AssistantInstalledVoice) -> String {
+    switch voice.quality {
+    case .premium:
+      "Premium is installed and selected."
+    case .enhanced:
+      "Premium is not installed for \(voice.localizedLocaleName). Using Enhanced."
+    case .default:
+      "Premium and Enhanced are not installed for \(voice.localizedLocaleName). Using Basic."
+    }
+  }
+
+  private func icon(for voice: AssistantInstalledVoice) -> String {
+    voice.quality == .premium ? "checkmark.circle" : "arrow.down.circle"
   }
 }

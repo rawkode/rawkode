@@ -9,11 +9,14 @@ import OSLog
 
 enum AppleSystemSpeechOutputError: Error, LocalizedError {
   case voiceUnavailable(String)
+  case speechRouteUnavailable
 
   var errorDescription: String? {
     switch self {
     case .voiceUnavailable(let language):
       return "No standard system voice is installed for \(language)."
+    case .speechRouteUnavailable:
+      return "The local speech route is unavailable."
     }
   }
 }
@@ -27,6 +30,7 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
 
   private let locale: Locale
   private let voicePreferences: AssistantVoicePreferences
+  private let speechOwner: AssistantLocalSpeechOwner
   private let synthesizerFactory: SynthesizerFactory
   private var synthesizer: AVSpeechSynthesizer
   private let logger = Logger(
@@ -36,13 +40,16 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
   private var activeBatch = AssistantSpeechBatchLifecycle<AVSpeechUtterance>()
   private var continuation: CheckedContinuation<Void, any Error>?
   private var continuationBatchID: UUID?
+  private var activeSpeechLease: (batchID: UUID, lease: AssistantLocalSpeechLease)?
 
   init(
     voicePreferences: AssistantVoicePreferences,
+    speechOwner: AssistantLocalSpeechOwner = .assistant,
     locale: Locale = .current,
     synthesizerFactory: @escaping SynthesizerFactory = { AVSpeechSynthesizer() }
   ) {
     self.voicePreferences = voicePreferences
+    self.speechOwner = speechOwner
     self.locale = locale
     self.synthesizerFactory = synthesizerFactory
     self.synthesizer = synthesizerFactory()
@@ -66,6 +73,18 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     let utterances = AssistantSpeechUtteranceFactory.makeUtterances(for: text, voice: voice)
     guard !utterances.isEmpty else { return }
     guard let batchID = activeBatch.begin(utterances) else { return }
+    guard
+      let speechLease = voicePreferences.acquireConversationSpeech(
+        owner: speechOwner,
+        stop: { [weak self] in
+          self?.cancelCurrentSpeech(batchID: batchID)
+        }
+      )
+    else {
+      _ = activeBatch.cancel(batchID: batchID)
+      throw AppleSystemSpeechOutputError.speechRouteUnavailable
+    }
+    activeSpeechLease = (batchID, speechLease)
 
     try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
@@ -121,7 +140,7 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
 
   private func logSelection(_ voice: AVSpeechSynthesisVoice) {
     logger.info(
-      "speech_voice_selected identifier=\(voice.identifier, privacy: .public) name=\(voice.name, privacy: .public) language=\(voice.language, privacy: .public) quality=\(self.qualityDescription(of: voice), privacy: .public) output_route=\(self.currentOutputRouteDescription(), privacy: .public)"
+      "speech_voice_selected identifier=\(voice.identifier, privacy: .private) name=\(voice.name, privacy: .private) language=\(voice.language, privacy: .public) quality=\(self.qualityDescription(of: voice), privacy: .public) output_route=\(self.currentOutputRouteDescription(), privacy: .public)"
     )
   }
 
@@ -229,6 +248,10 @@ final class AppleSystemSpeechOutput: NSObject, AssistantConversationSpeaking {
     for batchID: UUID,
     with result: Result<Void, any Error>
   ) {
+    if let activeSpeechLease, activeSpeechLease.batchID == batchID {
+      voicePreferences.releaseConversationSpeech(activeSpeechLease.lease)
+      self.activeSpeechLease = nil
+    }
     guard continuationBatchID == batchID else { return }
     let pendingContinuation = continuation
     continuation = nil

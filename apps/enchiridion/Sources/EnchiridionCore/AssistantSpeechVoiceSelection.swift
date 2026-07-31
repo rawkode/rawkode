@@ -58,7 +58,7 @@ public enum AssistantSpeechVoiceSelection {
     frameworkPreferredIdentifier: String? = nil
   ) -> String? {
     let requestedTag = normalizedLanguageTag(locale.identifier(.bcp47))
-    let requestedLanguage = languageCode(in: requestedTag)
+    let requestedLanguage = languageIdentity(for: requestedTag)
 
     return
       candidates
@@ -66,7 +66,11 @@ public enum AssistantSpeechVoiceSelection {
         guard !candidate.isNovelty, !candidate.isPersonalVoice else { return nil }
 
         let candidateTag = normalizedLanguageTag(candidate.language)
-        guard languageCode(in: candidateTag) == requestedLanguage else { return nil }
+        let candidateLanguage = languageIdentity(for: candidateTag)
+        guard
+          candidateLanguage.languageCode == requestedLanguage.languageCode,
+          scriptsAreCompatible(candidateLanguage.script, requestedLanguage.script)
+        else { return nil }
 
         return RankedCandidate(
           candidate: candidate,
@@ -137,13 +141,164 @@ public enum AssistantSpeechVoiceSelection {
     var isExactLocaleMatch: Bool
   }
 
+  private struct LanguageIdentity {
+    var languageCode: String
+    var script: String?
+  }
+
   private static func normalizedLanguageTag(_ identifier: String) -> String {
     identifier
       .replacingOccurrences(of: "_", with: "-")
       .lowercased()
   }
 
-  private static func languageCode(in tag: String) -> Substring {
-    tag.split(separator: "-", maxSplits: 1).first ?? Substring(tag)
+  /// Foundation's locale data applies Unicode likely-subtag inference. This
+  /// keeps an underspecified locale such as zh-TW compatible with Hant voices,
+  /// while rejecting an installed Hans voice that would pronounce different
+  /// written text despite sharing the same base language code.
+  private static func languageIdentity(for tag: String) -> LanguageIdentity {
+    let language = Locale.Language(identifier: tag)
+    let languageCode =
+      language.languageCode?.identifier.lowercased()
+      ?? tag.split(separator: "-", maxSplits: 1).first.map(String.init)
+      ?? tag
+    return LanguageIdentity(
+      languageCode: languageCode,
+      script: language.script?.identifier.lowercased()
+    )
+  }
+
+  private static func scriptsAreCompatible(_ lhs: String?, _ rhs: String?) -> Bool {
+    guard let lhs, let rhs else { return true }
+    return lhs == rhs
+  }
+}
+
+public enum AssistantLocalSpeechOwner: Equatable, Sendable {
+  case assistant
+  case carPlay
+  case preview
+}
+
+public struct AssistantLocalSpeechLease: Equatable, Sendable {
+  public let owner: AssistantLocalSpeechOwner
+  public let generation: UInt64
+
+  public init(owner: AssistantLocalSpeechOwner, generation: UInt64) {
+    self.owner = owner
+    self.generation = generation
+  }
+}
+
+/// Serializes every local synthesizer that shares the process audio route.
+/// Assistant and CarPlay speech may preempt a preview. A preview never
+/// interrupts an active conversation and instead declines to start.
+@MainActor
+public final class AssistantLocalSpeechCoordinator {
+  private struct ActiveLease {
+    let lease: AssistantLocalSpeechLease
+    let stop: @MainActor () -> Void
+  }
+
+  private var generation: UInt64 = 0
+  private var active: ActiveLease?
+
+  public init() {}
+
+  public var activeOwner: AssistantLocalSpeechOwner? {
+    active?.lease.owner
+  }
+
+  public var hasActiveConversationSpeech: Bool {
+    guard let owner = activeOwner else { return false }
+    return owner == .assistant || owner == .carPlay
+  }
+
+  @discardableResult
+  public func acquire(
+    owner: AssistantLocalSpeechOwner,
+    stop: @escaping @MainActor () -> Void
+  ) -> AssistantLocalSpeechLease? {
+    if owner == .preview, active != nil {
+      return nil
+    }
+
+    generation &+= 1
+    let lease = AssistantLocalSpeechLease(owner: owner, generation: generation)
+    let displaced = active
+    active = ActiveLease(lease: lease, stop: stop)
+    displaced?.stop()
+    return lease
+  }
+
+  /// Only the exact owner generation may release the route. Delayed delegate
+  /// callbacks from a displaced synthesizer are harmless.
+  @discardableResult
+  public func release(_ lease: AssistantLocalSpeechLease) -> Bool {
+    guard active?.lease == lease else { return false }
+    active = nil
+    return true
+  }
+
+  /// Stops and releases only an exact live lease. Calling this repeatedly or
+  /// with a stale generation is an intentional no-op.
+  @discardableResult
+  public func stop(_ lease: AssistantLocalSpeechLease) -> Bool {
+    guard active?.lease == lease else { return false }
+    let stopping = active
+    active = nil
+    stopping?.stop()
+    return true
+  }
+}
+
+private final class AssistantVoiceCatalogObservationState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var active = true
+
+  func cancel() {
+    lock.withLock { active = false }
+  }
+
+  var isActive: Bool {
+    lock.withLock { active }
+  }
+}
+
+/// Bridges system voice-catalog notifications onto the main actor and fences
+/// queued callbacks after cancellation or teardown.
+public final class AssistantVoiceCatalogChangeObservation: @unchecked Sendable {
+  private let notificationCenter: NotificationCenter
+  private let state: AssistantVoiceCatalogObservationState
+  private let token: NSObjectProtocol
+
+  public init(
+    notificationCenter: NotificationCenter = .default,
+    name: Notification.Name,
+    onChange: @escaping @MainActor @Sendable () -> Void
+  ) {
+    self.notificationCenter = notificationCenter
+    let state = AssistantVoiceCatalogObservationState()
+    self.state = state
+    token = notificationCenter.addObserver(
+      forName: name,
+      object: nil,
+      queue: nil
+    ) { _ in
+      guard state.isActive else { return }
+      Task { @MainActor in
+        guard state.isActive else { return }
+        onChange()
+      }
+    }
+  }
+
+  public func cancel() {
+    state.cancel()
+    notificationCenter.removeObserver(token)
+  }
+
+  deinit {
+    cancel()
   }
 }

@@ -330,7 +330,8 @@ func makeAssistantConversationSession(
       transcriber: OnDeviceSpeechTranscriber(),
       answerer: assistant,
       speaker: AppleSystemSpeechOutput(
-        voicePreferences: voicePreferences
+        voicePreferences: voicePreferences,
+        speechOwner: surface == .carPlay ? .carPlay : .assistant
       ),
       audioSessionController: audioSessionController,
       voiceSafetyEventSource: voiceSafetyEventSource,
