@@ -4,8 +4,8 @@ options:
   bundleIdPrefix: dev.rawkode
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "18.0"
-    macOS: "15.0"
+    iOS: "26.0"
+    macOS: "26.0"
   generateEmptyDirectories: true
 
 packages:
@@ -53,9 +53,6 @@ targets:
         excludes:
           - Resources
       - Sources/macOS
-      - path: Sources/SharedUI/Resources/Editor
-        type: folder
-        buildPhase: resources
       - path: Sources/SharedUI/Resources/RealtimeBridge
         type: folder
         buildPhase: resources
@@ -129,9 +126,6 @@ targets:
         excludes:
           - Resources
       - Sources/iOS
-      - path: Sources/SharedUI/Resources/Editor
-        type: folder
-        buildPhase: resources
       - path: Sources/SharedUI/Resources/RealtimeBridge
         type: folder
         buildPhase: resources

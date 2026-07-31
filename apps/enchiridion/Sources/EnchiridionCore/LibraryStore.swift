@@ -93,6 +93,7 @@ public final class LibraryStore {
   @ObservationIgnored private let taskSystemReconciliationCoordinator:
     TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
+  @ObservationIgnored private var editorLiveViewRefreshGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
   @ObservationIgnored private let requestedVaultID: VaultID?
@@ -1375,9 +1376,61 @@ public final class LibraryStore {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
     }
     let receipt = try await repository.persistEditorCommit(commit)
-    await reload()
+    guard let page = try await repository.page(id: commit.pageID) else {
+      throw LibraryRepositoryError.pageNotFound
+    }
+    cacheEditorPage(page)
+    scheduleEditorLiveViewRefresh()
     await syncCoordinator?.pageDidChange(commit.pageID)
     return receipt
+  }
+
+  @discardableResult
+  public func persistRichTextEditor(
+    pageID: PageID,
+    title: String,
+    body: AttributedString
+  ) async throws -> PageSnapshot {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
+    }
+    let page = try await repository.persistRichTextEditor(pageID: pageID, title: title, body: body)
+    cacheEditorPage(page)
+    scheduleEditorLiveViewRefresh()
+    await syncCoordinator?.pageDidChange(pageID)
+    return page
+  }
+
+  private func cacheEditorPage(_ page: PageSnapshot) {
+    var updatedPages = pages
+    if let index = updatedPages.firstIndex(where: { $0.id == page.id }) {
+      updatedPages[index] = page
+    } else {
+      updatedPages.append(page)
+    }
+    updatedPages.sort { $0.modifiedAt > $1.modifiedAt }
+    pages = updatedPages
+  }
+
+  private func scheduleEditorLiveViewRefresh() {
+    guard !savedViews.isEmpty else { return }
+    editorLiveViewRefreshGeneration &+= 1
+    let generation = editorLiveViewRefreshGeneration
+    Task { @MainActor [weak self] in
+      await self?.refreshLiveViews(afterEditorCommit: generation)
+    }
+  }
+
+  private func refreshLiveViews(afterEditorCommit generation: UInt64) async {
+    guard let repository else { return }
+    let views = savedViews
+    var refreshedItems = liveViewItems
+    for view in views {
+      guard let items = try? await repository.run(view) else { continue }
+      refreshedItems[view.id] = items
+    }
+    guard generation == editorLiveViewRefreshGeneration else { return }
+    liveViewItems = refreshedItems
   }
 
   public func suggestions(matching query: String) async -> [PageSuggestion] {
