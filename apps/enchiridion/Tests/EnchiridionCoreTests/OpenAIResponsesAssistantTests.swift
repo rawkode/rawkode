@@ -286,7 +286,8 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
         answer: "OPENAI ANSWER",
         status: .answered,
         provenance: .nonLocal,
-        metadata: openAIMetadata()
+        metadata: openAIMetadata(),
+        requestedRouteSnapshot: authorizedSnapshot()
       ),
       AssistantConversationTurn(
         utterance: "VOICE PRIVATE",
@@ -313,6 +314,93 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     XCTAssertTrue(serialized.contains("OPENAI CONTEXT"))
     XCTAssertFalse(serialized.contains("APPLE PRIVATE"))
     XCTAssertFalse(serialized.contains("VOICE PRIVATE"))
+  }
+
+  func testHistoryRequiresExactAcceptedRouteEpochModelAndCredentialBinding() async throws {
+    let fixture = try OpenAITestRepositoryFixture()
+    let transport = ScriptedOpenAITransport(
+      results: [success(completedEvent(output: [messageOutput(answer: "Hello", factIDs: [])]))]
+    )
+    let acceptedSnapshot = authorizedSnapshot()
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      snapshot: acceptedSnapshot
+    )
+    let differentModel = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-sol",
+      credentialBinding: acceptedSnapshot.credentialBinding
+    )
+    let differentBinding = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: acceptedSnapshot.modelID,
+      credentialBinding: OpenAICredentialBinding(
+        revision: "different-revision",
+        fingerprint: String(repeating: "b", count: 64)
+      )
+    )
+    let turns = [
+      AssistantConversationTurn(
+        contextEpoch: 7,
+        utterance: "MATCHING CONTEXT",
+        answer: "MATCHING ANSWER",
+        status: .answered,
+        provenance: .nonLocal,
+        metadata: openAIMetadata(),
+        requestedRouteSnapshot: acceptedSnapshot
+      ),
+      AssistantConversationTurn(
+        contextEpoch: 7,
+        utterance: "WRONG MODEL",
+        answer: "WRONG MODEL ANSWER",
+        status: .answered,
+        provenance: .nonLocal,
+        metadata: openAIMetadata(),
+        requestedRouteSnapshot: differentModel
+      ),
+      AssistantConversationTurn(
+        contextEpoch: 7,
+        utterance: "WRONG BINDING",
+        answer: "WRONG BINDING ANSWER",
+        status: .answered,
+        provenance: .nonLocal,
+        metadata: openAIMetadata(),
+        requestedRouteSnapshot: differentBinding
+      ),
+      AssistantConversationTurn(
+        contextEpoch: 8,
+        utterance: "WRONG EPOCH",
+        answer: "WRONG EPOCH ANSWER",
+        status: .answered,
+        provenance: .nonLocal,
+        metadata: openAIMetadata(),
+        requestedRouteSnapshot: acceptedSnapshot
+      ),
+    ]
+
+    _ = await assistant.respond(
+      to: AssistantConversationRequest(
+        utterance: "continue",
+        priorTurns: turns,
+        contextEpoch: 7,
+        locale: .current,
+        now: Date(),
+        routeOverride: AssistantConversationRoute(
+          provider: .openAI,
+          modelID: "gpt-5.6-terra"
+        ),
+        textRouteSnapshot: acceptedSnapshot
+      )
+    )
+
+    let transportSnapshot = await transport.snapshot()
+    let body = try XCTUnwrap(transportSnapshot.bodies.first)
+    let serialized = String(decoding: body, as: UTF8.self)
+    XCTAssertTrue(serialized.contains("MATCHING CONTEXT"))
+    XCTAssertFalse(serialized.contains("WRONG MODEL"))
+    XCTAssertFalse(serialized.contains("WRONG BINDING"))
+    XCTAssertFalse(serialized.contains("WRONG EPOCH"))
   }
 
   func testLocalDerivedLastTurnUsesOneCleanRequestWithoutAutomaticRetry() async throws {
@@ -506,12 +594,22 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
   }
 
   @MainActor
-  func testCancellationRejectsLateCompletionAndLeavesNoPartialTurn() async throws {
+  func testCancellationRejectsLateCompletionAndRetainsNeutralAttempt() async throws {
     let fixture = try OpenAITestRepositoryFixture()
     let transport = SleepingOpenAITransport()
     let assistant = makeAssistant(fixture: fixture, transport: transport)
     let session = AssistantConversationSession(answerer: assistant)
-    let submission = Task { await session.submit("Hello") }
+    let turnID = try XCTUnwrap(
+      session.submitImmediately(
+        "Hello",
+        routeOverride: AssistantConversationRoute(
+          provider: .openAI,
+          modelID: "gpt-5.6-terra"
+        ),
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: authorizedSnapshot()
+      )
+    )
     for _ in 0..<200 {
       if await transport.hasStarted { break }
       await Task.yield()
@@ -520,9 +618,14 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     XCTAssertTrue(didStart)
 
     await session.stop()
-    await submission.value
 
-    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns[0].id, turnID)
+    XCTAssertEqual(session.turns[0].phase, .cancelled)
+    XCTAssertEqual(session.turns[0].answer, "Response stopped")
+    XCTAssertEqual(session.turns[0].requestedRoute.provider, .openAI)
+    XCTAssertEqual(session.turns[0].requestedRoute.modelID, "gpt-5.6-terra")
+    XCTAssertEqual(session.turns[0].metadata?.completion, .incomplete)
     XCTAssertEqual(session.state, .stopped)
     let cancellationCount = await transport.cancellationCount
     XCTAssertEqual(cancellationCount, 1)
@@ -886,6 +989,65 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     XCTAssertEqual(response.metadata?.requestIDs, ["req_authorization-1"])
     XCTAssertNil(response.metadata?.usage)
     XCTAssertNil(response.metadata?.actualModelID)
+  }
+
+  func testAcceptedCredentialBindingFailsClosedAfterKeyReplacementBeforeTransport() async throws {
+    let fixture = try OpenAITestRepositoryFixture()
+    let transport = ScriptedOpenAITransport(results: [
+      success(
+        completedEvent(
+          output: [messageOutput(answer: "Must never be sent", factIDs: [])]
+        )
+      )
+    ])
+    let acceptedBinding = OpenAICredentialBinding(
+      revision: "accepted-revision",
+      fingerprint: "accepted-fingerprint"
+    )
+    let replacementBinding = OpenAICredentialBinding(
+      revision: "replacement-revision",
+      fingerprint: "replacement-fingerprint"
+    )
+    let apple = FoundationModelAssistant(
+      repository: fixture.repository,
+      attemptRunnerFactory: { _ in RecordingAppleRunner(counter: LockedCounter()) }
+    )
+    let assistant = OpenAIResponsesAssistant(
+      repository: fixture.repository,
+      appleAnswerer: apple,
+      routeSnapshot: { _ in
+        AssistantTextRouteSnapshot(
+          provider: .openAI,
+          modelID: "gpt-5.6-sol",
+          credentialBinding: replacementBinding
+        )
+      },
+      credential: { binding in
+        if binding == acceptedBinding {
+          throw OpenAICredentialStoreError.bindingMismatch
+        }
+        return "replacement-key-must-not-cross-the-accepted-boundary"
+      },
+      transport: transport
+    )
+    var acceptedRequest = request("Use the accepted route")
+    acceptedRequest.routeOverride = AssistantConversationRoute(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra"
+    )
+    acceptedRequest.textRouteSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: acceptedBinding
+    )
+
+    let response = await assistant.respond(to: acceptedRequest)
+
+    XCTAssertEqual(response.status, .unavailable)
+    XCTAssertEqual(response.metadata?.requestedModelID, "gpt-5.6-terra")
+    XCTAssertEqual(response.metadata?.recoveryAction, .openSettings)
+    let transportSnapshot = await transport.snapshot()
+    XCTAssertEqual(transportSnapshot.callCount, 0)
   }
 
   private func makeAssistant(

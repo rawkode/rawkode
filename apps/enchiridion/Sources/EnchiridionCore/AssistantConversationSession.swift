@@ -9,7 +9,19 @@ public enum AssistantConversationTurnProvenance: String, Equatable, Sendable {
   case localDataDerived
 }
 
-public struct AssistantConversationTurn: Equatable, Sendable {
+public enum AssistantConversationTurnPhase: String, Equatable, Sendable {
+  case pending
+  case completed
+  case failed
+  case cancelled
+}
+
+public struct AssistantConversationTurn: Equatable, Identifiable, Sendable {
+  public let id: UUID
+  public let contextEpoch: UInt64
+  public let requestedRoute: AssistantConversationRoute
+  public let requestedRouteLabel: String
+  public let requestedRouteSnapshot: AssistantTextRouteSnapshot
   public var utterance: String
   public var answer: String
   public var status: AssistantResponseStatus
@@ -17,16 +29,38 @@ public struct AssistantConversationTurn: Equatable, Sendable {
   public var sources: [AssistantSource]
   public var metadata: AssistantResponseMetadata?
   public var modality: AssistantRequestModality
+  public var phase: AssistantConversationTurnPhase
 
   public init(
+    id: UUID = UUID(),
+    contextEpoch: UInt64 = 0,
     utterance: String,
     answer: String,
     status: AssistantResponseStatus,
     provenance: AssistantConversationTurnProvenance,
     sources: [AssistantSource] = [],
     metadata: AssistantResponseMetadata? = nil,
-    modality: AssistantRequestModality = .text
+    modality: AssistantRequestModality = .text,
+    phase: AssistantConversationTurnPhase = .completed,
+    requestedRoute: AssistantConversationRoute? = nil,
+    requestedRouteLabel: String? = nil,
+    requestedRouteSnapshot: AssistantTextRouteSnapshot? = nil
   ) {
+    let route = requestedRoute ?? metadata?.routeContextIdentity ?? .appleOnDevice
+    let routeSnapshot =
+      requestedRouteSnapshot
+      ?? AssistantTextRouteSnapshot(
+        provider: route.provider == .openAI ? .openAI : .appleOnDevice,
+        modelID: route.modelID,
+        authorizationFailure: route.provider == .openAI ? .credentialVerificationRequired : nil
+      )
+    self.id = id
+    self.contextEpoch = contextEpoch
+    self.requestedRoute = route
+    self.requestedRouteLabel =
+      requestedRouteLabel ?? metadata?.routeLabel
+      ?? (route.provider == .appleOnDevice ? "Apple On Device" : route.modelID ?? "OpenAI")
+    self.requestedRouteSnapshot = routeSnapshot
     self.utterance = utterance
     self.answer = answer
     self.status = status
@@ -34,31 +68,38 @@ public struct AssistantConversationTurn: Equatable, Sendable {
     self.sources = sources
     self.metadata = metadata
     self.modality = modality
+    self.phase = phase
   }
 }
 
 public struct AssistantConversationRequest: Equatable, Sendable {
   public var utterance: String
   public var priorTurns: [AssistantConversationTurn]
+  public var contextEpoch: UInt64?
   public var locale: Locale
   public var now: Date
   public var modality: AssistantRequestModality
   public var routeOverride: AssistantConversationRoute?
+  public var textRouteSnapshot: AssistantTextRouteSnapshot?
 
   public init(
     utterance: String,
     priorTurns: [AssistantConversationTurn],
+    contextEpoch: UInt64? = nil,
     locale: Locale,
     now: Date,
     modality: AssistantRequestModality = .text,
-    routeOverride: AssistantConversationRoute? = nil
+    routeOverride: AssistantConversationRoute? = nil,
+    textRouteSnapshot: AssistantTextRouteSnapshot? = nil
   ) {
     self.utterance = utterance
     self.priorTurns = priorTurns
+    self.contextEpoch = contextEpoch
     self.locale = locale
     self.now = now
     self.modality = modality
     self.routeOverride = routeOverride
+    self.textRouteSnapshot = textRouteSnapshot
   }
 }
 
@@ -552,8 +593,7 @@ public final class AssistantConversationSession {
   public private(set) var liveTranscript = ""
   public private(set) var voiceInputNotice: String?
   public private(set) var voicePauseReason: AssistantVoicePauseReason?
-  public private(set) var pendingUtterance: String?
-  public private(set) var pendingRoute: AssistantConversationRoute?
+  public private(set) var transcriptRevision: UInt64 = 0
   public var speaksResponses: Bool
 
   public var isRunning: Bool {
@@ -580,6 +620,9 @@ public final class AssistantConversationSession {
   @ObservationIgnored private let now: @Sendable () -> Date
   @ObservationIgnored private var operation: Task<Void, Never>?
   @ObservationIgnored private var generation: UInt64 = 0
+  @ObservationIgnored private var activeAttemptID: UUID?
+  @ObservationIgnored private var activeTurnID: UUID?
+  @ObservationIgnored private var cancelledTurnByAttemptID: [UUID: UUID] = [:]
   @ObservationIgnored private var surfaceOwnerID: UUID?
   @ObservationIgnored private var isStopping = false
   @ObservationIgnored private var voiceStartAttemptID: UUID?
@@ -588,8 +631,7 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var ownsAudioSession = false
   @ObservationIgnored private var voiceSafetyEventTask: Task<Void, Never>?
   @ObservationIgnored private var lastVoiceSafetyEvent: AssistantVoiceSafetyEvent?
-  @ObservationIgnored private var contextStartIndex = 0
-  @ObservationIgnored private var resetsContextAfterCurrentOperation = false
+  @ObservationIgnored private var currentContextEpoch: UInt64 = 0
 
   public init(
     transcriber: (any AssistantConversationTranscribing)? = nil,
@@ -645,83 +687,216 @@ public final class AssistantConversationSession {
 
   /// Sends typed text through the grounded assistant regardless of voice state.
   public func submit(_ text: String) async {
-    await submit(text, routeOverride: nil)
+    guard
+      let started = beginTypedSubmission(
+        text,
+        routeOverride: nil,
+        routeLabel: nil,
+        routeSnapshot: nil,
+        contextEpoch: nil
+      )
+    else { return }
+    await started.task.value
   }
 
-  private func submit(
+  /// Accepts a typed message synchronously so its user and pending assistant
+  /// bubbles are observable before any answerer suspension point.
+  @discardableResult
+  public func submitImmediately(
     _ text: String,
-    routeOverride: AssistantConversationRoute?
-  ) async {
+    routeOverride: AssistantConversationRoute,
+    routeLabel: String,
+    routeSnapshot: AssistantTextRouteSnapshot? = nil
+  ) -> UUID? {
+    beginTypedSubmission(
+      text,
+      routeOverride: routeOverride,
+      routeLabel: routeLabel,
+      routeSnapshot: routeSnapshot,
+      contextEpoch: nil
+    )?.turnID
+  }
+
+  private struct StartedTypedSubmission {
+    var turnID: UUID
+    var task: Task<Void, Never>
+  }
+
+  private func beginTypedSubmission(
+    _ text: String,
+    routeOverride: AssistantConversationRoute?,
+    routeLabel: String?,
+    routeSnapshot: AssistantTextRouteSnapshot?,
+    contextEpoch: UInt64?
+  ) -> StartedTypedSubmission? {
     let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !utterance.isEmpty, operation == nil, !isStopping else { return }
+    guard !utterance.isEmpty, operation == nil, !isStopping else { return nil }
 
     clearVoicePause()
     resetVoiceInput()
     generation &+= 1
     let currentGeneration = generation
+    let attemptID = UUID()
+    let turnID = UUID()
+    let acceptedContextEpoch = contextEpoch ?? currentContextEpoch
+    let requestedRoute = routeOverride ?? .appleOnDevice
+    let requestedProvider: AssistantProvider =
+      requestedRoute.provider == .openAI ? .openAI : .appleOnDevice
+    if let routeSnapshot {
+      guard routeSnapshot.provider == requestedProvider,
+        routeSnapshot.modelID == requestedRoute.modelID
+      else { return nil }
+    }
+    let requestedRouteSnapshot =
+      routeSnapshot
+      ?? AssistantTextRouteSnapshot(
+        provider: requestedProvider,
+        modelID: requestedRoute.modelID,
+        authorizationFailure: requestedRoute.provider == .openAI
+          ? .credentialVerificationRequired : nil
+      )
+    let requestedRouteLabel =
+      routeLabel
+      ?? (requestedRoute.provider == .appleOnDevice
+        ? "Apple On Device" : requestedRoute.modelID ?? "OpenAI")
     finishVoiceOperationIfNeeded()
-    pendingUtterance = utterance
-    pendingRoute = routeOverride
+    activeAttemptID = attemptID
+    activeTurnID = turnID
+    appendTurn(
+      AssistantConversationTurn(
+        id: turnID,
+        contextEpoch: acceptedContextEpoch,
+        utterance: utterance,
+        answer: "",
+        status: .answered,
+        provenance: .nonLocal,
+        modality: .text,
+        phase: .pending,
+        requestedRoute: requestedRoute,
+        requestedRouteLabel: requestedRouteLabel,
+        requestedRouteSnapshot: requestedRouteSnapshot
+      )
+    )
     state = .thinking
     let task = Task { [weak self] in
-      await self?.answer(utterance, generation: currentGeneration)
-      await self?.finishOperation(generation: currentGeneration)
+      await self?.answer(
+        utterance,
+        generation: currentGeneration,
+        attemptID: attemptID,
+        turnID: turnID,
+        routeOverride: requestedRoute,
+        routeSnapshot: requestedRouteSnapshot,
+        contextEpoch: acceptedContextEpoch
+      )
+      await self?.finishOperation(
+        generation: currentGeneration,
+        attemptID: attemptID,
+        turnID: turnID
+      )
     }
     operation = task
-    await task.value
+    return StartedTypedSubmission(turnID: turnID, task: task)
   }
 
   public func retryLastFailedTurn() async {
-    guard let index = turns.indices.last else { return }
-    await retryFailedTurn(at: index)
+    guard let turnID = turns.last?.id else { return }
+    await retryFailedTurn(id: turnID)
   }
 
   /// Appends a new attempt for the exact failed receipt selected by the user.
   public func retryFailedTurn(at index: Int) async {
-    guard operation == nil, !isStopping, turns.indices.contains(index) else { return }
-    let turn = turns[index]
+    guard turns.indices.contains(index) else { return }
+    await retryFailedTurn(id: turns[index].id)
+  }
+
+  /// Resolves retries by stable identity so trimming or an intervening update
+  /// cannot redirect the action to a different receipt.
+  @discardableResult
+  public func retryFailedTurn(id: UUID) async -> UUID? {
+    guard let started = beginRetryFailedTurn(id: id) else { return nil }
+    await started.task.value
+    return started.turnID
+  }
+
+  /// Accepts an exact historical retry synchronously so the new attempt can
+  /// be revealed before the answerer reaches its first suspension point.
+  @discardableResult
+  public func retryFailedTurnImmediately(id: UUID) -> UUID? {
+    beginRetryFailedTurn(id: id)?.turnID
+  }
+
+  private func beginRetryFailedTurn(id: UUID) -> StartedTypedSubmission? {
+    guard operation == nil, !isStopping, let turn = turns.first(where: { $0.id == id }) else {
+      return nil
+    }
     guard
       turn.metadata?.recoveryAction == .retry,
-      turn.metadata?.completion != .completed
-    else { return }
-    let route = AssistantConversationRoute(
-      provider: turn.metadata?.requestedProvider ?? .appleOnDevice,
-      modelID: turn.metadata?.requestedModelID
+      turn.metadata?.completion != .completed,
+      turn.phase == .failed || turn.phase == .cancelled
+    else { return nil }
+    return beginTypedSubmission(
+      turn.utterance,
+      routeOverride: turn.requestedRoute,
+      routeLabel: turn.requestedRouteLabel,
+      routeSnapshot: turn.requestedRouteSnapshot,
+      contextEpoch: turn.contextEpoch
     )
-    await submit(turn.utterance, routeOverride: route)
   }
 
   /// Appends a distinct Apple attempt while preserving the failed OpenAI turn
   /// and its billing/disclosure receipt exactly as presented.
   public func retryLastFailedTurnOnApple() async {
-    guard let index = turns.indices.last else { return }
-    await retryFailedTurnOnApple(at: index)
+    guard let turnID = turns.last?.id else { return }
+    await retryFailedTurnOnApple(id: turnID)
   }
 
   /// Appends a distinct Apple attempt for the exact failed receipt selected
   /// by the user, without mutating any prior attempt.
   public func retryFailedTurnOnApple(at index: Int) async {
-    guard operation == nil, !isStopping, turns.indices.contains(index) else { return }
-    let turn = turns[index]
+    guard turns.indices.contains(index) else { return }
+    await retryFailedTurnOnApple(id: turns[index].id)
+  }
+
+  @discardableResult
+  public func retryFailedTurnOnApple(id: UUID) async -> UUID? {
+    guard let started = beginRetryFailedTurnOnApple(id: id) else { return nil }
+    await started.task.value
+    return started.turnID
+  }
+
+  @discardableResult
+  public func retryFailedTurnOnAppleImmediately(id: UUID) -> UUID? {
+    beginRetryFailedTurnOnApple(id: id)?.turnID
+  }
+
+  private func beginRetryFailedTurnOnApple(id: UUID) -> StartedTypedSubmission? {
+    guard operation == nil, !isStopping, let turn = turns.first(where: { $0.id == id }) else {
+      return nil
+    }
     guard
       turn.metadata?.recoveryAction == .retry,
-      turn.metadata?.completion != .completed
-    else { return }
-    await submit(turn.utterance, routeOverride: .appleOnDevice)
+      turn.metadata?.completion != .completed,
+      turn.phase == .failed || turn.phase == .cancelled
+    else { return nil }
+    return beginTypedSubmission(
+      turn.utterance,
+      routeOverride: .appleOnDevice,
+      routeLabel: "Apple On Device",
+      routeSnapshot: AssistantTextRouteSnapshot(provider: .appleOnDevice),
+      contextEpoch: nil
+    )
   }
 
   /// Starts a fresh provider context without cancelling an already-snapshotted
   /// request that may be billable. An in-flight attempt finishes into its old
   /// context; the new route begins after its immutable receipt.
   public func startNewRouteContext() async {
-    guard !isStopping else { return }
-    if operation != nil {
-      resetsContextAfterCurrentOperation = true
-      return
-    }
-    resetsContextAfterCurrentOperation = false
-    contextStartIndex = turns.count
-    state = .idle
+    startNewRouteContextImmediately()
+  }
+
+  public func startNewRouteContextImmediately() {
+    currentContextEpoch &+= 1
+    if operation == nil, !isStopping { state = .idle }
   }
 
   /// Starts voice only after an explicit user action. It never clears typed history.
@@ -875,15 +1050,23 @@ public final class AssistantConversationSession {
   }
 
   private func stop(preservingTurns: Bool) async {
+    guard !isStopping else { return }
     voiceStartAttemptID = nil
     generation &+= 1
     resetVoiceInput()
-    pendingUtterance = nil
-    pendingRoute = nil
-    resetsContextAfterCurrentOperation = false
     let stopGeneration = generation
     isStopping = true
     finishVoiceOperationIfNeeded()
+    var cancelledAttempt: (attemptID: UUID, turnID: UUID)?
+    if preservingTurns, let activeTurnID {
+      cancelPendingTurn(id: activeTurnID)
+      if let activeAttemptID {
+        cancelledAttempt = (activeAttemptID, activeTurnID)
+        cancelledTurnByAttemptID[activeAttemptID] = activeTurnID
+      }
+    }
+    activeAttemptID = nil
+    activeTurnID = nil
     let pendingAudioSessionActivation = audioSessionActivation
     pendingAudioSessionActivation?.task.cancel()
     let activeOperation = operation
@@ -895,6 +1078,11 @@ public final class AssistantConversationSession {
     await transcriber?.stop()
     await speaker?.stop()
     await activeOperation?.value
+    if let cancelledAttempt,
+      cancelledTurnByAttemptID[cancelledAttempt.attemptID] == cancelledAttempt.turnID
+    {
+      cancelledTurnByAttemptID[cancelledAttempt.attemptID] = nil
+    }
     if let pendingAudioSessionActivation {
       let didActivate = (try? await pendingAudioSessionActivation.task.value) != nil
       if audioSessionActivation?.id == pendingAudioSessionActivation.id {
@@ -907,8 +1095,10 @@ public final class AssistantConversationSession {
 
     guard generation == stopGeneration else { return }
     if !preservingTurns {
+      let hadTurns = !turns.isEmpty
       turns.removeAll(keepingCapacity: true)
-      contextStartIndex = 0
+      currentContextEpoch &+= 1
+      if hadTurns { transcriptRevision &+= 1 }
     }
     state = .stopped
     isStopping = false
@@ -1027,38 +1217,86 @@ public final class AssistantConversationSession {
   }
 
   @discardableResult
-  private func answer(_ utterance: String, generation currentGeneration: UInt64) async -> Bool {
-    guard isCurrent(currentGeneration) else { return false }
+  private func answer(
+    _ utterance: String,
+    generation currentGeneration: UInt64,
+    attemptID: UUID? = nil,
+    turnID: UUID? = nil,
+    routeOverride: AssistantConversationRoute? = nil,
+    routeSnapshot: AssistantTextRouteSnapshot? = nil,
+    contextEpoch: UInt64? = nil
+  ) async -> Bool {
+    guard isCurrent(currentGeneration, attemptID: attemptID, turnID: turnID) else {
+      return false
+    }
     state = .thinking
+    let acceptedContextEpoch = contextEpoch ?? currentContextEpoch
+    let acceptedRouteSnapshot =
+      routeSnapshot
+      ?? (isVoiceRunning ? AssistantTextRouteSnapshot(provider: .appleOnDevice) : nil)
+    let visibleHistory =
+      turns
+      .filter {
+        $0.phase == .completed
+          && $0.id != turnID
+          && $0.contextEpoch == acceptedContextEpoch
+          && (acceptedRouteSnapshot == nil || $0.requestedRouteSnapshot == acceptedRouteSnapshot)
+      }
+      .suffix(maximumContextTurns)
     let request = AssistantConversationRequest(
       utterance: utterance,
-      priorTurns: Array(turns.dropFirst(min(contextStartIndex, turns.count))),
+      priorTurns: Array(visibleHistory),
+      contextEpoch: acceptedContextEpoch,
       locale: locale,
       now: now(),
       modality: isVoiceRunning ? .voice : .text,
-      routeOverride: pendingRoute
+      routeOverride: routeOverride,
+      textRouteSnapshot: routeSnapshot
     )
     let response = await answerer.respond(to: request)
-    guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
+    if let attemptID, let turnID,
+      cancelledTurnByAttemptID[attemptID] == turnID
+    {
+      mergeCancelledReceipt(response, into: turnID)
+      return false
+    }
+    guard
+      isCurrent(currentGeneration, attemptID: attemptID, turnID: turnID),
+      !Task.isCancelled
+    else { return false }
 
     let presentedResponse =
       response.status == .ungrounded
       ? GroundedAssistantResponse(
         answer: "I couldn't answer that confidently. Try asking more specifically.",
-        status: .ungrounded
+        status: .ungrounded,
+        sources: response.sources,
+        metadata: response.metadata
       )
       : response
-    appendTurn(
-      AssistantConversationTurn(
-        utterance: utterance,
-        answer: presentedResponse.answer,
-        status: presentedResponse.status,
-        provenance: Self.provenance(for: presentedResponse),
-        sources: presentedResponse.sources,
-        metadata: presentedResponse.metadata,
-        modality: request.modality
+    if let turnID {
+      guard
+        replacePendingTurn(
+          id: turnID,
+          with: presentedResponse,
+          modality: request.modality
+        )
+      else { return false }
+    } else {
+      appendTurn(
+        AssistantConversationTurn(
+          contextEpoch: acceptedContextEpoch,
+          utterance: utterance,
+          answer: presentedResponse.answer,
+          status: presentedResponse.status,
+          provenance: Self.provenance(for: presentedResponse),
+          sources: presentedResponse.sources,
+          metadata: presentedResponse.metadata,
+          modality: request.modality,
+          phase: Self.phase(for: presentedResponse)
+        )
       )
-    )
+    }
     switch presentedResponse.status {
     case .unavailable:
       fail(generation: currentGeneration, kind: .unavailable, message: presentedResponse.answer)
@@ -1101,17 +1339,17 @@ public final class AssistantConversationSession {
     }
   }
 
-  private func finishOperation(generation candidate: UInt64) async {
-    guard candidate == generation else { return }
+  private func finishOperation(
+    generation candidate: UInt64,
+    attemptID: UUID? = nil,
+    turnID: UUID? = nil
+  ) async {
+    guard isCurrent(candidate, attemptID: attemptID, turnID: turnID) else { return }
     operation = nil
-    pendingUtterance = nil
-    pendingRoute = nil
+    activeAttemptID = nil
+    activeTurnID = nil
     finishVoiceOperationIfNeeded()
     await releaseAudioSessionIfNeeded()
-    if resetsContextAfterCurrentOperation {
-      contextStartIndex = turns.count
-      resetsContextAfterCurrentOperation = false
-    }
     if state == .thinking || state == .speaking || state == .listening { state = .idle }
   }
 
@@ -1160,17 +1398,98 @@ public final class AssistantConversationSession {
     liveTranscript = value
   }
 
-  private func appendTurn(_ turn: AssistantConversationTurn) {
-    turns.append(turn)
-    if turns.count > maximumContextTurns {
-      let removedCount = turns.count - maximumContextTurns
-      turns.removeFirst(removedCount)
-      contextStartIndex = max(0, contextStartIndex - removedCount)
+  private static func phase(
+    for response: GroundedAssistantResponse
+  ) -> AssistantConversationTurnPhase {
+    if response.status == .unavailable || response.status == .ungrounded {
+      return .failed
     }
+    if let metadata = response.metadata, metadata.completion != .completed {
+      return .failed
+    }
+    return .completed
   }
 
-  private func isCurrent(_ candidate: UInt64) -> Bool {
-    candidate == generation && operation != nil && !Task.isCancelled
+  @discardableResult
+  private func replacePendingTurn(
+    id: UUID,
+    with response: GroundedAssistantResponse,
+    modality: AssistantRequestModality
+  ) -> Bool {
+    guard let index = turns.firstIndex(where: { $0.id == id }),
+      turns[index].phase == .pending
+    else { return false }
+    turns[index].answer = response.answer
+    turns[index].status = response.status
+    turns[index].provenance = Self.provenance(for: response)
+    turns[index].sources = response.sources
+    turns[index].metadata = response.metadata
+    turns[index].modality = modality
+    turns[index].phase = Self.phase(for: response)
+    transcriptRevision &+= 1
+    return true
+  }
+
+  private func cancelPendingTurn(id: UUID) {
+    guard let index = turns.firstIndex(where: { $0.id == id }),
+      turns[index].phase == .pending
+    else { return }
+    let route = turns[index].requestedRoute
+    turns[index].answer = "Response stopped"
+    turns[index].status = .answered
+    turns[index].provenance = .nonLocal
+    turns[index].sources = []
+    turns[index].metadata = AssistantResponseMetadata(
+      requestedProvider: route.provider,
+      requestedModelID: route.modelID,
+      routeLabel: turns[index].requestedRouteLabel,
+      completion: .incomplete,
+      recoveryAction: .retry
+    )
+    turns[index].phase = .cancelled
+    transcriptRevision &+= 1
+  }
+
+  private func mergeCancelledReceipt(
+    _ response: GroundedAssistantResponse,
+    into id: UUID
+  ) {
+    guard let index = turns.firstIndex(where: { $0.id == id }),
+      turns[index].phase == .cancelled,
+      let receipt = response.metadata
+    else { return }
+    let route = turns[index].requestedRoute
+    turns[index].metadata = AssistantResponseMetadata(
+      requestedProvider: route.provider,
+      requestedModelID: route.modelID,
+      actualModelID: receipt.actualModelID,
+      routeLabel: turns[index].requestedRouteLabel,
+      usage: receipt.usage,
+      requestIDs: receipt.requestIDs,
+      completion: .incomplete,
+      priorOpenAITurnCount: receipt.priorOpenAITurnCount,
+      localContextCount: receipt.localContextCount,
+      recoveryAction: .retry
+    )
+    turns[index].sources = response.sources
+    turns[index].provenance = response.sources.isEmpty ? .nonLocal : .localDataDerived
+    transcriptRevision &+= 1
+  }
+
+  private func appendTurn(_ turn: AssistantConversationTurn) {
+    turns.append(turn)
+    transcriptRevision &+= 1
+  }
+
+  private func isCurrent(
+    _ candidate: UInt64,
+    attemptID: UUID? = nil,
+    turnID: UUID? = nil
+  ) -> Bool {
+    guard candidate == generation, operation != nil, !Task.isCancelled else { return false }
+    if let attemptID, activeAttemptID != attemptID { return false }
+    if let turnID, activeTurnID != turnID { return false }
+    return true
   }
 
   private func fail(

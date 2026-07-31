@@ -83,7 +83,12 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
       return await appleResponse(to: request)
     }
 
-    let snapshot = await routeSnapshot(request.routeOverride)
+    let snapshot: AssistantTextRouteSnapshot
+    if let acceptedSnapshot = request.textRouteSnapshot {
+      snapshot = acceptedSnapshot
+    } else {
+      snapshot = await routeSnapshot(request.routeOverride)
+    }
     guard snapshot.provider == .openAI else {
       return await appleResponse(to: request)
     }
@@ -104,6 +109,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
       $0.modality == .text
         && $0.metadata?.requestedProvider == .openAI
         && $0.metadata?.completion == .completed
+        && $0.requestedRouteSnapshot == snapshot
+        && (request.contextEpoch == nil || $0.contextEpoch == request.contextEpoch)
     }.suffix(AssistantConversationSession.defaultMaximumContextTurns)
     var routedRequest = request
     routedRequest.priorTurns = Array(openAIHistory)

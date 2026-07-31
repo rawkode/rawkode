@@ -258,12 +258,62 @@ enum AssistantConversationSurface: Equatable {
   case carPlay
 }
 
+#if DEBUG
+  private actor DelayedOptimisticChatFixtureAnswerer: AssistantConversationAnswering {
+    func respond(to request: AssistantConversationRequest) async -> GroundedAssistantResponse {
+      let route = request.routeOverride ?? .appleOnDevice
+      let routeLabel: String
+      if route.provider == .openAI {
+        routeLabel = route.modelID.map { "OpenAI · \($0)" } ?? "OpenAI"
+      } else {
+        routeLabel = "Apple On Device"
+      }
+      do {
+        try await Task.sleep(for: .seconds(30))
+      } catch {
+        return GroundedAssistantResponse(
+          answer: "Response stopped",
+          status: .unavailable,
+          metadata: AssistantResponseMetadata(
+            requestedProvider: route.provider,
+            requestedModelID: route.modelID,
+            routeLabel: routeLabel,
+            requestIDs: ["debug_delayed_cancelled"],
+            completion: .incomplete,
+            recoveryAction: .retry
+          )
+        )
+      }
+      return GroundedAssistantResponse(
+        answer: "This delayed response replaced the pending bubble without adding another turn.",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: route.provider,
+          requestedModelID: route.modelID,
+          actualModelID: route.modelID,
+          routeLabel: routeLabel,
+          requestIDs: ["debug_delayed_completed"]
+        )
+      )
+    }
+
+    func resetConversation() async {}
+  }
+#endif
+
 @MainActor
 func makeAssistantConversationSession(
   assistant: (any AssistantConversationAnswering)?,
   voicePreferences: AssistantVoicePreferences,
   surface: AssistantConversationSurface = .app
 ) -> AssistantConversationSession? {
+  #if DEBUG
+    if surface == .app,
+      ProcessInfo.processInfo.arguments.contains("-AssistantOptimisticChatFixture")
+    {
+      return AssistantConversationSession(answerer: DelayedOptimisticChatFixtureAnswerer())
+    }
+  #endif
   guard let assistant else { return nil }
   if #available(iOS 26.0, macOS 26.0, *) {
     #if os(iOS)

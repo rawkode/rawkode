@@ -26,6 +26,8 @@ struct AssistantConversationView: View {
   @State private var draft = ""
   @State private var pendingOpenAIConsent: PendingOpenAIConsent?
   @State private var realtimeVoiceLobby: RealtimeVoiceLobbyRoute?
+  @State private var followsLatestTurn = true
+  @State private var explicitlyAcceptedTurnID: UUID?
   @FocusState private var composerIsFocused: Bool
 
   private static let starterPrompts = [
@@ -86,7 +88,7 @@ struct AssistantConversationView: View {
     .task(id: surfaceID) { await prepareSurface() }
     .onChange(of: routeConfigurationIdentity) { _, _ in
       guard let session else { return }
-      Task { await session.startNewRouteContext() }
+      session.startNewRouteContextImmediately()
     }
     .onDisappear(perform: stopSurface)
     .onChange(of: scenePhase) { _, phase in
@@ -96,11 +98,7 @@ struct AssistantConversationView: View {
           await session.refreshVoiceAvailability()
           await providerSettings?.refreshCredentialState()
         } else {
-          #if os(iOS)
-            await session.handleVoiceSafetyEvent(.appInactive)
-          #else
-            await session.stop()
-          #endif
+          await session.handleVoiceSafetyEvent(.appInactive)
         }
       }
     }
@@ -150,21 +148,28 @@ struct AssistantConversationView: View {
           if session.turns.isEmpty {
             introduction(session)
           } else {
-            ForEach(Array(session.turns.enumerated()), id: \.offset) { index, turn in
+            ForEach(Array(session.turns.enumerated()), id: \.element.id) { index, turn in
               if index > 0,
-                session.turns[index - 1].metadata?.routeContextIdentity
-                  != turn.metadata?.routeContextIdentity
+                session.turns[index - 1].requestedRoute != turn.requestedRoute
               {
-                routeDivider(turn.metadata?.routeLabel ?? "Assistant")
+                routeDivider(turn.requestedRouteLabel)
               }
 
               AssistantTurnView(
                 turn: turn,
-                onRetry: { Task { await session.retryFailedTurn(at: index) } },
-                onRetryOnApple: { Task { await session.retryFailedTurnOnApple(at: index) } },
+                onRetry: {
+                  reveal(
+                    session.retryFailedTurnImmediately(id: turn.id)
+                  )
+                },
+                onRetryOnApple: {
+                  reveal(
+                    session.retryFailedTurnOnAppleImmediately(id: turn.id)
+                  )
+                },
                 onOpenSettings: openAppSettings
               )
-              .id(index)
+              .id(turn.id)
 
               if index < session.turns.count - 1 {
                 Divider()
@@ -172,33 +177,89 @@ struct AssistantConversationView: View {
               }
             }
           }
-          if let pending = session.pendingUtterance {
-            AssistantPendingTurnView(
-              utterance: pending,
-              routeLabel: routeLabel(for: session.pendingRoute) ?? currentRouteLabel
-            )
-            .id("pending")
-          }
         }
         .frame(maxWidth: 720, alignment: .leading)
         .padding(.horizontal, 24)
         .padding(.vertical, 32)
         .frame(maxWidth: .infinity)
+        .animation(
+          reduceMotion ? nil : .easeInOut(duration: 0.2), value: session.transcriptRevision)
       }
-      .onChange(of: session.turns.count) { _, count in
-        guard count > 0 else { return }
-        if reduceMotion {
-          proxy.scrollTo(count - 1, anchor: .bottom)
-        } else {
-          withAnimation(.smooth(duration: 0.2)) {
-            proxy.scrollTo(count - 1, anchor: .bottom)
-          }
-        }
+      #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+      #endif
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        geometry.contentSize.height <= geometry.containerSize.height
+          || geometry.visibleRect.maxY >= geometry.contentSize.height - 32
+      } action: { _, isAtBottom in
+        followsLatestTurn = isAtBottom
+      }
+      .onChange(of: session.transcriptRevision) { _, _ in
+        guard followsLatestTurn, let turnID = session.turns.last?.id else { return }
+        scroll(to: turnID, using: proxy)
+      }
+      .onChange(of: explicitlyAcceptedTurnID) { _, turnID in
+        guard let turnID else { return }
+        followsLatestTurn = true
+        scroll(to: turnID, using: proxy)
+        explicitlyAcceptedTurnID = nil
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       composer(session)
     }
+    .onChange(of: lifecycleAnnouncement(for: session)) { _, announcement in
+      guard let announcement else { return }
+      postAccessibilityAnnouncement(announcement.message)
+    }
+  }
+
+  private func scroll(to turnID: UUID, using proxy: ScrollViewProxy) {
+    if reduceMotion {
+      proxy.scrollTo(turnID, anchor: .bottom)
+    } else {
+      withAnimation(.easeInOut(duration: 0.2)) {
+        proxy.scrollTo(turnID, anchor: .bottom)
+      }
+    }
+  }
+
+  private func reveal(_ turnID: UUID?) {
+    guard let turnID else { return }
+    explicitlyAcceptedTurnID = turnID
+  }
+
+  private func lifecycleAnnouncement(
+    for session: AssistantConversationSession
+  ) -> AssistantLifecycleAnnouncement? {
+    guard let turn = session.turns.last, turn.modality == .text else { return nil }
+    let message =
+      switch turn.phase {
+      case .pending:
+        "Assistant is thinking with \(turn.requestedRouteLabel)"
+      case .completed:
+        "Assistant response completed: \(turn.answer)"
+      case .failed:
+        "Assistant response failed: \(turn.answer)"
+      case .cancelled:
+        "Assistant response stopped"
+      }
+    return AssistantLifecycleAnnouncement(turnID: turn.id, phase: turn.phase, message: message)
+  }
+
+  private func postAccessibilityAnnouncement(_ message: String) {
+    #if os(macOS)
+      NSAccessibility.post(
+        element: NSApplication.shared,
+        notification: .announcementRequested,
+        userInfo: [
+          .announcement: message,
+          .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+        ]
+      )
+    #else
+      UIAccessibility.post(notification: .announcement, argument: message)
+    #endif
   }
 
   private func composer(_ session: AssistantConversationSession) -> some View {
@@ -226,22 +287,9 @@ struct AssistantConversationView: View {
           .onSubmit { submit(draft, to: session) }
           .accessibilityLabel("Message")
 
-        voiceButton(session)
-
-        Button {
-          submit(draft, to: session)
-        } label: {
-          Label("Send", systemImage: "arrow.up")
-            .labelStyle(.iconOnly)
-            .frame(minWidth: 20, minHeight: 20)
+        if !session.isVoiceRunning {
+          voiceButton(session)
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.circle)
-        .frame(minWidth: 44, minHeight: 44)
-        .disabled(
-          draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.isRunning
-        )
-        .accessibilityLabel("Send message")
 
         if session.isRunning {
           Button {
@@ -255,6 +303,19 @@ struct AssistantConversationView: View {
           .buttonBorderShape(.circle)
           .frame(minWidth: 44, minHeight: 44)
           .accessibilityLabel("Stop response")
+        } else {
+          Button {
+            submit(draft, to: session)
+          } label: {
+            Label("Send", systemImage: "arrow.up")
+              .labelStyle(.iconOnly)
+              .frame(minWidth: 20, minHeight: 20)
+          }
+          .buttonStyle(.borderedProminent)
+          .buttonBorderShape(.circle)
+          .frame(minWidth: 44, minHeight: 44)
+          .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .accessibilityLabel("Send message")
         }
       }
     }
@@ -273,8 +334,6 @@ struct AssistantConversationView: View {
         realtimeVoiceLobby = RealtimeVoiceLobbyRoute(
           snapshot: providerSettings.voiceRouteSnapshot()
         )
-      } else if session.isVoiceRunning {
-        Task { await session.stop() }
       } else {
         Task { await session.startVoice() }
       }
@@ -286,14 +345,14 @@ struct AssistantConversationView: View {
           ProgressView()
             .controlSize(.small)
         } else {
-          Image(systemName: session.isVoiceRunning ? "stop.fill" : "mic.fill")
+          Image(systemName: "mic.fill")
         }
       }
       .frame(minWidth: 20, minHeight: 20)
     }
     .buttonStyle(.bordered)
     .buttonBorderShape(.circle)
-    .tint(session.isVoiceRunning ? .red : .accentColor)
+    .tint(.accentColor)
     .frame(minWidth: 44, minHeight: 44)
     .disabled(voiceButtonIsDisabled(session))
     .accessibilityLabel(voiceButtonAccessibilityLabel(session))
@@ -322,7 +381,17 @@ struct AssistantConversationView: View {
       case .listening:
         activityStatus("Listening…", systemImage: "mic.fill")
       case .thinking:
-        activityStatus("Thinking…")
+        let routeLabel =
+          session.isVoiceRunning
+          ? "Apple On Device"
+          : session.turns.last?.requestedRouteLabel ?? currentRouteLabel
+        Label(
+          "Responding with \(routeLabel)",
+          systemImage: "arrow.up.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Response in progress")
       case .speaking:
         activityStatus("Speaking…", systemImage: "speaker.fill")
       case .error(let failure):
@@ -453,11 +522,17 @@ struct AssistantConversationView: View {
       pendingOpenAIConsent = PendingOpenAIConsent(modelID: modelID, utterance: utterance)
       return
     }
+    guard
+      let acceptedTurnID = session.submitImmediately(
+        utterance,
+        routeOverride: currentConversationRoute,
+        routeLabel: currentRouteLabel,
+        routeSnapshot: currentTextRouteSnapshot
+      )
+    else { return }
+    explicitlyAcceptedTurnID = acceptedTurnID
     draft = ""
-    Task {
-      await session.submit(utterance)
-      composerIsFocused = true
-    }
+    composerIsFocused = true
   }
 
   private func canStartVoice(_ availability: AssistantVoiceAvailability) -> Bool {
@@ -476,16 +551,14 @@ struct AssistantConversationView: View {
     if providerSettings?.selectedVoiceProvider == .openAIRealtime {
       return "Open OpenAI Voice lobby"
     }
-    return session.isVoiceRunning ? "Stop voice conversation" : "Listen"
+    return "Listen"
   }
 
   private func voiceButtonAccessibilityHint(_ session: AssistantConversationSession) -> String {
     if providerSettings?.selectedVoiceProvider == .openAIRealtime {
       return "Opens a lobby without requesting microphone access, reading the key, or connecting."
     }
-    return session.isVoiceRunning
-      ? "Stops listening and speech"
-      : "Starts an Apple On Device voice conversation. Microphone audio never goes to OpenAI."
+    return "Starts an Apple On Device voice conversation. Microphone audio never goes to OpenAI."
   }
 
   private func prepareSurface() async {
@@ -540,12 +613,19 @@ struct AssistantConversationView: View {
     return "OpenAI · \(title)"
   }
 
-  private func routeLabel(for route: AssistantConversationRoute?) -> String? {
-    guard let route else { return nil }
-    guard route.provider == .openAI else { return "Apple On Device" }
-    guard let modelID = route.modelID else { return "OpenAI · Setup needed" }
-    let title = OpenAIModelCatalog.textOptions.first(where: { $0.id == modelID })?.title ?? modelID
-    return "OpenAI · \(title)"
+  private var currentConversationRoute: AssistantConversationRoute {
+    guard let providerSettings, providerSettings.selectedProvider == .openAI else {
+      return .appleOnDevice
+    }
+    return AssistantConversationRoute(
+      provider: .openAI,
+      modelID: providerSettings.selectedTextModelID
+    )
+  }
+
+  private var currentTextRouteSnapshot: AssistantTextRouteSnapshot {
+    providerSettings?.textRouteSnapshot(for: currentConversationRoute)
+      ?? AssistantTextRouteSnapshot(provider: .appleOnDevice)
   }
 
   private var introductionDetail: String {
@@ -624,11 +704,18 @@ struct AssistantConversationView: View {
       return
     }
     if let utterance = pending.utterance, let session {
+      session.startNewRouteContextImmediately()
+      guard
+        let acceptedTurnID = session.submitImmediately(
+          utterance,
+          routeOverride: currentConversationRoute,
+          routeLabel: currentRouteLabel,
+          routeSnapshot: currentTextRouteSnapshot
+        )
+      else { return }
+      explicitlyAcceptedTurnID = acceptedTurnID
       draft = ""
-      Task {
-        await session.startNewRouteContext()
-        await session.submit(utterance)
-      }
+      composerIsFocused = true
     }
   }
 
@@ -666,149 +753,220 @@ private struct AssistantTurnView: View {
   let onRetry: () -> Void
   let onRetryOnApple: () -> Void
   let onOpenSettings: () -> Void
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var showsDetails = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("You")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-
+    VStack(spacing: 14) {
+      HStack {
+        Spacer(minLength: 36)
         Text(turn.utterance)
-          .font(.body.weight(.semibold))
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .font(.body)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .foregroundStyle(.primary)
+          .background(.tint.opacity(0.14), in: .rect(cornerRadius: 18))
+          .frame(maxWidth: 560, alignment: .trailing)
       }
-      .accessibilityElement(children: .combine)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("You: \(turn.utterance)")
 
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: "sparkles")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tint)
+          .frame(width: 28, height: 28)
+          .background(.tint.opacity(0.12), in: .circle)
+          .accessibilityHidden(true)
+
+        VStack(alignment: .leading, spacing: 10) {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+              Text("Assistant")
+                .font(.caption.weight(.semibold))
+              Text(turn.requestedRouteLabel)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            assistantContent
+          }
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(assistantAccessibilityLabel)
+
+          if turn.phase != .pending, let metadata = turn.metadata {
+            VStack(alignment: .leading, spacing: 8) {
+              HStack(spacing: 8) {
+                if let usage = metadata.usage {
+                  Text("\(usage.total) tokens")
+                } else if metadata.requestedProvider == .openAI {
+                  Text("Usage unavailable")
+                }
+                if metadata.localContextCount > 0 {
+                  Text(
+                    metadata.completion == .completed
+                      ? "\(metadata.localContextCount) local sources"
+                      : "\(metadata.localContextCount) local sources disclosed"
+                  )
+                }
+              }
+              .font(.caption)
+              .foregroundStyle(.secondary)
+
+              if !turn.sources.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                  HStack(spacing: 6) {
+                    ForEach(turn.sources) { source in
+                      Label(
+                        source.title,
+                        systemImage: source.kind == .calendarEvent ? "calendar" : "doc.text"
+                      )
+                      .font(.caption2)
+                      .padding(.horizontal, 8)
+                      .padding(.vertical, 5)
+                      .background(.quaternary, in: .capsule)
+                    }
+                  }
+                }
+              }
+
+              DisclosureGroup("Response details", isExpanded: $showsDetails) {
+                VStack(alignment: .leading, spacing: 4) {
+                  if let usage = metadata.usage {
+                    Text(
+                      "Input \(usage.input) · Cached \(usage.cachedInput) · Cache write \(usage.cacheWrite) · Output \(usage.output) · Total \(usage.total)"
+                    )
+                  } else {
+                    Text("Usage unavailable")
+                  }
+                  if let model = metadata.actualModelID {
+                    Text("Actual model: \(model)").textSelection(.enabled)
+                  } else if let requestedModel = metadata.requestedModelID {
+                    Text("Requested model: \(requestedModel)").textSelection(.enabled)
+                  }
+                  ForEach(metadata.requestIDs, id: \.self) { requestID in
+                    Text("Request ID: \(requestID)").textSelection(.enabled)
+                  }
+                }
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+              }
+              .font(.caption)
+
+              if metadata.completion != .completed {
+                recoveryActions(metadata)
+              }
+            }
+          }
+        }
+        .padding(14)
+        .frame(maxWidth: 620, alignment: .leading)
+        .background(assistantBackground, in: .rect(cornerRadius: 18))
+        .accessibilityElement(children: .contain)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: turn.phase)
+
+        Spacer(minLength: 20)
+      }
+    }
+    .privacySensitive()
+  }
+
+  @ViewBuilder
+  private var assistantContent: some View {
+    switch turn.phase {
+    case .pending:
+      HStack(spacing: 8) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Thinking…")
+      }
+      .font(.body)
+      .foregroundStyle(.secondary)
+    case .cancelled:
+      Label("Response stopped", systemImage: "stop.circle")
+        .font(.body)
+        .foregroundStyle(.secondary)
+    case .failed:
+      Label {
+        Text(turn.answer)
+          .textSelection(.enabled)
+      } icon: {
+        Image(systemName: "exclamationmark.circle.fill")
+      }
+      .font(.body)
+      .foregroundStyle(.orange)
+    case .completed:
       Text(turn.answer)
         .font(.body)
         .lineSpacing(3)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel("Assistant: \(turn.answer)")
-
-      if let metadata = turn.metadata {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(spacing: 8) {
-            Text(metadata.routeLabel)
-            if let usage = metadata.usage {
-              Text("\(usage.total) tokens")
-            } else if metadata.requestedProvider == .openAI {
-              Text("Usage unavailable")
-            }
-            if metadata.localContextCount > 0 {
-              Text(
-                metadata.completion == .completed
-                  ? "\(metadata.localContextCount) local sources"
-                  : "\(metadata.localContextCount) local sources disclosed"
-              )
-            }
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
-
-          if !turn.sources.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-              HStack(spacing: 6) {
-                ForEach(turn.sources) { source in
-                  Label(
-                    source.title,
-                    systemImage: source.kind == .calendarEvent ? "calendar" : "doc.text"
-                  )
-                  .font(.caption2)
-                  .padding(.horizontal, 8)
-                  .padding(.vertical, 5)
-                  .background(.quaternary, in: .capsule)
-                }
-              }
-            }
-          }
-
-          DisclosureGroup("Response details", isExpanded: $showsDetails) {
-            VStack(alignment: .leading, spacing: 4) {
-              if let usage = metadata.usage {
-                Text(
-                  "Input \(usage.input) · Cached \(usage.cachedInput) · Cache write \(usage.cacheWrite) · Output \(usage.output) · Total \(usage.total)"
-                )
-              } else {
-                Text("Usage unavailable")
-              }
-              if let model = metadata.actualModelID {
-                Text("Actual model: \(model)").textSelection(.enabled)
-              } else if let requestedModel = metadata.requestedModelID {
-                Text("Requested model: \(requestedModel)").textSelection(.enabled)
-              }
-              ForEach(metadata.requestIDs, id: \.self) { requestID in
-                Text("Request ID: \(requestID)").textSelection(.enabled)
-              }
-            }
-            .font(.caption2.monospaced())
-            .foregroundStyle(.secondary)
-          }
-          .font(.caption)
-
-          if metadata.completion != .completed {
-            switch metadata.recoveryAction {
-            case .retry:
-              VStack(alignment: .leading, spacing: 8) {
-                Button("Try Again", action: onRetry)
-                  .buttonStyle(.borderedProminent)
-                  .frame(minHeight: 44)
-                  .contentShape(.rect)
-                  .accessibilityLabel("Try again on \(metadata.routeLabel)")
-                  .accessibilityHint("Adds a new attempt and keeps this failed receipt unchanged.")
-                if metadata.requestedProvider == .openAI {
-                  Button("Retry on Apple On Device", action: onRetryOnApple)
-                    .buttonStyle(.bordered)
-                    .frame(minHeight: 44)
-                    .contentShape(.rect)
-                    .accessibilityHint(
-                      "Adds a separate on-device attempt and keeps this OpenAI failure unchanged."
-                    )
-                }
-              }
-            case .openSettings:
-              Button("Open Settings", action: onOpenSettings)
-                .buttonStyle(.bordered)
-                .frame(minHeight: 44)
-                .contentShape(.rect)
-                .accessibilityLabel("Open Assistant Providers settings")
-                .accessibilityHint("Review the OpenAI key, consent, model, billing, and limits.")
-            case nil:
-              EmptyView()
-            }
-          }
-        }
-      }
     }
   }
-}
 
-private struct AssistantPendingTurnView: View {
-  let utterance: String
-  let routeLabel: String
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("You")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      Text(utterance)
-        .font(.body.weight(.semibold))
-      HStack(spacing: 8) {
-        ProgressView().controlSize(.small)
-        Text("Waiting for \(routeLabel)…")
+  @ViewBuilder
+  private func recoveryActions(_ metadata: AssistantResponseMetadata) -> some View {
+    switch metadata.recoveryAction {
+    case .retry:
+      VStack(alignment: .leading, spacing: 8) {
+        Button("Try Again", action: onRetry)
+          .buttonStyle(.borderedProminent)
+          .frame(minHeight: 44)
+          .contentShape(.rect)
+          .accessibilityLabel("Try again on \(turn.requestedRouteLabel)")
+          .accessibilityHint("Adds a new attempt and keeps this receipt unchanged.")
+        if metadata.requestedProvider == .openAI {
+          Button("Retry on Apple On Device", action: onRetryOnApple)
+            .buttonStyle(.bordered)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+            .accessibilityHint(
+              "Adds a separate on-device attempt and keeps this OpenAI receipt unchanged."
+            )
+        }
       }
-      .font(.caption)
-      .foregroundStyle(.secondary)
+    case .openSettings:
+      Button("Open Settings", action: onOpenSettings)
+        .buttonStyle(.bordered)
+        .frame(minHeight: 44)
+        .contentShape(.rect)
+        .accessibilityLabel("Open Assistant Providers settings")
+        .accessibilityHint("Review the OpenAI key, consent, model, billing, and limits.")
+    case nil:
+      EmptyView()
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .privacySensitive()
+  }
+
+  private var assistantBackground: some ShapeStyle {
+    switch turn.phase {
+    case .failed:
+      AnyShapeStyle(Color.orange.opacity(0.1))
+    case .pending, .completed, .cancelled:
+      AnyShapeStyle(.quaternary)
+    }
+  }
+
+  private var assistantAccessibilityLabel: String {
+    switch turn.phase {
+    case .pending:
+      "Assistant is thinking with \(turn.requestedRouteLabel)"
+    case .completed:
+      "Assistant: \(turn.answer)"
+    case .failed:
+      "Assistant could not complete the response: \(turn.answer)"
+    case .cancelled:
+      "Assistant response stopped"
+    }
   }
 }
 
 private struct PendingOpenAIConsent {
   let modelID: String
   let utterance: String?
+}
+
+private struct AssistantLifecycleAnnouncement: Equatable {
+  let turnID: UUID
+  let phase: AssistantConversationTurnPhase
+  let message: String
 }

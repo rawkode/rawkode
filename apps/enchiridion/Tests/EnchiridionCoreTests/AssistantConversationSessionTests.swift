@@ -81,7 +81,7 @@ final class AssistantConversationSessionTests: XCTestCase {
   }
 
   @MainActor
-  func testRetainsOnlyFourEphemeralTurnsAndPassesThemAsContext() async throws {
+  func testRetainsVisibleTranscriptWhileBoundingModelContextToFourTurns() async throws {
     let transcriber = ScriptedTranscriber(
       utterances: ["question 1", "question 2", "question 3", "question 4", "question 5"]
     )
@@ -108,13 +108,13 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(
       session.turns.map(\.utterance),
       [
-        "question 2", "question 3", "question 4", "question 5",
+        "question 1", "question 2", "question 3", "question 4", "question 5",
       ])
     let spokenValues = await speaker.spoken
     XCTAssertEqual(spokenValues.count, 5)
 
     await session.stop()
-    XCTAssertEqual(session.turns.count, 4)
+    XCTAssertEqual(session.turns.count, 5)
   }
 
   @MainActor
@@ -171,13 +171,20 @@ final class AssistantConversationSessionTests: XCTestCase {
     let freshSubmission = Task { await session.submit("unrelated fresh request") }
     try await waitUntil { await answerer.requests.count == 2 }
     let requests = await answerer.requests
-    XCTAssertTrue(session.turns.isEmpty)
+    XCTAssertEqual(session.turns.count, 2)
+    XCTAssertEqual(session.turns[0].utterance, "stale suspended request")
+    XCTAssertEqual(session.turns[0].phase, .cancelled)
+    XCTAssertEqual(session.turns[0].answer, "Response stopped")
+    XCTAssertEqual(session.turns[1].phase, .pending)
     XCTAssertTrue(requests[1].priorTurns.isEmpty)
     await answerer.succeedNext(
       with: GroundedAssistantResponse(answer: "fresh answer", status: .answered)
     )
     await freshSubmission.value
-    XCTAssertEqual(session.turns.map(\.utterance), ["unrelated fresh request"])
+    XCTAssertEqual(
+      session.turns.map(\.utterance),
+      ["stale suspended request", "unrelated fresh request"]
+    )
   }
 
   @MainActor
@@ -261,17 +268,12 @@ final class AssistantConversationSessionTests: XCTestCase {
     await session.submit("What is next?")
 
     XCTAssertEqual(session.state, .idle)
-    XCTAssertEqual(
-      session.turns,
-      [
-        AssistantConversationTurn(
-          utterance: "What is next?",
-          answer: "Design review is at ten.",
-          status: .answered,
-          provenance: .nonLocal
-        )
-      ]
-    )
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns.first?.utterance, "What is next?")
+    XCTAssertEqual(session.turns.first?.answer, "Design review is at ten.")
+    XCTAssertEqual(session.turns.first?.status, .answered)
+    XCTAssertEqual(session.turns.first?.provenance, .nonLocal)
+    XCTAssertEqual(session.turns.first?.phase, .completed)
     if case .unavailable = session.voiceAvailability {
       // Voice availability never gates typed requests.
     } else {
@@ -298,6 +300,490 @@ final class AssistantConversationSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .idle)
     let spokenValues = await speaker.spoken
     XCTAssertTrue(spokenValues.isEmpty)
+  }
+
+  @MainActor
+  func testTypedSendSynchronouslyAppendsAndAtomicallyCompletesOneStableAttempt() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let route = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+
+    let turnID = try XCTUnwrap(
+      session.submitImmediately(
+        "  Ship the plan  ",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced"
+      )
+    )
+
+    XCTAssertEqual(session.state, .thinking)
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns[0].id, turnID)
+    XCTAssertEqual(session.turns[0].utterance, "Ship the plan")
+    XCTAssertEqual(session.turns[0].phase, .pending)
+    XCTAssertEqual(session.turns[0].answer, "")
+    XCTAssertEqual(session.turns[0].requestedRoute, route)
+    XCTAssertEqual(session.turns[0].requestedRouteLabel, "OpenAI · Balanced")
+    XCTAssertNil(
+      session.submitImmediately(
+        "Keep this draft",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced"
+      )
+    )
+    XCTAssertEqual(session.turns.count, 1)
+
+    try await waitUntil { await answerer.requests.count == 1 }
+    let requests = await answerer.requests
+    XCTAssertEqual(requests[0].routeOverride, route)
+    XCTAssertTrue(requests[0].priorTurns.isEmpty)
+
+    let usage = AssistantTokenUsage(input: 12, output: 5, total: 17)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "The plan is ready.",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-terra",
+          actualModelID: "gpt-5.6-terra",
+          routeLabel: "OpenAI · Balanced",
+          usage: usage,
+          requestIDs: ["req_optimistic"]
+        )
+      )
+    )
+    try await waitUntil { session.state == .idle }
+
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns[0].id, turnID)
+    XCTAssertEqual(session.turns[0].phase, .completed)
+    XCTAssertEqual(session.turns[0].answer, "The plan is ready.")
+    XCTAssertEqual(session.turns[0].requestedRoute, route)
+    XCTAssertEqual(session.turns[0].metadata?.usage, usage)
+    XCTAssertEqual(session.turns[0].metadata?.requestIDs, ["req_optimistic"])
+  }
+
+  @MainActor
+  func testAcceptedRouteSnapshotSurvivesSettingsChangeAndNextTurnUsesNewRoute() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let acceptedRoute = AssistantConversationRoute(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra"
+    )
+    let changedRoute = AssistantConversationRoute(
+      provider: .openAI,
+      modelID: "gpt-5.6-sol"
+    )
+    let acceptedSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "accepted-revision",
+        fingerprint: "accepted-fingerprint"
+      )
+    )
+    let changedSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-sol",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "changed-revision",
+        fingerprint: "changed-fingerprint"
+      )
+    )
+    let firstID = try XCTUnwrap(
+      session.submitImmediately(
+        "Keep the accepted model",
+        routeOverride: acceptedRoute,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: acceptedSnapshot
+      )
+    )
+
+    session.startNewRouteContextImmediately()
+    try await waitUntil { await answerer.requests.count == 1 }
+    var requests = await answerer.requests
+    XCTAssertEqual(requests[0].routeOverride, acceptedRoute)
+    XCTAssertEqual(requests[0].textRouteSnapshot, acceptedSnapshot)
+    XCTAssertEqual(session.turns.first?.requestedRoute, acceptedRoute)
+    XCTAssertEqual(session.turns.first?.requestedRouteLabel, "OpenAI · Balanced")
+    XCTAssertEqual(session.turns.first?.requestedRouteSnapshot, acceptedSnapshot)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "First answer",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-terra",
+          actualModelID: "gpt-5.6-terra",
+          routeLabel: "OpenAI · Balanced"
+        )
+      )
+    )
+    try await waitUntil { session.state == .idle }
+
+    let secondID = try XCTUnwrap(
+      session.submitImmediately(
+        "Use the changed model",
+        routeOverride: changedRoute,
+        routeLabel: "OpenAI · Best",
+        routeSnapshot: changedSnapshot
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    requests = await answerer.requests
+    XCTAssertEqual(requests[1].routeOverride, changedRoute)
+    XCTAssertEqual(requests[1].textRouteSnapshot, changedSnapshot)
+    XCTAssertTrue(requests[1].priorTurns.isEmpty)
+    XCTAssertEqual(session.turns.map(\.id), [firstID, secondID])
+    XCTAssertEqual(session.turns[0].requestedRoute, acceptedRoute)
+    XCTAssertEqual(session.turns[1].requestedRoute, changedRoute)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Second answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+  }
+
+  @MainActor
+  func testTypedAndVoiceMutuallyExcludeWhileVoiceKeepsTerminalOnlyTurns() async throws {
+    let transcriber = ControlledTranscriber()
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      interTurnDelay: .zero
+    )
+
+    let typedID = try XCTUnwrap(
+      session.submitImmediately(
+        "Typed first",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+    await session.startVoice()
+    let voiceCallCountWhileTyped = await transcriber.callCount
+    XCTAssertEqual(voiceCallCountWhileTyped, 0)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Typed answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+    XCTAssertEqual(session.turns.map(\.id), [typedID])
+
+    await session.startVoice()
+    try await waitUntil { await transcriber.callCount == 1 }
+    XCTAssertNil(
+      session.submitImmediately(
+        "Must stay in the draft",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    XCTAssertEqual(session.turns.count, 1)
+
+    await transcriber.succeedNext(with: "Voice question")
+    try await waitUntil { await answerer.requests.count == 2 }
+    XCTAssertEqual(session.state, .thinking)
+    XCTAssertEqual(session.turns.count, 1, "Voice must not append a typed-style pending turn")
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Voice answer", status: .answered)
+    )
+    try await waitUntil { await transcriber.callCount == 2 }
+    XCTAssertEqual(session.turns.count, 2)
+    XCTAssertEqual(session.turns.last?.utterance, "Voice question")
+    XCTAssertEqual(session.turns.last?.modality, .voice)
+    XCTAssertEqual(session.turns.last?.phase, .completed)
+    await session.stop()
+  }
+
+  @MainActor
+  func testPendingAndFailedAttemptsNeverEnterBoundedModelHistory() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+
+    let failedID = try XCTUnwrap(
+      session.submitImmediately(
+        "First fails",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Unavailable",
+        status: .unavailable,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .appleOnDevice,
+          routeLabel: "Apple On Device",
+          completion: .failed,
+          recoveryAction: .retry
+        )
+      )
+    )
+    try await waitUntil { session.turns.first?.phase == .failed }
+
+    let completedID = try XCTUnwrap(
+      session.submitImmediately(
+        "Second succeeds",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    var requests = await answerer.requests
+    XCTAssertTrue(requests[1].priorTurns.isEmpty)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Completed", status: .answered)
+    )
+    try await waitUntil {
+      session.turns.first(where: { $0.id == completedID })?.phase == .completed
+    }
+
+    let pendingID = try XCTUnwrap(
+      session.submitImmediately(
+        "Third is pending",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 3 }
+    requests = await answerer.requests
+    XCTAssertEqual(requests[2].priorTurns.map(\.id), [completedID])
+    XCTAssertFalse(requests[2].priorTurns.contains(where: { $0.id == failedID }))
+    XCTAssertFalse(requests[2].priorTurns.contains(where: { $0.id == pendingID }))
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Third completed", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+  }
+
+  @MainActor
+  func testStopKeepsNeutralAttemptMergesReceiptAndFencesLateCompletion() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let route = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-sol")
+    let turnID = try XCTUnwrap(
+      session.submitImmediately(
+        "Stop this response",
+        routeOverride: route,
+        routeLabel: "OpenAI · Best"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+
+    let stop = Task { await session.stop() }
+    try await waitUntil { session.turns.first?.phase == .cancelled }
+    XCTAssertEqual(session.turns.first?.id, turnID)
+    XCTAssertEqual(session.turns.first?.answer, "Response stopped")
+
+    let disclosedSource = AssistantSource(
+      id: "note:disclosed",
+      kind: .page,
+      title: "Disclosed note"
+    )
+    let usage = AssistantTokenUsage(input: 21, output: 2, total: 23)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Late answer must not appear",
+        status: .answered,
+        sources: [disclosedSource],
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-sol",
+          actualModelID: "gpt-5.6-sol",
+          routeLabel: "OpenAI · Best",
+          usage: usage,
+          requestIDs: ["req_partial"],
+          completion: .completed,
+          localContextCount: 1
+        )
+      )
+    )
+    await stop.value
+
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns[0].id, turnID)
+    XCTAssertEqual(session.turns[0].phase, .cancelled)
+    XCTAssertEqual(session.turns[0].answer, "Response stopped")
+    XCTAssertEqual(session.turns[0].metadata?.completion, .incomplete)
+    XCTAssertEqual(session.turns[0].metadata?.usage, usage)
+    XCTAssertEqual(session.turns[0].metadata?.requestIDs, ["req_partial"])
+    XCTAssertEqual(session.turns[0].sources, [disclosedSource])
+
+    let freshID = try XCTUnwrap(
+      session.submitImmediately(
+        "Fresh request",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Fresh answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+    XCTAssertEqual(session.turns.map(\.id), [turnID, freshID])
+    XCTAssertEqual(session.turns.map(\.phase), [.cancelled, .completed])
+    XCTAssertEqual(session.turns.map(\.answer), ["Response stopped", "Fresh answer"])
+  }
+
+  @MainActor
+  func testRepeatedStopKeepsExactCancelledAttemptReceiptFenceUntilAnswerTerminates() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let turnID = try XCTUnwrap(
+      session.submitImmediately(
+        "Stop twice",
+        routeOverride: AssistantConversationRoute(
+          provider: .openAI,
+          modelID: "gpt-5.6-terra"
+        ),
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: AssistantTextRouteSnapshot(
+          provider: .openAI,
+          modelID: "gpt-5.6-terra",
+          credentialBinding: OpenAICredentialBinding(
+            revision: "accepted-revision",
+            fingerprint: "accepted-fingerprint"
+          )
+        )
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+
+    let firstStop = Task { await session.stop() }
+    try await waitUntil { session.turns.first?.phase == .cancelled }
+    let secondStop = Task { await session.stop() }
+    await secondStop.value
+
+    let usage = AssistantTokenUsage(input: 13, output: 2, total: 15)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Late content stays hidden",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-terra",
+          actualModelID: "gpt-5.6-terra",
+          routeLabel: "OpenAI · Balanced",
+          usage: usage,
+          requestIDs: ["req_double_stop"]
+        )
+      )
+    )
+    await firstStop.value
+
+    XCTAssertEqual(session.turns.count, 1)
+    XCTAssertEqual(session.turns[0].id, turnID)
+    XCTAssertEqual(session.turns[0].phase, .cancelled)
+    XCTAssertEqual(session.turns[0].answer, "Response stopped")
+    XCTAssertEqual(session.turns[0].metadata?.usage, usage)
+    XCTAssertEqual(session.turns[0].metadata?.requestIDs, ["req_double_stop"])
+  }
+
+  @MainActor
+  func testRouteBoundarySurvivesStopAndExcludesStoppedAttemptFromNextContext() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Old route",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+
+    session.startNewRouteContextImmediately()
+    let stop = Task { await session.stop() }
+    try await waitUntil { session.turns.first?.phase == .cancelled }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Late old answer", status: .answered)
+    )
+    await stop.value
+
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "New route",
+        routeOverride: .appleOnDevice,
+        routeLabel: "Apple On Device"
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    let requests = await answerer.requests
+    XCTAssertTrue(requests[1].priorTurns.isEmpty)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "New answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+  }
+
+  @MainActor
+  func testRouteChangeDuringSuspendedStopAdvancesContextEpochMonotonically() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let route = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+    let snapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "accepted-revision",
+        fingerprint: "accepted-fingerprint"
+      )
+    )
+
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Completed old context",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: snapshot
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Old answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Pending old context",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: snapshot
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    let stop = Task { await session.stop() }
+    try await waitUntil { session.turns.last?.phase == .cancelled }
+
+    session.startNewRouteContextImmediately()
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Late old answer", status: .answered)
+    )
+    await stop.value
+
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Fresh context on the same accepted route",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: snapshot
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 3 }
+    let requests = await answerer.requests
+    XCTAssertEqual(requests[0].contextEpoch, requests[1].contextEpoch)
+    XCTAssertNotEqual(requests[1].contextEpoch, requests[2].contextEpoch)
+    XCTAssertTrue(requests[2].priorTurns.isEmpty)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Fresh answer", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
   }
 
   @MainActor
@@ -738,8 +1224,24 @@ final class AssistantConversationSessionTests: XCTestCase {
       completion: .failed,
       recoveryAction: .retry
     )
+    let route = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+    let routeSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "accepted-revision",
+        fingerprint: "accepted-fingerprint"
+      )
+    )
 
-    let initial = Task { await session.submit("Please try this") }
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Please try this",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: routeSnapshot
+      )
+    )
     try await waitUntil { await answerer.requests.count == 1 }
     await answerer.succeedNext(
       with: GroundedAssistantResponse(
@@ -748,12 +1250,15 @@ final class AssistantConversationSessionTests: XCTestCase {
         metadata: failureMetadata
       )
     )
-    await initial.value
+    try await waitUntil { session.turns.first?.phase == .failed }
     let immutableFailure = try XCTUnwrap(session.turns.first)
 
     let retry = Task { await session.retryLastFailedTurn() }
     try await waitUntil { await answerer.requests.count == 2 }
-    XCTAssertEqual(session.turns, [immutableFailure])
+    XCTAssertEqual(session.turns.count, 2)
+    XCTAssertEqual(session.turns[0], immutableFailure)
+    XCTAssertEqual(session.turns[1].phase, .pending)
+    XCTAssertNotEqual(session.turns[1].id, immutableFailure.id)
     let requests = await answerer.requests
     XCTAssertEqual(
       requests[1].routeOverride,
@@ -805,7 +1310,10 @@ final class AssistantConversationSessionTests: XCTestCase {
     try await waitUntil { await answerer.requests.count == 2 }
     let requests = await answerer.requests
     XCTAssertEqual(requests[1].routeOverride, .appleOnDevice)
-    XCTAssertEqual(session.turns, [immutableFailure])
+    XCTAssertEqual(session.turns.count, 2)
+    XCTAssertEqual(session.turns[0], immutableFailure)
+    XCTAssertEqual(session.turns[1].phase, .pending)
+    XCTAssertNotEqual(session.turns[1].id, immutableFailure.id)
     await answerer.succeedNext(
       with: GroundedAssistantResponse(
         answer: "Apple answer",
@@ -831,16 +1339,35 @@ final class AssistantConversationSessionTests: XCTestCase {
       requestedProvider: .openAI,
       requestedModelID: "gpt-5.6-terra",
       routeLabel: "OpenAI · Balanced",
+      usage: AssistantTokenUsage(input: 8, output: 1, total: 9),
+      requestIDs: ["req_historical"],
       completion: .failed,
       recoveryAction: .retry
     )
+    let route = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+    let routeSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "accepted-revision",
+        fingerprint: "accepted-fingerprint"
+      )
+    )
 
-    let first = Task { await session.submit("First failed question") }
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "First failed question",
+        routeOverride: route,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: routeSnapshot
+      )
+    )
     try await waitUntil { await answerer.requests.count == 1 }
     await answerer.succeedNext(
       with: GroundedAssistantResponse(answer: "Failed", status: .unavailable, metadata: failure)
     )
-    await first.value
+    try await waitUntil { session.turns.first?.phase == .failed }
+    let immutableFailure = try XCTUnwrap(session.turns.first)
 
     let second = Task { await session.submit("Later successful question") }
     try await waitUntil { await answerer.requests.count == 2 }
@@ -849,9 +1376,13 @@ final class AssistantConversationSessionTests: XCTestCase {
     )
     await second.value
 
-    let retry = Task { await session.retryFailedTurn(at: 0) }
+    let retry = Task { await session.retryFailedTurn(id: immutableFailure.id) }
     try await waitUntil { await answerer.requests.count == 3 }
     let requests = await answerer.requests
+    XCTAssertEqual(session.turns[0], immutableFailure)
+    XCTAssertEqual(session.turns[1].answer, "Later answer")
+    XCTAssertEqual(session.turns[2].phase, .pending)
+    XCTAssertNotEqual(session.turns[2].id, immutableFailure.id)
     XCTAssertEqual(requests[2].utterance, "First failed question")
     XCTAssertEqual(
       requests[2].routeOverride,
@@ -860,13 +1391,179 @@ final class AssistantConversationSessionTests: XCTestCase {
     await answerer.succeedNext(
       with: GroundedAssistantResponse(answer: "Retried", status: .answered)
     )
-    await retry.value
+    _ = await retry.value
 
+    XCTAssertEqual(session.turns[0], immutableFailure)
+    XCTAssertEqual(session.turns[0].metadata?.requestIDs, ["req_historical"])
+    XCTAssertEqual(session.turns[0].metadata?.usage?.total, 9)
     XCTAssertEqual(
       session.turns.map(\.utterance),
       [
         "First failed question", "Later successful question", "First failed question",
       ])
+  }
+
+  @MainActor
+  func testHistoricalRetryRestoresExactRouteEpochWithoutUploadingLaterOpenAIContext() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let routeA = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-terra")
+    let snapshotA = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "route-a-revision",
+        fingerprint: "route-a-fingerprint"
+      )
+    )
+    let routeB = AssistantConversationRoute(provider: .openAI, modelID: "gpt-5.6-sol")
+    let snapshotB = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-sol",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "route-b-revision",
+        fingerprint: "route-b-fingerprint"
+      )
+    )
+
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Route A context",
+        routeOverride: routeA,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: snapshotA
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Route A answer",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-terra",
+          actualModelID: "gpt-5.6-terra",
+          routeLabel: "OpenAI · Balanced"
+        )
+      )
+    )
+    try await waitUntil { session.state == .idle }
+
+    let failedID = try XCTUnwrap(
+      session.submitImmediately(
+        "Route A failure",
+        routeOverride: routeA,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: snapshotA
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 2 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Route A failed",
+        status: .unavailable,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-terra",
+          routeLabel: "OpenAI · Balanced",
+          completion: .failed,
+          recoveryAction: .retry
+        )
+      )
+    )
+    try await waitUntil { session.turns.last?.phase == .failed }
+
+    session.startNewRouteContextImmediately()
+    XCTAssertNotNil(
+      session.submitImmediately(
+        "Route B context",
+        routeOverride: routeB,
+        routeLabel: "OpenAI · Best",
+        routeSnapshot: snapshotB
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 3 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Route B answer",
+        status: .answered,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .openAI,
+          requestedModelID: "gpt-5.6-sol",
+          actualModelID: "gpt-5.6-sol",
+          routeLabel: "OpenAI · Best"
+        )
+      )
+    )
+    try await waitUntil { session.state == .idle }
+
+    XCTAssertNotNil(session.retryFailedTurnImmediately(id: failedID))
+    try await waitUntil { await answerer.requests.count == 4 }
+    let requests = await answerer.requests
+    XCTAssertEqual(requests[3].routeOverride, routeA)
+    XCTAssertEqual(requests[3].textRouteSnapshot, snapshotA)
+    XCTAssertEqual(requests[3].contextEpoch, requests[0].contextEpoch)
+    XCTAssertNotEqual(requests[3].contextEpoch, requests[2].contextEpoch)
+    XCTAssertEqual(requests[3].priorTurns.map(\.utterance), ["Route A context"])
+    XCTAssertFalse(requests[3].priorTurns.contains(where: { $0.utterance == "Route B context" }))
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Route A retry", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
+  }
+
+  @MainActor
+  func testRetryUsesImmutableAcceptedRouteWhenFailureReceiptClaimsAnotherProvider() async throws {
+    let answerer = ControlledAnswerer()
+    let session = AssistantConversationSession(answerer: answerer)
+    let acceptedRoute = AssistantConversationRoute(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra"
+    )
+    let acceptedSnapshot = AssistantTextRouteSnapshot(
+      provider: .openAI,
+      modelID: "gpt-5.6-terra",
+      credentialBinding: OpenAICredentialBinding(
+        revision: "accepted-revision",
+        fingerprint: "accepted-fingerprint"
+      )
+    )
+    let originalID = try XCTUnwrap(
+      session.submitImmediately(
+        "Keep original custody",
+        routeOverride: acceptedRoute,
+        routeLabel: "OpenAI · Balanced",
+        routeSnapshot: acceptedSnapshot
+      )
+    )
+    try await waitUntil { await answerer.requests.count == 1 }
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(
+        answer: "Mismatched failure receipt",
+        status: .unavailable,
+        metadata: AssistantResponseMetadata(
+          requestedProvider: .appleOnDevice,
+          routeLabel: "Apple On Device",
+          completion: .failed,
+          recoveryAction: .retry
+        )
+      )
+    )
+    try await waitUntil { session.turns.first?.phase == .failed }
+
+    let retryID = try XCTUnwrap(session.retryFailedTurnImmediately(id: originalID))
+    try await waitUntil { await answerer.requests.count == 2 }
+    let requests = await answerer.requests
+    XCTAssertEqual(requests[1].routeOverride, acceptedRoute)
+    XCTAssertEqual(requests[1].textRouteSnapshot, acceptedSnapshot)
+    XCTAssertEqual(session.turns.last?.id, retryID)
+    XCTAssertEqual(session.turns.last?.requestedRoute, acceptedRoute)
+    XCTAssertEqual(session.turns.last?.requestedRouteLabel, "OpenAI · Balanced")
+    XCTAssertEqual(session.turns.last?.requestedRouteSnapshot, acceptedSnapshot)
+    await answerer.succeedNext(
+      with: GroundedAssistantResponse(answer: "Retried", status: .answered)
+    )
+    try await waitUntil { session.state == .idle }
   }
 
   @MainActor
@@ -1054,7 +1751,7 @@ final class AssistantConversationSessionTests: XCTestCase {
 
     async let submission: Void = session.submit("typed request")
     try await waitUntil { await answerer.requests.count == 1 }
-    events.emit(.interruptionBegan)
+    events.emit(.appInactive)
     try await Task.sleep(for: .milliseconds(20))
     XCTAssertEqual(session.state, .thinking)
     XCTAssertNil(session.voicePauseReason)
