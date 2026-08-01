@@ -79,6 +79,12 @@ public struct PageSuggestion: Codable, Hashable, Sendable, Identifiable {
   public var title: String
   public var kind: PageKind
 
+  public init(id: PageID, title: String, kind: PageKind) {
+    self.id = id
+    self.title = title
+    self.kind = kind
+  }
+
   public var displaySubtitle: String? {
     switch kind {
     case .calendarEvent(let identity):
@@ -698,6 +704,28 @@ public actor LibraryRepository {
         dirtyGeneration: generation,
         duplicate: false
       )
+    }
+  }
+
+  public func persistRichTextEditor(
+    pageID: PageID,
+    title: String,
+    body: AttributedString,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      let result = try PageDocument.replaceRichText(
+        title: title,
+        body: body,
+        in: current.document
+      )
+      let updated = Self.updatedPage(current, with: result, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+      return updated
     }
   }
 

@@ -5,11 +5,10 @@ A local-first, native SwiftUI knowledge journal for macOS and iOS.
 ## Architecture
 
 - `EnchiridionCore`: Automerge page documents, GRDB/SQLite local authority, EventKit and direct Google Calendar adapters, and private CloudKit sync.
-- `SharedUI`: native navigation around a narrowly bridged `WKWebView` editor.
-- `WebEditor`: ProseMirror bound directly to each Automerge document, with links, page references, bookmark cards, YouTube embeds, slash commands, and an IndexedDB recovery journal.
+- `SharedUI`: native SwiftUI navigation and rich-text editing with `TextEditor`, `AttributedString`, and Automerge inline marks.
 - `Sources/macOS` and `Sources/iOS`: platform-native window, sidebar, tab, navigation, settings, and command surfaces.
 
-Edits are journaled in the editor before Swift receives them, committed atomically to SQLite, and only then acknowledged. CloudKit is a transport; the local database remains authoritative offline.
+Native edits are committed atomically to SQLite as Automerge text and inline marks. CloudKit is a transport; the local database remains authoritative offline.
 
 ## Knowledge graph
 
@@ -26,7 +25,7 @@ and sync boundaries, and the SQL-versus-Cypher decision.
 Supertags turn ordinary pages into typed objects while keeping the page editable and linkable:
 
 - Use **Add Supertag** in a page toolbar to tag the current page as a Person, Organization, Project, Task, Place, or custom type.
-- Select text in the editor and choose **Supertag** to find a page of that type or create one while preserving the selected text as the visible reference.
+- Select **Insert Page Reference** in the editor formatting bar to insert a reference at the cursor or replace selected text.
 - Use **Properties** to edit typed fields and resolve any concurrent-value conflicts explicitly.
 - Use **Library → New Supertag** to define a custom type, fields, select options, and reference constraints.
 - Open a Supertag collection for every page of one type, or use the built-in People, Projects, Tasks, and Work Calendar live views.
@@ -35,19 +34,12 @@ Calendar attendees are imported as deterministic Person pages. Repeated refreshe
 
 ## Requirements
 
-- Xcode 16 or newer
+- Xcode 27 or newer
 - XcodeGen 2.46 or newer
-- Bun 1.2 or newer for rebuilding the bundled editor
 
 ## Build and test
 
 ```sh
-cd WebEditor
-bun install
-bun run check
-bun run build
-cd ..
-
 swift test
 xcodegen generate
 xcodebuild -project Enchiridion.xcodeproj -scheme "Enchiridion macOS" -destination "platform=macOS" build

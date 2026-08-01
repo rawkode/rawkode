@@ -25,12 +25,56 @@ public struct PageDocumentProjection: Hashable, Sendable {
   public var objectMetadata: PageObjectMetadata
 }
 
+public struct PageRichTextDocument: Equatable, Sendable {
+  public var title: String
+  public var body: AttributedString
+
+  public init(title: String, body: AttributedString) {
+    self.title = title
+    self.body = body
+  }
+}
+
+public struct PageRichTextMark: Hashable, Sendable {
+  public var name: String
+  public var value: PageRichTextMarkValue
+
+  public init(name: String, value: PageRichTextMarkValue) {
+    self.name = name
+    self.value = value
+  }
+}
+
+public enum PageRichTextMarkValue: Hashable, Sendable {
+  case bytes(Data)
+  case string(String)
+  case uint(UInt64)
+  case int(Int64)
+  case floatingPoint(Double)
+  case counter(Int64)
+  case timestamp(Date)
+  case boolean(Bool)
+  case unknown(typeCode: UInt8, data: Data)
+  case null
+}
+
+public enum PageRichTextAttributes {
+  public struct AutomergeMarks: AttributedStringKey {
+    public typealias Value = [PageRichTextMark]
+    public static let name = "dev.rawkode.enchiridion.automerge-marks"
+  }
+}
+
 public enum PageDocument {
   public static let format = "enchiridion/page"
-  public static let schemaVersion = 1
+  public static let schemaVersion = 2
   public static let maximumDocumentBytes = 20 * 1_024 * 1_024
   public static let maximumChangeBytes = 1 * 1_024 * 1_024
   public static let pageReferenceMark = "__ext__dev.rawkode.enchiridion.page-reference"
+  public static let strongMark = "strong"
+  public static let emphasisMark = "em"
+  public static let strikethroughMark = "strike"
+  public static let codeMark = "code"
 
   public static func create(
     id: PageID,
@@ -189,6 +233,50 @@ public enum PageDocument {
     )
     document.commitWith(message: "Rename page", timestamp: Date())
     return (document.save(), heads(document), try projection(document))
+  }
+
+  public static func richText(in snapshot: Data) throws -> PageRichTextDocument {
+    let document = try Document(snapshot)
+    try validate(document)
+    guard case .Object(let titleObject, .Text)? = try document.get(obj: .ROOT, key: "title"),
+      case .Object(let bodyObject, .Text)? = try document.get(obj: .ROOT, key: "body")
+    else { throw PageDocumentError.invalidSchema }
+
+    return PageRichTextDocument(
+      title: try document.text(obj: titleObject),
+      body: try attributedText(from: document, object: bodyObject)
+    )
+  }
+
+  public static func replaceRichText(
+    title: String,
+    body: AttributedString,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    let document = try Document(snapshot)
+    try validate(document)
+    guard case .Object(let titleObject, .Text)? = try document.get(obj: .ROOT, key: "title"),
+      case .Object(let bodyObject, .Text)? = try document.get(obj: .ROOT, key: "body")
+    else { throw PageDocumentError.invalidSchema }
+
+    try document.put(obj: .ROOT, key: "schemaVersion", value: .Int(Int64(schemaVersion)))
+    try document.updateText(obj: titleObject, value: title)
+    try replaceTextAndMarks(in: document, object: bodyObject, with: body)
+    document.commitWith(message: "Edit rich page", timestamp: Date())
+    return (document.save(), heads(document), try projection(document))
+  }
+
+  public static func pageReferenceMark(
+    to pageID: PageID,
+    label: String
+  ) throws -> PageRichTextMark {
+    let payload = try JSONEncoder.enchiridion.encode(
+      PageReferenceValue(pageID: pageID.rawValue, label: label)
+    )
+    return PageRichTextMark(
+      name: pageReferenceMark,
+      value: .string(String(decoding: payload, as: UTF8.self))
+    )
   }
 
   public static func addSupertag(
@@ -385,9 +473,16 @@ public enum PageDocument {
   }
 
   private static func isSupportedVersion(_ value: Value) -> Bool {
-    value == .Scalar(.Int(Int64(schemaVersion)))
-      || value == .Scalar(.Uint(UInt64(schemaVersion)))
-      || value == .Scalar(.F64(Double(schemaVersion)))
+    switch value {
+    case .Scalar(.Int(let version)):
+      (1...Int64(schemaVersion)).contains(version)
+    case .Scalar(.Uint(let version)):
+      (1...UInt64(schemaVersion)).contains(version)
+    case .Scalar(.F64(let version)):
+      version.rounded() == version && (1...Double(schemaVersion)).contains(version)
+    default:
+      false
+    }
   }
 
   private static func projection(
@@ -447,6 +542,209 @@ public enum PageDocument {
       graphEdges: edges,
       objectMetadata: try metadataProjection(document, pageID: resolvedPageID, edges: edges)
     )
+  }
+
+  private static func attributedText(from document: Document, object: ObjId) throws -> AttributedString {
+    let plainText = try document.text(obj: object)
+    var text = AttributedString(plainText)
+    let length = UInt64(plainText.unicodeScalars.count)
+
+    for mark in try document.marks(obj: object) {
+      guard mark.start < mark.end, mark.end <= length else { continue }
+      let range = text.index(text.startIndex, offsetByUnicodeScalars: Int(mark.start))
+        ..< text.index(text.startIndex, offsetByUnicodeScalars: Int(mark.end))
+      let richTextMark = PageRichTextMark(name: mark.name, value: richTextValue(from: mark.value))
+      appendAutomergeMark(richTextMark, to: &text, in: range)
+      applyPresentationIntent(for: mark.name, to: &text, in: range)
+    }
+
+    return text
+  }
+
+  private static func replaceTextAndMarks(
+    in document: Document,
+    object: ObjId,
+    with richText: AttributedString
+  ) throws {
+    let previousText = try document.text(obj: object)
+    let previousLength = UInt64(previousText.unicodeScalars.count)
+    let markNames = Set(try document.marks(obj: object).map(\.name))
+    for markName in markNames where previousLength > 0 {
+      try document.mark(
+        obj: object,
+        start: 0,
+        end: previousLength,
+        expand: .none,
+        name: markName,
+        value: .Null
+      )
+    }
+
+    let plainText = String(richText.characters)
+    try document.updateText(obj: object, value: plainText)
+    for mark in richTextMarks(in: richText) {
+      try document.mark(
+        obj: object,
+        start: mark.start,
+        end: mark.end,
+        expand: .both,
+        name: mark.name,
+        value: mark.value
+      )
+    }
+  }
+
+  private static func richTextMarks(in text: AttributedString) -> [Mark] {
+    var result: [Mark] = []
+    var offset: UInt64 = 0
+
+    for run in text.runs {
+      let runText = String(text[run.range].characters)
+      let length = UInt64(runText.unicodeScalars.count)
+      defer { offset += length }
+      guard length > 0 else { continue }
+
+      var marks = (run[PageRichTextAttributes.AutomergeMarks.self] ?? []).filter {
+        !inlineMarkNames.contains($0.name)
+      }
+      let presentationIntent = run.inlinePresentationIntent ?? []
+      appendInlineMark(
+        strongMark,
+        intent: .stronglyEmphasized,
+        presentationIntent: presentationIntent,
+        to: &marks
+      )
+      appendInlineMark(
+        emphasisMark,
+        intent: .emphasized,
+        presentationIntent: presentationIntent,
+        to: &marks
+      )
+      appendInlineMark(
+        strikethroughMark,
+        intent: .strikethrough,
+        presentationIntent: presentationIntent,
+        to: &marks
+      )
+      appendInlineMark(
+        codeMark,
+        intent: .code,
+        presentationIntent: presentationIntent,
+        to: &marks
+      )
+
+      result.append(
+        contentsOf: marks.map {
+          Mark(start: offset, end: offset + length, name: $0.name, value: scalarValue(from: $0.value))
+        }
+      )
+    }
+
+    return result
+  }
+
+  private static let inlineMarkNames: Set<String> = [
+    strongMark,
+    emphasisMark,
+    strikethroughMark,
+    codeMark,
+  ]
+
+  private static func appendAutomergeMark(
+    _ mark: PageRichTextMark,
+    to text: inout AttributedString,
+    in range: Range<AttributedString.Index>
+  ) {
+    let runRanges = text[range].runs.map(\.range)
+    for runRange in runRanges {
+      var persistedMarks = text[runRange][PageRichTextAttributes.AutomergeMarks.self] ?? []
+      guard !persistedMarks.contains(mark) else { continue }
+      persistedMarks.append(mark)
+      text[runRange][PageRichTextAttributes.AutomergeMarks.self] = persistedMarks
+    }
+  }
+
+  private static func appendInlineMark(
+    _ name: String,
+    intent: InlinePresentationIntent,
+    presentationIntent: InlinePresentationIntent,
+    to marks: inout [PageRichTextMark]
+  ) {
+    guard presentationIntent.contains(intent), !marks.contains(where: { $0.name == name }) else { return }
+    marks.append(PageRichTextMark(name: name, value: .boolean(true)))
+  }
+
+  private static func applyPresentationIntent(
+    for markName: String,
+    to text: inout AttributedString,
+    in range: Range<AttributedString.Index>
+  ) {
+    let intent: InlinePresentationIntent
+    switch markName {
+    case strongMark:
+      intent = .stronglyEmphasized
+    case emphasisMark:
+      intent = .emphasized
+    case strikethroughMark:
+      intent = .strikethrough
+    case codeMark:
+      intent = .code
+    default:
+      return
+    }
+    var existing = text[range].inlinePresentationIntent ?? []
+    existing.insert(intent)
+    text[range].inlinePresentationIntent = existing
+  }
+
+  private static func richTextValue(from value: ScalarValue) -> PageRichTextMarkValue {
+    switch value {
+    case .Bytes(let value):
+      .bytes(value)
+    case .String(let value):
+      .string(value)
+    case .Uint(let value):
+      .uint(value)
+    case .Int(let value):
+      .int(value)
+    case .F64(let value):
+      .floatingPoint(value)
+    case .Counter(let value):
+      .counter(value)
+    case .Timestamp(let value):
+      .timestamp(value)
+    case .Boolean(let value):
+      .boolean(value)
+    case .Unknown(let typeCode, let data):
+      .unknown(typeCode: typeCode, data: data)
+    case .Null:
+      .null
+    }
+  }
+
+  private static func scalarValue(from value: PageRichTextMarkValue) -> ScalarValue {
+    switch value {
+    case .bytes(let value):
+      .Bytes(value)
+    case .string(let value):
+      .String(value)
+    case .uint(let value):
+      .Uint(value)
+    case .int(let value):
+      .Int(value)
+    case .floatingPoint(let value):
+      .F64(value)
+    case .counter(let value):
+      .Counter(value)
+    case .timestamp(let value):
+      .Timestamp(value)
+    case .boolean(let value):
+      .Boolean(value)
+    case .unknown(let typeCode, let data):
+      .Unknown(typeCode: typeCode, data: data)
+    case .null:
+      .Null
+    }
   }
 
   private static func setRelationship(

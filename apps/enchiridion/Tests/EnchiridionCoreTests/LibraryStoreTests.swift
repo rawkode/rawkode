@@ -273,6 +273,255 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(persisted?.heads, pinned.heads)
   }
 
+  func testRichTextRoundTripPreservesFormattingReferencesAndUnicodeScalarOffsets() throws {
+    let pageID = PageID.free()
+    let targetID = PageID.free()
+    let original = try PageDocument.create(
+      id: pageID,
+      kind: .free,
+      title: "Original",
+      createdAt: Date()
+    )
+    var body = AttributedString("Bold 😊 italic strike code Page")
+
+    func range(
+      in text: AttributedString,
+      _ lowerBound: Int,
+      _ upperBound: Int
+    ) -> Range<AttributedString.Index> {
+      text.index(text.startIndex, offsetByUnicodeScalars: lowerBound)
+        ..< text.index(text.startIndex, offsetByUnicodeScalars: upperBound)
+    }
+
+    body[range(in: body, 0, 4)].inlinePresentationIntent = [.stronglyEmphasized]
+    body[range(in: body, 7, 13)].inlinePresentationIntent = [.emphasized]
+    body[range(in: body, 14, 20)].inlinePresentationIntent = [.strikethrough]
+    body[range(in: body, 21, 25)].inlinePresentationIntent = [.code]
+    body[range(in: body, 26, 30)][PageRichTextAttributes.AutomergeMarks.self] = [
+      try PageDocument.pageReferenceMark(to: targetID, label: "Page")
+    ]
+
+    let updated = try PageDocument.replaceRichText(
+      title: "Formatted",
+      body: body,
+      in: original.document
+    )
+    let decoded = try PageDocument.richText(in: updated.document)
+    let document = try Document(updated.document)
+    guard case .Object(let bodyObject, .Text)? = try document.get(obj: .ROOT, key: "body") else {
+      return XCTFail("Expected the page body to be Automerge text.")
+    }
+    let marks = try document.marks(obj: bodyObject)
+
+    XCTAssertEqual(decoded.title, "Formatted")
+    XCTAssertEqual(String(decoded.body.characters), "Bold 😊 italic strike code Page")
+    XCTAssertEqual(
+      decoded.body[range(in: decoded.body, 0, 4)].inlinePresentationIntent,
+      [.stronglyEmphasized]
+    )
+    XCTAssertEqual(
+      decoded.body[range(in: decoded.body, 7, 13)].inlinePresentationIntent,
+      [.emphasized]
+    )
+    XCTAssertEqual(
+      decoded.body[range(in: decoded.body, 14, 20)].inlinePresentationIntent,
+      [.strikethrough]
+    )
+    XCTAssertEqual(
+      decoded.body[range(in: decoded.body, 21, 25)].inlinePresentationIntent,
+      [.code]
+    )
+    XCTAssertEqual(
+      decoded.body[range(in: decoded.body, 26, 30)][PageRichTextAttributes.AutomergeMarks.self],
+      [try PageDocument.pageReferenceMark(to: targetID, label: "Page")]
+    )
+    XCTAssertEqual(
+      marks.map { "\($0.start):\($0.end):\($0.name)" }.sorted(),
+      [
+        "0:4:\(PageDocument.strongMark)",
+        "7:13:\(PageDocument.emphasisMark)",
+        "14:20:\(PageDocument.strikethroughMark)",
+        "21:25:\(PageDocument.codeMark)",
+        "26:30:\(PageDocument.pageReferenceMark)",
+      ].sorted()
+    )
+    XCTAssertEqual(updated.projection.references.map(\.targetPageID), [targetID])
+  }
+
+  func testRichTextEditorUpgradesSchemaVersionOneDocuments() throws {
+    let created = try PageDocument.create(
+      id: .free(),
+      kind: .free,
+      title: "Legacy",
+      createdAt: Date()
+    )
+    let legacy = try Document(created.document)
+    try legacy.put(obj: .ROOT, key: "schemaVersion", value: .Int(1))
+    legacy.commitWith(message: "Write legacy schema", timestamp: Date())
+
+    XCTAssertNoThrow(try PageDocument.richText(in: legacy.save()))
+
+    let upgraded = try PageDocument.replaceRichText(
+      title: "Migrated",
+      body: AttributedString("Native text"),
+      in: legacy.save()
+    )
+    let document = try Document(upgraded.document)
+
+    XCTAssertEqual(
+      try document.get(obj: .ROOT, key: "schemaVersion"),
+      .Scalar(.Int(Int64(PageDocument.schemaVersion)))
+    )
+    XCTAssertEqual(upgraded.projection.title, "Migrated")
+    XCTAssertEqual(upgraded.projection.plainText, "Native text")
+  }
+
+  func testRichTextRoundTripPreservesOverlappingCustomMarks() throws {
+    let original = try PageDocument.create(
+      id: .free(),
+      kind: .free,
+      title: "Overlapping marks",
+      createdAt: Date()
+    )
+    let document = try Document(original.document)
+    guard case .Object(let bodyObject, .Text)? = try document.get(obj: .ROOT, key: "body") else {
+      return XCTFail("Expected the page body to be Automerge text.")
+    }
+    try document.spliceText(obj: bodyObject, start: 0, delete: 0, value: "abcdefghij")
+    try document.mark(
+      obj: bodyObject,
+      start: 0,
+      end: 10,
+      expand: .both,
+      name: "highlight",
+      value: .String("yellow")
+    )
+    try document.mark(
+      obj: bodyObject,
+      start: 3,
+      end: 7,
+      expand: .both,
+      name: "comment",
+      value: .String("review")
+    )
+    document.commitWith(message: "Add overlapping marks", timestamp: Date())
+
+    let decoded = try PageDocument.richText(in: document.save())
+    let overlappingRange = decoded.body.index(decoded.body.startIndex, offsetByUnicodeScalars: 3)
+      ..< decoded.body.index(decoded.body.startIndex, offsetByUnicodeScalars: 7)
+    let roundTripped = try PageDocument.replaceRichText(
+      title: decoded.title,
+      body: decoded.body,
+      in: document.save()
+    )
+    let decodedAgain = try PageDocument.richText(in: roundTripped.document)
+    let roundTrippedRange = decodedAgain.body.index(
+      decodedAgain.body.startIndex,
+      offsetByUnicodeScalars: 3
+    )..<decodedAgain.body.index(
+      decodedAgain.body.startIndex,
+      offsetByUnicodeScalars: 7
+    )
+    let expectedMarks: Set = [
+      PageRichTextMark(name: "highlight", value: .string("yellow")),
+      PageRichTextMark(name: "comment", value: .string("review")),
+    ]
+
+    XCTAssertEqual(
+      Set(decoded.body[overlappingRange][PageRichTextAttributes.AutomergeMarks.self] ?? []),
+      expectedMarks
+    )
+    XCTAssertEqual(
+      Set(decodedAgain.body[roundTrippedRange][PageRichTextAttributes.AutomergeMarks.self] ?? []),
+      expectedMarks
+    )
+  }
+
+  func testPersistRichTextEditorUpdatesProjectionReferencesAndCloudDirtyState() async throws {
+    let fixture = try RepositoryFixture()
+    let target = try await fixture.repository.createFreePage(title: "Project Atlas")
+    let source = try await fixture.repository.createFreePage(title: "Original")
+    var body = AttributedString("Meet Project Atlas")
+    let referenceRange = body.index(body.startIndex, offsetByUnicodeScalars: 5)
+      ..< body.index(body.startIndex, offsetByUnicodeScalars: 18)
+    body[referenceRange][PageRichTextAttributes.AutomergeMarks.self] = [
+      try PageDocument.pageReferenceMark(to: target.id, label: "Project Atlas")
+    ]
+    body[referenceRange].inlinePresentationIntent = [.stronglyEmphasized]
+
+    let updated = try await fixture.repository.persistRichTextEditor(
+      pageID: source.id,
+      title: "Meeting notes",
+      body: body
+    )
+    let persisted = try await fixture.repository.page(id: source.id)
+    let backlinks = try await fixture.repository.backlinks(to: target.id)
+    let dirtyPages = try await fixture.repository.dirtyPages()
+    let decoded = try PageDocument.richText(in: try XCTUnwrap(persisted).document)
+
+    XCTAssertEqual(updated.dirtyGeneration, source.dirtyGeneration + 1)
+    XCTAssertEqual(persisted?.title, "Meeting notes")
+    XCTAssertEqual(persisted?.plainText, "Meet Project Atlas")
+    XCTAssertEqual(backlinks.map(\.id), [source.id])
+    XCTAssertTrue(dirtyPages.contains { $0.id == source.id })
+    let decodedReferenceRange = decoded.body.index(decoded.body.startIndex, offsetByUnicodeScalars: 5)
+      ..< decoded.body.index(decoded.body.startIndex, offsetByUnicodeScalars: 18)
+    XCTAssertTrue(
+      decoded.body[decodedReferenceRange][PageRichTextAttributes.AutomergeMarks.self]?.contains(
+        try PageDocument.pageReferenceMark(to: target.id, label: "Project Atlas")
+      ) == true
+    )
+    XCTAssertEqual(
+      decoded.body[decodedReferenceRange].inlinePresentationIntent,
+      [.stronglyEmphasized]
+    )
+  }
+
+  @MainActor
+  func testStoreRichTextEditorRefreshesOnlyTheCommittedPageCache() async throws {
+    let fixture = try RepositoryFixture()
+    let original = try await fixture.repository.createFreePage(title: "Original")
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload(policy: .refreshOnly)
+
+    let unrelated = try await fixture.repository.createFreePage(title: "External")
+    _ = try await store.persistRichTextEditor(
+      pageID: original.id,
+      title: "Native editor",
+      body: AttributedString("Saved without a web view")
+    )
+
+    XCTAssertEqual(store.page(id: original.id)?.title, "Native editor")
+    XCTAssertEqual(store.page(id: original.id)?.plainText, "Saved without a web view")
+    XCTAssertNil(store.page(id: unrelated.id))
+  }
+
+  @MainActor
+  func testStoreEditorCommitRefreshesOnlyTheCommittedPageCache() async throws {
+    let fixture = try RepositoryFixture()
+    let original = try await fixture.repository.createFreePage(title: "Original")
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload(policy: .refreshOnly)
+
+    let unrelated = try await fixture.repository.createFreePage(title: "External")
+    let edited = try PageDocument.replaceBody(with: "Responsive typing", in: original.document)
+    let commit = EditorCommit(
+      pageID: original.id,
+      loadGeneration: 1,
+      journalID: "targeted-editor-refresh",
+      encodedChanges: try PageDocument.encodedChanges(
+        from: edited.document,
+        since: original.heads
+      ),
+      advertisedHeads: edited.heads
+    )
+
+    _ = try await store.persistEditorCommit(commit)
+
+    XCTAssertEqual(store.page(id: original.id)?.plainText, "Responsive typing")
+    XCTAssertNil(store.page(id: unrelated.id))
+  }
+
   func testConcurrentAutomergeChangesMergeWithoutDroppingEitherIntent() throws {
     let id = PageID.free()
     let original = try PageDocument.create(id: id, kind: .free, title: "Merge", createdAt: Date())
