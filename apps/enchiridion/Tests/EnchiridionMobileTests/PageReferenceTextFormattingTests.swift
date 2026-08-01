@@ -6,6 +6,128 @@ import XCTest
 
 @available(iOS 26.0, *)
 final class PageReferenceTextFormattingTests: XCTestCase {
+  func testCommandContextRoundTripsSelectedRange() throws {
+    let body = AttributedString("Before 🪶 Atlas after")
+    let range = try XCTUnwrap(body.range(of: "Atlas"))
+    let context = try XCTUnwrap(
+      NativeRichEditorCommandContext.capture(
+        pageID: targetPageID,
+        loadGeneration: 7,
+        bodyRevision: 11,
+        selection: AttributedTextSelection(range: range),
+        in: body
+      )
+    )
+
+    let restored = try XCTUnwrap(
+      context.validatedSelection(
+        in: body,
+        pageID: targetPageID,
+        loadGeneration: 7,
+        bodyRevision: 11
+      )
+    )
+
+    XCTAssertEqual(String(body[restored].characters), "Atlas")
+  }
+
+  func testCommandContextRejectsWrongDocumentIdentity() throws {
+    let body = AttributedString("Atlas")
+    let range = try XCTUnwrap(body.range(of: "Atlas"))
+    let context = try XCTUnwrap(
+      NativeRichEditorCommandContext.capture(
+        pageID: targetPageID,
+        loadGeneration: 7,
+        bodyRevision: 11,
+        selection: AttributedTextSelection(range: range),
+        in: body
+      )
+    )
+
+    XCTAssertNil(
+      context.validatedSelection(
+        in: body,
+        pageID: PageID(rawValue: "page_other"),
+        loadGeneration: 7,
+        bodyRevision: 11
+      )
+    )
+    XCTAssertNil(
+      context.validatedSelection(
+        in: body,
+        pageID: targetPageID,
+        loadGeneration: 8,
+        bodyRevision: 11
+      )
+    )
+    XCTAssertNil(
+      context.validatedSelection(
+        in: body,
+        pageID: targetPageID,
+        loadGeneration: 7,
+        bodyRevision: 12
+      )
+    )
+  }
+
+  func testCommandContextCapturesSelectedTextSemantics() throws {
+    let body = AttributedString("Atlas")
+    let range = try XCTUnwrap(body.range(of: "Atlas"))
+    let selectedContext = try XCTUnwrap(
+      NativeRichEditorCommandContext.capture(
+        pageID: targetPageID,
+        loadGeneration: 1,
+        bodyRevision: 2,
+        selection: AttributedTextSelection(range: range),
+        in: body
+      )
+    )
+    let caretContext = try XCTUnwrap(
+      NativeRichEditorCommandContext.capture(
+        pageID: targetPageID,
+        loadGeneration: 1,
+        bodyRevision: 2,
+        selection: AttributedTextSelection(insertionPoint: body.startIndex),
+        in: body
+      )
+    )
+
+    XCTAssertTrue(selectedContext.hasSelectedText)
+    XCTAssertFalse(caretContext.hasSelectedText)
+  }
+
+  func testCommandContextRestoresTheCapturedFormattingTarget() throws {
+    let body = AttributedString("Before Atlas after")
+    let range = try XCTUnwrap(body.range(of: "Atlas"))
+    let context = try XCTUnwrap(
+      NativeRichEditorCommandContext.capture(
+        pageID: targetPageID,
+        loadGeneration: 5,
+        bodyRevision: 9,
+        selection: AttributedTextSelection(range: range),
+        in: body
+      )
+    )
+    var candidate = body
+    var restored = try XCTUnwrap(
+      context.validatedSelection(
+        in: candidate,
+        pageID: targetPageID,
+        loadGeneration: 5,
+        bodyRevision: 9
+      )
+    )
+
+    candidate.transformAttributes(in: &restored) { attributes in
+      attributes.inlinePresentationIntent = [.stronglyEmphasized]
+    }
+
+    let selectedRange = try XCTUnwrap(candidate.range(of: "Atlas"))
+    let beforeRange = try XCTUnwrap(candidate.range(of: "Before"))
+    XCTAssertEqual(candidate[selectedRange].inlinePresentationIntent, [.stronglyEmphasized])
+    XCTAssertNil(candidate[beforeRange].inlinePresentationIntent)
+  }
+
   func testEditFormatterAppliesSemanticForegroundWithoutUnderline() {
     var text = AttributedString("Read Atlas today")
     let referenceRange = try! XCTUnwrap(text.range(of: "Atlas"))

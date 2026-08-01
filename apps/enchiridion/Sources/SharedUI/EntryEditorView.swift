@@ -285,6 +285,7 @@ struct PageEditorView<Header: View>: View {
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
   @State private var pagePendingPermanentDeletion: PageSnapshot?
+  @State private var isEditing = false
   #if !os(macOS)
   @State private var pushedPageID: PageID?
   #endif
@@ -348,12 +349,13 @@ struct PageEditorView<Header: View>: View {
         flushController: flushController,
         findController: findController,
         presentation: presentation,
+        onEditingChanged: { isEditing = $0 },
         openPage: openPage
       )
         .id(store.vaultID)
         .navigationTitle("")
         .toolbar {
-          if showsPageActions {
+          if showsPageActions && isEditing {
             ToolbarItemGroup {
             if page.deletedAt == nil {
               Menu {
@@ -537,7 +539,7 @@ private struct NativeRichEditorTaggedPageCommit {
 
 /// A selection expressed as character offsets so it can be recreated after
 /// the committed document is decoded into a distinct AttributedString value.
-private enum NativeRichEditorCommittedSelection {
+enum NativeRichEditorCommittedSelection: Equatable {
   case insertionPoint(offset: Int)
   case ranges([Range<Int>])
 
@@ -571,6 +573,67 @@ private enum NativeRichEditorCommittedSelection {
       }
       return AttributedTextSelection(ranges: ranges)
     }
+  }
+}
+
+struct NativeRichEditorCommandContext: Equatable {
+  let pageID: PageID
+  let loadGeneration: UInt64
+  let bodyRevision: UInt64
+  let selection: NativeRichEditorCommittedSelection
+  let hasSelectedText: Bool
+
+  var selectionSnapshot: NativeRichEditorSelectionSnapshot {
+    NativeRichEditorSelectionSnapshot(
+      pageID: pageID,
+      loadGeneration: loadGeneration,
+      bodyRevision: bodyRevision,
+      selection: selection
+    )
+  }
+
+  static func capture(
+    pageID: PageID,
+    loadGeneration: UInt64,
+    bodyRevision: UInt64,
+    selection: AttributedTextSelection,
+    in body: AttributedString
+  ) -> Self? {
+    guard let committedSelection = NativeRichEditorCommittedSelection(from: selection, in: body) else {
+      return nil
+    }
+    return Self(
+      pageID: pageID,
+      loadGeneration: loadGeneration,
+      bodyRevision: bodyRevision,
+      selection: committedSelection,
+      hasSelectedText: hasSelectedText(selection, in: body)
+    )
+  }
+
+  func validatedSelection(
+    in body: AttributedString,
+    pageID: PageID,
+    loadGeneration: UInt64,
+    bodyRevision: UInt64
+  ) -> AttributedTextSelection? {
+    guard self.pageID == pageID,
+      self.loadGeneration == loadGeneration,
+      self.bodyRevision == bodyRevision,
+      let restoredSelection = selection.selection(in: body),
+      hasSelectedText == Self.hasSelectedText(restoredSelection, in: body)
+    else {
+      return nil
+    }
+    return restoredSelection
+  }
+
+  private static func hasSelectedText(
+    _ selection: AttributedTextSelection,
+    in body: AttributedString
+  ) -> Bool {
+    guard case .ranges(let ranges) = selection.indices(in: body) else { return false }
+    return ranges.ranges.contains { !$0.isEmpty }
   }
 }
 
@@ -727,6 +790,7 @@ private final class NativeRichPageEditorState {
   private var editRevision: UInt64 = 0
   private var durableRevision: UInt64 = 0
   private var commandShortcutSnapshot: NativeRichEditorSelectionSnapshot?
+  private var commandContext: NativeRichEditorCommandContext?
   private var pickerSession: NativeRichEditorPickerSession?
   private var taggedPageCommit: NativeRichEditorTaggedPageCommit?
 
@@ -758,6 +822,7 @@ private final class NativeRichPageEditorState {
     editRevision = 0
     durableRevision = 0
     interactionErrorMessage = nil
+    commandContext = nil
     resetPickerState(reason: .pageLoad)
     isLoading = false
   }
@@ -791,8 +856,52 @@ private final class NativeRichPageEditorState {
     contentDidChange()
   }
 
+  @discardableResult
+  func captureCommandContext() -> NativeRichEditorCommandContext? {
+    guard !isMutationLocked,
+      let pageID,
+      let context = NativeRichEditorCommandContext.capture(
+        pageID: pageID,
+        loadGeneration: loadGeneration,
+        bodyRevision: editRevision,
+        selection: selection,
+        in: body
+      )
+    else {
+      commandContext = nil
+      setInteractionError("The text selection is no longer available. Try again.")
+      return nil
+    }
+    commandContext = context
+    return context
+  }
+
+  func clearCommandContext() {
+    commandContext = nil
+  }
+
+  func applyFormattingFromCommandContext(_ intent: InlinePresentationIntent) -> Bool {
+    guard !isMutationLocked,
+      let context = commandContext,
+      let restoredSelection = validSelection(from: context)
+    else {
+      commandContext = nil
+      setInteractionError("The text selection changed. Try formatting it again.")
+      return false
+    }
+    commandContext = nil
+    selection = restoredSelection
+    toggle(intent)
+    interactionErrorMessage = nil
+    return true
+  }
+
   var hasSelectedText: Bool {
     !selectedRanges.isEmpty
+  }
+
+  var commandContextHasSelectedText: Bool {
+    commandContext?.hasSelectedText == true
   }
 
   func formattingState(for intent: InlinePresentationIntent) -> NativeRichEditorFormattingState {
@@ -859,6 +968,28 @@ private final class NativeRichPageEditorState {
     beginPicker(.references, snapshot: snapshot, mode: mode)
   }
 
+  func showReferencePickerFromCommandContext() -> Bool {
+    guard !isMutationLocked,
+      let context = commandContext,
+      let restoredSelection = validSelection(from: context)
+    else {
+      commandContext = nil
+      setInteractionError("The insertion point changed. Insert the reference again.")
+      return false
+    }
+    commandContext = nil
+    commandShortcutSnapshot = nil
+    selection = restoredSelection
+    referenceQuery = String(body[restoredSelection].characters)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    beginPicker(
+      .references,
+      snapshot: context.selectionSnapshot,
+      mode: context.hasSelectedText ? .applyToSelectedText : .insertAtCaret
+    )
+    return true
+  }
+
   func showSupertagPicker() {
     guard !isMutationLocked else { return }
     guard hasSelectedText else {
@@ -874,6 +1005,27 @@ private final class NativeRichPageEditorState {
     activeSupertag = nil
     supertagQuery = ""
     beginPicker(.supertags, snapshot: selectionSnapshot, mode: .applyToSelectedText)
+  }
+
+  func showSupertagPickerFromCommandContext() -> Bool {
+    guard !isMutationLocked,
+      let context = commandContext,
+      context.hasSelectedText,
+      let restoredSelection = validSelection(from: context)
+    else {
+      commandContext = nil
+      setInteractionError("Select text before applying a supertag.")
+      return false
+    }
+    commandContext = nil
+    commandShortcutSnapshot = nil
+    selection = restoredSelection
+    taggedPageQuery = String(body[restoredSelection].characters)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    activeSupertag = nil
+    supertagQuery = ""
+    beginPicker(.supertags, snapshot: context.selectionSnapshot, mode: .applyToSelectedText)
+    return true
   }
 
   func chooseSupertag(_ supertag: SupertagDefinition) {
@@ -1613,6 +1765,7 @@ private final class NativeRichPageEditorState {
     else { return nil }
     return NativeRichEditorSelectionSnapshot(
       pageID: pageID,
+      loadGeneration: loadGeneration,
       bodyRevision: editRevision,
       selection: committedSelection
     )
@@ -1627,19 +1780,34 @@ private final class NativeRichPageEditorState {
     else { return nil }
     return NativeRichEditorSelectionSnapshot(
       pageID: pageID,
+      loadGeneration: loadGeneration,
       bodyRevision: editRevision,
       selection: committedSelection
     )
   }
 
   private func validSelection(from snapshot: NativeRichEditorSelectionSnapshot) -> AttributedTextSelection? {
-    guard snapshot.pageID == pageID, snapshot.bodyRevision == editRevision else { return nil }
+    guard snapshot.pageID == pageID,
+      snapshot.loadGeneration == loadGeneration,
+      snapshot.bodyRevision == editRevision
+    else { return nil }
     return snapshot.selection.selection(in: body)
+  }
+
+  private func validSelection(from context: NativeRichEditorCommandContext) -> AttributedTextSelection? {
+    guard let pageID else { return nil }
+    return context.validatedSelection(
+      in: body,
+      pageID: pageID,
+      loadGeneration: loadGeneration,
+      bodyRevision: editRevision
+    )
   }
 }
 
-private struct NativeRichEditorSelectionSnapshot {
+struct NativeRichEditorSelectionSnapshot: Equatable {
   let pageID: PageID
+  let loadGeneration: UInt64
   let bodyRevision: UInt64
   let selection: NativeRichEditorCommittedSelection
 }
@@ -1680,12 +1848,25 @@ private struct RichPageEditor<Header: View>: View {
     case edit
   }
 
+  private enum CommandDialog: Equatable {
+    case format
+    case insert
+
+    var title: String {
+      switch self {
+      case .format: "Format"
+      case .insert: "Insert"
+      }
+    }
+  }
+
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
   let flushController: EditorFlushController
   let findController: EditorFindController
   let presentation: PageEditorPresentation<Header>
+  let onEditingChanged: (Bool) -> Void
   let openPage: (PageID) -> Void
 
   @State private var editor: NativeRichPageEditorState
@@ -1695,6 +1876,7 @@ private struct RichPageEditor<Header: View>: View {
   @State private var pickerSourcePageID: PageID?
   @State private var editorMode: EditorMode = .browse
   @State private var isFinishingEditing = false
+  @State private var activeCommandDialog: CommandDialog?
 
   init(
     page: PageSnapshot,
@@ -1703,6 +1885,7 @@ private struct RichPageEditor<Header: View>: View {
     flushController: EditorFlushController,
     findController: EditorFindController,
     presentation: PageEditorPresentation<Header>,
+    onEditingChanged: @escaping (Bool) -> Void,
     openPage: @escaping (PageID) -> Void
   ) {
     self.page = page
@@ -1711,6 +1894,7 @@ private struct RichPageEditor<Header: View>: View {
     self.flushController = flushController
     self.findController = findController
     self.presentation = presentation
+    self.onEditingChanged = onEditingChanged
     self.openPage = openPage
     _editor = State(initialValue: NativeRichPageEditorState(store: store))
   }
@@ -1726,17 +1910,17 @@ private struct RichPageEditor<Header: View>: View {
         if presentation.showsEditableTitle {
           if editorMode == .browse {
             Text(editor.title.isEmpty ? "Untitled" : editor.title)
-              .font(.system(size: 34, weight: .bold, design: .default))
+              .font(.largeTitle.weight(.bold))
               .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.bottom, 20)
+              .padding(.bottom, 28)
               .accessibilityIdentifier("page-browser-title")
               .accessibilityLabel("Page title")
           } else {
             TextField("Untitled", text: $editor.title, axis: .vertical)
-              .font(.system(size: 34, weight: .bold, design: .default))
+              .font(.largeTitle.weight(.bold))
               .textFieldStyle(.plain)
               .focused($focusedField, equals: .title)
-              .padding(.bottom, 20)
+              .padding(.bottom, 28)
               .accessibilityIdentifier("page-editor-title")
               .accessibilityLabel("Page title")
               .disabled(editor.isMutationLocked)
@@ -1747,13 +1931,13 @@ private struct RichPageEditor<Header: View>: View {
           if editor.body.characters.isEmpty {
             Text("Start writing...")
               .foregroundStyle(.tertiary)
-              .padding(.top, 8)
-              .frame(minHeight: 440, alignment: .topLeading)
+              .padding(.top, 12)
+              .frame(minHeight: 460, alignment: .topLeading)
               .accessibilityIdentifier("page-browser-empty-body")
           } else {
             Text(browseBody)
               .font(.body)
-              .frame(maxWidth: .infinity, minHeight: 440, alignment: .topLeading)
+              .frame(maxWidth: .infinity, minHeight: 460, alignment: .topLeading)
               .accessibilityIdentifier("page-browser-body")
               .accessibilityLabel("Page body")
               .environment(
@@ -1768,7 +1952,7 @@ private struct RichPageEditor<Header: View>: View {
             if editor.body.characters.isEmpty {
               Text("Start writing...")
                 .foregroundStyle(.tertiary)
-                .padding(.top, 8)
+                .padding(.top, 12)
                 .allowsHitTesting(false)
             }
 
@@ -1781,7 +1965,7 @@ private struct RichPageEditor<Header: View>: View {
               )
               .focused($focusedField, equals: .body)
               .scrollContentBackground(.hidden)
-              .frame(minHeight: 440, alignment: .top)
+              .frame(minHeight: 460, alignment: .top)
               .accessibilityIdentifier("page-editor-body")
               .accessibilityLabel("Page body")
               .disabled(editor.isMutationLocked)
@@ -1797,11 +1981,58 @@ private struct RichPageEditor<Header: View>: View {
             .accessibilityLabel("Editor error: \(errorMessage)")
         }
       }
-      .frame(maxWidth: 760, alignment: .leading)
+      .frame(maxWidth: 680, alignment: .leading)
       .padding(.horizontal, 24)
-      .padding(.vertical, 20)
+      .padding(.top, 32)
+      .padding(.bottom, 36)
     }
+    .background(.background)
     .findNavigator(isPresented: $editor.showsFind)
+    #if os(iOS)
+    .confirmationDialog(
+      activeCommandDialog?.title ?? "",
+      isPresented: Binding(
+        get: { activeCommandDialog != nil },
+        set: { isPresented in
+          if !isPresented {
+            dismissCommandDialog(restoringBodyFocus: true)
+          }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      switch activeCommandDialog {
+      case .format:
+        Button("Bold") {
+          applyFormatting(.stronglyEmphasized)
+        }
+        Button("Italic") {
+          applyFormatting(.emphasized)
+        }
+        Button("Strikethrough") {
+          applyFormatting(.strikethrough)
+        }
+        Button("Inline Code") {
+          applyFormatting(.code)
+        }
+      case .insert:
+        Button("Insert Page or Date") {
+          presentReferencePicker()
+        }
+        if editor.commandContextHasSelectedText {
+          Button("Apply Supertag") {
+            presentSupertagPicker()
+          }
+        }
+      case nil:
+        EmptyView()
+      }
+
+      Button("Cancel", role: .cancel) {
+        dismissCommandDialog(restoringBodyFocus: true)
+      }
+    }
+    #endif
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         editorModeButton
@@ -1810,43 +2041,26 @@ private struct RichPageEditor<Header: View>: View {
     #if os(iOS)
     .toolbar {
       ToolbarItemGroup(placement: .keyboard) {
-        if focusedField == .body, editor.inlinePicker == nil {
-          Menu {
-            formattingMenuToggle("Bold", symbol: "bold", intent: .stronglyEmphasized)
-            formattingMenuToggle("Italic", symbol: "italic", intent: .emphasized)
-            formattingMenuToggle("Strikethrough", symbol: "strikethrough", intent: .strikethrough)
-            formattingMenuToggle("Inline Code", symbol: "chevron.left.forwardslash.chevron.right", intent: .code)
+        if focusedField == .body, editor.inlinePicker == nil, activeCommandDialog == nil {
+          Button {
+            presentCommandDialog(.format)
           } label: {
             Label("Format", systemImage: "textformat")
           }
-          .accessibilityIdentifier("page-editor-format-menu")
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityIdentifier("page-editor-format")
           .accessibilityLabel("Format")
           .disabled(editor.isMutationLocked)
 
           Button {
-            editor.showReferencePicker()
+            presentCommandDialog(.insert)
           } label: {
-            Label("Insert Page or Date", systemImage: "at")
+            Label("Insert", systemImage: "plus")
           }
-          .accessibilityIdentifier("page-editor-reference")
-          .accessibilityLabel("Insert page or date")
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityIdentifier("page-editor-insert")
+          .accessibilityLabel("Insert")
           .disabled(editor.isLoading || editor.isMutationLocked)
-
-          if editor.hasSelectedText {
-            Menu {
-              Button {
-                editor.showSupertagPicker()
-              } label: {
-                Label("Apply Supertag", systemImage: "number")
-              }
-              .accessibilityIdentifier("page-editor-supertag")
-            } label: {
-              Label("Insert", systemImage: "plus")
-            }
-            .accessibilityIdentifier("page-editor-insert-menu")
-            .accessibilityLabel("Insert")
-            .disabled(editor.isLoading || editor.isMutationLocked)
-          }
         }
 
         if editorMode == .edit, focusedField != nil {
@@ -1857,6 +2071,7 @@ private struct RichPageEditor<Header: View>: View {
           } label: {
             Label("Dismiss Keyboard", systemImage: "keyboard.chevron.compact.down")
           }
+          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-dismiss-keyboard")
           .accessibilityLabel("Dismiss Keyboard")
         }
@@ -1898,6 +2113,7 @@ private struct RichPageEditor<Header: View>: View {
       bodyWasFocusedBeforePicker = false
       pickerSourcePageID = nil
       editorMode = .browse
+      onEditingChanged(false)
       isFinishingEditing = false
       editor.load(page)
     }
@@ -1906,6 +2122,14 @@ private struct RichPageEditor<Header: View>: View {
     }
     .onChange(of: editor.body) { _, _ in
       editor.contentDidChange()
+    }
+    .onChange(of: editorMode) { _, mode in
+      #if os(iOS)
+      if mode == .browse {
+        dismissCommandDialog(restoringBodyFocus: false)
+      }
+      #endif
+      onEditingChanged(mode == .edit)
     }
     .onChange(of: focusedField) { _, field in
       #if os(iOS)
@@ -1980,14 +2204,14 @@ private struct RichPageEditor<Header: View>: View {
       .disabled(
         editor.isLoading
           || editor.isMutationLocked
-          || editor.inlinePicker != nil
+          || isInteractionPresented
           || isFinishingEditing
       )
     }
   }
 
   private func finishEditing() {
-    guard editor.inlinePicker == nil, !isFinishingEditing else { return }
+    guard !isInteractionPresented, !isFinishingEditing else { return }
     isFinishingEditing = true
     Task { @MainActor in
       guard await editor.flush() else {
@@ -1999,6 +2223,44 @@ private struct RichPageEditor<Header: View>: View {
       isFinishingEditing = false
     }
   }
+
+  #if os(iOS)
+  private func presentCommandDialog(_ dialog: CommandDialog) {
+    guard editor.captureCommandContext() != nil else {
+      activeCommandDialog = nil
+      return
+    }
+    activeCommandDialog = dialog
+  }
+
+  private func dismissCommandDialog(restoringBodyFocus: Bool) {
+    activeCommandDialog = nil
+    editor.clearCommandContext()
+    if restoringBodyFocus, editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
+      focusedField = .body
+    }
+  }
+
+  private func applyFormatting(_ intent: InlinePresentationIntent) {
+    _ = editor.applyFormattingFromCommandContext(intent)
+    activeCommandDialog = nil
+    if editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
+      focusedField = .body
+    }
+  }
+
+  private func presentReferencePicker() {
+    focusedField = .body
+    _ = editor.showReferencePickerFromCommandContext()
+    activeCommandDialog = nil
+  }
+
+  private func presentSupertagPicker() {
+    focusedField = .body
+    _ = editor.showSupertagPickerFromCommandContext()
+    activeCommandDialog = nil
+  }
+  #endif
 
   private func handleBrowseURL(_ url: URL) -> OpenURLAction.Result {
     guard let destination = PageReferenceBrowseLink.destination(from: url),
@@ -2064,33 +2326,52 @@ private struct RichPageEditor<Header: View>: View {
   #if os(macOS)
   private var formattingBar: some View {
     HStack(spacing: 4) {
-      formattingButton("Bold", symbol: "bold", intent: .stronglyEmphasized)
-      formattingButton("Italic", symbol: "italic", intent: .emphasized)
-      formattingButton("Strikethrough", symbol: "strikethrough", intent: .strikethrough)
-      formattingButton("Code", symbol: "chevron.left.forwardslash.chevron.right", intent: .code)
-
-      Divider()
-        .frame(height: 24)
-        .padding(.horizontal, 4)
-
-      Button {
-        editor.showReferencePicker()
+      Menu {
+        Section("Emphasis") {
+          formattingMenuToggle("Bold", symbol: "bold", intent: .stronglyEmphasized)
+          formattingMenuToggle("Italic", symbol: "italic", intent: .emphasized)
+        }
+        Section("Style") {
+          formattingMenuToggle("Strikethrough", symbol: "strikethrough", intent: .strikethrough)
+          formattingMenuToggle(
+            "Inline Code",
+            identifier: "code",
+            symbol: "chevron.left.forwardslash.chevron.right",
+            intent: .code
+          )
+        }
       } label: {
-        Label("Insert Page Reference", systemImage: "at")
+        Label("Format", systemImage: "textformat")
       }
-      .help("Insert page or daily-note reference")
-      .accessibilityIdentifier("page-editor-reference")
+      .accessibilityIdentifier("page-editor-format-menu")
+      .accessibilityLabel("Format")
       .disabled(editor.isLoading || editor.isMutationLocked)
 
-      Button {
-        editor.showSupertagPicker()
+      Menu {
+        Button {
+          editor.showReferencePicker()
+        } label: {
+          Label("Insert Page or Date", systemImage: "at")
+        }
+        .help("Insert page or daily-note reference")
+        .accessibilityIdentifier("page-editor-reference")
+
+        if editor.hasSelectedText {
+          Button {
+            editor.showSupertagPicker()
+          } label: {
+            Label("Apply Supertag", systemImage: "number")
+          }
+          .help("Apply a supertag to selected text")
+          .accessibilityIdentifier("page-editor-supertag")
+          .keyboardShortcut("9", modifiers: [.command, .shift])
+        }
       } label: {
-        Label("Apply Supertag", systemImage: "number")
+        Label("Insert", systemImage: "plus")
       }
-      .help("Apply a supertag to selected text")
-      .accessibilityIdentifier("page-editor-supertag")
-      .disabled(editor.isLoading || editor.isMutationLocked || !editor.hasSelectedText)
-      .keyboardShortcut("9", modifiers: [.command, .shift])
+      .accessibilityIdentifier("page-editor-insert-menu")
+      .accessibilityLabel("Insert")
+      .disabled(editor.isLoading || editor.isMutationLocked)
 
     }
     .labelStyle(.iconOnly)
@@ -2104,6 +2385,7 @@ private struct RichPageEditor<Header: View>: View {
 
   private func formattingMenuToggle(
     _ title: String,
+    identifier: String? = nil,
     symbol: String,
     intent: InlinePresentationIntent
   ) -> some View {
@@ -2115,9 +2397,27 @@ private struct RichPageEditor<Header: View>: View {
     ) {
       Label(title, systemImage: symbol)
     }
-    .accessibilityIdentifier("page-editor-format-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
+    .accessibilityIdentifier(
+      "page-editor-format-\(identifier ?? title.lowercased().replacingOccurrences(of: " ", with: "-"))"
+    )
     .accessibilityValue(editor.formattingState(for: intent).accessibilityValue)
     .disabled(editor.isMutationLocked)
+  }
+
+  private var isPickerPresented: Bool {
+    #if os(iOS)
+    editor.inlinePicker != nil
+    #else
+    editor.isPalettePresented
+    #endif
+  }
+
+  private var isInteractionPresented: Bool {
+    #if os(iOS)
+    activeCommandDialog != nil || isPickerPresented
+    #else
+    isPickerPresented
+    #endif
   }
 
   @ViewBuilder
@@ -2294,39 +2594,6 @@ private struct RichPageEditor<Header: View>: View {
     .accessibilityIdentifier("page-editor-inline-picker-result-\(title)")
   }
 
-  #if os(macOS)
-  private func formattingButton(
-    _ title: String,
-    symbol: String,
-    intent: InlinePresentationIntent
-  ) -> some View {
-    Button {
-      editor.toggle(intent)
-    } label: {
-      let state = editor.formattingState(for: intent)
-      ZStack(alignment: .bottomTrailing) {
-        Image(systemName: symbol)
-
-        if state != .off {
-          Image(systemName: state == .on ? "checkmark" : "minus")
-            .font(.system(size: 7, weight: .bold))
-            .frame(width: 12, height: 12)
-            .background(Circle().fill(.background))
-            .overlay {
-              Circle()
-                .stroke(.secondary, lineWidth: 1)
-            }
-            .offset(x: 4, y: 4)
-            .accessibilityHidden(true)
-        }
-      }
-    }
-    .disabled(editor.isLoading || editor.isMutationLocked)
-    .accessibilityIdentifier("page-editor-format-\(title.lowercased())")
-    .accessibilityValue(editor.formattingState(for: intent).accessibilityValue)
-    .tint(editor.formattingState(for: intent) == .on ? .accentColor : nil)
-  }
-  #endif
 }
 
 private struct NativeRichEditorPalette: View {
