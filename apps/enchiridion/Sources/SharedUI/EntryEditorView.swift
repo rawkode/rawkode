@@ -579,6 +579,13 @@ private struct NativeRichEditorReferenceInsertionCandidate {
   let selection: NativeRichEditorCommittedSelection
 }
 
+private extension PageSuggestion {
+  var editorDisplayTitle: String {
+    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
+  }
+}
+
 private extension AttributedString {
   func characterOffset(of index: Index) -> Int {
     var offset = 0
@@ -925,7 +932,7 @@ private final class NativeRichPageEditorState {
 
   func chooseReference(_ suggestion: PageSuggestion) {
     guard !isMutationLocked else { return }
-    completeReferenceInsertion(to: suggestion.id, label: suggestion.title)
+    completeReferenceInsertion(to: suggestion.id, label: suggestion.editorDisplayTitle)
   }
 
   func chooseDailyReference(_ suggestion: NativeDailyPageSuggestion) {
@@ -936,7 +943,7 @@ private final class NativeRichPageEditorState {
 
   func chooseTaggedPage(_ suggestion: PageSuggestion) {
     guard !isMutationLocked else { return }
-    completeReferenceInsertion(to: suggestion.id, label: suggestion.title)
+    completeReferenceInsertion(to: suggestion.id, label: suggestion.editorDisplayTitle)
   }
 
   func createTaggedPage() async {
@@ -946,7 +953,8 @@ private final class NativeRichPageEditorState {
       isPickerPresented(.taggedPages),
       let sourcePageID = pageID,
       sourcePageID == session.sourcePageID,
-      let capturedSelection = validSelection(from: session.referenceInsertionContext.snapshot)
+      let capturedSelection = validSelection(from: session.referenceInsertionContext.snapshot),
+      isSelection(capturedSelection, validFor: session.referenceInsertionContext.mode)
     else { return }
     let title = taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else {
@@ -1365,30 +1373,27 @@ private final class NativeRichPageEditorState {
     using context: NativeRichEditorReferenceInsertionContext
   ) -> NativeRichEditorReferenceInsertionResult {
     guard !isMutationLocked else { return .invalidContext }
-    guard let mark = try? PageDocument.pageReferenceMark(to: pageID, label: label) else {
-      return .unavailable
-    }
-
     guard pickerSession?.id == context.pickerID,
       let capturedSelection = validSelection(from: context.snapshot)
     else {
       return .invalidContext
     }
-    selection = capturedSelection
 
-    switch context.mode {
-    case .applyToSelectedText:
-      body.transformAttributes(in: &selection) { attributes in
-        var marks = attributes[PageRichTextAttributes.AutomergeMarks.self] ?? []
-        marks.removeAll { $0.name == PageDocument.pageReferenceMark }
-        marks.append(mark)
-        attributes[PageRichTextAttributes.AutomergeMarks.self] = marks
-      }
-    case .insertAtCaret, .replaceTrigger:
-      var reference = AttributedString(label)
-      reference[reference.startIndex..<reference.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [mark]
-      body.replaceSelection(&selection, with: reference)
+    guard isSelection(capturedSelection, validFor: context.mode) else {
+      return .invalidContext
     }
+    guard let candidate = bodyByInsertingReference(
+      to: pageID,
+      label: label,
+      in: body,
+      selection: capturedSelection,
+      mode: context.mode
+    ), let candidateSelection = candidate.selection.selection(in: candidate.body) else {
+      return .unavailable
+    }
+
+    body = candidate.body
+    selection = candidateSelection
     contentDidChange()
     return .inserted
   }
@@ -1466,6 +1471,29 @@ private final class NativeRichPageEditorState {
       body: candidate,
       selection: committedSelection
     )
+  }
+
+  private func isSelection(
+    _ selection: AttributedTextSelection,
+    validFor mode: NativeRichEditorReferenceInsertionMode
+  ) -> Bool {
+    switch (mode, selection.indices(in: body)) {
+    case (.insertAtCaret, .insertionPoint):
+      return true
+
+    case (.replaceTrigger, .ranges(let ranges)):
+      let selectedRanges = ranges.ranges
+      guard selectedRanges.count == 1, let range = selectedRanges.first else { return false }
+      let trigger = String(body[range].characters)
+      return trigger == "@" || trigger == "[["
+
+    case (.applyToSelectedText, .ranges(let ranges)):
+      let selectedRanges = ranges.ranges
+      return !selectedRanges.isEmpty && selectedRanges.allSatisfy { !$0.isEmpty }
+
+    default:
+      return false
+    }
   }
 
   private func finishTaggedPageCommit(
@@ -1580,26 +1608,40 @@ private final class NativeRichPageEditorState {
   }
 
   private var selectionSnapshot: NativeRichEditorSelectionSnapshot? {
-    guard let pageID else { return nil }
-    return NativeRichEditorSelectionSnapshot(pageID: pageID, bodyRevision: editRevision, selection: selection)
+    guard let pageID,
+      let committedSelection = NativeRichEditorCommittedSelection(from: selection, in: body)
+    else { return nil }
+    return NativeRichEditorSelectionSnapshot(
+      pageID: pageID,
+      bodyRevision: editRevision,
+      selection: committedSelection
+    )
   }
 
   private func selectionSnapshot(for range: Range<AttributedString.Index>) -> NativeRichEditorSelectionSnapshot? {
-    guard let pageID else { return nil }
-    let selection = AttributedTextSelection(range: range)
-    return NativeRichEditorSelectionSnapshot(pageID: pageID, bodyRevision: editRevision, selection: selection)
+    guard let pageID,
+      let committedSelection = NativeRichEditorCommittedSelection(
+        from: AttributedTextSelection(range: range),
+        in: body
+      )
+    else { return nil }
+    return NativeRichEditorSelectionSnapshot(
+      pageID: pageID,
+      bodyRevision: editRevision,
+      selection: committedSelection
+    )
   }
 
   private func validSelection(from snapshot: NativeRichEditorSelectionSnapshot) -> AttributedTextSelection? {
     guard snapshot.pageID == pageID, snapshot.bodyRevision == editRevision else { return nil }
-    return snapshot.selection
+    return snapshot.selection.selection(in: body)
   }
 }
 
 private struct NativeRichEditorSelectionSnapshot {
   let pageID: PageID
   let bodyRevision: UInt64
-  let selection: AttributedTextSelection
+  let selection: NativeRichEditorCommittedSelection
 }
 
 @MainActor
@@ -2024,7 +2066,7 @@ private struct RichPageEditor<Header: View>: View {
       } else {
         ForEach(editor.referenceSuggestions.prefix(6)) { suggestion in
           inlinePickerRow(
-            title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+            title: suggestion.editorDisplayTitle,
             subtitle: suggestion.displaySubtitle
           ) {
             editor.chooseReference(suggestion)
@@ -2073,7 +2115,7 @@ private struct RichPageEditor<Header: View>: View {
         }
         ForEach(editor.taggedPageSuggestions.prefix(6)) { suggestion in
           inlinePickerRow(
-            title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+            title: suggestion.editorDisplayTitle,
             subtitle: suggestion.displaySubtitle
           ) {
             editor.chooseTaggedPage(suggestion)
@@ -2214,7 +2256,7 @@ private struct NativeRichEditorPalette: View {
               editor.chooseReference(suggestion)
             } label: {
               suggestionLabel(
-                title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+                title: suggestion.editorDisplayTitle,
                 subtitle: suggestion.displaySubtitle
               )
             }
@@ -2299,7 +2341,7 @@ private struct NativeRichEditorPalette: View {
                 editor.chooseTaggedPage(suggestion)
               } label: {
                 suggestionLabel(
-                  title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+                  title: suggestion.editorDisplayTitle,
                   subtitle: suggestion.displaySubtitle
                 )
               }
