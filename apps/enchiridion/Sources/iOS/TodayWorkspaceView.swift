@@ -29,6 +29,8 @@ struct TodayWorkspaceView: View {
               TodayWorkspaceHeader(
                 day: day,
                 isToday: calendar.isDateInToday(day),
+                previousDay: { moveDay(by: -1) },
+                nextDay: { moveDay(by: 1) },
                 taskContext: DailyTaskContext(
                   store: store,
                   day: day,
@@ -66,12 +68,6 @@ struct TodayWorkspaceView: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
           Menu {
             Section("Date") {
-              Button("Previous Day", systemImage: "chevron.left") {
-                moveDay(by: -1)
-              }
-              Button("Next Day", systemImage: "chevron.right") {
-                moveDay(by: 1)
-              }
               Button("Choose Date", systemImage: "calendar.badge.clock") {
                 showDatePicker()
               }
@@ -204,27 +200,60 @@ struct TodayWorkspaceView: View {
 private struct TodayWorkspaceHeader<TaskContext: View>: View {
   let day: Date
   let isToday: Bool
+  let previousDay: () -> Void
+  let nextDay: () -> Void
   @ViewBuilder let taskContext: () -> TaskContext
 
-  init(day: Date, isToday: Bool, taskContext: TaskContext) {
+  init(
+    day: Date,
+    isToday: Bool,
+    previousDay: @escaping () -> Void,
+    nextDay: @escaping () -> Void,
+    taskContext: TaskContext
+  ) {
     self.day = day
     self.isToday = isToday
+    self.previousDay = previousDay
+    self.nextDay = nextDay
     self.taskContext = { taskContext }
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(isToday ? "Today" : "Daily Note")
-          .font(.title2.weight(.bold))
-          .accessibilityIdentifier("today-workspace-title")
-        Text(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
+      HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 3) {
+          Text(isToday ? "Today" : "Daily Note")
+            .font(.title2.weight(.bold))
+            .accessibilityIdentifier("today-workspace-title")
+          Text(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(dailyIdentityAccessibilityLabel)
+        .accessibilityIdentifier("today-workspace-heading")
+
+        Spacer(minLength: 8)
+
+        HStack(spacing: 4) {
+          Button(action: previousDay) {
+            Image(systemName: "chevron.left")
+          }
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityLabel("Previous day")
+          .accessibilityHint("Open the previous daily note")
+          .accessibilityIdentifier("today-previous-day")
+
+          Button(action: nextDay) {
+            Image(systemName: "chevron.right")
+          }
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityLabel("Next day")
+          .accessibilityHint("Open the next daily note")
+          .accessibilityIdentifier("today-next-day")
+        }
+        .font(.body.weight(.semibold))
       }
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel(dailyIdentityAccessibilityLabel)
-      .accessibilityIdentifier("today-workspace-heading")
 
       taskContext()
     }

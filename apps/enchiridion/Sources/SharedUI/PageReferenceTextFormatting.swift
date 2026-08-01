@@ -1,3 +1,4 @@
+import Foundation
 import EnchiridionCore
 import SwiftUI
 
@@ -56,8 +57,142 @@ private struct PageReferenceUnderlineConstraint: AttributedTextValueConstraint {
   typealias AttributeKey = AttributeScopes.SwiftUIAttributes.UnderlineStyleAttribute
 
   func constrain(_ container: inout Attributes) {
-    container.underlineStyle = container.automergeMarks?.contains {
-      $0.name == PageDocument.pageReferenceMark
-    } == true ? .single : nil
+    // TextEditor owns selection and text input. A reference is intentionally
+    // not underlined there because it cannot be followed without moving the
+    // insertion point. Browse mode adds an underline only to its transient
+    // link projection.
+    container.underlineStyle = nil
+  }
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+enum PageReferenceBrowseLink {
+  struct Destination: Hashable, Sendable {
+    let vaultID: VaultID
+    let pageID: PageID
+  }
+
+  private static let scheme = "enchiridion-reference"
+  private static let host = "page"
+
+  static func url(for destination: Destination) -> URL? {
+    guard let vault = encoded(destination.vaultID.rawValue),
+      let page = encoded(destination.pageID.rawValue)
+    else { return nil }
+
+    var components = URLComponents()
+    components.scheme = scheme
+    components.host = host
+    components.queryItems = [
+      URLQueryItem(name: "vault", value: vault),
+      URLQueryItem(name: "page", value: page),
+    ]
+    return components.url
+  }
+
+  static func destination(from url: URL) -> Destination? {
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      components.scheme == scheme,
+      components.host == host,
+      components.port == nil,
+      components.user == nil,
+      components.password == nil,
+      components.path.isEmpty,
+      components.fragment == nil,
+      let queryItems = components.queryItems,
+      queryItems.count == 2,
+      let vault = uniqueValue(named: "vault", in: queryItems).flatMap(decoded),
+      let page = uniqueValue(named: "page", in: queryItems).flatMap(decoded),
+      isValidIdentifier(vault),
+      isValidIdentifier(page)
+    else { return nil }
+
+    return Destination(vaultID: VaultID(rawValue: vault), pageID: PageID(rawValue: page))
+  }
+
+  private static func encoded(_ value: String) -> String? {
+    guard isValidIdentifier(value) else { return nil }
+    return Data(value.utf8)
+      .base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+  }
+
+  private static func decoded(_ value: String) -> String? {
+    guard !value.isEmpty,
+      value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") })
+    else { return nil }
+
+    let base64 = value
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    let padded = base64.padding(
+      toLength: ((base64.count + 3) / 4) * 4,
+      withPad: "=",
+      startingAt: 0
+    )
+    guard let data = Data(base64Encoded: padded), let decoded = String(data: data, encoding: .utf8) else {
+      return nil
+    }
+    return decoded
+  }
+
+  private static func uniqueValue(named name: String, in items: [URLQueryItem]) -> String? {
+    let values = items.compactMap { $0.name == name ? $0.value : nil }
+    guard values.count == 1 else { return nil }
+    return values[0]
+  }
+
+  private static func isValidIdentifier(_ value: String) -> Bool {
+    !value.isEmpty
+      && value.utf8.count <= 512
+      && value.unicodeScalars.allSatisfy { $0.properties.generalCategory != .control }
+  }
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+enum PageReferenceBrowseProjection {
+  static func make(
+    from body: AttributedString,
+    vaultID: VaultID,
+    palette: PageReferencePalette,
+    isDestinationLive: (PageID) -> Bool
+  ) -> AttributedString {
+    var projection = body
+
+    // Capture ranges before mutating their attributes so the indices remain
+    // those of the copied AttributedString, including emoji and composed text.
+    let runRanges = projection.runs.map(\.range)
+    for range in runRanges {
+      // Browse exposes only the transient, vault-scoped links created below.
+      // A link attribute from an imported or stale projection must never reach
+      // the system URL handler.
+      projection[range].link = nil
+    }
+
+    for range in runRanges {
+      guard let destination = semanticDestination(in: projection[range]),
+        isDestinationLive(destination.pageID),
+        let url = PageReferenceBrowseLink.url(
+          for: .init(vaultID: vaultID, pageID: destination.pageID)
+        )
+      else { continue }
+
+      projection[range].link = url
+      projection[range].foregroundColor = palette.foregroundColor
+      projection[range].underlineStyle = .single
+    }
+
+    return projection
+  }
+
+  private static func semanticDestination(
+    in text: AttributedSubstring
+  ) -> PageReferenceDestination? {
+    let destinations = (text[PageRichTextAttributes.AutomergeMarks.self] ?? [])
+      .compactMap(PageDocument.pageReferenceDestination(from:))
+    guard destinations.count == 1 else { return nil }
+    return destinations[0]
   }
 }

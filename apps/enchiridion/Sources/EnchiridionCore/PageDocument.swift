@@ -45,6 +45,16 @@ public struct PageRichTextMark: Hashable, Sendable {
   }
 }
 
+public struct PageReferenceDestination: Hashable, Sendable {
+  public let pageID: PageID
+  public let label: String
+
+  public init(pageID: PageID, label: String) {
+    self.pageID = pageID
+    self.label = label
+  }
+}
+
 public enum PageRichTextMarkValue: Hashable, Sendable {
   case bytes(Data)
   case string(String)
@@ -277,6 +287,21 @@ public enum PageDocument {
     return PageRichTextMark(
       name: pageReferenceMark,
       value: .string(String(decoding: payload, as: UTF8.self))
+    )
+  }
+
+  public static func pageReferenceDestination(
+    from mark: PageRichTextMark
+  ) -> PageReferenceDestination? {
+    guard mark.name == pageReferenceMark,
+      case .string(let encoded) = mark.value,
+      let data = encoded.data(using: .utf8),
+      let value = try? JSONDecoder.enchiridion.decode(PageReferenceValue.self, from: data)
+    else { return nil }
+
+    return PageReferenceDestination(
+      pageID: PageID(rawValue: value.pageID),
+      label: value.label
     )
   }
 
@@ -517,18 +542,16 @@ public enum PageDocument {
 
     var references: [PageReference] = []
     var seen: Set<PageID> = []
-    for mark in try document.marks(obj: bodyObject) where mark.name == pageReferenceMark {
-      guard case .String(let encoded) = mark.value,
-        let data = encoded.data(using: .utf8),
-        let value = try? JSONDecoder.enchiridion.decode(PageReferenceValue.self, from: data)
-      else { continue }
-      let target = PageID(rawValue: value.pageID)
+    for mark in try document.marks(obj: bodyObject) {
+      let richTextMark = PageRichTextMark(name: mark.name, value: richTextValue(from: mark.value))
+      guard let destination = pageReferenceDestination(from: richTextMark) else { continue }
+      let target = destination.pageID
       guard seen.insert(target).inserted else { continue }
       references.append(
         PageReference(
           sourcePageID: resolvedPageID,
           targetPageID: target,
-          fallbackLabel: value.label
+          fallbackLabel: destination.label
         )
       )
     }

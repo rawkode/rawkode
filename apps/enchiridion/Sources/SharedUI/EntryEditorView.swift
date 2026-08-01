@@ -1675,6 +1675,11 @@ private struct RichPageEditor<Header: View>: View {
     case inlinePickerSearch
   }
 
+  private enum EditorMode {
+    case browse
+    case edit
+  }
+
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
@@ -1688,6 +1693,8 @@ private struct RichPageEditor<Header: View>: View {
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @State private var bodyWasFocusedBeforePicker = false
   @State private var pickerSourcePageID: PageID?
+  @State private var editorMode: EditorMode = .browse
+  @State private var isFinishingEditing = false
 
   init(
     page: PageSnapshot,
@@ -1717,37 +1724,68 @@ private struct RichPageEditor<Header: View>: View {
         calendarContextView
 
         if presentation.showsEditableTitle {
-          TextField("Untitled", text: $editor.title, axis: .vertical)
-            .font(.system(size: 34, weight: .bold, design: .default))
-            .textFieldStyle(.plain)
-            .focused($focusedField, equals: .title)
-            .padding(.bottom, 20)
-            .accessibilityIdentifier("page-editor-title")
-            .accessibilityLabel("Page title")
-            .disabled(editor.isMutationLocked)
+          if editorMode == .browse {
+            Text(editor.title.isEmpty ? "Untitled" : editor.title)
+              .font(.system(size: 34, weight: .bold, design: .default))
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.bottom, 20)
+              .accessibilityIdentifier("page-browser-title")
+              .accessibilityLabel("Page title")
+          } else {
+            TextField("Untitled", text: $editor.title, axis: .vertical)
+              .font(.system(size: 34, weight: .bold, design: .default))
+              .textFieldStyle(.plain)
+              .focused($focusedField, equals: .title)
+              .padding(.bottom, 20)
+              .accessibilityIdentifier("page-editor-title")
+              .accessibilityLabel("Page title")
+              .disabled(editor.isMutationLocked)
+          }
         }
 
-        ZStack(alignment: .topLeading) {
+        if editorMode == .browse {
           if editor.body.characters.isEmpty {
             Text("Start writing...")
               .foregroundStyle(.tertiary)
               .padding(.top, 8)
-              .allowsHitTesting(false)
-          }
-
-          TextEditor(text: $editor.body, selection: $editor.selection)
-            .font(.body)
-            .attributedTextFormattingDefinition(
-              PageReferenceTextFormattingDefinition(
-                palette: PageReferencePalette(contrast: colorSchemeContrast)
+              .frame(minHeight: 440, alignment: .topLeading)
+              .accessibilityIdentifier("page-browser-empty-body")
+          } else {
+            Text(browseBody)
+              .font(.body)
+              .frame(maxWidth: .infinity, minHeight: 440, alignment: .topLeading)
+              .accessibilityIdentifier("page-browser-body")
+              .accessibilityLabel("Page body")
+              .environment(
+                \.openURL,
+                OpenURLAction { url in
+                  handleBrowseURL(url)
+                }
               )
-            )
-            .focused($focusedField, equals: .body)
-            .scrollContentBackground(.hidden)
-            .frame(minHeight: 440, alignment: .top)
-            .accessibilityIdentifier("page-editor-body")
-            .accessibilityLabel("Page body")
-            .disabled(editor.isMutationLocked)
+          }
+        } else {
+          ZStack(alignment: .topLeading) {
+            if editor.body.characters.isEmpty {
+              Text("Start writing...")
+                .foregroundStyle(.tertiary)
+                .padding(.top, 8)
+                .allowsHitTesting(false)
+            }
+
+            TextEditor(text: $editor.body, selection: $editor.selection)
+              .font(.body)
+              .attributedTextFormattingDefinition(
+                PageReferenceTextFormattingDefinition(
+                  palette: PageReferencePalette(contrast: colorSchemeContrast)
+                )
+              )
+              .focused($focusedField, equals: .body)
+              .scrollContentBackground(.hidden)
+              .frame(minHeight: 440, alignment: .top)
+              .accessibilityIdentifier("page-editor-body")
+              .accessibilityLabel("Page body")
+              .disabled(editor.isMutationLocked)
+          }
         }
 
         if let errorMessage = editor.interactionErrorMessage ?? editor.errorMessage {
@@ -1764,6 +1802,11 @@ private struct RichPageEditor<Header: View>: View {
       .padding(.vertical, 20)
     }
     .findNavigator(isPresented: $editor.showsFind)
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        editorModeButton
+      }
+    }
     #if os(iOS)
     .toolbar {
       ToolbarItemGroup(placement: .keyboard) {
@@ -1805,6 +1848,18 @@ private struct RichPageEditor<Header: View>: View {
             .disabled(editor.isLoading || editor.isMutationLocked)
           }
         }
+
+        if editorMode == .edit, focusedField != nil {
+          Spacer()
+
+          Button {
+            focusedField = nil
+          } label: {
+            Label("Dismiss Keyboard", systemImage: "keyboard.chevron.compact.down")
+          }
+          .accessibilityIdentifier("page-editor-dismiss-keyboard")
+          .accessibilityLabel("Dismiss Keyboard")
+        }
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -1813,7 +1868,11 @@ private struct RichPageEditor<Header: View>: View {
       }
     }
     #else
-    .safeAreaInset(edge: .bottom) { formattingBar }
+    .safeAreaInset(edge: .bottom) {
+      if editorMode == .edit {
+        formattingBar
+      }
+    }
     .sheet(isPresented: $editor.isPalettePresented, onDismiss: {
       editor.dismissPalette()
     }) {
@@ -1825,6 +1884,7 @@ private struct RichPageEditor<Header: View>: View {
         await editor?.flush() ?? true
       }
       findController.register(editor.registrationID) { [weak editor] in
+        editorMode = .edit
         editor?.showsFind = true
       }
     }
@@ -1834,13 +1894,11 @@ private struct RichPageEditor<Header: View>: View {
       Task { _ = await editor.flush() }
     }
     .task(id: page.id) {
-      #if os(macOS)
-      focusedField = .body
-      #else
       focusedField = nil
       bodyWasFocusedBeforePicker = false
       pickerSourcePageID = nil
-      #endif
+      editorMode = .browse
+      isFinishingEditing = false
       editor.load(page)
     }
     .onChange(of: editor.title) { _, _ in
@@ -1886,6 +1944,71 @@ private struct RichPageEditor<Header: View>: View {
       }
     }
     #endif
+  }
+
+  private var browseBody: AttributedString {
+    PageReferenceBrowseProjection.make(
+      from: editor.body,
+      vaultID: store.vaultID,
+      palette: PageReferencePalette(contrast: colorSchemeContrast)
+    ) { pageID in
+      store.page(id: pageID)?.deletedAt == nil
+    }
+  }
+
+  @ViewBuilder
+  private var editorModeButton: some View {
+    switch editorMode {
+    case .browse:
+      Button {
+        editorMode = .edit
+        focusedField = .body
+      } label: {
+        Label("Edit", systemImage: "pencil")
+      }
+      .accessibilityIdentifier("page-editor-edit")
+      .accessibilityLabel("Edit page")
+      .disabled(editor.isLoading || editor.isMutationLocked)
+    case .edit:
+      Button {
+        finishEditing()
+      } label: {
+        Label("Done", systemImage: "checkmark")
+      }
+      .accessibilityIdentifier("page-editor-done")
+      .accessibilityLabel("Finish editing")
+      .disabled(
+        editor.isLoading
+          || editor.isMutationLocked
+          || editor.inlinePicker != nil
+          || isFinishingEditing
+      )
+    }
+  }
+
+  private func finishEditing() {
+    guard editor.inlinePicker == nil, !isFinishingEditing else { return }
+    isFinishingEditing = true
+    Task { @MainActor in
+      guard await editor.flush() else {
+        isFinishingEditing = false
+        return
+      }
+      focusedField = nil
+      editorMode = .browse
+      isFinishingEditing = false
+    }
+  }
+
+  private func handleBrowseURL(_ url: URL) -> OpenURLAction.Result {
+    guard let destination = PageReferenceBrowseLink.destination(from: url),
+      destination.vaultID == store.vaultID,
+      let page = store.page(id: destination.pageID),
+      page.deletedAt == nil
+    else { return .discarded }
+
+    openPage(destination.pageID)
+    return .handled
   }
 
   @ViewBuilder
