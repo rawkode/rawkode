@@ -40,11 +40,8 @@ struct DailyTaskContext: View {
             HStack(spacing: 8) {
               Image(systemName: "checkmark.circle")
                 .foregroundStyle(.tint)
-              Text("Tasks")
+              Text("\(tasks.count) task\(tasks.count == 1 ? "" : "s")")
                 .font(.subheadline.weight(.semibold))
-              Text(tasks.count, format: .number)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
               Image(systemName: "chevron.down")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
@@ -82,6 +79,8 @@ struct DailyTaskContext: View {
             .contentShape(.rect)
         }
         .labelStyle(.iconOnly)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("daily-task-context-add")
         .accessibilityHint("Add for this daily page, plan tomorrow, or view all tasks")
       }
       .padding(.horizontal, 16)
@@ -95,8 +94,11 @@ struct DailyTaskContext: View {
               .submitLabel(.done)
               .focused($isCaptureFocused)
               .onSubmit(createTask)
+              .accessibilityIdentifier("daily-task-capture-field")
             if isCreating {
-              ProgressView().controlSize(.small)
+              ProgressView()
+                .controlSize(.small)
+                .accessibilityIdentifier("daily-task-capture-progress")
             } else {
               Button("Add", systemImage: "arrow.up.circle.fill") { createTask() }
                 .labelStyle(.iconOnly)
@@ -104,22 +106,27 @@ struct DailyTaskContext: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
                 .disabled(draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("daily-task-capture-add")
             }
             Button("Cancel", systemImage: "xmark") { cancelCapture() }
               .labelStyle(.iconOnly)
               .foregroundStyle(.secondary)
               .frame(width: 44, height: 44)
               .contentShape(.rect)
+              .accessibilityIdentifier("daily-task-capture-cancel")
           }
           if let captureError {
             Text(captureError)
               .font(.caption)
               .foregroundStyle(.red)
+              .accessibilityIdentifier("daily-task-capture-error")
+              .accessibilityLabel("Task capture error: \(captureError)")
           }
         }
         .padding(.leading, 16)
         .padding(.trailing, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+        .accessibilityIdentifier("daily-task-capture")
       }
 
       if isExpanded, !tasks.isEmpty {
@@ -158,6 +165,7 @@ struct DailyTaskContext: View {
       }
     }
     .overlay(alignment: .bottom) { Divider() }
+    .accessibilityIdentifier("daily-task-context")
     .accessibilityElement(children: .contain)
     .sheet(item: $deferSelection) { selection in
       DailyTaskDeferPicker(
@@ -269,6 +277,7 @@ private struct DailyTaskContextRow: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Complete \(task.page.displayTitle)")
+      .accessibilityIdentifier("daily-task-complete-\(task.id)")
 
       Button(action: open) {
         VStack(alignment: .leading, spacing: 3) {
@@ -278,7 +287,7 @@ private struct DailyTaskContextRow: View {
             .lineLimit(1)
 
           if !contextLabels.isEmpty {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
               ForEach(contextLabels, id: \.text) { label in
                 Label(label.text, systemImage: label.symbol)
                   .foregroundStyle(label.isUrgent ? Color.red : Color.secondary)
@@ -293,6 +302,7 @@ private struct DailyTaskContextRow: View {
       }
       .buttonStyle(.plain)
       .accessibilityHint("Open task")
+      .accessibilityIdentifier("daily-task-open-\(task.id)")
 
       Menu {
         Button("Tomorrow", systemImage: "sunrise", action: deferToTomorrow)
@@ -305,9 +315,11 @@ private struct DailyTaskContextRow: View {
       .labelStyle(.iconOnly)
       .buttonStyle(.plain)
       .foregroundStyle(.secondary)
+      .accessibilityIdentifier("daily-task-actions-\(task.id)")
     }
     .padding(.horizontal, 10)
-    .padding(.vertical, 2)
+    .padding(.vertical, 1)
+    .accessibilityIdentifier("daily-task-row-\(task.id)")
   }
 
   private var contextLabels: [ContextLabel] {
