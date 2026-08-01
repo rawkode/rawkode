@@ -653,7 +653,9 @@ private final class NativeRichPageEditorState {
 
   func formattingState(for intent: InlinePresentationIntent) -> NativeRichEditorFormattingState {
     let ranges = selectedRanges
-    guard !ranges.isEmpty else { return .off }
+    guard !ranges.isEmpty else {
+      return formattingStateAtInsertionPoint(for: intent)
+    }
     var hasOn = false
     var hasOff = false
     for range in ranges {
@@ -663,6 +665,29 @@ private final class NativeRichPageEditorState {
       }
     }
     return hasOn ? .on : .off
+  }
+
+  private func formattingStateAtInsertionPoint(
+    for intent: InlinePresentationIntent
+  ) -> NativeRichEditorFormattingState {
+    guard case .insertionPoint(let caret) = selection.indices(in: body),
+      !body.characters.isEmpty
+    else {
+      return .off
+    }
+
+    let characterRange: Range<AttributedString.Index>
+    if caret > body.startIndex {
+      characterRange = body.index(beforeCharacter: caret)..<caret
+    } else if caret < body.endIndex {
+      characterRange = caret..<body.index(afterCharacter: caret)
+    } else {
+      return .off
+    }
+
+    return body[characterRange].runs.contains {
+      $0.inlinePresentationIntent?.contains(intent) == true
+    } ? .on : .off
   }
 
   var supertags: [SupertagDefinition] {
@@ -1210,7 +1235,11 @@ private struct RichPageEditor<Header: View>: View {
     }
     .task(id: page.id) {
       editor.load(page)
+      #if os(macOS)
+      focusedField = .body
+      #else
       focusedField = nil
+      #endif
     }
     .onChange(of: editor.title) { _, _ in
       editor.contentDidChange(bodyDidChange: false)
