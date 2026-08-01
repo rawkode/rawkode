@@ -62,6 +62,7 @@ public enum PageRichTextAttributes {
   public struct AutomergeMarks: AttributedStringKey {
     public typealias Value = [PageRichTextMark]
     public static let name = "dev.rawkode.enchiridion.automerge-marks"
+    public static let inheritedByAddedText = false
   }
 }
 

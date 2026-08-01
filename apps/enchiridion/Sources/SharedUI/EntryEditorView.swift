@@ -1685,6 +1685,7 @@ private struct RichPageEditor<Header: View>: View {
 
   @State private var editor: NativeRichPageEditorState
   @FocusState private var focusedField: FocusedField?
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @State private var bodyWasFocusedBeforePicker = false
   @State private var pickerSourcePageID: PageID?
 
@@ -1736,6 +1737,11 @@ private struct RichPageEditor<Header: View>: View {
 
           TextEditor(text: $editor.body, selection: $editor.selection)
             .font(.body)
+            .attributedTextFormattingDefinition(
+              PageReferenceTextFormattingDefinition(
+                palette: PageReferencePalette(contrast: colorSchemeContrast)
+              )
+            )
             .focused($focusedField, equals: .body)
             .scrollContentBackground(.hidden)
             .frame(minHeight: 440, alignment: .top)

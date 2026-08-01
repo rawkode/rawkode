@@ -154,6 +154,20 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMobile.entitlements
         CODE_SIGN_STYLE: Automatic
 
+  EnchiridionMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Tests/EnchiridionMobileTests
+    dependencies:
+      - target: EnchiridionMobile
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Enchiridion.app/Enchiridion
+
   EnchiridionTodayWidget:
     type: app-extension
     platform: iOS
@@ -227,5 +241,9 @@ schemes:
     build:
       targets:
         EnchiridionMobile: all
+        EnchiridionMobileTests: [test]
     run:
       config: Debug
+    test:
+      targets:
+        - EnchiridionMobileTests

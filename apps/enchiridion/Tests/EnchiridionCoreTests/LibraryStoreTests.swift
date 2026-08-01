@@ -348,6 +348,74 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(updated.projection.references.map(\.targetPageID), [targetID])
   }
 
+  func testRichTextCustomMarksDoNotPropagateToInsertedText() throws {
+    let referenceMark = try PageDocument.pageReferenceMark(
+      to: .free(),
+      label: "Reference"
+    )
+    let customMark = PageRichTextMark(name: "comment", value: .string("review"))
+
+    func range(
+      in text: AttributedString,
+      _ lowerBound: Int,
+      _ upperBound: Int
+    ) -> Range<AttributedString.Index> {
+      text.index(text.startIndex, offsetByUnicodeScalars: lowerBound)
+        ..< text.index(text.startIndex, offsetByUnicodeScalars: upperBound)
+    }
+
+    func markedText(with marks: [PageRichTextMark]) -> AttributedString {
+      var text = AttributedString("Reference")
+      text[text.startIndex..<text.endIndex][PageRichTextAttributes.AutomergeMarks.self] = marks
+      return text
+    }
+
+    var text = markedText(with: [referenceMark])
+    text.replaceSubrange(range(in: text, 0, 0), with: AttributedString("Start "))
+    XCTAssertNil(text[range(in: text, 0, 6)][PageRichTextAttributes.AutomergeMarks.self])
+    XCTAssertEqual(
+      text[range(in: text, 6, 15)][PageRichTextAttributes.AutomergeMarks.self],
+      [referenceMark]
+    )
+
+    text = markedText(with: [referenceMark])
+    text.replaceSubrange(range(in: text, 9, 9), with: AttributedString(" end"))
+    XCTAssertEqual(
+      text[range(in: text, 0, 9)][PageRichTextAttributes.AutomergeMarks.self],
+      [referenceMark]
+    )
+    XCTAssertNil(text[range(in: text, 9, 13)][PageRichTextAttributes.AutomergeMarks.self])
+
+    text = markedText(with: [referenceMark])
+    text.replaceSubrange(range(in: text, 4, 4), with: AttributedString("-"))
+    XCTAssertEqual(
+      text[range(in: text, 0, 4)][PageRichTextAttributes.AutomergeMarks.self],
+      [referenceMark]
+    )
+    XCTAssertNil(text[range(in: text, 4, 5)][PageRichTextAttributes.AutomergeMarks.self])
+    XCTAssertEqual(
+      text[range(in: text, 5, 10)][PageRichTextAttributes.AutomergeMarks.self],
+      [referenceMark]
+    )
+
+    text = AttributedString("xReference")
+    text[range(in: text, 1, 10)][PageRichTextAttributes.AutomergeMarks.self] = [referenceMark]
+    text.replaceSubrange(range(in: text, 0, 3), with: AttributedString("X"))
+    XCTAssertNil(text[range(in: text, 0, 1)][PageRichTextAttributes.AutomergeMarks.self])
+    XCTAssertEqual(
+      text[range(in: text, 1, 8)][PageRichTextAttributes.AutomergeMarks.self],
+      [referenceMark]
+    )
+
+    text = markedText(with: [customMark])
+    text.replaceSubrange(range(in: text, 9, 9), with: AttributedString("!"))
+    XCTAssertEqual(
+      text[range(in: text, 0, 9)][PageRichTextAttributes.AutomergeMarks.self],
+      [customMark]
+    )
+    XCTAssertNil(text[range(in: text, 9, 10)][PageRichTextAttributes.AutomergeMarks.self])
+  }
+
   func testRichTextEditorUpgradesSchemaVersionOneDocuments() throws {
     let created = try PageDocument.create(
       id: .free(),

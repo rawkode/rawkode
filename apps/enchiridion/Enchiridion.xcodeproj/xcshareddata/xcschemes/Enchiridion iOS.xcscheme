@@ -21,6 +21,20 @@
                ReferencedContainer = "container:Enchiridion.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "877762695536523C684317F1"
+               BuildableName = "EnchiridionMobileTests.xctest"
+               BlueprintName = "EnchiridionMobileTests"
+               ReferencedContainer = "container:Enchiridion.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -39,7 +53,20 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "877762695536523C684317F1"
+               BuildableName = "EnchiridionMobileTests.xctest"
+               BlueprintName = "EnchiridionMobileTests"
+               ReferencedContainer = "container:Enchiridion.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
