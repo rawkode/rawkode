@@ -1401,13 +1401,29 @@ public final class LibraryStore {
     return page
   }
 
-  private func cacheEditorPage(_ page: PageSnapshot) {
-    var updatedPages = pages
-    if let index = updatedPages.firstIndex(where: { $0.id == page.id }) {
-      updatedPages[index] = page
-    } else {
-      updatedPages.append(page)
+  public func createTaggedPageAndPersistReference(
+    _ request: TaggedPageReferenceInsertionRequest
+  ) async throws -> TaggedPageReferenceInsertionResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
     }
+    let result = try await repository.createTaggedPageAndPersistReference(request)
+    cacheEditorPages([result.source, result.target])
+    scheduleEditorLiveViewRefresh()
+    await syncCoordinator?.pageDidChange(result.source.id)
+    await syncCoordinator?.pageDidChange(result.target.id)
+    return result
+  }
+
+  private func cacheEditorPage(_ page: PageSnapshot) {
+    cacheEditorPages([page])
+  }
+
+  private func cacheEditorPages(_ changedPages: [PageSnapshot]) {
+    let replacements = Dictionary(uniqueKeysWithValues: changedPages.map { ($0.id, $0) })
+    var updatedPages = pages.map { replacements[$0.id] ?? $0 }
+    let existingIDs = Set(pages.map(\.id))
+    updatedPages.append(contentsOf: changedPages.filter { !existingIDs.contains($0.id) })
     updatedPages.sort { $0.modifiedAt > $1.modifiedAt }
     pages = updatedPages
   }

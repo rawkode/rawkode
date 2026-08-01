@@ -1490,6 +1490,226 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertNotNil(marker)
   }
 
+  func testTaggedPageReferenceInsertionCommitsSourceTargetReferencesAndDirtyState() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Meeting notes")
+    let request = try taggedPageReferenceRequest(source: source)
+
+    let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
+    let persistedSource = try await fixture.repository.page(id: source.id)
+    let persistedTarget = try await fixture.repository.page(id: request.targetPageID)
+    let backlinks = try await fixture.repository.backlinks(to: request.targetPageID)
+    let dirtyIDs = Set(try await fixture.repository.dirtyPages().map(\.id))
+
+    XCTAssertEqual(result.source.id, source.id)
+    XCTAssertEqual(result.target.id, request.targetPageID)
+    XCTAssertEqual(persistedSource?.heads, result.source.heads)
+    XCTAssertTrue(persistedTarget?.hasSupertag(request.supertagID) == true)
+    XCTAssertEqual(backlinks.map(\.id), [source.id])
+    XCTAssertTrue(dirtyIDs.isSuperset(of: [source.id, request.targetPageID]))
+  }
+
+  func testTaggedPageReferenceInsertionRejectsStaleAndDeletedSourcesWithoutPartialTarget() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let staleRequest = try taggedPageReferenceRequest(source: source)
+    _ = try await fixture.repository.persistRichTextEditor(
+      pageID: source.id,
+      title: "Changed",
+      body: AttributedString("New content")
+    )
+
+    try await assertTaggedPageReferenceInsertionError(
+      .sourceStale,
+      repository: fixture.repository,
+      request: staleRequest
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: staleRequest.targetPageID
+    )
+
+    let currentSnapshot = try await fixture.repository.page(id: source.id)
+    let current = try XCTUnwrap(currentSnapshot)
+    let deletedRequest = try taggedPageReferenceRequest(source: current)
+    try await fixture.repository.moveToTrash(pageID: source.id)
+
+    try await assertTaggedPageReferenceInsertionError(
+      .sourceDeleted,
+      repository: fixture.repository,
+      request: deletedRequest
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: deletedRequest.targetPageID
+    )
+  }
+
+  func testTaggedPageReferenceInsertionRejectsInvalidAndDeletedSupertagsWithoutPartialTarget() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let invalidRequest = try taggedPageReferenceRequest(
+      source: source,
+      supertagID: .init(rawValue: "missing-tag")
+    )
+
+    try await assertTaggedPageReferenceInsertionError(
+      .invalidSupertag,
+      repository: fixture.repository,
+      request: invalidRequest
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: invalidRequest.targetPageID
+    )
+
+    var deletedTag = SupertagDefinition.draft(name: "Deleted tag")
+    deletedTag.isDeleted = true
+    try await fixture.repository.saveSupertag(deletedTag)
+    let deletedRequest = try taggedPageReferenceRequest(source: source, supertagID: deletedTag.id)
+
+    try await assertTaggedPageReferenceInsertionError(
+      .invalidSupertag,
+      repository: fixture.repository,
+      request: deletedRequest
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: deletedRequest.targetPageID
+    )
+  }
+
+  func testTaggedPageReferenceInsertionRejectsOccupiedAndPurgedTargetIDsWithoutPartialReference() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let occupied = try await fixture.repository.createFreePage(title: "Existing target")
+    let occupiedRequest = try taggedPageReferenceRequest(source: source, targetID: occupied.id)
+
+    try await assertTaggedPageReferenceInsertionError(
+      .targetOccupied,
+      repository: fixture.repository,
+      request: occupiedRequest
+    )
+    let occupiedBacklinks = try await fixture.repository.backlinks(to: occupied.id)
+    XCTAssertTrue(occupiedBacklinks.isEmpty)
+
+    let purged = try await fixture.repository.createFreePage(title: "Purged target")
+    try await fixture.repository.moveToTrash(pageID: purged.id)
+    try await fixture.repository.purge(pageID: purged.id)
+    let purgedRequest = try taggedPageReferenceRequest(source: source, targetID: purged.id)
+
+    try await assertTaggedPageReferenceInsertionError(
+      .targetPurged,
+      repository: fixture.repository,
+      request: purgedRequest
+    )
+    let purgedBacklinks = try await fixture.repository.backlinks(to: purged.id)
+    XCTAssertTrue(purgedBacklinks.isEmpty)
+  }
+
+  func testTaggedPageReferenceInsertionRejectsMissingCandidateReferenceWithoutPartialTarget() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let request = try taggedPageReferenceRequest(source: source, includesReference: false)
+
+    try await assertTaggedPageReferenceInsertionError(
+      .missingTargetReference,
+      repository: fixture.repository,
+      request: request
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: request.targetPageID
+    )
+  }
+
+  func testTaggedPageReferenceInsertionPreservesPersonTagClassificationParity() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let request = try taggedPageReferenceRequest(source: source, supertagID: BuiltInSupertags.person)
+
+    let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
+
+    XCTAssertTrue(result.target.hasSupertag(BuiltInSupertags.person))
+    XCTAssertEqual(result.target.objectMetadata.personVisibility, .promoted)
+    XCTAssertEqual(result.target.objectMetadata.personOrigin, .manual)
+  }
+
+  @MainActor
+  func testStoreTaggedPageReferenceInsertionPreservesSelectionAndCachesBothPages() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload(policy: .refreshOnly)
+    store.selectedPageID = source.id
+    let request = try taggedPageReferenceRequest(source: source)
+
+    let result = try await store.createTaggedPageAndPersistReference(request)
+    let dirtyIDs = Set(try await fixture.repository.dirtyPages().map(\.id))
+
+    XCTAssertEqual(store.selectedPageID, source.id)
+    XCTAssertEqual(store.page(id: source.id)?.heads, result.source.heads)
+    XCTAssertEqual(store.page(id: request.targetPageID)?.heads, result.target.heads)
+    XCTAssertTrue(dirtyIDs.isSuperset(of: [source.id, request.targetPageID]))
+  }
+
+  private func taggedPageReferenceRequest(
+    source: PageSnapshot,
+    targetID: PageID = .free(),
+    targetTitle: String = "Project Aurora",
+    supertagID: SupertagID = BuiltInSupertags.project,
+    includesReference: Bool = true
+  ) throws -> TaggedPageReferenceInsertionRequest {
+    var body = AttributedString(includesReference ? targetTitle : "No reference")
+    if includesReference {
+      body[body.startIndex..<body.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [
+        try PageDocument.pageReferenceMark(to: targetID, label: targetTitle)
+      ]
+    }
+    return TaggedPageReferenceInsertionRequest(
+      sourcePageID: source.id,
+      expectedSourceHeads: source.heads,
+      sourceTitle: source.title,
+      sourceBody: body,
+      targetPageID: targetID,
+      targetTitle: targetTitle,
+      supertagID: supertagID
+    )
+  }
+
+  private func assertTaggedPageReferenceInsertionError(
+    _ expected: TaggedPageReferenceInsertionError,
+    repository: LibraryRepository,
+    request: TaggedPageReferenceInsertionRequest
+  ) async throws {
+    do {
+      _ = try await repository.createTaggedPageAndPersistReference(request)
+      XCTFail("Expected \(expected)")
+    } catch let actual as TaggedPageReferenceInsertionError {
+      XCTAssertEqual(actual, expected)
+    }
+  }
+
+  private func assertNoPartialTaggedPageInsertion(
+    repository: LibraryRepository,
+    sourceID: PageID,
+    targetID: PageID
+  ) async throws {
+    let target = try await repository.page(id: targetID)
+    let backlinks = try await repository.backlinks(to: targetID)
+    let dirtyPages = try await repository.dirtyPages()
+    let source = try await repository.page(id: sourceID)
+    XCTAssertNil(target)
+    XCTAssertTrue(backlinks.isEmpty)
+    XCTAssertFalse(dirtyPages.contains { $0.id == targetID })
+    XCTAssertNotNil(source)
+  }
+
   private func referenceCommit(
     from page: PageSnapshot,
     to targetPageID: PageID,

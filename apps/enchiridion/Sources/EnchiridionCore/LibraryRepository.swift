@@ -74,6 +74,75 @@ public struct EditorCommitReceipt: Codable, Hashable, Sendable {
   public var duplicate: Bool
 }
 
+/// Describes the durable pair created when an editor creates a tagged page and
+/// inserts its reference into an existing page.
+public struct TaggedPageReferenceInsertionRequest: Sendable {
+  public var sourcePageID: PageID
+  public var expectedSourceHeads: AutomergeHeads
+  public var sourceTitle: String
+  public var sourceBody: AttributedString
+  public var targetPageID: PageID
+  public var targetTitle: String
+  public var supertagID: SupertagID
+
+  public init(
+    sourcePageID: PageID,
+    expectedSourceHeads: AutomergeHeads,
+    sourceTitle: String,
+    sourceBody: AttributedString,
+    targetPageID: PageID,
+    targetTitle: String,
+    supertagID: SupertagID
+  ) {
+    self.sourcePageID = sourcePageID
+    self.expectedSourceHeads = expectedSourceHeads
+    self.sourceTitle = sourceTitle
+    self.sourceBody = sourceBody
+    self.targetPageID = targetPageID
+    self.targetTitle = targetTitle
+    self.supertagID = supertagID
+  }
+}
+
+public struct TaggedPageReferenceInsertionResult: Sendable {
+  public var source: PageSnapshot
+  public var target: PageSnapshot
+
+  public init(source: PageSnapshot, target: PageSnapshot) {
+    self.source = source
+    self.target = target
+  }
+}
+
+public enum TaggedPageReferenceInsertionError: Error, Equatable, LocalizedError {
+  case sourceStale
+  case sourceDeleted
+  case invalidSupertag
+  case targetOccupied
+  case targetPurged
+  case missingTargetReference
+  case persistenceFailure(String)
+
+  public var errorDescription: String? {
+    switch self {
+    case .sourceStale:
+      "This page changed while the tagged page was being created. Try again."
+    case .sourceDeleted:
+      "This page is no longer available."
+    case .invalidSupertag:
+      "That supertag is no longer available."
+    case .targetOccupied:
+      "A page with this identifier already exists."
+    case .targetPurged:
+      "This page identifier was permanently removed."
+    case .missingTargetReference:
+      "The created page reference is missing from the editor content."
+    case .persistenceFailure(let message):
+      "The tagged page could not be saved: \(message)"
+    }
+  }
+}
+
 public struct PageSuggestion: Codable, Hashable, Sendable, Identifiable {
   public var id: PageID
   public var title: String
@@ -1177,6 +1246,80 @@ public actor LibraryRepository {
     try addSupertag(supertagID, to: page.id, now: now)
     guard let updated = try self.page(id: page.id) else { throw LibraryRepositoryError.pageNotFound }
     return updated
+  }
+
+  /// Atomically creates a tagged target page and persists a reference to it in
+  /// the source page. The source is guarded by its exact durable Automerge
+  /// heads, so a stale editor can never create an unlinked page.
+  public func createTaggedPageAndPersistReference(
+    _ request: TaggedPageReferenceInsertionRequest,
+    now: Date = Date()
+  ) throws -> TaggedPageReferenceInsertionResult {
+    do {
+      return try database.write { db in
+        guard let source = try Self.fetchPage(db, id: request.sourcePageID) else {
+          throw TaggedPageReferenceInsertionError.sourceDeleted
+        }
+        guard source.deletedAt == nil else {
+          throw TaggedPageReferenceInsertionError.sourceDeleted
+        }
+        guard source.heads == request.expectedSourceHeads else {
+          throw TaggedPageReferenceInsertionError.sourceStale
+        }
+        guard try Self.fetchPage(db, id: request.targetPageID) == nil else {
+          throw TaggedPageReferenceInsertionError.targetOccupied
+        }
+        guard try !Self.hasPurgeMarker(db, pageID: request.targetPageID) else {
+          throw TaggedPageReferenceInsertionError.targetPurged
+        }
+        guard try Self.hasLiveSupertag(db, id: request.supertagID) else {
+          throw TaggedPageReferenceInsertionError.invalidSupertag
+        }
+
+        let sourceResult = try PageDocument.replaceRichText(
+          title: request.sourceTitle,
+          body: request.sourceBody,
+          in: source.document
+        )
+        guard sourceResult.projection.references.contains(where: {
+          $0.targetPageID == request.targetPageID
+        }) else {
+          throw TaggedPageReferenceInsertionError.missingTargetReference
+        }
+
+        let createdTarget = try Self.createPage(
+          db,
+          id: request.targetPageID,
+          kind: .free,
+          title: request.targetTitle,
+          now: now
+        )
+        let taggedTargetResult = try Self.addingSupertag(
+          request.supertagID,
+          in: createdTarget.document
+        )
+        let target = Self.updatedPage(createdTarget, with: taggedTargetResult, now: now)
+        try Self.writePage(db, page: target, cloudDirty: true)
+        try Self.replaceReferences(
+          db,
+          pageID: target.id,
+          references: taggedTargetResult.projection.references
+        )
+
+        let updatedSource = Self.updatedPage(source, with: sourceResult, now: now)
+        try Self.writePage(db, page: updatedSource, cloudDirty: true)
+        try Self.replaceReferences(
+          db,
+          pageID: updatedSource.id,
+          references: sourceResult.projection.references
+        )
+        return TaggedPageReferenceInsertionResult(source: updatedSource, target: target)
+      }
+    } catch let error as TaggedPageReferenceInsertionError {
+      throw error
+    } catch {
+      throw TaggedPageReferenceInsertionError.persistenceFailure(error.localizedDescription)
+    }
   }
 
   @discardableResult
@@ -2819,15 +2962,7 @@ public actor LibraryRepository {
       throw LibraryRepositoryError.invalidRecord
     }
     try mutateDocument(pageID: pageID, now: now) { current in
-      let tagged = try PageDocument.addSupertag(supertagID, in: current.document)
-      guard supertagID == BuiltInSupertags.person,
-        tagged.projection.objectMetadata.personVisibility == nil
-      else { return tagged }
-      return try PageDocument.setPersonClassification(
-        visibility: .promoted,
-        origin: .manual,
-        in: tagged.document
-      )
+      try Self.addingSupertag(supertagID, in: current.document)
     }
   }
 
@@ -4775,6 +4910,41 @@ public actor LibraryRepository {
     )
     try writePage(db, page: page, cloudDirty: cloudDirty)
     return page
+  }
+
+  private static func hasPurgeMarker(_ db: Database, pageID: PageID) throws -> Bool {
+    try Bool.fetchOne(
+      db,
+      sql: "SELECT EXISTS(SELECT 1 FROM purge_markers WHERE page_id = ?)",
+      arguments: [pageID.rawValue]
+    ) ?? false
+  }
+
+  private static func hasLiveSupertag(_ db: Database, id: SupertagID) throws -> Bool {
+    try Bool.fetchOne(
+      db,
+      sql: "SELECT EXISTS(SELECT 1 FROM supertag_schemas WHERE id = ? AND deleted = 0)",
+      arguments: [id.rawValue]
+    ) ?? false
+  }
+
+  private static func addingSupertag(
+    _ supertagID: SupertagID,
+    in document: Data
+  ) throws -> (
+    document: Data,
+    heads: AutomergeHeads,
+    projection: PageDocumentProjection
+  ) {
+    let tagged = try PageDocument.addSupertag(supertagID, in: document)
+    guard supertagID == BuiltInSupertags.person,
+      tagged.projection.objectMetadata.personVisibility == nil
+    else { return tagged }
+    return try PageDocument.setPersonClassification(
+      visibility: .promoted,
+      origin: .manual,
+      in: tagged.document
+    )
   }
 
   private func mutateDocument(

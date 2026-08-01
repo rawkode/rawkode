@@ -486,11 +486,139 @@ private struct OtherPersonPromotionGate: View {
   }
 }
 
-private enum NativeRichEditorPaletteKind {
+private enum NativeRichEditorPaletteKind: Equatable {
   case commands
   case references
   case supertags
   case taggedPages
+}
+
+/// The iPhone editor keeps short-lived commands in the writing context instead
+/// of navigating away from it. macOS continues to use `paletteKind` in a sheet.
+private enum NativeRichEditorInlinePicker: Equatable {
+  case references
+  case supertags
+  case taggedPages
+}
+
+private extension NativeRichEditorPaletteKind {
+  init(_ picker: NativeRichEditorInlinePicker) {
+    switch picker {
+    case .references: self = .references
+    case .supertags: self = .supertags
+    case .taggedPages: self = .taggedPages
+    }
+  }
+}
+
+private enum NativeRichEditorReferenceInsertionMode {
+  case insertAtCaret
+  case replaceTrigger
+  case applyToSelectedText
+}
+
+private struct NativeRichEditorReferenceInsertionContext {
+  let pickerID: UUID
+  let snapshot: NativeRichEditorSelectionSnapshot
+  let mode: NativeRichEditorReferenceInsertionMode
+}
+
+private struct NativeRichEditorPickerSession {
+  let id: UUID
+  let sourcePageID: PageID
+  let referenceInsertionContext: NativeRichEditorReferenceInsertionContext
+}
+
+private struct NativeRichEditorTaggedPageCommit {
+  let id: UUID
+  let sourcePageID: PageID
+  let loadGeneration: UInt64
+}
+
+/// A selection expressed as character offsets so it can be recreated after
+/// the committed document is decoded into a distinct AttributedString value.
+private enum NativeRichEditorCommittedSelection {
+  case insertionPoint(offset: Int)
+  case ranges([Range<Int>])
+
+  init?(from selection: AttributedTextSelection, in body: AttributedString) {
+    switch selection.indices(in: body) {
+    case .insertionPoint(let index):
+      self = .insertionPoint(offset: body.characterOffset(of: index))
+    case .ranges(let ranges):
+      self = .ranges(
+        ranges.ranges.map {
+          body.characterOffset(of: $0.lowerBound)..<body.characterOffset(of: $0.upperBound)
+        }
+      )
+    }
+  }
+
+  func selection(in body: AttributedString) -> AttributedTextSelection? {
+    switch self {
+    case .insertionPoint(let offset):
+      guard let index = body.characterIndex(at: offset) else { return nil }
+      return AttributedTextSelection(insertionPoint: index)
+    case .ranges(let offsets):
+      var ranges = RangeSet<AttributedString.Index>()
+      for offset in offsets {
+        guard let lowerBound = body.characterIndex(at: offset.lowerBound),
+          let upperBound = body.characterIndex(at: offset.upperBound)
+        else {
+          return nil
+        }
+        ranges.insert(contentsOf: lowerBound..<upperBound)
+      }
+      return AttributedTextSelection(ranges: ranges)
+    }
+  }
+}
+
+private struct NativeRichEditorReferenceInsertionCandidate {
+  let body: AttributedString
+  let selection: NativeRichEditorCommittedSelection
+}
+
+private extension AttributedString {
+  func characterOffset(of index: Index) -> Int {
+    var offset = 0
+    var cursor = startIndex
+    while cursor < index {
+      cursor = self.index(afterCharacter: cursor)
+      offset += 1
+    }
+    return offset
+  }
+
+  func characterIndex(at offset: Int) -> Index? {
+    guard offset >= 0 else { return nil }
+    var cursor = startIndex
+    for _ in 0..<offset {
+      guard cursor < endIndex else { return nil }
+      cursor = self.index(afterCharacter: cursor)
+    }
+    return cursor
+  }
+}
+
+private enum NativeRichEditorPickerDismissalReason {
+  case userCancelled
+  case inserted
+  case invalidated
+  case pageLoad
+}
+
+private enum NativeRichEditorReferenceInsertionResult {
+  case inserted
+  case invalidContext
+  case unavailable
+}
+
+private struct NativeRichEditorPickerRequest: Equatable {
+  let id: UUID
+  let picker: NativeRichEditorInlinePicker
+  let pageID: PageID
+  let query: String
 }
 
 private enum NativeRichEditorFormattingState: String {
@@ -563,16 +691,25 @@ private final class NativeRichPageEditorState {
   var isLoading = true
   var showsFind = false
   var errorMessage: String?
+  var interactionErrorMessage: String?
   var isPalettePresented = false
   var paletteKind: NativeRichEditorPaletteKind = .commands
+  var inlinePicker: NativeRichEditorInlinePicker?
   var referenceQuery = ""
   var referenceSuggestions: [PageSuggestion] = []
+  var supertagQuery = ""
   var activeSupertag: SupertagDefinition?
   var taggedPageQuery = ""
   var taggedPageSuggestions: [PageSuggestion] = []
+  var pickerDismissalReason: NativeRichEditorPickerDismissalReason = .pageLoad
+
+  var isCreatingTaggedPage: Bool { taggedPageCommit != nil }
+  var isMutationLocked: Bool { taggedPageCommit != nil }
 
   private let store: LibraryStore
   private var pageID: PageID?
+  private var loadGeneration: UInt64 = 0
+  private var durableSnapshot: PageSnapshot?
   private var persistedTitle = ""
   private var persistedBody = AttributedString()
   private var observedTitle = ""
@@ -582,17 +719,20 @@ private final class NativeRichPageEditorState {
   private var activeSaveOperation: NativeRichEditorSaveOperation?
   private var editRevision: UInt64 = 0
   private var durableRevision: UInt64 = 0
-  private var shortcutSnapshot: NativeRichEditorSelectionSnapshot?
-  private var selectionForReference: NativeRichEditorSelectionSnapshot?
+  private var commandShortcutSnapshot: NativeRichEditorSelectionSnapshot?
+  private var pickerSession: NativeRichEditorPickerSession?
+  private var taggedPageCommit: NativeRichEditorTaggedPageCommit?
 
   init(store: LibraryStore) {
     self.store = store
   }
 
   func load(_ page: PageSnapshot) {
+    loadGeneration &+= 1
     cancelQueuedSave()
     activeSaveOperation = nil
     pageID = page.id
+    durableSnapshot = page
     do {
       let content = try PageDocument.richText(in: page.document)
       title = content.title
@@ -610,13 +750,13 @@ private final class NativeRichPageEditorState {
     observedBody = body
     editRevision = 0
     durableRevision = 0
-    shortcutSnapshot = nil
-    selectionForReference = nil
+    interactionErrorMessage = nil
+    resetPickerState(reason: .pageLoad)
     isLoading = false
   }
 
   func contentDidChange(bodyDidChange: Bool = true) {
-    guard !isLoading else { return }
+    guard !isLoading, !isMutationLocked else { return }
     guard title != observedTitle || body != observedBody else { return }
     observedTitle = title
     observedBody = body
@@ -630,6 +770,7 @@ private final class NativeRichPageEditorState {
   }
 
   func toggle(_ intent: InlinePresentationIntent) {
+    guard !isMutationLocked else { return }
     let shouldEnable = formattingState(for: intent) != .on
     body.transformAttributes(in: &selection) { attributes in
       var current = attributes.inlinePresentationIntent ?? []
@@ -641,10 +782,6 @@ private final class NativeRichPageEditorState {
       attributes.inlinePresentationIntent = current
     }
     contentDidChange()
-  }
-
-  func insertReference(to page: PageSnapshot) {
-    insertReference(to: page.id, label: page.displayTitle)
   }
 
   var hasSelectedText: Bool {
@@ -695,122 +832,231 @@ private final class NativeRichPageEditorState {
   }
 
   func showCommandPalette() {
-    shortcutSnapshot = nil
+    guard !isMutationLocked else { return }
+    commandShortcutSnapshot = nil
     paletteKind = .commands
     isPalettePresented = true
   }
 
   func showReferencePicker() {
-    selectionForReference = hasSelectedText ? selectionSnapshot : nil
+    guard !isMutationLocked else { return }
+    guard let snapshot = selectionSnapshot else {
+      setInteractionError("The insertion point is no longer available. Try again.")
+      return
+    }
+    let mode: NativeRichEditorReferenceInsertionMode = hasSelectedText
+      ? .applyToSelectedText
+      : .insertAtCaret
+    commandShortcutSnapshot = nil
     referenceQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    paletteKind = .references
-    isPalettePresented = true
+    beginPicker(.references, snapshot: snapshot, mode: mode)
   }
 
   func showSupertagPicker() {
+    guard !isMutationLocked else { return }
     guard hasSelectedText else {
-      errorMessage = "Select text before applying a supertag."
+      setInteractionError("Select text before applying a supertag.")
       return
     }
     guard let selectionSnapshot else {
-      errorMessage = "The text selection is no longer available. Select text and try again."
+      setInteractionError("The text selection is no longer available. Select text and try again.")
       return
     }
-    selectionForReference = selectionSnapshot
+    commandShortcutSnapshot = nil
     taggedPageQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
     activeSupertag = nil
-    paletteKind = .supertags
-    isPalettePresented = true
+    supertagQuery = ""
+    beginPicker(.supertags, snapshot: selectionSnapshot, mode: .applyToSelectedText)
   }
 
   func chooseSupertag(_ supertag: SupertagDefinition) {
+    guard !isMutationLocked else { return }
+    guard pickerSession != nil, isPickerPresented(.supertags) else {
+      setInteractionError("The supertag selection is no longer available. Try again.")
+      return
+    }
     activeSupertag = supertag
     taggedPageSuggestions = []
+    #if os(iOS)
+    inlinePicker = .taggedPages
+    #else
     paletteKind = .taggedPages
+    #endif
+  }
+
+  var matchingSupertags: [SupertagDefinition] {
+    let query = supertagQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return supertags }
+    return supertags.filter { $0.name.localizedStandardContains(query) }
+  }
+
+  var inlinePickerSourcePageID: PageID? {
+    pickerSession?.sourcePageID
+  }
+
+  var referencePickerRequestID: NativeRichEditorPickerRequest? {
+    pickerContext(for: .references)
+  }
+
+  var taggedPagePickerRequestID: NativeRichEditorPickerRequest? {
+    pickerContext(for: .taggedPages)
   }
 
   func refreshReferenceSuggestions() async {
+    guard let context = pickerContext(for: .references) else { return }
     let suggestions = await store.suggestions(matching: referenceQuery)
+    guard pickerContext(for: .references) == context else { return }
     referenceSuggestions = suggestions.isEmpty ? cachedPageSuggestions() : suggestions
   }
 
   func refreshTaggedPageSuggestions() async {
+    guard let context = pickerContext(for: .taggedPages) else { return }
     guard let activeSupertag else {
       taggedPageSuggestions = []
       return
     }
-    taggedPageSuggestions = await store.taggedSuggestions(
+    let suggestions = await store.taggedSuggestions(
       matching: taggedPageQuery,
       supertagID: activeSupertag.id
     )
+    guard pickerContext(for: .taggedPages) == context else { return }
+    taggedPageSuggestions = suggestions
   }
 
   func chooseReference(_ suggestion: PageSuggestion) {
-    insertReference(to: suggestion.id, label: suggestion.title)
-    dismissPalette()
+    guard !isMutationLocked else { return }
+    completeReferenceInsertion(to: suggestion.id, label: suggestion.title)
   }
 
   func chooseDailyReference(_ suggestion: NativeDailyPageSuggestion) {
+    guard !isMutationLocked else { return }
     let day = DayKey(date: suggestion.date, calendar: .current)
-    insertReference(to: .daily(day), label: suggestion.title)
-    dismissPalette()
+    completeReferenceInsertion(to: .daily(day), label: suggestion.title)
   }
 
   func chooseTaggedPage(_ suggestion: PageSuggestion) {
-    insertReference(to: suggestion.id, label: suggestion.title)
-    dismissPalette()
+    guard !isMutationLocked else { return }
+    completeReferenceInsertion(to: suggestion.id, label: suggestion.title)
   }
 
   func createTaggedPage() async {
-    guard let activeSupertag else { return }
+    guard taggedPageCommit == nil,
+      let activeSupertag,
+      let session = pickerSession,
+      isPickerPresented(.taggedPages),
+      let sourcePageID = pageID,
+      sourcePageID == session.sourcePageID,
+      let capturedSelection = validSelection(from: session.referenceInsertionContext.snapshot)
+    else { return }
     let title = taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else {
-      errorMessage = "Select text with a title before creating a tagged page."
+      setInteractionError("Select text with a title before creating a tagged page.")
       return
     }
-    guard let pageID = await store.createTaggedPage(title: title, supertagID: activeSupertag.id) else {
-      errorMessage = "Could not create the tagged page."
+    let commit = NativeRichEditorTaggedPageCommit(
+      id: UUID(),
+      sourcePageID: sourcePageID,
+      loadGeneration: loadGeneration
+    )
+    let sourceTitle = self.title
+    let sourceBody = body
+    taggedPageCommit = commit
+    cancelQueuedSave()
+
+    guard let durableSource = await flushDurableSnapshot(
+      pageID: sourcePageID,
+      title: sourceTitle,
+      body: sourceBody
+    ) else {
+      finishTaggedPageCommit(commit, error: "Could not save this page before creating the tagged page.")
       return
     }
-    insertReference(to: pageID, label: title)
-    dismissPalette()
+
+    let targetPageID = PageID.free()
+    guard let reference = bodyByInsertingReference(
+      to: targetPageID,
+      label: title,
+      in: sourceBody,
+      selection: capturedSelection,
+      mode: session.referenceInsertionContext.mode
+    ) else {
+      finishTaggedPageCommit(commit, error: "Could not create the page reference.")
+      return
+    }
+
+    do {
+      let result = try await store.createTaggedPageAndPersistReference(
+        TaggedPageReferenceInsertionRequest(
+          sourcePageID: sourcePageID,
+          expectedSourceHeads: durableSource.heads,
+          sourceTitle: sourceTitle,
+          sourceBody: reference.body,
+          targetPageID: targetPageID,
+          targetTitle: title,
+          supertagID: activeSupertag.id
+        )
+      )
+      finishTaggedPageCommit(
+        commit,
+        result: result,
+        reference: reference,
+        pickerID: session.id
+      )
+    } catch let error as TaggedPageReferenceInsertionError {
+      finishTaggedPageCommit(commit, error: error.localizedDescription)
+    } catch {
+      finishTaggedPageCommit(commit, error: error.localizedDescription)
+    }
   }
 
   func runCommand(_ command: NativeRichEditorCommand) {
+    guard !isMutationLocked else { return }
     switch command {
     case .bold:
-      consumeShortcut()
+      consumeCommandShortcut()
       toggle(.stronglyEmphasized)
-      dismissPalette()
+      dismissPicker()
     case .italic:
-      consumeShortcut()
+      consumeCommandShortcut()
       toggle(.emphasized)
-      dismissPalette()
+      dismissPicker()
     case .strikethrough:
-      consumeShortcut()
+      consumeCommandShortcut()
       toggle(.strikethrough)
-      dismissPalette()
+      dismissPicker()
     case .code:
-      consumeShortcut()
+      consumeCommandShortcut()
       toggle(.code)
-      dismissPalette()
+      dismissPicker()
     case .pageReference:
-      consumeShortcut()
+      consumeCommandShortcut()
       showReferencePicker()
     case .supertag:
-      consumeShortcut()
+      consumeCommandShortcut()
       showSupertagPicker()
     }
   }
 
+  func dismissPicker(reason: NativeRichEditorPickerDismissalReason = .userCancelled) {
+    resetPickerState(reason: reason)
+  }
+
   func dismissPalette() {
+    dismissPicker()
+  }
+
+  private func resetPickerState(reason: NativeRichEditorPickerDismissalReason) {
     isPalettePresented = false
+    inlinePicker = nil
+    pickerSession = nil
+    pickerDismissalReason = reason
+    paletteKind = .commands
+    referenceQuery = ""
     referenceSuggestions = []
+    supertagQuery = ""
     taggedPageSuggestions = []
     activeSupertag = nil
     taggedPageQuery = ""
-    selectionForReference = nil
-    shortcutSnapshot = nil
   }
 
   func dailyReferenceSuggestions() -> [NativeDailyPageSuggestion] {
@@ -842,30 +1088,93 @@ private final class NativeRichPageEditorState {
 
   @discardableResult
   func flush() async -> Bool {
-    cancelQueuedSave()
-    guard !isLoading, let requestedPageID = pageID else { return true }
-    let requestedRevision = editRevision
-    while durableRevision < requestedRevision {
-      guard pageID == requestedPageID else { return false }
-
-      if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID {
-        guard let task = activeSaveOperation.task else { return false }
-        guard case .success = await task.value else { return false }
-        continue
-      }
-
-      guard let pageID, pageID == requestedPageID else { return false }
-      let revisionToSave = editRevision
-      let titleToSave = title
-      let bodyToSave = body
-      startSaveOperation(
-        pageID: pageID,
-        revision: revisionToSave,
-        title: titleToSave,
-        body: bodyToSave
-      )
+    // A tagged-page commit owns the next durable source revision. Background
+    // flush callers (including the shared flush controller and disappearance)
+    // must not race it with the pre-insertion editor value.
+    guard !isMutationLocked else {
+      cancelQueuedSave()
+      return true
     }
+    guard !isLoading, let pageID else { return true }
+    return await flushBackgroundSnapshot(pageID: pageID, title: title, body: body)
+  }
+
+  /// Routes public and scheduled flushes through the tracked save operation.
+  /// If one began immediately before a tagged-page commit acquired its lock,
+  /// the commit's exact flush waits for it before using the resulting heads.
+  private func flushBackgroundSnapshot(
+    pageID requestedPageID: PageID,
+    title requestedTitle: String,
+    body requestedBody: AttributedString
+  ) async -> Bool {
+    cancelQueuedSave()
+    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
+      let task = activeSaveOperation.task
+    {
+      guard case .success = await task.value else { return false }
+      return true
+    }
+
+    if let durableSnapshot,
+      durableSnapshot.id == requestedPageID,
+      persistedTitle == requestedTitle,
+      persistedBody == requestedBody
+    {
+      return true
+    }
+
+    startSaveOperation(
+      pageID: requestedPageID,
+      revision: editRevision,
+      title: requestedTitle,
+      body: requestedBody
+    )
+    guard let task = activeSaveOperation?.task else { return false }
+    guard case .success = await task.value else { return false }
     return true
+  }
+
+  /// Flushes this exact editor value and returns the committed snapshot. Tagged
+  /// page creation uses this instead of the cache so its atomic transaction is
+  /// guarded by the durable Automerge heads it just observed.
+  private func flushDurableSnapshot(
+    pageID requestedPageID: PageID,
+    title requestedTitle: String,
+    body requestedBody: AttributedString
+  ) async -> PageSnapshot? {
+    cancelQueuedSave()
+    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
+      let task = activeSaveOperation.task
+    {
+      guard case .success = await task.value else { return nil }
+    }
+
+    if let durableSnapshot,
+      durableSnapshot.id == requestedPageID,
+      persistedTitle == requestedTitle,
+      persistedBody == requestedBody
+    {
+      return durableSnapshot
+    }
+
+    do {
+      let snapshot = try await store.persistRichTextEditor(
+        pageID: requestedPageID,
+        title: requestedTitle,
+        body: requestedBody
+      )
+      guard pageID == requestedPageID else { return snapshot }
+      durableSnapshot = snapshot
+      persistedTitle = requestedTitle
+      persistedBody = requestedBody
+      durableRevision = editRevision
+      errorMessage = nil
+      return snapshot
+    } catch {
+      guard pageID == requestedPageID else { return nil }
+      errorMessage = error.localizedDescription
+      return nil
+    }
   }
 
   private func scheduleSave() {
@@ -892,6 +1201,10 @@ private final class NativeRichPageEditorState {
     guard saveTaskToken == token else { return }
     saveTask = nil
     saveTaskToken = nil
+    // The commit acquires its lock before awaiting its exact durable flush.
+    // A timer that wakes afterward must be a harmless no-op instead of writing
+    // the old, reference-free body.
+    guard !isMutationLocked else { return }
     _ = await flush()
   }
 
@@ -914,15 +1227,15 @@ private final class NativeRichPageEditorState {
     operation.task = Task { @MainActor [weak self, store] in
       let result: NativeRichEditorSaveResult
       do {
-        _ = try await store.persistRichTextEditor(pageID: pageID, title: title, body: body)
-        result = .success
+        result = .success(try await store.persistRichTextEditor(pageID: pageID, title: title, body: body))
       } catch {
         result = .failure(error.localizedDescription)
       }
-      return self?.settleSaveOperation(
+      _ = self?.settleSaveOperation(
         token: token,
         result: result
-      ) ?? .stale
+      )
+      return result
     }
   }
 
@@ -938,9 +1251,10 @@ private final class NativeRichPageEditorState {
     }
 
     switch result {
-    case .success:
+    case .success(let snapshot):
       persistedTitle = activeSaveOperation.title
       persistedBody = activeSaveOperation.body
+      durableSnapshot = snapshot
       durableRevision = max(durableRevision, activeSaveOperation.revision)
       errorMessage = nil
     case .failure(let message):
@@ -973,7 +1287,9 @@ private final class NativeRichPageEditorState {
   }
 
   private func detectInlineShortcut() {
-    guard !isPalettePresented,
+    guard !isMutationLocked,
+      !isPalettePresented,
+      inlinePicker == nil,
       hasUnsavedChanges,
       case .insertionPoint(let caret) = selection.indices(in: body),
       caret > body.startIndex
@@ -990,79 +1306,272 @@ private final class NativeRichPageEditorState {
 
     if finalCharacter == "/", isStartOfLine {
       #if os(macOS)
-      shortcutSnapshot = selectionSnapshot(for: finalCharacterStart..<caret)
+      commandShortcutSnapshot = selectionSnapshot(for: finalCharacterStart..<caret)
       paletteKind = .commands
       isPalettePresented = true
       #endif
       return
     }
 
-    if finalCharacter == "@", isStartOfLine {
-      shortcutSnapshot = selectionSnapshot(for: finalCharacterStart..<caret)
-      selectionForReference = nil
+    if finalCharacter == "@" {
       referenceQuery = ""
-      paletteKind = .references
-      isPalettePresented = true
+      guard let snapshot = selectionSnapshot(for: finalCharacterStart..<caret) else { return }
+      beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger)
       return
     }
 
     guard finalCharacter == "[", finalCharacterStart > body.startIndex else { return }
     let openingBracketStart = body.index(beforeCharacter: finalCharacterStart)
     guard String(body[openingBracketStart..<caret].characters) == "[[" else { return }
-    shortcutSnapshot = selectionSnapshot(for: openingBracketStart..<caret)
-    selectionForReference = nil
     referenceQuery = ""
-    paletteKind = .references
-    isPalettePresented = true
+    guard let snapshot = selectionSnapshot(for: openingBracketStart..<caret) else { return }
+    beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger)
   }
 
-  private func consumeShortcut() {
-    guard let shortcutSnapshot, let selection = validSelection(from: shortcutSnapshot) else {
-      self.shortcutSnapshot = nil
+  private func consumeCommandShortcut() {
+    guard !isMutationLocked else { return }
+    guard let commandShortcutSnapshot,
+      let selection = validSelection(from: commandShortcutSnapshot)
+    else {
+      self.commandShortcutSnapshot = nil
       return
     }
     self.selection = selection
     body.replaceSelection(&self.selection, with: AttributedString())
-    self.shortcutSnapshot = nil
+    self.commandShortcutSnapshot = nil
   }
 
-  private func insertReference(to pageID: PageID, label: String) {
-    guard let mark = try? PageDocument.pageReferenceMark(to: pageID, label: label) else {
-      errorMessage = "Could not create the page reference."
+  private func completeReferenceInsertion(to pageID: PageID, label: String) {
+    guard !isMutationLocked else { return }
+    guard let context = pickerSession?.referenceInsertionContext else {
+      invalidatePicker("The insertion point changed. Insert the reference again.")
       return
     }
 
-    let replacesShortcut = shortcutSnapshot != nil
-    if let shortcutSnapshot {
-      guard let selection = validSelection(from: shortcutSnapshot) else {
-        self.shortcutSnapshot = nil
-        errorMessage = "The insertion point changed. Try inserting the reference again."
-        return
-      }
-      self.selection = selection
-      self.shortcutSnapshot = nil
-    } else if let selectionForReference {
-      guard let selection = validSelection(from: selectionForReference) else {
-        self.selectionForReference = nil
-        errorMessage = "The text selection changed. Select text and try again."
-        return
-      }
-      self.selection = selection
+    switch insertReference(to: pageID, label: label, using: context) {
+    case .inserted:
+      interactionErrorMessage = nil
+      dismissPicker(reason: .inserted)
+    case .invalidContext:
+      invalidatePicker("The insertion point changed. Insert the reference again.")
+    case .unavailable:
+      setInteractionError("Could not create the page reference.")
+    }
+  }
+
+  private func insertReference(
+    to pageID: PageID,
+    label: String,
+    using context: NativeRichEditorReferenceInsertionContext
+  ) -> NativeRichEditorReferenceInsertionResult {
+    guard !isMutationLocked else { return .invalidContext }
+    guard let mark = try? PageDocument.pageReferenceMark(to: pageID, label: label) else {
+      return .unavailable
     }
 
-    if hasSelectedText, !replacesShortcut {
+    guard pickerSession?.id == context.pickerID,
+      let capturedSelection = validSelection(from: context.snapshot)
+    else {
+      return .invalidContext
+    }
+    selection = capturedSelection
+
+    switch context.mode {
+    case .applyToSelectedText:
       body.transformAttributes(in: &selection) { attributes in
         var marks = attributes[PageRichTextAttributes.AutomergeMarks.self] ?? []
         marks.removeAll { $0.name == PageDocument.pageReferenceMark }
         marks.append(mark)
         attributes[PageRichTextAttributes.AutomergeMarks.self] = marks
       }
-    } else {
+    case .insertAtCaret, .replaceTrigger:
       var reference = AttributedString(label)
       reference[reference.startIndex..<reference.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [mark]
       body.replaceSelection(&selection, with: reference)
     }
     contentDidChange()
+    return .inserted
+  }
+
+  private func beginPicker(
+    _ picker: NativeRichEditorInlinePicker,
+    snapshot: NativeRichEditorSelectionSnapshot,
+    mode: NativeRichEditorReferenceInsertionMode
+  ) {
+    guard !isMutationLocked else { return }
+    let pickerID = UUID()
+    let insertion = NativeRichEditorReferenceInsertionContext(
+      pickerID: pickerID,
+      snapshot: snapshot,
+      mode: mode
+    )
+    pickerSession = NativeRichEditorPickerSession(
+      id: pickerID,
+      sourcePageID: snapshot.pageID,
+      referenceInsertionContext: insertion
+    )
+    interactionErrorMessage = nil
+    pickerDismissalReason = .pageLoad
+    #if os(iOS)
+    isPalettePresented = false
+    inlinePicker = picker
+    #else
+    inlinePicker = nil
+    paletteKind = NativeRichEditorPaletteKind(picker)
+    isPalettePresented = true
+    #endif
+  }
+
+  private func isPickerPresented(_ picker: NativeRichEditorInlinePicker) -> Bool {
+    #if os(iOS)
+    inlinePicker == picker
+    #else
+    isPalettePresented && paletteKind == NativeRichEditorPaletteKind(picker)
+    #endif
+  }
+
+  private func bodyByInsertingReference(
+    to pageID: PageID,
+    label: String,
+    in sourceBody: AttributedString,
+    selection capturedSelection: AttributedTextSelection,
+    mode: NativeRichEditorReferenceInsertionMode
+  ) -> NativeRichEditorReferenceInsertionCandidate? {
+    guard let mark = try? PageDocument.pageReferenceMark(to: pageID, label: label) else {
+      return nil
+    }
+
+    var candidate = sourceBody
+    var candidateSelection = capturedSelection
+    switch mode {
+    case .applyToSelectedText:
+      candidate.transformAttributes(in: &candidateSelection) { attributes in
+        var marks = attributes[PageRichTextAttributes.AutomergeMarks.self] ?? []
+        marks.removeAll { $0.name == PageDocument.pageReferenceMark }
+        marks.append(mark)
+        attributes[PageRichTextAttributes.AutomergeMarks.self] = marks
+      }
+    case .insertAtCaret, .replaceTrigger:
+      var reference = AttributedString(label)
+      reference[reference.startIndex..<reference.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [mark]
+      candidate.replaceSelection(&candidateSelection, with: reference)
+    }
+    guard let committedSelection = NativeRichEditorCommittedSelection(
+      from: candidateSelection,
+      in: candidate
+    ) else {
+      return nil
+    }
+    return NativeRichEditorReferenceInsertionCandidate(
+      body: candidate,
+      selection: committedSelection
+    )
+  }
+
+  private func finishTaggedPageCommit(
+    _ commit: NativeRichEditorTaggedPageCommit,
+    result: TaggedPageReferenceInsertionResult,
+    reference: NativeRichEditorReferenceInsertionCandidate,
+    pickerID: UUID
+  ) {
+    let isCurrentEditor = isCurrentTaggedPageCommit(commit)
+    clearTaggedPageCommit(commit)
+    guard isCurrentEditor else { return }
+
+    do {
+      let content = try PageDocument.richText(in: result.source.document)
+      let restoredSelection = reference.selection.selection(in: content.body)
+      installCommittedTaggedPageSource(
+        result.source,
+        title: content.title,
+        body: content.body,
+        selection: restoredSelection ?? AttributedTextSelection()
+      )
+      if restoredSelection == nil {
+        setInteractionError("The page was created, but the insertion selection could not be restored.")
+      } else {
+        interactionErrorMessage = nil
+      }
+      if pickerSession?.id == pickerID, isPickerPresented(.taggedPages) {
+        dismissPicker(reason: .inserted)
+      }
+    } catch {
+      // The transaction already made the source and target durable. The exact
+      // candidate body was committed with it, so retain its page-reference
+      // mark rather than falling back to unmarked plain text.
+      installCommittedTaggedPageSource(
+        result.source,
+        title: result.source.title,
+        body: reference.body,
+        selection: reference.selection.selection(in: reference.body) ?? AttributedTextSelection()
+      )
+      setInteractionError("The page was created, but its rich text could not be restored: \(error.localizedDescription)")
+      if pickerSession?.id == pickerID, isPickerPresented(.taggedPages) {
+        dismissPicker(reason: .inserted)
+      }
+    }
+  }
+
+  private func installCommittedTaggedPageSource(
+    _ snapshot: PageSnapshot,
+    title committedTitle: String,
+    body committedBody: AttributedString,
+    selection committedSelection: AttributedTextSelection
+  ) {
+    title = committedTitle
+    body = committedBody
+    selection = committedSelection
+    persistedTitle = committedTitle
+    persistedBody = committedBody
+    observedTitle = committedTitle
+    observedBody = committedBody
+    durableSnapshot = snapshot
+    editRevision &+= 1
+    durableRevision = editRevision
+    errorMessage = nil
+  }
+
+  private func finishTaggedPageCommit(
+    _ commit: NativeRichEditorTaggedPageCommit,
+    error: String
+  ) {
+    let isCurrentEditor = isCurrentTaggedPageCommit(commit)
+    clearTaggedPageCommit(commit)
+    guard isCurrentEditor else { return }
+    setInteractionError(error)
+  }
+
+  private func isCurrentTaggedPageCommit(_ commit: NativeRichEditorTaggedPageCommit) -> Bool {
+    taggedPageCommit?.id == commit.id
+      && pageID == commit.sourcePageID
+      && loadGeneration == commit.loadGeneration
+  }
+
+  private func clearTaggedPageCommit(_ commit: NativeRichEditorTaggedPageCommit) {
+    guard taggedPageCommit?.id == commit.id else { return }
+    taggedPageCommit = nil
+  }
+
+  private func invalidatePicker(_ message: String) {
+    setInteractionError(message)
+    dismissPicker(reason: .invalidated)
+  }
+
+  private func setInteractionError(_ message: String) {
+    interactionErrorMessage = message
+  }
+
+  private func pickerContext(
+    for picker: NativeRichEditorInlinePicker
+  ) -> NativeRichEditorPickerRequest? {
+    guard let session = pickerSession, isPickerPresented(picker) else { return nil }
+    let query = picker == .references ? referenceQuery : taggedPageQuery
+    return NativeRichEditorPickerRequest(
+      id: session.id,
+      picker: picker,
+      pageID: session.sourcePageID,
+      query: query
+    )
   }
 
   private var selectedRanges: [Range<AttributedString.Index>] {
@@ -1112,7 +1621,7 @@ private final class NativeRichEditorSaveOperation {
 }
 
 private enum NativeRichEditorSaveResult {
-  case success
+  case success(PageSnapshot)
   case failure(String)
   case stale
 }
@@ -1121,6 +1630,7 @@ private struct RichPageEditor<Header: View>: View {
   private enum FocusedField: Hashable {
     case title
     case body
+    case inlinePickerSearch
   }
 
   let page: PageSnapshot
@@ -1133,7 +1643,8 @@ private struct RichPageEditor<Header: View>: View {
 
   @State private var editor: NativeRichPageEditorState
   @FocusState private var focusedField: FocusedField?
-  @State private var bodyWasFocusedBeforePalette = false
+  @State private var bodyWasFocusedBeforePicker = false
+  @State private var pickerSourcePageID: PageID?
 
   init(
     page: PageSnapshot,
@@ -1170,6 +1681,7 @@ private struct RichPageEditor<Header: View>: View {
             .padding(.bottom, 20)
             .accessibilityIdentifier("page-editor-title")
             .accessibilityLabel("Page title")
+            .disabled(editor.isMutationLocked)
         }
 
         ZStack(alignment: .topLeading) {
@@ -1187,15 +1699,16 @@ private struct RichPageEditor<Header: View>: View {
             .frame(minHeight: 440, alignment: .top)
             .accessibilityIdentifier("page-editor-body")
             .accessibilityLabel("Page body")
+            .disabled(editor.isMutationLocked)
         }
 
-        if let errorMessage = editor.errorMessage {
+        if let errorMessage = editor.interactionErrorMessage ?? editor.errorMessage {
           Label(errorMessage, systemImage: "exclamationmark.triangle")
             .font(.footnote)
             .foregroundStyle(.red)
             .padding(.top, 12)
             .accessibilityIdentifier("page-editor-error")
-            .accessibilityLabel("Save error: \(errorMessage)")
+            .accessibilityLabel("Editor error: \(errorMessage)")
         }
       }
       .frame(maxWidth: 760, alignment: .leading)
@@ -1206,11 +1719,50 @@ private struct RichPageEditor<Header: View>: View {
     #if os(iOS)
     .toolbar {
       ToolbarItemGroup(placement: .keyboard) {
-        if focusedField == .body { formattingBar }
+        if focusedField == .body, editor.inlinePicker == nil {
+          Menu {
+            formattingMenuToggle("Bold", symbol: "bold", intent: .stronglyEmphasized)
+            formattingMenuToggle("Italic", symbol: "italic", intent: .emphasized)
+            formattingMenuToggle("Strikethrough", symbol: "strikethrough", intent: .strikethrough)
+            formattingMenuToggle("Inline Code", symbol: "chevron.left.forwardslash.chevron.right", intent: .code)
+          } label: {
+            Label("Format", systemImage: "textformat")
+          }
+          .accessibilityIdentifier("page-editor-format-menu")
+          .accessibilityLabel("Format")
+          .disabled(editor.isMutationLocked)
+
+          Button {
+            editor.showReferencePicker()
+          } label: {
+            Label("Insert Page or Date", systemImage: "at")
+          }
+          .accessibilityIdentifier("page-editor-reference")
+          .accessibilityLabel("Insert page or date")
+          .disabled(editor.isLoading || editor.isMutationLocked)
+
+          if editor.hasSelectedText {
+            Menu {
+              Button {
+                editor.showSupertagPicker()
+              } label: {
+                Label("Apply Supertag", systemImage: "number")
+              }
+              .accessibilityIdentifier("page-editor-supertag")
+            } label: {
+              Label("Insert", systemImage: "plus")
+            }
+            .accessibilityIdentifier("page-editor-insert-menu")
+            .accessibilityLabel("Insert")
+            .disabled(editor.isLoading || editor.isMutationLocked)
+          }
+        }
       }
     }
-    .navigationDestination(isPresented: $editor.isPalettePresented) {
-      NativeRichEditorPalette(editor: editor)
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if editor.inlinePicker != nil {
+        inlinePickerTray
+      }
     }
     #else
     .safeAreaInset(edge: .bottom) { formattingBar }
@@ -1234,12 +1786,14 @@ private struct RichPageEditor<Header: View>: View {
       Task { _ = await editor.flush() }
     }
     .task(id: page.id) {
-      editor.load(page)
       #if os(macOS)
       focusedField = .body
       #else
       focusedField = nil
+      bodyWasFocusedBeforePicker = false
+      pickerSourcePageID = nil
       #endif
+      editor.load(page)
     }
     .onChange(of: editor.title) { _, _ in
       editor.contentDidChange(bodyDidChange: false)
@@ -1256,15 +1810,34 @@ private struct RichPageEditor<Header: View>: View {
       )
       #endif
     }
-    .onChange(of: editor.isPalettePresented) { wasPresented, isPresented in
-      if !wasPresented, isPresented {
-        bodyWasFocusedBeforePalette = focusedField == .body
-      } else if wasPresented, !isPresented {
-        editor.dismissPalette()
-        if bodyWasFocusedBeforePalette { focusedField = .body }
-        bodyWasFocusedBeforePalette = false
+    #if os(iOS)
+    .onChange(of: editor.inlinePicker) { wasPresented, isPresented in
+      if wasPresented == nil, isPresented != nil {
+        bodyWasFocusedBeforePicker = focusedField == .body
+        pickerSourcePageID = editor.inlinePickerSourcePageID
+        focusedField = .inlinePickerSearch
+      } else if wasPresented != nil, isPresented == nil {
+        let shouldRestoreBody = bodyWasFocusedBeforePicker
+          && pickerSourcePageID == page.id
+          && (editor.pickerDismissalReason == .userCancelled || editor.pickerDismissalReason == .inserted)
+        if !editor.isMutationLocked {
+          focusedField = shouldRestoreBody ? .body : nil
+        }
+        bodyWasFocusedBeforePicker = false
+        pickerSourcePageID = nil
       }
     }
+    #else
+    .onChange(of: editor.isPalettePresented) { wasPresented, isPresented in
+      if !wasPresented, isPresented {
+        bodyWasFocusedBeforePicker = focusedField == .body
+      } else if wasPresented, !isPresented {
+        editor.dismissPalette()
+        if bodyWasFocusedBeforePicker, !editor.isMutationLocked { focusedField = .body }
+        bodyWasFocusedBeforePicker = false
+      }
+    }
+    #endif
   }
 
   @ViewBuilder
@@ -1317,6 +1890,7 @@ private struct RichPageEditor<Header: View>: View {
     }
   }
 
+  #if os(macOS)
   private var formattingBar: some View {
     HStack(spacing: 4) {
       formattingButton("Bold", symbol: "bold", intent: .stronglyEmphasized)
@@ -1335,7 +1909,7 @@ private struct RichPageEditor<Header: View>: View {
       }
       .help("Insert page or daily-note reference")
       .accessibilityIdentifier("page-editor-reference")
-      .disabled(editor.isLoading)
+      .disabled(editor.isLoading || editor.isMutationLocked)
 
       Button {
         editor.showSupertagPicker()
@@ -1344,7 +1918,7 @@ private struct RichPageEditor<Header: View>: View {
       }
       .help("Apply a supertag to selected text")
       .accessibilityIdentifier("page-editor-supertag")
-      .disabled(editor.isLoading || !editor.hasSelectedText)
+      .disabled(editor.isLoading || editor.isMutationLocked || !editor.hasSelectedText)
       .keyboardShortcut("9", modifiers: [.command, .shift])
 
     }
@@ -1355,7 +1929,201 @@ private struct RichPageEditor<Header: View>: View {
     .background(.bar)
     .accessibilityIdentifier("page-editor-keyboard-commands")
   }
+  #endif
 
+  private func formattingMenuToggle(
+    _ title: String,
+    symbol: String,
+    intent: InlinePresentationIntent
+  ) -> some View {
+    Toggle(
+      isOn: Binding(
+        get: { editor.formattingState(for: intent) == .on },
+        set: { _ in editor.toggle(intent) }
+      )
+    ) {
+      Label(title, systemImage: symbol)
+    }
+    .accessibilityIdentifier("page-editor-format-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
+    .accessibilityValue(editor.formattingState(for: intent).accessibilityValue)
+    .disabled(editor.isMutationLocked)
+  }
+
+  @ViewBuilder
+  private var inlinePickerTray: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 12) {
+        TextField(inlinePickerPrompt, text: inlinePickerQuery)
+          .textFieldStyle(.roundedBorder)
+          .focused($focusedField, equals: .inlinePickerSearch)
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .disabled(editor.isMutationLocked)
+          .accessibilityIdentifier("page-editor-inline-picker-search")
+          .accessibilityLabel(inlinePickerPrompt)
+
+        Button("Cancel") {
+          editor.dismissPicker()
+        }
+        .frame(minHeight: 44)
+        .disabled(editor.isMutationLocked)
+        .accessibilityIdentifier("page-editor-inline-picker-cancel")
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+
+      Divider()
+
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 0) {
+          switch editor.inlinePicker {
+          case .references:
+            inlineReferenceSuggestions
+          case .supertags:
+            inlineSupertagSuggestions
+          case .taggedPages:
+            inlineTaggedPageSuggestions
+          case nil:
+            EmptyView()
+          }
+        }
+        .disabled(editor.isMutationLocked)
+      }
+      .frame(maxHeight: 264)
+      .accessibilityIdentifier("page-editor-inline-picker-results")
+    }
+    .background(.bar)
+    .accessibilityIdentifier("page-editor-inline-picker")
+  }
+
+  private var inlinePickerPrompt: String {
+    switch editor.inlinePicker {
+    case .references: "Find a page or date"
+    case .supertags: "Find a supertag"
+    case .taggedPages: "Find or create a page"
+    case nil: "Search"
+    }
+  }
+
+  private var inlinePickerQuery: Binding<String> {
+    switch editor.inlinePicker {
+    case .references:
+      Binding(get: { editor.referenceQuery }, set: { editor.referenceQuery = $0 })
+    case .supertags:
+      Binding(get: { editor.supertagQuery }, set: { editor.supertagQuery = $0 })
+    case .taggedPages:
+      Binding(get: { editor.taggedPageQuery }, set: { editor.taggedPageQuery = $0 })
+    case nil: .constant("")
+    }
+  }
+
+  @ViewBuilder
+  private var inlineReferenceSuggestions: some View {
+    Group {
+      if editor.referenceSuggestions.isEmpty && editor.dailyReferenceSuggestions().isEmpty {
+        inlinePickerEmptyState("No matching pages or daily notes")
+      } else {
+        ForEach(editor.referenceSuggestions.prefix(6)) { suggestion in
+          inlinePickerRow(
+            title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+            subtitle: suggestion.displaySubtitle
+          ) {
+            editor.chooseReference(suggestion)
+          }
+        }
+        ForEach(editor.dailyReferenceSuggestions().prefix(4)) { suggestion in
+          inlinePickerRow(title: suggestion.title, subtitle: suggestion.subtitle) {
+            editor.chooseDailyReference(suggestion)
+          }
+        }
+      }
+    }
+    .task(id: editor.referencePickerRequestID) {
+      await editor.refreshReferenceSuggestions()
+    }
+  }
+
+  @ViewBuilder
+  private var inlineSupertagSuggestions: some View {
+    if editor.matchingSupertags.isEmpty {
+      inlinePickerEmptyState("No matching supertags")
+    } else {
+      ForEach(editor.matchingSupertags) { supertag in
+        inlinePickerRow(title: supertag.name, subtitle: "Apply to selected text") {
+          editor.chooseSupertag(supertag)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var inlineTaggedPageSuggestions: some View {
+    Group {
+      if let supertag = editor.activeSupertag {
+        if !editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          inlinePickerRow(
+            title: supertag.id == BuiltInSupertags.task
+              ? "Create Task “\(editor.taggedPageQuery)”"
+              : "Create “\(editor.taggedPageQuery)” as #\(supertag.name)",
+            subtitle: "New tagged page"
+          ) {
+            Task { await editor.createTaggedPage() }
+          }
+          .accessibilityIdentifier("page-editor-inline-picker-create")
+          .disabled(editor.isMutationLocked)
+        }
+        ForEach(editor.taggedPageSuggestions.prefix(6)) { suggestion in
+          inlinePickerRow(
+            title: suggestion.title.isEmpty ? "Untitled" : suggestion.title,
+            subtitle: suggestion.displaySubtitle
+          ) {
+            editor.chooseTaggedPage(suggestion)
+          }
+        }
+        if editor.taggedPageSuggestions.isEmpty,
+          editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+          inlinePickerEmptyState("Type a page name to find or create one")
+        }
+      } else {
+        inlinePickerEmptyState("Choose a supertag first")
+      }
+    }
+    .task(id: editor.taggedPagePickerRequestID) {
+      await editor.refreshTaggedPageSuggestions()
+    }
+  }
+
+  private func inlinePickerEmptyState(_ title: String) -> some View {
+    Text(title)
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, 16)
+  }
+
+  private func inlinePickerRow(
+    title: String,
+    subtitle: String?,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .foregroundStyle(.primary)
+        if let subtitle {
+          Text(subtitle)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 4)
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("page-editor-inline-picker-result-\(title)")
+  }
+
+  #if os(macOS)
   private func formattingButton(
     _ title: String,
     symbol: String,
@@ -1382,11 +2150,12 @@ private struct RichPageEditor<Header: View>: View {
         }
       }
     }
-    .disabled(editor.isLoading)
+    .disabled(editor.isLoading || editor.isMutationLocked)
     .accessibilityIdentifier("page-editor-format-\(title.lowercased())")
     .accessibilityValue(editor.formattingState(for: intent).accessibilityValue)
     .tint(editor.formattingState(for: intent) == .on ? .accentColor : nil)
   }
+  #endif
 }
 
 private struct NativeRichEditorPalette: View {
@@ -1411,6 +2180,7 @@ private struct NativeRichEditorPalette: View {
         Button("Cancel") {
           dismiss()
         }
+        .disabled(editor.isMutationLocked)
       }
     }
   }
@@ -1448,6 +2218,7 @@ private struct NativeRichEditorPalette: View {
                 subtitle: suggestion.displaySubtitle
               )
             }
+            .disabled(editor.isMutationLocked)
           }
         }
       }
@@ -1461,6 +2232,7 @@ private struct NativeRichEditorPalette: View {
             } label: {
               suggestionLabel(title: suggestion.title, subtitle: suggestion.subtitle)
             }
+            .disabled(editor.isMutationLocked)
           }
         }
       }
@@ -1488,6 +2260,7 @@ private struct NativeRichEditorPalette: View {
             } label: {
               Label(supertag.name, systemImage: supertag.symbol)
             }
+            .disabled(editor.isMutationLocked)
           }
         }
       }
@@ -1510,7 +2283,10 @@ private struct NativeRichEditorPalette: View {
               systemImage: "plus"
             )
           }
-          .disabled(editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(
+            editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              || editor.isMutationLocked
+          )
         }
 
         Section("Existing #\(supertag.name) Pages") {
@@ -1527,12 +2303,14 @@ private struct NativeRichEditorPalette: View {
                   subtitle: suggestion.displaySubtitle
                 )
               }
+              .disabled(editor.isMutationLocked)
             }
           }
         }
       }
       .navigationTitle("#\(supertag.name)")
       .searchable(text: $editor.taggedPageQuery, prompt: "Find or create a page")
+      .disabled(editor.isMutationLocked)
       .task(id: editor.taggedPageQuery) {
         await editor.refreshTaggedPageSuggestions()
       }
@@ -1560,7 +2338,7 @@ private struct NativeRichEditorPalette: View {
         Image(systemName: command.symbol)
       }
     }
-    .disabled(command == .supertag && !editor.hasSelectedText)
+    .disabled(editor.isMutationLocked || (command == .supertag && !editor.hasSelectedText))
   }
 
   private func suggestionLabel(title: String, subtitle: String?) -> some View {
