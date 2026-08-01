@@ -161,6 +161,8 @@ private struct PersonIdentitySection: View {
 
   var body: some View {
     Section("Person") {
+      PersonNameEditor(page: page, store: store)
+
       LabeledContent("Visibility", value: page.isOtherPerson ? "Other" : "Promoted")
       if page.isOtherPerson {
         Button("Promote", systemImage: "person.badge.plus") {

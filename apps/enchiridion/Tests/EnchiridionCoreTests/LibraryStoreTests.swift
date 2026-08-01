@@ -1708,6 +1708,275 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(result.target.objectMetadata.personOrigin, .manual)
   }
 
+  func testPersonEmailNormalizerRejectsMalformedValues() throws {
+    XCTAssertEqual(
+      try PersonEmail.normalize(" Marissa.Flanagan@Example.COM "),
+      "marissa.flanagan@example.com"
+    )
+    XCTAssertEqual(
+      DeviceContactRecord.normalizedEmail(" Marissa.Flanagan@Example.COM "),
+      "marissa.flanagan@example.com"
+    )
+    for value in ["", "marissa", "@example.com", "marissa@", "a@@example.com", "a @example.com"] {
+      XCTAssertThrowsError(try PersonEmail.normalize(value)) { error in
+        XCTAssertEqual(error as? PersonEmailValidationError, .invalid(value))
+      }
+    }
+  }
+
+  func testPersonEmailPropertyWriteNormalizesAndRejectsInvalidValues() async throws {
+    let fixture = try RepositoryFixture()
+    let person = try await fixture.repository.createTaggedPage(
+      title: "Marissa Flanagan",
+      supertagID: BuiltInSupertags.person
+    )
+    let key = personEmailKey
+
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: key,
+      values: [.email(" Marissa.Flanagan@Example.COM ")]
+    )
+    let normalized = try await fixture.repository.page(id: person.id)
+    XCTAssertEqual(normalized?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
+
+    await XCTAssertThrowsErrorAsync {
+      try await fixture.repository.setProperty(
+        pageID: person.id,
+        key: key,
+        values: [.email("not an email")]
+      )
+    }
+    let unchanged = try await fixture.repository.page(id: person.id)
+    XCTAssertEqual(unchanged?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
+  }
+
+  func testTaggedPersonInsertionSeedsNormalizedEmailAtomically() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let request = try taggedPageReferenceRequest(
+      source: source,
+      targetTitle: "Marissa Flanagan",
+      supertagID: BuiltInSupertags.person,
+      initialProperties: [personEmailKey: [.email(" Marissa@Example.COM ")]]
+    )
+
+    let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
+
+    XCTAssertEqual(result.target.title, "Marissa Flanagan")
+    XCTAssertEqual(
+      result.target.objectMetadata.properties[personEmailKey],
+      [.email("marissa@example.com")]
+    )
+    let backlinks = try await fixture.repository.backlinks(to: result.target.id)
+    XCTAssertEqual(backlinks.map(\.id), [source.id])
+  }
+
+  func testTaggedInsertionRejectsInvalidSeedAndMismatchedFallbackWithoutPartialState() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let invalidSeed = try taggedPageReferenceRequest(
+      source: source,
+      supertagID: BuiltInSupertags.person,
+      initialProperties: [personEmailKey: [.email("invalid email")]]
+    )
+
+    try await assertTaggedPageReferenceInsertionError(
+      .invalidInitialProperties,
+      repository: fixture.repository,
+      request: invalidSeed
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: invalidSeed.targetPageID
+    )
+
+    let mismatchedFallback = try taggedPageReferenceRequest(
+      source: source,
+      targetTitle: "Marissa Flanagan",
+      referenceLabel: "marissa@example.com"
+    )
+    try await assertTaggedPageReferenceInsertionError(
+      .missingTargetReference,
+      repository: fixture.repository,
+      request: mismatchedFallback
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: mismatchedFallback.targetPageID
+    )
+  }
+
+  func testTaggedInsertionAcceptsInheritedSchemaFieldsWithOwningKey() async throws {
+    let fixture = try RepositoryFixture()
+    var parent = SupertagDefinition.draft(name: "Organization base")
+    parent.fields = [.init(id: .init(rawValue: "website"), name: "Website", type: .url)]
+    var child = SupertagDefinition.draft(name: "Company")
+    child.parentIDs = [parent.id]
+    try await fixture.repository.saveSupertag(parent)
+    try await fixture.repository.saveSupertag(child)
+
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let inheritedKey = SupertagPropertyKey(supertagID: parent.id, fieldID: .init(rawValue: "website"))
+    let request = try taggedPageReferenceRequest(
+      source: source,
+      supertagID: child.id,
+      initialProperties: [inheritedKey: [.url("https://example.com")]]
+    )
+
+    let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
+    XCTAssertEqual(result.target.objectMetadata.properties[inheritedKey], [.url("https://example.com")])
+  }
+
+  func testPersonEmailLookupFindsLegacyCasingAndDoesNotMergeCandidates() async throws {
+    let fixture = try RepositoryFixture()
+    let first = try await fixture.repository.createTaggedPage(
+      title: "Marissa Flanagan",
+      supertagID: BuiltInSupertags.person
+    )
+    let second = try await fixture.repository.createTaggedPage(
+      title: "Marissa Work",
+      supertagID: BuiltInSupertags.person
+    )
+    let legacy = try PageDocument.setProperty(
+      key: personEmailKey,
+      values: [.email(" Marissa@Example.COM ")],
+      in: first.document
+    )
+    let commit = EditorCommit(
+      pageID: first.id,
+      loadGeneration: 1,
+      journalID: UUID().uuidString,
+      encodedChanges: try PageDocument.encodedChanges(from: legacy.document, since: first.heads),
+      advertisedHeads: legacy.heads
+    )
+    _ = try await fixture.repository.persistEditorCommit(commit)
+    try await fixture.repository.setProperty(
+      pageID: second.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+
+    let candidates = try await fixture.repository.personEmailCandidates(
+      matchingEmail: " Marissa@Example.COM "
+    )
+
+    XCTAssertEqual(candidates.map(\.pageID), [first.id, second.id])
+    XCTAssertEqual(candidates.map(\.displayName), ["Marissa Flanagan", "Marissa Work"])
+  }
+
+  func testTaggedPersonInsertionRejectsAnEmailCreatedAfterLookupWithoutPartialState() async throws {
+    let fixture = try RepositoryFixture()
+    let source = try await fixture.repository.createFreePage(title: "Source")
+    let existing = try await fixture.repository.createTaggedPage(
+      title: "Marissa Flanagan",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: existing.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+    let request = try taggedPageReferenceRequest(
+      source: source,
+      targetTitle: "Marissa New",
+      supertagID: BuiltInSupertags.person,
+      initialProperties: [personEmailKey: [.email("marissa@example.com")]]
+    )
+
+    try await assertTaggedPageReferenceInsertionError(
+      .personEmailAlreadyExists,
+      repository: fixture.repository,
+      request: request
+    )
+    try await assertNoPartialTaggedPageInsertion(
+      repository: fixture.repository,
+      sourceID: source.id,
+      targetID: request.targetPageID
+    )
+    let candidates = try await fixture.repository.personEmailCandidates(
+      matchingEmail: "marissa@example.com"
+    )
+    XCTAssertEqual(candidates.map(\.pageID), [existing.id])
+  }
+
+  func testRenamePagePreservesRichBodyReferencesAndMarks() async throws {
+    let fixture = try RepositoryFixture()
+    let target = try await fixture.repository.createFreePage(title: "Reference target")
+    let person = try await fixture.repository.createTaggedPage(
+      title: "marissa@example.com",
+      supertagID: BuiltInSupertags.person
+    )
+    var body = AttributedString("See reference")
+    body[body.startIndex..<body.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [
+      try PageDocument.pageReferenceMark(to: target.id, label: "reference")
+    ]
+    let edited = try PageDocument.replaceRichText(
+      title: person.title,
+      body: body,
+      in: person.document
+    )
+    let commit = EditorCommit(
+      pageID: person.id,
+      loadGeneration: 1,
+      journalID: UUID().uuidString,
+      encodedChanges: try PageDocument.encodedChanges(from: edited.document, since: person.heads),
+      advertisedHeads: edited.heads
+    )
+    _ = try await fixture.repository.persistEditorCommit(commit)
+
+    let renamed = try await fixture.repository.renamePage(pageID: person.id, title: "Marissa Flanagan")
+    let richText = try PageDocument.richText(in: renamed.document)
+    let backlinks = try await fixture.repository.backlinks(to: target.id)
+
+    XCTAssertEqual(renamed.title, "Marissa Flanagan")
+    XCTAssertEqual(String(richText.body.characters), String(body.characters))
+    XCTAssertTrue(renamed.objectMetadata.supertagIDs.contains(BuiltInSupertags.person))
+    XCTAssertEqual(backlinks.map(\.id), [person.id])
+  }
+
+  @MainActor
+  func testPersonDisplayNameUsesContactOnlyForLegacyTitleAndEmailChangesInvalidateLink() async throws {
+    let fixture = try RepositoryFixture()
+    let person = try await fixture.repository.createTaggedPage(
+      title: "marissa@example.com",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+    let contact = DeviceContactRecord(
+      identifier: "marissa-contact",
+      displayName: "Marissa Flanagan",
+      emails: ["marissa@example.com"]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      contact,
+      for: person.id,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+    XCTAssertEqual(store.personDisplayName(for: try XCTUnwrap(store.page(id: person.id))), "Marissa Flanagan")
+
+    _ = try await store.renamePage(pageID: person.id, title: "M. Flanagan")
+    XCTAssertEqual(store.personDisplayName(for: try XCTUnwrap(store.page(id: person.id))), "M. Flanagan")
+
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: personEmailKey,
+      values: [.email("marissa.new@example.com")]
+    )
+    let contactLink = try await fixture.repository.contactLink(for: person.id)
+    XCTAssertNil(contactLink)
+    await store.reload()
+    XCTAssertNil(store.contactLinks[person.id])
+  }
+
   @MainActor
   func testStoreTaggedPageReferenceInsertionPreservesSelectionAndCachesBothPages() async throws {
     let fixture = try RepositoryFixture()
@@ -1726,17 +1995,24 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertTrue(dirtyIDs.isSuperset(of: [source.id, request.targetPageID]))
   }
 
+  private var personEmailKey: SupertagPropertyKey {
+    .init(supertagID: BuiltInSupertags.person, fieldID: .init(rawValue: "email"))
+  }
+
   private func taggedPageReferenceRequest(
     source: PageSnapshot,
     targetID: PageID = .free(),
     targetTitle: String = "Project Aurora",
     supertagID: SupertagID = BuiltInSupertags.project,
-    includesReference: Bool = true
+    includesReference: Bool = true,
+    referenceLabel: String? = nil,
+    initialProperties: [SupertagPropertyKey: [SupertagValue]] = [:]
   ) throws -> TaggedPageReferenceInsertionRequest {
-    var body = AttributedString(includesReference ? targetTitle : "No reference")
+    let label = referenceLabel ?? targetTitle
+    var body = AttributedString(includesReference ? label : "No reference")
     if includesReference {
       body[body.startIndex..<body.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [
-        try PageDocument.pageReferenceMark(to: targetID, label: targetTitle)
+        try PageDocument.pageReferenceMark(to: targetID, label: label)
       ]
     }
     return TaggedPageReferenceInsertionRequest(
@@ -1746,7 +2022,8 @@ final class LibraryRepositoryTests: XCTestCase {
       sourceBody: body,
       targetPageID: targetID,
       targetTitle: targetTitle,
-      supertagID: supertagID
+      supertagID: supertagID,
+      initialProperties: initialProperties
     )
   }
 

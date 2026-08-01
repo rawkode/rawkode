@@ -431,10 +431,19 @@ public final class LibraryStore {
   }
 
   public func personDisplayName(for page: PageSnapshot) -> String {
-    let contactName = contactLinks[page.id]?.record.displayName
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    if let contactName, !contactName.isEmpty { return contactName }
-    return page.displayTitle
+    let emailKey = SupertagPropertyKey(
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "email")
+    )
+    let emails = (page.objectMetadata.properties[emailKey] ?? []).compactMap { value -> String? in
+      guard case .email(let email) = value else { return nil }
+      return email
+    }
+    return PersonDisplayName.resolved(
+      title: page.title,
+      emails: emails,
+      contactLink: contactLinks[page.id]
+    )
   }
 
   public func personDisplayName(for pageID: PageID) -> String? {
@@ -1413,6 +1422,29 @@ public final class LibraryStore {
     await syncCoordinator?.pageDidChange(result.source.id)
     await syncCoordinator?.pageDidChange(result.target.id)
     return result
+  }
+
+  public func personEmailCandidates(matchingEmail email: String) async throws -> [PersonEmailCandidate] {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
+    }
+    return try await repository.personEmailCandidates(matchingEmail: email)
+  }
+
+  @discardableResult
+  public func renamePage(pageID: PageID, title: String) async throws -> PageSnapshot {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
+    }
+    let page = try await repository.renamePage(pageID: pageID, title: title)
+    if let index = otherPeople.firstIndex(where: { $0.id == page.id }) {
+      otherPeople[index] = page
+    } else {
+      cacheEditorPage(page)
+    }
+    scheduleEditorLiveViewRefresh()
+    await syncCoordinator?.pageDidChange(pageID)
+    return page
   }
 
   private func cacheEditorPage(_ page: PageSnapshot) {

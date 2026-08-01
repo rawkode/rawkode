@@ -1,5 +1,6 @@
 import EnchiridionCore
 import SwiftUI
+import UIKit
 import XCTest
 
 @testable import Enchiridion
@@ -272,12 +273,223 @@ final class PageReferenceTextFormattingTests: XCTestCase {
     )
   }
 
+  func testBrowseRenderPlanUsesRenamedLiveLabelsAndPreservesMultilineRTLSegments() throws {
+    var source = AttributedString("Read Atlas\nثم Orion")
+    let atlasRange = try XCTUnwrap(source.range(of: "Atlas"))
+    let orionRange = try XCTUnwrap(source.range(of: "Orion"))
+    source[atlasRange][PageRichTextAttributes.AutomergeMarks.self] = [referenceMark]
+    source[orionRange][PageRichTextAttributes.AutomergeMarks.self] = [
+      try PageDocument.pageReferenceMark(to: PageID(rawValue: "page_orion"), label: "Orion")
+    ]
+
+    let plan = PageReferenceBrowseRenderPlan.resolve(
+      from: source,
+      vaultID: vaultID,
+      liveTarget: { pageID in
+        switch pageID {
+        case self.targetPageID:
+          self.liveTarget(
+            pageID: pageID,
+            title: "Marissa Flanagan",
+            supertags: [self.supertag("person", "Person", "person.crop.circle", builtIn: true)]
+          )
+        case PageID(rawValue: "page_orion"):
+          self.liveTarget(
+            pageID: pageID,
+            title: "Orion Renamed",
+            supertags: [self.supertag("project", "Project", "folder", builtIn: true)]
+          )
+        default:
+          nil
+        }
+      }
+    )
+
+    XCTAssertEqual(plan.segments.count, 4)
+    XCTAssertEqual(reference(at: 1, in: plan).label, "Marissa Flanagan")
+    XCTAssertEqual(reference(at: 1, in: plan).symbolName, "person.crop.circle")
+    XCTAssertEqual(reference(at: 3, in: plan).label, "Orion Renamed")
+    XCTAssertEqual(reference(at: 3, in: plan).symbolName, "folder")
+    XCTAssertEqual(text(at: 2, in: plan), "\nثم ")
+  }
+
+  func testBrowseRenderPlanUsesStoredFallbackForDeletedAndMalformedReferences() throws {
+    var source = AttributedString("Atlas broken")
+    let atlasRange = try XCTUnwrap(source.range(of: "Atlas"))
+    let brokenRange = try XCTUnwrap(source.range(of: "broken"))
+    source[atlasRange][PageRichTextAttributes.AutomergeMarks.self] = [referenceMark]
+    source[brokenRange][PageRichTextAttributes.AutomergeMarks.self] = [
+      PageRichTextMark(name: PageDocument.pageReferenceMark, value: .string("not-json"))
+    ]
+
+    let plan = PageReferenceBrowseRenderPlan.resolve(
+      from: source,
+      vaultID: vaultID,
+      liveTarget: { _ in nil }
+    )
+
+    let missing = reference(at: 0, in: plan)
+    XCTAssertEqual(missing.label, "Atlas")
+    XCTAssertEqual(missing.fallbackLabel, "Atlas")
+    XCTAssertNil(missing.url)
+    XCTAssertNil(missing.symbolName)
+    XCTAssertEqual(text(at: 1, in: plan), " broken")
+  }
+
+  func testBrowseRenderPlanStripsExternalLinksBeforeProducingNativeText() throws {
+    var text = AttributedString("Visit Atlas")
+    let visitRange = try XCTUnwrap(text.range(of: "Visit"))
+    let atlasRange = try XCTUnwrap(text.range(of: "Atlas"))
+    text[visitRange].link = try XCTUnwrap(URL(string: "https://example.com"))
+    text[atlasRange][PageRichTextAttributes.AutomergeMarks.self] = [referenceMark]
+
+    let plan = PageReferenceBrowseRenderPlan.resolve(
+      from: text,
+      vaultID: vaultID,
+      liveTarget: { pageID in
+        pageID == self.targetPageID
+          ? self.liveTarget(pageID: pageID, title: "Atlas", supertags: [])
+          : nil
+      }
+    )
+    let projection = plan.attributedString(palette: PageReferencePalette(contrast: .standard))
+
+    let projectedVisitRange = try XCTUnwrap(projection.range(of: "Visit"))
+    let projectedAtlasRange = try XCTUnwrap(projection.range(of: "Atlas"))
+    XCTAssertNil(projection[projectedVisitRange].link)
+    XCTAssertEqual(
+      PageReferenceBrowseLink.destination(from: try XCTUnwrap(projection[projectedAtlasRange].link)),
+      .init(vaultID: vaultID, pageID: targetPageID)
+    )
+  }
+
+  func testPrimaryPresentationSupertagUsesBuiltInPriorityThenCustomID() {
+    XCTAssertEqual(
+      PageReferenceBrowseRenderPlan.primaryPresentationSupertag(
+        in: [
+          supertag("project", "Project", "folder", builtIn: true),
+          supertag("person", "Person", "person.crop.circle", builtIn: true),
+        ]
+      )?.id,
+      BuiltInSupertags.person
+    )
+    XCTAssertEqual(
+      PageReferenceBrowseRenderPlan.primaryPresentationSupertag(
+        in: [
+          supertag("zeta", "Zeta", "z.circle", builtIn: false),
+          supertag("alpha", "Alpha", "a.circle", builtIn: false),
+        ]
+      )?.id,
+      SupertagID(rawValue: "alpha")
+    )
+    XCTAssertNil(PageReferenceBrowseRenderPlan.primaryPresentationSupertag(in: []))
+  }
+
+  func testNativeBrowseTextSeparatesSymbolAttachmentFromLinkLabelAndRoutesOnlyInternalURLs() throws {
+    var text = AttributedString("Atlas")
+    let range = try XCTUnwrap(text.range(of: "Atlas"))
+    text[range][PageRichTextAttributes.AutomergeMarks.self] = [referenceMark]
+    let plan = PageReferenceBrowseRenderPlan.resolve(
+      from: text,
+      vaultID: vaultID,
+      liveTarget: { pageID in
+        self.liveTarget(
+          pageID: pageID,
+          title: "Marissa Flanagan",
+          supertags: [self.supertag("person", "Person", "person.crop.circle", builtIn: true)]
+        )
+      }
+    )
+    let native = PageReferenceBrowseNativeText.make(
+      from: plan,
+      palette: PageReferencePalette(contrast: .standard)
+    )
+    let attachmentRange = try XCTUnwrap(
+      attributeRange(.attachment, matching: { $0 is NSTextAttachment }, in: native)
+    )
+    let linkRange = try XCTUnwrap(
+      attributeRange(.link, matching: { $0 is URL }, in: native)
+    )
+
+    XCTAssertLessThan(attachmentRange.location, linkRange.location)
+    XCTAssertNil(native.attribute(.link, at: attachmentRange.location, effectiveRange: nil))
+    XCTAssertEqual(
+      native.string[Range(NSRange(location: linkRange.location, length: linkRange.length), in: native.string)!],
+      "Marissa Flanagan"
+    )
+
+    var routed: URL?
+    let internalURL = try XCTUnwrap(native.attribute(.link, at: linkRange.location, effectiveRange: nil) as? URL)
+    XCTAssertTrue(PageReferenceBrowseLinkRouter.route(internalURL) { routed = $0 })
+    XCTAssertEqual(routed, internalURL)
+    XCTAssertFalse(
+      PageReferenceBrowseLinkRouter.route(try XCTUnwrap(URL(string: "https://example.com"))) { _ in
+        XCTFail("External URLs must not cross the browse callback boundary")
+      }
+    )
+  }
+
   private var referenceMark: PageRichTextMark {
     try! PageDocument.pageReferenceMark(to: targetPageID, label: "Atlas")
   }
 
   private var vaultID: VaultID { VaultID(rawValue: "vault_personal") }
   private var targetPageID: PageID { PageID(rawValue: "page_atlas") }
+
+  private func liveTarget(
+    pageID: PageID,
+    title: String,
+    supertags: [PageReferenceBrowseSupertag]
+  ) -> PageReferenceBrowseLiveTarget {
+    .init(pageID: pageID, displayTitle: title, supertags: supertags)
+  }
+
+  private func supertag(
+    _ id: String,
+    _ name: String,
+    _ symbol: String,
+    builtIn: Bool
+  ) -> PageReferenceBrowseSupertag {
+    .init(
+      id: SupertagID(rawValue: id),
+      name: name,
+      symbolName: symbol,
+      isBuiltIn: builtIn
+    )
+  }
+
+  private func reference(
+    at index: Int,
+    in plan: PageReferenceBrowseRenderPlan
+  ) -> PageReferenceBrowsePresentation {
+    guard case .reference(let value) = plan.segments[index] else {
+      XCTFail("Expected reference segment at index \(index)")
+      fatalError("Expected reference segment")
+    }
+    return value.presentation
+  }
+
+  private func text(at index: Int, in plan: PageReferenceBrowseRenderPlan) -> String {
+    guard case .text(let value) = plan.segments[index] else {
+      XCTFail("Expected text segment at index \(index)")
+      fatalError("Expected text segment")
+    }
+    return String(value.characters)
+  }
+
+  private func attributeRange(
+    _ key: NSAttributedString.Key,
+    matching predicate: (Any) -> Bool,
+    in text: NSAttributedString
+  ) -> NSRange? {
+    var result: NSRange?
+    text.enumerateAttribute(key, in: NSRange(location: 0, length: text.length)) { value, range, stop in
+      guard let value, predicate(value) else { return }
+      result = range
+      stop.pointee = true
+    }
+    return result
+  }
 
   private func format(
     _ text: AttributedString,

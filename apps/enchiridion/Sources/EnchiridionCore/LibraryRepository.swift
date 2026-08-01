@@ -44,6 +44,24 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   }
 }
 
+/// A live Person entity found by its canonical email address.
+///
+/// This is intentionally a candidate list rather than a uniqueness assertion: callers must
+/// let people resolve duplicates explicitly instead of merging records by email.
+public struct PersonEmailCandidate: Codable, Hashable, Sendable, Identifiable {
+  public var pageID: PageID
+  public var displayName: String
+  public var email: String
+
+  public var id: PageID { pageID }
+
+  public init(pageID: PageID, displayName: String, email: String) {
+    self.pageID = pageID
+    self.displayName = displayName
+    self.email = PersonEmail.normalizedForComparison(email)
+  }
+}
+
 public struct EditorCommit: Codable, Hashable, Sendable {
   public var pageID: PageID
   public var loadGeneration: Int
@@ -84,6 +102,9 @@ public struct TaggedPageReferenceInsertionRequest: Sendable {
   public var targetPageID: PageID
   public var targetTitle: String
   public var supertagID: SupertagID
+  /// Values seeded into the new target after its supertag is applied.
+  /// Keys retain the schema owner so inherited fields remain unambiguous.
+  public var initialProperties: [SupertagPropertyKey: [SupertagValue]]
 
   public init(
     sourcePageID: PageID,
@@ -92,7 +113,8 @@ public struct TaggedPageReferenceInsertionRequest: Sendable {
     sourceBody: AttributedString,
     targetPageID: PageID,
     targetTitle: String,
-    supertagID: SupertagID
+    supertagID: SupertagID,
+    initialProperties: [SupertagPropertyKey: [SupertagValue]] = [:]
   ) {
     self.sourcePageID = sourcePageID
     self.expectedSourceHeads = expectedSourceHeads
@@ -101,6 +123,7 @@ public struct TaggedPageReferenceInsertionRequest: Sendable {
     self.targetPageID = targetPageID
     self.targetTitle = targetTitle
     self.supertagID = supertagID
+    self.initialProperties = initialProperties
   }
 }
 
@@ -120,6 +143,9 @@ public enum TaggedPageReferenceInsertionError: Error, Equatable, LocalizedError 
   case invalidSupertag
   case targetOccupied
   case targetPurged
+  case invalidTargetTitle
+  case invalidInitialProperties
+  case personEmailAlreadyExists
   case missingTargetReference
   case persistenceFailure(String)
 
@@ -135,6 +161,12 @@ public enum TaggedPageReferenceInsertionError: Error, Equatable, LocalizedError 
       "A page with this identifier already exists."
     case .targetPurged:
       "This page identifier was permanently removed."
+    case .invalidTargetTitle:
+      "The new page needs a name."
+    case .invalidInitialProperties:
+      "The new page contains an invalid property."
+    case .personEmailAlreadyExists:
+      "A Person with this email already exists. Select that Person instead of creating another."
     case .missingTargetReference:
       "The created page reference is missing from the editor content."
     case .persistenceFailure(let message):
@@ -798,6 +830,27 @@ public actor LibraryRepository {
     }
   }
 
+  /// Renames a page without rewriting its body, semantic marks, or references.
+  @discardableResult
+  public func renamePage(
+    pageID: PageID,
+    title: String,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedTitle.isEmpty else { throw LibraryRepositoryError.invalidRecord }
+    return try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      let result = try PageDocument.replaceTitle(with: normalizedTitle, in: current.document)
+      let updated = Self.updatedPage(current, with: result, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+      return updated
+    }
+  }
+
   public func togglePinned(pageID: PageID, now: Date = Date()) throws {
     try mutateDocument(pageID: pageID, now: now) { current in
       try PageDocument.setPinned(!current.isPinned, in: current.document)
@@ -1150,8 +1203,19 @@ public actor LibraryRepository {
           displayName: title,
           visibility: visibility
         )
-        return candidate.email.contains("@") ? candidate : nil
+        return (try? PersonEmail.normalize(candidate.email)) != nil ? candidate : nil
       }
+    }
+  }
+
+  /// Returns every live Person whose stored Email has the exact canonical value.
+  ///
+  /// Legacy values participate through the same comparison normalizer, but only a valid input
+  /// may start a lookup. Callers must present multiple results for explicit selection.
+  public func personEmailCandidates(matchingEmail email: String) throws -> [PersonEmailCandidate] {
+    let normalizedEmail = try PersonEmail.normalize(email)
+    return try database.read { db in
+      try Self.personEmailCandidates(db, matchingNormalizedEmail: normalizedEmail)
     }
   }
 
@@ -1257,6 +1321,10 @@ public actor LibraryRepository {
   ) throws -> TaggedPageReferenceInsertionResult {
     do {
       return try database.write { db in
+        let targetTitle = request.targetTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetTitle.isEmpty else {
+          throw TaggedPageReferenceInsertionError.invalidTargetTitle
+        }
         guard let source = try Self.fetchPage(db, id: request.sourcePageID) else {
           throw TaggedPageReferenceInsertionError.sourceDeleted
         }
@@ -1275,35 +1343,52 @@ public actor LibraryRepository {
         guard try Self.hasLiveSupertag(db, id: request.supertagID) else {
           throw TaggedPageReferenceInsertionError.invalidSupertag
         }
+        let initialProperties = try Self.validatedInitialProperties(
+          request.initialProperties,
+          targetSupertagID: request.supertagID,
+          db: db
+        )
+        for case .email(let email) in initialProperties[Self.personEmailKey] ?? [] {
+          guard try Self.personEmailCandidates(db, matchingNormalizedEmail: email).isEmpty else {
+            throw TaggedPageReferenceInsertionError.personEmailAlreadyExists
+          }
+        }
 
         let sourceResult = try PageDocument.replaceRichText(
           title: request.sourceTitle,
           body: request.sourceBody,
           in: source.document
         )
-        guard sourceResult.projection.references.contains(where: {
-          $0.targetPageID == request.targetPageID
-        }) else {
-          throw TaggedPageReferenceInsertionError.missingTargetReference
-        }
-
         let createdTarget = try Self.createPage(
           db,
           id: request.targetPageID,
           kind: .free,
-          title: request.targetTitle,
+          title: targetTitle,
           now: now
         )
-        let taggedTargetResult = try Self.addingSupertag(
+        var targetResult = try Self.addingSupertag(
           request.supertagID,
           in: createdTarget.document
         )
-        let target = Self.updatedPage(createdTarget, with: taggedTargetResult, now: now)
+        for (key, values) in initialProperties.sorted(by: { $0.key.storageKey < $1.key.storageKey }) {
+          targetResult = try PageDocument.setProperty(
+            key: key,
+            values: values,
+            in: targetResult.document
+          )
+        }
+        let matchingReferences = sourceResult.projection.references.filter {
+          $0.targetPageID == request.targetPageID && $0.fallbackLabel == targetTitle
+        }
+        guard matchingReferences.count == 1 else {
+          throw TaggedPageReferenceInsertionError.missingTargetReference
+        }
+        let target = Self.updatedPage(createdTarget, with: targetResult, now: now)
         try Self.writePage(db, page: target, cloudDirty: true)
         try Self.replaceReferences(
           db,
           pageID: target.id,
-          references: taggedTargetResult.projection.references
+          references: targetResult.projection.references
         )
 
         let updatedSource = Self.updatedPage(source, with: sourceResult, now: now)
@@ -1316,6 +1401,8 @@ public actor LibraryRepository {
         return TaggedPageReferenceInsertionResult(source: updatedSource, target: target)
       }
     } catch let error as TaggedPageReferenceInsertionError {
+      throw error
+    } catch let error as PersonEmailValidationError {
       throw error
     } catch {
       throw TaggedPageReferenceInsertionError.persistenceFailure(error.localizedDescription)
@@ -2998,11 +3085,11 @@ public actor LibraryRepository {
     guard let schema = try supertags().first(where: { $0.id == key.supertagID }),
       let field = schema.fields.first(where: { $0.id == key.fieldID && !$0.isDeleted })
     else { throw LibraryRepositoryError.invalidRecord }
-    try Self.validate(values: values, for: field)
+    let normalizedValues = try Self.validatedValues(values, key: key, field: field)
     let requestedProjectStatus: ProjectStatus? = {
       guard key == ProjectFields.status,
-        values.count == 1,
-        case .select(let rawValue) = values[0]
+        normalizedValues.count == 1,
+        case .select(let rawValue) = normalizedValues[0]
       else { return nil }
       return ProjectStatus(rawValue: rawValue)
     }()
@@ -3019,6 +3106,10 @@ public actor LibraryRepository {
           throw LibraryRepositoryError.projectHasActiveTasks(count: activeTaskCount)
         }
       },
+      afterWrite: { db, updated in
+        guard key == Self.personEmailKey else { return }
+        try Self.removeStaleContactLink(db, for: updated)
+      },
       mutation: { current in
         if let requestedProjectStatus, var data = current.projectData {
           data.status = requestedProjectStatus
@@ -3031,7 +3122,7 @@ public actor LibraryRepository {
           )
         }
         if key == ProjectFields.closedAt, var data = current.projectData {
-          let requestedDate = values.first.flatMap { value -> Date? in
+          let requestedDate = normalizedValues.first.flatMap { value -> Date? in
             switch value {
             case .date(let date), .dateTime(let date): date
             default: nil
@@ -3045,7 +3136,11 @@ public actor LibraryRepository {
             in: current.document
           )
         }
-        return try PageDocument.setProperty(key: key, values: values, in: current.document)
+        return try PageDocument.setProperty(
+          key: key,
+          values: normalizedValues,
+          in: current.document
+        )
       }
     )
   }
@@ -4529,8 +4624,9 @@ public actor LibraryRepository {
     }
     var seenEmails: Set<String> = []
     for identity in identities where !identity.isCurrentUser {
-      guard let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-        email.contains("@"), seenEmails.insert(email).inserted
+      guard let rawEmail = identity.email,
+        let email = try? PersonEmail.normalize(rawEmail),
+        seenEmails.insert(email).inserted
       else { continue }
       let pageID = PageID.person(email: email)
       let displayName = identity.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4550,7 +4646,10 @@ public actor LibraryRepository {
         fieldID: .init(rawValue: "email")
       )
       let alreadyTagged = page.objectMetadata.supertagIDs.contains(BuiltInSupertags.person)
-      let hasEmail = page.objectMetadata.properties[emailKey]?.contains(.email(email)) == true
+      let hasEmail = page.objectMetadata.properties[emailKey]?.contains { value in
+        guard case .email(let storedEmail) = value else { return false }
+        return PersonEmail.normalizedForComparison(storedEmail) == email
+      } == true
       let needsClassification = page.objectMetadata.personVisibility == nil
       var createdDerivedOther = false
       if !alreadyTagged || !hasEmail || needsClassification {
@@ -4951,6 +5050,7 @@ public actor LibraryRepository {
     pageID: PageID,
     now: Date,
     validation: ((Database, PageSnapshot) throws -> Void)? = nil,
+    afterWrite: ((Database, PageSnapshot) throws -> Void)? = nil,
     mutation: (PageSnapshot) throws -> (
       document: Data,
       heads: AutomergeHeads,
@@ -4979,6 +5079,7 @@ public actor LibraryRepository {
       )
       try Self.writePage(db, page: updated, cloudDirty: true)
       try Self.replaceReferences(db, pageID: pageID, references: result.projection.references)
+      try afterWrite?(db, updated)
     }
   }
 
@@ -5822,6 +5923,129 @@ public actor LibraryRepository {
       record: record,
       refreshedAt: Date(timeIntervalSince1970: refreshedAt)
     )
+  }
+
+  private static let personEmailKey = SupertagPropertyKey(
+    supertagID: BuiltInSupertags.person,
+    fieldID: .init(rawValue: "email")
+  )
+
+  private static func personEmails(in page: PageSnapshot) -> [String] {
+    (page.objectMetadata.properties[personEmailKey] ?? []).compactMap { value in
+      guard case .email(let email) = value else { return nil }
+      return email
+    }
+  }
+
+  private static func personEmailCandidates(
+    _ db: Database,
+    matchingNormalizedEmail normalizedEmail: String
+  ) throws -> [PersonEmailCandidate] {
+    let people = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT p.* FROM pages p
+        JOIN page_supertags s ON s.page_id = p.id AND s.supertag_id = 'person'
+        WHERE p.deleted_at IS NULL
+        ORDER BY p.title COLLATE NOCASE, p.id
+        """
+    ).map(Self.decodePage)
+    return try people.compactMap { page in
+      let emails = personEmails(in: page)
+      guard emails.contains(where: { PersonEmail.normalizedForComparison($0) == normalizedEmail })
+      else { return nil }
+      return PersonEmailCandidate(
+        pageID: page.id,
+        displayName: try personDisplayName(db, page: page),
+        email: normalizedEmail
+      )
+    }
+  }
+
+  private static func personDisplayName(_ db: Database, page: PageSnapshot) throws -> String {
+    let emails = personEmails(in: page)
+    let link = try contactLink(db, pageID: page.id)
+    return PersonDisplayName.resolved(
+      title: page.title,
+      emails: emails,
+      contactLink: link
+    )
+  }
+
+  private static func removeStaleContactLink(_ db: Database, for page: PageSnapshot) throws {
+    let normalizedEmails = Set(personEmails(in: page).map(PersonEmail.normalizedForComparison))
+    guard let link = try contactLink(db, pageID: page.id),
+      !normalizedEmails.contains(link.matchedEmail)
+    else { return }
+    try db.execute(
+      sql: "DELETE FROM person_contact_links WHERE person_page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+  }
+
+  private static func validatedInitialProperties(
+    _ initialProperties: [SupertagPropertyKey: [SupertagValue]],
+    targetSupertagID: SupertagID,
+    db: Database
+  ) throws -> [SupertagPropertyKey: [SupertagValue]] {
+    let fields = try effectiveSupertagFields(db, for: targetSupertagID)
+    var result: [SupertagPropertyKey: [SupertagValue]] = [:]
+    for (key, values) in initialProperties {
+      guard let field = fields[key] else {
+        throw TaggedPageReferenceInsertionError.invalidInitialProperties
+      }
+      do {
+        result[key] = try validatedValues(values, key: key, field: field)
+      } catch is PersonEmailValidationError {
+        throw TaggedPageReferenceInsertionError.invalidInitialProperties
+      } catch {
+        throw TaggedPageReferenceInsertionError.invalidInitialProperties
+      }
+    }
+    return result
+  }
+
+  /// Resolves the direct supertag and all of its live ancestors. Property keys retain the
+  /// definition that owns the field, so identically named fields never collide.
+  private static func effectiveSupertagFields(
+    _ db: Database,
+    for rootID: SupertagID
+  ) throws -> [SupertagPropertyKey: SupertagFieldDefinition] {
+    let definitions = try Row.fetchAll(
+      db,
+      sql: "SELECT definition_json FROM supertag_schemas WHERE deleted = 0"
+    ).compactMap { row -> SupertagDefinition? in
+      guard let data: Data = row["definition_json"] else { return nil }
+      return try? JSONDecoder.enchiridion.decode(SupertagDefinition.self, from: data)
+    }
+    let definitionsByID = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0) })
+    guard definitionsByID[rootID] != nil else {
+      throw TaggedPageReferenceInsertionError.invalidSupertag
+    }
+    var fields: [SupertagPropertyKey: SupertagFieldDefinition] = [:]
+    var visited: Set<SupertagID> = []
+    var pending = [rootID]
+    while let tagID = pending.popLast(), visited.insert(tagID).inserted {
+      guard let definition = definitionsByID[tagID] else { continue }
+      for field in definition.fields where !field.isDeleted {
+        fields[.init(supertagID: tagID, fieldID: field.id)] = field
+      }
+      pending.append(contentsOf: definition.parentIDs.sorted { $0.rawValue < $1.rawValue })
+    }
+    return fields
+  }
+
+  private static func validatedValues(
+    _ values: [SupertagValue],
+    key: SupertagPropertyKey,
+    field: SupertagFieldDefinition
+  ) throws -> [SupertagValue] {
+    try validate(values: values, for: field)
+    guard key == personEmailKey else { return values }
+    return try values.map { value in
+      guard case .email(let email) = value else { throw LibraryRepositoryError.invalidRecord }
+      return .email(try PersonEmail.normalize(email))
+    }
   }
 
   private static func validate(values: [SupertagValue], for field: SupertagFieldDefinition) throws {

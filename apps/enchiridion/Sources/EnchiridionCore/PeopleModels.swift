@@ -1,5 +1,71 @@
 import Foundation
 
+/// A canonical email address used for Person identity and exact contact matching.
+///
+/// The normalizer deliberately performs only conservative normalization: surrounding
+/// whitespace is removed and casing is folded. It never guesses at a malformed address.
+public enum PersonEmail {
+  public static func normalize(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let parts = normalized.split(separator: "@", omittingEmptySubsequences: false)
+    guard !normalized.isEmpty,
+      !normalized.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }),
+      parts.count == 2,
+      !parts[0].isEmpty,
+      !parts[1].isEmpty
+    else { throw PersonEmailValidationError.invalid(value) }
+    return normalized
+  }
+
+  /// Produces the conservative comparison key used for legacy stored values.
+  /// Invalid legacy data remains invalid for new writes, but case and surrounding
+  /// whitespace do not prevent it from being found or cleaned up.
+  public static func normalizedForComparison(_ value: String) -> String {
+    (try? normalize(value)) ?? value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+}
+
+public enum PersonEmailValidationError: Error, Equatable, LocalizedError, Sendable {
+  case invalid(String)
+
+  public var errorDescription: String? {
+    switch self {
+    case .invalid: "Enter an email address with one @ and nonempty local and domain parts."
+    }
+  }
+}
+
+/// Resolves the visible Person label without allowing a device contact to overwrite authored data.
+public enum PersonDisplayName {
+  public static func resolved(
+    title: String,
+    emails: [String],
+    contactLink: PersonContactLink?
+  ) -> String {
+    let canonicalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard shouldUseContactFallback(title: canonicalTitle, emails: emails, contactLink: contactLink),
+      let contactName = contactLink?.record.displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+      !contactName.isEmpty
+    else { return canonicalTitle.isEmpty ? "Untitled" : canonicalTitle }
+    return contactName
+  }
+
+  private static func shouldUseContactFallback(
+    title: String,
+    emails: [String],
+    contactLink: PersonContactLink?
+  ) -> Bool {
+    guard let contactLink else { return false }
+    let normalizedEmails = Set(emails.map(PersonEmail.normalizedForComparison))
+    guard normalizedEmails.contains(contactLink.matchedEmail) else { return false }
+    guard title.isEmpty || title.localizedCaseInsensitiveCompare("Untitled") == .orderedSame
+    else {
+      return normalizedEmails.contains(PersonEmail.normalizedForComparison(title))
+    }
+    return true
+  }
+}
+
 public enum PersonVisibility: String, Codable, CaseIterable, Hashable, Sendable {
   case other
   case promoted
@@ -81,7 +147,7 @@ public struct DeviceContactRecord: Codable, Hashable, Sendable, Identifiable {
   }
 
   public static func normalizedEmail(_ email: String) -> String {
-    email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    PersonEmail.normalizedForComparison(email)
   }
 }
 

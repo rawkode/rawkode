@@ -771,10 +771,12 @@ private final class NativeRichPageEditorState {
   var activeSupertag: SupertagDefinition?
   var taggedPageQuery = ""
   var taggedPageSuggestions: [PageSuggestion] = []
+  var personCandidateRefreshToken = UUID()
   var pickerDismissalReason: NativeRichEditorPickerDismissalReason = .pageLoad
 
   var isCreatingTaggedPage: Bool { taggedPageCommit != nil }
   var isMutationLocked: Bool { taggedPageCommit != nil }
+  var libraryStore: LibraryStore { store }
 
   private let store: LibraryStore
   private var pageID: PageID?
@@ -1098,7 +1100,32 @@ private final class NativeRichPageEditorState {
     completeReferenceInsertion(to: suggestion.id, label: suggestion.editorDisplayTitle)
   }
 
-  func createTaggedPage() async {
+  func chooseTaggedPerson(_ candidate: PersonEmailCandidate) {
+    guard !isMutationLocked else { return }
+    completeReferenceInsertion(to: candidate.pageID, label: candidate.displayName)
+  }
+
+  func createTaggedPerson(name: String, email: String?) async {
+    guard activeSupertag?.id == BuiltInSupertags.person else {
+      setInteractionError("Choose the Person type before creating a Person.")
+      return
+    }
+    let emailKey = SupertagPropertyKey(
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "email")
+    )
+    let initialProperties = email.map { [emailKey: [SupertagValue.email($0)]] } ?? [:]
+    let outcome = await createTaggedPage(title: name, initialProperties: initialProperties)
+    if case .personEmailAlreadyExists? = outcome {
+      personCandidateRefreshToken = UUID()
+    }
+  }
+
+  @discardableResult
+  func createTaggedPage(
+    title requestedTitle: String? = nil,
+    initialProperties: [SupertagPropertyKey: [SupertagValue]] = [:]
+  ) async -> TaggedPageReferenceInsertionError? {
     guard taggedPageCommit == nil,
       let activeSupertag,
       let session = pickerSession,
@@ -1107,11 +1134,11 @@ private final class NativeRichPageEditorState {
       sourcePageID == session.sourcePageID,
       let capturedSelection = validSelection(from: session.referenceInsertionContext.snapshot),
       isSelection(capturedSelection, validFor: session.referenceInsertionContext.mode)
-    else { return }
-    let title = taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    else { return nil }
+    let title = (requestedTitle ?? taggedPageQuery).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else {
       setInteractionError("Select text with a title before creating a tagged page.")
-      return
+      return nil
     }
     let commit = NativeRichEditorTaggedPageCommit(
       id: UUID(),
@@ -1129,7 +1156,7 @@ private final class NativeRichPageEditorState {
       body: sourceBody
     ) else {
       finishTaggedPageCommit(commit, error: "Could not save this page before creating the tagged page.")
-      return
+      return nil
     }
 
     let targetPageID = PageID.free()
@@ -1141,7 +1168,7 @@ private final class NativeRichPageEditorState {
       mode: session.referenceInsertionContext.mode
     ) else {
       finishTaggedPageCommit(commit, error: "Could not create the page reference.")
-      return
+      return nil
     }
 
     do {
@@ -1153,7 +1180,8 @@ private final class NativeRichPageEditorState {
           sourceBody: reference.body,
           targetPageID: targetPageID,
           targetTitle: title,
-          supertagID: activeSupertag.id
+          supertagID: activeSupertag.id,
+          initialProperties: initialProperties
         )
       )
       finishTaggedPageCommit(
@@ -1162,10 +1190,13 @@ private final class NativeRichPageEditorState {
         reference: reference,
         pickerID: session.id
       )
+      return nil
     } catch let error as TaggedPageReferenceInsertionError {
       finishTaggedPageCommit(commit, error: error.localizedDescription)
+      return error
     } catch {
       finishTaggedPageCommit(commit, error: error.localizedDescription)
+      return nil
     }
   }
 
@@ -1871,6 +1902,7 @@ private struct RichPageEditor<Header: View>: View {
 
   @State private var editor: NativeRichPageEditorState
   @FocusState private var focusedField: FocusedField?
+  @FocusState private var personReferenceNameFocused: Bool
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @State private var bodyWasFocusedBeforePicker = false
   @State private var pickerSourcePageID: PageID?
@@ -1935,17 +1967,14 @@ private struct RichPageEditor<Header: View>: View {
               .frame(minHeight: 460, alignment: .topLeading)
               .accessibilityIdentifier("page-browser-empty-body")
           } else {
-            Text(browseBody)
-              .font(.body)
+            SemanticBrowseText(
+              plan: browsePlan,
+              palette: PageReferencePalette(contrast: colorSchemeContrast)
+            ) { url in
+              _ = handleBrowseURL(url)
+            }
               .frame(maxWidth: .infinity, minHeight: 460, alignment: .topLeading)
               .accessibilityIdentifier("page-browser-body")
-              .accessibilityLabel("Page body")
-              .environment(
-                \.openURL,
-                OpenURLAction { url in
-                  handleBrowseURL(url)
-                }
-              )
           }
         } else {
           ZStack(alignment: .topLeading) {
@@ -2063,11 +2092,12 @@ private struct RichPageEditor<Header: View>: View {
           .disabled(editor.isLoading || editor.isMutationLocked)
         }
 
-        if editorMode == .edit, focusedField != nil {
+        if editorMode == .edit, focusedField != nil || personReferenceNameFocused {
           Spacer()
 
           Button {
             focusedField = nil
+            personReferenceNameFocused = false
           } label: {
             Label("Dismiss Keyboard", systemImage: "keyboard.chevron.compact.down")
           }
@@ -2110,6 +2140,7 @@ private struct RichPageEditor<Header: View>: View {
     }
     .task(id: page.id) {
       focusedField = nil
+      personReferenceNameFocused = false
       bodyWasFocusedBeforePicker = false
       pickerSourcePageID = nil
       editorMode = .browse
@@ -2142,11 +2173,15 @@ private struct RichPageEditor<Header: View>: View {
     }
     #if os(iOS)
     .onChange(of: editor.inlinePicker) { wasPresented, isPresented in
-      if wasPresented == nil, isPresented != nil {
+      if isCreatingPersonReference {
+        focusedField = nil
+        personReferenceNameFocused = true
+      } else if wasPresented == nil, isPresented != nil {
         bodyWasFocusedBeforePicker = focusedField == .body
         pickerSourcePageID = editor.inlinePickerSourcePageID
         focusedField = .inlinePickerSearch
       } else if wasPresented != nil, isPresented == nil {
+        personReferenceNameFocused = false
         let shouldRestoreBody = bodyWasFocusedBeforePicker
           && pickerSourcePageID == page.id
           && (editor.pickerDismissalReason == .userCancelled || editor.pickerDismissalReason == .inserted)
@@ -2155,6 +2190,11 @@ private struct RichPageEditor<Header: View>: View {
         }
         bodyWasFocusedBeforePicker = false
         pickerSourcePageID = nil
+      }
+    }
+    .onChange(of: personReferenceNameFocused) { _, isFocused in
+      if isFocused {
+        focusedField = nil
       }
     }
     #else
@@ -2170,13 +2210,30 @@ private struct RichPageEditor<Header: View>: View {
     #endif
   }
 
-  private var browseBody: AttributedString {
-    PageReferenceBrowseProjection.make(
+  private var browsePlan: PageReferenceBrowseRenderPlan {
+    PageReferenceBrowseRenderPlan.resolve(
       from: editor.body,
-      vaultID: store.vaultID,
-      palette: PageReferencePalette(contrast: colorSchemeContrast)
+      vaultID: store.vaultID
     ) { pageID in
-      store.page(id: pageID)?.deletedAt == nil
+      guard let target = store.page(id: pageID), target.deletedAt == nil else { return nil }
+      let supertags = store.supertags
+        .filter { target.objectMetadata.supertagIDs.contains($0.id) }
+        .map {
+          PageReferenceBrowseSupertag(
+            id: $0.id,
+            name: $0.name,
+            symbolName: $0.symbol,
+            isBuiltIn: $0.isBuiltIn
+          )
+        }
+      let displayTitle = target.hasSupertag(BuiltInSupertags.person)
+        ? store.personDisplayName(for: target)
+        : target.displayTitle
+      return PageReferenceBrowseLiveTarget(
+        pageID: target.id,
+        displayTitle: displayTitle,
+        supertags: supertags
+      )
     }
   }
 
@@ -2424,13 +2481,20 @@ private struct RichPageEditor<Header: View>: View {
   private var inlinePickerTray: some View {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
-        TextField(inlinePickerPrompt, text: inlinePickerQuery)
-          .textFieldStyle(.roundedBorder)
-          .focused($focusedField, equals: .inlinePickerSearch)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .disabled(editor.isMutationLocked)
-          .accessibilityIdentifier("page-editor-inline-picker-search")
-          .accessibilityLabel(inlinePickerPrompt)
+        if isCreatingPersonReference {
+          Label("Create Person", systemImage: "person.crop.circle")
+            .font(.headline)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .accessibilityIdentifier("person-reference-inline-picker-title")
+        } else {
+          TextField(inlinePickerPrompt, text: inlinePickerQuery)
+            .textFieldStyle(.roundedBorder)
+            .focused($focusedField, equals: .inlinePickerSearch)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .disabled(editor.isMutationLocked)
+            .accessibilityIdentifier("page-editor-inline-picker-search")
+            .accessibilityLabel(inlinePickerPrompt)
+        }
 
         Button("Cancel") {
           editor.dismissPicker()
@@ -2473,6 +2537,10 @@ private struct RichPageEditor<Header: View>: View {
     case .taggedPages: "Find or create a page"
     case nil: "Search"
     }
+  }
+
+  private var isCreatingPersonReference: Bool {
+    editor.inlinePicker == .taggedPages && editor.activeSupertag?.id == BuiltInSupertags.person
   }
 
   private var inlinePickerQuery: Binding<String> {
@@ -2530,7 +2598,23 @@ private struct RichPageEditor<Header: View>: View {
   private var inlineTaggedPageSuggestions: some View {
     Group {
       if let supertag = editor.activeSupertag {
-        if !editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if supertag.id == BuiltInSupertags.person {
+          PersonReferenceCreationForm(
+            selectedSourceText: editor.taggedPageQuery,
+            store: store,
+            isDisabled: editor.isMutationLocked,
+            nameFocus: $personReferenceNameFocused,
+            candidateRefreshToken: editor.personCandidateRefreshToken,
+            onCreate: { name, email in
+              Task { await editor.createTaggedPerson(name: name, email: email) }
+            },
+            onLink: { candidate in
+              editor.chooseTaggedPerson(candidate)
+            }
+          )
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+        } else if !editor.taggedPageQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           inlinePickerRow(
             title: supertag.id == BuiltInSupertags.task
               ? "Create Task “\(editor.taggedPageQuery)”"
@@ -2709,7 +2793,27 @@ private struct NativeRichEditorPalette: View {
   @ViewBuilder
   private var taggedPageList: some View {
     if let supertag = editor.activeSupertag {
-      List {
+      if supertag.id == BuiltInSupertags.person {
+        List {
+          Section {
+            PersonReferenceCreationForm(
+              selectedSourceText: editor.taggedPageQuery,
+              store: editor.libraryStore,
+              isDisabled: editor.isMutationLocked,
+              candidateRefreshToken: editor.personCandidateRefreshToken,
+              onCreate: { name, email in
+                Task { await editor.createTaggedPerson(name: name, email: email) }
+              },
+              onLink: { candidate in
+                editor.chooseTaggedPerson(candidate)
+              }
+            )
+          }
+        }
+        .navigationTitle("Person")
+        .disabled(editor.isMutationLocked)
+      } else {
+        List {
         Section {
           Button {
             Task { await editor.createTaggedPage() }
@@ -2745,12 +2849,13 @@ private struct NativeRichEditorPalette: View {
             }
           }
         }
-      }
-      .navigationTitle("#\(supertag.name)")
-      .searchable(text: $editor.taggedPageQuery, prompt: "Find or create a page")
-      .disabled(editor.isMutationLocked)
-      .task(id: editor.taggedPageQuery) {
-        await editor.refreshTaggedPageSuggestions()
+        }
+        .navigationTitle("#\(supertag.name)")
+        .searchable(text: $editor.taggedPageQuery, prompt: "Find or create a page")
+        .disabled(editor.isMutationLocked)
+        .task(id: editor.taggedPageQuery) {
+          await editor.refreshTaggedPageSuggestions()
+        }
       }
     } else {
       ContentUnavailableView(

@@ -159,40 +159,15 @@ enum PageReferenceBrowseProjection {
     palette: PageReferencePalette,
     isDestinationLive: (PageID) -> Bool
   ) -> AttributedString {
-    var projection = body
-
-    // Capture ranges before mutating their attributes so the indices remain
-    // those of the copied AttributedString, including emoji and composed text.
-    let runRanges = projection.runs.map(\.range)
-    for range in runRanges {
-      // Browse exposes only the transient, vault-scoped links created below.
-      // A link attribute from an imported or stale projection must never reach
-      // the system URL handler.
-      projection[range].link = nil
-    }
-
-    for range in runRanges {
-      guard let destination = semanticDestination(in: projection[range]),
-        isDestinationLive(destination.pageID),
-        let url = PageReferenceBrowseLink.url(
-          for: .init(vaultID: vaultID, pageID: destination.pageID)
-        )
-      else { continue }
-
-      projection[range].link = url
-      projection[range].foregroundColor = palette.foregroundColor
-      projection[range].underlineStyle = .single
-    }
-
-    return projection
-  }
-
-  private static func semanticDestination(
-    in text: AttributedSubstring
-  ) -> PageReferenceDestination? {
-    let destinations = (text[PageRichTextAttributes.AutomergeMarks.self] ?? [])
-      .compactMap(PageDocument.pageReferenceDestination(from:))
-    guard destinations.count == 1 else { return nil }
-    return destinations[0]
+    PageReferenceBrowseRenderPlan.resolve(
+      from: body,
+      vaultID: vaultID,
+      liveTarget: { pageID in
+        isDestinationLive(pageID)
+          ? .init(pageID: pageID, displayTitle: nil, supertags: [])
+          : nil
+      }
+    )
+    .attributedString(palette: palette)
   }
 }
