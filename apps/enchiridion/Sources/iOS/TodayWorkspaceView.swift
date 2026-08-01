@@ -25,21 +25,25 @@ struct TodayWorkspaceView: View {
           PageEditorView(
             store: store,
             pageID: dailyPageID,
+            presentation: .dailyWorkspace {
+              TodayWorkspaceHeader(
+                day: day,
+                isToday: calendar.isDateInToday(day),
+                taskContext: DailyTaskContext(
+                  store: store,
+                  day: day,
+                  includingOverdue: calendar.isDateInToday(day),
+                  openTask: openPage,
+                  viewAll: showTodayTasks,
+                  flushBeforeChange: flushController.flush
+                )
+                .id(dailyPageID)
+              )
+            },
             flushController: flushController,
             onOpenPage: navigate,
             showsPageActions: false
           )
-          .safeAreaInset(edge: .top, spacing: 0) {
-            DailyTaskContext(
-              store: store,
-              day: day,
-              includingOverdue: calendar.isDateInToday(day),
-              openTask: openPage,
-              viewAll: showTodayTasks,
-              flushBeforeChange: flushController.flush
-            )
-            .id(dailyPageID)
-          }
         } else if store.isLoading || isOpeningDay {
           ProgressView("Opening daily note")
         } else {
@@ -60,12 +64,6 @@ struct TodayWorkspaceView: View {
         }
 
         ToolbarItemGroup(placement: .topBarTrailing) {
-          Button {
-            showTodayTasks()
-          } label: {
-            Label("Show tasks for this day", systemImage: "checkmark.circle")
-          }
-
           Menu {
             Section("Date") {
               Button("Previous Day", systemImage: "chevron.left") {
@@ -200,6 +198,42 @@ struct TodayWorkspaceView: View {
       guard await flushController.flush() else { return }
       datePicker = TodayDatePickerSelection(date: day)
     }
+  }
+}
+
+private struct TodayWorkspaceHeader<TaskContext: View>: View {
+  let day: Date
+  let isToday: Bool
+  @ViewBuilder let taskContext: () -> TaskContext
+
+  init(day: Date, isToday: Bool, taskContext: TaskContext) {
+    self.day = day
+    self.isToday = isToday
+    self.taskContext = { taskContext }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(isToday ? "Today" : "Daily Note")
+          .font(.title2.weight(.bold))
+          .accessibilityIdentifier("today-workspace-title")
+        Text(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(dailyIdentityAccessibilityLabel)
+      .accessibilityIdentifier("today-workspace-heading")
+
+      taskContext()
+    }
+    .padding(.bottom, 10)
+  }
+
+  private var dailyIdentityAccessibilityLabel: String {
+    let formattedDay = day.formatted(.dateTime.weekday(.wide).month(.wide).day().year())
+    return isToday ? "Today, \(formattedDay)" : "Daily note for \(formattedDay)"
   }
 }
 
