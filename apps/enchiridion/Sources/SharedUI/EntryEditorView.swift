@@ -578,7 +578,8 @@ private final class NativeRichPageEditorState {
   private var observedTitle = ""
   private var observedBody = AttributedString()
   private var saveTask: Task<Void, Never>?
-  private var activeSaveTask: Task<NativeRichEditorSaveResult, Never>?
+  private var saveTaskToken: UUID?
+  private var activeSaveOperation: NativeRichEditorSaveOperation?
   private var editRevision: UInt64 = 0
   private var durableRevision: UInt64 = 0
   private var shortcutSnapshot: NativeRichEditorSelectionSnapshot?
@@ -589,7 +590,8 @@ private final class NativeRichPageEditorState {
   }
 
   func load(_ page: PageSnapshot) {
-    saveTask?.cancel()
+    cancelQueuedSave()
+    activeSaveOperation = nil
     pageID = page.id
     do {
       let content = try PageDocument.richText(in: page.document)
@@ -619,7 +621,7 @@ private final class NativeRichPageEditorState {
     observedTitle = title
     observedBody = body
     editRevision &+= 1
-    saveTask?.cancel()
+    cancelQueuedSave()
     guard hasUnsavedChanges else { return }
     scheduleSave()
     if bodyDidChange {
@@ -815,54 +817,114 @@ private final class NativeRichPageEditorState {
 
   @discardableResult
   func flush() async -> Bool {
-    saveTask?.cancel()
-    saveTask = nil
-    guard !isLoading, pageID != nil else { return true }
+    cancelQueuedSave()
+    guard !isLoading, let requestedPageID = pageID else { return true }
     let requestedRevision = editRevision
     while durableRevision < requestedRevision {
-      if let activeSaveTask {
-        guard case .success = await activeSaveTask.value else { return false }
+      guard pageID == requestedPageID else { return false }
+
+      if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID {
+        guard let task = activeSaveOperation.task else { return false }
+        guard case .success = await task.value else { return false }
         continue
       }
-      guard let pageID else { return true }
+
+      guard let pageID, pageID == requestedPageID else { return false }
       let revisionToSave = editRevision
       let titleToSave = title
       let bodyToSave = body
-      let save: Task<NativeRichEditorSaveResult, Never> = Task { @MainActor [store] in
-        do {
-          _ = try await store.persistRichTextEditor(pageID: pageID, title: titleToSave, body: bodyToSave)
-          return .success
-        } catch {
-          return .failure(error.localizedDescription)
-        }
-      }
-      activeSaveTask = save
-      switch await save.value {
-      case .success:
-        persistedTitle = titleToSave
-        persistedBody = bodyToSave
-        durableRevision = max(durableRevision, revisionToSave)
-        errorMessage = nil
-        activeSaveTask = nil
-      case .failure(let message):
-        errorMessage = message
-        activeSaveTask = nil
-        return false
-      }
+      startSaveOperation(
+        pageID: pageID,
+        revision: revisionToSave,
+        title: titleToSave,
+        body: bodyToSave
+      )
     }
     return true
   }
 
   private func scheduleSave() {
-    saveTask?.cancel()
+    cancelQueuedSave()
+    let token = UUID()
+    saveTaskToken = token
     saveTask = Task { [weak self] in
       do {
         try await Task.sleep(for: .milliseconds(600))
       } catch {
         return
       }
-      _ = await self?.flush()
+      await self?.fireScheduledSave(token: token)
     }
+  }
+
+  private func cancelQueuedSave() {
+    saveTask?.cancel()
+    saveTask = nil
+    saveTaskToken = nil
+  }
+
+  private func fireScheduledSave(token: UUID) async {
+    guard saveTaskToken == token else { return }
+    saveTask = nil
+    saveTaskToken = nil
+    _ = await flush()
+  }
+
+  private func startSaveOperation(
+    pageID: PageID,
+    revision: UInt64,
+    title: String,
+    body: AttributedString
+  ) {
+    let operation = NativeRichEditorSaveOperation(
+      token: UUID(),
+      pageID: pageID,
+      revision: revision,
+      title: title,
+      body: body
+    )
+    activeSaveOperation = operation
+
+    let token = operation.token
+    operation.task = Task { @MainActor [weak self, store] in
+      let result: NativeRichEditorSaveResult
+      do {
+        _ = try await store.persistRichTextEditor(pageID: pageID, title: title, body: body)
+        result = .success
+      } catch {
+        result = .failure(error.localizedDescription)
+      }
+      return self?.settleSaveOperation(
+        token: token,
+        result: result
+      ) ?? .stale
+    }
+  }
+
+  private func settleSaveOperation(
+    token: UUID,
+    result: NativeRichEditorSaveResult
+  ) -> NativeRichEditorSaveResult {
+    guard let activeSaveOperation,
+      activeSaveOperation.token == token,
+      self.pageID == activeSaveOperation.pageID
+    else {
+      return .stale
+    }
+
+    switch result {
+    case .success:
+      persistedTitle = activeSaveOperation.title
+      persistedBody = activeSaveOperation.body
+      durableRevision = max(durableRevision, activeSaveOperation.revision)
+      errorMessage = nil
+    case .failure(let message):
+      errorMessage = message
+    case .stale:
+      return .stale
+    }
+    self.activeSaveOperation = nil
+    return result
   }
 
   private var hasUnsavedChanges: Bool {
@@ -1006,9 +1068,28 @@ private struct NativeRichEditorSelectionSnapshot {
   let selection: AttributedTextSelection
 }
 
+@MainActor
+private final class NativeRichEditorSaveOperation {
+  let token: UUID
+  let pageID: PageID
+  let revision: UInt64
+  let title: String
+  let body: AttributedString
+  var task: Task<NativeRichEditorSaveResult, Never>?
+
+  init(token: UUID, pageID: PageID, revision: UInt64, title: String, body: AttributedString) {
+    self.token = token
+    self.pageID = pageID
+    self.revision = revision
+    self.title = title
+    self.body = body
+  }
+}
+
 private enum NativeRichEditorSaveResult {
   case success
   case failure(String)
+  case stale
 }
 
 private struct RichPageEditor<Header: View>: View {
