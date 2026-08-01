@@ -255,12 +255,31 @@ private struct PagePropertiesView: View {
   }
 }
 
-struct PageEditorView: View {
+struct PageEditorPresentation<Header: View> {
+  let showsEditableTitle: Bool
+  @ViewBuilder let header: () -> Header
+
+  init(showsEditableTitle: Bool = true, @ViewBuilder header: @escaping () -> Header) {
+    self.showsEditableTitle = showsEditableTitle
+    self.header = header
+  }
+
+  static func dailyWorkspace(@ViewBuilder header: @escaping () -> Header) -> Self {
+    Self(showsEditableTitle: false, header: header)
+  }
+}
+
+extension PageEditorPresentation where Header == EmptyView {
+  static var standard: Self { Self { EmptyView() } }
+}
+
+struct PageEditorView<Header: View>: View {
   let store: LibraryStore
   let pageID: PageID
   private let onOpenPage: ((PageID) -> Void)?
   private let showsPropertiesAction: Bool
   private let showsPageActions: Bool
+  private let presentation: PageEditorPresentation<Header>
   @State private var flushController: EditorFlushController
   @State private var findController: EditorFindController
   @State private var showsProperties = false
@@ -273,6 +292,7 @@ struct PageEditorView: View {
   init(
     store: LibraryStore,
     pageID: PageID,
+    presentation: PageEditorPresentation<Header>,
     flushController: EditorFlushController? = nil,
     findController: EditorFindController? = nil,
     onOpenPage: ((PageID) -> Void)? = nil,
@@ -284,6 +304,7 @@ struct PageEditorView: View {
     self.onOpenPage = onOpenPage
     self.showsPropertiesAction = showsPropertiesAction
     self.showsPageActions = showsPageActions
+    self.presentation = presentation
     _flushController = State(initialValue: flushController ?? EditorFlushController())
     _findController = State(initialValue: findController ?? EditorFindController())
   }
@@ -326,6 +347,7 @@ struct PageEditorView: View {
         store: store,
         flushController: flushController,
         findController: findController,
+        presentation: presentation,
         openPage: openPage
       )
         .id(store.vaultID)
@@ -417,6 +439,23 @@ struct PageEditorView: View {
   }
 }
 
+extension PageEditorView where Header == EmptyView {
+  init(
+    store: LibraryStore, pageID: PageID,
+    flushController: EditorFlushController? = nil,
+    findController: EditorFindController? = nil,
+    onOpenPage: ((PageID) -> Void)? = nil,
+    showsPropertiesAction: Bool = true, showsPageActions: Bool = true
+  ) {
+    self.init(
+      store: store, pageID: pageID, presentation: .standard,
+      flushController: flushController, findController: findController,
+      onOpenPage: onOpenPage, showsPropertiesAction: showsPropertiesAction,
+      showsPageActions: showsPageActions
+    )
+  }
+}
+
 private struct OtherPersonPromotionGate: View {
   let store: LibraryStore
   let page: PageSnapshot
@@ -452,6 +491,11 @@ private enum NativeRichEditorPaletteKind {
   case references
   case supertags
   case taggedPages
+}
+
+private enum NativeRichEditorFormattingState: String {
+  case off, on, mixed
+  var accessibilityValue: String { rawValue.capitalized }
 }
 
 private enum NativeRichEditorCommand: CaseIterable, Identifiable {
@@ -531,10 +575,14 @@ private final class NativeRichPageEditorState {
   private var pageID: PageID?
   private var persistedTitle = ""
   private var persistedBody = AttributedString()
+  private var observedTitle = ""
+  private var observedBody = AttributedString()
   private var saveTask: Task<Void, Never>?
-  private var isSaving = false
-  private var shortcutRange: Range<AttributedString.Index>?
-  private var selectionForReference: AttributedTextSelection?
+  private var activeSaveTask: Task<NativeRichEditorSaveResult, Never>?
+  private var editRevision: UInt64 = 0
+  private var durableRevision: UInt64 = 0
+  private var shortcutSnapshot: NativeRichEditorSelectionSnapshot?
+  private var selectionForReference: NativeRichEditorSelectionSnapshot?
 
   init(store: LibraryStore) {
     self.store = store
@@ -556,11 +604,21 @@ private final class NativeRichPageEditorState {
     }
     persistedTitle = title
     persistedBody = body
+    observedTitle = title
+    observedBody = body
+    editRevision = 0
+    durableRevision = 0
+    shortcutSnapshot = nil
+    selectionForReference = nil
     isLoading = false
   }
 
   func contentDidChange(bodyDidChange: Bool = true) {
     guard !isLoading else { return }
+    guard title != observedTitle || body != observedBody else { return }
+    observedTitle = title
+    observedBody = body
+    editRevision &+= 1
     saveTask?.cancel()
     guard hasUnsavedChanges else { return }
     scheduleSave()
@@ -570,12 +628,13 @@ private final class NativeRichPageEditorState {
   }
 
   func toggle(_ intent: InlinePresentationIntent) {
+    let shouldEnable = formattingState(for: intent) != .on
     body.transformAttributes(in: &selection) { attributes in
       var current = attributes.inlinePresentationIntent ?? []
-      if current.contains(intent) {
-        current.remove(intent)
-      } else {
+      if shouldEnable {
         current.insert(intent)
+      } else {
+        current.remove(intent)
       }
       attributes.inlinePresentationIntent = current
     }
@@ -587,8 +646,21 @@ private final class NativeRichPageEditorState {
   }
 
   var hasSelectedText: Bool {
-    guard case .ranges(let rangeSet) = selection.indices(in: body) else { return false }
-    return !rangeSet.isEmpty
+    !selectedRanges.isEmpty
+  }
+
+  func formattingState(for intent: InlinePresentationIntent) -> NativeRichEditorFormattingState {
+    let ranges = selectedRanges
+    guard !ranges.isEmpty else { return .off }
+    var hasOn = false
+    var hasOff = false
+    for range in ranges {
+      for run in body[range].runs {
+        if run.inlinePresentationIntent?.contains(intent) == true { hasOn = true } else { hasOff = true }
+        if hasOn && hasOff { return .mixed }
+      }
+    }
+    return hasOn ? .on : .off
   }
 
   var supertags: [SupertagDefinition] {
@@ -596,13 +668,13 @@ private final class NativeRichPageEditorState {
   }
 
   func showCommandPalette() {
-    shortcutRange = nil
+    shortcutSnapshot = nil
     paletteKind = .commands
     isPalettePresented = true
   }
 
   func showReferencePicker() {
-    selectionForReference = hasSelectedText ? selection : nil
+    selectionForReference = hasSelectedText ? selectionSnapshot : nil
     referenceQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
     paletteKind = .references
     isPalettePresented = true
@@ -613,7 +685,11 @@ private final class NativeRichPageEditorState {
       errorMessage = "Select text before applying a supertag."
       return
     }
-    selectionForReference = selection
+    guard let selectionSnapshot else {
+      errorMessage = "The text selection is no longer available. Select text and try again."
+      return
+    }
+    selectionForReference = selectionSnapshot
     taggedPageQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
     activeSupertag = nil
     paletteKind = .supertags
@@ -707,7 +783,7 @@ private final class NativeRichPageEditorState {
     activeSupertag = nil
     taggedPageQuery = ""
     selectionForReference = nil
-    shortcutRange = nil
+    shortcutSnapshot = nil
   }
 
   func dailyReferenceSuggestions() -> [NativeDailyPageSuggestion] {
@@ -741,31 +817,40 @@ private final class NativeRichPageEditorState {
   func flush() async -> Bool {
     saveTask?.cancel()
     saveTask = nil
-    guard !isLoading, let pageID, hasUnsavedChanges else { return true }
-    guard !isSaving else { return true }
-
-    isSaving = true
-    let titleToSave = title
-    let bodyToSave = body
-    do {
-      _ = try await store.persistRichTextEditor(
-        pageID: pageID,
-        title: titleToSave,
-        body: bodyToSave
-      )
-      persistedTitle = titleToSave
-      persistedBody = bodyToSave
-      errorMessage = nil
-      isSaving = false
-      if hasUnsavedChanges {
-        return await flush()
+    guard !isLoading, pageID != nil else { return true }
+    let requestedRevision = editRevision
+    while durableRevision < requestedRevision {
+      if let activeSaveTask {
+        guard case .success = await activeSaveTask.value else { return false }
+        continue
       }
-      return true
-    } catch {
-      isSaving = false
-      errorMessage = error.localizedDescription
-      return false
+      guard let pageID else { return true }
+      let revisionToSave = editRevision
+      let titleToSave = title
+      let bodyToSave = body
+      let save: Task<NativeRichEditorSaveResult, Never> = Task { @MainActor [store] in
+        do {
+          _ = try await store.persistRichTextEditor(pageID: pageID, title: titleToSave, body: bodyToSave)
+          return .success
+        } catch {
+          return .failure(error.localizedDescription)
+        }
+      }
+      activeSaveTask = save
+      switch await save.value {
+      case .success:
+        persistedTitle = titleToSave
+        persistedBody = bodyToSave
+        durableRevision = max(durableRevision, revisionToSave)
+        errorMessage = nil
+        activeSaveTask = nil
+      case .failure(let message):
+        errorMessage = message
+        activeSaveTask = nil
+        return false
+      }
     }
+    return true
   }
 
   private func scheduleSave() {
@@ -817,14 +902,16 @@ private final class NativeRichPageEditorState {
       ).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
     if finalCharacter == "/", isStartOfLine {
-      shortcutRange = finalCharacterStart..<caret
+      #if os(macOS)
+      shortcutSnapshot = selectionSnapshot(for: finalCharacterStart..<caret)
       paletteKind = .commands
       isPalettePresented = true
+      #endif
       return
     }
 
     if finalCharacter == "@", isStartOfLine {
-      shortcutRange = finalCharacterStart..<caret
+      shortcutSnapshot = selectionSnapshot(for: finalCharacterStart..<caret)
       selectionForReference = nil
       referenceQuery = ""
       paletteKind = .references
@@ -835,7 +922,7 @@ private final class NativeRichPageEditorState {
     guard finalCharacter == "[", finalCharacterStart > body.startIndex else { return }
     let openingBracketStart = body.index(beforeCharacter: finalCharacterStart)
     guard String(body[openingBracketStart..<caret].characters) == "[[" else { return }
-    shortcutRange = openingBracketStart..<caret
+    shortcutSnapshot = selectionSnapshot(for: openingBracketStart..<caret)
     selectionForReference = nil
     referenceQuery = ""
     paletteKind = .references
@@ -843,10 +930,13 @@ private final class NativeRichPageEditorState {
   }
 
   private func consumeShortcut() {
-    guard let shortcutRange else { return }
-    selection = AttributedTextSelection(range: shortcutRange)
-    body.replaceSelection(&selection, with: AttributedString())
-    self.shortcutRange = nil
+    guard let shortcutSnapshot, let selection = validSelection(from: shortcutSnapshot) else {
+      self.shortcutSnapshot = nil
+      return
+    }
+    self.selection = selection
+    body.replaceSelection(&self.selection, with: AttributedString())
+    self.shortcutSnapshot = nil
   }
 
   private func insertReference(to pageID: PageID, label: String) {
@@ -855,12 +945,22 @@ private final class NativeRichPageEditorState {
       return
     }
 
-    let replacesShortcut = shortcutRange != nil
-    if let shortcutRange {
-      selection = AttributedTextSelection(range: shortcutRange)
-      self.shortcutRange = nil
+    let replacesShortcut = shortcutSnapshot != nil
+    if let shortcutSnapshot {
+      guard let selection = validSelection(from: shortcutSnapshot) else {
+        self.shortcutSnapshot = nil
+        errorMessage = "The insertion point changed. Try inserting the reference again."
+        return
+      }
+      self.selection = selection
+      self.shortcutSnapshot = nil
     } else if let selectionForReference {
-      selection = selectionForReference
+      guard let selection = validSelection(from: selectionForReference) else {
+        self.selectionForReference = nil
+        errorMessage = "The text selection changed. Select text and try again."
+        return
+      }
+      self.selection = selection
     }
 
     if hasSelectedText, !replacesShortcut {
@@ -877,9 +977,41 @@ private final class NativeRichPageEditorState {
     }
     contentDidChange()
   }
+
+  private var selectedRanges: [Range<AttributedString.Index>] {
+    guard case .ranges(let ranges) = selection.indices(in: body) else { return [] }
+    return ranges.ranges.filter { !$0.isEmpty }
+  }
+
+  private var selectionSnapshot: NativeRichEditorSelectionSnapshot? {
+    guard let pageID else { return nil }
+    return NativeRichEditorSelectionSnapshot(pageID: pageID, bodyRevision: editRevision, selection: selection)
+  }
+
+  private func selectionSnapshot(for range: Range<AttributedString.Index>) -> NativeRichEditorSelectionSnapshot? {
+    guard let pageID else { return nil }
+    let selection = AttributedTextSelection(range: range)
+    return NativeRichEditorSelectionSnapshot(pageID: pageID, bodyRevision: editRevision, selection: selection)
+  }
+
+  private func validSelection(from snapshot: NativeRichEditorSelectionSnapshot) -> AttributedTextSelection? {
+    guard snapshot.pageID == pageID, snapshot.bodyRevision == editRevision else { return nil }
+    return snapshot.selection
+  }
 }
 
-private struct RichPageEditor: View {
+private struct NativeRichEditorSelectionSnapshot {
+  let pageID: PageID
+  let bodyRevision: UInt64
+  let selection: AttributedTextSelection
+}
+
+private enum NativeRichEditorSaveResult {
+  case success
+  case failure(String)
+}
+
+private struct RichPageEditor<Header: View>: View {
   private enum FocusedField: Hashable {
     case title
     case body
@@ -890,10 +1022,12 @@ private struct RichPageEditor: View {
   let store: LibraryStore
   let flushController: EditorFlushController
   let findController: EditorFindController
+  let presentation: PageEditorPresentation<Header>
   let openPage: (PageID) -> Void
 
   @State private var editor: NativeRichPageEditorState
   @FocusState private var focusedField: FocusedField?
+  @State private var bodyWasFocusedBeforePalette = false
 
   init(
     page: PageSnapshot,
@@ -901,6 +1035,7 @@ private struct RichPageEditor: View {
     store: LibraryStore,
     flushController: EditorFlushController,
     findController: EditorFindController,
+    presentation: PageEditorPresentation<Header>,
     openPage: @escaping (PageID) -> Void
   ) {
     self.page = page
@@ -908,6 +1043,7 @@ private struct RichPageEditor: View {
     self.store = store
     self.flushController = flushController
     self.findController = findController
+    self.presentation = presentation
     self.openPage = openPage
     _editor = State(initialValue: NativeRichPageEditorState(store: store))
   }
@@ -917,14 +1053,18 @@ private struct RichPageEditor: View {
 
     ScrollView {
       VStack(alignment: .leading, spacing: 0) {
+        presentation.header()
         calendarContextView
 
-        TextField("Untitled", text: $editor.title, axis: .vertical)
-          .font(.system(size: 34, weight: .bold, design: .default))
-          .textFieldStyle(.plain)
-          .focused($focusedField, equals: .title)
-          .padding(.bottom, 20)
-          .accessibilityLabel("Page title")
+        if presentation.showsEditableTitle {
+          TextField("Untitled", text: $editor.title, axis: .vertical)
+            .font(.system(size: 34, weight: .bold, design: .default))
+            .textFieldStyle(.plain)
+            .focused($focusedField, equals: .title)
+            .padding(.bottom, 20)
+            .accessibilityIdentifier("page-editor-title")
+            .accessibilityLabel("Page title")
+        }
 
         ZStack(alignment: .topLeading) {
           if editor.body.characters.isEmpty {
@@ -939,6 +1079,7 @@ private struct RichPageEditor: View {
             .focused($focusedField, equals: .body)
             .scrollContentBackground(.hidden)
             .frame(minHeight: 440, alignment: .top)
+            .accessibilityIdentifier("page-editor-body")
             .accessibilityLabel("Page body")
         }
 
@@ -948,6 +1089,7 @@ private struct RichPageEditor: View {
             .foregroundStyle(.red)
             .padding(.top, 12)
             .accessibilityIdentifier("page-editor-error")
+            .accessibilityLabel("Save error")
         }
       }
       .frame(maxWidth: 760, alignment: .leading)
@@ -955,15 +1097,23 @@ private struct RichPageEditor: View {
       .padding(.vertical, 20)
     }
     .findNavigator(isPresented: $editor.showsFind)
-    .safeAreaInset(edge: .bottom) {
-      formattingBar
+    #if os(iOS)
+    .toolbar {
+      ToolbarItemGroup(placement: .keyboard) {
+        if focusedField == .body { formattingBar }
+      }
     }
+    .navigationDestination(isPresented: $editor.isPalettePresented) {
+      NativeRichEditorPalette(editor: editor)
+    }
+    #else
+    .safeAreaInset(edge: .bottom) { formattingBar }
     .sheet(isPresented: $editor.isPalettePresented, onDismiss: {
       editor.dismissPalette()
-      focusedField = .body
     }) {
       NativeRichEditorPalette(editor: editor)
     }
+    #endif
     .onAppear {
       flushController.register(editor.registrationID) { [weak editor] in
         await editor?.flush() ?? true
@@ -979,7 +1129,7 @@ private struct RichPageEditor: View {
     }
     .task(id: page.id) {
       editor.load(page)
-      focusedField = .body
+      focusedField = nil
     }
     .onChange(of: editor.title) { _, _ in
       editor.contentDidChange(bodyDidChange: false)
@@ -995,6 +1145,15 @@ private struct RichPageEditor: View {
         userInfo: ["isFocused": field != nil]
       )
       #endif
+    }
+    .onChange(of: editor.isPalettePresented) { wasPresented, isPresented in
+      if !wasPresented, isPresented {
+        bodyWasFocusedBeforePalette = focusedField == .body
+      } else if wasPresented, !isPresented {
+        editor.dismissPalette()
+        if bodyWasFocusedBeforePalette { focusedField = .body }
+        bodyWasFocusedBeforePalette = false
+      }
     }
   }
 
@@ -1065,6 +1224,7 @@ private struct RichPageEditor: View {
         Label("Insert Page Reference", systemImage: "at")
       }
       .help("Insert page or daily-note reference")
+      .accessibilityIdentifier("page-editor-reference")
       .disabled(editor.isLoading)
 
       Button {
@@ -1073,22 +1233,17 @@ private struct RichPageEditor: View {
         Label("Apply Supertag", systemImage: "number")
       }
       .help("Apply a supertag to selected text")
+      .accessibilityIdentifier("page-editor-supertag")
       .disabled(editor.isLoading || !editor.hasSelectedText)
       .keyboardShortcut("9", modifiers: [.command, .shift])
 
-      Button {
-        editor.showCommandPalette()
-      } label: {
-        Label("Editor Commands", systemImage: "command")
-      }
-      .help("Open editor commands")
-      .disabled(editor.isLoading)
     }
     .labelStyle(.iconOnly)
     .buttonStyle(.borderless)
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
     .background(.bar)
+    .accessibilityIdentifier("page-editor-keyboard-commands")
   }
 
   private func formattingButton(
@@ -1102,6 +1257,9 @@ private struct RichPageEditor: View {
       Label(title, systemImage: symbol)
     }
     .disabled(editor.isLoading)
+    .accessibilityIdentifier("page-editor-format-\(title.lowercased())")
+    .accessibilityValue(editor.formattingState(for: intent).accessibilityValue)
+    .tint(editor.formattingState(for: intent) == .on ? .accentColor : nil)
   }
 }
 
