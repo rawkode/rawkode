@@ -1195,7 +1195,7 @@ private struct RichPageEditor<Header: View>: View {
             .foregroundStyle(.red)
             .padding(.top, 12)
             .accessibilityIdentifier("page-editor-error")
-            .accessibilityLabel("Save error")
+            .accessibilityLabel("Save error: \(errorMessage)")
         }
       }
       .frame(maxWidth: 760, alignment: .leading)
@@ -1364,7 +1364,23 @@ private struct RichPageEditor<Header: View>: View {
     Button {
       editor.toggle(intent)
     } label: {
-      Label(title, systemImage: symbol)
+      let state = editor.formattingState(for: intent)
+      ZStack(alignment: .bottomTrailing) {
+        Image(systemName: symbol)
+
+        if state != .off {
+          Image(systemName: state == .on ? "checkmark" : "minus")
+            .font(.system(size: 7, weight: .bold))
+            .frame(width: 12, height: 12)
+            .background(Circle().fill(.background))
+            .overlay {
+              Circle()
+                .stroke(.secondary, lineWidth: 1)
+            }
+            .offset(x: 4, y: 4)
+            .accessibilityHidden(true)
+        }
+      }
     }
     .disabled(editor.isLoading)
     .accessibilityIdentifier("page-editor-format-\(title.lowercased())")
