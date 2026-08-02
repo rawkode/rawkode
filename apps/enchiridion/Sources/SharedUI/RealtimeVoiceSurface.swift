@@ -15,15 +15,18 @@ struct RealtimeVoiceLobbyRoute: Identifiable {
 struct RealtimeVoiceLobbyView: View {
   private enum Stage {
     case lobby
+    case active
     case unavailable
   }
 
   let route: RealtimeVoiceRouteSnapshot
-  let onKeepApple: () -> Void
+  let onKeepApple: () async -> Void
   let onOpenSettings: () -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
   @State private var stage: Stage = .lobby
+  @State private var coordinator: RealtimeVoiceCoordinator?
 
   var body: some View {
     NavigationStack {
@@ -31,6 +34,8 @@ struct RealtimeVoiceLobbyView: View {
         switch stage {
         case .lobby:
           lobby
+        case .active:
+          active
         case .unavailable:
           unavailable
         }
@@ -45,6 +50,10 @@ struct RealtimeVoiceLobbyView: View {
         }
       }
     }
+    .onChange(of: scenePhase) { _, phase in
+      coordinator?.handleScenePhaseChange(isActive: phase == .active)
+    }
+    .onDisappear { coordinator?.stop() }
     #if os(macOS)
       .frame(minWidth: 480, idealWidth: 560, minHeight: 580, idealHeight: 680)
     #endif
@@ -65,32 +74,26 @@ struct RealtimeVoiceLobbyView: View {
         }
         .accessibilityElement(children: .combine)
 
-        Label {
-          Text(
-            "OpenAI Voice connection is unavailable in this build. This action did not request microphone access, use the saved key for a connection, or send anything."
-          )
-        } icon: {
-          Image(systemName: "exclamationmark.triangle.fill")
-            .foregroundStyle(.orange)
-        }
-        .font(.callout)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
+        developmentRouteDisclosure
 
         VStack(spacing: 12) {
           Button(OpenAIRealtimeVoiceConsentCopy.startActionTitle) {
-            stage = .unavailable
+            startOpenAIVoice()
           }
           .buttonStyle(.borderedProminent)
           .controlSize(.large)
           .frame(maxWidth: .infinity, minHeight: 56)
           .accessibilityHint(
-            "Shows the unavailable connection state without requesting microphone access, using the saved key for a connection, or sending anything."
+            RealtimeVoiceDevelopmentRoute.isEnabled
+              ? "Requests microphone access only after this explicit action, then starts the selected OpenAI Voice route."
+              : "Explains that production OpenAI Voice requires a backend connection."
           )
 
           Button(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle) {
-            onKeepApple()
-            dismiss()
+            Task {
+              await onKeepApple()
+              dismiss()
+            }
           }
           .buttonStyle(.bordered)
           .frame(maxWidth: .infinity, minHeight: 44)
@@ -108,7 +111,8 @@ struct RealtimeVoiceLobbyView: View {
       Label("OpenAI Voice Connection Unavailable", systemImage: "antenna.radiowaves.left.and.right.slash")
     } description: {
       Text(
-        "This action did not request microphone access, use the saved key for a connection, or send anything. Use Apple On Device now, or review Assistant Settings."
+        coordinator?.setupFailure
+          ?? "This release requires a backend connection for OpenAI Voice. Use Apple On Device now, or review Assistant Settings."
       )
     } actions: {
       VStack(spacing: 10) {
@@ -120,14 +124,99 @@ struct RealtimeVoiceLobbyView: View {
         }
           .frame(minHeight: 44)
         Button("Start a New Apple On Device Conversation") {
-          onKeepApple()
-          dismiss()
+          Task {
+            await onKeepApple()
+            dismiss()
+          }
         }
         .buttonStyle(.borderedProminent)
         .frame(minHeight: 44)
       }
     }
     .padding(24)
+  }
+
+  @ViewBuilder
+  private var developmentRouteDisclosure: some View {
+    if RealtimeVoiceDevelopmentRoute.isEnabled {
+      Label {
+        Text(
+          "Personal development connection. After you start, Enchiridion requests microphone access and uses the saved key only in native code to establish this audio-only OpenAI Voice session. It does not send notes, tasks, calendars, or local tools."
+        )
+      } icon: {
+        Image(systemName: "wrench.and.screwdriver.fill")
+          .foregroundStyle(.orange)
+      }
+      .font(.callout)
+      .fixedSize(horizontal: false, vertical: true)
+      .accessibilityElement(children: .combine)
+    } else {
+      Label {
+        Text(
+          "OpenAI Voice requires a backend connection in release builds. This screen does not request microphone access, use the saved key for a connection, or send anything."
+        )
+      } icon: {
+        Image(systemName: "lock.trianglebadge.exclamationmark")
+          .foregroundStyle(.orange)
+      }
+      .font(.callout)
+      .fixedSize(horizontal: false, vertical: true)
+      .accessibilityElement(children: .combine)
+    }
+  }
+
+  @ViewBuilder
+  private var active: some View {
+    if let session = coordinator?.session {
+      RealtimeVoiceActiveView(
+        state: RealtimeVoiceDisplayState(
+          route: route,
+          phase: session.state.phase,
+          captions: session.state.captions,
+          isMuted: session.state.phase == .muted,
+          warning: session.warningMessage,
+          failureMessage: session.state.failure?.message
+        ),
+        onToggleMute: {
+          Task { await session.setMuted(session.state.phase != .muted) }
+        },
+        onResume: {
+          Task { await session.resumeAfterSafetyPause() }
+        },
+        onEnd: {
+          coordinator?.stop()
+          stage = .lobby
+        },
+        onTryAgain: { coordinator?.retry() },
+        onOpenSettings: {
+          coordinator?.stop()
+          dismiss()
+          onOpenSettings()
+        },
+        onStartApple: startAppleConversation
+      )
+    } else {
+      unavailable
+    }
+  }
+
+  private func startOpenAIVoice() {
+    guard RealtimeVoiceDevelopmentRoute.isEnabled else {
+      stage = .unavailable
+      return
+    }
+    let coordinator = RealtimeVoiceCoordinator(route: route)
+    self.coordinator = coordinator
+    stage = .active
+    coordinator.start()
+  }
+
+  private func startAppleConversation() {
+    Task {
+      await coordinator?.session?.stop()
+      await onKeepApple()
+      dismiss()
+    }
   }
 }
 
@@ -184,8 +273,8 @@ struct RealtimeVoiceDisplayState: Equatable {
   let failureMessage: String?
 }
 
-/// The active surface is intentionally data-only until the native calls
-/// executor is authorized and available. It performs no media or transport work.
+/// Presentation for a session owned by the voice lobby. It has no direct
+/// credential, local-data, or WebKit access.
 struct RealtimeVoiceActiveView: View {
   let state: RealtimeVoiceDisplayState
   let onToggleMute: () -> Void

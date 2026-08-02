@@ -41,11 +41,15 @@ struct OpenAILocalToolExecutor {
   func execute(
     _ call: OpenAILocalToolCall,
     now: Date,
-    eligibleCalendarSourceIDs: Set<String>
+    eligibleCalendarSourceIDs: Set<String>,
+    authorization: AssistantTurnRetrievalAuthorization?
   ) async throws -> OpenAILocalToolResult {
     let arguments = try Self.arguments(call.arguments)
     switch call.name {
     case "findCalendarEvents":
+      guard let rule = authorization?.calendarSearch else {
+        throw OpenAIResponsesAssistantError.invalidResponse
+      }
       try Self.requireKeys(
         arguments,
         exactly: ["query", "start", "end", "limit", "includeOngoing"]
@@ -57,6 +61,13 @@ struct OpenAILocalToolExecutor {
         let end = Self.date(endString),
         let limit = arguments["limit"]?.integerValue,
         let includeOngoing = Self.bool(arguments["includeOngoing"])
+      else { throw OpenAIResponsesAssistantError.invalidResponse }
+      guard rule.query.permits(query),
+        start >= rule.start,
+        end <= rule.end,
+        end > start,
+        (1...rule.maximumResults).contains(limit),
+        includeOngoing == rule.includeOngoing
       else { throw OpenAIResponsesAssistantError.invalidResponse }
       let result = try await repository.findCalendarEvents(
         matching: query,
@@ -77,11 +88,16 @@ struct OpenAILocalToolExecutor {
         eligibleCalendarSourceIDs: returnedCalendarSourceIDs
       )
     case "briefCalendarEvent":
+      guard let rule = authorization?.calendarBrief else {
+        throw OpenAIResponsesAssistantError.invalidResponse
+      }
       try Self.requireKeys(arguments, exactly: ["sourceID", "peopleLimit"])
       guard let sourceID = arguments["sourceID"]?.stringValue,
         Self.isCanonicalCalendarSourceID(sourceID),
+        rule.allowedSourceIDs.contains(sourceID),
         eligibleCalendarSourceIDs.contains(sourceID),
-        let peopleLimit = arguments["peopleLimit"]?.integerValue
+        let peopleLimit = arguments["peopleLimit"]?.integerValue,
+        (1...rule.maximumPeople).contains(peopleLimit)
       else { throw OpenAIResponsesAssistantError.invalidResponse }
       let result = try await repository.meetingBrief(
         forEventSourceID: sourceID,
@@ -94,11 +110,18 @@ struct OpenAILocalToolExecutor {
         facts: result.evidence
       )
     case "searchTasks":
+      guard let rule = authorization?.taskSearch else {
+        throw OpenAIResponsesAssistantError.invalidResponse
+      }
       try Self.requireKeys(arguments, exactly: ["scope", "query", "limit"])
       guard let rawScope = arguments["scope"]?.stringValue,
         let scope = AssistantTaskScope(rawValue: rawScope),
         let query = arguments["query"]?.stringValue,
         let limit = arguments["limit"]?.integerValue
+      else { throw OpenAIResponsesAssistantError.invalidResponse }
+      guard scope == rule.scope,
+        rule.query.permits(query),
+        (1...rule.maximumResults).contains(limit)
       else { throw OpenAIResponsesAssistantError.invalidResponse }
       let result = try await repository.searchTasks(
         scope: scope,
@@ -113,10 +136,16 @@ struct OpenAILocalToolExecutor {
         trustedEmptyAnswer: scope.emptyAnswer
       )
     case "searchNotes":
+      guard let rule = authorization?.noteSearch else {
+        throw OpenAIResponsesAssistantError.invalidResponse
+      }
       try Self.requireKeys(arguments, exactly: ["query", "limit"])
       guard let query = arguments["query"]?.stringValue,
         let limit = arguments["limit"]?.integerValue
       else { throw OpenAIResponsesAssistantError.invalidResponse }
+      guard rule.query.permits(query), (1...rule.maximumResults).contains(limit) else {
+        throw OpenAIResponsesAssistantError.invalidResponse
+      }
       let result = try await repository.searchNotes(matching: query, limit: limit)
       return try Self.toolResult(
         result,

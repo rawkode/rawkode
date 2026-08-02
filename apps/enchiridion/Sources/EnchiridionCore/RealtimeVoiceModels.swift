@@ -97,7 +97,7 @@ public struct RealtimeCredentialLease: @unchecked Sendable {
   /// Gives a native transport temporary access while constructing its exact
   /// Authorization header. The lease never exposes a stored public String and
   /// must not be retained, logged, serialized, or forwarded to web content.
-  public func withSecret<Result>(
+  func withSecret<Result>(
     _ body: (String) throws -> Result
   ) rethrows -> Result {
     try body(credential)
@@ -142,19 +142,53 @@ public enum RealtimeClientCommand: Equatable, Sendable {
   case inputAudioBufferClear
 }
 
+@MainActor
 public protocol RealtimeVoiceTransport: Sendable {
-  /// Starts with its input media track disabled. The session enables input only
-  /// after consent, microphone permission, native key read, SDP exchange, and
-  /// successful system-audio activation.
+  /// Establishes the WebRTC connection with its input media track disabled.
+  /// A successful return proves that the native bridge is ready, the SDP answer
+  /// was applied, the data channel opened, and the server's `session.created`
+  /// event matched the frozen route. The session enables input only after it
+  /// has also activated the system audio session.
   func start(
+    generation: UInt64,
     route: RealtimeVoiceRouteSnapshot,
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
-  ) async throws
+  ) async throws -> RealtimeSessionCreated
   func events() -> AsyncStream<RealtimeServerEvent>
   func send(_ command: RealtimeClientCommand) async throws
-  func setInputEnabled(_ enabled: Bool) async
+  /// Resolves only once the transport has confirmed the microphone track
+  /// transition. Callers must treat a failure as unsafe and tear down.
+  func setInputEnabled(_ enabled: Bool) async throws
   func close() async
+}
+
+/// The deliberately narrow native/WebKit boundary. Implementations are
+/// MainActor-bound because WKWebView must never be driven from an arbitrary
+/// executor. It has no credential-bearing operation.
+@MainActor
+public protocol RealtimeWebRTCBridging: AnyObject {
+  func load() throws
+  func authorize(
+    _ capability: RealtimeWebRTCBridgeAuthorization,
+    generation: UInt64
+  ) async throws
+  func start(generation: UInt64) async throws
+  func applyAnswer(_ sdp: String, generation: UInt64) async throws
+  func sendEvent(_ json: String, generation: UInt64) async throws
+  func setInputEnabled(_ enabled: Bool, generation: UInt64) async throws
+  func stop() async
+  func events() -> AsyncStream<RealtimeWebRTCBridgeEvent>
+}
+
+public enum RealtimeWebRTCBridgeEvent: Equatable, Sendable {
+  case ready
+  case offer(generation: UInt64, sdp: String)
+  case connectionState(generation: UInt64, state: String)
+  case dataChannelState(generation: UInt64, state: String)
+  case serverEvent(generation: UInt64, json: String)
+  case answerApplied(generation: UInt64)
+  case failure(generation: UInt64, code: String)
 }
 
 public struct RealtimeSessionCreated: Equatable, Sendable {

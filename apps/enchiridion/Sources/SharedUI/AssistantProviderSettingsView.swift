@@ -335,10 +335,17 @@ struct AssistantProviderSettingsView: View {
         }
       }
 
-      LabeledContent("Connection", value: "Unavailable in this build")
+      LabeledContent(
+        "Connection",
+        value: RealtimeVoiceDevelopmentRoute.isEnabled
+          ? "Personal development only"
+          : "Backend required"
+      )
         .foregroundStyle(.secondary)
       Text(
-        "You can review the exact model, official voice, and credential-bound consent. The native OpenAI connection executor is unavailable, so this screen does not request microphone access, use the saved key for a connection, upload audio, or connect. Apple On Device voice remains available."
+        RealtimeVoiceDevelopmentRoute.isEnabled
+          ? "This Debug-only personal development route uses the saved key only in native code to establish an audio-only OpenAI Voice session. It is not a production connection path and does not disclose notes, tasks, calendars, or local tools. Apple On Device voice remains available."
+          : "Production OpenAI Voice requires a backend that issues short-lived client credentials. This release does not request microphone access, use the saved key for a connection, upload audio, or connect. Apple On Device voice remains available."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
@@ -429,7 +436,7 @@ struct AssistantProviderSettingsView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion sends the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
+    Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI. The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
     """
   }
 }

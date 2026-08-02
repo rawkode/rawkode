@@ -81,6 +81,9 @@ public struct AssistantConversationRequest: Equatable, Sendable {
   public var modality: AssistantRequestModality
   public var routeOverride: AssistantConversationRoute?
   public var textRouteSnapshot: AssistantTextRouteSnapshot?
+  /// A frozen, user-approved local retrieval allowance for this one submitted
+  /// text turn. `nil` means OpenAI receives no local tools or library results.
+  public var retrievalAuthorization: AssistantTurnRetrievalAuthorization?
 
   public init(
     utterance: String,
@@ -90,7 +93,8 @@ public struct AssistantConversationRequest: Equatable, Sendable {
     now: Date,
     modality: AssistantRequestModality = .text,
     routeOverride: AssistantConversationRoute? = nil,
-    textRouteSnapshot: AssistantTextRouteSnapshot? = nil
+    textRouteSnapshot: AssistantTextRouteSnapshot? = nil,
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization? = nil
   ) {
     self.utterance = utterance
     self.priorTurns = priorTurns
@@ -100,6 +104,7 @@ public struct AssistantConversationRequest: Equatable, Sendable {
     self.modality = modality
     self.routeOverride = routeOverride
     self.textRouteSnapshot = textRouteSnapshot
+    self.retrievalAuthorization = retrievalAuthorization
   }
 }
 
@@ -693,6 +698,7 @@ public final class AssistantConversationSession {
         routeOverride: nil,
         routeLabel: nil,
         routeSnapshot: nil,
+        retrievalAuthorization: nil,
         contextEpoch: nil
       )
     else { return }
@@ -706,13 +712,15 @@ public final class AssistantConversationSession {
     _ text: String,
     routeOverride: AssistantConversationRoute,
     routeLabel: String,
-    routeSnapshot: AssistantTextRouteSnapshot? = nil
+    routeSnapshot: AssistantTextRouteSnapshot? = nil,
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization? = nil
   ) -> UUID? {
     beginTypedSubmission(
       text,
       routeOverride: routeOverride,
       routeLabel: routeLabel,
       routeSnapshot: routeSnapshot,
+      retrievalAuthorization: retrievalAuthorization,
       contextEpoch: nil
     )?.turnID
   }
@@ -727,6 +735,7 @@ public final class AssistantConversationSession {
     routeOverride: AssistantConversationRoute?,
     routeLabel: String?,
     routeSnapshot: AssistantTextRouteSnapshot?,
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization?,
     contextEpoch: UInt64?
   ) -> StartedTypedSubmission? {
     let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -786,6 +795,7 @@ public final class AssistantConversationSession {
         turnID: turnID,
         routeOverride: requestedRoute,
         routeSnapshot: requestedRouteSnapshot,
+        retrievalAuthorization: retrievalAuthorization,
         contextEpoch: acceptedContextEpoch
       )
       await self?.finishOperation(
@@ -839,6 +849,7 @@ public final class AssistantConversationSession {
       routeOverride: turn.requestedRoute,
       routeLabel: turn.requestedRouteLabel,
       routeSnapshot: turn.requestedRouteSnapshot,
+      retrievalAuthorization: nil,
       contextEpoch: turn.contextEpoch
     )
   }
@@ -883,6 +894,7 @@ public final class AssistantConversationSession {
       routeOverride: .appleOnDevice,
       routeLabel: "Apple On Device",
       routeSnapshot: AssistantTextRouteSnapshot(provider: .appleOnDevice),
+      retrievalAuthorization: nil,
       contextEpoch: nil
     )
   }
@@ -1224,6 +1236,7 @@ public final class AssistantConversationSession {
     turnID: UUID? = nil,
     routeOverride: AssistantConversationRoute? = nil,
     routeSnapshot: AssistantTextRouteSnapshot? = nil,
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization? = nil,
     contextEpoch: UInt64? = nil
   ) async -> Bool {
     guard isCurrent(currentGeneration, attemptID: attemptID, turnID: turnID) else {
@@ -1251,7 +1264,8 @@ public final class AssistantConversationSession {
       now: now(),
       modality: isVoiceRunning ? .voice : .text,
       routeOverride: routeOverride,
-      textRouteSnapshot: routeSnapshot
+      textRouteSnapshot: routeSnapshot,
+      retrievalAuthorization: retrievalAuthorization
     )
     let response = await answerer.respond(to: request)
     if let attemptID, let turnID,

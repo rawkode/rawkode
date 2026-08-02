@@ -13,6 +13,10 @@
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
 		11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */; };
 		1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
+		A19FCA200000000000000001 /* RealtimeVoiceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA240000000000000001 /* RealtimeVoiceRuntime.swift */; };
+		A19FCA210000000000000001 /* RealtimeVoiceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA240000000000000001 /* RealtimeVoiceRuntime.swift */; };
+		A19FCA220000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */; };
+		A19FCA230000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */; };
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		1D7D44FED0008DA93CE6631A /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */; };
@@ -239,6 +243,8 @@
 		825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantVoicePreferences.swift; sourceTree = "<group>"; };
 		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
 		85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceSurface.swift; sourceTree = "<group>"; };
+		A19FCA240000000000000001 /* RealtimeVoiceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceRuntime.swift; sourceTree = "<group>"; };
+		A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCVoiceTransport.swift; sourceTree = "<group>"; };
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
@@ -434,8 +440,10 @@
 				5DB78B2509F988C674630683 /* PageReferenceTextFormatting.swift */,
 				0682E6D3339512E31330A48C /* PersonNameEditor.swift */,
 				C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */,
+				A19FCA240000000000000001 /* RealtimeVoiceRuntime.swift */,
 				85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */,
 				45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */,
+				A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */,
 				AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */,
 				FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */,
 				FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */,
@@ -766,8 +774,10 @@
 				2F5E720733F61532E2731C34 /* PageReferenceTextFormatting.swift in Sources */,
 				CFB68BE51FFC3002C0B2A439 /* PersonNameEditor.swift in Sources */,
 				E189EF6F3095B37FCA5EB886 /* PersonReferenceCreationForm.swift in Sources */,
+				A19FCA200000000000000001 /* RealtimeVoiceRuntime.swift in Sources */,
 				11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */,
 				22BEE60CB07405C9854BB9DA /* RealtimeWebRTCBridge.swift in Sources */,
+				A19FCA220000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */,
 				34ACFA0FCB726153AABFC8B1 /* SemanticBrowseText.swift in Sources */,
 				E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */,
 				A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */,
@@ -837,8 +847,10 @@
 				C243B420C4273203FDB467C9 /* PageReferenceTextFormatting.swift in Sources */,
 				CE4D5E7155EB0E73AA144F02 /* PersonNameEditor.swift in Sources */,
 				6266E583A7D2398FF29F5025 /* PersonReferenceCreationForm.swift in Sources */,
+				A19FCA210000000000000001 /* RealtimeVoiceRuntime.swift in Sources */,
 				D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */,
 				DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */,
+				A19FCA230000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */,
 				48BBBFAEA62D217A23B33E34 /* SemanticBrowseText.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,

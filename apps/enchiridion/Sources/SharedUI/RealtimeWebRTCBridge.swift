@@ -41,6 +41,7 @@ final class RealtimeWebRTCBridge: NSObject {
     case resourceTooLarge
     case invalidCommand
     case unavailable
+    case operationTimedOut
     #if DEBUG
       case probeTimedOut
     #endif
@@ -51,6 +52,60 @@ final class RealtimeWebRTCBridge: NSObject {
     static let sdp = 128 * 1024
     static let event = 64 * 1024
     static let error = 512
+  }
+
+  private static let javaScriptControlDeadline: Duration = .seconds(8)
+
+  /// A timeout must not wait for a wedged WebKit promise to cooperate with
+  /// cancellation. The losing task is cancelled and the caller can immediately
+  /// tear down the owning bridge.
+  @MainActor
+  private final class DeadlineRace<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var operationTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+    private var isResolved = false
+
+    func begin(
+      continuation: CheckedContinuation<Value, Error>,
+      duration: Duration,
+      timeoutError: BridgeError,
+      operation: @escaping @MainActor () async throws -> Value
+    ) {
+      self.continuation = continuation
+      operationTask = Task { @MainActor [weak self] in
+        do {
+          let value = try await operation()
+          self?.resolve(.success(value))
+        } catch {
+          self?.resolve(.failure(error))
+        }
+      }
+      timeoutTask = Task { @MainActor [weak self] in
+        do {
+          try await Task.sleep(for: duration)
+        } catch {
+          return
+        }
+        self?.resolve(.failure(timeoutError))
+      }
+    }
+
+    func cancel() {
+      resolve(.failure(CancellationError()))
+    }
+
+    private func resolve(_ result: Result<Value, Error>) {
+      guard !isResolved else { return }
+      isResolved = true
+      operationTask?.cancel()
+      timeoutTask?.cancel()
+      operationTask = nil
+      timeoutTask = nil
+      let continuation = continuation
+      self.continuation = nil
+      continuation?.resume(with: result)
+    }
   }
 
   weak var delegate: RealtimeWebRTCBridgeDelegate?
@@ -68,6 +123,7 @@ final class RealtimeWebRTCBridge: NSObject {
   #endif
   private var isReady = false
   private var stopped = false
+  private var eventContinuations: [UUID: AsyncStream<RealtimeWebRTCBridgeEvent>.Continuation] = [:]
 
   override init() {
     let contentController = WKUserContentController()
@@ -213,11 +269,10 @@ final class RealtimeWebRTCBridge: NSObject {
       return true;
       """
     do {
-      _ = try await webView.callAsyncJavaScript(
+      try await executeJavaScriptControl(
         script,
         arguments: ["nativeGeneration": generation],
-        in: nil,
-        contentWorld: .page
+        webView: webView
       )
       guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
         throw BridgeError.unavailable
@@ -234,6 +289,7 @@ final class RealtimeWebRTCBridge: NSObject {
       if lifecycle.isCurrent(operationEpoch) {
         debugProbeGeneration = nil
         debugProbeDeliveredGeneration = nil
+        await stop()
       }
       throw error
     }
@@ -388,7 +444,7 @@ final class RealtimeWebRTCBridge: NSObject {
   }
 
   func stop() async {
-    guard !stopped, let teardownEpoch = lifecycle.stop() else { return }
+    guard !stopped, lifecycle.stop() != nil else { return }
     stopped = true
     let activeGeneration = authorizationState.activeGeneration
     authorizationState.revoke()
@@ -399,14 +455,42 @@ final class RealtimeWebRTCBridge: NSObject {
     #endif
     isReady = false
     delegate = nil
+    finishEvents()
+    contentController.removeScriptMessageHandler(forName: "realtime")
 
     guard let capturedWebView = webView else { return }
     let dataStore = capturedWebView.configuration.websiteDataStore
-    contentController.removeScriptMessageHandler(forName: "realtime")
     destroyWebView(capturedWebView, activeGeneration: activeGeneration)
     webView = nil
-    await clearNonpersistentData(in: dataStore)
-    guard lifecycle.isStopped, lifecycle.epoch == teardownEpoch else { return }
+    Task { @MainActor in
+      await Self.clearNonpersistentData(in: dataStore)
+    }
+  }
+
+  func events() -> AsyncStream<RealtimeWebRTCBridgeEvent> {
+    let identifier = UUID()
+    return AsyncStream { continuation in
+      eventContinuations[identifier] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor in
+          self?.eventContinuations.removeValue(forKey: identifier)
+        }
+      }
+    }
+  }
+
+  private func yield(_ event: RealtimeWebRTCBridgeEvent) {
+    for continuation in eventContinuations.values {
+      continuation.yield(event)
+    }
+  }
+
+  private func finishEvents() {
+    let continuations = eventContinuations.values
+    eventContinuations.removeAll()
+    for continuation in continuations {
+      continuation.finish()
+    }
   }
 
   private func destroyWebView(_ webView: WKWebView, activeGeneration: UInt64?) {
@@ -437,18 +521,65 @@ final class RealtimeWebRTCBridge: NSObject {
     }
     let allowed = ["authorize", "start", "setAnswer", "sendEvent", "setInputEnabled", "stop"]
     guard allowed.contains(function) else { throw BridgeError.invalidCommand }
-    _ = try await webView.callAsyncJavaScript(
-      """
-      await window.EnchiridionRealtimeBridge[operation](argument);
-      return true;
-      """,
-      arguments: ["operation": function, "argument": argument],
-      in: nil,
-      contentWorld: .page
-    )
+    do {
+      try await executeJavaScriptControl(
+        """
+        await window.EnchiridionRealtimeBridge[operation](argument);
+        return true;
+        """,
+        arguments: ["operation": function, "argument": argument],
+        webView: webView
+      )
+    } catch {
+      if lifecycle.isCurrent(epoch) {
+        await stop()
+      }
+      throw BridgeError.unavailable
+    }
     guard !stopped, lifecycle.isCurrent(epoch), self.webView === webView else {
       throw BridgeError.unavailable
     }
+  }
+
+  private func executeJavaScriptControl(
+    _ script: String,
+    arguments: [String: Any],
+    webView: WKWebView
+  ) async throws {
+    try await withDeadline(
+      Self.javaScriptControlDeadline,
+      timeoutError: .operationTimedOut
+    ) {
+      _ = try await webView.callAsyncJavaScript(
+        script,
+        arguments: arguments,
+        in: nil,
+        contentWorld: .page
+      )
+    }
+  }
+
+  private func withDeadline<Value: Sendable>(
+    _ duration: Duration,
+    timeoutError: BridgeError,
+    operation: @escaping @MainActor () async throws -> Value
+  ) async throws -> Value {
+    let race = DeadlineRace<Value>()
+    return try await withTaskCancellationHandler(
+      operation: {
+        try await withCheckedThrowingContinuation { continuation in
+          race.begin(
+            continuation: continuation,
+            duration: duration,
+            timeoutError: timeoutError,
+            operation: operation
+          )
+        }
+      },
+      onCancel: {
+        Task { @MainActor in race.cancel() }
+      }
+    )
   }
 
   private func attachNonvisibleWebViewIfNeeded() {
@@ -470,7 +601,7 @@ final class RealtimeWebRTCBridge: NSObject {
     #endif
   }
 
-  private func clearNonpersistentData(in store: WKWebsiteDataStore) async {
+  private static func clearNonpersistentData(in store: WKWebsiteDataStore) async {
     let types = WKWebsiteDataStore.allWebsiteDataTypes()
     await withCheckedContinuation { continuation in
       store.fetchDataRecords(ofTypes: types) { records in
@@ -524,6 +655,7 @@ final class RealtimeWebRTCBridge: NSObject {
     if type == "ready", generation == 0, payload.isEmpty {
       isReady = true
       delegate?.realtimeBridgeDidBecomeReady(self)
+      yield(.ready)
       return
     }
     #if DEBUG
@@ -566,7 +698,27 @@ final class RealtimeWebRTCBridge: NSObject {
     default:
       parsed = nil
     }
-    if let parsed { delegate?.realtimeBridge(self, didReceive: parsed) }
+    if let parsed {
+      delegate?.realtimeBridge(self, didReceive: parsed)
+      switch parsed {
+      case let .offer(generation, sdp):
+        yield(.offer(generation: generation, sdp: sdp))
+      case let .connectionState(generation, state):
+        yield(.connectionState(generation: generation, state: state))
+      case let .dataChannelState(generation, state):
+        yield(.dataChannelState(generation: generation, state: state))
+      case let .serverEvent(generation, json):
+        yield(.serverEvent(generation: generation, json: json))
+      case let .answerApplied(generation):
+        yield(.answerApplied(generation: generation))
+      case let .error(generation, code):
+        yield(.failure(generation: generation, code: code))
+      #if DEBUG
+      case .probeResult:
+        break
+      #endif
+      }
+    }
   }
 
   private func boundedString(_ value: Any?, maximum: Int) -> String? {
@@ -574,6 +726,8 @@ final class RealtimeWebRTCBridge: NSObject {
     return value
   }
 }
+
+extension RealtimeWebRTCBridge: RealtimeWebRTCBridging {}
 
 extension RealtimeWebRTCBridge: WKNavigationDelegate {
   func webView(

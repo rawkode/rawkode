@@ -46,6 +46,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
     @Sendable (AssistantConversationRoute?) async -> AssistantTextRouteSnapshot
   private let credential: @Sendable (OpenAICredentialBinding) async throws -> String
   private let transport: any OpenAIResponsesTransporting
+  private let retrievalAuthorization:
+    @Sendable (AssistantConversationRequest) async -> AssistantTurnRetrievalAuthorization?
 
   public init(
     repository: LibraryRepository,
@@ -61,6 +63,7 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
       try await credentialStore.runtimeCredential(matching: binding)
     }
     transport = NativeOpenAIResponsesTransport()
+    retrievalAuthorization = { _ in nil }
   }
 
   init(
@@ -69,13 +72,16 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
     routeSnapshot:
       @escaping @Sendable (AssistantConversationRoute?) async -> AssistantTextRouteSnapshot,
     credential: @escaping @Sendable (OpenAICredentialBinding) async throws -> String,
-    transport: any OpenAIResponsesTransporting
+    transport: any OpenAIResponsesTransporting,
+    retrievalAuthorization:
+      @escaping @Sendable (AssistantConversationRequest) async -> AssistantTurnRetrievalAuthorization? = { _ in nil }
   ) {
     toolExecutor = OpenAILocalToolExecutor(repository: repository)
     self.appleAnswerer = appleAnswerer
     self.routeSnapshot = routeSnapshot
     self.credential = credential
     self.transport = transport
+    self.retrievalAuthorization = retrievalAuthorization
   }
 
   public func respond(to request: AssistantConversationRequest) async -> GroundedAssistantResponse {
@@ -115,6 +121,15 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
     var routedRequest = request
     routedRequest.priorTurns = Array(openAIHistory)
     let sanitized = AssistantModelRequestSanitizer.sanitize(routedRequest)
+    // Production authority is captured by the submitting UI in `request`.
+    // The injected closure exists only as an internal deterministic test seam;
+    // it is not exposed by the production initializer.
+    let authorization: AssistantTurnRetrievalAuthorization?
+    if let approved = request.retrievalAuthorization {
+      authorization = approved
+    } else {
+      authorization = await retrievalAuthorization(request)
+    }
 
     do {
       let runtimeCredential = try await credential(binding)
@@ -129,7 +144,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
         boundedRequest,
         modelID: modelID,
         credential: runtimeCredential,
-        priorOpenAITurnCount: boundedRequest.request.priorTurns.count
+        priorOpenAITurnCount: boundedRequest.request.priorTurns.count,
+        retrievalAuthorization: authorization
       )
     } catch is CancellationError {
       return failure(.networkUnavailable, modelID: modelID)
@@ -172,7 +188,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
     _ sanitized: SanitizedAssistantConversationRequest,
     modelID: String,
     credential: String,
-    priorOpenAITurnCount: Int
+    priorOpenAITurnCount: Int,
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization?
   ) async -> GroundedAssistantResponse {
     var continuationItems: [OpenAIJSONValue] = []
     var toolCallCount = 0
@@ -184,7 +201,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
         let body = try OpenAIResponsesRequestBuilder.makeBody(
           request: sanitized,
           modelID: modelID,
-          continuationItems: continuationItems
+          continuationItems: continuationItems,
+          retrievalAuthorization: retrievalAuthorization
         )
         receipt.recordDisclosures()
         let result = try await transport.send(body: body, credential: credential)
@@ -207,7 +225,8 @@ public actor OpenAIResponsesAssistant: AssistantConversationAnswering {
           let toolResult = try await toolExecutor.execute(
             call,
             now: sanitized.request.now,
-            eligibleCalendarSourceIDs: receipt.collector.eligibleCalendarSourceIDs
+            eligibleCalendarSourceIDs: receipt.collector.eligibleCalendarSourceIDs,
+            authorization: retrievalAuthorization
           )
           receipt.collector.record(toolResult)
           continuationItems.append(contentsOf: terminal.output)

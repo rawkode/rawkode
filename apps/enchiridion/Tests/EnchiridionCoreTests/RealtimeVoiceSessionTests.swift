@@ -15,7 +15,8 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       startCalls,
       ["microphone.permission", "credential.read", "transport.start", "audio.activate", "input.on"]
     )
-    XCTAssertEqual(fixture.session.state.phase, .connecting)
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    XCTAssertEqual(fixture.session.state.sessionID, "session-1")
 
     fixture.transport.emit(
       RealtimeServerEvent(
@@ -46,6 +47,70 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertEqual(fixture.session.state.phase, .failed)
     XCTAssertEqual(fixture.session.receipt?.completion, .failed)
     XCTAssertEqual(fixture.session.receipt?.failureCode, "microphone_denied")
+  }
+
+  func testInputEnableFailureIsTerminalAndCleansUp() async throws {
+    let fixture = try makeFixture()
+    fixture.transport.failNextInputEnable()
+
+    await fixture.session.start()
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "input_enable_failed")
+    XCTAssertTrue(calls.contains("input.on"))
+    XCTAssertTrue(calls.contains("input.off"))
+    XCTAssertTrue(calls.contains("transport.close"))
+    XCTAssertTrue(calls.contains("audio.deactivate"))
+  }
+
+  func testSafetyPauseInputDisableFailureIsTerminalAndNeverPublishesPausedState() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    fixture.transport.failNextInputDisable()
+
+    await fixture.session.handleSafetyEvent(.appInactive)
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "input_disable_failed")
+    XCTAssertTrue(calls.contains("input.off"))
+    XCTAssertTrue(calls.contains("transport.close"))
+    XCTAssertTrue(calls.contains("audio.deactivate"))
+  }
+
+  func testEndedLiveServerStreamIsTerminal() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+
+    fixture.transport.finishEvents()
+    await waitUntil { fixture.session.state.phase == .failed }
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "transport_closed")
+    XCTAssertTrue(calls.contains("transport.close"))
+    XCTAssertTrue(calls.contains("audio.deactivate"))
+  }
+
+  func testTerminalTeardownClosesAndDeactivatesWhenInputDisableHangs() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.inputDisable.append(gate)
+
+    let stop = Task { await fixture.session.stop() }
+    await gate.waitUntilEntered()
+    await stop.value
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .ended)
+    XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
+    XCTAssertTrue(calls.contains("transport.close"))
+    XCTAssertTrue(calls.contains("audio.deactivate"))
+    await gate.resume()
   }
 
   func testMuteClearsPendingInputAndStopCancelsClearsAndClosesWithoutFallback() async throws {
@@ -578,11 +643,14 @@ private struct FakeRealtimeAudioSession: RealtimeAudioSessionControlling {
   }
 }
 
-private final class FakeRealtimeTransport: RealtimeVoiceTransport, @unchecked Sendable {
+@MainActor
+private final class FakeRealtimeTransport: RealtimeVoiceTransport {
   private let stream: AsyncStream<RealtimeServerEvent>
   private let continuation: AsyncStream<RealtimeServerEvent>.Continuation
   private let calls: CallRecorder
   private let gates: SessionGates
+  private var shouldFailNextInputEnable = false
+  private var shouldFailNextInputDisable = false
 
   init(calls: CallRecorder, gates: SessionGates) {
     self.calls = calls
@@ -593,14 +661,21 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport, @unchecked Se
   }
 
   func start(
+    generation: UInt64,
     route: RealtimeVoiceRouteSnapshot,
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
-  ) async throws {
+  ) async throws -> RealtimeSessionCreated {
     if let gate = await gates.transportStart.next() { await gate.suspend() }
+    XCTAssertGreaterThan(generation, 0)
     XCTAssertEqual(credential.generation, route.credentialBinding?.revision)
     XCTAssertTrue(credential.withSecret { !$0.isEmpty })
     await calls.append("transport.start")
+    return RealtimeSessionCreated(
+      sessionID: "session-1",
+      modelID: configuration.modelID,
+      voiceID: configuration.voiceID
+    )
   }
 
   func events() -> AsyncStream<RealtimeServerEvent> {
@@ -618,9 +693,18 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport, @unchecked Se
     }
   }
 
-  func setInputEnabled(_ enabled: Bool) async {
+  func setInputEnabled(_ enabled: Bool) async throws {
     if enabled, let gate = await gates.inputEnable.next() { await gate.suspend() }
+    if !enabled, let gate = await gates.inputDisable.next() { await gate.suspend() }
     await calls.append(enabled ? "input.on" : "input.off")
+    if enabled, shouldFailNextInputEnable {
+      shouldFailNextInputEnable = false
+      throw FakeRealtimeTransportError.inputTransition
+    }
+    if !enabled, shouldFailNextInputDisable {
+      shouldFailNextInputDisable = false
+      throw FakeRealtimeTransportError.inputTransition
+    }
   }
 
   func close() async {
@@ -630,6 +714,22 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport, @unchecked Se
   func emit(_ event: RealtimeServerEvent) {
     continuation.yield(event)
   }
+
+  func finishEvents() {
+    continuation.finish()
+  }
+
+  func failNextInputEnable() {
+    shouldFailNextInputEnable = true
+  }
+
+  func failNextInputDisable() {
+    shouldFailNextInputDisable = true
+  }
+}
+
+private enum FakeRealtimeTransportError: Error {
+  case inputTransition
 }
 
 private final class SessionGates: @unchecked Sendable {
@@ -638,6 +738,7 @@ private final class SessionGates: @unchecked Sendable {
   let transportStart = GateQueue()
   let audioActivation = GateQueue()
   let inputEnable = GateQueue()
+  let inputDisable = GateQueue()
 }
 
 private actor GateQueue {

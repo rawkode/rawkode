@@ -3,21 +3,19 @@ import Testing
 
 struct RealtimeVoiceUIInvariantTests {
   @Test
-  func lobbyIsPresentationOnlyAndMakesUnavailableConnectionExplicit() throws {
+  func lobbyStartsOnlyTheExplicitDebugDevelopmentRoute() throws {
     let source = try read("Sources/SharedUI/RealtimeVoiceSurface.swift")
 
     #expect(source.contains("OpenAIRealtimeVoiceConsentCopy.body"))
-    #expect(source.contains("OpenAI Voice connection is unavailable in this build"))
+    #expect(source.contains("Personal development connection"))
     #expect(
       source.contains(
-        "This action did not request microphone access, use the saved key for a connection, or send anything."
+        "OpenAI Voice requires a backend connection in release builds"
       )
     )
-    #expect(!source.contains("Keychain were not accessed"))
+    #expect(source.contains("RealtimeVoiceCoordinator(route: route)"))
+    #expect(source.contains("RealtimeVoiceDevelopmentRoute.isEnabled"))
     #expect(!source.contains("URLSession"))
-    #expect(!source.contains("requestPermission("))
-    #expect(!source.contains("RealtimeVoiceSession("))
-    #expect(!source.contains("RealtimeWebRTCBridge"))
     #expect(!source.lowercased().contains("bearer"))
     #expect(source.contains("accessibilityReduceMotion"))
     #expect(source.contains("frame(width: 56, height: 56)"))
@@ -54,10 +52,29 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("Verified Realtime model"))
     #expect(source.contains("Official OpenAI voice"))
     #expect(source.contains("Revoke OpenAI Voice Consent"))
-    #expect(source.contains("Connection\", value: \"Unavailable in this build"))
+    #expect(source.contains("Personal development only"))
+    #expect(source.contains("Backend required"))
+    #expect(source.contains("RealtimeVoiceDevelopmentRoute.isEnabled"))
     #expect(source.contains("CarPlay and App Intents always use Apple On Device"))
     #expect(source.contains("use the saved key for a connection"))
     #expect(!source.contains("read the key"))
+  }
+
+  @Test
+  func textConsentDisclosureMatchesTheDefaultRoute() throws {
+    let source = try read("Sources/SharedUI/AssistantProviderSettingsView.swift")
+
+    #expect(
+      source.contains(
+        "Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI."
+      )
+    )
+    #expect(
+      source.contains(
+        "The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs."
+      )
+    )
+    #expect(!source.contains("bounded matching task, note, or calendar context"))
   }
 
   @Test

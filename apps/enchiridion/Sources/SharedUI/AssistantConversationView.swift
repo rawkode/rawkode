@@ -122,20 +122,24 @@ struct AssistantConversationView: View {
     }
     #if os(iOS)
       .fullScreenCover(item: $realtimeVoiceLobby) { lobby in
-        realtimeVoiceLobby(lobby)
+        realtimeVoiceLobby(lobby, conversationSession: session)
       }
     #else
       .sheet(item: $realtimeVoiceLobby) { lobby in
-        realtimeVoiceLobby(lobby)
+        realtimeVoiceLobby(lobby, conversationSession: session)
       }
     #endif
   }
 
-  private func realtimeVoiceLobby(_ lobby: RealtimeVoiceLobbyRoute) -> some View {
+  private func realtimeVoiceLobby(
+    _ lobby: RealtimeVoiceLobbyRoute,
+    conversationSession: AssistantConversationSession?
+  ) -> some View {
     RealtimeVoiceLobbyView(
       route: lobby.snapshot,
       onKeepApple: {
         providerSettings?.selectVoiceProvider(.appleOnDevice)
+        await conversationSession?.startVoice()
       },
       onOpenSettings: openAppSettings
     )
@@ -630,7 +634,7 @@ struct AssistantConversationView: View {
 
   private var introductionDetail: String {
     if providerSettings?.selectedProvider == .openAI {
-      return "Chat naturally, or ask about bounded matching tasks, calendar events, and notes."
+      return "Chat naturally with OpenAI. This route sends your submitted text and bounded OpenAI chat history, but no notes, tasks, calendar events, or other local library data."
     }
     return "Chat naturally, or ask about your tasks, calendar, or notes — on device."
   }
@@ -721,7 +725,7 @@ struct AssistantConversationView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion will send the current typed text or dictated text you submit, recent OpenAI text-chat history, and bounded matching task, note, or calendar context directly from this device to OpenAI. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
+    Enchiridion will send the current typed text or dictated text you submit and bounded OpenAI text-chat history directly from this device to OpenAI. This route does not send notes, tasks, calendar events, or other local library data, and does not provide local tools. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
     """
   }
 

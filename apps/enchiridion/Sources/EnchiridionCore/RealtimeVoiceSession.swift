@@ -13,6 +13,9 @@ public final class RealtimeVoiceSession {
 
   public nonisolated static let warningDelay: Duration = .seconds(13 * 60)
   public nonisolated static let hardLimit: Duration = .seconds(15 * 60)
+  /// Teardown commands must never hold the terminal state hostage. This is
+  /// deliberately short: the real bridge owns longer network shutdown work.
+  public nonisolated static let transportOperationTimeout: Duration = .milliseconds(250)
 
   public let route: RealtimeVoiceRouteSnapshot
   public let configuration: RealtimeVoiceConfiguration
@@ -93,12 +96,16 @@ public final class RealtimeVoiceSession {
     let transport = transport
     let audioSession = audioSession
     let shouldDeactivateAudio = audioOwnerGeneration != nil
-    Task {
-      await transport.setInputEnabled(false)
-      try? await transport.send(.responseCancel(responseID: nil))
-      try? await transport.send(.outputAudioBufferClear)
-      await transport.close()
-      if shouldDeactivateAudio { await audioSession.deactivate() }
+    Task { @MainActor in
+      // Do not serialize these from deinit: a suspended bridge command must
+      // not prevent close or audio deactivation from being initiated.
+      Task { @MainActor in try? await transport.setInputEnabled(false) }
+      Task { @MainActor in try? await transport.send(.responseCancel(responseID: nil)) }
+      Task { @MainActor in try? await transport.send(.outputAudioBufferClear) }
+      Task { @MainActor in await transport.close() }
+      if shouldDeactivateAudio {
+        Task { await audioSession.deactivate() }
+      }
     }
   }
 
@@ -113,8 +120,9 @@ public final class RealtimeVoiceSession {
   }
 
   /// Must be called only after the voice lobby's explicit JIT acceptance. This
-  /// method then enforces permission -> native key read -> SDP/WebRTC -> system
-  /// audio activation; no earlier step can observe the key or microphone.
+  /// method then enforces permission -> native key read -> validated SDP/WebRTC
+  /// handshake -> system audio activation. The transport keeps the microphone
+  /// track disabled until all handshake stages have completed.
   public func start() async {
     guard state.phase == .idle, receipt == nil, !isStopping else { return }
     generation &+= 1
@@ -163,36 +171,85 @@ public final class RealtimeVoiceSession {
     let stream = transport.events()
     do {
       transportAttemptGeneration = currentGeneration
-      try await transport.start(
+      let established = try await transport.start(
+        generation: currentGeneration,
         route: route,
         configuration: configuration,
         credential: credential
       )
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        if !isSessionCurrent(currentGeneration) { await transport.close() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
         return
       }
+      do {
+        try configuration.validateActual(
+          modelID: established.modelID,
+          voiceID: established.voiceID
+        )
+      } catch {
+        await fail(
+          RealtimeVoiceFailure(
+            code: "route_mismatch",
+            message: "OpenAI Voice did not establish the selected route."
+          ),
+          generation: currentGeneration
+        )
+        return
+      }
+      // `start` only succeeds after the transport has decoded and validated the
+      // server's `session.created` event. Feed that established identity into
+      // the reducer before enabling either the system audio session or the
+      // WebRTC input track. A later copy of the server event is harmless and
+      // still receives its server-assigned event ID for deduplication.
+      _ = reducer.reduce(
+        RealtimeServerEvent(
+          eventID: nil,
+          payload: .sessionCreated(established)
+        )
+      )
+      // Keep the session in the startup phase until audio activation and the
+      // input-track transition have both completed. This makes an interruption
+      // during either stage terminal rather than treating it as a resumable
+      // live conversation, while retaining the validated session identity.
+      setPhase(.connecting)
       transportStartedGeneration = currentGeneration
       try await audioSession.activate()
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        await audioSession.deactivate()
-        if !isSessionCurrent(currentGeneration) { await transport.close() }
+        await performBoundedTeardown { await self.audioSession.deactivate() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
         return
       }
       audioOwnerGeneration = currentGeneration
-      await transport.setInputEnabled(true)
-      guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        await transport.setInputEnabled(false)
-        await audioSession.deactivate()
-        if !isSessionCurrent(currentGeneration) { await transport.close() }
+      guard await confirmInputTransition(true) else {
+        guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+        await terminalFailure(
+          RealtimeVoiceFailure(
+            code: "input_enable_failed",
+            message: "Could not enable the OpenAI Voice microphone."
+          ),
+          generation: currentGeneration
+        )
         return
       }
+      guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
+        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { await self.audioSession.deactivate() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
+        return
+      }
+      setPhase(.listening)
     } catch {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       await fail(
         RealtimeVoiceFailure(
           code: "connection_failed",
-          message: error.localizedDescription
+          message: "Could not connect to OpenAI Voice."
         ),
         generation: currentGeneration
       )
@@ -231,14 +288,27 @@ public final class RealtimeVoiceSession {
     operationEpoch &+= 1
     let currentOperation = operationEpoch
     if isMuted {
-      await transport.setInputEnabled(false)
+      guard await confirmInputTransition(false) else {
+        guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+        await terminalFailure(
+          RealtimeVoiceFailure(
+            code: "input_disable_failed",
+            message: "Could not disable the OpenAI Voice microphone."
+          ),
+          generation: currentGeneration
+        )
+        return
+      }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       do {
         try await transport.send(.inputAudioBufferClear)
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       } catch {
         await fail(
-          RealtimeVoiceFailure(code: "mute_failed", message: error.localizedDescription),
+          RealtimeVoiceFailure(
+            code: "mute_failed",
+            message: "Could not update the microphone state."
+          ),
           generation: currentGeneration
         )
         return
@@ -246,9 +316,19 @@ public final class RealtimeVoiceSession {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       setPhase(.muted)
     } else {
-      await transport.setInputEnabled(true)
+      guard await confirmInputTransition(true) else {
+        guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+        await terminalFailure(
+          RealtimeVoiceFailure(
+            code: "input_enable_failed",
+            message: "Could not enable the OpenAI Voice microphone."
+          ),
+          generation: currentGeneration
+        )
+        return
+      }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        await transport.setInputEnabled(false)
+        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
         return
       }
       setPhase(.listening)
@@ -301,7 +381,7 @@ public final class RealtimeVoiceSession {
     if let failure = pendingPausedFailure {
       activePause = nil
       pendingPausedFailure = nil
-      await fail(failure, generation: currentGeneration)
+      await terminalFailure(failure, generation: currentGeneration)
       return
     }
     do {
@@ -311,18 +391,32 @@ public final class RealtimeVoiceSession {
         operation: currentOperation,
         pauseEpoch: pause.epoch
       ) else {
-        await audioSession.deactivate()
+        await performBoundedTeardown { await self.audioSession.deactivate() }
         return
       }
       audioOwnerGeneration = currentGeneration
-      await transport.setInputEnabled(true)
+      guard await confirmInputTransition(true) else {
+        guard isPauseResumeCurrent(
+          generation: currentGeneration,
+          operation: currentOperation,
+          pauseEpoch: pause.epoch
+        ) else { return }
+        await terminalFailure(
+          RealtimeVoiceFailure(
+            code: "input_enable_failed",
+            message: "Could not enable the OpenAI Voice microphone."
+          ),
+          generation: currentGeneration
+        )
+        return
+      }
       guard isPauseResumeCurrent(
         generation: currentGeneration,
         operation: currentOperation,
         pauseEpoch: pause.epoch
       ) else {
-        await transport.setInputEnabled(false)
-        await audioSession.deactivate()
+        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { await self.audioSession.deactivate() }
         return
       }
       activePause = nil
@@ -333,8 +427,11 @@ public final class RealtimeVoiceSession {
         operation: currentOperation,
         pauseEpoch: pause.epoch
       ) else { return }
-      await fail(
-        RealtimeVoiceFailure(code: "audio_resume_failed", message: error.localizedDescription),
+      await terminalFailure(
+        RealtimeVoiceFailure(
+          code: "audio_resume_failed",
+          message: "Could not resume OpenAI Voice audio."
+        ),
         generation: currentGeneration
       )
     }
@@ -365,7 +462,7 @@ public final class RealtimeVoiceSession {
             await fail(
               RealtimeVoiceFailure(
                 code: "transport_command_failed",
-                message: error.localizedDescription
+                message: "Could not update the OpenAI Voice connection."
               ),
               generation: currentGeneration
             )
@@ -382,11 +479,10 @@ public final class RealtimeVoiceSession {
       code: "transport_closed",
       message: "The OpenAI Voice connection closed. Start a new conversation to try again."
     )
-    if activePause != nil {
-      pendingPausedFailure = failure
-    } else {
-      await fail(failure, generation: currentGeneration)
-    }
+    // A paused session still owns a live peer and audio route. Once its event
+    // stream ends there is no connection to resume, so fail terminally rather
+    // than leaving a stuck paused UI.
+    await terminalFailure(failure, generation: currentGeneration)
   }
 
   private func enforceLimits(generation currentGeneration: UInt64) async {
@@ -409,22 +505,37 @@ public final class RealtimeVoiceSession {
     let currentOperation = operationEpoch
     pauseEpoch &+= 1
     let pause = ActivePause(epoch: pauseEpoch, reason: reason)
+
+    // Do not expose a resumable pause until the microphone track is confirmed
+    // disabled. A safety pause with uncertain input state is terminal.
+    guard await confirmInputTransition(false) else {
+      guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+      await terminalFailure(
+        RealtimeVoiceFailure(
+          code: "input_disable_failed",
+          message: "Could not disable the OpenAI Voice microphone."
+        ),
+        generation: currentGeneration
+      )
+      return
+    }
+    guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
+      // `activePause` is deliberately not set yet, so operation cancellation
+      // cannot create a resumable state before input disable confirmation.
+      return
+    }
     activePause = pause
     setPhase(.paused(reason))
 
-    await transport.setInputEnabled(false)
+    await performBoundedTeardown {
+      try? await self.transport.send(.responseCancel(responseID: self.state.activeResponseID))
+    }
     guard isPauseCurrent(
       generation: currentGeneration,
       operation: currentOperation,
       pauseEpoch: pause.epoch
     ) else { return }
-    try? await transport.send(.responseCancel(responseID: state.activeResponseID))
-    guard isPauseCurrent(
-      generation: currentGeneration,
-      operation: currentOperation,
-      pauseEpoch: pause.epoch
-    ) else { return }
-    try? await transport.send(.outputAudioBufferClear)
+    await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
     guard isPauseCurrent(
       generation: currentGeneration,
       operation: currentOperation,
@@ -433,7 +544,7 @@ public final class RealtimeVoiceSession {
     reducer.finishActiveResponse(as: .cancelled)
     synchronizeReducerState()
     if audioOwnerGeneration == currentGeneration {
-      await audioSession.deactivate()
+      await performBoundedTeardown { await self.audioSession.deactivate() }
       guard isPauseCurrent(
         generation: currentGeneration,
         operation: currentOperation,
@@ -457,6 +568,73 @@ public final class RealtimeVoiceSession {
     await finish(completion: .failed, failure: failure)
   }
 
+  /// Bypasses the resumable-pause path. Use this when the input transition or
+  /// event stream can no longer prove that the peer is safe to resume.
+  private func terminalFailure(
+    _ failure: RealtimeVoiceFailure,
+    generation currentGeneration: UInt64
+  ) async {
+    guard isSessionCurrent(currentGeneration), receipt == nil else { return }
+    activePause = nil
+    pendingPausedFailure = nil
+    reducer.markLocalFailure(failure)
+    synchronizeReducerState()
+    await finish(completion: .failed, failure: failure)
+  }
+
+  /// Starts the input transition in a separately cancellable task and waits
+  /// only for a bounded confirmation. This prevents a wedged bridge from
+  /// leaving a session in a live or resumable state with uncertain microphone
+  /// delivery.
+  private func confirmInputTransition(_ enabled: Bool) async -> Bool {
+    let gate = RealtimeVoiceOperationGate()
+    let transport = transport
+    let operation = Task { @MainActor in
+      do {
+        try await transport.setInputEnabled(enabled)
+        await gate.resolve(.succeeded)
+      } catch {
+        await gate.resolve(.failed)
+      }
+    }
+    let timeout = Task {
+      do {
+        try await Task.sleep(for: Self.transportOperationTimeout)
+      } catch {
+        return
+      }
+      await gate.resolve(.timedOut)
+    }
+    let result = await gate.wait()
+    operation.cancel()
+    timeout.cancel()
+    return result == .succeeded
+  }
+
+  /// Begins a teardown operation but never waits indefinitely for it. The
+  /// caller continues to close the transport and deactivate audio even when a
+  /// preceding operation has failed, ignored cancellation, or wedged.
+  private func performBoundedTeardown(
+    _ work: @escaping @MainActor () async -> Void
+  ) async {
+    let gate = RealtimeVoiceOperationGate()
+    let operation = Task { @MainActor in
+      await work()
+      await gate.resolve(.succeeded)
+    }
+    let timeout = Task {
+      do {
+        try await Task.sleep(for: Self.transportOperationTimeout)
+      } catch {
+        return
+      }
+      await gate.resolve(.timedOut)
+    }
+    _ = await gate.wait()
+    operation.cancel()
+    timeout.cancel()
+  }
+
   private func finish(
     completion: RealtimeVoiceSessionCompletion,
     failure: RealtimeVoiceFailure? = nil
@@ -466,8 +644,6 @@ public final class RealtimeVoiceSession {
     isStopping = true
     generation &+= 1
     operationEpoch &+= 1
-    let terminalGeneration = generation
-    let terminalOperation = operationEpoch
     let attemptedTransport = transportAttemptGeneration == finishingGeneration
     let startedTransport = transportStartedGeneration == finishingGeneration
     let ownedAudio = audioOwnerGeneration == finishingGeneration
@@ -486,39 +662,21 @@ public final class RealtimeVoiceSession {
     setPhase(.ending)
 
     if attemptedTransport {
-      await transport.setInputEnabled(false)
-      guard isTerminalCurrent(
-        generation: terminalGeneration,
-        operation: terminalOperation
-      ) else { return }
+      await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
     }
     if startedTransport {
-      try? await transport.send(.responseCancel(responseID: state.activeResponseID))
-      guard isTerminalCurrent(
-        generation: terminalGeneration,
-        operation: terminalOperation
-      ) else { return }
-      try? await transport.send(.outputAudioBufferClear)
-      guard isTerminalCurrent(
-        generation: terminalGeneration,
-        operation: terminalOperation
-      ) else { return }
+      await performBoundedTeardown {
+        try? await self.transport.send(.responseCancel(responseID: self.state.activeResponseID))
+      }
+      await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
     }
     reducer.finishActiveResponse(as: completion == .failed ? .failed : .cancelled)
     synchronizeReducerState()
     if attemptedTransport {
-      await transport.close()
-      guard isTerminalCurrent(
-        generation: terminalGeneration,
-        operation: terminalOperation
-      ) else { return }
+      await performBoundedTeardown { await self.transport.close() }
     }
     if ownedAudio {
-      await audioSession.deactivate()
-      guard isTerminalCurrent(
-        generation: terminalGeneration,
-        operation: terminalOperation
-      ) else { return }
+      await performBoundedTeardown { await self.audioSession.deactivate() }
     }
 
     let end = now()
@@ -588,13 +746,34 @@ public final class RealtimeVoiceSession {
     )
   }
 
-  private func isTerminalCurrent(
-    generation expectedGeneration: UInt64,
-    operation expectedOperation: UInt64
-  ) -> Bool {
-    expectedGeneration == generation
-      && expectedOperation == operationEpoch
-      && receipt == nil
-      && isStopping
+}
+
+private enum RealtimeVoiceOperationResult: Equatable, Sendable {
+  case succeeded
+  case failed
+  case timedOut
+}
+
+private actor RealtimeVoiceOperationGate {
+  private var result: RealtimeVoiceOperationResult?
+  private var continuation: CheckedContinuation<RealtimeVoiceOperationResult, Never>?
+
+  func resolve(_ candidate: RealtimeVoiceOperationResult) {
+    guard result == nil else { return }
+    result = candidate
+    let continuation = continuation
+    self.continuation = nil
+    continuation?.resume(returning: candidate)
+  }
+
+  func wait() async -> RealtimeVoiceOperationResult {
+    if let result { return result }
+    return await withCheckedContinuation { continuation in
+      if let result {
+        continuation.resume(returning: result)
+      } else {
+        self.continuation = continuation
+      }
+    }
   }
 }

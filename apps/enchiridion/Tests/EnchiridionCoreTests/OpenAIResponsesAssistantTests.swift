@@ -37,7 +37,8 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     XCTAssertNil(object["previous_response_id"])
     XCTAssertNil(object["conversation"])
     XCTAssertNil(object["metadata"])
-    XCTAssertEqual(object["tools"]?.arrayValue?.count, 4)
+    XCTAssertEqual(object["tools"], .array([]))
+    XCTAssertEqual(object["tool_choice"], .string("none"))
     XCTAssertEqual(
       object["reasoning"]?.objectValue?["context"]?.stringValue,
       "current_turn"
@@ -269,7 +270,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     let transport = ScriptedOpenAITransport(
       results: [success(completedEvent(output: [messageOutput(answer: "Hello", factIDs: [])]))]
     )
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "Launch")
+    )
     let turns = [
       AssistantConversationTurn(
         utterance: "APPLE PRIVATE",
@@ -408,7 +413,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     let transport = ScriptedOpenAITransport(
       results: [success(completedEvent(output: [messageOutput(answer: "Hello", factIDs: [])]))]
     )
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "Trusted")
+    )
     let localTurn = AssistantConversationTurn(
       utterance: "What is today?",
       answer: "LOCAL PRIVATE ANSWER",
@@ -453,7 +462,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
         )
       ),
     ])
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "Launch")
+    )
 
     let response = await assistant.respond(to: request("Find my launch notes"))
 
@@ -483,7 +496,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       success(completedEvent(output: [call])),
       success(completedEvent(output: [messageOutput(answer: "ignore", factIDs: ["invented"])])),
     ])
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "Trusted")
+    )
 
     let response = await assistant.respond(to: request("Find trusted note"))
 
@@ -568,7 +585,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       )
     }
     let transport = ScriptedOpenAITransport(results: results)
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "missing")
+    )
 
     let response = await assistant.respond(to: request("Keep searching"))
     let transportSnapshot = await transport.snapshot()
@@ -719,7 +740,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
         requestID: "req_refusal"
       ),
     ])
-    let assistant = makeAssistant(fixture: fixture, transport: transport)
+    let assistant = makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "Private launch")
+    )
 
     let response = await assistant.respond(to: request("Find my private launch note"))
 
@@ -792,7 +817,11 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       ),
     ])
 
-    let response = await makeAssistant(fixture: fixture, transport: transport)
+    let response = await makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: noteAuthorization(query: "missing")
+    )
       .respond(to: request("Find missing"))
 
     XCTAssertEqual(response.status, .noResults)
@@ -910,7 +939,14 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       success(completedEvent(output: [])),
     ])
 
-    let response = await makeAssistant(fixture: fixture, transport: transport)
+    let response = await makeAssistant(
+      fixture: fixture,
+      transport: transport,
+      retrievalAuthorization: calendarAuthorization(
+        now: now,
+        sourceIDs: [sourceID]
+      )
+    )
       .respond(to: request("Brief my roadmap review"))
 
     XCTAssertEqual(response.status, .answered)
@@ -952,7 +988,8 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       )
       let response = await makeAssistant(
         fixture: fixture,
-        transport: ScriptedOpenAITransport(results: results)
+        transport: ScriptedOpenAITransport(results: results),
+        retrievalAuthorization: noteAuthorization(query: "Receipt")
       ).respond(to: request("Find receipt note"))
 
       XCTAssertEqual(response.status, .unavailable)
@@ -1054,7 +1091,8 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
     fixture: OpenAITestRepositoryFixture,
     transport: any OpenAIResponsesTransporting,
     appleCalls: LockedCounter = LockedCounter(),
-    snapshot: AssistantTextRouteSnapshot = authorizedSnapshot()
+    snapshot: AssistantTextRouteSnapshot = authorizedSnapshot(),
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization? = nil
   ) -> OpenAIResponsesAssistant {
     let apple = FoundationModelAssistant(
       repository: fixture.repository,
@@ -1065,7 +1103,8 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       appleAnswerer: apple,
       routeSnapshot: { _ in snapshot },
       credential: { _ in "runtime-credential-placeholder" },
-      transport: transport
+      transport: transport,
+      retrievalAuthorization: { _ in retrievalAuthorization }
     )
   }
 
@@ -1077,6 +1116,34 @@ final class OpenAIResponsesAssistantTests: XCTestCase {
       now: Date(timeIntervalSince1970: 1_753_891_200)
     )
   }
+}
+
+private func noteAuthorization(query: String) -> AssistantTurnRetrievalAuthorization {
+  AssistantTurnRetrievalAuthorization(
+    noteSearch: try! AssistantNoteSearchAuthorization(
+      query: try! AssistantApprovedQuery(originalQuery: query),
+      maximumResults: 8
+    )
+  )
+}
+
+private func calendarAuthorization(
+  now: Date,
+  sourceIDs: Set<String>
+) -> AssistantTurnRetrievalAuthorization {
+  AssistantTurnRetrievalAuthorization(
+    calendarSearch: try! AssistantCalendarSearchAuthorization(
+      query: try! AssistantApprovedQuery(originalQuery: ""),
+      start: now,
+      end: now.addingTimeInterval(7_200),
+      maximumResults: 10,
+      includeOngoing: false
+    ),
+    calendarBrief: try! AssistantCalendarBriefAuthorization(
+      allowedSourceIDs: sourceIDs,
+      maximumPeople: 8
+    )
+  )
 }
 
 private actor RecordingOpenAIHTTPLoader: OpenAIResponsesHTTPLoading {

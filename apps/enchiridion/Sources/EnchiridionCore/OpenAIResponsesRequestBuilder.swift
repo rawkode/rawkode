@@ -1,6 +1,6 @@
 import Foundation
 
-enum OpenAIResponsesRequestBuilder {
+public enum OpenAIResponsesRequestBuilder {
   static let maximumHistoryBytes = 16 * 1_024
 
   static func boundedHistory(
@@ -38,7 +38,8 @@ enum OpenAIResponsesRequestBuilder {
   static func makeBody(
     request: SanitizedAssistantConversationRequest,
     modelID: String,
-    continuationItems: [OpenAIJSONValue]
+    continuationItems: [OpenAIJSONValue],
+    retrievalAuthorization: AssistantTurnRetrievalAuthorization? = nil
   ) throws -> Data {
     let request = boundedHistory(request)
     var input = request.request.priorTurns.flatMap { turn in
@@ -54,12 +55,13 @@ enum OpenAIResponsesRequestBuilder {
     // identifier, and Enchiridion has not asked the user to authorize sending
     // one to OpenAI. Do not substitute a key fingerprint, vault ID, content,
     // email, or a fake per-request value.
+    let authorizedTools = tools(for: retrievalAuthorization)
     let body: OpenAIJSONValue = .object([
       "model": .string(modelID),
       "instructions": .string(instructions),
       "input": .array(input),
-      "tools": .array(tools),
-      "tool_choice": .string("auto"),
+      "tools": .array(authorizedTools),
+      "tool_choice": .string(authorizedTools.isEmpty ? "none" : "auto"),
       "parallel_tool_calls": .bool(false),
       "text": .object([
         "verbosity": .string("low"),
@@ -99,6 +101,31 @@ enum OpenAIResponsesRequestBuilder {
     return data
   }
 
+  /// A deliberately stateless, no-local-data request for provider diagnostics.
+  /// It is safe for settings surfaces because it contains no transcript, tools,
+  /// or Enchiridion content.
+  public static func makeDiagnosticBody(modelID: String) throws -> Data {
+    let body: OpenAIJSONValue = .object([
+      "model": .string(modelID),
+      "input": .array([
+        message(role: "user", content: "Reply exactly: connection ready."),
+      ]),
+      "tools": .array([]),
+      "tool_choice": .string("none"),
+      "parallel_tool_calls": .bool(false),
+      "max_output_tokens": .number(32),
+      "store": .bool(false),
+      "stream": .bool(true),
+      "background": .bool(false),
+      "truncation": .string("disabled"),
+    ])
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    let data = try encoder.encode(body)
+    guard data.count <= 8 * 1_024 else { throw OpenAIResponsesAssistantError.invalidResponse }
+    return data
+  }
+
   private static func encodedHistory(_ turns: [AssistantConversationTurn]) -> Data {
     let history = turns.flatMap { turn in
       [
@@ -129,51 +156,64 @@ enum OpenAIResponsesRequestBuilder {
     only. Never claim to modify data. Never mention implementation details unless asked.
     """
 
-  private static let tools: [OpenAIJSONValue] = [
-    function(
+  private static func tools(
+    for authorization: AssistantTurnRetrievalAuthorization?
+  ) -> [OpenAIJSONValue] {
+    guard let authorization else { return [] }
+    var result: [OpenAIJSONValue] = []
+    if let calendar = authorization.calendarSearch {
+      result.append(function(
       name: "findCalendarEvents",
       description: "Find bounded read-only local calendar events",
       properties: [
-        "query": stringSchema(),
-        "start": stringSchema(),
-        "end": stringSchema(),
-        "limit": integerSchema(minimum: 1, maximum: 10),
-        "includeOngoing": .object(["type": .string("boolean")]),
+        "query": stringSchema(allowedValues: calendar.query.approvedQueryTerms),
+        "start": stringSchema(allowedValues: Set([iso8601(calendar.start)])),
+        "end": stringSchema(allowedValues: Set([iso8601(calendar.end)])),
+        "limit": integerSchema(minimum: 1, maximum: calendar.maximumResults),
+        "includeOngoing": boolSchema(allowedValue: calendar.includeOngoing),
       ],
       required: ["query", "start", "end", "limit", "includeOngoing"]
-    ),
-    function(
+      ))
+    }
+    if let brief = authorization.calendarBrief {
+      result.append(function(
       name: "briefCalendarEvent",
       description: "Read a bounded local brief for one previously found event",
       properties: [
-        "sourceID": stringSchema(),
-        "peopleLimit": integerSchema(minimum: 1, maximum: 8),
+        "sourceID": stringSchema(allowedValues: brief.allowedSourceIDs),
+        "peopleLimit": integerSchema(minimum: 1, maximum: brief.maximumPeople),
       ],
       required: ["sourceID", "peopleLimit"]
-    ),
-    function(
+      ))
+    }
+    if let task = authorization.taskSearch {
+      result.append(function(
       name: "searchTasks",
       description: "Search a bounded read-only local task scope",
       properties: [
         "scope": .object([
           "type": .string("string"),
-          "enum": .array(AssistantTaskScope.allCases.map { .string($0.rawValue) }),
+          "enum": .array([.string(task.scope.rawValue)]),
         ]),
-        "query": stringSchema(),
-        "limit": integerSchema(minimum: 1, maximum: 10),
+        "query": stringSchema(allowedValues: task.query.approvedQueryTerms),
+        "limit": integerSchema(minimum: 1, maximum: task.maximumResults),
       ],
       required: ["scope", "query", "limit"]
-    ),
-    function(
+      ))
+    }
+    if let notes = authorization.noteSearch {
+      result.append(function(
       name: "searchNotes",
       description: "Search bounded titles and excerpts from local notes",
       properties: [
-        "query": stringSchema(),
-        "limit": integerSchema(minimum: 1, maximum: 8),
+        "query": stringSchema(allowedValues: notes.query.approvedQueryTerms),
+        "limit": integerSchema(minimum: 1, maximum: notes.maximumResults),
       ],
       required: ["query", "limit"]
-    ),
-  ]
+      ))
+    }
+    return result
+  }
 
   private static func function(
     name: String,
@@ -195,8 +235,19 @@ enum OpenAIResponsesRequestBuilder {
     ])
   }
 
-  private static func stringSchema() -> OpenAIJSONValue {
-    .object(["type": .string("string"), "maxLength": .number(160)])
+  private static func stringSchema(allowedValues: Set<String>) -> OpenAIJSONValue {
+    .object([
+      "type": .string("string"),
+      "maxLength": .number(160),
+      "enum": .array(allowedValues.sorted().map(OpenAIJSONValue.string)),
+    ])
+  }
+
+  private static func boolSchema(allowedValue: Bool) -> OpenAIJSONValue {
+    .object([
+      "type": .string("boolean"),
+      "enum": .array([.bool(allowedValue)]),
+    ])
   }
 
   private static func integerSchema(minimum: Int, maximum: Int) -> OpenAIJSONValue {
@@ -205,5 +256,11 @@ enum OpenAIResponsesRequestBuilder {
       "minimum": .number(Double(minimum)),
       "maximum": .number(Double(maximum)),
     ])
+  }
+
+  private static func iso8601(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
   }
 }
