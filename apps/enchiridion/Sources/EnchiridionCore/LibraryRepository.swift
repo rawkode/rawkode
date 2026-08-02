@@ -102,6 +102,12 @@ public struct EditorCommit: Codable, Hashable, Sendable {
   public var pageID: PageID
   public var loadGeneration: Int
   public var journalID: String
+  /// The durable Automerge heads from which `encodedChanges` were authored.
+  ///
+  /// The repository reconstructs this exact historical state before accepting
+  /// a delta, rather than trusting a client to have authored changes against
+  /// the current document.
+  public var baseHeads: AutomergeHeads
   public var encodedChanges: Data
   public var advertisedHeads: AutomergeHeads
 
@@ -109,12 +115,14 @@ public struct EditorCommit: Codable, Hashable, Sendable {
     pageID: PageID,
     loadGeneration: Int,
     journalID: String,
+    baseHeads: AutomergeHeads,
     encodedChanges: Data,
     advertisedHeads: AutomergeHeads
   ) {
     self.pageID = pageID
     self.loadGeneration = loadGeneration
     self.journalID = journalID
+    self.baseHeads = baseHeads
     self.encodedChanges = encodedChanges
     self.advertisedHeads = advertisedHeads
   }
@@ -789,7 +797,9 @@ public actor LibraryRepository {
     }
   }
 
-  public func persistEditorCommit(_ commit: EditorCommit, now: Date = Date()) throws -> EditorCommitReceipt {
+  public func persistEditorCommit(_ commit: EditorCommit, now: Date = Date()) throws
+    -> EditorCommitReceipt
+  {
     try database.write { db in
       guard let current = try Self.fetchPage(db, id: commit.pageID) else {
         throw LibraryRepositoryError.pageNotFound
@@ -808,10 +818,34 @@ public actor LibraryRepository {
         )
       }
 
+      guard !commit.baseHeads.values.isEmpty,
+        !commit.advertisedHeads.values.isEmpty,
+        let baseHashes = Self.changeHashes(for: commit.baseHeads)
+      else {
+        throw PageDocumentError.invalidHeads
+      }
+
+      // Validate the exact delta against the historical state it claims to
+      // extend. Applying arbitrary encoded changes directly to `current`
+      // otherwise lets a stale or tampered editor commit advertise an
+      // unrelated result. Once validated, apply the same changes to the
+      // current document so Automerge merges concurrent durable updates.
+      let currentDocument = try Document(current.document)
+      let baseDocument: Document
+      do {
+        baseDocument = try currentDocument.forkAt(heads: baseHashes)
+      } catch {
+        throw PageDocumentError.invalidHeads
+      }
+      _ = try PageDocument.applyChanges(
+        to: baseDocument.save(),
+        encodedChanges: commit.encodedChanges,
+        advertisedHeads: commit.advertisedHeads
+      )
       let applied = try PageDocument.applyChanges(
         to: current.document,
         encodedChanges: commit.encodedChanges,
-        advertisedHeads: commit.advertisedHeads
+        advertisedHeads: .empty
       )
       let generation = current.dirtyGeneration + 1
       let updated = PageSnapshot(
@@ -831,8 +865,11 @@ public actor LibraryRepository {
       try Self.writePage(db, page: updated, cloudDirty: true)
       try Self.replaceReferences(db, pageID: updated.id, references: applied.projection.references)
       try db.execute(
-        sql: "INSERT INTO editor_receipts (journal_id,page_id,dirty_generation,committed_at) VALUES (?,?,?,?)",
-        arguments: [commit.journalID, commit.pageID.rawValue, generation, now.timeIntervalSince1970]
+        sql:
+          "INSERT INTO editor_receipts (journal_id,page_id,dirty_generation,committed_at) VALUES (?,?,?,?)",
+        arguments: [
+          commit.journalID, commit.pageID.rawValue, generation, now.timeIntervalSince1970,
+        ]
       )
       return EditorCommitReceipt(
         pageID: commit.pageID,
@@ -842,6 +879,21 @@ public actor LibraryRepository {
         duplicate: false
       )
     }
+  }
+
+  private static func changeHashes(for heads: AutomergeHeads) -> Set<ChangeHash>? {
+    var data = Data()
+    for value in heads.values {
+      guard value.count == 64 else { return nil }
+      var index = value.startIndex
+      for _ in 0..<32 {
+        let next = value.index(index, offsetBy: 2)
+        guard let byte = UInt8(value[index..<next], radix: 16) else { return nil }
+        data.append(byte)
+        index = next
+      }
+    }
+    return data.heads()
   }
 
   public func persistRichTextEditor(

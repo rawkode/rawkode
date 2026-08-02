@@ -9,29 +9,6 @@ extension Notification.Name {
 }
 
 @MainActor
-final class EditorFlushController {
-  typealias Flusher = @MainActor () async -> Bool
-
-  private var flushers: [UUID: Flusher] = [:]
-
-  func register(_ id: UUID, flusher: @escaping Flusher) {
-    flushers[id] = flusher
-  }
-
-  func unregister(_ id: UUID) {
-    flushers[id] = nil
-  }
-
-  @discardableResult
-  func flush() async -> Bool {
-    for flusher in Array(flushers.values) {
-      guard await flusher() else { return false }
-    }
-    return true
-  }
-}
-
-@MainActor
 final class EditorFindController {
   typealias Finder = @MainActor () -> Void
 
@@ -289,7 +266,6 @@ struct PageEditorView<Header: View>: View {
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
   @State private var pagePendingPermanentDeletion: PageSnapshot?
-  @State private var isEditing = false
   #if !os(macOS)
   @State private var pushedPageID: PageID?
   #endif
@@ -353,13 +329,12 @@ struct PageEditorView<Header: View>: View {
         flushController: flushController,
         findController: findController,
         presentation: presentation,
-        onEditingChanged: { isEditing = $0 },
         openPage: openPage
       )
         .id(store.vaultID)
         .navigationTitle("")
         .toolbar {
-          if showsPageActions && isEditing {
+          if showsPageActions {
             ToolbarItemGroup {
             if page.deletedAt == nil {
               Menu {
@@ -523,16 +498,159 @@ private enum NativeRichEditorReferenceInsertionMode {
   case applyToSelectedText
 }
 
+/// The way a page-reference picker entered the editor.  Keeping this separate
+/// from the mutation mode prevents an `@` session from accidentally inheriting
+/// the snapshot semantics used by the explicit Insert command.
+enum NativeRichEditorReferenceSourceMode: Equatable {
+  case liveAtMention
+  case doubleBracket
+  case manual
+}
+
+/// Source policy is deliberately pure so the iOS live mention card cannot
+/// accidentally acquire the manual picker’s daily-note affordance.
+struct NativeRichEditorReferencePickerPolicy {
+  static func includesDailyNotes(for source: NativeRichEditorReferenceSourceMode) -> Bool {
+    source != .liveAtMention
+  }
+
+  static func hasCompleteTrigger(_ trigger: String, source: NativeRichEditorReferenceSourceMode) -> Bool {
+    switch source {
+    case .liveAtMention: trigger == "@"
+    case .doubleBracket: trigger == "[["
+    case .manual: true
+    }
+  }
+}
+
 private struct NativeRichEditorReferenceInsertionContext {
   let pickerID: UUID
   let snapshot: NativeRichEditorSelectionSnapshot
   let mode: NativeRichEditorReferenceInsertionMode
+  let source: NativeRichEditorReferenceSourceMode
 }
 
 private struct NativeRichEditorPickerSession {
   let id: UUID
   let sourcePageID: PageID
   let referenceInsertionContext: NativeRichEditorReferenceInsertionContext
+}
+
+/// A live mention deliberately tracks its trigger, not a document revision.
+/// The editor changes on every keystroke, so a revision-pinned snapshot would
+/// make `@project` invalid as soon as the user types the `p`.
+struct NativeRichEditorLiveMentionSession: Equatable {
+  struct Match: Equatable {
+    let query: String
+    let replacementRange: Range<Int>
+  }
+
+  let pageID: PageID
+  let loadGeneration: UInt64
+  let triggerOffset: Int
+
+  static func begin(
+    in body: AttributedString,
+    triggerOffset: Int,
+    pageID: PageID,
+    loadGeneration: UInt64
+  ) -> Self? {
+    guard let trigger = body.characterIndex(at: triggerOffset), trigger < body.endIndex,
+      String(body[trigger..<body.index(afterCharacter: trigger)].characters) == "@",
+      isAllowedBoundary(before: trigger, in: body)
+    else { return nil }
+    return Self(pageID: pageID, loadGeneration: loadGeneration, triggerOffset: triggerOffset)
+  }
+
+  func match(
+    in body: AttributedString,
+    selection: AttributedTextSelection,
+    pageID: PageID,
+    loadGeneration: UInt64
+  ) -> Match? {
+    guard self.pageID == pageID, self.loadGeneration == loadGeneration,
+      case .insertionPoint(let caret) = selection.indices(in: body),
+      let trigger = body.characterIndex(at: triggerOffset), trigger < caret,
+      String(body[trigger..<body.index(afterCharacter: trigger)].characters) == "@",
+      Self.isAllowedBoundary(before: trigger, in: body)
+    else { return nil }
+
+    let range = trigger..<caret
+    let text = String(body[range].characters)
+    guard text.first == "@", !text.dropFirst().contains(where: { $0 == "@" || $0.isWhitespace || $0.isNewline }),
+      !body[range].runs.contains(where: { run in
+        (run[PageRichTextAttributes.AutomergeMarks.self] ?? []).contains {
+          $0.name == PageDocument.pageReferenceMark
+        }
+      })
+    else { return nil }
+    return Match(query: String(text.dropFirst()), replacementRange: triggerOffset..<body.characterOffset(of: caret))
+  }
+
+  private static func isAllowedBoundary(before trigger: AttributedString.Index, in body: AttributedString) -> Bool {
+    guard trigger > body.startIndex else { return true }
+    let previous = String(body[body.index(beforeCharacter: trigger)..<trigger].characters)
+    return previous.unicodeScalars.allSatisfy { scalar in
+      CharacterSet.whitespacesAndNewlines.contains(scalar) || "([{'\"".unicodeScalars.contains(scalar)
+    }
+  }
+}
+
+/// A tap is represented as immutable offsets and revalidated immediately
+/// before replacement.  This keeps a delayed SwiftUI button delivery from
+/// replacing a different live mention.
+struct NativeRichEditorLiveMentionInsertionRequest: Equatable {
+  let session: NativeRichEditorLiveMentionSession
+  let match: NativeRichEditorLiveMentionSession.Match
+
+  func replacementSelection(
+    in body: AttributedString,
+    selection: AttributedTextSelection,
+    pageID: PageID,
+    loadGeneration: UInt64
+  ) -> AttributedTextSelection? {
+    guard session.match(in: body, selection: selection, pageID: pageID, loadGeneration: loadGeneration) == match,
+      let lower = body.characterIndex(at: match.replacementRange.lowerBound),
+      let upper = body.characterIndex(at: match.replacementRange.upperBound)
+    else { return nil }
+    return AttributedTextSelection(ranges: RangeSet(lower..<upper))
+  }
+}
+
+/// The production mutation seam for choosing a live-mention result. It owns
+/// both the tap-time revalidation and marked replacement, making the complete
+/// transformation directly testable without a SwiftUI editor instance.
+struct NativeRichEditorLiveMentionReplacement {
+  struct Result {
+    let body: AttributedString
+    let selection: AttributedTextSelection
+  }
+
+  static func apply(
+    request: NativeRichEditorLiveMentionInsertionRequest,
+    to targetPageID: PageID,
+    label: String,
+    in sourceBody: AttributedString,
+    selection: AttributedTextSelection,
+    sourcePageID: PageID,
+    loadGeneration: UInt64
+  ) -> Result? {
+    guard var replacementSelection = request.replacementSelection(
+      in: sourceBody,
+      selection: selection,
+      pageID: sourcePageID,
+      loadGeneration: loadGeneration
+    ), let mark = try? PageDocument.pageReferenceMark(to: targetPageID, label: label)
+    else { return nil }
+
+    let caretOffset = request.match.replacementRange.lowerBound + AttributedString(label).characters.count
+    var body = sourceBody
+    var reference = AttributedString(label)
+    reference[reference.startIndex..<reference.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [mark]
+    body.replaceSelection(&replacementSelection, with: reference)
+    guard let caret = body.characterIndex(at: caretOffset) else { return nil }
+    return Result(body: body, selection: AttributedTextSelection(insertionPoint: caret))
+  }
 }
 
 private struct NativeRichEditorTaggedPageCommit {
@@ -543,7 +661,7 @@ private struct NativeRichEditorTaggedPageCommit {
 
 /// A selection expressed as character offsets so it can be recreated after
 /// the committed document is decoded into a distinct AttributedString value.
-enum NativeRichEditorCommittedSelection: Equatable {
+enum NativeRichEditorCommittedSelection: Equatable, Sendable {
   case insertionPoint(offset: Int)
   case ranges([Range<Int>])
 
@@ -785,6 +903,7 @@ private final class NativeRichPageEditorState {
   private let store: LibraryStore
   private var pageID: PageID?
   private var loadGeneration: UInt64 = 0
+  private var persistenceSession: EditorPersistenceSession?
   private var durableSnapshot: PageSnapshot?
   private var persistedTitle = ""
   private var persistedBody = AttributedString()
@@ -792,12 +911,12 @@ private final class NativeRichPageEditorState {
   private var observedBody = AttributedString()
   private var saveTask: Task<Void, Never>?
   private var saveTaskToken: UUID?
-  private var activeSaveOperation: NativeRichEditorSaveOperation?
   private var editRevision: UInt64 = 0
   private var durableRevision: UInt64 = 0
   private var commandShortcutSnapshot: NativeRichEditorSelectionSnapshot?
   private var commandContext: NativeRichEditorCommandContext?
   private var pickerSession: NativeRichEditorPickerSession?
+  private var liveMentionSession: NativeRichEditorLiveMentionSession?
   private var taggedPageCommit: NativeRichEditorTaggedPageCommit?
 
   init(store: LibraryStore) {
@@ -807,9 +926,19 @@ private final class NativeRichPageEditorState {
   func load(_ page: PageSnapshot) {
     loadGeneration &+= 1
     cancelQueuedSave()
-    activeSaveOperation = nil
+    persistenceSession?.invalidate()
     pageID = page.id
     durableSnapshot = page
+    persistenceSession = EditorPersistenceSession(
+      snapshot: page,
+      loadGeneration: Int(clamping: loadGeneration)
+    ) { [store] commit in
+      _ = try await store.persistEditorCommit(commit)
+      guard let snapshot = store.page(id: commit.pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      return snapshot
+    }
     do {
       let content = try PageDocument.richText(in: page.document)
       title = content.title
@@ -838,13 +967,28 @@ private final class NativeRichPageEditorState {
     guard title != observedTitle || body != observedBody else { return }
     observedTitle = title
     observedBody = body
+    do {
+      try persistenceSession?.replace(title: title, body: body)
+    } catch {
+      errorMessage = error.localizedDescription
+      return
+    }
     editRevision &+= 1
     cancelQueuedSave()
     guard hasUnsavedChanges else { return }
     scheduleSave()
     if bodyDidChange {
-      detectInlineShortcut()
+      if !updateLiveMention() {
+        detectInlineShortcut()
+      }
     }
+  }
+
+  /// Selection may move via keyboard, pointer, or touch without changing the
+  /// body. Keep a live mention tied to the active caret in all of those cases.
+  func selectionDidChange() {
+    guard liveMentionSession != nil else { return }
+    _ = updateLiveMention()
   }
 
   func toggle(_ intent: InlinePresentationIntent) {
@@ -971,7 +1115,7 @@ private final class NativeRichPageEditorState {
       : .insertAtCaret
     commandShortcutSnapshot = nil
     referenceQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    beginPicker(.references, snapshot: snapshot, mode: mode)
+    beginPicker(.references, snapshot: snapshot, mode: mode, source: .manual)
   }
 
   func showReferencePickerFromCommandContext() -> Bool {
@@ -991,7 +1135,8 @@ private final class NativeRichPageEditorState {
     beginPicker(
       .references,
       snapshot: context.selectionSnapshot,
-      mode: context.hasSelectedText ? .applyToSelectedText : .insertAtCaret
+      mode: context.hasSelectedText ? .applyToSelectedText : .insertAtCaret,
+      source: .manual
     )
     return true
   }
@@ -1010,7 +1155,7 @@ private final class NativeRichPageEditorState {
     taggedPageQuery = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
     activeSupertag = nil
     supertagQuery = ""
-    beginPicker(.supertags, snapshot: selectionSnapshot, mode: .applyToSelectedText)
+    beginPicker(.supertags, snapshot: selectionSnapshot, mode: .applyToSelectedText, source: .manual)
   }
 
   func showSupertagPickerFromCommandContext() -> Bool {
@@ -1030,7 +1175,7 @@ private final class NativeRichPageEditorState {
       .trimmingCharacters(in: .whitespacesAndNewlines)
     activeSupertag = nil
     supertagQuery = ""
-    beginPicker(.supertags, snapshot: context.selectionSnapshot, mode: .applyToSelectedText)
+    beginPicker(.supertags, snapshot: context.selectionSnapshot, mode: .applyToSelectedText, source: .manual)
     return true
   }
 
@@ -1057,6 +1202,15 @@ private final class NativeRichPageEditorState {
 
   var inlinePickerSourcePageID: PageID? {
     pickerSession?.sourcePageID
+  }
+
+  var isLiveAtMention: Bool {
+    pickerSession?.referenceInsertionContext.source == .liveAtMention
+  }
+
+  var referencePickerIncludesDailyNotes: Bool {
+    guard let source = pickerSession?.referenceInsertionContext.source else { return true }
+    return NativeRichEditorReferencePickerPolicy.includesDailyNotes(for: source)
   }
 
   var referencePickerRequestID: NativeRichEditorPickerRequest? {
@@ -1149,17 +1303,22 @@ private final class NativeRichPageEditorState {
       sourcePageID: sourcePageID,
       loadGeneration: loadGeneration
     )
-    let sourceTitle = self.title
-    let sourceBody = body
     taggedPageCommit = commit
     cancelQueuedSave()
 
-    guard let durableSource = await flushDurableSnapshot(
-      pageID: sourcePageID,
-      title: sourceTitle,
-      body: sourceBody
-    ) else {
+    guard let durableSource = await flushDurableSnapshot(pageID: sourcePageID) else {
       finishTaggedPageCommit(commit, error: "Could not save this page before creating the tagged page.")
+      return nil
+    }
+
+    // A concurrent remote update can be merged by the flush.  Build the
+    // atomic reference insertion from that adopted editor replica, never from
+    // the pre-flush body captured when the picker was opened.
+    let durableSourceTitle = self.title
+    let durableBody = body
+    let durableSelection = selection
+    guard isSelection(durableSelection, validFor: session.referenceInsertionContext.mode) else {
+      finishTaggedPageCommit(commit, error: "The insertion point changed while saving. Insert the reference again.")
       return nil
     }
 
@@ -1167,8 +1326,8 @@ private final class NativeRichPageEditorState {
     guard let reference = bodyByInsertingReference(
       to: targetPageID,
       label: title,
-      in: sourceBody,
-      selection: capturedSelection,
+      in: durableBody,
+      selection: durableSelection,
       mode: session.referenceInsertionContext.mode
     ) else {
       finishTaggedPageCommit(commit, error: "Could not create the page reference.")
@@ -1180,7 +1339,7 @@ private final class NativeRichPageEditorState {
         TaggedPageReferenceInsertionRequest(
           sourcePageID: sourcePageID,
           expectedSourceHeads: durableSource.heads,
-          sourceTitle: sourceTitle,
+          sourceTitle: durableSourceTitle,
           sourceBody: reference.body,
           targetPageID: targetPageID,
           targetTitle: title,
@@ -1244,6 +1403,7 @@ private final class NativeRichPageEditorState {
     isPalettePresented = false
     inlinePicker = nil
     pickerSession = nil
+    liveMentionSession = nil
     pickerDismissalReason = reason
     paletteKind = .commands
     referenceQuery = ""
@@ -1288,85 +1448,46 @@ private final class NativeRichPageEditorState {
     // must not race it with the pre-insertion editor value.
     guard !isMutationLocked else {
       cancelQueuedSave()
-      return true
+      // A tagged-page transaction owns the source page's next durable
+      // revision.  Reporting success here let navigation claim a durability
+      // boundary while that transaction was still in flight.
+      return false
     }
     guard !isLoading, let pageID else { return true }
-    return await flushBackgroundSnapshot(pageID: pageID, title: title, body: body)
+    return await flushBackgroundSnapshot(pageID: pageID)
   }
 
   /// Routes public and scheduled flushes through the tracked save operation.
   /// If one began immediately before a tagged-page commit acquired its lock,
   /// the commit's exact flush waits for it before using the resulting heads.
   private func flushBackgroundSnapshot(
-    pageID requestedPageID: PageID,
-    title requestedTitle: String,
-    body requestedBody: AttributedString
+    pageID requestedPageID: PageID
   ) async -> Bool {
     cancelQueuedSave()
-    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
-      let task = activeSaveOperation.task
-    {
-      guard case .success = await task.value else { return false }
+    guard requestedPageID == pageID, let persistenceSession else { return false }
+    do {
+      let snapshot = try await persistenceSession.flush()
+      try adoptDurableSnapshot(snapshot, session: persistenceSession)
       return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
-
-    if let durableSnapshot,
-      durableSnapshot.id == requestedPageID,
-      persistedTitle == requestedTitle,
-      persistedBody == requestedBody
-    {
-      return true
-    }
-
-    startSaveOperation(
-      pageID: requestedPageID,
-      revision: editRevision,
-      title: requestedTitle,
-      body: requestedBody
-    )
-    guard let task = activeSaveOperation?.task else { return false }
-    guard case .success = await task.value else { return false }
-    return true
   }
 
   /// Flushes this exact editor value and returns the committed snapshot. Tagged
   /// page creation uses this instead of the cache so its atomic transaction is
   /// guarded by the durable Automerge heads it just observed.
   private func flushDurableSnapshot(
-    pageID requestedPageID: PageID,
-    title requestedTitle: String,
-    body requestedBody: AttributedString
+    pageID requestedPageID: PageID
   ) async -> PageSnapshot? {
     cancelQueuedSave()
-    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
-      let task = activeSaveOperation.task
-    {
-      guard case .success = await task.value else { return nil }
-    }
-
-    if let durableSnapshot,
-      durableSnapshot.id == requestedPageID,
-      persistedTitle == requestedTitle,
-      persistedBody == requestedBody
-    {
-      return durableSnapshot
-    }
-
+    guard requestedPageID == pageID, let persistenceSession else { return nil }
     do {
-      let snapshot = try await store.persistRichTextEditor(
-        pageID: requestedPageID,
-        title: requestedTitle,
-        body: requestedBody
-      )
-      guard pageID == requestedPageID else { return snapshot }
-      durableSnapshot = snapshot
-      persistedTitle = requestedTitle
-      persistedBody = requestedBody
-      durableRevision = editRevision
-      errorMessage = nil
+      let snapshot = try await persistenceSession.flush()
+      try adoptDurableSnapshot(snapshot, session: persistenceSession)
       return snapshot
     } catch {
-      guard pageID == requestedPageID else { return nil }
       errorMessage = error.localizedDescription
       return nil
     }
@@ -1403,66 +1524,128 @@ private final class NativeRichPageEditorState {
     _ = await flush()
   }
 
-  private func startSaveOperation(
-    pageID: PageID,
-    revision: UInt64,
-    title: String,
-    body: AttributedString
-  ) {
-    let operation = NativeRichEditorSaveOperation(
-      token: UUID(),
-      pageID: pageID,
-      revision: revision,
-      title: title,
-      body: body
-    )
-    activeSaveOperation = operation
-
-    let token = operation.token
-    operation.task = Task { @MainActor [weak self, store] in
-      let result: NativeRichEditorSaveResult
-      do {
-        result = .success(try await store.persistRichTextEditor(pageID: pageID, title: title, body: body))
-      } catch {
-        result = .failure(error.localizedDescription)
-      }
-      _ = self?.settleSaveOperation(
-        token: token,
-        result: result
-      )
-      return result
-    }
-  }
-
-  private func settleSaveOperation(
-    token: UUID,
-    result: NativeRichEditorSaveResult
-  ) -> NativeRichEditorSaveResult {
-    guard let activeSaveOperation,
-      activeSaveOperation.token == token,
-      self.pageID == activeSaveOperation.pageID
-    else {
-      return .stale
-    }
-
-    switch result {
-    case .success(let snapshot):
-      persistedTitle = activeSaveOperation.title
-      persistedBody = activeSaveOperation.body
-      durableSnapshot = snapshot
-      durableRevision = max(durableRevision, activeSaveOperation.revision)
-      errorMessage = nil
-    case .failure(let message):
-      errorMessage = message
-    case .stale:
-      return .stale
-    }
-    self.activeSaveOperation = nil
-    return result
+  private func adoptDurableSnapshot(
+    _ snapshot: PageSnapshot,
+    session: EditorPersistenceSession
+  ) throws {
+    let content = try session.currentRichText()
+    installEditorContent(content, invalidatingContextsWhenChanged: true)
+    durableSnapshot = snapshot
+    persistedTitle = content.title
+    persistedBody = content.body
+    observedTitle = content.title
+    observedBody = content.body
+    durableRevision = editRevision
+    errorMessage = nil
   }
 
   private var hasUnsavedChanges: Bool {
     title != persistedTitle || body != persistedBody
+  }
+
+  func receive(_ snapshot: PageSnapshot) {
+    do {
+      guard let persistenceSession,
+        let content = try persistenceSession.receive(snapshot)
+      else { return }
+      installEditorContent(content, invalidatingContextsWhenChanged: true)
+      let durableContent = try persistenceSession.durableRichText()
+      persistedTitle = durableContent.title
+      persistedBody = durableContent.body
+      durableSnapshot = snapshot
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  /// Recreates the visible rich text from the session's authoritative replica.
+  /// Offset selections are restored when possible, but every command/picker
+  /// context is discarded after a document replacement: its captured revision
+  /// and semantic range no longer prove it names the same text.
+  private func installEditorContent(
+    _ content: PageRichTextDocument,
+    invalidatingContextsWhenChanged: Bool
+  ) {
+    let changed = title != content.title || body != content.body
+    let priorSelection = NativeRichEditorCommittedSelection(from: selection, in: body)
+    title = content.title
+    body = content.body
+    observedTitle = title
+    observedBody = body
+    // Normalize the editor selection after assigning decoded rich text. This
+    // keeps selection ownership explicit across flush and sync adoption.
+    selection = priorSelection?.selection(in: body) ?? AttributedTextSelection()
+    guard changed, invalidatingContextsWhenChanged else { return }
+    commandShortcutSnapshot = nil
+    commandContext = nil
+    resetPickerState(reason: .invalidated)
+  }
+
+  /// Resolves an explicit, contextual follow target. Text gestures never call
+  /// this; the accessory action (and Command-Return on macOS) owns navigation.
+  func selectedPageReference() -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let pageID else { return nil }
+    return PageReferenceSelectionResolver.resolve(
+      in: body,
+      selection: selection,
+      sourceVaultID: store.vaultID,
+      sourcePageID: pageID
+    ) { [store] targetID in
+      guard let target = store.page(id: targetID) else { return nil }
+      return .init(
+        vaultID: store.vaultID,
+        pageID: target.id,
+        isDeleted: target.deletedAt != nil
+      )
+    }
+  }
+
+  /// Captures navigation semantics synchronously at the user gesture. SwiftUI
+  /// is free to re-render the keyboard toolbar or UIKit to move the live
+  /// caret while the subsequent durability flush awaits; neither may change
+  /// the destination of this request.
+  func captureOpenRequest() -> NativeRichEditorOpenRequest? {
+    guard let selection = selectionSnapshot,
+      let reference = selectedPageReference()
+    else {
+      setInteractionError("The reference is no longer available. Move the caret into it and try again.")
+      return nil
+    }
+    interactionErrorMessage = nil
+    return NativeRichEditorOpenRequest(reference: reference, selection: selection)
+  }
+
+  /// Resolves the captured selection in the durable page body after `flush()`.
+  /// It intentionally never consults `self.selection`, which is volatile UI
+  /// state and may have changed since the user pressed Open.
+  func revalidateOpenRequest(
+    _ request: NativeRichEditorOpenRequest
+  ) -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let pageID,
+      let persistenceSession,
+      let durableContent = try? persistenceSession.durableRichText()
+    else { return nil }
+
+    return request.revalidate(
+      in: durableContent.body,
+      pageID: pageID,
+      loadGeneration: loadGeneration,
+      sourceVaultID: store.vaultID
+    ) { [store] targetID in
+      guard let target = store.page(id: targetID) else { return nil }
+      return .init(
+        vaultID: store.vaultID,
+        pageID: target.id,
+        isDeleted: target.deletedAt != nil
+      )
+    }
+  }
+
+  func reportOpenFailure() {
+    if errorMessage == nil {
+      setInteractionError("Couldn’t open that reference because it changed while saving. Try again.")
+    }
   }
 
   private var selectedText: String {
@@ -1509,18 +1692,48 @@ private final class NativeRichPageEditorState {
     }
 
     if finalCharacter == "@" {
+      guard let pageID,
+        let liveMention = NativeRichEditorLiveMentionSession.begin(
+          in: body,
+          triggerOffset: body.characterOffset(of: finalCharacterStart),
+          pageID: pageID,
+          loadGeneration: loadGeneration
+        ),
+        let snapshot = selectionSnapshot(for: finalCharacterStart..<caret)
+      else { return }
       referenceQuery = ""
-      guard let snapshot = selectionSnapshot(for: finalCharacterStart..<caret) else { return }
-      beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger)
+      beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger, source: .liveAtMention)
+      liveMentionSession = liveMention
       return
     }
 
     guard finalCharacter == "[", finalCharacterStart > body.startIndex else { return }
     let openingBracketStart = body.index(beforeCharacter: finalCharacterStart)
-    guard String(body[openingBracketStart..<caret].characters) == "[[" else { return }
+    guard NativeRichEditorReferencePickerPolicy.hasCompleteTrigger(
+      String(body[openingBracketStart..<caret].characters), source: .doubleBracket
+    ) else { return }
     referenceQuery = ""
     guard let snapshot = selectionSnapshot(for: openingBracketStart..<caret) else { return }
-    beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger)
+    beginPicker(.references, snapshot: snapshot, mode: .replaceTrigger, source: .doubleBracket)
+  }
+
+  /// Returns true while a valid mention remains active. An invalid mention is
+  /// dismissed as soon as its syntax is broken, leaving the user’s text alone.
+  private func updateLiveMention() -> Bool {
+    guard let liveMentionSession else { return false }
+    guard let pageID,
+      let match = liveMentionSession.match(
+        in: body,
+        selection: selection,
+        pageID: pageID,
+        loadGeneration: loadGeneration
+      )
+    else {
+      dismissPicker(reason: .invalidated)
+      return false
+    }
+    referenceQuery = match.query
+    return true
   }
 
   private func consumeCommandShortcut() {
@@ -1543,6 +1756,19 @@ private final class NativeRichPageEditorState {
       return
     }
 
+    if context.source == .liveAtMention {
+      switch insertLiveMentionReference(to: pageID, label: label) {
+      case .inserted:
+        interactionErrorMessage = nil
+        dismissPicker(reason: .inserted)
+      case .invalidContext:
+        dismissPicker(reason: .invalidated)
+      case .unavailable:
+        setInteractionError("Could not create the page reference.")
+      }
+      return
+    }
+
     switch insertReference(to: pageID, label: label, using: context) {
     case .inserted:
       interactionErrorMessage = nil
@@ -1552,6 +1778,34 @@ private final class NativeRichPageEditorState {
     case .unavailable:
       setInteractionError("Could not create the page reference.")
     }
+  }
+
+  private func insertLiveMentionReference(
+    to pageID: PageID,
+    label: String
+  ) -> NativeRichEditorReferenceInsertionResult {
+    guard !isMutationLocked,
+      let sourcePageID = self.pageID,
+      let liveMentionSession,
+      let match = liveMentionSession.match(
+        in: body, selection: selection, pageID: sourcePageID, loadGeneration: loadGeneration
+      )
+    else { return .invalidContext }
+    let request = NativeRichEditorLiveMentionInsertionRequest(session: liveMentionSession, match: match)
+    guard let replacement = NativeRichEditorLiveMentionReplacement.apply(
+      request: request,
+      to: pageID,
+      label: label,
+      in: body,
+      selection: selection,
+      sourcePageID: sourcePageID,
+      loadGeneration: loadGeneration
+    )
+    else { return .unavailable }
+    body = replacement.body
+    selection = replacement.selection
+    contentDidChange()
+    return .inserted
   }
 
   private func insertReference(
@@ -1588,14 +1842,16 @@ private final class NativeRichPageEditorState {
   private func beginPicker(
     _ picker: NativeRichEditorInlinePicker,
     snapshot: NativeRichEditorSelectionSnapshot,
-    mode: NativeRichEditorReferenceInsertionMode
+    mode: NativeRichEditorReferenceInsertionMode,
+    source: NativeRichEditorReferenceSourceMode
   ) {
     guard !isMutationLocked else { return }
     let pickerID = UUID()
     let insertion = NativeRichEditorReferenceInsertionContext(
       pickerID: pickerID,
       snapshot: snapshot,
-      mode: mode
+      mode: mode,
+      source: source
     )
     pickerSession = NativeRichEditorPickerSession(
       id: pickerID,
@@ -1743,6 +1999,17 @@ private final class NativeRichPageEditorState {
     durableSnapshot = snapshot
     editRevision &+= 1
     durableRevision = editRevision
+    persistenceSession?.invalidate()
+    persistenceSession = EditorPersistenceSession(
+      snapshot: snapshot,
+      loadGeneration: Int(clamping: loadGeneration)
+    ) { [store] commit in
+      _ = try await store.persistEditorCommit(commit)
+      guard let updated = store.page(id: commit.pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      return updated
+    }
     errorMessage = nil
   }
 
@@ -1840,35 +2107,72 @@ private final class NativeRichPageEditorState {
   }
 }
 
-struct NativeRichEditorSelectionSnapshot: Equatable {
+struct NativeRichEditorSelectionSnapshot: Equatable, Sendable {
   let pageID: PageID
   let loadGeneration: UInt64
   let bodyRevision: UInt64
   let selection: NativeRichEditorCommittedSelection
 }
 
-@MainActor
-private final class NativeRichEditorSaveOperation {
-  let token: UUID
-  let pageID: PageID
-  let revision: UInt64
-  let title: String
-  let body: AttributedString
-  var task: Task<NativeRichEditorSaveResult, Never>?
+/// The exact semantic navigation request captured when the user presses Open.
+/// It deliberately carries a committed (offset-based) selection instead of
+/// consulting the live TextEditor selection after an async persistence flush.
+struct NativeRichEditorOpenRequest: Equatable, Sendable {
+  let reference: PageReferenceSelectionResolver.ResolvedReference
+  let selection: NativeRichEditorSelectionSnapshot
 
-  init(token: UUID, pageID: PageID, revision: UInt64, title: String, body: AttributedString) {
-    self.token = token
-    self.pageID = pageID
-    self.revision = revision
-    self.title = title
-    self.body = body
+  /// Re-resolves the selection captured at the user gesture in the durable
+  /// body. It has no live-editor selection input, so moving the caret while a
+  /// flush awaits cannot redirect this request.
+  func revalidate(
+    in durableBody: AttributedString,
+    pageID: PageID,
+    loadGeneration: UInt64,
+    sourceVaultID: VaultID,
+    liveDestination: (PageID) -> PageReferenceSelectionResolver.LiveDestination?
+  ) -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard selection.pageID == pageID,
+      selection.loadGeneration == loadGeneration,
+      reference.sourceVaultID == sourceVaultID,
+      reference.sourcePageID == pageID,
+      let durableSelection = selection.selection.selection(in: durableBody),
+      let resolved = PageReferenceSelectionResolver.resolve(
+        in: durableBody,
+        selection: durableSelection,
+        sourceVaultID: sourceVaultID,
+        sourcePageID: pageID,
+        liveDestination: liveDestination
+      ),
+      resolved.sourceVaultID == reference.sourceVaultID,
+      resolved.sourcePageID == reference.sourcePageID,
+      resolved.destination.vaultID == reference.destination.vaultID,
+      resolved.destination.pageID == reference.destination.pageID,
+      !resolved.destination.isDeleted
+    else { return nil }
+    return resolved
   }
 }
 
-private enum NativeRichEditorSaveResult {
-  case success(PageSnapshot)
-  case failure(String)
-  case stale
+@MainActor
+private final class PageReferenceOpeningCoordinator: Sendable {
+  private weak var editor: NativeRichPageEditorState?
+  private let openPage: (PageID) -> Void
+
+  init(editor: NativeRichPageEditorState, openPage: @escaping (PageID) -> Void) {
+    self.editor = editor
+    self.openPage = openPage
+  }
+
+  func flushAndResolve(
+    _ request: NativeRichEditorOpenRequest
+  ) async -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let editor, await editor.flush() else { return nil }
+    return editor.revalidateOpenRequest(request)
+  }
+
+  func open(_ reference: PageReferenceSelectionResolver.ResolvedReference) {
+    openPage(reference.destination.pageID)
+  }
 }
 
 private struct RichPageEditor<Header: View>: View {
@@ -1878,30 +2182,12 @@ private struct RichPageEditor<Header: View>: View {
     case inlinePickerSearch
   }
 
-  private enum EditorMode {
-    case browse
-    case edit
-  }
-
-  private enum CommandDialog: Equatable {
-    case format
-    case insert
-
-    var title: String {
-      switch self {
-      case .format: "Format"
-      case .insert: "Insert"
-      }
-    }
-  }
-
   let page: PageSnapshot
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
   let flushController: EditorFlushController
   let findController: EditorFindController
   let presentation: PageEditorPresentation<Header>
-  let onEditingChanged: (Bool) -> Void
   let openPage: (PageID) -> Void
 
   @State private var editor: NativeRichPageEditorState
@@ -1910,9 +2196,7 @@ private struct RichPageEditor<Header: View>: View {
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @State private var bodyWasFocusedBeforePicker = false
   @State private var pickerSourcePageID: PageID?
-  @State private var editorMode: EditorMode = .browse
-  @State private var isFinishingEditing = false
-  @State private var activeCommandDialog: CommandDialog?
+  @State private var openFailureMessage: String?
 
   init(
     page: PageSnapshot,
@@ -1921,7 +2205,6 @@ private struct RichPageEditor<Header: View>: View {
     flushController: EditorFlushController,
     findController: EditorFindController,
     presentation: PageEditorPresentation<Header>,
-    onEditingChanged: @escaping (Bool) -> Void,
     openPage: @escaping (PageID) -> Void
   ) {
     self.page = page
@@ -1930,7 +2213,6 @@ private struct RichPageEditor<Header: View>: View {
     self.flushController = flushController
     self.findController = findController
     self.presentation = presentation
-    self.onEditingChanged = onEditingChanged
     self.openPage = openPage
     _editor = State(initialValue: NativeRichPageEditorState(store: store))
   }
@@ -1944,65 +2226,37 @@ private struct RichPageEditor<Header: View>: View {
         calendarContextView
 
         if presentation.showsEditableTitle {
-          if editorMode == .browse {
-            Text(editor.title.isEmpty ? "Untitled" : editor.title)
-              .font(.largeTitle.weight(.bold))
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.bottom, 28)
-              .accessibilityIdentifier("page-browser-title")
-              .accessibilityLabel("Page title")
-          } else {
-            TextField("Untitled", text: $editor.title, axis: .vertical)
-              .font(.largeTitle.weight(.bold))
-              .textFieldStyle(.plain)
-              .focused($focusedField, equals: .title)
-              .padding(.bottom, 28)
-              .accessibilityIdentifier("page-editor-title")
-              .accessibilityLabel("Page title")
-              .disabled(editor.isMutationLocked)
-          }
+          TextField("Untitled", text: $editor.title, axis: .vertical)
+            .font(.largeTitle.weight(.bold))
+            .textFieldStyle(.plain)
+            .focused($focusedField, equals: .title)
+            .padding(.bottom, 28)
+            .accessibilityIdentifier("page-editor-title")
+            .accessibilityLabel("Page title")
+            .disabled(editor.isMutationLocked)
         }
 
-        if editorMode == .browse {
+        ZStack(alignment: .topLeading) {
           if editor.body.characters.isEmpty {
             Text("Start writing...")
               .foregroundStyle(.tertiary)
               .padding(.top, 12)
-              .frame(minHeight: 460, alignment: .topLeading)
-              .accessibilityIdentifier("page-browser-empty-body")
-          } else {
-            SemanticBrowseText(
-              plan: browsePlan,
-              palette: PageReferencePalette(contrast: colorSchemeContrast)
-            ) { url in
-              _ = handleBrowseURL(url)
-            }
-              .frame(maxWidth: .infinity, minHeight: 460, alignment: .topLeading)
-              .accessibilityIdentifier("page-browser-body")
+              .allowsHitTesting(false)
           }
-        } else {
-          ZStack(alignment: .topLeading) {
-            if editor.body.characters.isEmpty {
-              Text("Start writing...")
-                .foregroundStyle(.tertiary)
-                .padding(.top, 12)
-                .allowsHitTesting(false)
-            }
 
-            TextEditor(text: $editor.body, selection: $editor.selection)
-              .font(.body)
-              .attributedTextFormattingDefinition(
-                PageReferenceTextFormattingDefinition(
-                  palette: PageReferencePalette(contrast: colorSchemeContrast)
-                )
+          TextEditor(text: $editor.body, selection: $editor.selection)
+            .font(.body)
+            .attributedTextFormattingDefinition(
+              PageReferenceTextFormattingDefinition(
+                palette: PageReferencePalette(contrast: colorSchemeContrast)
               )
-              .focused($focusedField, equals: .body)
-              .scrollContentBackground(.hidden)
-              .frame(minHeight: 460, alignment: .top)
-              .accessibilityIdentifier("page-editor-body")
-              .accessibilityLabel("Page body")
-              .disabled(editor.isMutationLocked)
-          }
+            )
+            .focused($focusedField, equals: .body)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 460, alignment: .top)
+            .accessibilityIdentifier("page-editor-body")
+            .accessibilityLabel("Page body")
+            .disabled(editor.isMutationLocked)
         }
 
         if let errorMessage = editor.interactionErrorMessage ?? editor.errorMessage {
@@ -2021,105 +2275,112 @@ private struct RichPageEditor<Header: View>: View {
     }
     .background(.background)
     .findNavigator(isPresented: $editor.showsFind)
-    #if os(iOS)
-    .confirmationDialog(
-      activeCommandDialog?.title ?? "",
+    .alert(
+      "Couldn’t Open Reference",
       isPresented: Binding(
-        get: { activeCommandDialog != nil },
-        set: { isPresented in
-          if !isPresented {
-            dismissCommandDialog(restoringBodyFocus: true)
-          }
-        }
-      ),
-      titleVisibility: .visible
+        get: { openFailureMessage != nil },
+        set: { if !$0 { openFailureMessage = nil } }
+      )
     ) {
-      switch activeCommandDialog {
-      case .format:
-        Button("Bold") {
-          applyFormatting(.stronglyEmphasized)
-        }
-        Button("Italic") {
-          applyFormatting(.emphasized)
-        }
-        Button("Strikethrough") {
-          applyFormatting(.strikethrough)
-        }
-        Button("Inline Code") {
-          applyFormatting(.code)
-        }
-      case .insert:
-        Button("Insert Page or Date") {
-          presentReferencePicker()
-        }
-        if editor.commandContextHasSelectedText {
-          Button("Apply Supertag") {
-            presentSupertagPicker()
-          }
-        }
-      case nil:
-        EmptyView()
-      }
-
-      Button("Cancel", role: .cancel) {
-        dismissCommandDialog(restoringBodyFocus: true)
-      }
-    }
-    #endif
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        editorModeButton
-      }
+      Button("OK", role: .cancel) { openFailureMessage = nil }
+    } message: {
+      Text(openFailureMessage ?? "")
     }
     #if os(iOS)
     .toolbar {
-      ToolbarItemGroup(placement: .keyboard) {
-        if focusedField == .body, editor.inlinePicker == nil, activeCommandDialog == nil {
-          Button {
-            presentCommandDialog(.format)
+      if focusedField == .body, (editor.inlinePicker == nil || editor.isLiveAtMention) {
+        ToolbarItemGroup(placement: .keyboard) {
+          Menu {
+            Button("Bold") {
+              performFormatting(.stronglyEmphasized)
+            }
+            Button("Italic") {
+              performFormatting(.emphasized)
+            }
+            Button("Strikethrough") {
+              performFormatting(.strikethrough)
+            }
+            Button("Inline Code") {
+              performFormatting(.code)
+            }
           } label: {
             Label("Format", systemImage: "textformat")
           }
-          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-format")
-          .accessibilityLabel("Format")
-          .disabled(editor.isMutationLocked)
+          .disabled(editor.isLoading || editor.isMutationLocked)
+          .tint(.primary)
 
+          Menu {
+            Button {
+              editor.showsFind = true
+            } label: {
+              Label("Find in Page", systemImage: "magnifyingglass")
+            }
+          } label: {
+            Label("More", systemImage: "ellipsis")
+          }
+          .accessibilityIdentifier("page-editor-more")
+          .accessibilityLabel("More")
+          .tint(.primary)
+        }
+
+        ToolbarSpacer(.flexible, placement: .keyboard)
+
+        ToolbarItemGroup(placement: .keyboard) {
+          // Keep this slot and its action closure stable. The target is
+          // captured at the instant of the press, never while SwiftUI renders
+          // the keyboard toolbar.
           Button {
-            presentCommandDialog(.insert)
+            openSelectedReference()
+          } label: {
+            Label("Open Reference", systemImage: "arrow.up.right")
+          }
+          .accessibilityIdentifier("page-editor-open-reference")
+          .disabled(editor.isLoading || editor.isMutationLocked || editor.selectedPageReference() == nil)
+          .tint(.primary)
+
+          Menu {
+            Button("Insert Page or Date") {
+              presentReferencePicker()
+            }
+            if editor.hasSelectedText {
+              Button("Apply Supertag") {
+                presentSupertagPicker()
+              }
+            }
           } label: {
             Label("Insert", systemImage: "plus")
           }
-          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-insert")
-          .accessibilityLabel("Insert")
           .disabled(editor.isLoading || editor.isMutationLocked)
+          .tint(.primary)
         }
 
-        if editorMode == .edit, focusedField != nil || personReferenceNameFocused {
-          Spacer()
+        ToolbarSpacer(.fixed, placement: .keyboard)
 
+        ToolbarItemGroup(placement: .keyboard) {
           Button {
             focusedField = nil
             personReferenceNameFocused = false
           } label: {
             Label("Dismiss Keyboard", systemImage: "keyboard.chevron.compact.down")
           }
-          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-dismiss-keyboard")
-          .accessibilityLabel("Dismiss Keyboard")
+          .tint(.primary)
         }
       }
     }
+    #endif
+    #if os(iOS)
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if editor.inlinePicker != nil {
         inlinePickerTray
       }
     }
     #else
-    .safeAreaInset(edge: .bottom) {
-      if editorMode == .edit {
-        formattingBar
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if focusedField == .body {
+        editorAccessoryBar
       }
     }
     .sheet(isPresented: $editor.isPalettePresented, onDismiss: {
@@ -2133,7 +2394,6 @@ private struct RichPageEditor<Header: View>: View {
         await editor?.flush() ?? true
       }
       findController.register(editor.registrationID) { [weak editor] in
-        editorMode = .edit
         editor?.showsFind = true
       }
     }
@@ -2147,10 +2407,11 @@ private struct RichPageEditor<Header: View>: View {
       personReferenceNameFocused = false
       bodyWasFocusedBeforePicker = false
       pickerSourcePageID = nil
-      editorMode = .browse
-      onEditingChanged(false)
-      isFinishingEditing = false
+      openFailureMessage = nil
       editor.load(page)
+    }
+    .onChange(of: page.heads) { _, _ in
+      editor.receive(page)
     }
     .onChange(of: editor.title) { _, _ in
       editor.contentDidChange(bodyDidChange: false)
@@ -2158,13 +2419,8 @@ private struct RichPageEditor<Header: View>: View {
     .onChange(of: editor.body) { _, _ in
       editor.contentDidChange()
     }
-    .onChange(of: editorMode) { _, mode in
-      #if os(iOS)
-      if mode == .browse {
-        dismissCommandDialog(restoringBodyFocus: false)
-      }
-      #endif
-      onEditingChanged(mode == .edit)
+    .onChange(of: editor.selection) { _, _ in
+      editor.selectionDidChange()
     }
     .onChange(of: focusedField) { _, field in
       #if os(iOS)
@@ -2180,6 +2436,10 @@ private struct RichPageEditor<Header: View>: View {
       if isCreatingPersonReference {
         focusedField = nil
         personReferenceNameFocused = true
+      } else if editor.isLiveAtMention {
+        // The typed `@query` remains the input. Never steal the keyboard to a
+        // second TextField while the compact suggestion card is visible.
+        focusedField = .body
       } else if wasPresented == nil, isPresented != nil {
         bodyWasFocusedBeforePicker = focusedField == .body
         pickerSourcePageID = editor.inlinePickerSourcePageID
@@ -2214,125 +2474,27 @@ private struct RichPageEditor<Header: View>: View {
     #endif
   }
 
-  private var browsePlan: PageReferenceBrowseRenderPlan {
-    PageReferenceBrowseRenderPlan.resolve(
-      from: editor.body,
-      vaultID: store.vaultID
-    ) { pageID in
-      guard let target = store.page(id: pageID), target.deletedAt == nil else { return nil }
-      let supertags = store.supertags
-        .filter { target.objectMetadata.supertagIDs.contains($0.id) }
-        .map {
-          PageReferenceBrowseSupertag(
-            id: $0.id,
-            name: $0.name,
-            symbolName: $0.symbol,
-            isBuiltIn: $0.isBuiltIn
-          )
-        }
-      let displayTitle = target.hasSupertag(BuiltInSupertags.person)
-        ? store.personDisplayName(for: target)
-        : target.displayTitle
-      return PageReferenceBrowseLiveTarget(
-        pageID: target.id,
-        displayTitle: displayTitle,
-        supertags: supertags
-      )
-    }
-  }
-
-  @ViewBuilder
-  private var editorModeButton: some View {
-    switch editorMode {
-    case .browse:
-      Button {
-        editorMode = .edit
-        focusedField = .body
-      } label: {
-        Label("Edit", systemImage: "pencil")
-      }
-      .accessibilityIdentifier("page-editor-edit")
-      .accessibilityLabel("Edit page")
-      .disabled(editor.isLoading || editor.isMutationLocked)
-    case .edit:
-      Button {
-        finishEditing()
-      } label: {
-        Label("Done", systemImage: "checkmark")
-      }
-      .accessibilityIdentifier("page-editor-done")
-      .accessibilityLabel("Finish editing")
-      .disabled(
-        editor.isLoading
-          || editor.isMutationLocked
-          || isInteractionPresented
-          || isFinishingEditing
-      )
-    }
-  }
-
-  private func finishEditing() {
-    guard !isInteractionPresented, !isFinishingEditing else { return }
-    isFinishingEditing = true
-    Task { @MainActor in
-      guard await editor.flush() else {
-        isFinishingEditing = false
-        return
-      }
-      focusedField = nil
-      editorMode = .browse
-      isFinishingEditing = false
-    }
-  }
-
   #if os(iOS)
-  private func presentCommandDialog(_ dialog: CommandDialog) {
-    guard editor.captureCommandContext() != nil else {
-      activeCommandDialog = nil
-      return
-    }
-    activeCommandDialog = dialog
-  }
-
-  private func dismissCommandDialog(restoringBodyFocus: Bool) {
-    activeCommandDialog = nil
-    editor.clearCommandContext()
-    if restoringBodyFocus, editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
-      focusedField = .body
-    }
-  }
-
-  private func applyFormatting(_ intent: InlinePresentationIntent) {
+  private func performFormatting(_ intent: InlinePresentationIntent) {
+    // A Menu leaf executes synchronously. Capture before doing anything that
+    // could cause UIKit to discard the current TextEditor selection.
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.applyFormattingFromCommandContext(intent)
-    activeCommandDialog = nil
-    if editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
+    if !editor.isMutationLocked, editor.inlinePicker == nil {
       focusedField = .body
     }
   }
 
   private func presentReferencePicker() {
-    focusedField = .body
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.showReferencePickerFromCommandContext()
-    activeCommandDialog = nil
   }
 
   private func presentSupertagPicker() {
-    focusedField = .body
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.showSupertagPickerFromCommandContext()
-    activeCommandDialog = nil
   }
   #endif
-
-  private func handleBrowseURL(_ url: URL) -> OpenURLAction.Result {
-    guard let destination = PageReferenceBrowseLink.destination(from: url),
-      destination.vaultID == store.vaultID,
-      let page = store.page(id: destination.pageID),
-      page.deletedAt == nil
-    else { return .discarded }
-
-    openPage(destination.pageID)
-    return .handled
-  }
 
   @ViewBuilder
   private var calendarContextView: some View {
@@ -2348,7 +2510,10 @@ private struct RichPageEditor<Header: View>: View {
               .foregroundStyle(.secondary)
             if let seriesPageID = calendarContext.seriesPageID {
               Button("Open Series Notes") {
-                openPage(seriesPageID)
+                Task { @MainActor in
+                  guard await editor.flush() else { return }
+                  openPage(seriesPageID)
+                }
               }
               .font(.subheadline.weight(.semibold))
             }
@@ -2363,7 +2528,10 @@ private struct RichPageEditor<Header: View>: View {
           }
           ForEach(calendarContext.occurrences) { occurrence in
             Button {
-              openPage(occurrence.pageID)
+              Task { @MainActor in
+                guard await editor.flush() else { return }
+                openPage(occurrence.pageID)
+              }
             } label: {
               Text(occurrence.startDate.formatted(date: .abbreviated, time: occurrence.isAllDay ? .omitted : .shortened))
             }
@@ -2385,7 +2553,7 @@ private struct RichPageEditor<Header: View>: View {
   }
 
   #if os(macOS)
-  private var formattingBar: some View {
+  private var editorAccessoryBar: some View {
     HStack(spacing: 4) {
       Menu {
         Section("Emphasis") {
@@ -2434,6 +2602,16 @@ private struct RichPageEditor<Header: View>: View {
       .accessibilityLabel("Insert")
       .disabled(editor.isLoading || editor.isMutationLocked)
 
+      if let reference = editor.selectedPageReference() {
+        Button {
+          openSelectedReference()
+        } label: {
+          Label("Open \(reference.label)", systemImage: "arrow.up.right")
+        }
+        .accessibilityIdentifier("page-editor-open-reference")
+        .keyboardShortcut(.return, modifiers: [.command])
+        .disabled(editor.isLoading || editor.isMutationLocked)
+      }
     }
     .labelStyle(.iconOnly)
     .buttonStyle(.borderless)
@@ -2443,6 +2621,27 @@ private struct RichPageEditor<Header: View>: View {
     .accessibilityIdentifier("page-editor-keyboard-commands")
   }
   #endif
+
+  private func openSelectedReference() {
+    guard let request = editor.captureOpenRequest() else { return }
+    let coordinator = PageReferenceOpeningCoordinator(editor: editor, openPage: openPage)
+    Task {
+      let opened = await PageReferenceOpenAction.perform(
+        captured: request.reference,
+        flushAndRevalidate: { [coordinator, request] _ in
+          await coordinator.flushAndResolve(request)
+        },
+        open: { [coordinator] revalidated in
+          await coordinator.open(revalidated)
+        }
+      )
+      if !opened {
+        editor.reportOpenFailure()
+        openFailureMessage = editor.interactionErrorMessage ?? editor.errorMessage
+          ?? "The reference is no longer available. Try again."
+      }
+    }
+  }
 
   private func formattingMenuToggle(
     _ title: String,
@@ -2473,16 +2672,11 @@ private struct RichPageEditor<Header: View>: View {
     #endif
   }
 
-  private var isInteractionPresented: Bool {
-    #if os(iOS)
-    activeCommandDialog != nil || isPickerPresented
-    #else
-    isPickerPresented
-    #endif
-  }
-
   @ViewBuilder
   private var inlinePickerTray: some View {
+    if editor.isLiveAtMention {
+      liveMentionCard
+    } else {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
         if isCreatingPersonReference {
@@ -2532,6 +2726,71 @@ private struct RichPageEditor<Header: View>: View {
     }
     .background(.bar)
     .accessibilityIdentifier("page-editor-inline-picker")
+    }
+  }
+
+  private var liveMentionCard: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+      Text("DOCUMENTS")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .accessibilityAddTraits(.isHeader)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+
+      if editor.referenceSuggestions.isEmpty {
+        Text("No matching pages")
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.bottom, 8)
+      } else {
+        ForEach(editor.referenceSuggestions.prefix(6)) { suggestion in
+          Button {
+            editor.chooseReference(suggestion)
+          } label: {
+            HStack(spacing: 12) {
+              Image(systemName: "doc")
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(suggestion.editorDisplayTitle)
+                  .foregroundStyle(.primary)
+                  .lineLimit(1)
+                if let subtitle = suggestion.displaySubtitle {
+                  Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+              }
+              Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("page-editor-live-mention-result-\(suggestion.id.rawValue)")
+        }
+      }
+      }
+    }
+    .frame(maxWidth: 680, alignment: .leading)
+    .frame(maxHeight: 300)
+    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 22, style: .continuous)
+        .strokeBorder(.separator.opacity(0.35))
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .accessibilityIdentifier("page-editor-live-mention-picker")
+    .task(id: editor.referencePickerRequestID) {
+      await editor.refreshReferenceSuggestions()
+    }
   }
 
   private var inlinePickerPrompt: String {
@@ -2562,7 +2821,9 @@ private struct RichPageEditor<Header: View>: View {
   @ViewBuilder
   private var inlineReferenceSuggestions: some View {
     Group {
-      if editor.referenceSuggestions.isEmpty && editor.dailyReferenceSuggestions().isEmpty {
+      if editor.referenceSuggestions.isEmpty
+        && (!editor.referencePickerIncludesDailyNotes || editor.dailyReferenceSuggestions().isEmpty)
+      {
         inlinePickerEmptyState("No matching pages or daily notes")
       } else {
         ForEach(editor.referenceSuggestions.prefix(6)) { suggestion in
@@ -2573,9 +2834,11 @@ private struct RichPageEditor<Header: View>: View {
             editor.chooseReference(suggestion)
           }
         }
-        ForEach(editor.dailyReferenceSuggestions().prefix(4)) { suggestion in
-          inlinePickerRow(title: suggestion.title, subtitle: suggestion.subtitle) {
-            editor.chooseDailyReference(suggestion)
+        if editor.referencePickerIncludesDailyNotes {
+          ForEach(editor.dailyReferenceSuggestions().prefix(4)) { suggestion in
+            inlinePickerRow(title: suggestion.title, subtitle: suggestion.subtitle) {
+              editor.chooseDailyReference(suggestion)
+            }
           }
         }
       }

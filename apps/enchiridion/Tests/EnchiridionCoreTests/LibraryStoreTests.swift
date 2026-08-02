@@ -258,6 +258,7 @@ final class LibraryRepositoryTests: XCTestCase {
       pageID: page.id,
       loadGeneration: 1,
       journalID: "journal-1",
+      baseHeads: page.heads,
       encodedChanges: changes,
       advertisedHeads: pinned.heads
     )
@@ -271,6 +272,76 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(first.dirtyGeneration, duplicate.dirtyGeneration)
     XCTAssertEqual(persisted?.isPinned, true)
     XCTAssertEqual(persisted?.heads, pinned.heads)
+  }
+
+  func testEditorCommitMergesAValidatedStaleDeltaWithCurrentDocument() async throws {
+    let fixture = try RepositoryFixture()
+    let base = try await fixture.repository.createFreePage(title: "Base")
+    let local = try PageDocument.replaceBody(with: "Local draft", in: base.document)
+    let remote = try PageDocument.setPinned(true, in: base.document)
+
+    _ = try await fixture.repository.persistEditorCommit(
+      EditorCommit(
+        pageID: base.id,
+        loadGeneration: 1,
+        journalID: "remote",
+        baseHeads: base.heads,
+        encodedChanges: try PageDocument.encodedChanges(from: remote.document, since: base.heads),
+        advertisedHeads: remote.heads
+      )
+    )
+    let receipt = try await fixture.repository.persistEditorCommit(
+      EditorCommit(
+        pageID: base.id,
+        loadGeneration: 1,
+        journalID: "stale-local",
+        baseHeads: base.heads,
+        encodedChanges: try PageDocument.encodedChanges(from: local.document, since: base.heads),
+        advertisedHeads: local.heads
+      )
+    )
+    let persisted = try await fixture.repository.page(id: base.id)
+
+    XCTAssertEqual(persisted?.plainText, "Local draft")
+    XCTAssertEqual(persisted?.isPinned, true)
+    XCTAssertEqual(persisted?.heads, receipt.heads)
+    XCTAssertNotEqual(receipt.heads, local.heads)
+  }
+
+  func testEditorCommitRejectsMissingBaseAndTamperedAdvertisedHeads() async throws {
+    let fixture = try RepositoryFixture()
+    let page = try await fixture.repository.createFreePage(title: "Base")
+    let edited = try PageDocument.replaceBody(with: "Draft", in: page.document)
+    let changes = try PageDocument.encodedChanges(from: edited.document, since: page.heads)
+
+    await XCTAssertThrowsErrorAsync {
+      try await fixture.repository.persistEditorCommit(
+        EditorCommit(
+          pageID: page.id,
+          loadGeneration: 1,
+          journalID: "missing-base",
+          baseHeads: .empty,
+          encodedChanges: changes,
+          advertisedHeads: edited.heads
+        )
+      )
+    }
+    await XCTAssertThrowsErrorAsync {
+      try await fixture.repository.persistEditorCommit(
+        EditorCommit(
+          pageID: page.id,
+          loadGeneration: 1,
+          journalID: "tampered-heads",
+          baseHeads: page.heads,
+          encodedChanges: changes,
+          advertisedHeads: page.heads
+        )
+      )
+    }
+
+    let persisted = try await fixture.repository.page(id: page.id)
+    XCTAssertEqual(persisted?.heads, page.heads)
+    XCTAssertEqual(persisted?.plainText, page.plainText)
   }
 
   func testRichTextRoundTripPreservesFormattingReferencesAndUnicodeScalarOffsets() throws {
@@ -577,6 +648,7 @@ final class LibraryRepositoryTests: XCTestCase {
       pageID: original.id,
       loadGeneration: 1,
       journalID: "targeted-editor-refresh",
+      baseHeads: original.heads,
       encodedChanges: try PageDocument.encodedChanges(
         from: edited.document,
         since: original.heads
@@ -1764,7 +1836,8 @@ final class LibraryRepositoryTests: XCTestCase {
       )
     }
     let unchanged = try await fixture.repository.page(id: person.id)
-    XCTAssertEqual(unchanged?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
+    XCTAssertEqual(
+      unchanged?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
   }
 
   func testTaggedPersonInsertionSeedsNormalizedEmailAtomically() async throws {
@@ -1788,7 +1861,8 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(backlinks.map(\.id), [source.id])
   }
 
-  func testTaggedInsertionRejectsInvalidSeedAndMismatchedFallbackWithoutPartialState() async throws {
+  func testTaggedInsertionRejectsInvalidSeedAndMismatchedFallbackWithoutPartialState() async throws
+  {
     let fixture = try RepositoryFixture()
     let source = try await fixture.repository.createFreePage(title: "Source")
     let invalidSeed = try taggedPageReferenceRequest(
@@ -1835,7 +1909,8 @@ final class LibraryRepositoryTests: XCTestCase {
     try await fixture.repository.saveSupertag(child)
 
     let source = try await fixture.repository.createFreePage(title: "Source")
-    let inheritedKey = SupertagPropertyKey(supertagID: parent.id, fieldID: .init(rawValue: "website"))
+    let inheritedKey = SupertagPropertyKey(
+      supertagID: parent.id, fieldID: .init(rawValue: "website"))
     let request = try taggedPageReferenceRequest(
       source: source,
       supertagID: child.id,
@@ -1843,7 +1918,8 @@ final class LibraryRepositoryTests: XCTestCase {
     )
 
     let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
-    XCTAssertEqual(result.target.objectMetadata.properties[inheritedKey], [.url("https://example.com")])
+    XCTAssertEqual(
+      result.target.objectMetadata.properties[inheritedKey], [.url("https://example.com")])
   }
 
   func testPersonEmailLookupFindsLegacyCasingAndDoesNotMergeCandidates() async throws {
@@ -1865,6 +1941,7 @@ final class LibraryRepositoryTests: XCTestCase {
       pageID: first.id,
       loadGeneration: 1,
       journalID: UUID().uuidString,
+      baseHeads: first.heads,
       encodedChanges: try PageDocument.encodedChanges(from: legacy.document, since: first.heads),
       advertisedHeads: legacy.heads
     )
@@ -1938,6 +2015,7 @@ final class LibraryRepositoryTests: XCTestCase {
       pageID: person.id,
       loadGeneration: 1,
       journalID: UUID().uuidString,
+      baseHeads: person.heads,
       encodedChanges: try PageDocument.encodedChanges(from: edited.document, since: person.heads),
       advertisedHeads: edited.heads
     )
@@ -2578,11 +2656,12 @@ final class LibraryRepositoryTests: XCTestCase {
       pageID: page.id,
       loadGeneration: 1,
       journalID: "reference-\(UUID().uuidString)",
+      baseHeads: page.heads,
       encodedChanges: try PageDocument.encodedChanges(
         from: updatedDocument,
         since: page.heads
       ),
-      advertisedHeads: .empty
+      advertisedHeads: AutomergeHeads(try Document(updatedDocument).heads().map(\.debugDescription))
     )
   }
 
