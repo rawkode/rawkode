@@ -60,6 +60,7 @@
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */; };
 		70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		748090CC891C45CC36173E26 /* ContactsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */; };
@@ -258,6 +259,7 @@
 		A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticBrowseText.swift; sourceTree = "<group>"; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
+		B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRelationshipPresentationTests.swift; sourceTree = "<group>"; };
 		B4BD02A67B53232AAF5AC5EA /* RealtimeBridge */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RealtimeBridge; path = Sources/SharedUI/Resources/RealtimeBridge; sourceTree = SOURCE_ROOT; };
 		B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantAppIntents.swift; sourceTree = "<group>"; };
 		BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLifecycleActions.swift; sourceTree = "<group>"; };
@@ -467,6 +469,7 @@
 		8F88BB30D151B5058AA0E849 /* EnchiridionMobileTests */ = {
 			isa = PBXGroup;
 			children = (
+				B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */,
 				51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */,
 			);
 			path = EnchiridionMobileTests;
@@ -869,6 +872,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */,
 				6474858D82A6C7D1EC5F34BC /* PageReferenceTextFormattingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

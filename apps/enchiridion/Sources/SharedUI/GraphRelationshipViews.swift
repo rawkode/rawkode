@@ -1,6 +1,72 @@
 import EnchiridionCore
 import SwiftUI
 
+struct CalendarEventRelationshipPresentation: Equatable, Sendable {
+  let title: String
+  let dateText: String
+  let attendeeContextText: String?
+  let accessibilityLabel: String
+  let accessibilityHint: String
+
+  init(relationship: CalendarMeetingRelationship, dateText: String) {
+    title = relationship.event.title
+    self.dateText = dateText
+    attendeeContextText = Self.attendeeContextText(for: relationship.attendeeContext)
+    accessibilityLabel = ([relationship.event.title, dateText, attendeeContextText]
+      .compactMap { $0 }
+      .joined(separator: ", "))
+    accessibilityHint = String(localized: "Imported calendar event. Opens its occurrence note.")
+  }
+
+  static func sectionTitle(for timing: CalendarMeetingRelationship.Timing) -> String {
+    switch timing {
+    case .upcoming: String(localized: "Upcoming events")
+    case .past: String(localized: "Past events")
+    }
+  }
+
+  static func emptyState(for timing: CalendarMeetingRelationship.Timing) -> String {
+    switch timing {
+    case .upcoming: String(localized: "No upcoming events")
+    case .past: String(localized: "No past events")
+    }
+  }
+
+  static var calendarFooter: String {
+    String(localized: "Imported from Calendar. Opening an event creates or opens its occurrence note.")
+  }
+
+  private static func attendeeContextText(
+    for context: CalendarMeetingRelationship.AttendeeContext?
+  ) -> String? {
+    guard let context else { return nil }
+    return [context.role.flatMap(roleText), context.response.flatMap(responseText)]
+      .compactMap { $0 }
+      .joined(separator: " · ")
+      .nonEmpty
+  }
+
+  private static func roleText(_ role: CalendarMeetingRelationship.AttendeeContext.Role) -> String {
+    switch role {
+    case .organizer: String(localized: "Organizer")
+    case .chair: String(localized: "Chair")
+    case .optional: String(localized: "Optional attendee")
+    }
+  }
+
+  private static func responseText(
+    _ response: CalendarMeetingRelationship.AttendeeContext.Response
+  ) -> String {
+    switch response {
+    case .awaitingResponse: String(localized: "Awaiting response")
+    case .tentative: String(localized: "Tentative")
+    case .declined: String(localized: "Declined")
+    case .delegated: String(localized: "Delegated")
+    case .inProgress: String(localized: "In progress")
+    }
+  }
+}
+
 struct GraphRelationshipsView: View {
   let store: LibraryStore
   let pageID: NodeID
@@ -26,9 +92,9 @@ struct GraphRelationshipsView: View {
       }
 
       if isPerson {
-        meetingsSection(title: "Upcoming meetings", timing: .upcoming)
+        meetingsSection(timing: .upcoming)
           .accessibilityIdentifier("meeting-section-upcoming")
-        meetingsSection(title: "Past meetings", timing: .past)
+        meetingsSection(timing: .past)
           .accessibilityIdentifier("meeting-section-past")
       }
 
@@ -100,13 +166,12 @@ struct GraphRelationshipsView: View {
 
   @ViewBuilder
   private func meetingsSection(
-    title: String,
     timing: CalendarMeetingRelationship.Timing
   ) -> some View {
     let visibleMeetings = meetings.filter { $0.timing == timing }
     Section {
       if visibleMeetings.isEmpty {
-        Text(timing == .upcoming ? "No upcoming meetings" : "No past meetings")
+        Text(CalendarEventRelationshipPresentation.emptyState(for: timing))
           .foregroundStyle(.secondary)
       } else {
         ForEach(visibleMeetings) { meeting in
@@ -114,14 +179,18 @@ struct GraphRelationshipsView: View {
         }
       }
     } header: {
-      Label(title, systemImage: "calendar")
+      Label(CalendarEventRelationshipPresentation.sectionTitle(for: timing), systemImage: "calendar")
     } footer: {
-      Text("Imported from Calendar. Opening a meeting creates or opens its occurrence note.")
+      Text(CalendarEventRelationshipPresentation.calendarFooter)
     }
   }
 
   private func calendarMeetingRow(_ meeting: CalendarMeetingRelationship) -> some View {
-    Button {
+    let presentation = CalendarEventRelationshipPresentation(
+      relationship: meeting,
+      dateText: meetingDateText(meeting.event)
+    )
+    return Button {
       Task {
         if let pageID = await store.openCalendarEventPage(meeting.event) {
           onOpenPage?(pageID)
@@ -133,15 +202,17 @@ struct GraphRelationshipsView: View {
           .foregroundStyle(.secondary)
           .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 3) {
-          Text(meeting.event.title)
+          Text(presentation.title)
             .foregroundStyle(.primary)
             .lineLimit(2)
-          Text(meetingDateText(meeting.event))
+          Text(presentation.dateText)
             .font(.subheadline)
             .foregroundStyle(.secondary)
-          Text("\(meeting.attendeeRole.capitalized) · \(meeting.attendeeResponseStatus.capitalized)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          if let attendeeContextText = presentation.attendeeContextText {
+            Text(attendeeContextText)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
         }
         Spacer(minLength: 8)
         Image(systemName: "chevron.right")
@@ -153,10 +224,8 @@ struct GraphRelationshipsView: View {
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier("meeting-row-\(meeting.id)")
-    .accessibilityLabel(
-      "\(meeting.event.title), \(meetingDateText(meeting.event)), \(meeting.attendeeRole), \(meeting.attendeeResponseStatus)"
-    )
-    .accessibilityHint("Imported calendar meeting. Opens its occurrence note.")
+    .accessibilityLabel(presentation.accessibilityLabel)
+    .accessibilityHint(presentation.accessibilityHint)
   }
 
   private var authoringDestinations: [RelationshipPickerDestination] {
@@ -288,6 +357,12 @@ struct GraphRelationshipsView: View {
       get: { errorMessage != nil },
       set: { if !$0 { errorMessage = nil } }
     )
+  }
+}
+
+private extension String {
+  var nonEmpty: String? {
+    isEmpty ? nil : self
   }
 }
 
