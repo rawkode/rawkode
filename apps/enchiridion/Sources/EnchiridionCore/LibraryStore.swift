@@ -442,6 +442,24 @@ public final class LibraryStore {
     return PersonDisplayName.resolved(
       title: page.title,
       emails: emails,
+      origin: page.personOrigin,
+      contactLink: contactLinks[page.id]
+    )
+  }
+
+  public func suggestedLinkedContactName(for page: PageSnapshot) -> String? {
+    let emailKey = SupertagPropertyKey(
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "email")
+    )
+    let emails = (page.objectMetadata.properties[emailKey] ?? []).compactMap { value -> String? in
+      guard case .email(let email) = value else { return nil }
+      return email
+    }
+    return PersonDisplayName.contactNameSuggestion(
+      title: page.title,
+      emails: emails,
+      origin: page.personOrigin,
       contactLink: contactLinks[page.id]
     )
   }
@@ -1445,6 +1463,41 @@ public final class LibraryStore {
     scheduleEditorLiveViewRefresh()
     await syncCoordinator?.pageDidChange(pageID)
     return page
+  }
+
+  public func adoptLinkedContactName(
+    pageID: PageID
+  ) async throws -> PersonContactNameAdoptionOutcome {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
+    }
+    let outcome = try await repository.adoptLinkedContactName(pageID: pageID)
+    switch outcome {
+    case .adopted(let page):
+      cachePerson(page)
+      scheduleEditorLiveViewRefresh()
+      await syncCoordinator?.pageDidChange(page.id)
+    case .unchanged(let page):
+      cachePerson(page)
+    case .unavailable:
+      break
+    }
+    return outcome
+  }
+
+  private func cachePerson(_ page: PageSnapshot) {
+    if page.effectivePersonVisibility == .other {
+      pages.removeAll { $0.id == page.id }
+      if let index = otherPeople.firstIndex(where: { $0.id == page.id }) {
+        otherPeople[index] = page
+      } else {
+        otherPeople.append(page)
+      }
+      return
+    }
+
+    otherPeople.removeAll { $0.id == page.id }
+    cacheEditorPage(page)
   }
 
   private func cacheEditorPage(_ page: PageSnapshot) {

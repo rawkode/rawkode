@@ -123,7 +123,11 @@ struct EntityDetailView: View {
       VStack(alignment: .leading, spacing: selectedSection == .properties ? 14 : 0) {
         if selectedSection == .properties {
           VStack(alignment: .leading, spacing: 6) {
-            Text(page.displayTitle)
+            Text(
+              page.hasSupertag(BuiltInSupertags.person)
+                ? store.personDisplayName(for: page)
+                : page.displayTitle
+            )
               .font(.largeTitle.weight(.semibold))
               .frame(maxWidth: .infinity, alignment: .leading)
               .fixedSize(horizontal: false, vertical: true)

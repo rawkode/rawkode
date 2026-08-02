@@ -1293,6 +1293,56 @@ public actor LibraryRepository {
     }
   }
 
+  /// Explicitly adopts a linked device contact name as the canonical Person title.
+  ///
+  /// Contact links themselves are deliberately local-only. This is the only path that may copy a
+  /// contact name into a page, and the title is rechecked inside the write transaction so it can
+  /// never overwrite a concurrent authored rename.
+  public func adoptLinkedContactName(
+    pageID: PageID,
+    now: Date = Date()
+  ) throws -> PersonContactNameAdoptionOutcome {
+    try database.write { db in
+      guard let current = try Self.fetchPage(db, id: pageID),
+        current.hasSupertag(BuiltInSupertags.person),
+        let link = try Self.contactLink(db, pageID: pageID)
+      else { return .unavailable }
+
+      let emails = Self.personEmails(in: current)
+      guard let contactName = PersonDisplayName.linkedContactName(
+        emails: emails,
+        contactLink: link
+      ) else { return .unavailable }
+      guard PersonDisplayName.isSafeFallbackTitle(
+        current.title,
+        emails: emails,
+        origin: current.personOrigin
+      ) else { return .unchanged(current) }
+      guard contactName != current.title.trimmingCharacters(in: .whitespacesAndNewlines)
+      else { return .unchanged(current) }
+
+      var result: (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection)
+      if current.effectivePersonVisibility == .other {
+        let classification = try PageDocument.setPersonClassification(
+          visibility: .promoted,
+          origin: current.personOrigin ?? .manual,
+          in: current.document
+        )
+        result = try PageDocument.replaceTitle(with: contactName, in: classification.document)
+      } else {
+        result = try PageDocument.replaceTitle(with: contactName, in: current.document)
+      }
+      let updated = Self.updatedPage(current, with: result, now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try db.execute(
+        sql: "UPDATE pages SET person_cloud_eligible = 1 WHERE id = ?",
+        arguments: [updated.id.rawValue]
+      )
+      try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+      return .adopted(updated)
+    }
+  }
+
   public func removeAllContactLinks() throws {
     try database.write { db in
       try db.execute(sql: "DELETE FROM person_contact_links")
@@ -4630,8 +4680,7 @@ public actor LibraryRepository {
       else { continue }
       let pageID = PageID.person(email: email)
       let displayName = identity.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let title = (displayName?.isEmpty == false ? displayName : nil)
-        ?? email.split(separator: "@").first.map(String.init) ?? email
+      let title = (displayName?.isEmpty == false ? displayName : nil) ?? email
       let existing = try fetchPage(db, id: pageID)
       var page = try createPage(
         db,
@@ -5968,6 +6017,7 @@ public actor LibraryRepository {
     return PersonDisplayName.resolved(
       title: page.title,
       emails: emails,
+      origin: page.personOrigin,
       contactLink: link
     )
   }

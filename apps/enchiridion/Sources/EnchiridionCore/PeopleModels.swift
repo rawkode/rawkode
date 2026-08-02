@@ -37,33 +37,82 @@ public enum PersonEmailValidationError: Error, Equatable, LocalizedError, Sendab
 
 /// Resolves the visible Person label without allowing a device contact to overwrite authored data.
 public enum PersonDisplayName {
+  /// The stable email fallback for a Person. Invalid values never take part in identity or display.
+  public static func canonicalEmail(from emails: [String]) -> String? {
+    Array(Set(emails.compactMap { try? PersonEmail.normalize($0) })).sorted().first
+  }
+
+  /// Whether a title is an un-authored fallback that may be replaced by a locally linked contact.
+  ///
+  /// A local-part title is considered a fallback only for the old calendar-attendee projection that
+  /// generated it. A manually named Person with the same text remains authored data.
+  public static func isSafeFallbackTitle(
+    _ title: String,
+    emails: [String],
+    origin: PersonOrigin?
+  ) -> Bool {
+    let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedTitle.isEmpty,
+      normalizedTitle.localizedCaseInsensitiveCompare("Untitled") != .orderedSame
+    else { return true }
+
+    let normalizedEmails = Set(emails.compactMap { try? PersonEmail.normalize($0) })
+    let comparableTitle = PersonEmail.normalizedForComparison(normalizedTitle)
+    if normalizedEmails.contains(comparableTitle) { return true }
+
+    guard origin == .calendarAttendee else { return false }
+    return normalizedEmails.contains { email in
+      comparableTitle == String(email.prefix { $0 != "@" })
+    }
+  }
+
+  public static func linkedContactName(
+    emails: [String],
+    contactLink: PersonContactLink?
+  ) -> String? {
+    guard let contactLink,
+      Set(emails.compactMap { try? PersonEmail.normalize($0) }).contains(
+        PersonEmail.normalizedForComparison(contactLink.matchedEmail)
+      )
+    else { return nil }
+    let name = contactLink.record.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    return name.isEmpty ? nil : name
+  }
+
   public static func resolved(
     title: String,
     emails: [String],
+    origin: PersonOrigin?,
     contactLink: PersonContactLink?
   ) -> String {
     let canonicalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard shouldUseContactFallback(title: canonicalTitle, emails: emails, contactLink: contactLink),
-      let contactName = contactLink?.record.displayName.trimmingCharacters(in: .whitespacesAndNewlines),
-      !contactName.isEmpty
-    else { return canonicalTitle.isEmpty ? "Untitled" : canonicalTitle }
-    return contactName
+    guard isSafeFallbackTitle(canonicalTitle, emails: emails, origin: origin) else {
+      return canonicalTitle
+    }
+    if let contactName = linkedContactName(emails: emails, contactLink: contactLink) {
+      return contactName
+    }
+    return canonicalEmail(from: emails) ?? "Untitled"
   }
 
-  private static func shouldUseContactFallback(
+  public static func contactNameSuggestion(
     title: String,
     emails: [String],
+    origin: PersonOrigin?,
     contactLink: PersonContactLink?
-  ) -> Bool {
-    guard let contactLink else { return false }
-    let normalizedEmails = Set(emails.map(PersonEmail.normalizedForComparison))
-    guard normalizedEmails.contains(contactLink.matchedEmail) else { return false }
-    guard title.isEmpty || title.localizedCaseInsensitiveCompare("Untitled") == .orderedSame
-    else {
-      return normalizedEmails.contains(PersonEmail.normalizedForComparison(title))
-    }
-    return true
+  ) -> String? {
+    guard isSafeFallbackTitle(title, emails: emails, origin: origin),
+      let name = linkedContactName(emails: emails, contactLink: contactLink),
+      name != title.trimmingCharacters(in: .whitespacesAndNewlines)
+    else { return nil }
+    return name
   }
+}
+
+public enum PersonContactNameAdoptionOutcome: Sendable {
+  case adopted(PageSnapshot)
+  case unchanged(PageSnapshot)
+  case unavailable
 }
 
 public enum PersonVisibility: String, Codable, CaseIterable, Hashable, Sendable {

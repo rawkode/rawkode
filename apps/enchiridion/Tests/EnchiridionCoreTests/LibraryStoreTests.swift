@@ -1200,6 +1200,8 @@ final class LibraryRepositoryTests: XCTestCase {
     ]
     try await fixture.repository.replaceCalendarProjection([event], provider: "google")
     let personID = PageID.person(email: "alice@example.com")
+    let persistedBeforeLink = try await fixture.repository.page(id: personID)
+    let beforeLink = try XCTUnwrap(persistedBeforeLink)
     let record = DeviceContactRecord(
       identifier: "device-contact-1",
       displayName: "Alice Example",
@@ -1218,6 +1220,8 @@ final class LibraryRepositoryTests: XCTestCase {
     let storedLink = try await fixture.repository.contactLink(for: personID)
     let candidates = try await fixture.repository.contactCandidates()
     let dirtyPages = try await fixture.repository.dirtyPages()
+    let persistedPerson = try await fixture.repository.page(id: personID)
+    let person = try XCTUnwrap(persistedPerson)
 
     XCTAssertEqual(link.matchedEmail, "alice@example.com")
     XCTAssertEqual(storedLink?.pageID, link.pageID)
@@ -1231,6 +1235,12 @@ final class LibraryRepositoryTests: XCTestCase {
     )
     XCTAssertEqual(candidates.first?.pageID, personID)
     XCTAssertFalse(dirtyPages.contains { $0.id == personID })
+    XCTAssertEqual(person.title, beforeLink.title)
+    XCTAssertEqual(person.heads, beforeLink.heads)
+    XCTAssertEqual(person.dirtyGeneration, beforeLink.dirtyGeneration)
+    XCTAssertEqual(person.effectivePersonVisibility, .other)
+    let cloudEligibleAfterLink = try await fixture.repository.cloudEligiblePage(pageID: personID)
+    XCTAssertNil(cloudEligibleAfterLink)
     await XCTAssertThrowsErrorAsync {
       _ = try await fixture.repository.saveContactLink(
         record,
@@ -1270,12 +1280,18 @@ final class LibraryRepositoryTests: XCTestCase {
     ])
     let store = LibraryStore(repository: fixture.repository, startImmediately: false)
     await store.reload()
+    let titleBeforeRefresh = try XCTUnwrap(store.page(id: personID)).title
+    let headsBeforeRefresh = try XCTUnwrap(store.page(id: personID)).heads
 
     await store.refreshContactEnrichment(using: resolver)
 
     XCTAssertEqual(store.contactLinks[personID]?.record.displayName, "Device Person")
     XCTAssertEqual(store.otherPeople.first { $0.id == personID }?.effectivePersonVisibility, .other)
     XCTAssertFalse(store.pages.contains { $0.id == personID })
+    XCTAssertEqual(store.otherPeople.first { $0.id == personID }?.title, titleBeforeRefresh)
+    XCTAssertEqual(store.otherPeople.first { $0.id == personID }?.heads, headsBeforeRefresh)
+    let cloudEligibleAfterRefresh = try await fixture.repository.cloudEligiblePage(pageID: personID)
+    XCTAssertNil(cloudEligibleAfterRefresh)
 
     let emptyResolver = StubContactResolver(contacts: [:])
     await store.refreshContactEnrichment(using: emptyResolver)
@@ -1975,6 +1991,480 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertNil(contactLink)
     await store.reload()
     XCTAssertNil(store.contactLinks[person.id])
+  }
+
+  func testPersonDisplayNameUsesDurableTitleThenLocalContactThenCanonicalEmail() {
+    let pageID = PageID(rawValue: "person-display-precedence")
+    let namedContact = PersonContactLink(
+      pageID: pageID,
+      contactIdentifier: "contact",
+      matchedEmail: "a@example.com",
+      record: .init(
+        identifier: "contact",
+        displayName: "Marissa Antonia Flanagan",
+        emails: ["a@example.com"]
+      ),
+      refreshedAt: .distantPast
+    )
+    let emptyContact = PersonContactLink(
+      pageID: pageID,
+      contactIdentifier: "empty-contact",
+      matchedEmail: "a@example.com",
+      record: .init(identifier: "empty-contact", displayName: "  ", emails: ["a@example.com"]),
+      refreshedAt: .distantPast
+    )
+    let emails = [" Z@example.com ", "a@example.com", "A@example.com"]
+
+    XCTAssertEqual(PersonDisplayName.canonicalEmail(from: emails), "a@example.com")
+    XCTAssertEqual(PersonDisplayName.canonicalEmail(from: emails.reversed()), "a@example.com")
+    XCTAssertTrue(
+      PersonDisplayName.isSafeFallbackTitle(
+        "z",
+        emails: emails,
+        origin: .calendarAttendee
+      )
+    )
+    XCTAssertFalse(
+      PersonDisplayName.isSafeFallbackTitle(
+        "z",
+        emails: emails,
+        origin: .manual
+      )
+    )
+
+    XCTAssertEqual(
+      PersonDisplayName.resolved(
+        title: "Marissa Flanagan",
+        emails: emails,
+        origin: .manual,
+        contactLink: namedContact
+      ),
+      "Marissa Flanagan"
+    )
+    XCTAssertEqual(
+      PersonDisplayName.resolved(
+        title: "Z@example.com",
+        emails: emails,
+        origin: .manual,
+        contactLink: namedContact
+      ),
+      "Marissa Antonia Flanagan"
+    )
+    XCTAssertEqual(
+      PersonDisplayName.resolved(
+        title: "Untitled",
+        emails: emails,
+        origin: .manual,
+        contactLink: emptyContact
+      ),
+      "a@example.com"
+    )
+    XCTAssertEqual(
+      PersonDisplayName.resolved(
+        title: "marissa",
+        emails: ["marissa@example.com"],
+        origin: .calendarAttendee,
+        contactLink: PersonContactLink(
+          pageID: pageID,
+          contactIdentifier: "marissa-contact",
+          matchedEmail: "marissa@example.com",
+          record: .init(
+            identifier: "marissa-contact",
+            displayName: "Marissa Antonia Flanagan",
+            emails: ["marissa@example.com"]
+          ),
+          refreshedAt: .distantPast
+        )
+      ),
+      "Marissa Antonia Flanagan"
+    )
+    XCTAssertEqual(
+      PersonDisplayName.resolved(
+        title: "marissa",
+        emails: ["marissa@example.com"],
+        origin: .manual,
+        contactLink: PersonContactLink(
+          pageID: pageID,
+          contactIdentifier: "marissa-contact",
+          matchedEmail: "marissa@example.com",
+          record: .init(
+            identifier: "marissa-contact",
+            displayName: "Marissa Antonia Flanagan",
+            emails: ["marissa@example.com"]
+          ),
+          refreshedAt: .distantPast
+        )
+      ),
+      "marissa"
+    )
+  }
+
+  @MainActor
+  func testExplicitContactNameAdoptionPersistsOnlySafeTitlesAndRefreshCannotOverwriteIt() async throws {
+    let fixture = try RepositoryFixture()
+    let person = try await fixture.repository.createTaggedPage(
+      title: "marissa@example.com",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+    let persistedInitial = try await fixture.repository.page(id: person.id)
+    let initial = try XCTUnwrap(persistedInitial)
+    _ = try await fixture.repository.markCloudSaved(
+      pageID: person.id,
+      sentGeneration: initial.dirtyGeneration,
+      systemFields: Data()
+    )
+    let contact = DeviceContactRecord(
+      identifier: "marissa-contact",
+      displayName: "Marissa Antonia Flanagan",
+      emails: ["marissa@example.com"]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      contact,
+      for: person.id,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    let outcome = try await store.adoptLinkedContactName(pageID: person.id)
+    guard case .adopted(let adopted) = outcome else {
+      return XCTFail("Expected the explicitly selected contact name to be adopted")
+    }
+    XCTAssertEqual(adopted.title, "Marissa Antonia Flanagan")
+    XCTAssertEqual(store.page(id: person.id)?.title, "Marissa Antonia Flanagan")
+    XCTAssertEqual(adopted.effectivePersonVisibility, .promoted)
+    let cloudEligible = try await fixture.repository.cloudEligiblePage(pageID: person.id)
+    XCTAssertEqual(cloudEligible?.id, person.id)
+    let dirtyPages = try await fixture.repository.dirtyPages()
+    XCTAssertTrue(dirtyPages.contains { $0.id == person.id })
+
+    await store.refreshContactEnrichment(using: StubContactResolver(contacts: [:]))
+    XCTAssertEqual(store.page(id: person.id)?.title, "Marissa Antonia Flanagan")
+    XCTAssertNil(store.contactLinks[person.id])
+  }
+
+  @MainActor
+  func testContactNameAdoptionNeverOverwritesAnAuthoredOrManualLocalPartTitle() async throws {
+    let fixture = try RepositoryFixture()
+    let person = try await fixture.repository.createTaggedPage(
+      title: "marissa",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "marissa-contact",
+        displayName: "Marissa Antonia Flanagan",
+        emails: ["marissa@example.com"]
+      ),
+      for: person.id,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+    let original = try XCTUnwrap(store.page(id: person.id))
+
+    let outcome = try await store.adoptLinkedContactName(pageID: person.id)
+    guard case .unchanged(let unchanged) = outcome else {
+      return XCTFail("A manual local-part title is authored data")
+    }
+    XCTAssertEqual(unchanged.title, "marissa")
+    XCTAssertEqual(unchanged.heads, original.heads)
+    XCTAssertEqual(store.page(id: person.id)?.title, "marissa")
+  }
+
+  @MainActor
+  func testLegacyCalendarLocalPartTitleCanExplicitlyAdoptLinkedContactName() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "legacy-local-part-attendee",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: "marissa@example.com",
+        displayName: nil,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let personID = PageID.person(email: "marissa@example.com")
+    _ = try await fixture.repository.renamePage(pageID: personID, title: "marissa")
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "marissa-contact",
+        displayName: "Marissa Antonia Flanagan",
+        emails: ["marissa@example.com"]
+      ),
+      for: personID,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    let outcome = try await store.adoptLinkedContactName(pageID: personID)
+    guard case .adopted(let adopted) = outcome else {
+      return XCTFail("Expected a legacy calendar local-part title to be explicitly adoptable")
+    }
+    XCTAssertEqual(adopted.title, "Marissa Antonia Flanagan")
+    XCTAssertEqual(store.page(id: personID)?.effectivePersonVisibility, .promoted)
+    XCTAssertTrue(store.pages.contains { $0.id == personID })
+    XCTAssertFalse(store.otherPeople.contains { $0.id == personID })
+    let cloudEligible = try await fixture.repository.cloudEligiblePage(pageID: personID)
+    XCTAssertEqual(cloudEligible?.id, personID)
+  }
+
+  @MainActor
+  func testLegacyCalendarNoncanonicalEmailLocalPartCanAdoptButManualCannot() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "legacy-noncanonical-local-part",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: "z@example.com",
+        displayName: nil,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let calendarPersonID = PageID.person(email: "z@example.com")
+    try await fixture.repository.setProperty(
+      pageID: calendarPersonID,
+      key: personEmailKey,
+      values: [.email("z@example.com"), .email("a@example.com")]
+    )
+    _ = try await fixture.repository.renamePage(pageID: calendarPersonID, title: "z")
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "z-contact",
+        displayName: "Zoe Example",
+        emails: ["z@example.com"]
+      ),
+      for: calendarPersonID,
+      matchedEmail: "z@example.com"
+    )
+
+    let manualPerson = try await fixture.repository.createTaggedPage(
+      title: "z",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: manualPerson.id,
+      key: personEmailKey,
+      values: [.email("z@example.com"), .email("a@example.com")]
+    )
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "manual-z-contact",
+        displayName: "Zoe Example",
+        emails: ["z@example.com"]
+      ),
+      for: manualPerson.id,
+      matchedEmail: "z@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    let calendarOutcome = try await store.adoptLinkedContactName(pageID: calendarPersonID)
+    guard case .adopted(let calendarPerson) = calendarOutcome else {
+      return XCTFail("A legacy local part from any Person email is adoptable")
+    }
+    XCTAssertEqual(calendarPerson.title, "Zoe Example")
+
+    let manualOutcome = try await store.adoptLinkedContactName(pageID: manualPerson.id)
+    guard case .unchanged(let unchangedManual) = manualOutcome else {
+      return XCTFail("A manual local part remains authored data")
+    }
+    XCTAssertEqual(unchangedManual.title, "z")
+  }
+
+  @MainActor
+  func testUnavailableContactNameAdoptionLeavesPageAndCloudStateUnchanged() async throws {
+    let fixture = try RepositoryFixture()
+    let person = try await fixture.repository.createTaggedPage(
+      title: "marissa@example.com",
+      supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: person.id,
+      key: personEmailKey,
+      values: [.email("marissa@example.com")]
+    )
+    let storedPerson = try await fixture.repository.page(id: person.id)
+    let persisted = try XCTUnwrap(storedPerson)
+    _ = try await fixture.repository.markCloudSaved(
+      pageID: person.id,
+      sentGeneration: persisted.dirtyGeneration,
+      systemFields: Data()
+    )
+    let cloudEligibleBefore = try await fixture.repository.cloudEligiblePage(pageID: person.id)
+    let dirtyIDsBefore = Set(try await fixture.repository.dirtyPages().map(\.id))
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    let outcome = try await store.adoptLinkedContactName(pageID: person.id)
+    guard case .unavailable = outcome else {
+      return XCTFail("A Person without a linked contact has no adoption action")
+    }
+    let storedUnchanged = try await fixture.repository.page(id: person.id)
+    let unchanged = try XCTUnwrap(storedUnchanged)
+    XCTAssertEqual(unchanged.title, persisted.title)
+    XCTAssertEqual(unchanged.heads, persisted.heads)
+    XCTAssertEqual(unchanged.dirtyGeneration, persisted.dirtyGeneration)
+    let cloudEligible = try await fixture.repository.cloudEligiblePage(pageID: person.id)
+    let dirtyIDsAfter = Set(try await fixture.repository.dirtyPages().map(\.id))
+    XCTAssertEqual(cloudEligible?.id, cloudEligibleBefore?.id)
+    XCTAssertEqual(dirtyIDsAfter, dirtyIDsBefore)
+    XCTAssertEqual(store.page(id: person.id)?.title, persisted.title)
+  }
+
+  @MainActor
+  func testSameTitleContactAdoptionLeavesCalendarPersonLocalAndUnchanged() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "same-title-contact-adoption",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: "marissa@example.com",
+        displayName: nil,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let personID = PageID.person(email: "marissa@example.com")
+    let storedBeforeLink = try await fixture.repository.page(id: personID)
+    let beforeLink = try XCTUnwrap(storedBeforeLink)
+    let dirtyIDsBefore = Set(try await fixture.repository.dirtyPages().map(\.id))
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "same-title-contact",
+        displayName: "marissa@example.com",
+        emails: ["marissa@example.com"]
+      ),
+      for: personID,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+
+    let outcome = try await store.adoptLinkedContactName(pageID: personID)
+    guard case .unchanged(let unchanged) = outcome else {
+      return XCTFail("A contact name already equal to the title must not promote or sync")
+    }
+    let storedAfter = try await fixture.repository.page(id: personID)
+    let after = try XCTUnwrap(storedAfter)
+    let dirtyIDsAfter = Set(try await fixture.repository.dirtyPages().map(\.id))
+    let cloudEligibleAfter = try await fixture.repository.cloudEligiblePage(pageID: personID)
+    XCTAssertEqual(unchanged.title, beforeLink.title)
+    XCTAssertEqual(after.heads, beforeLink.heads)
+    XCTAssertEqual(after.dirtyGeneration, beforeLink.dirtyGeneration)
+    XCTAssertEqual(after.effectivePersonVisibility, .other)
+    XCTAssertEqual(dirtyIDsAfter, dirtyIDsBefore)
+    XCTAssertNil(cloudEligibleAfter)
+    XCTAssertTrue(store.otherPeople.contains { $0.id == personID })
+    XCTAssertFalse(store.pages.contains { $0.id == personID })
+  }
+
+  @MainActor
+  func testUnchangedAdoptionReconcilesStoreUsingCurrentPersonClassification() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "stale-person-classification",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: "marissa@example.com",
+        displayName: nil,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let personID = PageID.person(email: "marissa@example.com")
+    _ = try await fixture.repository.renamePage(pageID: personID, title: "Marissa Flanagan")
+    _ = try await fixture.repository.saveContactLink(
+      .init(
+        identifier: "stale-classification-contact",
+        displayName: "Marissa Antonia Flanagan",
+        emails: ["marissa@example.com"]
+      ),
+      for: personID,
+      matchedEmail: "marissa@example.com"
+    )
+    let store = LibraryStore(repository: fixture.repository, startImmediately: false)
+    await store.reload()
+    XCTAssertTrue(store.otherPeople.contains { $0.id == personID })
+
+    _ = try await fixture.repository.promotePerson(pageID: personID)
+    let outcome = try await store.adoptLinkedContactName(pageID: personID)
+    guard case .unchanged(let unchanged) = outcome else {
+      return XCTFail("An authored title must remain unchanged after a concurrent promotion")
+    }
+    XCTAssertEqual(unchanged.effectivePersonVisibility, .promoted)
+    XCTAssertTrue(store.pages.contains { $0.id == personID })
+    XCTAssertFalse(store.otherPeople.contains { $0.id == personID })
+  }
+
+  func testCalendarAttendeeWithoutNameUsesFullCanonicalEmail() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit",
+      id: "unnamed-attendee",
+      start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.attendees = [
+      .init(
+        email: " Marissa@Example.com ",
+        displayName: nil,
+        role: "attendee",
+        responseStatus: "accepted",
+        isCurrentUser: false
+      )
+    ]
+
+    try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let person = try await fixture.repository.page(id: .person(email: "marissa@example.com"))
+    XCTAssertEqual(person?.title, "marissa@example.com")
   }
 
   @MainActor
