@@ -62,6 +62,42 @@ public struct PersonEmailCandidate: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
+/// A durable CloudKit intent created only when Person privacy crosses the local-only boundary.
+/// Unlike `cloud_dirty`, this remains present while an older save/delete acknowledgement is in
+/// flight, allowing the repository to compensate in the opposite direction.
+public enum CloudPrivacyDesiredOperation: String, Codable, Hashable, Sendable {
+  case save
+  case delete
+}
+
+public struct CloudPrivacyRemoval: Hashable, Sendable {
+  public var pageID: PageID
+  public var generation: Int64
+
+  public init(pageID: PageID, generation: Int64) {
+    self.pageID = pageID
+    self.generation = generation
+  }
+}
+
+public struct CloudPrivacySave: Hashable, Sendable {
+  public var pageID: PageID
+  public var desiredGeneration: Int64
+  public var pageDirtyGeneration: Int64
+
+  public init(pageID: PageID, desiredGeneration: Int64, pageDirtyGeneration: Int64) {
+    self.pageID = pageID
+    self.desiredGeneration = desiredGeneration
+    self.pageDirtyGeneration = pageDirtyGeneration
+  }
+}
+
+public enum CloudPrivacyAcknowledgement: Hashable, Sendable {
+  case none
+  case save(PageID)
+  case delete(CloudPrivacyRemoval)
+}
+
 public struct EditorCommit: Codable, Hashable, Sendable {
   public var pageID: PageID
   public var loadGeneration: Int
@@ -1360,6 +1396,149 @@ public actor LibraryRepository {
     try addSupertag(supertagID, to: page.id, now: now)
     guard let updated = try self.page(id: page.id) else { throw LibraryRepositoryError.pageNotFound }
     return updated
+  }
+
+  /// Creates (or explicitly resolves) a typed entity and its canonical graph
+  /// edge in one transaction. It is intentionally separate from editor inline
+  /// references: the relation is durable graph state, not rich text markup.
+  public func createEntityAndRelationship(
+    _ request: CreateEntityAndRelationshipRequest,
+    now: Date = Date()
+  ) throws -> EntityRelationshipMutationReceipt {
+    try database.write { db in
+      let title = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
+      let explicitPersonResolution: (pageID: PageID, matchingEmail: String)?
+      switch request.existingPersonResolution {
+      case .none:
+        explicitPersonResolution = nil
+      case .useExisting:
+        // The original payload did not contain the lookup email, so accepting it would make a
+        // stale asynchronous picker indistinguishable from a deliberate selection.
+        throw GraphRelationshipAuthoringError.invalidPersonSelection
+      case .useExistingMatchingEmail(let pageID, let matchingEmail):
+        explicitPersonResolution = (pageID, try PersonEmail.normalize(matchingEmail))
+      }
+      guard explicitPersonResolution != nil || !title.isEmpty else {
+        throw GraphRelationshipAuthoringError.invalidTitle
+      }
+      guard let relation = try Row.fetchOne(
+        db,
+        sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ? AND is_deleted = 0",
+        arguments: [request.intent.relation.id.rawValue]
+      ).flatMap(Self.decodeRelation) else {
+        throw GraphModelError.unknownRelation(request.intent.relation.id)
+      }
+      guard let presented = try Self.fetchPage(db, id: request.intent.presentedSourceID),
+        presented.deletedAt == nil
+      else { throw GraphModelError.invalidEndpoint }
+
+      let presentedTags = try Self.effectiveTagIDs(db, nodeID: presented.id)
+      let presentedRequirements = request.intent.direction == .forward
+        ? relation.sourceTagIDs
+        : relation.targetTagIDs
+      guard presentedRequirements.isEmpty || !presentedTags.isDisjoint(with: presentedRequirements)
+      else { throw GraphModelError.invalidEndpoint }
+      guard try Self.hasLiveSupertag(db, id: request.selectedTargetTypeID) else {
+        throw GraphRelationshipAuthoringError.incompatibleType
+      }
+      let definitions = try Row.fetchAll(
+        db,
+        sql: "SELECT definition_json FROM supertag_schemas WHERE deleted = 0"
+      ).compactMap { row -> SupertagDefinition? in
+        guard let data: Data = row["definition_json"] else { return nil }
+        return try? JSONDecoder.enchiridion.decode(SupertagDefinition.self, from: data)
+      }
+      let selectedEffectiveTags = SupertagInheritance.effectiveTagIDs(
+        for: Set([request.selectedTargetTypeID]), definitions: definitions
+      )
+      let targetRequirements = request.intent.direction == .forward
+        ? relation.targetTagIDs
+        : relation.sourceTagIDs
+      guard targetRequirements.isEmpty || !selectedEffectiveTags.isDisjoint(with: targetRequirements),
+        request.intent.compatibleTargetTypeIDs.contains(request.selectedTargetTypeID)
+      else { throw GraphRelationshipAuthoringError.incompatibleType }
+
+      let initialProperties: [SupertagPropertyKey: [SupertagValue]]
+      do {
+        initialProperties = try Self.validatedInitialProperties(
+          request.initialProperties,
+          targetSupertagID: request.selectedTargetTypeID,
+          db: db
+        )
+      } catch {
+        throw GraphRelationshipAuthoringError.invalidProperties
+      }
+
+      let isPerson = selectedEffectiveTags.contains(BuiltInSupertags.person)
+      let normalizedEmails = try initialProperties[Self.personEmailKey, default: []].compactMap { value -> String? in
+        guard case .email(let email) = value else { return nil }
+        return try PersonEmail.normalize(email)
+      }
+      var entity: PageSnapshot
+      if let resolution = explicitPersonResolution {
+        guard isPerson, initialProperties.isEmpty else {
+          throw GraphRelationshipAuthoringError.invalidProperties
+        }
+        let candidates = try Self.personEmailCandidates(
+          db,
+          matchingNormalizedEmail: resolution.matchingEmail
+        )
+        guard candidates.contains(where: { $0.pageID == resolution.pageID }),
+          let page = try Self.fetchPage(db, id: resolution.pageID),
+          page.deletedAt == nil
+        else { throw GraphRelationshipAuthoringError.invalidPersonSelection }
+        let selectedTags = try Self.effectiveTagIDs(db, nodeID: page.id)
+        guard selectedTags.contains(BuiltInSupertags.person),
+          targetRequirements.isEmpty || !selectedTags.isDisjoint(with: targetRequirements)
+        else { throw GraphRelationshipAuthoringError.invalidPersonSelection }
+        // Explicit reuse creates only the canonical edge. The target's title, tags, properties,
+        // classification, and cloud eligibility remain exactly as the user last set them.
+        entity = page
+      } else if isPerson, let email = normalizedEmails.first {
+        let candidates = try Self.personEmailCandidates(db, matchingNormalizedEmail: email)
+        if candidates.isEmpty {
+          entity = try Self.createRelationshipEntity(
+            title: title,
+            supertagID: request.selectedTargetTypeID,
+            initialProperties: initialProperties,
+            isEffectivePerson: isPerson,
+            now: now,
+            db: db
+          )
+        } else {
+          // A matching Person, including a calendar-backed projection, is never adopted by an
+          // implicit create request. Reusing it requires the explicit, link-only resolution
+          // above so a stale picker cannot alter another person's title, tags, or privacy.
+          throw GraphRelationshipAuthoringError.personSelectionRequired
+        }
+      } else {
+        entity = try Self.createRelationshipEntity(
+          title: title,
+          supertagID: request.selectedTargetTypeID,
+          initialProperties: initialProperties,
+          isEffectivePerson: isPerson,
+          now: now,
+          db: db
+        )
+      }
+
+      let endpoints = request.intent.canonicalEndpoints(selectedTargetID: entity.id)
+      let edge = try Self.createEdge(
+        in: db,
+        relationID: relation.id,
+        from: endpoints.source,
+        to: endpoints.target,
+        now: now
+      )
+      let changedIDs = Array(Set([entity.id, endpoints.source])).sorted { $0.rawValue < $1.rawValue }
+      return EntityRelationshipMutationReceipt(
+        entity: entity,
+        edge: edge,
+        canonicalSourceID: endpoints.source,
+        canonicalTargetID: endpoints.target,
+        changedPageIDs: changedIDs
+      )
+    }
   }
 
   /// Atomically creates a tagged target page and persists a reference to it in
@@ -3101,28 +3280,31 @@ public actor LibraryRepository {
     try mutateDocument(pageID: pageID, now: now) { current in
       try Self.addingSupertag(supertagID, in: current.document)
     }
+    try database.write { db in
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
+    }
   }
 
   public func removeSupertag(_ supertagID: SupertagID, from pageID: PageID, now: Date = Date()) throws {
-    try mutateDocument(pageID: pageID, now: now) { current in
+    try mutateDocument(
+      pageID: pageID,
+      now: now,
+      afterWrite: { db, _ in
+        guard supertagID == BuiltInSupertags.person else { return }
+        // Removing an explicit Person tag removes its classification, but it is not a privacy
+        // promotion. Reconciliation below preserves the page's already-established eligibility.
+        try db.execute(
+          sql: "UPDATE pages SET person_visibility = NULL, person_origin = NULL WHERE id = ?",
+          arguments: [pageID.rawValue]
+        )
+      }
+    ) { current in
       let untagged = try PageDocument.removeSupertag(supertagID, in: current.document)
       guard supertagID == BuiltInSupertags.person else { return untagged }
       return try PageDocument.clearPersonClassification(in: untagged.document)
     }
-    if supertagID == BuiltInSupertags.person {
-      try database.write { db in
-        try db.execute(
-          sql: """
-            UPDATE pages
-            SET person_visibility = NULL,
-                person_origin = NULL,
-                person_cloud_eligible = 1,
-                cloud_dirty = 1
-            WHERE id = ?
-            """,
-          arguments: [pageID.rawValue]
-        )
-      }
+    try database.write { db in
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
     }
   }
 
@@ -3243,6 +3425,7 @@ public actor LibraryRepository {
         ]
       )
       try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
       try GraphProjectionStore.refreshIssues(in: db)
     }
   }
@@ -3346,6 +3529,7 @@ public actor LibraryRepository {
         ]
       )
       try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
       try GraphProjectionStore.refreshIssues(in: db)
       return false
     }
@@ -3376,6 +3560,7 @@ public actor LibraryRepository {
         arguments: [id.rawValue]
       )
       try GraphDatabaseSchema.rebuildTagClosure(in: db)
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
       try GraphProjectionStore.refreshIssues(in: db)
       return false
     }
@@ -4047,6 +4232,89 @@ public actor LibraryRepository {
     }
   }
 
+  /// Returns provider-owned meeting projections for a Person without creating a
+  /// page, edge, or any other durable record.
+  public func calendarMeetingRelationships(
+    for personID: PageID,
+    now: Date = Date()
+  ) throws -> [CalendarMeetingRelationship] {
+    try database.read { db in
+      guard let person = try Self.fetchPage(db, id: personID),
+        person.deletedAt == nil,
+        try Self.effectiveTagIDs(db, nodeID: personID).contains(BuiltInSupertags.person)
+      else { return [] }
+
+      // Attendee mappings stay anchored to deterministic, provider-owned Person
+      // IDs. At read time, every live Person with an exact normalized email is
+      // intentionally a peer of that mapping, so duplicate user-visible People
+      // sharing an email see the same meetings without mutating either record.
+      let normalizedEmails = Set(
+        Self.personEmails(in: person).compactMap { rawEmail in
+          try? PersonEmail.normalize(rawEmail)
+        }
+      )
+      guard !normalizedEmails.isEmpty else { return [] }
+      let sortedEmails = normalizedEmails.sorted()
+      let placeholders = Array(repeating: "?", count: sortedEmails.count).joined(separator: ",")
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT e.event_json,
+                 a.role AS attendee_role,
+                 a.response_status AS attendee_response_status,
+                 COALESCE(alias.canonical_key, e.series_canonical_key) AS canonical_series_key
+          FROM calendar_events e
+          JOIN calendar_event_attendees a ON a.event_key = e.event_key
+          LEFT JOIN calendar_series_aliases alias ON alias.source_key = e.series_source_key
+          WHERE e.active = 1 AND a.email IN (\(placeholders))
+          """,
+        arguments: StatementArguments(sortedEmails)
+      )
+
+      var byOccurrenceKey: [String: CalendarMeetingRelationship] = [:]
+      for row in rows {
+        guard let data: Data = row["event_json"],
+          var event = try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data),
+          let role: String = row["attendee_role"],
+          let responseStatus: String = row["attendee_response_status"]
+        else { continue }
+        if let canonicalSeriesKey: String = row["canonical_series_key"],
+          let series = event.identity.series
+        {
+          event.identity.series = series.resolved(to: Self.rawKey(canonicalSeriesKey))
+        }
+        let occurrenceKey = event.identity.series == nil
+          ? event.identity.stableKey
+          : event.identity.canonicalOccurrenceKey
+        let timing: CalendarMeetingRelationship.Timing = event.endDate >= now ? .upcoming : .past
+        let candidate = CalendarMeetingRelationship(
+          id: occurrenceKey,
+          event: event,
+          attendeeRole: role,
+          attendeeResponseStatus: responseStatus,
+          timing: timing
+        )
+        if let existing = byOccurrenceKey[occurrenceKey] {
+          let existingWinner = "\(existing.event.identity.provider)\u{0}\(existing.event.identity.stableKey)"
+          let candidateWinner = "\(event.identity.provider)\u{0}\(event.identity.stableKey)"
+          if candidateWinner < existingWinner { byOccurrenceKey[occurrenceKey] = candidate }
+        } else {
+          byOccurrenceKey[occurrenceKey] = candidate
+        }
+      }
+      return byOccurrenceKey.values.sorted { lhs, rhs in
+        switch (lhs.timing, rhs.timing) {
+        case (.upcoming, .past): return true
+        case (.past, .upcoming): return false
+        case (.upcoming, .upcoming):
+          return lhs.event.startDate == rhs.event.startDate ? lhs.id < rhs.id : lhs.event.startDate < rhs.event.startDate
+        case (.past, .past):
+          return lhs.event.startDate == rhs.event.startDate ? lhs.id < rhs.id : lhs.event.startDate > rhs.event.startDate
+        }
+      }
+    }
+  }
+
   public func calendarPageContexts() throws -> [PageID: CalendarPageContext] {
     try database.read { db in
       let pages = try Row.fetchAll(
@@ -4109,8 +4377,9 @@ public actor LibraryRepository {
   }
 
   public func dirtyPages() throws -> [PageSnapshot] {
-    try database.read { db in
-      try Row.fetchAll(
+    try database.write { db in
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
+      return try Row.fetchAll(
         db,
         sql: """
           SELECT * FROM pages
@@ -4132,6 +4401,309 @@ public actor LibraryRepository {
         sql: "SELECT * FROM pages WHERE id = ? AND person_cloud_eligible = 1",
         arguments: [pageID.rawValue]
       ).map(Self.decodePage)
+    }
+  }
+
+  /// Claims current privacy-removal delete intents. The desired row remains after a successful
+  /// acknowledgement so a steady local-only Person never recreates the deletion.
+  public func claimCloudPrivacyRemovalsForSync() throws -> [CloudPrivacyRemoval] {
+    try database.write { db in
+      try LibraryRepository.reconcileCloudPrivacyDesiredStates(in: db)
+      let removals = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT page_id,generation FROM page_cloud_privacy_states
+          WHERE desired_operation = 'delete'
+            AND acknowledged_generation < generation
+            AND enqueued_generation < generation
+          ORDER BY page_id
+          """
+      ).compactMap { row -> CloudPrivacyRemoval? in
+        guard let id: String = row["page_id"], let generation: Int64 = row["generation"] else {
+          return nil
+        }
+        return CloudPrivacyRemoval(pageID: .init(rawValue: id), generation: generation)
+      }
+      for removal in removals {
+        try db.execute(
+          sql: "UPDATE page_cloud_privacy_states SET enqueued_generation = ? WHERE page_id = ? AND generation = ?",
+          arguments: [removal.generation, removal.pageID.rawValue, removal.generation]
+        )
+      }
+      return removals
+    }
+  }
+
+  /// Claims a transitional save caused by promotion or a tag-closure change. Its expected page
+  /// generation is recorded so an acknowledgement for an older save cannot settle this state.
+  public func claimCloudPrivacySavesForSync() throws -> [CloudPrivacySave] {
+    try database.write { db in
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
+      let saves = try Row.fetchAll(
+        db,
+        sql: """
+          SELECT s.page_id,s.generation,p.dirty_generation
+          FROM page_cloud_privacy_states s
+          JOIN pages p ON p.id = s.page_id
+          WHERE s.desired_operation = 'save'
+            AND s.acknowledged_generation < s.generation
+            AND s.enqueued_generation < s.generation
+            AND p.deleted_at IS NULL
+            AND p.person_cloud_eligible = 1
+          ORDER BY s.page_id
+          """
+      ).compactMap { row -> CloudPrivacySave? in
+        guard let id: String = row["page_id"],
+          let desiredGeneration: Int64 = row["generation"],
+          let pageDirtyGeneration: Int64 = row["dirty_generation"]
+        else { return nil }
+        return CloudPrivacySave(
+          pageID: .init(rawValue: id),
+          desiredGeneration: desiredGeneration,
+          pageDirtyGeneration: pageDirtyGeneration
+        )
+      }
+      for save in saves {
+        try db.execute(
+          sql: """
+            UPDATE page_cloud_privacy_states
+            SET enqueued_generation = ?, save_dirty_generation = ?
+            WHERE page_id = ? AND generation = ? AND desired_operation = 'save'
+            """,
+          arguments: [
+            save.desiredGeneration,
+            save.pageDirtyGeneration,
+            save.pageID.rawValue,
+            save.desiredGeneration,
+          ]
+        )
+      }
+      return saves
+    }
+  }
+
+  /// Claims the current promotion-save intent before the coordinator queues a compensating
+  /// record save from a late delete acknowledgement. Persisting the expected page generation
+  /// here makes that save acknowledgement terminal instead of starting another save cycle.
+  private static func claimCloudPrivacySave(
+    in db: Database,
+    pageID: PageID,
+    desiredGeneration: Int64
+  ) throws -> Bool {
+    guard let pageDirtyGeneration = try Int64.fetchOne(
+      db,
+      sql: """
+        SELECT p.dirty_generation
+        FROM page_cloud_privacy_states s
+        JOIN pages p ON p.id = s.page_id
+        WHERE s.page_id = ?
+          AND s.desired_operation = 'save'
+          AND s.generation = ?
+          AND s.acknowledged_generation < s.generation
+          AND s.enqueued_generation < s.generation
+          AND p.deleted_at IS NULL
+          AND p.person_cloud_eligible = 1
+        """,
+      arguments: [pageID.rawValue, desiredGeneration]
+    ) else {
+      return false
+    }
+    try db.execute(
+      sql: """
+        UPDATE page_cloud_privacy_states
+        SET enqueued_generation = ?, save_dirty_generation = ?
+        WHERE page_id = ?
+          AND desired_operation = 'save'
+          AND generation = ?
+          AND acknowledged_generation < generation
+          AND enqueued_generation < generation
+        """,
+      arguments: [desiredGeneration, pageDirtyGeneration, pageID.rawValue, desiredGeneration]
+    )
+    return true
+  }
+
+  public func acknowledgeCloudPrivacyRemoval(
+    pageID: PageID,
+    sentGeneration: Int64
+  ) throws -> CloudPrivacyAcknowledgement {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT desired_operation,generation,acknowledged_generation FROM page_cloud_privacy_states WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      ), let operation: String = row["desired_operation"], let generation: Int64 = row["generation"],
+        let acknowledgedGeneration: Int64 = row["acknowledged_generation"]
+      else { return .none }
+      guard let desired = CloudPrivacyDesiredOperation(rawValue: operation) else { return .none }
+      switch desired {
+      case .delete where generation == sentGeneration:
+        try db.execute(
+          sql: """
+            UPDATE page_cloud_privacy_states
+            SET acknowledged_generation = MAX(acknowledged_generation, ?)
+            WHERE page_id = ? AND generation = ? AND desired_operation = 'delete'
+            """,
+          arguments: [sentGeneration, pageID.rawValue, sentGeneration]
+        )
+        return .none
+      case .delete:
+        return acknowledgedGeneration < generation
+          ? .delete(.init(pageID: pageID, generation: generation))
+          : .none
+      case .save:
+        // A delete can finish after a newer promotion save was acknowledged. That leaves the
+        // remote record absent, so advance the desired generation and enqueue one compensating
+        // save with a distinct acknowledgement token.
+        if acknowledgedGeneration >= generation {
+          let replacementGeneration = generation + 1
+          try db.execute(
+            sql: """
+              UPDATE page_cloud_privacy_states
+              SET generation = ?, enqueued_generation = 0, acknowledged_generation = 0,
+                  save_dirty_generation = NULL
+              WHERE page_id = ? AND desired_operation = 'save' AND generation = ?
+              """,
+            arguments: [replacementGeneration, pageID.rawValue, generation]
+          )
+          try db.execute(
+            sql: "UPDATE pages SET person_cloud_eligible = 1, cloud_dirty = 1 WHERE id = ?",
+            arguments: [pageID.rawValue]
+          )
+          if try Self.claimCloudPrivacySave(
+            in: db,
+            pageID: pageID,
+            desiredGeneration: replacementGeneration
+          ) {
+            return .save(pageID)
+          }
+          return .none
+        }
+        if try Self.claimCloudPrivacySave(
+          in: db,
+          pageID: pageID,
+          desiredGeneration: generation
+        ) {
+          return .save(pageID)
+        }
+        return .none
+      }
+    }
+  }
+
+  public func cloudPrivacyRemovalGenerationAwaitingAcknowledgement(
+    pageID: PageID
+  ) throws -> Int64? {
+    try database.read { db in
+      try Int64.fetchOne(
+        db,
+        sql: """
+          SELECT enqueued_generation FROM page_cloud_privacy_states
+          WHERE page_id = ? AND desired_operation = 'delete'
+            AND enqueued_generation = generation
+            AND acknowledged_generation < generation
+          """,
+        arguments: [pageID.rawValue]
+      )
+    }
+  }
+
+  public func acknowledgeCloudPrivacySave(
+    pageID: PageID,
+    sentPageGeneration: Int64
+  ) throws -> CloudPrivacyAcknowledgement {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT desired_operation,generation,enqueued_generation,acknowledged_generation,save_dirty_generation
+          FROM page_cloud_privacy_states WHERE page_id = ?
+          """,
+        arguments: [pageID.rawValue]
+      ), let operation: String = row["desired_operation"], let generation: Int64 = row["generation"],
+        let enqueuedGeneration: Int64 = row["enqueued_generation"],
+        let acknowledgedGeneration: Int64 = row["acknowledged_generation"],
+        let desired = CloudPrivacyDesiredOperation(rawValue: operation)
+      else { return .none }
+      switch desired {
+      case .save:
+        let expectedPageGeneration: Int64? = row["save_dirty_generation"]
+        guard acknowledgedGeneration < generation else { return .none }
+        guard enqueuedGeneration == generation, let expectedPageGeneration else {
+          return .save(pageID)
+        }
+        if sentPageGeneration < expectedPageGeneration {
+          // This acknowledgement belongs to an older regular save. Make the current privacy
+          // intent claimable again instead of allowing that stale record to settle it.
+          try db.execute(
+            sql: "UPDATE page_cloud_privacy_states SET enqueued_generation = acknowledged_generation WHERE page_id = ? AND generation = ? AND desired_operation = 'save'",
+            arguments: [pageID.rawValue, generation]
+          )
+          return .save(pageID)
+        }
+        if sentPageGeneration > expectedPageGeneration {
+          // A page edit landed after the privacy intent was claimed but before record
+          // preparation. The CloudKit record advertises the newer page generation, so persist
+          // that actual generation before accepting its acknowledgement.
+          try db.execute(
+            sql: "UPDATE page_cloud_privacy_states SET save_dirty_generation = ? WHERE page_id = ? AND generation = ? AND desired_operation = 'save'",
+            arguments: [sentPageGeneration, pageID.rawValue, generation]
+          )
+        }
+        try db.execute(
+          sql: """
+            UPDATE page_cloud_privacy_states
+            SET acknowledged_generation = MAX(acknowledged_generation, ?)
+            WHERE page_id = ? AND generation = ? AND desired_operation = 'save'
+            """,
+          arguments: [generation, pageID.rawValue, generation]
+        )
+        return .none
+      case .delete:
+        return acknowledgedGeneration < generation
+          ? .delete(.init(pageID: pageID, generation: generation))
+          : .none
+      }
+    }
+  }
+
+  /// Makes a failed delete claim eligible for a later enqueue without acknowledging it. A stale
+  /// failure can only requeue the current desired delete, never override a promotion.
+  public func retryCloudPrivacyRemoval(
+    pageID: PageID,
+    sentGeneration: Int64
+  ) throws -> CloudPrivacyAcknowledgement {
+    try database.write { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT desired_operation,generation,acknowledged_generation FROM page_cloud_privacy_states WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      ), let operation: String = row["desired_operation"], let generation: Int64 = row["generation"],
+        let acknowledgedGeneration: Int64 = row["acknowledged_generation"],
+        let desired = CloudPrivacyDesiredOperation(rawValue: operation)
+      else { return .none }
+      switch desired {
+      case .delete where generation == sentGeneration && acknowledgedGeneration < generation:
+        try db.execute(
+          sql: "UPDATE page_cloud_privacy_states SET enqueued_generation = acknowledged_generation WHERE page_id = ? AND generation = ?",
+          arguments: [pageID.rawValue, sentGeneration]
+        )
+        return .delete(.init(pageID: pageID, generation: generation))
+      case .delete:
+        return acknowledgedGeneration < generation
+          ? .delete(.init(pageID: pageID, generation: generation))
+          : .none
+      case .save:
+        guard acknowledgedGeneration < generation else { return .none }
+        if try Self.claimCloudPrivacySave(
+          in: db,
+          pageID: pageID,
+          desiredGeneration: generation
+        ) {
+          return .save(pageID)
+        }
+        return .none
+      }
     }
   }
 
@@ -4288,6 +4860,21 @@ public actor LibraryRepository {
     deletedAt: Date = Date()
   ) throws -> Bool {
     try database.write { db in
+      if let operation = try String.fetchOne(
+        db,
+        sql: "SELECT desired_operation FROM page_cloud_privacy_states WHERE page_id = ?",
+        arguments: [pageID.rawValue]
+      ).flatMap(CloudPrivacyDesiredOperation.init(rawValue:)) {
+        // A fetched deletion may be the echo of this device's privacy removal. It must never
+        // delete the retained local document. A promotion that raced the delete instead queues
+        // a compensating save.
+        switch operation {
+        case .delete:
+          return false
+        case .save:
+          return true
+        }
+      }
       if let row = try Row.fetchOne(
         db,
         sql: "SELECT dirty_generation,cloud_dirty FROM pages WHERE id = ?",
@@ -4441,12 +5028,11 @@ public actor LibraryRepository {
           sql: "SELECT person_cloud_eligible FROM pages WHERE id = ?",
           arguments: [pageID.rawValue]
         ) ?? true
-        let finalCloudEligibility = merged.projection.objectMetadata.supertagIDs.contains(
-          BuiltInSupertags.person
+        let finalCloudEligibility = try Self.cloudEligibility(
+          in: db,
+          metadata: merged.projection.objectMetadata,
+          existingEligibility: existingCloudEligibility
         )
-          ? (merged.projection.objectMetadata.personVisibility != .other
-            || existingCloudEligibility)
-          : true
         needsUpload = finalCloudEligibility && merged.document != remoteDocument
         page = PageSnapshot(
           id: pageID,
@@ -4467,12 +5053,15 @@ public actor LibraryRepository {
           sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
           arguments: [finalCloudEligibility, pageID.rawValue]
         )
+        try Self.reconcileCloudPrivacyDesiredStates(in: db)
         try Self.replaceReferences(db, pageID: pageID, references: merged.projection.references)
       } else {
         let projection = try PageDocument.inspect(remoteDocument, pageID: pageID)
-        let finalCloudEligibility = !projection.objectMetadata.supertagIDs.contains(
-          BuiltInSupertags.person
-        ) || projection.objectMetadata.personVisibility != .other
+        let finalCloudEligibility = try Self.cloudEligibility(
+          in: db,
+          metadata: projection.objectMetadata,
+          existingEligibility: true
+        )
         needsUpload = false
         page = PageSnapshot(
           id: pageID,
@@ -4493,6 +5082,7 @@ public actor LibraryRepository {
           sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
           arguments: [finalCloudEligibility, pageID.rawValue]
         )
+        try Self.reconcileCloudPrivacyDesiredStates(in: db)
         try Self.replaceReferences(db, pageID: pageID, references: projection.references)
       }
       return CloudPageMergeResult(page: page, needsUpload: needsUpload)
@@ -4957,6 +5547,10 @@ public actor LibraryRepository {
             SELECT 1 FROM calendar_event_attendees a WHERE a.person_page_id = pages.id
           )
           AND NOT EXISTS (
+            SELECT 1 FROM page_cloud_privacy_states s
+            WHERE s.page_id = pages.id AND s.desired_operation = 'delete'
+          )
+          AND NOT EXISTS (
             SELECT 1 FROM page_references r
             WHERE r.source_page_id = pages.id OR r.target_page_id = pages.id
           )
@@ -4994,7 +5588,7 @@ public actor LibraryRepository {
   ) throws -> PageSnapshot {
     try database.write { db in
       guard let current = try Self.fetchPage(db, id: pageID),
-        current.hasSupertag(BuiltInSupertags.person)
+        try Self.effectiveTagIDs(db, nodeID: pageID).contains(BuiltInSupertags.person)
       else { throw LibraryRepositoryError.invalidRecord }
       if current.effectivePersonVisibility == visibility { return current }
       let result = try PageDocument.setPersonClassification(
@@ -5017,12 +5611,16 @@ public actor LibraryRepository {
         objectMetadata: result.projection.objectMetadata
       )
       try Self.writePage(db, page: updated, cloudDirty: true)
+      // Promotion must supersede an already-claimed local-only deletion immediately. Demotion
+      // must do the converse in this transaction: the store queues a page change after this
+      // method returns, so an eligible dirty page must never escape for a local-only Person.
       if visibility == .promoted {
         try db.execute(
           sql: "UPDATE pages SET person_cloud_eligible = 1 WHERE id = ?",
           arguments: [pageID.rawValue]
         )
       }
+      try Self.reconcileCloudPrivacyDesiredStates(in: db)
       return updated
     }
   }
@@ -5093,6 +5691,64 @@ public actor LibraryRepository {
       origin: .manual,
       in: tagged.document
     )
+  }
+
+  private static func createRelationshipEntity(
+    title: String,
+    supertagID: SupertagID,
+    initialProperties: [SupertagPropertyKey: [SupertagValue]],
+    isEffectivePerson: Bool,
+    now: Date,
+    db: Database
+  ) throws -> PageSnapshot {
+    let created = try createPage(db, id: .free(), kind: .free, title: title, now: now)
+    return try updatingCreatedRelationshipEntity(
+      created,
+      supertagID: supertagID,
+      initialProperties: initialProperties,
+      promoteCalendarPerson: false,
+      isEffectivePerson: isEffectivePerson,
+      now: now,
+      db: db
+    )
+  }
+
+  private static func updatingCreatedRelationshipEntity(
+    _ current: PageSnapshot,
+    supertagID: SupertagID,
+    initialProperties: [SupertagPropertyKey: [SupertagValue]],
+    promoteCalendarPerson: Bool,
+    isEffectivePerson: Bool,
+    now: Date,
+    db: Database
+  ) throws -> PageSnapshot {
+    var mutation = try addingSupertag(supertagID, in: current.document)
+    for (key, values) in initialProperties.sorted(by: { $0.key.storageKey < $1.key.storageKey }) {
+      mutation = try PageDocument.setProperty(key: key, values: values, in: mutation.document)
+    }
+    if promoteCalendarPerson, mutation.projection.objectMetadata.personVisibility == .other {
+      mutation = try PageDocument.setPersonClassification(
+        visibility: .promoted,
+        origin: current.personOrigin ?? .calendarAttendee,
+        in: mutation.document
+      )
+    } else if isEffectivePerson, mutation.projection.objectMetadata.personVisibility == nil {
+      mutation = try PageDocument.setPersonClassification(
+        visibility: .promoted,
+        origin: .manual,
+        in: mutation.document
+      )
+    }
+    let updated = updatedPage(current, with: mutation, now: now)
+    try writePage(db, page: updated, cloudDirty: true)
+    try replaceReferences(db, pageID: updated.id, references: mutation.projection.references)
+    if promoteCalendarPerson || isEffectivePerson {
+      try db.execute(
+        sql: "UPDATE pages SET person_cloud_eligible = 1 WHERE id = ?",
+        arguments: [updated.id.rawValue]
+      )
+    }
+    return updated
   }
 
   private func mutateDocument(
@@ -5729,6 +6385,34 @@ public actor LibraryRepository {
         )
       }
     }
+    migrator.registerMigration("v21-person-cloud-privacy-desired-state") { db in
+      try db.create(table: "page_cloud_privacy_states") { table in
+        table.column("page_id", .text).primaryKey()
+          .references("pages", onDelete: .cascade)
+        table.column("desired_operation", .text).notNull()
+        table.column("generation", .integer).notNull()
+        table.column("enqueued_generation", .integer).notNull().defaults(to: 0)
+        table.column("acknowledged_generation", .integer).notNull().defaults(to: 0)
+        table.column("save_dirty_generation", .integer)
+      }
+      try db.create(
+        index: "page_cloud_privacy_states_on_operation",
+        on: "page_cloud_privacy_states",
+        columns: ["desired_operation", "generation"]
+      )
+      // Existing eligibility is authoritative when visibility is nil. Only known `other`
+      // People become deletion intents during migration, and their local documents remain.
+      try LibraryRepository.reconcileCloudPrivacyDesiredStates(in: db)
+    }
+    migrator.registerMigration("v22-person-cloud-privacy-acknowledgements") { db in
+      let columns = try db.columns(in: "page_cloud_privacy_states")
+      if !columns.contains(where: { $0.name == "acknowledged_generation" }) {
+        try db.alter(table: "page_cloud_privacy_states") { table in
+          table.add(column: "acknowledged_generation", .integer).notNull().defaults(to: 0)
+          table.add(column: "save_dirty_generation", .integer)
+        }
+      }
+    }
     return migrator
   }()
 
@@ -5994,7 +6678,7 @@ public actor LibraryRepository {
       db,
       sql: """
         SELECT p.* FROM pages p
-        JOIN page_supertags s ON s.page_id = p.id AND s.supertag_id = 'person'
+        JOIN graph_node_tags t ON t.node_id = p.id AND t.tag_id = 'person'
         WHERE p.deleted_at IS NULL
         ORDER BY p.title COLLATE NOCASE, p.id
         """
@@ -6008,6 +6692,112 @@ public actor LibraryRepository {
         displayName: try personDisplayName(db, page: page),
         email: normalizedEmail
       )
+    }
+  }
+
+  /// Reconciles the durable CloudKit intent after the effective tag closure changes and before
+  /// local changes are enqueued. A visibility of `nil` intentionally keeps the persisted
+  /// eligibility untouched: adding a Person ancestor must never make legacy data local-only.
+  private static func reconcileCloudPrivacyDesiredStates(in db: Database) throws {
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT p.id,p.person_visibility,p.person_cloud_eligible,p.cloud_record,
+               s.desired_operation,s.generation
+        FROM pages p
+        LEFT JOIN page_cloud_privacy_states s ON s.page_id = p.id
+        WHERE p.deleted_at IS NULL
+        """
+    )
+    for row in rows {
+      guard let id: String = row["id"] else { continue }
+      let pageID = PageID(rawValue: id)
+      let effectivePerson = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM graph_node_tags WHERE node_id = ? AND tag_id = 'person')",
+        arguments: [id]
+      ) ?? false
+      let visibility = (row["person_visibility"] as String?).flatMap(PersonVisibility.init(rawValue:))
+      let prior = (row["desired_operation"] as String?).flatMap(CloudPrivacyDesiredOperation.init(rawValue:))
+      let previousGeneration: Int64 = row["generation"] ?? 0
+      let cloudEligible: Bool = row["person_cloud_eligible"] ?? true
+      let hasCloudRecord: Bool = (row["cloud_record"] as Data?) != nil
+
+      let target: CloudPrivacyDesiredOperation?
+      if effectivePerson {
+        switch visibility {
+        case .other?:
+          // Fresh calendar projections are already local-only and have no CloudKit record to
+          // remove. A state begins only when a formerly eligible or uploaded Person crosses the
+          // boundary (or when an earlier desired state must remain durable).
+          target = prior == .delete || cloudEligible || hasCloudRecord ? .delete : nil
+        case .promoted?: target = prior == .delete ? .save : prior
+        case nil: target = prior
+        }
+      } else {
+        // Unknown/non-Person effective types have no privacy instruction. Keep both the prior
+        // eligibility and any durable in-flight operation instead of implicitly publishing a
+        // page that was previously made local-only.
+        target = prior
+      }
+      guard let target else { continue }
+      guard target != prior else { continue }
+      let generation = previousGeneration + 1
+      try db.execute(
+        sql: """
+          INSERT INTO page_cloud_privacy_states
+            (page_id,desired_operation,generation,enqueued_generation,acknowledged_generation,save_dirty_generation)
+          VALUES (?,?,?,0,0,NULL)
+          ON CONFLICT(page_id) DO UPDATE SET
+            desired_operation=excluded.desired_operation,
+            generation=excluded.generation,
+            enqueued_generation=0,
+            acknowledged_generation=0,
+            save_dirty_generation=NULL
+          """,
+        arguments: [pageID.rawValue, target.rawValue, generation]
+      )
+      switch target {
+      case .delete:
+        try db.execute(
+          sql: "UPDATE pages SET person_cloud_eligible = 0, cloud_dirty = 0 WHERE id = ?",
+          arguments: [pageID.rawValue]
+        )
+      case .save:
+        try db.execute(
+          sql: "UPDATE pages SET person_cloud_eligible = 1, cloud_dirty = 1 WHERE id = ?",
+          arguments: [pageID.rawValue]
+        )
+      }
+    }
+  }
+
+  /// Resolves CloudKit eligibility from a schema's effective tag closure, not just its direct
+  /// tags. Person privacy is explicit; all unknown classifications retain their persisted
+  /// eligibility so a schema or merge cannot silently publish local data.
+  private static func cloudEligibility(
+    in db: Database,
+    metadata: PageObjectMetadata,
+    existingEligibility: Bool
+  ) throws -> Bool {
+    let definitions = try Row.fetchAll(
+      db,
+      sql: "SELECT definition_json FROM supertag_schemas WHERE deleted = 0"
+    ).compactMap { row -> SupertagDefinition? in
+      guard let data: Data = row["definition_json"] else { return nil }
+      return try? JSONDecoder.enchiridion.decode(SupertagDefinition.self, from: data)
+    }
+    let effectiveTags = SupertagInheritance.effectiveTagIDs(
+      for: Set(metadata.supertagIDs),
+      definitions: definitions
+    )
+    guard effectiveTags.contains(BuiltInSupertags.person) else {
+      return existingEligibility
+    }
+    switch metadata.personVisibility {
+    case .other?: return false
+    case .promoted?: return true
+    case nil: return existingEligibility
     }
   }
 
@@ -6072,17 +6862,18 @@ public actor LibraryRepository {
     guard definitionsByID[rootID] != nil else {
       throw TaggedPageReferenceInsertionError.invalidSupertag
     }
-    var fields: [SupertagPropertyKey: SupertagFieldDefinition] = [:]
-    var visited: Set<SupertagID> = []
-    var pending = [rootID]
-    while let tagID = pending.popLast(), visited.insert(tagID).inserted {
-      guard let definition = definitionsByID[tagID] else { continue }
-      for field in definition.fields where !field.isDeleted {
-        fields[.init(supertagID: tagID, fieldID: field.id)] = field
-      }
-      pending.append(contentsOf: definition.parentIDs.sorted { $0.rawValue < $1.rawValue })
+    guard definitionsByID[rootID] != nil else {
+      throw TaggedPageReferenceInsertionError.invalidSupertag
     }
-    return fields
+    return Dictionary(
+      uniqueKeysWithValues: SupertagInheritance.effectiveFields(
+        for: rootID,
+        definitions: definitions
+      ).compactMap { field in
+        guard !field.definition.isDeleted else { return nil }
+        return (field.propertyKey, field.definition)
+      }
+    )
   }
 
   private static func validatedValues(

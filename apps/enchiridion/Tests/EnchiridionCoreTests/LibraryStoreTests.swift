@@ -2587,6 +2587,315 @@ final class LibraryRepositoryTests: XCTestCase {
   }
 
   @MainActor
+  func testEntityRelationshipPersonResolutionRequiresExplicitLinkOnlyChoice() async throws {
+    let fixture = try RepositoryFixture()
+    let email = "ada@example.com"
+    let first = try await fixture.repository.createTaggedPage(
+      title: "Ada One", supertagID: BuiltInSupertags.person
+    )
+    let second = try await fixture.repository.createTaggedPage(
+      title: "Ada Two", supertagID: BuiltInSupertags.person
+    )
+    for person in [first, second] {
+      try await fixture.repository.setProperty(pageID: person.id, key: personEmailKey, values: [.email(email)])
+    }
+    let organization = try await fixture.repository.createTaggedPage(
+      title: "Acme", supertagID: BuiltInSupertags.organization
+    )
+    let intent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.personOrganization,
+      presentedSourceID: organization.id,
+      direction: .inverse
+    )
+    let request = CreateEntityAndRelationshipRequest(
+      intent: intent,
+      selectedTargetTypeID: BuiltInSupertags.person,
+      title: "Ada",
+      initialProperties: [personEmailKey: [.email(" ADA@EXAMPLE.COM ")]]
+    )
+
+    do {
+      _ = try await fixture.repository.createEntityAndRelationship(request)
+      XCTFail("Expected explicit Person selection")
+    } catch {
+      XCTAssertEqual(error as? GraphRelationshipAuthoringError, .personSelectionRequired)
+    }
+    let resolved = try await fixture.repository.createEntityAndRelationship(
+      .init(
+        intent: intent,
+        selectedTargetTypeID: BuiltInSupertags.person,
+        title: "",
+        existingPersonResolution: .useExistingMatchingEmail(
+          pageID: second.id,
+          matchingEmail: email
+        )
+      )
+    )
+    XCTAssertEqual(resolved.entity.id, second.id)
+
+    let calendarEmail = "calendar@example.com"
+    _ = try await projectContactPerson(
+      email: calendarEmail, eventID: "calendar-adoption", repository: fixture.repository
+    )
+    let calendarPersonID = PageID.person(email: calendarEmail)
+    let manualCalendarPerson = try await fixture.repository.createTaggedPage(
+      title: "Manual Calendar Ada", supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: manualCalendarPerson.id,
+      key: personEmailKey,
+      values: [.email(calendarEmail)]
+    )
+    let secondOrganization = try await fixture.repository.createTaggedPage(
+      title: "Calendar Acme", supertagID: BuiltInSupertags.organization
+    )
+    let calendarIntent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.personOrganization,
+      presentedSourceID: secondOrganization.id,
+      direction: .inverse
+    )
+    let explicitlyManual = try await fixture.repository.createEntityAndRelationship(
+      .init(
+        intent: calendarIntent,
+        selectedTargetTypeID: BuiltInSupertags.person,
+        title: "",
+        existingPersonResolution: .useExistingMatchingEmail(
+          pageID: manualCalendarPerson.id,
+          matchingEmail: calendarEmail
+        )
+      )
+    )
+    XCTAssertEqual(explicitlyManual.entity.id, manualCalendarPerson.id)
+    let calendarPersonAfterManualChoice = try await fixture.repository.page(id: calendarPersonID)
+    XCTAssertEqual(
+      calendarPersonAfterManualChoice?.effectivePersonVisibility,
+      .other
+    )
+
+    let explicitCalendarEmail = "explicit-calendar@example.com"
+    _ = try await projectContactPerson(
+      email: explicitCalendarEmail,
+      eventID: "explicit-calendar-choice",
+      repository: fixture.repository
+    )
+    let explicitCalendarPersonID = PageID.person(email: explicitCalendarEmail)
+    let explicitCalendarOrganization = try await fixture.repository.createTaggedPage(
+      title: "Explicit Calendar Acme", supertagID: BuiltInSupertags.organization
+    )
+    let explicitCalendarIntent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.personOrganization,
+      presentedSourceID: explicitCalendarOrganization.id,
+      direction: .inverse
+    )
+    let explicitlyCalendar = try await fixture.repository.createEntityAndRelationship(
+      .init(
+        intent: explicitCalendarIntent,
+        selectedTargetTypeID: BuiltInSupertags.person,
+        title: "",
+        existingPersonResolution: .useExistingMatchingEmail(
+          pageID: explicitCalendarPersonID,
+          matchingEmail: explicitCalendarEmail
+        )
+      )
+    )
+    XCTAssertEqual(explicitlyCalendar.entity.id, explicitCalendarPersonID)
+    let calendarPersonAfterCalendarChoice = try await fixture.repository.page(id: explicitCalendarPersonID)
+    XCTAssertEqual(
+      calendarPersonAfterCalendarChoice?.effectivePersonVisibility,
+      .other
+    )
+
+    do {
+      _ = try await fixture.repository.createEntityAndRelationship(
+        .init(
+          intent: calendarIntent,
+          selectedTargetTypeID: BuiltInSupertags.person,
+          title: "Ambiguous calendar person",
+          initialProperties: [personEmailKey: [.email(calendarEmail)]]
+        )
+      )
+      XCTFail("Expected a calendar/manual collision to require explicit selection")
+    } catch {
+      XCTAssertEqual(error as? GraphRelationshipAuthoringError, .personSelectionRequired)
+    }
+
+    let soleCalendarEmail = "sole-calendar@example.com"
+    _ = try await projectContactPerson(
+      email: soleCalendarEmail,
+      eventID: "sole-calendar-adoption",
+      repository: fixture.repository
+    )
+    let soleCalendarID = PageID.person(email: soleCalendarEmail)
+    let calendarPersonBeforeCandidate = try await fixture.repository.page(id: soleCalendarID)
+    let calendarPersonBefore = try XCTUnwrap(calendarPersonBeforeCandidate)
+    let eligibilityBefore = try await fixture.repository.cloudEligiblePage(pageID: soleCalendarID)
+    do {
+      _ = try await fixture.repository.createEntityAndRelationship(
+        .init(
+          intent: calendarIntent,
+          selectedTargetTypeID: BuiltInSupertags.person,
+          title: "Calendar Ada",
+          initialProperties: [personEmailKey: [.email(soleCalendarEmail)]]
+        )
+      )
+      XCTFail("Expected a sole calendar Person to require explicit selection")
+    } catch {
+      XCTAssertEqual(error as? GraphRelationshipAuthoringError, .personSelectionRequired)
+    }
+    let linked = try await fixture.repository.createEntityAndRelationship(
+      .init(
+        intent: calendarIntent,
+        selectedTargetTypeID: BuiltInSupertags.person,
+        title: "",
+        existingPersonResolution: .useExistingMatchingEmail(
+          pageID: soleCalendarID,
+          matchingEmail: soleCalendarEmail
+        )
+      )
+    )
+    let calendarPersonAfter = try await fixture.repository.page(id: soleCalendarID)
+    let eligibilityAfter = try await fixture.repository.cloudEligiblePage(pageID: soleCalendarID)
+    XCTAssertEqual(linked.entity.id, soleCalendarID)
+    XCTAssertEqual(linked.edge.sourceNodeID, soleCalendarID)
+    XCTAssertEqual(calendarPersonAfter?.title, calendarPersonBefore.title)
+    XCTAssertEqual(calendarPersonAfter?.objectMetadata.supertagIDs, calendarPersonBefore.objectMetadata.supertagIDs)
+    // The canonical graph edge is stored on this Person because the relation runs Person →
+    // Organization. Its derived relationship reference is expected; user-authored fields remain
+    // untouched by the link-only branch.
+    XCTAssertEqual(
+      calendarPersonAfter?.objectMetadata.properties[personEmailKey],
+      calendarPersonBefore.objectMetadata.properties[personEmailKey]
+    )
+    XCTAssertEqual(calendarPersonAfter?.personOrigin, calendarPersonBefore.personOrigin)
+    XCTAssertEqual(calendarPersonAfter?.effectivePersonVisibility, calendarPersonBefore.effectivePersonVisibility)
+    XCTAssertEqual(eligibilityAfter?.id, eligibilityBefore?.id)
+  }
+
+  @MainActor
+  func testStoreSynchronizesEveryChangedPageFromEntityRelationshipReceipt() async throws {
+    let fixture = try RepositoryFixture()
+    let probe = PageSynchronizationProbe()
+    let store = LibraryStore(
+      repository: fixture.repository,
+      startImmediately: false,
+      pageSynchronizationObserver: { pageID in await probe.record(pageID) }
+    )
+    let task = try await fixture.repository.createTaggedPage(
+      title: "Ship", supertagID: BuiltInSupertags.task
+    )
+    let intent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.taskProject,
+      presentedSourceID: task.id,
+      direction: .forward
+    )
+
+    let receipt = try await store.createEntityAndRelationship(
+      .init(intent: intent, selectedTargetTypeID: BuiltInSupertags.project, title: "New project")
+    )
+    let synchronizedIDs = Set(await probe.pageIDs())
+    XCTAssertEqual(synchronizedIDs, Set(receipt.changedPageIDs))
+    XCTAssertEqual(Set(receipt.changedPageIDs), [task.id, receipt.entity.id])
+  }
+
+  func testPersonMeetingRelationshipsSortDeduplicateAndRemainReadOnly() async throws {
+    let fixture = try RepositoryFixture()
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let email = "ada@example.com"
+    let personID = PageID.person(email: email)
+    let series = CalendarSeriesIdentity(
+      provider: "eventkit", externalIdentifier: "weekly", crossProviderIdentifier: "weekly"
+    )
+    var past = recurringEvent(
+      provider: "eventkit", id: "past", start: now.addingTimeInterval(-7_200), series: series
+    )
+    past.endDate = now.addingTimeInterval(-3_600)
+    var ongoing = recurringEvent(
+      provider: "eventkit", id: "now", start: now.addingTimeInterval(-600), series: series
+    )
+    ongoing.endDate = now.addingTimeInterval(600)
+    let future = recurringEvent(
+      provider: "eventkit", id: "future", start: now.addingTimeInterval(7_200), series: series
+    )
+    let duplicate = recurringEvent(
+      provider: "google", id: "future-google", start: future.startDate,
+      series: .init(provider: "google", externalIdentifier: "weekly-google", crossProviderIdentifier: "weekly")
+    )
+    func withAttendee(_ event: CalendarEventSnapshot) -> CalendarEventSnapshot {
+      var withAttendee = event
+      withAttendee.attendees = [.init(
+        email: email, displayName: "Ada", role: "attendee", responseStatus: "accepted", isCurrentUser: false
+      )]
+      return withAttendee
+    }
+    try await fixture.repository.replaceCalendarProjection(
+      [past, ongoing, future].map(withAttendee), provider: "eventkit", refreshedAt: now
+    )
+    try await fixture.repository.replaceCalendarProjection(
+      [duplicate].map(withAttendee), provider: "google", refreshedAt: now
+    )
+
+    let before = try await fixture.repository.pages(in: .allPages).map(\.id)
+    let relationships = try await fixture.repository.calendarMeetingRelationships(for: personID, now: now)
+    let after = try await fixture.repository.pages(in: .allPages).map(\.id)
+
+    XCTAssertEqual(relationships.map(\.timing), [.upcoming, .upcoming, .past])
+    XCTAssertEqual(relationships.filter { $0.event.startDate == future.startDate }.count, 1)
+    XCTAssertEqual(before, after)
+
+    let manualPerson = try await fixture.repository.createTaggedPage(
+      title: "Ada Manual", supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: manualPerson.id,
+      key: personEmailKey,
+      values: [.email(" ADA@EXAMPLE.COM ")]
+    )
+    let duplicateManualPerson = try await fixture.repository.createTaggedPage(
+      title: "Ada Duplicate", supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: duplicateManualPerson.id,
+      key: personEmailKey,
+      values: [.email(email)]
+    )
+    let unrelatedPerson = try await fixture.repository.createTaggedPage(
+      title: "Grace", supertagID: BuiltInSupertags.person
+    )
+    try await fixture.repository.setProperty(
+      pageID: unrelatedPerson.id,
+      key: personEmailKey,
+      values: [.email("grace@example.com")]
+    )
+
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let subtypePerson = try await fixture.repository.createTaggedPage(
+      title: "Ada Employee", supertagID: employee.id
+    )
+    try await fixture.repository.setProperty(
+      pageID: subtypePerson.id,
+      key: personEmailKey,
+      values: [.email(email)]
+    )
+
+    let beforeEmailResolution = try await fixture.repository.pages(in: .allPages).map(\.id)
+    let manuallyResolved = try await fixture.repository.calendarMeetingRelationships(for: manualPerson.id, now: now)
+    let duplicateResolved = try await fixture.repository.calendarMeetingRelationships(for: duplicateManualPerson.id, now: now)
+    let subtypeResolved = try await fixture.repository.calendarMeetingRelationships(for: subtypePerson.id, now: now)
+    let unrelated = try await fixture.repository.calendarMeetingRelationships(for: unrelatedPerson.id, now: now)
+    let candidates = try await fixture.repository.personEmailCandidates(matchingEmail: email)
+    let afterEmailResolution = try await fixture.repository.pages(in: .allPages).map(\.id)
+
+    XCTAssertEqual(manuallyResolved.map(\.id), relationships.map(\.id))
+    XCTAssertEqual(duplicateResolved.map(\.id), relationships.map(\.id))
+    XCTAssertEqual(subtypeResolved.map(\.id), relationships.map(\.id))
+    XCTAssertTrue(unrelated.isEmpty)
+    XCTAssertTrue(candidates.contains { $0.pageID == subtypePerson.id })
+    XCTAssertEqual(beforeEmailResolution, afterEmailResolution)
+  }
+
+  @MainActor
   private func projectContactPerson(
     email: String,
     eventID: String,
@@ -2672,6 +2981,18 @@ private actor TransientReminderEffects {
 
   func reminderAttempts() -> Int {
     attempts
+  }
+}
+
+private actor PageSynchronizationProbe {
+  private var values: [PageID] = []
+
+  func record(_ pageID: PageID) {
+    values.append(pageID)
+  }
+
+  func pageIDs() -> [PageID] {
+    values
   }
 }
 

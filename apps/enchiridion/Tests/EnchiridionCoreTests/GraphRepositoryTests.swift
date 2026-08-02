@@ -533,6 +533,66 @@ final class GraphRepositoryTests: XCTestCase {
       [queryRecord.query.id]
     )
   }
+
+  func testInverseAuthoringCreatesCanonicalPersonOrganizationEdgeAtomically() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    let organization = try await fixture.repository.createTaggedPage(
+      title: "Acme", supertagID: BuiltInSupertags.organization
+    )
+    let intent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.personOrganization,
+      presentedSourceID: organization.id,
+      direction: .inverse
+    )
+    XCTAssertTrue(intent.compatibleTargetTypeIDs.contains(BuiltInSupertags.person))
+
+    let receipt = try await fixture.repository.createEntityAndRelationship(
+      .init(
+        intent: intent,
+        selectedTargetTypeID: BuiltInSupertags.person,
+        title: "Ada Lovelace"
+      )
+    )
+
+    XCTAssertEqual(receipt.canonicalSourceID, receipt.entity.id)
+    XCTAssertEqual(receipt.canonicalTargetID, organization.id)
+    XCTAssertEqual(receipt.edge.sourceNodeID, receipt.entity.id)
+    XCTAssertEqual(receipt.edge.targetNodeID, organization.id)
+    XCTAssertEqual(Set(receipt.changedPageIDs), [receipt.entity.id])
+    let edges = try await fixture.repository.outgoingEdges(from: receipt.entity.id)
+    XCTAssertEqual(edges, [receipt.edge])
+  }
+
+  func testCreateAndLinkCardinalityFailureRollsBackNewTargetAndEdge() async throws {
+    let fixture = try GraphRepositoryFixture(testCase: self)
+    let task = try await fixture.repository.createTaggedPage(
+      title: "Ship it", supertagID: BuiltInSupertags.task
+    )
+    let existingProject = try await fixture.repository.createTaggedPage(
+      title: "Current", supertagID: BuiltInSupertags.project
+    )
+    _ = try await fixture.repository.createEdge(
+      relationID: BuiltInRelations.taskProject, from: task.id, to: existingProject.id
+    )
+    let intent = try await fixture.repository.relationshipAuthoringIntent(
+      relationID: BuiltInRelations.taskProject, presentedSourceID: task.id, direction: .forward
+    )
+    let beforeIDs = Set(try await fixture.repository.pages(in: .allPages).map(\.id))
+
+    await XCTAssertThrowsErrorAsync(
+      try await fixture.repository.createEntityAndRelationship(
+        .init(intent: intent, selectedTargetTypeID: BuiltInSupertags.project, title: "Orphan")
+      )
+    ) { error in
+      XCTAssertEqual(error as? GraphModelError, .cardinalityViolation(BuiltInRelations.taskProject))
+    }
+
+    let afterIDs = Set(try await fixture.repository.pages(in: .allPages).map(\.id))
+    let edges = try await fixture.repository.outgoingEdges(from: task.id)
+    XCTAssertEqual(afterIDs, beforeIDs)
+    XCTAssertEqual(edges.count, 1)
+    XCTAssertEqual(edges.first?.targetNodeID, existingProject.id)
+  }
 }
 
 private struct GraphRepositoryFixture {

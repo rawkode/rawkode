@@ -40,6 +40,46 @@ extension LibraryStore {
     return try await repository.graphBacklinks(to: nodeID)
   }
 
+  public func calendarMeetingRelationships(
+    for personID: PageID,
+    now: Date = Date()
+  ) async throws -> [CalendarMeetingRelationship] {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await repository.calendarMeetingRelationships(for: personID, now: now)
+  }
+
+  public func graphRelationshipAuthoringIntent(
+    relationID: RelationID,
+    presentedSourceID: PageID,
+    direction: GraphRelationshipDirection
+  ) async throws -> GraphRelationshipAuthoringIntent {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    return try await repository.relationshipAuthoringIntent(
+      relationID: relationID,
+      presentedSourceID: presentedSourceID,
+      direction: direction
+    )
+  }
+
+  @discardableResult
+  public func createEntityAndRelationship(
+    _ request: CreateEntityAndRelationshipRequest
+  ) async throws -> EntityRelationshipMutationReceipt {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")
+    }
+    let receipt = try await repository.createEntityAndRelationship(request)
+    await reload(policy: .refreshOnly)
+    for pageID in receipt.changedPageIDs {
+      await synchronizePage(pageID)
+    }
+    return receipt
+  }
+
   public func graphIssues() async throws -> [GraphIssue] {
     guard let repository else {
       throw LibraryRepositoryError.databaseUnavailable(startupError ?? "The vault is unavailable.")

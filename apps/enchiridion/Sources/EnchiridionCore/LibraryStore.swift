@@ -60,6 +60,9 @@ public final class LibraryStore {
   public private(set) var vaultID: VaultID
   public private(set) var pages: [PageSnapshot] = []
   public private(set) var calendarEvents: [CalendarEventSnapshot] = []
+  /// Changes whenever the provider-backed calendar projection is refreshed or reloaded.
+  /// Relationship screens use this as a cheap observable invalidation token.
+  public private(set) var calendarRelationshipGeneration: UInt64 = 0
   public private(set) var calendarPageContexts: [PageID: CalendarPageContext] = [:]
   public private(set) var supertags: [SupertagDefinition] = []
   public private(set) var savedViews: [LiveQueryDefinition] = []
@@ -98,6 +101,7 @@ public final class LibraryStore {
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
   @ObservationIgnored private let requestedVaultID: VaultID?
   @ObservationIgnored private let taskMutationEffects: TaskMutationEffectExecutor?
+  @ObservationIgnored private let pageSynchronizationObserver: (@Sendable (PageID) async -> Void)?
   @ObservationIgnored private let shouldOpenRepository: Bool
   @ObservationIgnored private var isOpeningRepository = false
 
@@ -109,7 +113,8 @@ public final class LibraryStore {
     startImmediately: Bool = true,
     taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared,
     taskMutationEffects: TaskMutationEffectExecutor? = nil,
-    taskInterpreter: any TaskInputInterpreting = FoundationTaskInterpreter()
+    taskInterpreter: any TaskInputInterpreting = FoundationTaskInterpreter(),
+    pageSynchronizationObserver: (@Sendable (PageID) async -> Void)? = nil
   ) {
     self.vaultID = vaultID ?? .standalone
     self.calendar = calendar
@@ -119,6 +124,7 @@ public final class LibraryStore {
     self.repository = repository
     requestedVaultID = vaultID
     self.taskMutationEffects = taskMutationEffects
+    self.pageSynchronizationObserver = pageSynchronizationObserver
     shouldOpenRepository = repository == nil
     startupError = nil
     if let repository { configureTaskMutationCoordinator(repository: repository) }
@@ -342,6 +348,7 @@ public final class LibraryStore {
       calendarPageContexts = loadedCalendarPageContexts
       omissionPrefixes = loadedOmissionPrefixes
       calendarEvents = loadedCalendarEvents
+      calendarRelationshipGeneration &+= 1
       otherPeople = loadedOtherPeople
       contactLinks = loadedContactLinks
       if policy == .reconcileSystemState {
@@ -1131,6 +1138,7 @@ public final class LibraryStore {
   }
 
   func synchronizePage(_ id: PageID) async {
+    await pageSynchronizationObserver?(id)
     await syncCoordinator?.pageDidChange(id)
   }
 
@@ -1657,6 +1665,7 @@ public final class LibraryStore {
     try await repository.replaceCalendarProjection(events, provider: "eventkit")
     await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
+    calendarRelationshipGeneration &+= 1
     calendarPageContexts = try await repository.calendarPageContexts()
     if contactResolver != nil { await refreshContactEnrichments() }
     calendarError = nil
@@ -1700,6 +1709,7 @@ public final class LibraryStore {
     try await repository.replaceCalendarProjection(events, provider: "google")
     await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
+    calendarRelationshipGeneration &+= 1
     calendarPageContexts = try await repository.calendarPageContexts()
     if contactResolver != nil { await refreshContactEnrichments() }
   }

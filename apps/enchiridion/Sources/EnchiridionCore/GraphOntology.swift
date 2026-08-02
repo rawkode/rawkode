@@ -1,5 +1,29 @@
 import Foundation
 
+/// A property inherited through a supertag hierarchy without losing the schema that owns it.
+///
+/// A field's identity is its complete property key, rather than its local field identifier. This
+/// permits, for example, `person.email` and `customer.email` to coexist in one effective schema.
+public struct SupertagEffectiveField: Hashable, Sendable, Identifiable {
+  public let propertyKey: SupertagPropertyKey
+  public let definition: SupertagFieldDefinition
+
+  public var id: SupertagPropertyKey { propertyKey }
+
+  public init(propertyKey: SupertagPropertyKey, definition: SupertagFieldDefinition) {
+    self.propertyKey = propertyKey
+    self.definition = definition
+  }
+
+  public static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.propertyKey == rhs.propertyKey
+  }
+
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(propertyKey)
+  }
+}
+
 public enum SupertagInheritance {
   public static func effectiveTagIDs(
     for directTagIDs: Set<TagID>,
@@ -18,6 +42,46 @@ public enum SupertagInheritance {
       }
     }
     return effectiveTagIDs
+  }
+
+  /// Resolves the scalar and reference fields available to one selected supertag.
+  ///
+  /// Parents are traversed in their declared order before the child. Each live schema is visited
+  /// once, which makes diamond inheritance and malformed cycles deterministic without duplicating
+  /// an ancestor's fields. Deleted field definitions remain present so downstream validation can
+  /// reject them explicitly; field ownership remains the schema in which each field was declared.
+  public static func effectiveFields(
+    for selectedTagID: SupertagID,
+    definitions: [SupertagDefinition]
+  ) -> [SupertagEffectiveField] {
+    let definitionsByID = definitions.reduce(into: [SupertagID: SupertagDefinition]()) {
+      $0[$1.id] = $1
+    }
+    var visited = Set<SupertagID>()
+    var visiting = Set<SupertagID>()
+    var fields: [SupertagEffectiveField] = []
+
+    func visit(_ tagID: SupertagID) {
+      guard !visited.contains(tagID), !visiting.contains(tagID),
+        let definition = definitionsByID[tagID], !definition.isDeleted
+      else { return }
+
+      visiting.insert(tagID)
+      for parentID in definition.parentIDs {
+        visit(parentID)
+      }
+      visiting.remove(tagID)
+      visited.insert(tagID)
+      fields.append(contentsOf: definition.fields.map {
+        SupertagEffectiveField(
+          propertyKey: .init(supertagID: definition.id, fieldID: $0.id),
+          definition: $0
+        )
+      })
+    }
+
+    visit(selectedTagID)
+    return fields
   }
 }
 

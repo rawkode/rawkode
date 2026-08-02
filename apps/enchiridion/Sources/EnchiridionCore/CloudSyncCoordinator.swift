@@ -182,6 +182,9 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
   private var operationHasIssue = false
   private var hasUnresolvedRecords = false
   private var revalidationTask: Task<Void, Never>?
+  /// CKSyncEngine acknowledgements identify only the record, not the queued generation. Retain
+  /// the generation we claimed so a late delete can never clear a newer desired state.
+  private var pendingPrivacyRemovalGenerations: [CKRecord.ID: Int64] = [:]
 
   private static let logger = Logger(
     subsystem: "dev.rawkode.enchiridion",
@@ -286,8 +289,17 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
   }
 
   public func pageDidChange(_ pageID: PageID) async {
-    guard isAccountAuthorized else { return }
-    queueRecord(recordID(for: pageID), trigger: .localMutation)
+    guard isAccountAuthorized, let engine else { return }
+    do {
+      // Reconcile repository-derived privacy intents before queuing the changed page. A Person
+      // that just became local-only contributes a delete here, while its stale normal save is
+      // filtered by cloudEligiblePage during record preparation.
+      try await enqueueRepositoryChanges(on: engine, trigger: .localMutation)
+    } catch {
+      operationHasIssue = true
+      statusHandler(.attentionRequired(error.localizedDescription))
+      Self.logger.error("Failed to queue page change")
+    }
   }
 
   public func pageWasPurged(_ pageID: PageID) async {
@@ -397,13 +409,22 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     guard Self.shouldQueueDirtyRecords(for: trigger) else { return }
     engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
     let pages = try await repository.dirtyPages()
+    let privacySaves = try await repository.claimCloudPrivacySavesForSync()
+    let privacyRemovals = try await repository.claimCloudPrivacyRemovalsForSync()
     let purges = try await repository.dirtyPurgeMarkers()
     let views = try await repository.dirtyViews()
     let supertags = try await repository.dirtySupertags()
     let relations = try await repository.dirtyRelationDefinitions()
     let graphQueries = try await repository.dirtyGraphQueries()
-    let pageChanges = pages.map {
-      CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.id))
+    let pageChanges = Set(pages.map(\.id) + privacySaves.map(\.pageID))
+      .sorted { $0.rawValue < $1.rawValue }
+      .map {
+        CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0))
+      }
+    let privacyRemovalChanges = privacyRemovals.map { removal in
+      let recordID = recordID(for: removal.pageID)
+      pendingPrivacyRemovalGenerations[recordID] = removal.generation
+      return CKSyncEngine.PendingRecordZoneChange.deleteRecord(recordID)
     }
     let purgeChanges = purges.map {
       CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.pageID))
@@ -421,11 +442,11 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(for: $0.query.id))
     }
     engine.state.add(
-      pendingRecordZoneChanges: pageChanges + purgeChanges + viewChanges + supertagChanges
+      pendingRecordZoneChanges: pageChanges + privacyRemovalChanges + purgeChanges + viewChanges + supertagChanges
         + relationChanges + graphQueryChanges
     )
     Self.logger.info(
-      "Queued local changes; pages=\(pages.count, privacy: .public), purges=\(purges.count, privacy: .public), views=\(views.count, privacy: .public), supertags=\(supertags.count, privacy: .public), relations=\(relations.count, privacy: .public), graphQueries=\(graphQueries.count, privacy: .public)"
+      "Queued local changes; pages=\(pages.count, privacy: .public), privacySaves=\(privacySaves.count, privacy: .public), privacyRemovals=\(privacyRemovals.count, privacy: .public), purges=\(purges.count, privacy: .public), views=\(views.count, privacy: .public), supertags=\(supertags.count, privacy: .public), relations=\(relations.count, privacy: .public), graphQueries=\(graphQueries.count, privacy: .public)"
     )
   }
 
@@ -689,11 +710,90 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
                 pendingRecordZoneChanges: [.saveRecord(record.recordID)]
               )
             }
+            if record.recordType == RecordType.page,
+              (record[Field.purged] as? NSNumber)?.boolValue != true
+            {
+              let sentGeneration = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+              try await queueCloudPrivacyAcknowledgement(
+                repository.acknowledgeCloudPrivacySave(
+                  pageID: PageID(rawValue: record.recordID.recordName),
+                  sentPageGeneration: sentGeneration
+                ),
+                on: syncEngine
+              )
+            }
           } catch {
             operationHasIssue = true
             statusHandler(.attentionRequired(error.localizedDescription))
           }
           cleanupAsset(for: record)
+        }
+        for recordID in changes.deletedRecordIDs where recordID.zoneID == zoneID {
+          guard Self.isValidRecordIdentity(recordType: RecordType.page, recordName: recordID.recordName) else {
+            continue
+          }
+          do {
+            let pageID = PageID(rawValue: recordID.recordName)
+            let rememberedGeneration = pendingPrivacyRemovalGenerations.removeValue(forKey: recordID)
+            let generation: Int64?
+            if let rememberedGeneration {
+              generation = rememberedGeneration
+            } else {
+              generation = try await repository
+                .cloudPrivacyRemovalGenerationAwaitingAcknowledgement(pageID: pageID)
+            }
+            guard let generation else { continue }
+            try await queueCloudPrivacyAcknowledgement(
+              repository.acknowledgeCloudPrivacyRemoval(
+                pageID: pageID,
+                sentGeneration: generation
+              ),
+              on: syncEngine
+            )
+          } catch {
+            operationHasIssue = true
+            statusHandler(.attentionRequired(error.localizedDescription))
+          }
+        }
+        for (recordID, error) in changes.failedRecordDeletes where recordID.zoneID == zoneID {
+          guard Self.isValidRecordIdentity(recordType: RecordType.page, recordName: recordID.recordName) else {
+            continue
+          }
+          do {
+            let pageID = PageID(rawValue: recordID.recordName)
+            let rememberedGeneration = pendingPrivacyRemovalGenerations.removeValue(forKey: recordID)
+            let generation: Int64?
+            if let rememberedGeneration {
+              generation = rememberedGeneration
+            } else {
+              generation = try await repository
+                .cloudPrivacyRemovalGenerationAwaitingAcknowledgement(pageID: pageID)
+            }
+            guard let generation else { continue }
+            let acknowledgement: CloudPrivacyAcknowledgement
+            if error.code == .unknownItem {
+              // CloudKit's missing-record response is already the desired delete effect.
+              acknowledgement = try await repository.acknowledgeCloudPrivacyRemoval(
+                pageID: pageID,
+                sentGeneration: generation
+              )
+            } else {
+              acknowledgement = try await repository.retryCloudPrivacyRemoval(
+                pageID: pageID,
+                sentGeneration: generation
+              )
+            }
+            let disposition = Self.disposition(for: error.code)
+            if Self.shouldImmediatelyRequeue(disposition: disposition) {
+              queueCloudPrivacyAcknowledgement(acknowledgement, on: syncEngine)
+            } else if error.code != .unknownItem {
+              operationHasIssue = true
+              statusHandler(Self.status(for: error))
+            }
+          } catch {
+            operationHasIssue = true
+            statusHandler(.attentionRequired(error.localizedDescription))
+          }
         }
         for failure in changes.failedRecordSaves {
           cleanupAsset(for: failure.record)
@@ -1075,6 +1175,22 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
   }
 
+  private func queueCloudPrivacyAcknowledgement(
+    _ acknowledgement: CloudPrivacyAcknowledgement,
+    on engine: CKSyncEngine
+  ) {
+    switch acknowledgement {
+    case .none:
+      break
+    case .save(let pageID):
+      engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: pageID))])
+    case .delete(let removal):
+      let recordID = recordID(for: removal.pageID)
+      pendingPrivacyRemovalGenerations[recordID] = removal.generation
+      engine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+    }
+  }
+
   private func receive(_ record: CKRecord) async throws {
     guard Self.permitsCloudDataTransfer(accountAuthorized: isAccountAuthorized) else {
       return
@@ -1199,14 +1315,16 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
       throw CocoaError(.fileReadCorruptFile)
     }
     let kind = try JSONDecoder.enchiridion.decode(PageKind.self, from: kindData)
-    let merged = try await repository.mergeCloudPage(
+    _ = try await repository.mergeCloudPage(
       pageID: pageID,
       kind: kind,
       remoteDocument: remote,
       systemFields: systemFields
     )
-    if merged.needsUpload {
-      engine?.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+    if let engine {
+      // A remote merge can change the effective Person privacy classification. Queue the
+      // durable desired operation now, rather than waiting for a later launch or manual sync.
+      try await enqueueRepositoryChanges(on: engine, trigger: .localMutation)
     }
   }
 

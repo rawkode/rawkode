@@ -9,8 +9,9 @@ struct GraphRelationshipsView: View {
   @State private var relations: [RelationDefinition] = []
   @State private var outgoing: [KnowledgeEdge] = []
   @State private var backlinks: [GraphBacklink] = []
+  @State private var meetings: [CalendarMeetingRelationship] = []
   @State private var issues: [GraphIssue] = []
-  @State private var selectedRelation: RelationDefinition?
+  @State private var selectedDestination: RelationshipPickerDestination?
   @State private var errorMessage: String?
 
   var body: some View {
@@ -24,6 +25,13 @@ struct GraphRelationshipsView: View {
         }
       }
 
+      if isPerson {
+        meetingsSection(title: "Upcoming meetings", timing: .upcoming)
+          .accessibilityIdentifier("meeting-section-upcoming")
+        meetingsSection(title: "Past meetings", timing: .past)
+          .accessibilityIdentifier("meeting-section-past")
+      }
+
       Section("Relationships") {
         if outgoing.isEmpty {
           Text("No relationships yet")
@@ -32,12 +40,15 @@ struct GraphRelationshipsView: View {
         ForEach(outgoing) { edge in
           relationshipRow(edge)
         }
-        Menu("Add Relationship", systemImage: "plus") {
-          ForEach(availableRelations) { relation in
-            Button(relation.forwardName) { selectedRelation = relation }
+        Menu {
+          ForEach(authoringDestinations) { destination in
+            Button(destination.title) { selectedDestination = destination }
           }
+        } label: {
+          Label("Add Relationship", systemImage: "plus")
         }
-        .disabled(availableRelations.isEmpty)
+        .accessibilityIdentifier("create-relationship")
+        .disabled(authoringDestinations.isEmpty)
       }
 
       Section("Backlinks") {
@@ -68,14 +79,15 @@ struct GraphRelationshipsView: View {
       }
     }
     .formStyle(.grouped)
-    .task(id: pageID) { await load() }
-    .sheet(item: $selectedRelation) { relation in
+    .task(id: "\(pageID.rawValue)-\(store.calendarRelationshipGeneration)") { await load() }
+    .sheet(item: $selectedDestination) { destination in
       GraphRelationshipTargetPicker(
         store: store,
         sourceID: pageID,
-        relation: relation
+        relation: destination.relation,
+        direction: destination.direction
       ) {
-        selectedRelation = nil
+        selectedDestination = nil
         Task { await load() }
       }
     }
@@ -86,16 +98,92 @@ struct GraphRelationshipsView: View {
     }
   }
 
-  private var availableRelations: [RelationDefinition] {
+  @ViewBuilder
+  private func meetingsSection(
+    title: String,
+    timing: CalendarMeetingRelationship.Timing
+  ) -> some View {
+    let visibleMeetings = meetings.filter { $0.timing == timing }
+    Section {
+      if visibleMeetings.isEmpty {
+        Text(timing == .upcoming ? "No upcoming meetings" : "No past meetings")
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(visibleMeetings) { meeting in
+          calendarMeetingRow(meeting)
+        }
+      }
+    } header: {
+      Label(title, systemImage: "calendar")
+    } footer: {
+      Text("Imported from Calendar. Opening a meeting creates or opens its occurrence note.")
+    }
+  }
+
+  private func calendarMeetingRow(_ meeting: CalendarMeetingRelationship) -> some View {
+    Button {
+      Task {
+        if let pageID = await store.openCalendarEventPage(meeting.event) {
+          onOpenPage?(pageID)
+        }
+      }
+    } label: {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
+        Image(systemName: "calendar")
+          .foregroundStyle(.secondary)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(meeting.event.title)
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+          Text(meetingDateText(meeting.event))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+          Text("\(meeting.attendeeRole.capitalized) · \(meeting.attendeeResponseStatus.capitalized)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tertiary)
+          .accessibilityHidden(true)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("meeting-row-\(meeting.id)")
+    .accessibilityLabel(
+      "\(meeting.event.title), \(meetingDateText(meeting.event)), \(meeting.attendeeRole), \(meeting.attendeeResponseStatus)"
+    )
+    .accessibilityHint("Imported calendar meeting. Opens its occurrence note.")
+  }
+
+  private var authoringDestinations: [RelationshipPickerDestination] {
     guard let page = store.page(id: pageID) else { return [] }
-    let directTags = Set(page.objectMetadata.supertagIDs)
     let effectiveTags = SupertagInheritance.effectiveTagIDs(
-      for: directTags,
+      for: Set(page.objectMetadata.supertagIDs),
       definitions: store.supertags
     )
-    return relations.filter {
-      $0.sourceTagIDs.isEmpty || !effectiveTags.isDisjoint(with: $0.sourceTagIDs)
+    return relations.flatMap { relation in
+      var destinations: [RelationshipPickerDestination] = []
+      if relation.sourceTagIDs.isEmpty || !effectiveTags.isDisjoint(with: relation.sourceTagIDs) {
+        destinations.append(.init(relation: relation, direction: .forward))
+      }
+      if relation.targetTagIDs.isEmpty || !effectiveTags.isDisjoint(with: relation.targetTagIDs) {
+        destinations.append(.init(relation: relation, direction: .inverse))
+      }
+      return destinations
     }
+  }
+
+  private var isPerson: Bool {
+    guard let page = store.page(id: pageID) else { return false }
+    let effectiveTags = SupertagInheritance.effectiveTagIDs(
+      for: Set(page.objectMetadata.supertagIDs),
+      definitions: store.supertags
+    )
+    return effectiveTags.contains(BuiltInSupertags.person)
   }
 
   private var pageIssues: [GraphIssue] {
@@ -140,16 +228,27 @@ struct GraphRelationshipsView: View {
     }
   }
 
+  private func meetingDateText(_ event: CalendarEventSnapshot) -> String {
+    event.startDate.formatted(
+      date: .abbreviated,
+      time: event.isAllDay ? .omitted : .shortened
+    )
+  }
+
   private func load() async {
     do {
       async let loadedRelations = store.graphRelationDefinitions()
       async let loadedOutgoing = store.graphOutgoingEdges(from: pageID)
       async let loadedBacklinks = store.graphBacklinks(to: pageID)
       async let loadedIssues = store.graphIssues()
+      let loadedMeetings = isPerson
+        ? try await store.calendarMeetingRelationships(for: pageID)
+        : []
       relations = try await loadedRelations
       outgoing = try await loadedOutgoing
       backlinks = try await loadedBacklinks
       issues = try await loadedIssues
+      meetings = loadedMeetings
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -192,43 +291,106 @@ struct GraphRelationshipsView: View {
   }
 }
 
+private struct RelationshipPickerDestination: Identifiable, Hashable {
+  let relation: RelationDefinition
+  let direction: GraphRelationshipDirection
+
+  var id: String { "\(relation.id.rawValue)-\(direction.rawValue)" }
+  var title: String { direction == .forward ? relation.forwardName : relation.inverseName }
+}
+
 private struct GraphRelationshipTargetPicker: View {
   let store: LibraryStore
-  let sourceID: NodeID
+  let sourceID: PageID
   let relation: RelationDefinition
+  let direction: GraphRelationshipDirection
   let didCreate: () -> Void
 
   @Environment(\.dismiss) private var dismiss
   @State private var query = ""
+  @State private var intent: GraphRelationshipAuthoringIntent?
+  @State private var creationDestination: RelationshipCreationDestination?
   @State private var errorMessage: String?
 
   var body: some View {
     NavigationStack {
-      List(candidates) { page in
-        Button {
-          Task { await create(targetID: page.id) }
-        } label: {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(page.displayTitle)
-              .foregroundStyle(.primary)
-            Text(typeNames(for: page))
-              .font(.caption)
-              .foregroundStyle(.secondary)
+      Group {
+        if let intent {
+          let matchingCandidates = candidates(for: intent)
+          List {
+            Section {
+              if matchingCandidates.isEmpty {
+                ContentUnavailableView(
+                  query.isEmpty ? "No compatible entities" : "No matching entities",
+                  systemImage: query.isEmpty ? "square.stack.3d.up.slash" : "magnifyingglass",
+                  description: Text(
+                    query.isEmpty
+                      ? "Create a compatible entity below to add this relationship."
+                      : "Try another search or create a compatible entity below."
+                  )
+                )
+                .accessibilityIdentifier("empty-compatible-relations")
+              } else {
+                ForEach(matchingCandidates) { page in
+                  Button {
+                    Task { await create(targetID: page.id, intent: intent) }
+                  } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(displayName(for: page))
+                        .foregroundStyle(.primary)
+                      Text(typeNames(for: page))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                  .buttonStyle(.plain)
+                }
+              }
+            } header: {
+              Text("Existing entities")
+            }
+
+            Section {
+              Button {
+                creationDestination = .init(intent: intent)
+              } label: {
+                Label(createTitle(for: intent), systemImage: "plus")
+              }
+              .accessibilityIdentifier("create-compatible-relation")
+            } header: {
+              Text("Create")
+            }
           }
+          .sheet(item: $creationDestination) { destination in
+            EntityRelationshipCreationView(
+              store: store,
+              intent: destination.intent,
+              compatibleTypes: compatibleTypes(for: destination.intent)
+            ) {
+              creationDestination = nil
+              dismiss()
+              didCreate()
+            }
+          }
+        } else if errorMessage == nil {
+          ProgressView("Loading relationship options")
+        } else {
+          ContentUnavailableView(
+            "Relationship unavailable",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorMessage ?? "This relationship can no longer be added.")
+          )
         }
-        .buttonStyle(.plain)
       }
-      .overlay {
-        if candidates.isEmpty {
-          ContentUnavailableView.search(text: query)
-        }
-      }
-      .navigationTitle("Add \(relation.forwardName)")
+      .navigationTitle("Add \(title)")
       .searchable(text: $query, prompt: "Find a page")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }
         }
+      }
+      .task(id: "\(sourceID.rawValue)-\(relation.id.rawValue)-\(direction.rawValue)") {
+        await loadIntent()
       }
       .alert("Cannot Add Relationship", isPresented: errorBinding) {
         Button("OK", role: .cancel) {}
@@ -241,21 +403,52 @@ private struct GraphRelationshipTargetPicker: View {
     #endif
   }
 
-  private var candidates: [PageSnapshot] {
-    store.pages.filter {
+  private var title: String {
+    direction == .forward ? relation.forwardName : relation.inverseName
+  }
+
+  private func candidates(for intent: GraphRelationshipAuthoringIntent) -> [PageSnapshot] {
+    let allPages = Dictionary(
+      (store.pages + store.otherPeople).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    return allPages.filter {
       $0.id != sourceID && $0.deletedAt == nil
-        && (query.isEmpty || $0.displayTitle.localizedStandardContains(query))
-        && isCompatibleTarget($0)
+        && (query.isEmpty || displayName(for: $0).localizedStandardContains(query))
+        && isCompatibleTarget($0, intent: intent)
+    }.sorted {
+      displayName(for: $0).localizedStandardCompare(displayName(for: $1)) == .orderedAscending
     }
   }
 
-  private func isCompatibleTarget(_ page: PageSnapshot) -> Bool {
-    guard !relation.targetTagIDs.isEmpty else { return true }
+  private func compatibleTypes(for intent: GraphRelationshipAuthoringIntent) -> [SupertagDefinition] {
+    store.supertags.filter {
+      !($0.isDeleted) && intent.compatibleTargetTypeIDs.contains($0.id)
+    }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+
+  private func createTitle(for intent: GraphRelationshipAuthoringIntent) -> String {
+    let types = compatibleTypes(for: intent)
+    guard types.count == 1, let type = types.first else { return "Create compatible entity" }
+    return "Create \(type.name)"
+  }
+
+  private func isCompatibleTarget(_ page: PageSnapshot, intent: GraphRelationshipAuthoringIntent) -> Bool {
     let effectiveTags = SupertagInheritance.effectiveTagIDs(
       for: Set(page.objectMetadata.supertagIDs),
       definitions: store.supertags
     )
-    return !effectiveTags.isDisjoint(with: relation.targetTagIDs)
+    return intent.compatibleTargetTypeIDs.contains { effectiveTags.contains($0) }
+  }
+
+  private func displayName(for page: PageSnapshot) -> String {
+    let effectiveTags = SupertagInheritance.effectiveTagIDs(
+      for: Set(page.objectMetadata.supertagIDs),
+      definitions: store.supertags
+    )
+    return effectiveTags.contains(BuiltInSupertags.person)
+      ? store.personDisplayName(for: page)
+      : page.displayTitle
   }
 
   private func typeNames(for page: PageSnapshot) -> String {
@@ -265,12 +458,26 @@ private struct GraphRelationshipTargetPicker: View {
     return names.isEmpty ? "Page" : names.joined(separator: " · ")
   }
 
-  private func create(targetID: NodeID) async {
+  private func loadIntent() async {
     do {
+      intent = try await store.graphRelationshipAuthoringIntent(
+        relationID: relation.id,
+        presentedSourceID: sourceID,
+        direction: direction
+      )
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func create(targetID: PageID, intent: GraphRelationshipAuthoringIntent) async {
+    do {
+      let endpoints = intent.canonicalEndpoints(selectedTargetID: targetID)
       _ = try await store.createGraphEdge(
         relationID: relation.id,
-        from: sourceID,
-        to: targetID
+        from: endpoints.source,
+        to: endpoints.target
       )
       dismiss()
       didCreate()
@@ -284,6 +491,14 @@ private struct GraphRelationshipTargetPicker: View {
       get: { errorMessage != nil },
       set: { if !$0 { errorMessage = nil } }
     )
+  }
+}
+
+private struct RelationshipCreationDestination: Identifiable {
+  let intent: GraphRelationshipAuthoringIntent
+
+  var id: String {
+    "\(intent.relation.id.rawValue)-\(intent.presentedSourceID.rawValue)-\(intent.direction.rawValue)"
   }
 }
 

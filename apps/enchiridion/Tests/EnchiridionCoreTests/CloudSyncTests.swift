@@ -522,6 +522,264 @@ final class CloudSyncRepositoryTests: XCTestCase {
     XCTAssertNotNil(eligibleSource)
   }
 
+  func testInheritedOtherPersonQueuesPrivacyDeleteAndPreservesLocalPage() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let eligible = try await fixture.repository.cloudEligiblePage(pageID: page.id)
+    let prepared = try await CloudSyncCoordinator.pageForPendingSave(
+      page.id,
+      repository: fixture.repository
+    )
+    let retained = try await fixture.repository.page(id: page.id)
+    let dirtyPages = try await fixture.repository.dirtyPages()
+
+    XCTAssertEqual(removals.map(\.pageID), [page.id])
+    XCTAssertNil(eligible)
+    XCTAssertNil(prepared)
+    XCTAssertNotNil(retained)
+    XCTAssertFalse(dirtyPages.contains { $0.id == page.id })
+  }
+
+  func testPrivacyDeleteAcknowledgementIsCompensatedAfterPromotion() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(removals.first)
+    _ = try await fixture.repository.promotePerson(pageID: page.id)
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacyRemoval(
+      pageID: page.id,
+      sentGeneration: removal.generation
+    )
+    let eligible = try await fixture.repository.cloudEligiblePage(pageID: page.id)
+    let dirtyPages = try await fixture.repository.dirtyPages()
+
+    XCTAssertEqual(acknowledgement, .save(page.id))
+    XCTAssertNotNil(eligible)
+    XCTAssertTrue(dirtyPages.contains { $0.id == page.id })
+  }
+
+  func testDeleteAcknowledgementAfterPromotionClaimsCompensatingSave() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(removals.first)
+    let promoted = try await fixture.repository.promotePerson(pageID: page.id)
+
+    let deleteAcknowledgement = try await fixture.repository.acknowledgeCloudPrivacyRemoval(
+      pageID: page.id,
+      sentGeneration: removal.generation
+    )
+    let duplicateCompensatingSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+    let saveAcknowledgement = try await fixture.repository.acknowledgeCloudPrivacySave(
+      pageID: page.id,
+      sentPageGeneration: promoted.dirtyGeneration
+    )
+    let subsequentSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+
+    XCTAssertEqual(deleteAcknowledgement, .save(page.id))
+    XCTAssertTrue(duplicateCompensatingSaves.isEmpty)
+    XCTAssertEqual(saveAcknowledgement, .none)
+    XCTAssertTrue(subsequentSaves.isEmpty)
+  }
+
+  func testSteadyPrivacyDeleteAcknowledgementDoesNotRequeueAndSuppressesDeletionEcho() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let initialRemovals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(initialRemovals.first)
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacyRemoval(
+      pageID: page.id,
+      sentGeneration: removal.generation
+    )
+    let subsequentRemovals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let deletionEchoShouldRetry = try await fixture.repository.applyCloudPageRecordDeletion(pageID: page.id)
+    let retained = try await fixture.repository.page(id: page.id)
+
+    XCTAssertEqual(acknowledgement, .none)
+    XCTAssertTrue(subsequentRemovals.isEmpty)
+    XCTAssertFalse(deletionEchoShouldRetry)
+    XCTAssertNotNil(retained)
+  }
+
+  func testLateDeleteAcknowledgementAfterSettledPromotionQueuesCompensatingSave() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(removals.first)
+    _ = try await fixture.repository.promotePerson(pageID: page.id)
+    let initialSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+    let save = try XCTUnwrap(initialSaves.first)
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacySave(
+      pageID: page.id,
+      sentPageGeneration: save.pageDirtyGeneration
+    )
+    let lateDeleteAcknowledgement = try await fixture.repository.acknowledgeCloudPrivacyRemoval(
+      pageID: page.id,
+      sentGeneration: removal.generation
+    )
+    let subsequentSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+
+    XCTAssertEqual(acknowledgement, .none)
+    XCTAssertEqual(lateDeleteAcknowledgement, .save(page.id))
+    XCTAssertTrue(subsequentSaves.isEmpty)
+    let compensatingAcknowledgement = try await fixture.repository.acknowledgeCloudPrivacySave(
+      pageID: page.id,
+      sentPageGeneration: save.pageDirtyGeneration
+    )
+    let settledSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+    XCTAssertEqual(compensatingAcknowledgement, .none)
+    XCTAssertTrue(settledSaves.isEmpty)
+  }
+
+  func testPrivacySaveUsesPreparedRecordGenerationAfterAnInterveningEdit() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    _ = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    _ = try await fixture.repository.promotePerson(pageID: page.id)
+    let claimedSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+    let claimed = try XCTUnwrap(claimedSaves.first)
+
+    let emailKey = SupertagPropertyKey(
+      supertagID: BuiltInSupertags.person,
+      fieldID: .init(rawValue: "email")
+    )
+    try await fixture.repository.setProperty(
+      pageID: page.id,
+      key: emailKey,
+      values: [.email("ada@example.com")]
+    )
+    let preparedPage = try await fixture.repository.page(id: page.id)
+    let prepared = try XCTUnwrap(preparedPage)
+    XCTAssertGreaterThan(prepared.dirtyGeneration, claimed.pageDirtyGeneration)
+
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacySave(
+      pageID: page.id,
+      sentPageGeneration: prepared.dirtyGeneration
+    )
+    let subsequentSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+
+    XCTAssertEqual(acknowledgement, .none)
+    XCTAssertTrue(subsequentSaves.isEmpty)
+  }
+
+  func testCloudMergeUsesInheritedPersonPrivacyForEligibilityAndDeletion() async throws {
+    let source = try CloudRepositoryFixture()
+    let target = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await source.repository.saveSupertag(employee)
+    try await target.repository.saveSupertag(employee)
+    let page = try await source.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+    let localOnly = try await source.repository.movePersonToOther(pageID: page.id)
+
+    let merge = try await target.repository.mergeCloudPage(
+      pageID: page.id,
+      kind: localOnly.kind,
+      remoteDocument: localOnly.document,
+      systemFields: Data([1])
+    )
+    let eligible = try await target.repository.cloudEligiblePage(pageID: page.id)
+    let dirtyPages = try await target.repository.dirtyPages()
+    let removals = try await target.repository.claimCloudPrivacyRemovalsForSync()
+
+    XCTAssertFalse(merge.needsUpload)
+    XCTAssertNil(eligible)
+    XCTAssertFalse(dirtyPages.contains { $0.id == page.id })
+    XCTAssertEqual(removals.map(\.pageID), [page.id])
+  }
+
+  func testRemovingInheritedPersonTypeRetainsExistingLocalOnlyEligibility() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(removals.first)
+    try await fixture.repository.removeSupertag(employee.id, from: page.id)
+    let eligible = try await fixture.repository.cloudEligiblePage(pageID: page.id)
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacyRemoval(
+      pageID: page.id,
+      sentGeneration: removal.generation
+    )
+    let dirtyPages = try await fixture.repository.dirtyPages()
+
+    XCTAssertNil(eligible)
+    XCTAssertEqual(acknowledgement, .none)
+    XCTAssertFalse(dirtyPages.contains { $0.id == page.id })
+  }
+
+  func testStalePromotionSaveAfterDemotionRequeuesDelete() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Ada", supertagID: employee.id)
+
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    _ = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    _ = try await fixture.repository.promotePerson(pageID: page.id)
+    let initialSaves = try await fixture.repository.claimCloudPrivacySavesForSync()
+    let save = try XCTUnwrap(initialSaves.first)
+    _ = try await fixture.repository.movePersonToOther(pageID: page.id)
+    let subsequentRemovals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+    let removal = try XCTUnwrap(subsequentRemovals.first)
+    let acknowledgement = try await fixture.repository.acknowledgeCloudPrivacySave(
+      pageID: page.id,
+      sentPageGeneration: save.pageDirtyGeneration
+    )
+
+    XCTAssertEqual(acknowledgement, .delete(removal))
+  }
+
+  func testInheritedPersonWithoutVisibilityKeepsLegacyCloudEligibility() async throws {
+    let fixture = try CloudRepositoryFixture()
+    var employee = SupertagDefinition.draft(name: "Employee")
+    employee.parentIDs = [BuiltInSupertags.person]
+    try await fixture.repository.saveSupertag(employee)
+    let page = try await fixture.repository.createTaggedPage(title: "Legacy", supertagID: employee.id)
+    let persisted = try await fixture.repository.page(id: page.id)
+    let eligible = try await fixture.repository.cloudEligiblePage(pageID: page.id)
+    let removals = try await fixture.repository.claimCloudPrivacyRemovalsForSync()
+
+    XCTAssertNil(persisted?.effectivePersonVisibility)
+    XCTAssertNotNil(eligible)
+    XCTAssertTrue(removals.isEmpty)
+  }
+
   private func cloudPersonEvent(email: String) -> CalendarEventSnapshot {
     let start = Date(timeIntervalSince1970: 1_817_000_000)
     return CalendarEventSnapshot(

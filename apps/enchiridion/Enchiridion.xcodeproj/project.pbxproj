@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
+		087A39046047331DDD0CB62F /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
 		11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */; };
@@ -59,6 +60,7 @@
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		748090CC891C45CC36173E26 /* ContactsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */; };
 		74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
@@ -209,6 +211,7 @@
 		1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyTaskContext.swift; sourceTree = "<group>"; };
 		1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayTasksWidget.swift; sourceTree = "<group>"; };
 		250D8A1FB97475734517559F /* MacDailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDailyTaskContext.swift; sourceTree = "<group>"; };
+		26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityRelationshipCreationView.swift; sourceTree = "<group>"; };
 		28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPlanningViews.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaRows.swift; sourceTree = "<group>"; };
@@ -414,6 +417,7 @@
 				797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */,
 				A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */,
 				AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */,
+				26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */,
 				A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */,
 				F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */,
 				0938AF7A6668F0079D01E68F /* GraphQueryWorkspace.swift */,
@@ -740,6 +744,7 @@
 				FE693E4C3ED1D8CFD6E2D282 /* DeviceContactsSettingsSection.swift in Sources */,
 				DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */,
 				3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */,
+				087A39046047331DDD0CB62F /* EntityRelationshipCreationView.swift in Sources */,
 				5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */,
 				105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */,
 				D3351B5BCA365630C5E35D18 /* GraphQueryWorkspace.swift in Sources */,
@@ -810,6 +815,7 @@
 				87255CCD64CA18D480C65230 /* DeviceContactsSettingsSection.swift in Sources */,
 				3FCA54B2BD75D331E1C7DCB1 /* EmptyLibraryView.swift in Sources */,
 				A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */,
+				70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */,
 				32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */,
 				47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */,
 				C43646907D2E902FFAC0240B /* EntryRowView.swift in Sources */,
