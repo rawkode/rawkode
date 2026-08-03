@@ -134,8 +134,8 @@ public final class RealtimeVoiceSession {
     }
   }
 
-  /// Must be called only after the voice lobby's explicit JIT acceptance. This
-  /// method then enforces permission -> native key read -> validated SDP/WebRTC
+  /// Starts the saved, verified BYOK route and enforces permission -> native
+  /// key read -> validated SDP/WebRTC
   /// handshake -> system audio activation. The transport keeps the microphone
   /// track disabled until all handshake stages have completed.
   public func start() async {
@@ -162,7 +162,7 @@ public final class RealtimeVoiceSession {
       )
       return
     }
-    guard await waitForActiveAfterPermission(
+    guard await waitForActiveDuringStartup(
       generation: currentGeneration,
       operation: currentOperation
     ) else { return }
@@ -189,6 +189,11 @@ public final class RealtimeVoiceSession {
       )
       return
     }
+    guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+    guard await waitForActiveDuringStartup(
+      generation: currentGeneration,
+      operation: currentOperation
+    ) else { return }
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
 
     setPhase(.connecting)
@@ -240,6 +245,17 @@ public final class RealtimeVoiceSession {
       // live conversation, while retaining the validated session identity.
       setPhase(.connecting)
       transportStartedGeneration = currentGeneration
+      guard await waitForActiveDuringStartup(
+        generation: currentGeneration,
+        operation: currentOperation
+      ) else {
+        await performBoundedTeardown { await self.audioSession.deactivate() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
+        return
+      }
+      guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       try await audioSession.activate()
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
         await performBoundedTeardown { await self.audioSession.deactivate() }
@@ -249,6 +265,18 @@ public final class RealtimeVoiceSession {
         return
       }
       audioOwnerGeneration = currentGeneration
+      guard await waitForActiveDuringStartup(
+        generation: currentGeneration,
+        operation: currentOperation
+      ) else {
+        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { await self.audioSession.deactivate() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
+        return
+      }
+      guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       guard await confirmInputTransition(true) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
@@ -258,6 +286,17 @@ public final class RealtimeVoiceSession {
           ),
           generation: currentGeneration
         )
+        return
+      }
+      guard await waitForActiveDuringStartup(
+        generation: currentGeneration,
+        operation: currentOperation
+      ) else {
+        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { await self.audioSession.deactivate() }
+        if !isSessionCurrent(currentGeneration) {
+          await performBoundedTeardown { await self.transport.close() }
+        }
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
@@ -394,6 +433,15 @@ public final class RealtimeVoiceSession {
     guard let reason else { return }
     switch state.phase {
     case .requestingMicrophone, .readingCredential, .connecting:
+      // AVAudioSession emits these notifications while this session configures
+      // its own play-and-record route. Ignore only known benign changes that
+      // retain microphone and output IO; an unavailable or removed route,
+      // interruption, and media-service failure remain retryable failures.
+      if case .routeChanged(let changeReason, _, let current) = event,
+        isBenignStartupRouteChange(changeReason, current: current)
+      {
+        return
+      }
       await terminalFailure(startupInterruptedFailure, generation: generation)
       return
     default:
@@ -414,10 +462,7 @@ public final class RealtimeVoiceSession {
     case .active:
       resumeActiveWaiterIfNeeded()
     case .inactive:
-      if state.phase == .requestingMicrophone { return }
-      if isStartupPhase {
-        await terminalFailure(startupInterruptedFailure, generation: generation)
-      } else {
+      if !isStartupPhase {
         await pause(for: .appInactive)
       }
     case .background:
@@ -862,7 +907,21 @@ public final class RealtimeVoiceSession {
     )
   }
 
-  private func waitForActiveAfterPermission(
+  private func isBenignStartupRouteChange(
+    _ reason: AssistantAudioRouteChangeReason,
+    current: AssistantAudioRouteSnapshot
+  ) -> Bool {
+    guard current.hasRequiredVoiceIO else { return false }
+    return switch reason {
+    case .categoryChange, .newDeviceAvailable, .override, .wakeFromSleep,
+      .routeConfigurationChange:
+      true
+    case .unknown, .oldDeviceUnavailable, .noSuitableRoute:
+      false
+    }
+  }
+
+  private func waitForActiveDuringStartup(
     generation expectedGeneration: UInt64,
     operation expectedOperation: UInt64
   ) async -> Bool {

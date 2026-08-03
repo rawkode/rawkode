@@ -23,7 +23,7 @@ public enum RealtimeWebRTCBridgeAuthorizationError: Error, Equatable, Sendable {
   case credentialBindingMismatch
 }
 
-/// Opaque authority for one frozen, consented Realtime route. It contains no
+/// Opaque authority for one frozen, verified Realtime route. It contains no
 /// credential material and cannot be constructed without an exact native
 /// credential lease.
 public struct RealtimeWebRTCBridgeAuthorization: Sendable {
@@ -45,7 +45,6 @@ public struct RealtimeWebRTCBridgeAuthorization: Sendable {
       route.isAuthorizedOpenAIRealtime,
       route.modelCatalogVersion == OpenAIModelCatalog.version,
       route.voiceCatalogVersion == OpenAIRealtimeVoiceCatalog.version,
-      route.consentVersion == OpenAIRealtimeVoiceConsentCopy.version,
       route.modelID.map({ modelID in
         OpenAIModelCatalog.realtimeOptions.contains(where: { $0.id == modelID })
       }) == true,

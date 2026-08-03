@@ -60,7 +60,6 @@ public enum OpenAIRealtimeVoiceCatalog {
 }
 
 public enum OpenAIVoiceAuthorizationFailure: String, Equatable, Sendable {
-  case consentRequired
   case credentialVerificationRequired
   case modelSelectionRequired
   case modelUnavailable
@@ -80,7 +79,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
   public let credentialBinding: OpenAICredentialBinding?
   public let modelCatalogVersion: Int?
   public let voiceCatalogVersion: Int?
-  public let consentVersion: Int?
   public let authorizationFailure: OpenAIVoiceAuthorizationFailure?
   private let authority: Authority?
 
@@ -91,7 +89,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
     credentialBinding: OpenAICredentialBinding? = nil,
     modelCatalogVersion: Int? = nil,
     voiceCatalogVersion: Int? = nil,
-    consentVersion: Int? = nil,
     authorizationFailure: OpenAIVoiceAuthorizationFailure? = nil,
     authority: Authority? = nil
   ) {
@@ -101,7 +98,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
     self.credentialBinding = credentialBinding
     self.modelCatalogVersion = modelCatalogVersion
     self.voiceCatalogVersion = voiceCatalogVersion
-    self.consentVersion = consentVersion
     self.authorizationFailure = authorizationFailure
     self.authority = authority
   }
@@ -135,7 +131,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
       credentialBinding: credentialBinding,
       modelCatalogVersion: OpenAIModelCatalog.version,
       voiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version,
-      consentVersion: OpenAIRealtimeVoiceConsentCopy.version,
       authority: .preferencesStore
     )
   }
@@ -146,7 +141,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
       && authority == .preferencesStore
       && modelCatalogVersion == OpenAIModelCatalog.version
       && voiceCatalogVersion == OpenAIRealtimeVoiceCatalog.version
-      && consentVersion == OpenAIRealtimeVoiceConsentCopy.version
       && modelID.map({ modelID in
         OpenAIModelCatalog.realtimeOptions.contains(where: { $0.id == modelID })
       }) == true
@@ -158,7 +152,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
     func replacingAuthorityVersionsForTesting(
       modelCatalogVersion: Int?,
       voiceCatalogVersion: Int?,
-      consentVersion: Int?
     ) -> Self {
       Self(
         provider: provider,
@@ -167,7 +160,6 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
         credentialBinding: credentialBinding,
         modelCatalogVersion: modelCatalogVersion,
         voiceCatalogVersion: voiceCatalogVersion,
-        consentVersion: consentVersion,
         authorizationFailure: authorizationFailure,
         authority: authority
       )
@@ -181,25 +173,10 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
         credentialBinding: credentialBinding,
         modelCatalogVersion: modelCatalogVersion,
         voiceCatalogVersion: voiceCatalogVersion,
-        consentVersion: consentVersion,
         authorizationFailure: authorizationFailure
       )
     }
   #endif
-}
-
-public enum OpenAIRealtimeVoiceConsentCopy {
-  public static let version = AssistantProviderPreferencesPayload.currentVoiceConsentVersion
-  public static let title = "Send this voice conversation to OpenAI?"
-  public static let body = """
-    OpenAI Voice sends live microphone audio and OpenAI-generated transcripts, plus recent OpenAI Voice turns, directly to OpenAI. It does not send notes, tasks, calendars, or other local library content.
-
-    Your API key stays in this device's Keychain. This direct-device setup differs from OpenAI's recommended backend key custody. OpenAI says API data is not used to train models by default. Realtime has no application-state retention; abuse-monitoring logs may retain audio, transcripts, responses, and metadata for up to 30 days.
-
-    OpenAI API use is billed separately from ChatGPT. Apple On Device voice remains available. CarPlay and App Intents always use Apple On Device.
-    """
-  public static let startActionTitle = "Start OpenAI Voice"
-  public static let keepAppleActionTitle = "Keep Apple"
 }
 
 public enum OpenAITextAuthorizationFailure: String, Equatable, Sendable {
@@ -349,7 +326,6 @@ public enum OpenAIModelCatalog {
 public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable {
   public static let currentVersion = 3
   public static let currentTextConsentVersion = 2
-  public static let currentVoiceConsentVersion = 2
 
   public var version: Int
   public var selectedProvider: AssistantProvider
@@ -365,6 +341,9 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
   public var selectedVoiceProvider: AssistantVoiceProvider
   public var selectedRealtimeModelID: String?
   public var selectedRealtimeVoiceID: String?
+  // Retained solely to decode payloads written by builds that required a
+  // second voice-consent grant. Saving a verified Platform key is now the
+  // complete voice opt-in, so new payloads deliberately omit these fields.
   public var voiceConsentVersion: Int?
   public var voiceConsentCredentialRevision: String?
   public var voiceConsentCredentialFingerprint: String?
@@ -506,17 +485,6 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     try container.encode(selectedVoiceProvider, forKey: .selectedVoiceProvider)
     try container.encodeIfPresent(selectedRealtimeModelID, forKey: .selectedRealtimeModelID)
     try container.encodeIfPresent(selectedRealtimeVoiceID, forKey: .selectedRealtimeVoiceID)
-    try container.encodeIfPresent(voiceConsentVersion, forKey: .voiceConsentVersion)
-    try container.encodeIfPresent(
-      voiceConsentCredentialRevision, forKey: .voiceConsentCredentialRevision)
-    try container.encodeIfPresent(
-      voiceConsentCredentialFingerprint, forKey: .voiceConsentCredentialFingerprint)
-    try container.encodeIfPresent(
-      voiceConsentModelCatalogVersion, forKey: .voiceConsentModelCatalogVersion)
-    try container.encodeIfPresent(
-      voiceConsentVoiceCatalogVersion, forKey: .voiceConsentVoiceCatalogVersion)
-    try container.encodeIfPresent(voiceConsentModelID, forKey: .voiceConsentModelID)
-    try container.encodeIfPresent(voiceConsentVoiceID, forKey: .voiceConsentVoiceID)
   }
 }
 
@@ -550,19 +518,6 @@ public final class AssistantProviderPreferencesStore {
       && payload.textConsentCredentialFingerprint == payload.credentialFingerprint
       && payload.credentialRevision != nil
       && payload.credentialFingerprint != nil
-  }
-  public var hasCurrentVoiceConsent: Bool {
-    payload.voiceConsentVersion == AssistantProviderPreferencesPayload.currentVoiceConsentVersion
-      && payload.voiceConsentCredentialRevision == payload.credentialRevision
-      && payload.voiceConsentCredentialFingerprint == payload.credentialFingerprint
-      && payload.voiceConsentModelCatalogVersion == OpenAIModelCatalog.version
-      && payload.voiceConsentVoiceCatalogVersion == OpenAIRealtimeVoiceCatalog.version
-      && payload.voiceConsentModelID == payload.selectedRealtimeModelID
-      && payload.voiceConsentVoiceID == payload.selectedRealtimeVoiceID
-      && payload.credentialRevision != nil
-      && payload.credentialFingerprint != nil
-      && payload.selectedRealtimeModelID != nil
-      && payload.selectedRealtimeVoiceID != nil
   }
   public var wasVerifiedForCurrentCatalog: Bool {
     payload.credentialRevision != nil
@@ -637,7 +592,6 @@ public final class AssistantProviderPreferencesStore {
     case .openAIRealtime:
       hasSavedCredential
         && wasVerifiedForCurrentCatalog
-        && hasCurrentVoiceConsent
         && hasValidSelectedRealtimeModel
         && hasValidSelectedRealtimeVoice
     case .qwenRealtime:
@@ -663,22 +617,6 @@ public final class AssistantProviderPreferencesStore {
       ? AssistantProviderPreferencesPayload.currentTextConsentVersion : nil
     payload.textConsentCredentialRevision = isGranted ? payload.credentialRevision : nil
     payload.textConsentCredentialFingerprint = isGranted ? payload.credentialFingerprint : nil
-    persist()
-  }
-
-  public func setVoiceConsent(_ isGranted: Bool) {
-    guard isGranted else {
-      clearVoiceConsent()
-      persist()
-      return
-    }
-    payload.voiceConsentVersion = AssistantProviderPreferencesPayload.currentVoiceConsentVersion
-    payload.voiceConsentCredentialRevision = payload.credentialRevision
-    payload.voiceConsentCredentialFingerprint = payload.credentialFingerprint
-    payload.voiceConsentModelCatalogVersion = OpenAIModelCatalog.version
-    payload.voiceConsentVoiceCatalogVersion = OpenAIRealtimeVoiceCatalog.version
-    payload.voiceConsentModelID = payload.selectedRealtimeModelID
-    payload.voiceConsentVoiceID = payload.selectedRealtimeVoiceID
     persist()
   }
 
@@ -851,13 +789,6 @@ public final class AssistantProviderPreferencesStore {
     guard payload.selectedVoiceProvider == .openAIRealtime else {
       return .appleOnDevice()
     }
-    guard hasCurrentVoiceConsent else {
-      return .failedOpenAIRealtime(
-        modelID: payload.selectedRealtimeModelID,
-        voiceID: payload.selectedRealtimeVoiceID,
-        failure: .consentRequired
-      )
-    }
     guard wasVerifiedForCurrentCatalog,
       let revision = payload.credentialRevision,
       let fingerprint = payload.credentialFingerprint
@@ -950,16 +881,6 @@ public final class AssistantProviderPreferencesStore {
       payload.selectedRealtimeVoiceID = nil
     }
     persist()
-  }
-
-  private func clearVoiceConsent() {
-    payload.voiceConsentVersion = nil
-    payload.voiceConsentCredentialRevision = nil
-    payload.voiceConsentCredentialFingerprint = nil
-    payload.voiceConsentModelCatalogVersion = nil
-    payload.voiceConsentVoiceCatalogVersion = nil
-    payload.voiceConsentModelID = nil
-    payload.voiceConsentVoiceID = nil
   }
 
   private func persist() {

@@ -47,7 +47,6 @@ struct AssistantProviderSettingsView: View {
   @State private var candidate = ""
   @State private var showsDeleteConfirmation = false
   @State private var showsTextConsentConfirmation = false
-  @State private var showsVoiceConsentConfirmation = false
 
   init(
     controller: AssistantProviderSettingsController,
@@ -108,29 +107,6 @@ struct AssistantProviderSettingsView: View {
       Button("Keep Apple", role: .cancel) {}
     } message: {
       Text(openAIConsentDisclosure)
-    }
-    .confirmationDialog(
-      OpenAIRealtimeVoiceConsentCopy.title,
-      isPresented: $showsVoiceConsentConfirmation,
-      titleVisibility: .visible
-    ) {
-      Button(OpenAIRealtimeVoiceConsentCopy.startActionTitle) {
-        let voiceID = controller.selectedRealtimeVoice?.id
-          ?? OpenAIRealtimeVoiceCatalog.preferredDefault.id
-        guard
-          let modelID = controller.selectedRealtimeModelID
-            ?? controller.verifiedRealtimeOptions.first?.id
-        else { return }
-        _ = controller.authorizeOpenAIRealtimeVoiceAndSelect(
-          modelID: modelID,
-          voiceID: voiceID
-        )
-      }
-      Button(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle, role: .cancel) {
-        controller.selectVoiceProvider(.appleOnDevice)
-      }
-    } message: {
-      Text(OpenAIRealtimeVoiceConsentCopy.body)
     }
     .confirmationDialog(
       "Delete Qwen token from this device?",
@@ -409,25 +385,6 @@ struct AssistantProviderSettingsView: View {
           }
         }
 
-        LabeledContent(
-          "Voice consent",
-          value: controller.hasVoiceConsent ? "Current" : "Required"
-        )
-
-        if controller.hasVoiceConsent {
-          Button("Revoke OpenAI Voice Consent", role: .destructive) {
-            controller.setVoiceConsent(false)
-            controller.selectVoiceProvider(.appleOnDevice)
-          }
-        } else {
-          Button("Review OpenAI Voice Consent") {
-            showsVoiceConsentConfirmation = true
-          }
-          .disabled(
-            controller.selectedRealtimeModelID == nil
-              || controller.selectedRealtimeVoice == nil
-          )
-        }
       }
 
       LabeledContent(
@@ -442,10 +399,12 @@ struct AssistantProviderSettingsView: View {
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
 
-      Text(OpenAIRealtimeVoiceConsentCopy.body)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "Saving a verified Platform key is your explicit opt-in to OpenAI Voice. Starting voice requests only the normal iOS microphone permission when needed; it does not show an additional provider or location confirmation."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
     }
   }
 
@@ -493,11 +452,9 @@ struct AssistantProviderSettingsView: View {
         case .appleOnDevice:
           controller.selectVoiceProvider(.appleOnDevice)
         case .openAIRealtime:
-          if controller.hasVoiceConsent, controller.canSelectOpenAIRealtimeVoice {
-            controller.selectVoiceProvider(.openAIRealtime)
-          } else {
-            showsVoiceConsentConfirmation = true
-          }
+          controller.selectVoiceProvider(
+            controller.canSelectOpenAIRealtimeVoice ? .openAIRealtime : .appleOnDevice
+          )
         case .qwenRealtime:
           controller.selectVoiceProvider(
             qwenController.isConfigured ? .qwenRealtime : .appleOnDevice

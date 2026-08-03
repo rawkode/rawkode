@@ -150,6 +150,7 @@ struct AssistantConversationView: View {
   ) -> some View {
     RealtimeVoiceLobbyView(
       route: lobby.snapshot,
+      routeID: lobby.id,
       onKeepApple: {
         providerSettings?.selectVoiceProvider(.appleOnDevice)
         await conversationSession?.startVoice()

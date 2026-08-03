@@ -24,14 +24,7 @@ func makeAuthorizedRealtimeVoiceRoute(
     verifiedRealtimeModelIDs: [modelID],
     selectedVoiceProvider: .openAIRealtime,
     selectedRealtimeModelID: modelID,
-    selectedRealtimeVoiceID: voiceID,
-    voiceConsentVersion: AssistantProviderPreferencesPayload.currentVoiceConsentVersion,
-    voiceConsentCredentialRevision: binding.revision,
-    voiceConsentCredentialFingerprint: binding.fingerprint,
-    voiceConsentModelCatalogVersion: OpenAIModelCatalog.version,
-    voiceConsentVoiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version,
-    voiceConsentModelID: modelID,
-    voiceConsentVoiceID: voiceID
+    selectedRealtimeVoiceID: voiceID
   )
   defaults.set(try JSONEncoder().encode(payload), forKey: key)
   return AssistantProviderPreferencesStore(defaults: defaults, key: key).voiceRouteSnapshot()

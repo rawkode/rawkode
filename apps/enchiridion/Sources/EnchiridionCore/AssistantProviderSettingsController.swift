@@ -98,7 +98,6 @@ public final class AssistantProviderSettingsController {
   public private(set) var selectedRealtimeModelID: String?
   public private(set) var selectedRealtimeVoice: OpenAIRealtimeVoice?
   public private(set) var verifiedRealtimeOptions: [OpenAIModelOption]
-  public private(set) var hasVoiceConsent: Bool
   public private(set) var isCredentialStateResolved = false
 
   private let preferences: AssistantProviderPreferencesStore
@@ -123,7 +122,6 @@ public final class AssistantProviderSettingsController {
     selectedRealtimeModelID = preferences.selectedRealtimeModelID
     selectedRealtimeVoice = preferences.selectedRealtimeVoice
     verifiedRealtimeOptions = preferences.verifiedRealtimeOptions
-    hasVoiceConsent = preferences.hasCurrentVoiceConsent
   }
 
   public var canSelectOpenAI: Bool {
@@ -301,17 +299,6 @@ public final class AssistantProviderSettingsController {
     synchronizePreferences()
   }
 
-  public func setVoiceConsent(_ isGranted: Bool) {
-    guard !isGranted || credentialState == .savedAndVerified else { return }
-    guard
-      !isGranted
-        || (preferences.hasValidSelectedRealtimeModel
-          && preferences.hasValidSelectedRealtimeVoice)
-    else { return }
-    preferences.setVoiceConsent(isGranted)
-    synchronizePreferences()
-  }
-
   public func selectTextModel(id: String?) {
     preferences.selectTextModel(id: id)
     synchronizePreferences()
@@ -337,23 +324,6 @@ public final class AssistantProviderSettingsController {
     preferences.selectProvider(.openAI, hasSavedCredential: hasSavedCredential)
     synchronizePreferences()
     return selectedProvider == .openAI && hasTextConsent
-  }
-
-  @discardableResult
-  public func authorizeOpenAIRealtimeVoiceAndSelect(
-    modelID: String,
-    voiceID: String
-  ) -> Bool {
-    guard credentialState == .savedAndVerified,
-      verifiedRealtimeOptions.contains(where: { $0.id == modelID }),
-      OpenAIRealtimeVoiceCatalog.contains(voiceID)
-    else { return false }
-    preferences.selectRealtimeModel(id: modelID)
-    preferences.selectRealtimeVoice(id: voiceID)
-    preferences.setVoiceConsent(true)
-    preferences.selectVoiceProvider(.openAIRealtime, hasSavedCredential: hasSavedCredential)
-    synchronizePreferences()
-    return selectedVoiceProvider == .openAIRealtime && hasVoiceConsent
   }
 
   public func clearError() {
@@ -389,7 +359,7 @@ public final class AssistantProviderSettingsController {
 
   private func synchronizePreferences() {
     // Once explicitly selected, an OpenAI route remains visible even if its
-    // credential, consent, or model later needs recovery. Inference fails
+    // credential, text consent, or model later needs recovery. Inference fails
     // closed instead of silently crossing back to Apple.
     selectedProvider = preferences.selectedProvider
     selectedTextModelID = preferences.selectedTextModelID
@@ -399,7 +369,6 @@ public final class AssistantProviderSettingsController {
     selectedRealtimeModelID = preferences.selectedRealtimeModelID
     selectedRealtimeVoice = preferences.selectedRealtimeVoice
     verifiedRealtimeOptions = preferences.verifiedRealtimeOptions
-    hasVoiceConsent = preferences.hasCurrentVoiceConsent
   }
 
   private func persistAndPublishVerificationFallback(hasSavedCredential: Bool) {

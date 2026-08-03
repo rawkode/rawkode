@@ -14,26 +14,25 @@ struct RealtimeVoiceLobbyRoute: Identifiable {
 
 struct RealtimeVoiceLobbyView: View {
   private enum Stage {
-    case lobby
     case active
     case unavailable
   }
 
   let route: RealtimeVoiceRouteSnapshot
+  let routeID: UUID
   let onKeepApple: () async -> Void
   let onOpenSettings: () -> Void
 
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
-  @State private var stage: Stage = .lobby
+  @State private var stage: Stage = .active
   @State private var coordinator: RealtimeVoiceCoordinator?
+  @State private var startedRouteID: UUID?
 
   var body: some View {
     NavigationStack {
       Group {
         switch stage {
-        case .lobby:
-          lobby
         case .active:
           active
         case .unavailable:
@@ -53,55 +52,15 @@ struct RealtimeVoiceLobbyView: View {
     .onChange(of: scenePhase) { _, phase in
       coordinator?.handleLifecycleChange(lifecycleState(for: phase))
     }
+    .task(id: routeID) {
+      guard startedRouteID != routeID else { return }
+      startedRouteID = routeID
+      startOpenAIVoice()
+    }
     .onDisappear { coordinator?.stop() }
     #if os(macOS)
       .frame(minWidth: 480, idealWidth: 560, minHeight: 580, idealHeight: 680)
     #endif
-  }
-
-  private var lobby: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        VoiceRouteSummary(route: route)
-
-        VStack(alignment: .leading, spacing: 10) {
-          Label(OpenAIRealtimeVoiceConsentCopy.title, systemImage: "waveform.badge.mic")
-            .font(.title2.weight(.semibold))
-          Text(OpenAIRealtimeVoiceConsentCopy.body)
-            .font(.body)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
-
-        directBYOKDisclosure
-
-        VStack(spacing: 12) {
-          Button(OpenAIRealtimeVoiceConsentCopy.startActionTitle) {
-            startOpenAIVoice()
-          }
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
-          .frame(maxWidth: .infinity, minHeight: 56)
-          .accessibilityHint(
-            "Requests microphone access only after this explicit action, then starts the selected OpenAI Voice route."
-          )
-
-          Button(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle) {
-            Task {
-              await onKeepApple()
-              dismiss()
-            }
-          }
-          .buttonStyle(.bordered)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .accessibilityHint("Selects Apple On Device voice and closes this lobby")
-        }
-      }
-      .frame(maxWidth: 640, alignment: .leading)
-      .padding(24)
-      .frame(maxWidth: .infinity)
-    }
   }
 
   private var unavailable: some View {
@@ -114,7 +73,7 @@ struct RealtimeVoiceLobbyView: View {
       )
     } actions: {
       VStack(spacing: 10) {
-        Button("Try Again") { stage = .lobby }
+        Button("Try Again") { restartOpenAIVoice() }
           .frame(minHeight: 44)
         Button("Open Assistant Settings") {
           dismiss()
@@ -152,34 +111,39 @@ struct RealtimeVoiceLobbyView: View {
   @ViewBuilder
   private var active: some View {
     if let session = coordinator?.session {
-      RealtimeVoiceActiveView(
-        state: RealtimeVoiceDisplayState(
-          route: route,
-          phase: session.state.phase,
-          captions: session.state.captions,
-          activity: session.voiceActivity,
-          isMuted: session.state.phase == .muted,
-          warning: session.warningMessage,
-          failureMessage: session.state.failure?.message
-        ),
-        onToggleMute: {
-          Task { await session.setMuted(session.state.phase != .muted) }
-        },
-        onResume: {
-          Task { await session.resumeAfterSafetyPause() }
-        },
-        onEnd: {
-          coordinator?.stop()
-          stage = .lobby
-        },
-        onTryAgain: { coordinator?.retry() },
-        onOpenSettings: {
-          coordinator?.stop()
-          dismiss()
-          onOpenSettings()
-        },
-        onStartApple: startAppleConversation
-      )
+      VStack(spacing: 0) {
+        RealtimeVoiceActiveView(
+          state: RealtimeVoiceDisplayState(
+            route: route,
+            phase: session.state.phase,
+            captions: session.state.captions,
+            activity: session.voiceActivity,
+            isMuted: session.state.phase == .muted,
+            warning: session.warningMessage,
+            failureMessage: session.state.failure?.message
+          ),
+          onToggleMute: {
+            Task { await session.setMuted(session.state.phase != .muted) }
+          },
+          onResume: {
+            Task { await session.resumeAfterSafetyPause() }
+          },
+          onEnd: {
+            coordinator?.stop()
+            dismiss()
+          },
+          onTryAgain: { coordinator?.retry() },
+          onOpenSettings: {
+            coordinator?.stop()
+            dismiss()
+            onOpenSettings()
+          },
+          onStartApple: startAppleConversation
+        )
+        directBYOKDisclosure
+          .padding(.horizontal, 24)
+          .padding(.vertical, 16)
+      }
     } else {
       unavailable
     }
@@ -190,6 +154,15 @@ struct RealtimeVoiceLobbyView: View {
     self.coordinator = coordinator
     stage = .active
     coordinator.start(initialLifecycleState: lifecycleState(for: scenePhase))
+  }
+
+  private func restartOpenAIVoice() {
+    stage = .active
+    if coordinator?.session != nil {
+      coordinator?.retry()
+    } else {
+      startOpenAIVoice()
+    }
   }
 
   private func lifecycleState(for phase: ScenePhase) -> RealtimeVoiceLifecycleState {
@@ -245,7 +218,6 @@ private struct VoiceRouteSummary: View {
 
   private func failureMessage(_ failure: OpenAIVoiceAuthorizationFailure) -> String {
     switch failure {
-    case .consentRequired: "Current voice consent is required."
     case .credentialVerificationRequired: "The OpenAI key must be verified again."
     case .modelSelectionRequired: "Choose a verified Realtime model."
     case .modelUnavailable: "The selected Realtime model is unavailable."

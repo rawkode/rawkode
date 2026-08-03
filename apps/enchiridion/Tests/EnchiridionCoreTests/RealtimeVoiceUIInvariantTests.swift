@@ -6,12 +6,15 @@ struct RealtimeVoiceUIInvariantTests {
   func lobbyStartsTheDirectBYOKRouteInEveryBuildConfiguration() throws {
     let source = try read("Sources/SharedUI/RealtimeVoiceSurface.swift")
 
-    #expect(source.contains("OpenAIRealtimeVoiceConsentCopy.body"))
     #expect(source.contains("only in the Authorization header"))
     #expect(source.contains("pinned OpenAI endpoint"))
     #expect(source.contains("never sends notes, tasks, calendars, or local tools"))
     #expect(source.contains("RealtimeVoiceCoordinator(route: route)"))
     #expect(source.contains("coordinator.start(initialLifecycleState: lifecycleState(for: scenePhase))"))
+    #expect(source.contains(".task(id: routeID)"))
+    #expect(source.contains("guard startedRouteID != routeID else { return }"))
+    #expect(!source.contains("Send this voice conversation to OpenAI?"))
+    #expect(!source.contains("OpenAIRealtimeVoiceConsentCopy"))
     #expect(source.contains("case .inactive: .inactive"))
     #expect(source.contains("case .background: .background"))
     #expect(!source.contains("RealtimeVoiceDevelopmentRoute"))
@@ -59,14 +62,16 @@ struct RealtimeVoiceUIInvariantTests {
   }
 
   @Test
-  func settingsKeepTextVoiceAndConsentSeparate() throws {
+  func settingsKeepTextConsentSeparateFromBYOKVoice() throws {
     let source = try read("Sources/SharedUI/AssistantProviderSettingsView.swift")
 
     #expect(source.contains("Default text provider"))
     #expect(source.contains("Default voice provider"))
     #expect(source.contains("Verified Realtime model"))
     #expect(source.contains("Official OpenAI voice"))
-    #expect(source.contains("Revoke OpenAI Voice Consent"))
+    #expect(source.contains("Saving a verified Platform key is your explicit opt-in to OpenAI Voice."))
+    #expect(!source.contains("Voice consent"))
+    #expect(!source.contains("OpenAIRealtimeVoiceConsentCopy"))
     #expect(source.contains("Direct device BYOK"))
     #expect(source.contains("only in the Authorization header"))
     #expect(source.contains("pinned OpenAI endpoint"))

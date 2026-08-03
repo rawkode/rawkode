@@ -25,10 +25,43 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertEqual(store.selectedTextModelID, "gpt-5.6-terra")
     XCTAssertEqual(store.selectedVoiceProvider, .appleOnDevice)
     XCTAssertEqual(store.selectedRealtimeVoice, .marin)
-    XCTAssertFalse(store.hasCurrentVoiceConsent)
+    XCTAssertFalse(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: false))
   }
 
-  func testVoiceConsentBindsCredentialCatalogModelAndVoice() {
+  func testBuild2026080303PayloadDecodesLegacyVoiceConsentWithoutResettingVoiceSelection() throws {
+    let defaults = makeDefaults()
+    let legacyPayload: [String: Any] = [
+      "version": 3,
+      "selectedVoiceProvider": "openAIRealtime",
+      "credentialRevision": "revision-1",
+      "credentialFingerprint": "fp-1",
+      "verifiedCatalogVersion": OpenAIModelCatalog.version,
+      "verifiedRealtimeModelIDs": ["gpt-realtime-2.1-mini"],
+      "selectedRealtimeModelID": "gpt-realtime-2.1-mini",
+      "selectedRealtimeVoiceID": "marin",
+      "voiceConsentVersion": 2,
+      "voiceConsentCredentialRevision": "revision-1",
+      "voiceConsentCredentialFingerprint": "fp-1",
+      "voiceConsentModelCatalogVersion": OpenAIModelCatalog.version,
+      "voiceConsentVoiceCatalogVersion": OpenAIRealtimeVoiceCatalog.version,
+      "voiceConsentModelID": "gpt-realtime-2.1-mini",
+      "voiceConsentVoiceID": "marin",
+    ]
+    defaults.set(
+      try JSONSerialization.data(withJSONObject: legacyPayload),
+      forKey: AssistantProviderPreferencesStore.defaultKey
+    )
+
+    let store = AssistantProviderPreferencesStore(defaults: defaults)
+
+    XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(store.selectedRealtimeVoice, .marin)
+    XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
+    XCTAssertEqual(store.storedPayloadForTesting.voiceConsentVersion, 2)
+  }
+
+  func testVerifiedCredentialModelAndVoiceAuthorizeTheRealtimeRoute() {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let firstBinding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
@@ -37,29 +70,23 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       selectDefaultTextModel: true
     )
     store.selectRealtimeVoice(id: "marin")
-    store.setVoiceConsent(true)
-
-    XCTAssertTrue(store.hasCurrentVoiceConsent)
     XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.selectRealtimeVoice(id: "cedar")
-    XCTAssertFalse(store.hasCurrentVoiceConsent)
-    store.setVoiceConsent(true)
-    XCTAssertTrue(store.hasCurrentVoiceConsent)
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.selectRealtimeModel(id: "gpt-realtime-2.1")
-    XCTAssertFalse(store.hasCurrentVoiceConsent)
-    store.setVoiceConsent(true)
-    XCTAssertTrue(store.hasCurrentVoiceConsent)
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.markVerified(
       capabilities(realtime: ["gpt-realtime-2.1"]),
       binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
     )
-    XCTAssertFalse(store.hasCurrentVoiceConsent)
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
   }
 
-  func testRealtimeRouteFailsClosedUntilExactConsentThenFreezesAuthority() throws {
+  func testRealtimeRouteStartsFromSavedVerifiedBYOKAndFreezesAuthority() throws {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let binding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
@@ -69,10 +96,6 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     )
 
     store.selectVoiceProvider(.openAIRealtime, hasSavedCredential: true)
-    XCTAssertEqual(store.selectedVoiceProvider, .appleOnDevice)
-
-    store.setVoiceConsent(true)
-    store.selectVoiceProvider(.openAIRealtime, hasSavedCredential: true)
     let route = store.voiceRouteSnapshot()
 
     XCTAssertTrue(route.isAuthorizedOpenAIRealtime)
@@ -81,14 +104,10 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertEqual(route.credentialBinding, binding)
     XCTAssertEqual(route.modelCatalogVersion, OpenAIModelCatalog.version)
     XCTAssertEqual(route.voiceCatalogVersion, OpenAIRealtimeVoiceCatalog.version)
-    XCTAssertEqual(
-      route.consentVersion,
-      AssistantProviderPreferencesPayload.currentVoiceConsentVersion
-    )
-
     store.selectRealtimeVoice(id: "cedar")
     XCTAssertEqual(route.voiceID, "marin", "Existing route snapshot must remain immutable")
-    XCTAssertEqual(store.voiceRouteSnapshot().authorizationFailure, .consentRequired)
+    XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
+    XCTAssertEqual(store.voiceRouteSnapshot().voiceID, "cedar")
   }
 
   func testRealtimeRouteAuthorityRejectsForgeryAndMissingOrStaleVersions() throws {
@@ -102,16 +121,14 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
 
     let missingVersions = authorized.replacingAuthorityVersionsForTesting(
       modelCatalogVersion: nil,
-      voiceCatalogVersion: nil,
-      consentVersion: nil
+      voiceCatalogVersion: nil
     )
     XCTAssertFalse(missingVersions.isAuthorizedOpenAIRealtime)
     XCTAssertThrowsError(try RealtimeVoiceConfiguration(route: missingVersions))
 
     let staleVersions = authorized.replacingAuthorityVersionsForTesting(
       modelCatalogVersion: OpenAIModelCatalog.version - 1,
-      voiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version - 1,
-      consentVersion: OpenAIRealtimeVoiceConsentCopy.version - 1
+      voiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version - 1
     )
     XCTAssertFalse(staleVersions.isAuthorizedOpenAIRealtime)
     XCTAssertThrowsError(try RealtimeVoiceConfiguration(route: staleVersions))
@@ -144,21 +161,6 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertEqual(store.verifiedRealtimeModelIDs, ["gpt-realtime-2.1-mini"])
     store.selectRealtimeVoice(id: "made-up-voice")
     XCTAssertNil(store.selectedRealtimeVoice)
-  }
-
-  func testConsentCopyStatesDirectDeviceNoLocalDataRetentionBillingAndAppleBoundaries() {
-    let copy = OpenAIRealtimeVoiceConsentCopy.body
-    XCTAssertTrue(copy.contains("live microphone audio"))
-    XCTAssertTrue(copy.contains("does not send notes, tasks, calendars"))
-    XCTAssertTrue(copy.contains("Keychain"))
-    XCTAssertTrue(copy.contains("differs from OpenAI's recommended backend key custody"))
-    XCTAssertTrue(copy.contains("not used to train"))
-    XCTAssertTrue(copy.contains("no application-state retention"))
-    XCTAssertTrue(copy.contains("up to 30 days"))
-    XCTAssertTrue(copy.contains("billed separately from ChatGPT"))
-    XCTAssertTrue(copy.contains("CarPlay and App Intents always use Apple On Device"))
-    XCTAssertEqual(OpenAIRealtimeVoiceConsentCopy.startActionTitle, "Start OpenAI Voice")
-    XCTAssertEqual(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle, "Keep Apple")
   }
 
   private func capabilities(realtime: Set<String>) -> OpenAIVerifiedCapabilities {

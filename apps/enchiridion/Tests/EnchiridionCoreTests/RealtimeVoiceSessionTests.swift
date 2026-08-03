@@ -433,23 +433,70 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertFalse(calls.contains("transport.start"))
   }
 
-  func testInactiveDuringCredentialStartupFailsWithRetryableInterruption() async throws {
+  func testInactiveDuringCredentialStartupWaitsForActiveThenConnects() async throws {
+    try await assertInactiveStartupWaits(at: .credential)
+  }
+
+  func testInactiveDuringTransportStartupWaitsForActiveThenConnects() async throws {
+    try await assertInactiveStartupWaits(at: .transportStart)
+  }
+
+  func testInactiveDuringAudioStartupWaitsForActiveThenConnects() async throws {
+    try await assertInactiveStartupWaits(at: .audioActivation)
+  }
+
+  func testInactiveDuringInputStartupWaitsForActiveThenConnects() async throws {
+    try await assertInactiveStartupWaits(at: .inputEnable)
+  }
+
+  func testBenignRouteConfigurationChangeDuringStartupReachesListening() async throws {
     let fixture = try makeFixture()
     let gate = AsyncGate()
-    await fixture.gates.credential.append(gate)
+    await fixture.gates.audioActivation.append(gate)
     let start = Task { await fixture.session.start() }
     await gate.waitUntilEntered()
 
-    await fixture.session.handleLifecycleChange(.inactive)
+    await fixture.session.handleSafetyEvent(
+      .routeChanged(
+        reason: .routeConfigurationChange,
+        previous: AssistantAudioRouteSnapshot(
+          inputs: [.builtInMic], outputs: [.builtInSpeaker]
+        ),
+        current: AssistantAudioRouteSnapshot(
+          inputs: [.builtInMic], outputs: [.builtInSpeaker]
+        )
+      )
+    )
 
-    XCTAssertEqual(fixture.session.state.phase, .failed)
-    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
-    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
-    XCTAssertTrue(fixture.session.state.captions.isEmpty)
+    XCTAssertEqual(fixture.session.state.phase, .connecting)
+    XCTAssertNil(fixture.session.receipt)
     await gate.resume()
     await start.value
-    let calls = await fixture.calls.values()
-    XCTAssertFalse(calls.contains("transport.start"))
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    await fixture.session.stop()
+  }
+
+  func testNoSuitableRouteDuringStartupRemainsRetryableFailure() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.audioActivation.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleSafetyEvent(
+      .routeChanged(
+        reason: .routeConfigurationChange,
+        previous: AssistantAudioRouteSnapshot(
+          inputs: [.builtInMic], outputs: [.builtInSpeaker]
+        ),
+        current: AssistantAudioRouteSnapshot(inputs: [], outputs: [])
+      )
+    )
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+    await gate.resume()
+    await start.value
   }
 
   func testInactivePermissionPromptWaitsForExplicitActiveBeforeReadingCredential() async throws {
@@ -725,6 +772,42 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       )
       XCTAssertEqual(finalCalls.last, "transport.close", file: file, line: line)
     }
+  }
+
+  private func assertInactiveStartupWaits(
+    at startupGate: StartupGate,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    switch startupGate {
+    case .permission:
+      await fixture.gates.microphone.append(gate)
+    case .credential:
+      await fixture.gates.credential.append(gate)
+    case .transportStart:
+      await fixture.gates.transportStart.append(gate)
+    case .audioActivation:
+      await fixture.gates.audioActivation.append(gate)
+    case .inputEnable:
+      await fixture.gates.inputEnable.append(gate)
+    }
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleLifecycleChange(.inactive)
+    XCTAssertNotEqual(fixture.session.state.phase, .failed, file: file, line: line)
+    XCTAssertNil(fixture.session.receipt, file: file, line: line)
+    await gate.resume()
+    await Task.yield()
+    XCTAssertNotEqual(fixture.session.state.phase, .failed, file: file, line: line)
+    XCTAssertNil(fixture.session.receipt, file: file, line: line)
+
+    await fixture.session.handleLifecycleChange(.active)
+    await start.value
+    XCTAssertEqual(fixture.session.state.phase, .listening, file: file, line: line)
+    await fixture.session.stop()
   }
 
   private func makeFixture(
