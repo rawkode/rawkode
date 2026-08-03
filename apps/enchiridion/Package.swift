@@ -49,7 +49,7 @@ let package = Package(
     ),
     .testTarget(
       name: "EnchiridionCoreTests",
-      dependencies: ["EnchiridionCore"]
+      dependencies: ["EnchiridionCore", "EnchiridionWorkoutTransport"]
     ),
   ]
 )
