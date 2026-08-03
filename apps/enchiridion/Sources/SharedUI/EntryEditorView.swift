@@ -9,29 +9,6 @@ extension Notification.Name {
 }
 
 @MainActor
-final class EditorFlushController {
-  typealias Flusher = @MainActor () async -> Bool
-
-  private var flushers: [UUID: Flusher] = [:]
-
-  func register(_ id: UUID, flusher: @escaping Flusher) {
-    flushers[id] = flusher
-  }
-
-  func unregister(_ id: UUID) {
-    flushers[id] = nil
-  }
-
-  @discardableResult
-  func flush() async -> Bool {
-    for flusher in Array(flushers.values) {
-      guard await flusher() else { return false }
-    }
-    return true
-  }
-}
-
-@MainActor
 final class EditorFindController {
   typealias Finder = @MainActor () -> Void
 
@@ -277,6 +254,140 @@ extension PageEditorPresentation where Header == EmptyView {
   static var standard: Self { Self { EmptyView() } }
 }
 
+/// Owns the page identity that every editor-shell action may mutate.
+/// Requested navigation is intentionally separate until the inner editor has
+/// durably flushed the current page and adopted the requested snapshot.
+struct PageEditorTransitionLoadRequest: Equatable, Sendable {
+  let pageID: PageID
+  let generation: UInt64
+}
+
+@MainActor
+@Observable
+final class PageEditorTransitionAuthority {
+  private(set) var authoritativePageID: PageID
+  private(set) var requestedPageID: PageID
+  private(set) var failureMessage: String?
+  private(set) var loadRequest: PageEditorTransitionLoadRequest?
+  private var generation: UInt64 = 0
+
+  init(initialPageID: PageID) {
+    authoritativePageID = initialPageID
+    requestedPageID = initialPageID
+  }
+
+  var pageIDForActions: PageID { authoritativePageID }
+  var arePageActionsEnabled: Bool {
+    authoritativePageID == requestedPageID && loadRequest == nil
+  }
+
+  func beginRequest(to pageID: PageID) -> UInt64 {
+    generation &+= 1
+    requestedPageID = pageID
+    failureMessage = nil
+    loadRequest = nil
+    return generation
+  }
+
+  func canContinue(_ requestGeneration: UInt64, pageID: PageID) -> Bool {
+    generation == requestGeneration && requestedPageID == pageID
+  }
+
+  func prepareLoad(
+    _ pageID: PageID,
+    generation requestGeneration: UInt64,
+    isAvailable: @MainActor () -> Bool,
+    flush: @MainActor () async -> Bool
+  ) async -> PageEditorTransitionLoadRequest? {
+    guard isAvailable() else {
+      _ = fail(
+        requestGeneration,
+        pageID: pageID,
+        message: "The requested page is no longer available."
+      )
+      return nil
+    }
+    guard await flush() else {
+      _ = fail(
+        requestGeneration,
+        pageID: pageID,
+        message: "Couldn’t save the current page before opening this one."
+      )
+      return nil
+    }
+    guard canContinue(requestGeneration, pageID: pageID),
+      !Task.isCancelled
+    else { return nil }
+    guard isAvailable() else {
+      _ = fail(
+        requestGeneration,
+        pageID: pageID,
+        message: "The requested page is no longer available."
+      )
+      return nil
+    }
+    return authorizeLoad(pageID, generation: requestGeneration)
+  }
+
+  @discardableResult
+  func fail(_ requestGeneration: UInt64, pageID: PageID, message: String) -> Bool {
+    guard canContinue(requestGeneration, pageID: pageID) else { return false }
+    failureMessage = message
+    return true
+  }
+
+  @discardableResult
+  func authorizeLoad(
+    _ pageID: PageID,
+    generation requestGeneration: UInt64
+  ) -> PageEditorTransitionLoadRequest? {
+    guard canContinue(requestGeneration, pageID: pageID) else { return nil }
+    let request = PageEditorTransitionLoadRequest(
+      pageID: pageID,
+      generation: requestGeneration
+    )
+    loadRequest = request
+    return request
+  }
+
+  @discardableResult
+  func loadAndAcknowledge(
+    _ request: PageEditorTransitionLoadRequest,
+    isCancelled: Bool = false,
+    load: () -> Void
+  ) -> Bool {
+    guard !isCancelled,
+      loadRequest == request,
+      canContinue(request.generation, pageID: request.pageID)
+    else { return false }
+    load()
+    authoritativePageID = request.pageID
+    loadRequest = nil
+    failureMessage = nil
+    return true
+  }
+
+  @discardableResult
+  func failAuthorizedLoad(
+    _ request: PageEditorTransitionLoadRequest,
+    message: String
+  ) -> Bool {
+    guard loadRequest == request,
+      canContinue(request.generation, pageID: request.pageID)
+    else { return false }
+    loadRequest = nil
+    failureMessage = message
+    return true
+  }
+
+  func cancelPendingRequest() {
+    generation &+= 1
+    requestedPageID = authoritativePageID
+    loadRequest = nil
+    failureMessage = nil
+  }
+}
+
 struct PageEditorView<Header: View>: View {
   let store: LibraryStore
   let pageID: PageID
@@ -284,12 +395,13 @@ struct PageEditorView<Header: View>: View {
   private let showsPropertiesAction: Bool
   private let showsPageActions: Bool
   private let presentation: PageEditorPresentation<Header>
+  @State private var transitionAuthority: PageEditorTransitionAuthority
+  @State private var transitionRetry = 0
   @State private var flushController: EditorFlushController
   @State private var findController: EditorFindController
   @State private var showsProperties = false
   @State private var propertiesSheetPage: PageID?
   @State private var pagePendingPermanentDeletion: PageSnapshot?
-  @State private var isEditing = false
   #if !os(macOS)
   @State private var pushedPageID: PageID?
   #endif
@@ -310,13 +422,16 @@ struct PageEditorView<Header: View>: View {
     self.showsPropertiesAction = showsPropertiesAction
     self.showsPageActions = showsPageActions
     self.presentation = presentation
+    _transitionAuthority = State(
+      initialValue: PageEditorTransitionAuthority(initialPageID: pageID)
+    )
     _flushController = State(initialValue: flushController ?? EditorFlushController())
     _findController = State(initialValue: findController ?? EditorFindController())
   }
 
   var body: some View {
     Group {
-      if let page = store.page(id: pageID) {
+      if let page = store.page(id: transitionAuthority.authoritativePageID) {
         if page.isOtherPerson, page.deletedAt == nil {
           OtherPersonPromotionGate(store: store, page: page)
             .navigationTitle("")
@@ -331,6 +446,7 @@ struct PageEditorView<Header: View>: View {
         )
       }
     }
+    .disabled(!transitionAuthority.arePageActionsEnabled)
     #if !os(macOS)
     .navigationDestination(item: $pushedPageID) { pageID in
       PageDestinationView(
@@ -343,23 +459,61 @@ struct PageEditorView<Header: View>: View {
     .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
       store.purge(pageID: $0)
     }
+    .alert(
+      "Couldn’t Open Page",
+      isPresented: Binding(
+        get: { transitionAuthority.failureMessage != nil },
+        set: {
+          if !$0, transitionAuthority.failureMessage != nil {
+            transitionAuthority.cancelPendingRequest()
+          }
+        }
+      )
+    ) {
+      Button("Cancel", role: .cancel) { transitionAuthority.cancelPendingRequest() }
+      Button("Retry") { transitionRetry &+= 1 }
+    } message: {
+      Text(transitionAuthority.failureMessage ?? "")
+    }
+    .task(id: "\(pageID.rawValue)-\(transitionRetry)") {
+      let generation = transitionAuthority.beginRequest(to: pageID)
+      guard transitionAuthority.authoritativePageID != pageID else { return }
+      guard let request = await transitionAuthority.prepareLoad(
+        pageID,
+        generation: generation,
+        isAvailable: { store.page(id: pageID) != nil },
+        flush: { await flushController.flush() }
+      ) else {
+        return
+      }
+      if let currentPage = store.page(id: transitionAuthority.authoritativePageID),
+        currentPage.isOtherPerson,
+        currentPage.deletedAt == nil
+      {
+        _ = transitionAuthority.loadAndAcknowledge(request) {}
+      }
+    }
   }
 
   private func editor(_ page: PageSnapshot) -> some View {
-    RichPageEditor(
+    let pendingLoadRequest = transitionAuthority.loadRequest
+    let pendingPage = pendingLoadRequest.flatMap { store.page(id: $0.pageID) }
+    return RichPageEditor(
         page: page,
-        calendarContext: store.calendarPageContext(for: pageID),
+        transitionAuthority: transitionAuthority,
+        pendingLoadRequest: pendingLoadRequest,
+        pendingPage: pendingPage,
+        calendarContext: store.calendarPageContext(for: page.id),
         store: store,
         flushController: flushController,
         findController: findController,
         presentation: presentation,
-        onEditingChanged: { isEditing = $0 },
         openPage: openPage
       )
         .id(store.vaultID)
         .navigationTitle("")
         .toolbar {
-          if showsPageActions && isEditing {
+          if showsPageActions {
             ToolbarItemGroup {
             if page.deletedAt == nil {
               Menu {
@@ -543,7 +697,7 @@ private struct NativeRichEditorTaggedPageCommit {
 
 /// A selection expressed as character offsets so it can be recreated after
 /// the committed document is decoded into a distinct AttributedString value.
-enum NativeRichEditorCommittedSelection: Equatable {
+enum NativeRichEditorCommittedSelection: Equatable, Sendable {
   case insertionPoint(offset: Int)
   case ranges([Range<Int>])
 
@@ -781,10 +935,12 @@ private final class NativeRichPageEditorState {
   var isCreatingTaggedPage: Bool { taggedPageCommit != nil }
   var isMutationLocked: Bool { taggedPageCommit != nil }
   var libraryStore: LibraryStore { store }
+  var loadedPageID: PageID? { pageID }
 
   private let store: LibraryStore
   private var pageID: PageID?
   private var loadGeneration: UInt64 = 0
+  private var persistenceSession: EditorPersistenceSession?
   private var durableSnapshot: PageSnapshot?
   private var persistedTitle = ""
   private var persistedBody = AttributedString()
@@ -792,7 +948,6 @@ private final class NativeRichPageEditorState {
   private var observedBody = AttributedString()
   private var saveTask: Task<Void, Never>?
   private var saveTaskToken: UUID?
-  private var activeSaveOperation: NativeRichEditorSaveOperation?
   private var editRevision: UInt64 = 0
   private var durableRevision: UInt64 = 0
   private var commandShortcutSnapshot: NativeRichEditorSelectionSnapshot?
@@ -807,9 +962,19 @@ private final class NativeRichPageEditorState {
   func load(_ page: PageSnapshot) {
     loadGeneration &+= 1
     cancelQueuedSave()
-    activeSaveOperation = nil
+    persistenceSession?.invalidate()
     pageID = page.id
     durableSnapshot = page
+    persistenceSession = EditorPersistenceSession(
+      snapshot: page,
+      loadGeneration: Int(clamping: loadGeneration)
+    ) { [store] commit in
+      _ = try await store.persistEditorCommit(commit)
+      guard let snapshot = store.page(id: commit.pageID) else {
+        throw LibraryRepositoryError.pageNotFound
+      }
+      return snapshot
+    }
     do {
       let content = try PageDocument.richText(in: page.document)
       title = content.title
@@ -838,6 +1003,12 @@ private final class NativeRichPageEditorState {
     guard title != observedTitle || body != observedBody else { return }
     observedTitle = title
     observedBody = body
+    do {
+      try persistenceSession?.replace(title: title, body: body)
+    } catch {
+      errorMessage = error.localizedDescription
+      return
+    }
     editRevision &+= 1
     cancelQueuedSave()
     guard hasUnsavedChanges else { return }
@@ -1154,11 +1325,7 @@ private final class NativeRichPageEditorState {
     taggedPageCommit = commit
     cancelQueuedSave()
 
-    guard let durableSource = await flushDurableSnapshot(
-      pageID: sourcePageID,
-      title: sourceTitle,
-      body: sourceBody
-    ) else {
+    guard let durableSource = await flushDurableSnapshot(pageID: sourcePageID) else {
       finishTaggedPageCommit(commit, error: "Could not save this page before creating the tagged page.")
       return nil
     }
@@ -1288,85 +1455,43 @@ private final class NativeRichPageEditorState {
     // must not race it with the pre-insertion editor value.
     guard !isMutationLocked else {
       cancelQueuedSave()
-      return true
+      return false
     }
     guard !isLoading, let pageID else { return true }
-    return await flushBackgroundSnapshot(pageID: pageID, title: title, body: body)
+    return await flushBackgroundSnapshot(pageID: pageID)
   }
 
   /// Routes public and scheduled flushes through the tracked save operation.
   /// If one began immediately before a tagged-page commit acquired its lock,
   /// the commit's exact flush waits for it before using the resulting heads.
   private func flushBackgroundSnapshot(
-    pageID requestedPageID: PageID,
-    title requestedTitle: String,
-    body requestedBody: AttributedString
+    pageID requestedPageID: PageID
   ) async -> Bool {
     cancelQueuedSave()
-    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
-      let task = activeSaveOperation.task
-    {
-      guard case .success = await task.value else { return false }
+    guard requestedPageID == pageID, let persistenceSession else { return false }
+    do {
+      let snapshot = try await persistenceSession.flush()
+      try adoptDurableSnapshot(snapshot, session: persistenceSession)
       return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
-
-    if let durableSnapshot,
-      durableSnapshot.id == requestedPageID,
-      persistedTitle == requestedTitle,
-      persistedBody == requestedBody
-    {
-      return true
-    }
-
-    startSaveOperation(
-      pageID: requestedPageID,
-      revision: editRevision,
-      title: requestedTitle,
-      body: requestedBody
-    )
-    guard let task = activeSaveOperation?.task else { return false }
-    guard case .success = await task.value else { return false }
-    return true
   }
 
   /// Flushes this exact editor value and returns the committed snapshot. Tagged
   /// page creation uses this instead of the cache so its atomic transaction is
   /// guarded by the durable Automerge heads it just observed.
   private func flushDurableSnapshot(
-    pageID requestedPageID: PageID,
-    title requestedTitle: String,
-    body requestedBody: AttributedString
+    pageID requestedPageID: PageID
   ) async -> PageSnapshot? {
     cancelQueuedSave()
-    if let activeSaveOperation, activeSaveOperation.pageID == requestedPageID,
-      let task = activeSaveOperation.task
-    {
-      guard case .success = await task.value else { return nil }
-    }
-
-    if let durableSnapshot,
-      durableSnapshot.id == requestedPageID,
-      persistedTitle == requestedTitle,
-      persistedBody == requestedBody
-    {
-      return durableSnapshot
-    }
-
+    guard requestedPageID == pageID, let persistenceSession else { return nil }
     do {
-      let snapshot = try await store.persistRichTextEditor(
-        pageID: requestedPageID,
-        title: requestedTitle,
-        body: requestedBody
-      )
-      guard pageID == requestedPageID else { return snapshot }
-      durableSnapshot = snapshot
-      persistedTitle = requestedTitle
-      persistedBody = requestedBody
-      durableRevision = editRevision
-      errorMessage = nil
+      let snapshot = try await persistenceSession.flush()
+      try adoptDurableSnapshot(snapshot, session: persistenceSession)
       return snapshot
     } catch {
-      guard pageID == requestedPageID else { return nil }
       errorMessage = error.localizedDescription
       return nil
     }
@@ -1403,66 +1528,109 @@ private final class NativeRichPageEditorState {
     _ = await flush()
   }
 
-  private func startSaveOperation(
-    pageID: PageID,
-    revision: UInt64,
-    title: String,
-    body: AttributedString
-  ) {
-    let operation = NativeRichEditorSaveOperation(
-      token: UUID(),
-      pageID: pageID,
-      revision: revision,
-      title: title,
-      body: body
-    )
-    activeSaveOperation = operation
-
-    let token = operation.token
-    operation.task = Task { @MainActor [weak self, store] in
-      let result: NativeRichEditorSaveResult
-      do {
-        result = .success(try await store.persistRichTextEditor(pageID: pageID, title: title, body: body))
-      } catch {
-        result = .failure(error.localizedDescription)
-      }
-      _ = self?.settleSaveOperation(
-        token: token,
-        result: result
-      )
-      return result
-    }
-  }
-
-  private func settleSaveOperation(
-    token: UUID,
-    result: NativeRichEditorSaveResult
-  ) -> NativeRichEditorSaveResult {
-    guard let activeSaveOperation,
-      activeSaveOperation.token == token,
-      self.pageID == activeSaveOperation.pageID
-    else {
-      return .stale
-    }
-
-    switch result {
-    case .success(let snapshot):
-      persistedTitle = activeSaveOperation.title
-      persistedBody = activeSaveOperation.body
-      durableSnapshot = snapshot
-      durableRevision = max(durableRevision, activeSaveOperation.revision)
-      errorMessage = nil
-    case .failure(let message):
-      errorMessage = message
-    case .stale:
-      return .stale
-    }
-    self.activeSaveOperation = nil
-    return result
+  private func adoptDurableSnapshot(
+    _ snapshot: PageSnapshot,
+    session: EditorPersistenceSession
+  ) throws {
+    let content = try session.currentRichText()
+    installEditorContent(content, invalidatingContextsWhenChanged: true)
+    durableSnapshot = snapshot
+    persistedTitle = content.title
+    persistedBody = content.body
+    observedTitle = content.title
+    observedBody = content.body
+    durableRevision = editRevision
+    errorMessage = nil
   }
 
   private var hasUnsavedChanges: Bool {
     title != persistedTitle || body != persistedBody
+  }
+
+  func receive(_ snapshot: PageSnapshot) {
+    do {
+      guard let persistenceSession,
+        let content = try persistenceSession.receive(snapshot)
+      else { return }
+      installEditorContent(content, invalidatingContextsWhenChanged: true)
+      let durableContent = try persistenceSession.durableRichText()
+      persistedTitle = durableContent.title
+      persistedBody = durableContent.body
+      durableSnapshot = snapshot
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func installEditorContent(
+    _ content: PageRichTextDocument,
+    invalidatingContextsWhenChanged: Bool
+  ) {
+    let changed = title != content.title || body != content.body
+    let priorSelection = NativeRichEditorCommittedSelection(from: selection, in: body)
+    title = content.title
+    body = content.body
+    observedTitle = title
+    observedBody = body
+    selection = priorSelection?.selection(in: body) ?? AttributedTextSelection()
+    guard changed, invalidatingContextsWhenChanged else { return }
+    commandShortcutSnapshot = nil
+    commandContext = nil
+    resetPickerState(reason: .invalidated)
+  }
+
+  func selectedPageReference() -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let pageID else { return nil }
+    return PageReferenceSelectionResolver.resolve(
+      in: body,
+      selection: selection,
+      sourceVaultID: store.vaultID,
+      sourcePageID: pageID
+    ) { [store] targetID in
+      guard let target = store.page(id: targetID) else { return nil }
+      return .init(
+        vaultID: store.vaultID,
+        pageID: target.id,
+        isDeleted: target.deletedAt != nil
+      )
+    }
+  }
+
+  func captureOpenRequest() -> NativeRichEditorOpenRequest? {
+    guard let selection = selectionSnapshot,
+      let reference = selectedPageReference()
+    else {
+      setInteractionError("The reference is no longer available. Move the caret into it and try again.")
+      return nil
+    }
+    interactionErrorMessage = nil
+    return NativeRichEditorOpenRequest(reference: reference, selection: selection)
+  }
+
+  func revalidateOpenRequest(
+    _ request: NativeRichEditorOpenRequest
+  ) -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let pageID,
+      let persistenceSession,
+      let durableContent = try? persistenceSession.durableRichText()
+    else { return nil }
+
+    return request.revalidate(
+      in: durableContent.body,
+      pageID: pageID,
+      loadGeneration: loadGeneration,
+      sourceVaultID: store.vaultID
+    ) { [store] targetID in
+      guard let target = store.page(id: targetID) else { return nil }
+      return .init(vaultID: store.vaultID, pageID: target.id, isDeleted: target.deletedAt != nil)
+    }
+  }
+
+  func reportOpenFailure() {
+    if errorMessage == nil {
+      setInteractionError("Couldn’t open that reference because it changed while saving. Try again.")
+    }
   }
 
   private var selectedText: String {
@@ -1840,35 +2008,64 @@ private final class NativeRichPageEditorState {
   }
 }
 
-struct NativeRichEditorSelectionSnapshot: Equatable {
+struct NativeRichEditorSelectionSnapshot: Equatable, Sendable {
   let pageID: PageID
   let loadGeneration: UInt64
   let bodyRevision: UInt64
   let selection: NativeRichEditorCommittedSelection
 }
 
-@MainActor
-private final class NativeRichEditorSaveOperation {
-  let token: UUID
-  let pageID: PageID
-  let revision: UInt64
-  let title: String
-  let body: AttributedString
-  var task: Task<NativeRichEditorSaveResult, Never>?
+struct NativeRichEditorOpenRequest: Equatable, Sendable {
+  let reference: PageReferenceSelectionResolver.ResolvedReference
+  let selection: NativeRichEditorSelectionSnapshot
 
-  init(token: UUID, pageID: PageID, revision: UInt64, title: String, body: AttributedString) {
-    self.token = token
-    self.pageID = pageID
-    self.revision = revision
-    self.title = title
-    self.body = body
+  func revalidate(
+    in durableBody: AttributedString,
+    pageID: PageID,
+    loadGeneration: UInt64,
+    sourceVaultID: VaultID,
+    liveDestination: (PageID) -> PageReferenceSelectionResolver.LiveDestination?
+  ) -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard selection.pageID == pageID,
+      selection.loadGeneration == loadGeneration,
+      reference.sourceVaultID == sourceVaultID,
+      reference.sourcePageID == pageID,
+      let durableSelection = selection.selection.selection(in: durableBody),
+      let resolved = PageReferenceSelectionResolver.resolve(
+        in: durableBody,
+        selection: durableSelection,
+        sourceVaultID: sourceVaultID,
+        sourcePageID: pageID,
+        liveDestination: liveDestination
+      ),
+      resolved.destination.vaultID == reference.destination.vaultID,
+      resolved.destination.pageID == reference.destination.pageID,
+      !resolved.destination.isDeleted
+    else { return nil }
+    return resolved
   }
 }
 
-private enum NativeRichEditorSaveResult {
-  case success(PageSnapshot)
-  case failure(String)
-  case stale
+@MainActor
+private final class PageReferenceOpeningCoordinator: Sendable {
+  private weak var editor: NativeRichPageEditorState?
+  private let openPage: (PageID) -> Void
+
+  init(editor: NativeRichPageEditorState, openPage: @escaping (PageID) -> Void) {
+    self.editor = editor
+    self.openPage = openPage
+  }
+
+  func flushAndResolve(
+    _ request: NativeRichEditorOpenRequest
+  ) async -> PageReferenceSelectionResolver.ResolvedReference? {
+    guard let editor, await editor.flush() else { return nil }
+    return editor.revalidateOpenRequest(request)
+  }
+
+  func open(_ reference: PageReferenceSelectionResolver.ResolvedReference) {
+    openPage(reference.destination.pageID)
+  }
 }
 
 private struct RichPageEditor<Header: View>: View {
@@ -1878,30 +2075,15 @@ private struct RichPageEditor<Header: View>: View {
     case inlinePickerSearch
   }
 
-  private enum EditorMode {
-    case browse
-    case edit
-  }
-
-  private enum CommandDialog: Equatable {
-    case format
-    case insert
-
-    var title: String {
-      switch self {
-      case .format: "Format"
-      case .insert: "Insert"
-      }
-    }
-  }
-
   let page: PageSnapshot
+  let transitionAuthority: PageEditorTransitionAuthority
+  let pendingLoadRequest: PageEditorTransitionLoadRequest?
+  let pendingPage: PageSnapshot?
   let calendarContext: CalendarPageContext?
   let store: LibraryStore
   let flushController: EditorFlushController
   let findController: EditorFindController
   let presentation: PageEditorPresentation<Header>
-  let onEditingChanged: (Bool) -> Void
   let openPage: (PageID) -> Void
 
   @State private var editor: NativeRichPageEditorState
@@ -1910,27 +2092,29 @@ private struct RichPageEditor<Header: View>: View {
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @State private var bodyWasFocusedBeforePicker = false
   @State private var pickerSourcePageID: PageID?
-  @State private var editorMode: EditorMode = .browse
-  @State private var isFinishingEditing = false
-  @State private var activeCommandDialog: CommandDialog?
+  @State private var openFailureMessage: String?
 
   init(
     page: PageSnapshot,
+    transitionAuthority: PageEditorTransitionAuthority,
+    pendingLoadRequest: PageEditorTransitionLoadRequest?,
+    pendingPage: PageSnapshot?,
     calendarContext: CalendarPageContext?,
     store: LibraryStore,
     flushController: EditorFlushController,
     findController: EditorFindController,
     presentation: PageEditorPresentation<Header>,
-    onEditingChanged: @escaping (Bool) -> Void,
     openPage: @escaping (PageID) -> Void
   ) {
     self.page = page
+    self.transitionAuthority = transitionAuthority
+    self.pendingLoadRequest = pendingLoadRequest
+    self.pendingPage = pendingPage
     self.calendarContext = calendarContext
     self.store = store
     self.flushController = flushController
     self.findController = findController
     self.presentation = presentation
-    self.onEditingChanged = onEditingChanged
     self.openPage = openPage
     _editor = State(initialValue: NativeRichPageEditorState(store: store))
   }
@@ -1944,65 +2128,37 @@ private struct RichPageEditor<Header: View>: View {
         calendarContextView
 
         if presentation.showsEditableTitle {
-          if editorMode == .browse {
-            Text(editor.title.isEmpty ? "Untitled" : editor.title)
-              .font(.largeTitle.weight(.bold))
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.bottom, 28)
-              .accessibilityIdentifier("page-browser-title")
-              .accessibilityLabel("Page title")
-          } else {
-            TextField("Untitled", text: $editor.title, axis: .vertical)
-              .font(.largeTitle.weight(.bold))
-              .textFieldStyle(.plain)
-              .focused($focusedField, equals: .title)
-              .padding(.bottom, 28)
-              .accessibilityIdentifier("page-editor-title")
-              .accessibilityLabel("Page title")
-              .disabled(editor.isMutationLocked)
-          }
+          TextField("Untitled", text: $editor.title, axis: .vertical)
+            .font(.largeTitle.weight(.bold))
+            .textFieldStyle(.plain)
+            .focused($focusedField, equals: .title)
+            .padding(.bottom, 28)
+            .accessibilityIdentifier("page-editor-title")
+            .accessibilityLabel("Page title")
+            .disabled(editor.isMutationLocked)
         }
 
-        if editorMode == .browse {
+        ZStack(alignment: .topLeading) {
           if editor.body.characters.isEmpty {
             Text("Start writing...")
               .foregroundStyle(.tertiary)
               .padding(.top, 12)
-              .frame(minHeight: 460, alignment: .topLeading)
-              .accessibilityIdentifier("page-browser-empty-body")
-          } else {
-            SemanticBrowseText(
-              plan: browsePlan,
-              palette: PageReferencePalette(contrast: colorSchemeContrast)
-            ) { url in
-              _ = handleBrowseURL(url)
-            }
-              .frame(maxWidth: .infinity, minHeight: 460, alignment: .topLeading)
-              .accessibilityIdentifier("page-browser-body")
+              .allowsHitTesting(false)
           }
-        } else {
-          ZStack(alignment: .topLeading) {
-            if editor.body.characters.isEmpty {
-              Text("Start writing...")
-                .foregroundStyle(.tertiary)
-                .padding(.top, 12)
-                .allowsHitTesting(false)
-            }
 
-            TextEditor(text: $editor.body, selection: $editor.selection)
-              .font(.body)
-              .attributedTextFormattingDefinition(
-                PageReferenceTextFormattingDefinition(
-                  palette: PageReferencePalette(contrast: colorSchemeContrast)
-                )
+          TextEditor(text: $editor.body, selection: $editor.selection)
+            .font(.body)
+            .attributedTextFormattingDefinition(
+              PageReferenceTextFormattingDefinition(
+                palette: PageReferencePalette(contrast: colorSchemeContrast)
               )
-              .focused($focusedField, equals: .body)
-              .scrollContentBackground(.hidden)
-              .frame(minHeight: 460, alignment: .top)
-              .accessibilityIdentifier("page-editor-body")
-              .accessibilityLabel("Page body")
-              .disabled(editor.isMutationLocked)
-          }
+            )
+            .focused($focusedField, equals: .body)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 460, alignment: .top)
+            .accessibilityIdentifier("page-editor-body")
+            .accessibilityLabel("Page body")
+            .disabled(editor.isMutationLocked)
         }
 
         if let errorMessage = editor.interactionErrorMessage ?? editor.errorMessage {
@@ -2021,84 +2177,52 @@ private struct RichPageEditor<Header: View>: View {
     }
     .background(.background)
     .findNavigator(isPresented: $editor.showsFind)
-    #if os(iOS)
-    .confirmationDialog(
-      activeCommandDialog?.title ?? "",
+    .alert(
+      "Couldn’t Open Reference",
       isPresented: Binding(
-        get: { activeCommandDialog != nil },
-        set: { isPresented in
-          if !isPresented {
-            dismissCommandDialog(restoringBodyFocus: true)
-          }
-        }
-      ),
-      titleVisibility: .visible
+        get: { openFailureMessage != nil },
+        set: { if !$0 { openFailureMessage = nil } }
+      )
     ) {
-      switch activeCommandDialog {
-      case .format:
-        Button("Bold") {
-          applyFormatting(.stronglyEmphasized)
-        }
-        Button("Italic") {
-          applyFormatting(.emphasized)
-        }
-        Button("Strikethrough") {
-          applyFormatting(.strikethrough)
-        }
-        Button("Inline Code") {
-          applyFormatting(.code)
-        }
-      case .insert:
-        Button("Insert Page or Date") {
-          presentReferencePicker()
-        }
-        if editor.commandContextHasSelectedText {
-          Button("Apply Supertag") {
-            presentSupertagPicker()
-          }
-        }
-      case nil:
-        EmptyView()
-      }
-
-      Button("Cancel", role: .cancel) {
-        dismissCommandDialog(restoringBodyFocus: true)
-      }
-    }
-    #endif
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        editorModeButton
-      }
+      Button("OK", role: .cancel) { openFailureMessage = nil }
+    } message: {
+      Text(openFailureMessage ?? "")
     }
     #if os(iOS)
     .toolbar {
-      ToolbarItemGroup(placement: .keyboard) {
-        if focusedField == .body, editor.inlinePicker == nil, activeCommandDialog == nil {
-          Button {
-            presentCommandDialog(.format)
+      if focusedField == .body, editor.inlinePicker == nil {
+        ToolbarItemGroup(placement: .keyboard) {
+          Menu {
+            Button("Bold") { performFormatting(.stronglyEmphasized) }
+            Button("Italic") { performFormatting(.emphasized) }
+            Button("Strikethrough") { performFormatting(.strikethrough) }
+            Button("Inline Code") { performFormatting(.code) }
           } label: {
             Label("Format", systemImage: "textformat")
           }
-          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-format")
-          .accessibilityLabel("Format")
-          .disabled(editor.isMutationLocked)
+          .disabled(editor.isLoading || editor.isMutationLocked)
 
           Button {
-            presentCommandDialog(.insert)
+            openSelectedReference()
+          } label: {
+            Label("Open Reference", systemImage: "arrow.up.right")
+          }
+          .accessibilityIdentifier("page-editor-open-reference")
+          .disabled(editor.isLoading || editor.isMutationLocked || editor.selectedPageReference() == nil)
+
+          Menu {
+            Button("Insert Page or Date") { presentReferencePicker() }
+            if editor.hasSelectedText {
+              Button("Apply Supertag") { presentSupertagPicker() }
+            }
           } label: {
             Label("Insert", systemImage: "plus")
           }
-          .frame(minWidth: 44, minHeight: 44)
           .accessibilityIdentifier("page-editor-insert")
-          .accessibilityLabel("Insert")
           .disabled(editor.isLoading || editor.isMutationLocked)
-        }
 
-        if editorMode == .edit, focusedField != nil || personReferenceNameFocused {
           Spacer()
-
           Button {
             focusedField = nil
             personReferenceNameFocused = false
@@ -2117,9 +2241,9 @@ private struct RichPageEditor<Header: View>: View {
       }
     }
     #else
-    .safeAreaInset(edge: .bottom) {
-      if editorMode == .edit {
-        formattingBar
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if focusedField == .body {
+        editorAccessoryBar
       }
     }
     .sheet(isPresented: $editor.isPalettePresented, onDismiss: {
@@ -2128,12 +2252,11 @@ private struct RichPageEditor<Header: View>: View {
       NativeRichEditorPalette(editor: editor)
     }
     #endif
-    .onAppear {
+    .onAppear { [editor] in
       flushController.register(editor.registrationID) { [weak editor] in
         await editor?.flush() ?? true
       }
       findController.register(editor.registrationID) { [weak editor] in
-        editorMode = .edit
         editor?.showsFind = true
       }
     }
@@ -2142,29 +2265,40 @@ private struct RichPageEditor<Header: View>: View {
       findController.unregister(editor.registrationID)
       Task { _ = await editor.flush() }
     }
-    .task(id: page.id) {
+    .task(id: editorLoadTaskID) {
       focusedField = nil
       personReferenceNameFocused = false
       bodyWasFocusedBeforePicker = false
       pickerSourcePageID = nil
-      editorMode = .browse
-      onEditingChanged(false)
-      isFinishingEditing = false
-      editor.load(page)
+      openFailureMessage = nil
+      if let pendingLoadRequest,
+        let pendingPage,
+        pendingLoadRequest.pageID == pendingPage.id
+      {
+        _ = transitionAuthority.loadAndAcknowledge(
+          pendingLoadRequest,
+          isCancelled: Task.isCancelled
+        ) {
+          editor.load(pendingPage)
+        }
+      } else if let pendingLoadRequest {
+        _ = transitionAuthority.failAuthorizedLoad(
+          pendingLoadRequest,
+          message: "The requested page is no longer available."
+        )
+      } else if editor.loadedPageID != page.id {
+        editor.load(page)
+      }
+    }
+    .onChange(of: page.heads) { _, _ in
+      guard editor.loadedPageID == page.id else { return }
+      editor.receive(page)
     }
     .onChange(of: editor.title) { _, _ in
       editor.contentDidChange(bodyDidChange: false)
     }
     .onChange(of: editor.body) { _, _ in
       editor.contentDidChange()
-    }
-    .onChange(of: editorMode) { _, mode in
-      #if os(iOS)
-      if mode == .browse {
-        dismissCommandDialog(restoringBodyFocus: false)
-      }
-      #endif
-      onEditingChanged(mode == .edit)
     }
     .onChange(of: focusedField) { _, field in
       #if os(iOS)
@@ -2214,125 +2348,32 @@ private struct RichPageEditor<Header: View>: View {
     #endif
   }
 
-  private var browsePlan: PageReferenceBrowseRenderPlan {
-    PageReferenceBrowseRenderPlan.resolve(
-      from: editor.body,
-      vaultID: store.vaultID
-    ) { pageID in
-      guard let target = store.page(id: pageID), target.deletedAt == nil else { return nil }
-      let supertags = store.supertags
-        .filter { target.objectMetadata.supertagIDs.contains($0.id) }
-        .map {
-          PageReferenceBrowseSupertag(
-            id: $0.id,
-            name: $0.name,
-            symbolName: $0.symbol,
-            isBuiltIn: $0.isBuiltIn
-          )
-        }
-      let displayTitle = target.hasSupertag(BuiltInSupertags.person)
-        ? store.personDisplayName(for: target)
-        : target.displayTitle
-      return PageReferenceBrowseLiveTarget(
-        pageID: target.id,
-        displayTitle: displayTitle,
-        supertags: supertags
-      )
+  private var editorLoadTaskID: String {
+    if let pendingLoadRequest {
+      return "pending-\(pendingLoadRequest.generation)-\(pendingLoadRequest.pageID.rawValue)"
     }
-  }
-
-  @ViewBuilder
-  private var editorModeButton: some View {
-    switch editorMode {
-    case .browse:
-      Button {
-        editorMode = .edit
-        focusedField = .body
-      } label: {
-        Label("Edit", systemImage: "pencil")
-      }
-      .accessibilityIdentifier("page-editor-edit")
-      .accessibilityLabel("Edit page")
-      .disabled(editor.isLoading || editor.isMutationLocked)
-    case .edit:
-      Button {
-        finishEditing()
-      } label: {
-        Label("Done", systemImage: "checkmark")
-      }
-      .accessibilityIdentifier("page-editor-done")
-      .accessibilityLabel("Finish editing")
-      .disabled(
-        editor.isLoading
-          || editor.isMutationLocked
-          || isInteractionPresented
-          || isFinishingEditing
-      )
-    }
-  }
-
-  private func finishEditing() {
-    guard !isInteractionPresented, !isFinishingEditing else { return }
-    isFinishingEditing = true
-    Task { @MainActor in
-      guard await editor.flush() else {
-        isFinishingEditing = false
-        return
-      }
-      focusedField = nil
-      editorMode = .browse
-      isFinishingEditing = false
-    }
+    return "authoritative-\(page.id.rawValue)"
   }
 
   #if os(iOS)
-  private func presentCommandDialog(_ dialog: CommandDialog) {
-    guard editor.captureCommandContext() != nil else {
-      activeCommandDialog = nil
-      return
-    }
-    activeCommandDialog = dialog
-  }
-
-  private func dismissCommandDialog(restoringBodyFocus: Bool) {
-    activeCommandDialog = nil
-    editor.clearCommandContext()
-    if restoringBodyFocus, editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
-      focusedField = .body
-    }
-  }
-
-  private func applyFormatting(_ intent: InlinePresentationIntent) {
+  private func performFormatting(_ intent: InlinePresentationIntent) {
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.applyFormattingFromCommandContext(intent)
-    activeCommandDialog = nil
-    if editorMode == .edit, !editor.isMutationLocked, editor.inlinePicker == nil {
+    if !editor.isMutationLocked, editor.inlinePicker == nil {
       focusedField = .body
     }
   }
 
   private func presentReferencePicker() {
-    focusedField = .body
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.showReferencePickerFromCommandContext()
-    activeCommandDialog = nil
   }
 
   private func presentSupertagPicker() {
-    focusedField = .body
+    guard editor.captureCommandContext() != nil else { return }
     _ = editor.showSupertagPickerFromCommandContext()
-    activeCommandDialog = nil
   }
   #endif
-
-  private func handleBrowseURL(_ url: URL) -> OpenURLAction.Result {
-    guard let destination = PageReferenceBrowseLink.destination(from: url),
-      destination.vaultID == store.vaultID,
-      let page = store.page(id: destination.pageID),
-      page.deletedAt == nil
-    else { return .discarded }
-
-    openPage(destination.pageID)
-    return .handled
-  }
 
   @ViewBuilder
   private var calendarContextView: some View {
@@ -2348,7 +2389,10 @@ private struct RichPageEditor<Header: View>: View {
               .foregroundStyle(.secondary)
             if let seriesPageID = calendarContext.seriesPageID {
               Button("Open Series Notes") {
-                openPage(seriesPageID)
+                Task { @MainActor in
+                  guard await editor.flush() else { return }
+                  openPage(seriesPageID)
+                }
               }
               .font(.subheadline.weight(.semibold))
             }
@@ -2363,7 +2407,10 @@ private struct RichPageEditor<Header: View>: View {
           }
           ForEach(calendarContext.occurrences) { occurrence in
             Button {
-              openPage(occurrence.pageID)
+              Task { @MainActor in
+                guard await editor.flush() else { return }
+                openPage(occurrence.pageID)
+              }
             } label: {
               Text(occurrence.startDate.formatted(date: .abbreviated, time: occurrence.isAllDay ? .omitted : .shortened))
             }
@@ -2385,7 +2432,7 @@ private struct RichPageEditor<Header: View>: View {
   }
 
   #if os(macOS)
-  private var formattingBar: some View {
+  private var editorAccessoryBar: some View {
     HStack(spacing: 4) {
       Menu {
         Section("Emphasis") {
@@ -2407,6 +2454,17 @@ private struct RichPageEditor<Header: View>: View {
       .accessibilityIdentifier("page-editor-format-menu")
       .accessibilityLabel("Format")
       .disabled(editor.isLoading || editor.isMutationLocked)
+
+      if let reference = editor.selectedPageReference() {
+        Button {
+          openSelectedReference()
+        } label: {
+          Label("Open \(reference.label)", systemImage: "arrow.up.right")
+        }
+        .accessibilityIdentifier("page-editor-open-reference")
+        .keyboardShortcut(.return, modifiers: [.command])
+        .disabled(editor.isLoading || editor.isMutationLocked)
+      }
 
       Menu {
         Button {
@@ -2444,6 +2502,27 @@ private struct RichPageEditor<Header: View>: View {
   }
   #endif
 
+  private func openSelectedReference() {
+    guard let request = editor.captureOpenRequest() else { return }
+    let coordinator = PageReferenceOpeningCoordinator(editor: editor, openPage: openPage)
+    Task {
+      let opened = await PageReferenceOpenAction.perform(
+        captured: request.reference,
+        flushAndRevalidate: { [coordinator, request] _ in
+          await coordinator.flushAndResolve(request)
+        },
+        open: { [coordinator] reference in
+          await coordinator.open(reference)
+        }
+      )
+      if !opened {
+        editor.reportOpenFailure()
+        openFailureMessage = editor.interactionErrorMessage ?? editor.errorMessage
+          ?? "The reference is no longer available. Try again."
+      }
+    }
+  }
+
   private func formattingMenuToggle(
     _ title: String,
     identifier: String? = nil,
@@ -2470,14 +2549,6 @@ private struct RichPageEditor<Header: View>: View {
     editor.inlinePicker != nil
     #else
     editor.isPalettePresented
-    #endif
-  }
-
-  private var isInteractionPresented: Bool {
-    #if os(iOS)
-    activeCommandDialog != nil || isPickerPresented
-    #else
-    isPickerPresented
     #endif
   }
 

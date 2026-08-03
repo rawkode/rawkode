@@ -1607,6 +1607,7 @@ private final class AssistantRepositoryFixture {
         pageID: page.id,
         loadGeneration: 1,
         journalID: UUID().uuidString,
+        baseHeads: page.heads,
         encodedChanges: changes,
         advertisedHeads: updated.heads
       )

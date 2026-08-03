@@ -102,6 +102,8 @@ public struct EditorCommit: Codable, Hashable, Sendable {
   public var pageID: PageID
   public var loadGeneration: Int
   public var journalID: String
+  /// The durable Automerge heads from which `encodedChanges` were authored.
+  public var baseHeads: AutomergeHeads
   public var encodedChanges: Data
   public var advertisedHeads: AutomergeHeads
 
@@ -109,12 +111,14 @@ public struct EditorCommit: Codable, Hashable, Sendable {
     pageID: PageID,
     loadGeneration: Int,
     journalID: String,
+    baseHeads: AutomergeHeads,
     encodedChanges: Data,
     advertisedHeads: AutomergeHeads
   ) {
     self.pageID = pageID
     self.loadGeneration = loadGeneration
     self.journalID = journalID
+    self.baseHeads = baseHeads
     self.encodedChanges = encodedChanges
     self.advertisedHeads = advertisedHeads
   }
@@ -808,10 +812,31 @@ public actor LibraryRepository {
         )
       }
 
+      guard !commit.baseHeads.values.isEmpty,
+        !commit.advertisedHeads.values.isEmpty,
+        let baseHashes = Self.changeHashes(for: commit.baseHeads)
+      else {
+        throw PageDocumentError.invalidHeads
+      }
+
+      // Validate the claimed delta against its exact historical base before
+      // applying the same changes to the current document for CRDT merging.
+      let currentDocument = try Document(current.document)
+      let baseDocument: Document
+      do {
+        baseDocument = try currentDocument.forkAt(heads: baseHashes)
+      } catch {
+        throw PageDocumentError.invalidHeads
+      }
+      _ = try PageDocument.applyChanges(
+        to: baseDocument.save(),
+        encodedChanges: commit.encodedChanges,
+        advertisedHeads: commit.advertisedHeads
+      )
       let applied = try PageDocument.applyChanges(
         to: current.document,
         encodedChanges: commit.encodedChanges,
-        advertisedHeads: commit.advertisedHeads
+        advertisedHeads: .empty
       )
       let generation = current.dirtyGeneration + 1
       let updated = PageSnapshot(
@@ -842,6 +867,21 @@ public actor LibraryRepository {
         duplicate: false
       )
     }
+  }
+
+  private static func changeHashes(for heads: AutomergeHeads) -> Set<ChangeHash>? {
+    var data = Data()
+    for value in heads.values {
+      guard value.count == 64 else { return nil }
+      var index = value.startIndex
+      for _ in 0..<32 {
+        let next = value.index(index, offsetBy: 2)
+        guard let byte = UInt8(value[index..<next], radix: 16) else { return nil }
+        data.append(byte)
+        index = next
+      }
+    }
+    return data.heads()
   }
 
   public func persistRichTextEditor(

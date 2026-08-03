@@ -130,8 +130,14 @@ struct MobileRootView: View {
       Task { await receive(route) }
     }
     .onChange(of: scenePhase) { _, phase in
-      guard phase == .active else { return }
-      Task { await refreshForActivation() }
+      switch phase {
+      case .active:
+        Task { await refreshForActivation() }
+      case .inactive, .background:
+        EditorFlushController.flushForLifecycleTransition()
+      @unknown default:
+        break
+      }
     }
     .task { await refreshForActivation() }
     .presentsTaskCompletionUndo(from: store)
