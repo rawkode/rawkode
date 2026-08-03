@@ -53,6 +53,16 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
   private var activeSource: MicrophoneAnalyzerInputSource?
   private var activeAnalyzer: SpeechAnalyzer?
   private var activeResultTask: Task<Void, any Error>?
+  private var activityContinuation: AsyncStream<Double>.Continuation?
+  private var activitySubscriptionID: UInt64 = 0
+
+  func voiceActivity() async -> AsyncStream<Double> {
+    activitySubscriptionID &+= 1
+    return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+      activityContinuation?.finish()
+      activityContinuation = continuation
+    }
+  }
 
   func availability() async -> AssistantVoiceAvailability {
     await availability(locale: .current)
@@ -290,7 +300,10 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
       throw error
     }
 
-    let source = MicrophoneAnalyzerInputSource(targetFormat: format)
+    let sourceActivitySubscriptionID = activitySubscriptionID
+    let source = MicrophoneAnalyzerInputSource(targetFormat: format) { [weak self] level in
+      Task { await self?.publishActivity(level, subscriptionID: sourceActivitySubscriptionID) }
+    }
     let inputSequence: AsyncStream<AnalyzerInput>
     do {
       inputSequence = try source.start()
@@ -368,6 +381,20 @@ actor OnDeviceSpeechTranscriber: AssistantConversationTranscribing {
     activeSource = nil
     activeAnalyzer = nil
     activeResultTask = nil
+    activityContinuation?.yield(0)
+  }
+
+  private func publishActivity(_ level: Double, subscriptionID: UInt64) {
+    guard subscriptionID == activitySubscriptionID else { return }
+    activityContinuation?.yield(level)
+  }
+
+  func activitySubscriptionIDForTesting() -> UInt64 {
+    activitySubscriptionID
+  }
+
+  func publishActivityForTesting(_ level: Double, subscriptionID: UInt64) {
+    publishActivity(level, subscriptionID: subscriptionID)
   }
 }
 
@@ -557,9 +584,12 @@ private final class MicrophoneAnalyzerInputSource: @unchecked Sendable {
   private var continuation: AsyncStream<AnalyzerInput>.Continuation?
   private var hasInstalledTap = false
   private var isRunning = false
+  private let activityHandler: @Sendable (Double) -> Void
+  private var lastActivityUpdate = ContinuousClock().now
 
-  init(targetFormat: AVAudioFormat) {
+  init(targetFormat: AVAudioFormat, activityHandler: @escaping @Sendable (Double) -> Void) {
     self.targetFormat = targetFormat
+    self.activityHandler = activityHandler
   }
 
   func start() throws -> AsyncStream<AnalyzerInput> {
@@ -575,6 +605,7 @@ private final class MicrophoneAnalyzerInputSource: @unchecked Sendable {
     let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
     input.installTap(onBus: 0, bufferSize: 2_048, format: inputFormat) { [weak self] buffer, _ in
       guard let self else { return }
+      self.publishActivity(from: buffer)
       if inputFormat == self.targetFormat {
         self.yield(buffer)
         return
@@ -633,5 +664,19 @@ private final class MicrophoneAnalyzerInputSource: @unchecked Sendable {
 
   private func yield(_ buffer: AVAudioPCMBuffer) {
     _ = lock.withLock { continuation?.yield(AnalyzerInput(buffer: buffer)) }
+  }
+
+  private func publishActivity(from buffer: AVAudioPCMBuffer) {
+    let shouldPublish = lock.withLock { () -> Bool in
+      let now = ContinuousClock().now
+      guard lastActivityUpdate.duration(to: now) >= .milliseconds(50) else { return false }
+      lastActivityUpdate = now
+      return true
+    }
+    guard shouldPublish, let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+    let samples = UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
+    let meanSquare = samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(samples.count)
+    // RMS maps ordinary speech into a useful but bounded visual range.
+    activityHandler(min(1, sqrt(meanSquare) * 8))
   }
 }

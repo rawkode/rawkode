@@ -195,6 +195,8 @@ public enum RealtimeWebRTCBridgeSecurityPolicy {
       keys == ["state"]
     case "serverEvent":
       keys == ["json"]
+    case "audioActivity":
+      keys == ["inputLevel", "outputLevel"]
     case "error":
       keys == ["code"]
     #if DEBUG

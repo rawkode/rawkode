@@ -142,6 +142,58 @@ public enum RealtimeClientCommand: Equatable, Sendable {
   case inputAudioBufferClear
 }
 
+/// A bounded, generation-scoped audio meter sample emitted by a Realtime
+/// transport. These values describe acoustic activity only; callers must not
+/// derive conversation semantics from a single sample.
+public struct RealtimeAudioActivitySample: Equatable, Sendable {
+  public let generation: UInt64
+  public let inputLevel: Double
+  public let outputLevel: Double
+
+  public init(generation: UInt64, inputLevel: Double, outputLevel: Double) {
+    self.generation = generation
+    self.inputLevel = Self.normalized(inputLevel)
+    self.outputLevel = Self.normalized(outputLevel)
+  }
+
+  private static func normalized(_ value: Double) -> Double {
+    guard value.isFinite else { return 0 }
+    return min(max(value, 0), 1)
+  }
+}
+
+/// Compositional voice presentation state. Semantic roles intentionally stay
+/// separate from metered amplitudes: quiet speech remains speaking, and a
+/// loud microphone does not imply that a response is being prepared.
+public struct VoiceActivitySnapshot: Equatable, Sendable {
+  public let isListening: Bool
+  public let isPreparingResponse: Bool
+  public let isResponding: Bool
+  public let inputLevel: Double
+  public let outputLevel: Double
+
+  public init(
+    isListening: Bool = false,
+    isPreparingResponse: Bool = false,
+    isResponding: Bool = false,
+    inputLevel: Double = 0,
+    outputLevel: Double = 0
+  ) {
+    self.isListening = isListening
+    self.isPreparingResponse = isPreparingResponse
+    self.isResponding = isResponding
+    self.inputLevel = Self.normalized(inputLevel)
+    self.outputLevel = Self.normalized(outputLevel)
+  }
+
+  public static let inactive = VoiceActivitySnapshot()
+
+  private static func normalized(_ value: Double) -> Double {
+    guard value.isFinite else { return 0 }
+    return min(max(value, 0), 1)
+  }
+}
+
 @MainActor
 public protocol RealtimeVoiceTransport: Sendable {
   /// Establishes the WebRTC connection with its input media track disabled.
@@ -156,6 +208,9 @@ public protocol RealtimeVoiceTransport: Sendable {
     credential: RealtimeCredentialLease
   ) async throws -> RealtimeSessionCreated
   func events() -> AsyncStream<RealtimeServerEvent>
+  /// A newest-only stream of bounded scalar levels. Activity loss is visual
+  /// only and must never affect data-channel control delivery.
+  func activity() -> AsyncStream<RealtimeAudioActivitySample>
   func send(_ command: RealtimeClientCommand) async throws
   /// Resolves only once the transport has confirmed the microphone track
   /// transition. Callers must treat a failure as unsafe and tear down.
@@ -187,6 +242,7 @@ public enum RealtimeWebRTCBridgeEvent: Equatable, Sendable {
   case connectionState(generation: UInt64, state: String)
   case dataChannelState(generation: UInt64, state: String)
   case serverEvent(generation: UInt64, json: String)
+  case audioActivity(generation: UInt64, inputLevel: Double, outputLevel: Double)
   case answerApplied(generation: UInt64)
   case failure(generation: UInt64, code: String)
 }

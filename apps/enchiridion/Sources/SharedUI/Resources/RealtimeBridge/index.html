@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'sha256-1U2kymFq4YkesF1IIuAmc7jXjKWZVcrvnqtxY+/CJSU='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
+    content="default-src 'none'; script-src 'sha256-4IoK6N4ekdfdBUO2dvf+mOa+92mA8rhp1yERl7qHbfk='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
   >
   <meta name="referrer" content="no-referrer">
   <title>Enchiridion Realtime Audio</title>
@@ -18,6 +18,7 @@
   const MAX_SDP_BYTES = 131072;
   const MAX_EVENT_BYTES = 65536;
   const MAX_ERROR_BYTES = 512;
+  const METER_INTERVAL_MILLISECONDS = 50;
   const bridge = window.webkit.messageHandlers.realtime;
   const remoteAudio = document.getElementById("remote-audio");
   let generation = 0;
@@ -25,6 +26,10 @@
   let peer = null;
   let channel = null;
   let microphone = null;
+  let audioContext = null;
+  let inputAnalyser = null;
+  let outputAnalyser = null;
+  let meterTimer = null;
 
   function byteLength(value) {
     return new TextEncoder().encode(value).byteLength;
@@ -74,6 +79,7 @@
   }
 
   function cleanupTransport(sessionPeer, sessionChannel, sessionStream, clearAudio) {
+    stopMetering();
     if (sessionChannel) {
       sessionChannel.onopen = null;
       sessionChannel.onclose = null;
@@ -92,6 +98,57 @@
     if (clearAudio) {
       remoteAudio.pause();
       remoteAudio.srcObject = null;
+    }
+  }
+
+  function normalizedLevel(analyser) {
+    if (!analyser) return 0;
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const sample of samples) sum += sample * sample;
+    const level = Math.sqrt(sum / samples.length);
+    return Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0;
+  }
+
+  function stopMetering() {
+    if (meterTimer !== null) clearInterval(meterTimer);
+    meterTimer = null;
+    inputAnalyser = null;
+    outputAnalyser = null;
+    if (audioContext) void audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+
+  function startMetering(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream) {
+    stopMetering();
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) return;
+    try {
+      audioContext = new Context();
+      inputAnalyser = audioContext.createAnalyser();
+      inputAnalyser.fftSize = 256;
+      audioContext.createMediaStreamSource(sessionStream).connect(inputAnalyser);
+      meterTimer = setInterval(() => {
+        if (!isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) return;
+        post(sessionGeneration, "audioActivity", {
+          inputLevel: normalizedLevel(inputAnalyser),
+          outputLevel: normalizedLevel(outputAnalyser)
+        });
+      }, METER_INTERVAL_MILLISECONDS);
+    } catch (_) {
+      stopMetering();
+    }
+  }
+
+  function attachRemoteMeter(stream, sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream) {
+    if (!audioContext || !isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) return;
+    try {
+      outputAnalyser = audioContext.createAnalyser();
+      outputAnalyser.fftSize = 256;
+      audioContext.createMediaStreamSource(stream).connect(outputAnalyser);
+    } catch (_) {
+      outputAnalyser = null;
     }
   }
 
@@ -142,6 +199,9 @@
           return;
         }
         remoteAudio.srcObject = event.streams[0];
+        attachRemoteMeter(
+          event.streams[0], sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream
+        );
         void remoteAudio.play().catch(() => {
           if (isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)) {
             post(sessionGeneration, "error", { code: "remoteAudioPlaybackFailed" });
@@ -194,6 +254,7 @@
       peer = sessionPeer;
       channel = sessionChannel;
       microphone = sessionStream;
+      startMetering(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream);
       const sdp = boundedString(sessionPeer.localDescription.sdp, MAX_SDP_BYTES, "offer SDP");
       post(sessionGeneration, "offer", { sdp });
     } catch (error) {

@@ -24,6 +24,7 @@ final class RealtimeWebRTCBridge: NSObject {
     case connectionState(generation: UInt64, state: String)
     case dataChannelState(generation: UInt64, state: String)
     case serverEvent(generation: UInt64, json: String)
+    case audioActivity(generation: UInt64, inputLevel: Double, outputLevel: Double)
     case answerApplied(generation: UInt64)
     #if DEBUG
       case probeResult(
@@ -52,6 +53,7 @@ final class RealtimeWebRTCBridge: NSObject {
     static let sdp = 128 * 1024
     static let event = 64 * 1024
     static let error = 512
+    static let audioLevel = 1.0
   }
 
   private static let javaScriptControlDeadline: Duration = .seconds(8)
@@ -691,6 +693,18 @@ final class RealtimeWebRTCBridge: NSObject {
       parsed = boundedString(payload["state"], maximum: 16).map { .dataChannelState(generation: generation, state: $0) }
     case "serverEvent":
       parsed = boundedString(payload["json"], maximum: Limit.event).map { .serverEvent(generation: generation, json: $0) }
+    case "audioActivity":
+      if let inputLevel = boundedAudioLevel(payload["inputLevel"]),
+        let outputLevel = boundedAudioLevel(payload["outputLevel"])
+      {
+        parsed = .audioActivity(
+          generation: generation,
+          inputLevel: inputLevel,
+          outputLevel: outputLevel
+        )
+      } else {
+        parsed = nil
+      }
     case "answerApplied":
       parsed = payload.isEmpty ? .answerApplied(generation: generation) : nil
     case "error":
@@ -709,6 +723,12 @@ final class RealtimeWebRTCBridge: NSObject {
         yield(.dataChannelState(generation: generation, state: state))
       case let .serverEvent(generation, json):
         yield(.serverEvent(generation: generation, json: json))
+      case let .audioActivity(generation, inputLevel, outputLevel):
+        yield(.audioActivity(
+          generation: generation,
+          inputLevel: inputLevel,
+          outputLevel: outputLevel
+        ))
       case let .answerApplied(generation):
         yield(.answerApplied(generation: generation))
       case let .error(generation, code):
@@ -724,6 +744,15 @@ final class RealtimeWebRTCBridge: NSObject {
   private func boundedString(_ value: Any?, maximum: Int) -> String? {
     guard let value = value as? String, value.utf8.count <= maximum else { return nil }
     return value
+  }
+
+  private func boundedAudioLevel(_ value: Any?) -> Double? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
+      return nil
+    }
+    let level = number.doubleValue
+    guard level.isFinite, (0 ... Limit.audioLevel).contains(level) else { return nil }
+    return level
   }
 }
 

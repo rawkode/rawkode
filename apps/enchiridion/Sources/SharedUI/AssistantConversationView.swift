@@ -380,6 +380,14 @@ struct AssistantConversationView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+    } else if session.isVoiceRunning {
+      HStack(spacing: 10) {
+        VoiceActivityOrb(activity: session.voiceActivity, diameter: 32)
+        Text(voiceActivityLabel(session.voiceActivity))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .accessibilityElement(children: .contain)
     } else {
       switch session.state {
       case .listening:
@@ -409,6 +417,10 @@ struct AssistantConversationView: View {
         voiceAvailabilityStatus(session)
       }
     }
+  }
+
+  private func voiceActivityLabel(_ activity: VoiceActivitySnapshot) -> String {
+    VoiceActivityOrb.semanticDescription(activity)
   }
 
   @ViewBuilder
@@ -749,6 +761,50 @@ struct AssistantConversationView: View {
     #if os(macOS)
       NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     #endif
+  }
+}
+
+/// A compact semantic visual for concurrent voice activity. Colour supports,
+/// rather than replaces, the accessible state value.
+struct VoiceActivityOrb: View {
+  let activity: VoiceActivitySnapshot
+  var diameter: CGFloat = 44
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    let level = max(activity.inputLevel, activity.outputLevel)
+    let scale = 0.78 + (reduceMotion ? discreteLevel(level) : level) * 0.22
+    ZStack {
+      Circle().fill(.quaternary)
+      if activity.isListening { Circle().fill(Color.indigo.opacity(0.82)).padding(diameter * 0.18) }
+      if activity.isPreparingResponse { Circle().fill(Color.purple.opacity(0.74)).padding(diameter * 0.30) }
+      if activity.isResponding { Circle().fill(Color.teal.opacity(0.82)).padding(diameter * 0.42) }
+    }
+    .frame(width: diameter, height: diameter)
+    .scaleEffect(scale)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Voice activity")
+    .accessibilityValue(accessibilityValue)
+  }
+
+  static func semanticDescription(_ activity: VoiceActivitySnapshot) -> String {
+    var states: [String] = []
+    if activity.isListening { states.append("Listening") }
+    if activity.isPreparingResponse { states.append("Preparing response") }
+    if activity.isResponding { states.append("Responding") }
+    return states.isEmpty ? "Inactive" : states.joined(separator: " · ")
+  }
+
+  private var accessibilityValue: String { Self.semanticDescription(activity) }
+
+  private func discreteLevel(_ value: Double) -> CGFloat {
+    switch value {
+    case 0..<0.15: 0
+    case 0..<0.55: 0.5
+    default: 1
+    }
   }
 }
 

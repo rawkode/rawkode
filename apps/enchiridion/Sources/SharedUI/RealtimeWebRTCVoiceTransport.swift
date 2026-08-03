@@ -34,13 +34,23 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   /// A single local pump owns the mutable AsyncStream iterator. Consumers use
   /// this bounded mailbox instead, so no mutable iterator crosses an actor
   /// suspension point or has more than one reader.
-  private actor BridgeEventQueue {
-    private static let maximumBufferedEvents = 256
+  actor BridgeEventQueue {
+    private static let maximumBufferedControlEvents = 256
 
-    private var bufferedEvents: [RealtimeWebRTCBridgeEvent] = []
+    private var controlEvents: [RealtimeWebRTCBridgeEvent] = []
     private var waiter: CheckedContinuation<RealtimeWebRTCBridgeEvent?, Never>?
     private var isFinished = false
     private var pumpTask: Task<Void, Never>?
+    private let activityEvents: AsyncStream<RealtimeWebRTCBridgeEvent>
+    private let activityContinuation: AsyncStream<RealtimeWebRTCBridgeEvent>.Continuation
+
+    init() {
+      let stream = AsyncStream<RealtimeWebRTCBridgeEvent>.makeStream(
+        bufferingPolicy: .bufferingNewest(1)
+      )
+      activityEvents = stream.stream
+      activityContinuation = stream.continuation
+    }
 
     func start(stream: AsyncStream<RealtimeWebRTCBridgeEvent>) {
       guard pumpTask == nil, !isFinished else { return }
@@ -52,9 +62,15 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       }
     }
 
+    /// Narrow test seam: exercises the same pre-FIFO demultiplexing used by
+    /// the single bridge stream pump without exposing transport lifecycle.
+    func feedForTesting(_ event: RealtimeWebRTCBridgeEvent) -> Bool {
+      enqueue(event)
+    }
+
     func next() async -> RealtimeWebRTCBridgeEvent? {
-      if !bufferedEvents.isEmpty {
-        return bufferedEvents.removeFirst()
+      if !controlEvents.isEmpty {
+        return controlEvents.removeFirst()
       }
       guard !isFinished else { return nil }
       return await withCheckedContinuation { continuation in
@@ -63,12 +79,17 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       }
     }
 
+    func activity() -> AsyncStream<RealtimeWebRTCBridgeEvent> {
+      activityEvents
+    }
+
     func finish() {
       guard !isFinished else { return }
       isFinished = true
       pumpTask?.cancel()
       pumpTask = nil
-      bufferedEvents.removeAll()
+      controlEvents.removeAll()
+      activityContinuation.finish()
       let waiter = waiter
       self.waiter = nil
       waiter?.resume(returning: nil)
@@ -76,16 +97,22 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
     private func enqueue(_ event: RealtimeWebRTCBridgeEvent) -> Bool {
       guard !isFinished else { return false }
+      // Metering never enters the control mailbox or wakes its waiter. The
+      // newest-only stream is visual-only and cannot delay handshake/control.
+      if case .audioActivity = event {
+        activityContinuation.yield(event)
+        return true
+      }
       if let waiter {
         self.waiter = nil
         waiter.resume(returning: event)
         return true
       }
-      guard bufferedEvents.count < Self.maximumBufferedEvents else {
+      guard controlEvents.count < Self.maximumBufferedControlEvents else {
         finish()
         return false
       }
-      bufferedEvents.append(event)
+      controlEvents.append(event)
       return true
     }
   }
@@ -151,9 +178,12 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   private let codec: RealtimeProtocolCodec
   private let serverEvents: AsyncStream<RealtimeServerEvent>
   private let serverEventContinuation: AsyncStream<RealtimeServerEvent>.Continuation
+  private let audioActivity: AsyncStream<RealtimeAudioActivitySample>
+  private let audioActivityContinuation: AsyncStream<RealtimeAudioActivitySample>.Continuation
 
   private var lifecycle: Lifecycle = .idle
   private var bridgeConsumptionTask: Task<Void, Never>?
+  private var bridgeActivityTask: Task<Void, Never>?
   private var eventQueue: BridgeEventQueue?
 
   init(
@@ -167,11 +197,18 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     let stream = AsyncStream<RealtimeServerEvent>.makeStream()
     serverEvents = stream.stream
     serverEventContinuation = stream.continuation
+    let activity = AsyncStream<RealtimeAudioActivitySample>.makeStream(
+      bufferingPolicy: .bufferingNewest(1)
+    )
+    audioActivity = activity.stream
+    audioActivityContinuation = activity.continuation
   }
 
   deinit {
     bridgeConsumptionTask?.cancel()
+    bridgeActivityTask?.cancel()
     serverEventContinuation.finish()
+    audioActivityContinuation.finish()
   }
 
   func start(
@@ -211,6 +248,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
         serverEventContinuation.yield(event)
       }
       beginConsumingRemainingBridgeEvents(eventQueue, active: active)
+      beginConsumingActivity(eventQueue, active: active)
       return handshake.session
     } catch {
       await terminate()
@@ -220,6 +258,10 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
   func events() -> AsyncStream<RealtimeServerEvent> {
     serverEvents
+  }
+
+  func activity() -> AsyncStream<RealtimeAudioActivitySample> {
+    audioActivity
   }
 
   func send(_ command: RealtimeClientCommand) async throws {
@@ -434,6 +476,28 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     }
   }
 
+  private func beginConsumingActivity(
+    _ eventQueue: BridgeEventQueue,
+    active: ActiveAttempt
+  ) {
+    bridgeActivityTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      for await event in await eventQueue.activity() {
+        guard !Task.isCancelled, self.isActive(active) else { return }
+        guard case let .audioActivity(generation, inputLevel, outputLevel) = event,
+          generation == active.generation
+        else { continue }
+        self.audioActivityContinuation.yield(
+          RealtimeAudioActivitySample(
+            generation: generation,
+            inputLevel: inputLevel,
+            outputLevel: outputLevel
+          )
+        )
+      }
+    }
+  }
+
   private func bridgeControl(
     _ operation: @escaping @MainActor () async throws -> Void
   ) async throws {
@@ -492,13 +556,26 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
   private func terminate() async {
     guard lifecycle != .closed else { return }
+    let activeGeneration: UInt64? = if case let .active(active) = lifecycle {
+      active.generation
+    } else {
+      nil
+    }
     lifecycle = .closed
     bridgeConsumptionTask?.cancel()
     bridgeConsumptionTask = nil
+    bridgeActivityTask?.cancel()
+    bridgeActivityTask = nil
     let eventQueue = eventQueue
     self.eventQueue = nil
     await eventQueue?.finish()
     serverEventContinuation.finish()
+    if let activeGeneration {
+      audioActivityContinuation.yield(
+        RealtimeAudioActivitySample(generation: activeGeneration, inputLevel: 0, outputLevel: 0)
+      )
+    }
+    audioActivityContinuation.finish()
     _ = try? await withDeadline(
       Self.teardownDeadline,
       timeoutError: .controlTimedOut

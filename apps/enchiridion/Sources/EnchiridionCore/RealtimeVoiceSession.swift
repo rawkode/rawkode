@@ -22,6 +22,7 @@ public final class RealtimeVoiceSession {
   public private(set) var state: RealtimeVoiceReducerState
   public private(set) var warningMessage: String?
   public private(set) var receipt: RealtimeVoiceReceipt?
+  public private(set) var voiceActivity = VoiceActivitySnapshot.inactive
 
   @ObservationIgnored private let microphone: any RealtimeMicrophoneAuthorizing
   @ObservationIgnored private let credentialReader: any RealtimeCredentialReading
@@ -40,12 +41,16 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private var pendingPausedFailure: RealtimeVoiceFailure?
   @ObservationIgnored private var startedAt: Date?
   @ObservationIgnored private var eventTask: Task<Void, Never>?
+  @ObservationIgnored private var activityTask: Task<Void, Never>?
   @ObservationIgnored private var limitTask: Task<Void, Never>?
   @ObservationIgnored private var safetyTask: Task<Void, Never>?
   @ObservationIgnored private var audioOwnerGeneration: UInt64?
   @ObservationIgnored private var transportAttemptGeneration: UInt64?
   @ObservationIgnored private var transportStartedGeneration: UInt64?
   @ObservationIgnored private var isStopping = false
+  @ObservationIgnored private var respondingResponseID: String?
+
+  private static let responseAudibilityFloor = 0.015
 
   public init(
     route: RealtimeVoiceRouteSnapshot,
@@ -90,6 +95,7 @@ public final class RealtimeVoiceSession {
 
   deinit {
     eventTask?.cancel()
+    activityTask?.cancel()
     limitTask?.cancel()
     safetyTask?.cancel()
     guard transportAttemptGeneration != nil else { return }
@@ -169,6 +175,7 @@ public final class RealtimeVoiceSession {
 
     setPhase(.connecting)
     let stream = transport.events()
+    let activity = transport.activity()
     do {
       transportAttemptGeneration = currentGeneration
       let established = try await transport.start(
@@ -261,9 +268,15 @@ public final class RealtimeVoiceSession {
       guard let self else { return }
       await self.consume(stream, generation: currentGeneration)
     }
+    activityTask = Task { [weak self] in
+      guard let self else { return }
+      await self.consume(activity, generation: currentGeneration)
+    }
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
       eventTask?.cancel()
       eventTask = nil
+      activityTask?.cancel()
+      activityTask = nil
       return
     }
     limitTask = Task { [weak self] in
@@ -498,6 +511,20 @@ public final class RealtimeVoiceSession {
     }
   }
 
+  private func consume(
+    _ stream: AsyncStream<RealtimeAudioActivitySample>,
+    generation currentGeneration: UInt64
+  ) async {
+    for await sample in stream {
+      guard isSessionCurrent(currentGeneration), !Task.isCancelled else { return }
+      guard sample.generation == currentGeneration,
+        sample.inputLevel.isFinite,
+        sample.outputLevel.isFinite
+      else { continue }
+      updateVoiceActivity(inputLevel: sample.inputLevel, outputLevel: sample.outputLevel)
+    }
+  }
+
   private func pause(for reason: AssistantVoicePauseReason) async {
     guard !isStopping else { return }
     let currentGeneration = generation
@@ -652,8 +679,11 @@ public final class RealtimeVoiceSession {
     audioOwnerGeneration = nil
     activePause = nil
     pendingPausedFailure = nil
+    respondingResponseID = nil
     eventTask?.cancel()
     eventTask = nil
+    activityTask?.cancel()
+    activityTask = nil
     limitTask?.cancel()
     limitTask = nil
     safetyTask?.cancel()
@@ -709,6 +739,57 @@ public final class RealtimeVoiceSession {
       synchronized.phase = .paused(activePause.reason)
     }
     state = synchronized
+    refreshVoiceActivitySemantics()
+  }
+
+  private func updateVoiceActivity(inputLevel: Double, outputLevel: Double) {
+    guard isVoiceActivityAvailable else {
+      voiceActivity = .inactive
+      return
+    }
+    if outputLevel >= Self.responseAudibilityFloor,
+      let responseID = state.activeResponseID
+    {
+      respondingResponseID = responseID
+    }
+    applyVoiceActivity(inputLevel: inputLevel, outputLevel: outputLevel)
+  }
+
+  private func refreshVoiceActivitySemantics() {
+    guard isVoiceActivityAvailable else {
+      respondingResponseID = nil
+      voiceActivity = .inactive
+      return
+    }
+    if state.activeResponseID != respondingResponseID {
+      respondingResponseID = nil
+    }
+    applyVoiceActivity(
+      inputLevel: voiceActivity.inputLevel,
+      outputLevel: voiceActivity.outputLevel
+    )
+  }
+
+  private var isVoiceActivityAvailable: Bool {
+    guard receipt == nil, !isStopping, activePause == nil else { return false }
+    return switch state.phase {
+    case .listening, .userSpeaking, .responding, .assistantSpeaking:
+      true
+    default:
+      false
+    }
+  }
+
+  private func applyVoiceActivity(inputLevel: Double, outputLevel: Double) {
+    let activeResponseID = state.activeResponseID
+    let isResponding = activeResponseID != nil && activeResponseID == respondingResponseID
+    voiceActivity = VoiceActivitySnapshot(
+      isListening: isVoiceActivityAvailable,
+      isPreparingResponse: activeResponseID != nil,
+      isResponding: isResponding,
+      inputLevel: inputLevel,
+      outputLevel: outputLevel
+    )
   }
 
   private func isSessionCurrent(_ expectedGeneration: UInt64) -> Bool {

@@ -6,6 +6,93 @@ import XCTest
 
 final class AssistantConversationSessionTests: XCTestCase {
   @MainActor
+  func testVoiceActivityUsesMeterWhileListeningAndClearsOnStop() async throws {
+    let transcriber = ControlledTranscriber()
+    let session = AssistantConversationSession(transcriber: transcriber, answerer: RecordingAnswerer())
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.emitActivity(0.6)
+    try await waitUntil { session.voiceActivity.inputLevel > 0 }
+    XCTAssertTrue(session.voiceActivity.isListening)
+    XCTAssertFalse(session.voiceActivity.isPreparingResponse)
+
+    await session.stop()
+    XCTAssertEqual(session.voiceActivity, .inactive)
+    await transcriber.emitActivity(1)
+    XCTAssertEqual(session.voiceActivity, .inactive)
+  }
+
+  @MainActor
+  func testLateVoiceMeterCannotReplacePreparingOrSpeakingState() async throws {
+    let transcriber = ControlledTranscriber()
+    let answerer = ControlledAnswerer()
+    let speaker = ControlledSpeaker()
+    let session = AssistantConversationSession(
+      transcriber: transcriber,
+      answerer: answerer,
+      speaker: speaker,
+      speaksResponses: true,
+      interTurnDelay: .zero
+    )
+
+    session.start()
+    try await waitUntil { await transcriber.callCount == 1 }
+    await transcriber.succeedNext(with: "Question")
+    try await waitUntil { await answerer.requests.count == 1 }
+    XCTAssertTrue(session.voiceActivity.isPreparingResponse)
+    await transcriber.emitActivity(1)
+    XCTAssertTrue(session.voiceActivity.isPreparingResponse)
+    XCTAssertFalse(session.voiceActivity.isListening)
+
+    await answerer.succeedNext(with: GroundedAssistantResponse(answer: "Answer", status: .answered))
+    try await waitUntil { await speaker.spoken.count == 1 }
+    XCTAssertTrue(session.voiceActivity.isResponding)
+    await transcriber.emitActivity(1)
+    XCTAssertTrue(session.voiceActivity.isResponding)
+    XCTAssertFalse(session.voiceActivity.isListening)
+
+    await speaker.finishNext()
+    try await waitUntil { await transcriber.callCount == 2 }
+    XCTAssertTrue(session.voiceActivity.isListening)
+    await session.stop()
+  }
+
+  @MainActor
+  func testVoiceCaptureWaitsForActivitySubscription() async throws {
+    let transcriber = SubscriptionBarrierTranscriber()
+    let session = AssistantConversationSession(transcriber: transcriber, answerer: RecordingAnswerer())
+
+    session.start()
+    try await waitUntil { await transcriber.subscriptionRequestCount == 1 }
+    let captureCountBeforeSubscription = await transcriber.captureCount
+    XCTAssertEqual(captureCountBeforeSubscription, 0)
+
+    await transcriber.resumeSubscription()
+    try await waitUntil { await transcriber.captureCount == 1 }
+    await session.stop()
+  }
+
+  @MainActor
+  func testStopDuringActivitySubscriptionNeverStartsCapture() async throws {
+    let transcriber = SubscriptionBarrierTranscriber()
+    let session = AssistantConversationSession(transcriber: transcriber, answerer: RecordingAnswerer())
+
+    session.start()
+    try await waitUntil { await transcriber.subscriptionRequestCount == 1 }
+
+    async let stop: Void = session.stop()
+    await Task.yield()
+    await transcriber.resumeSubscription()
+    _ = await stop
+
+    let captureCount = await transcriber.captureCount
+    XCTAssertEqual(captureCount, 0)
+    XCTAssertEqual(session.voiceActivity, .inactive)
+    XCTAssertEqual(session.state, .stopped)
+  }
+
+  @MainActor
   func testRunsListenAnswerSpeakSeriallyAndContinuesListening() async throws {
     let transcriber = ControlledTranscriber()
     let answerer = ControlledAnswerer()
@@ -2457,7 +2544,7 @@ private actor UnavailableTranscriber: AssistantConversationTranscribing {
     .unavailable("Voice is unavailable for this test.")
   }
 
-  func transcribe() -> String {
+  func transcribe() async throws -> String {
     captureCount += 1
     return "should not capture"
   }
@@ -2532,9 +2619,14 @@ private actor SuspendedPermissionTranscriber: AssistantConversationTranscribing 
     }
   }
 
-  func transcribe() -> String {
+  func transcribe() async throws -> String {
     captureCount += 1
+    try await Task.sleep(for: .seconds(30))
     return "should not capture"
+  }
+
+  func voiceActivity() -> AsyncStream<Double> {
+    AsyncStream { $0.finish() }
   }
 
   func resumePermissionRequest() {
@@ -2557,6 +2649,32 @@ private actor ResetRecordingAnswerer: AssistantConversationAnswering {
   }
 }
 
+private actor SubscriptionBarrierTranscriber: AssistantConversationTranscribing {
+  private var subscriptionContinuation: CheckedContinuation<AsyncStream<Double>, Never>?
+  private(set) var subscriptionRequestCount = 0
+  private(set) var captureCount = 0
+
+  func voiceActivity() async -> AsyncStream<Double> {
+    subscriptionRequestCount += 1
+    return await withCheckedContinuation { continuation in
+      subscriptionContinuation = continuation
+    }
+  }
+
+  func transcribe() async throws -> String {
+    captureCount += 1
+    return try await withTaskCancellationHandler {
+      try await Task.sleep(for: .seconds(30))
+      return ""
+    } onCancel: {}
+  }
+
+  func resumeSubscription() {
+    subscriptionContinuation?.resume(returning: AsyncStream { $0.finish() })
+    subscriptionContinuation = nil
+  }
+}
+
 private actor ControlledTranscriber: AssistantConversationTranscribing {
   private struct Pending {
     var id: UUID
@@ -2567,6 +2685,18 @@ private actor ControlledTranscriber: AssistantConversationTranscribing {
   private(set) var callCount = 0
   private(set) var cancellationCount = 0
   private(set) var resetCount = 0
+  private var activityContinuation: AsyncStream<Double>.Continuation?
+
+  func voiceActivity() -> AsyncStream<Double> {
+    AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+      activityContinuation?.finish()
+      activityContinuation = continuation
+    }
+  }
+
+  func emitActivity(_ level: Double) {
+    activityContinuation?.yield(level)
+  }
 
   func transcribe() async throws -> String {
     let id = UUID()

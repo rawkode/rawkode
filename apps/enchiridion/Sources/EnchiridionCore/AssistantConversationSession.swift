@@ -135,6 +135,9 @@ public protocol AssistantConversationTranscribing: Sendable {
   ) async throws -> AssistantTranscriptionOutcome
   func stop() async
   func resetAfterMediaServicesReset() async
+  /// Newest-only microphone amplitudes for presentation. This never affects
+  /// transcription or endpointing.
+  func voiceActivity() async -> AsyncStream<Double>
 }
 
 extension AssistantConversationTranscribing {
@@ -149,6 +152,7 @@ extension AssistantConversationTranscribing {
   }
   public func stop() async {}
   public func resetAfterMediaServicesReset() async {}
+  public func voiceActivity() async -> AsyncStream<Double> { AsyncStream { $0.finish() } }
 }
 
 /// Pure transcript-stability policy used to stop a live transcription turn.
@@ -612,6 +616,7 @@ public final class AssistantConversationSession {
 
   public private(set) var isVoiceRunning = false
   public private(set) var voiceOperationCompletionGeneration: UInt64 = 0
+  public private(set) var voiceActivity = VoiceActivitySnapshot.inactive
 
   @ObservationIgnored private let transcriber: (any AssistantConversationTranscribing)?
   @ObservationIgnored private let answerer: any AssistantConversationAnswering
@@ -635,6 +640,7 @@ public final class AssistantConversationSession {
   @ObservationIgnored private var audioSessionActivation: AudioSessionActivation?
   @ObservationIgnored private var ownsAudioSession = false
   @ObservationIgnored private var voiceSafetyEventTask: Task<Void, Never>?
+  @ObservationIgnored private var voiceActivityTask: Task<Void, Never>?
   @ObservationIgnored private var lastVoiceSafetyEvent: AssistantVoiceSafetyEvent?
   @ObservationIgnored private var currentContextEpoch: UInt64 = 0
 
@@ -679,6 +685,7 @@ public final class AssistantConversationSession {
     operation?.cancel()
     audioSessionActivation?.task.cancel()
     voiceSafetyEventTask?.cancel()
+    voiceActivityTask?.cancel()
     guard let audioSessionController else { return }
     if let audioSessionActivation {
       Task {
@@ -1066,6 +1073,7 @@ public final class AssistantConversationSession {
     voiceStartAttemptID = nil
     generation &+= 1
     resetVoiceInput()
+    clearVoiceActivity()
     let stopGeneration = generation
     isStopping = true
     finishVoiceOperationIfNeeded()
@@ -1141,6 +1149,7 @@ public final class AssistantConversationSession {
     voiceStartAttemptID = nil
     generation &+= 1
     resetVoiceInput()
+    clearVoiceActivity()
     let pauseGeneration = generation
     isStopping = true
     finishVoiceOperationIfNeeded()
@@ -1184,10 +1193,14 @@ public final class AssistantConversationSession {
         return
       }
     }
-    while isCurrent(currentGeneration) {
+    while currentGeneration == generation, !Task.isCancelled {
       do {
         state = .listening
         let inputGeneration = beginVoiceInputTurn()
+        guard await beginVoiceActivity(
+          generation: currentGeneration,
+          inputGeneration: inputGeneration
+        ) else { return }
         let outcome = try await transcriber.transcribe { [weak self] transcript in
           await self?.receiveTranscript(
             transcript,
@@ -1200,6 +1213,7 @@ public final class AssistantConversationSession {
           return
         }
         finishVoiceInputTurn(inputGeneration)
+        clearVoiceActivity()
 
         guard case .utterance(let value) = outcome else {
           voiceInputNotice = "No speech detected. Tap the microphone to try again."
@@ -1243,6 +1257,9 @@ public final class AssistantConversationSession {
       return false
     }
     state = .thinking
+    if isVoiceRunning {
+      voiceActivity = VoiceActivitySnapshot(isPreparingResponse: true)
+    }
     let acceptedContextEpoch = contextEpoch ?? currentContextEpoch
     let acceptedRouteSnapshot =
       routeSnapshot
@@ -1328,16 +1345,21 @@ public final class AssistantConversationSession {
     if isVoiceRunning, speaksResponses, let speaker {
       do {
         state = .speaking
+        voiceActivity = VoiceActivitySnapshot(isResponding: true)
         try await speaker.speak(AssistantSpokenResponseFormatter.spokenText(for: presentedResponse))
         guard isCurrent(currentGeneration), !Task.isCancelled else { return false }
+        clearVoiceActivity()
       } catch is CancellationError {
+        clearVoiceActivity()
         return false
       } catch {
+        clearVoiceActivity()
         fail(generation: currentGeneration, kind: .speaking, message: error.localizedDescription)
         return false
       }
     }
     state = isVoiceRunning ? .listening : .idle
+    clearVoiceActivity()
     return true
   }
 
@@ -1363,6 +1385,7 @@ public final class AssistantConversationSession {
     activeAttemptID = nil
     activeTurnID = nil
     finishVoiceOperationIfNeeded()
+    clearVoiceActivity()
     await releaseAudioSessionIfNeeded()
     if state == .thinking || state == .speaking || state == .listening { state = .idle }
   }
@@ -1382,6 +1405,48 @@ public final class AssistantConversationSession {
   private func beginVoiceInputTurn() -> UInt64 {
     resetVoiceInput()
     return voiceInputGeneration
+  }
+
+  private func beginVoiceActivity(generation: UInt64, inputGeneration: UInt64) async -> Bool {
+    clearVoiceActivity()
+    voiceActivity = VoiceActivitySnapshot(isListening: true)
+    let transcriber = transcriber
+    guard let transcriber else { return false }
+    let stream = await transcriber.voiceActivity()
+    guard !Task.isCancelled, isCurrent(generation), inputGeneration == voiceInputGeneration,
+      state == .listening
+    else {
+      clearVoiceActivity()
+      return false
+    }
+    voiceActivityTask = Task { [weak self] in
+      for await level in stream {
+        guard !Task.isCancelled else { return }
+        self?.receiveVoiceActivity(
+          level,
+          generation: generation,
+          inputGeneration: inputGeneration
+        )
+      }
+    }
+    return true
+  }
+
+  private func receiveVoiceActivity(
+    _ level: Double,
+    generation candidate: UInt64,
+    inputGeneration: UInt64
+  ) {
+    guard isCurrent(candidate), inputGeneration == voiceInputGeneration, state == .listening else {
+      return
+    }
+    voiceActivity = VoiceActivitySnapshot(isListening: true, inputLevel: level)
+  }
+
+  private func clearVoiceActivity() {
+    voiceActivityTask?.cancel()
+    voiceActivityTask = nil
+    voiceActivity = .inactive
   }
 
   private func resetVoiceInput() {
@@ -1512,6 +1577,7 @@ public final class AssistantConversationSession {
     message: String
   ) {
     guard candidate == generation else { return }
+    clearVoiceActivity()
     state = .error(AssistantConversationFailure(kind: kind, message: message))
   }
 }

@@ -173,6 +173,7 @@ struct RealtimeVoiceLobbyView: View {
           route: route,
           phase: session.state.phase,
           captions: session.state.captions,
+          activity: session.voiceActivity,
           isMuted: session.state.phase == .muted,
           warning: session.warningMessage,
           failureMessage: session.state.failure?.message
@@ -268,6 +269,7 @@ struct RealtimeVoiceDisplayState: Equatable {
   let route: RealtimeVoiceRouteSnapshot
   let phase: RealtimeVoicePhase
   let captions: [RealtimeCaption]
+  let activity: VoiceActivitySnapshot
   let isMuted: Bool
   let warning: String?
   let failureMessage: String?
@@ -299,15 +301,15 @@ struct RealtimeVoiceActiveView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
-          Text(phaseLabel)
+          Text(activityLabel)
             .font(.caption.weight(.semibold))
-            .accessibilityLabel("Voice state, \(phaseLabel)")
+            .accessibilityLabel("Voice state, \(activityLabel)")
         }
 
-        if !reduceMotion {
-          VoiceActivityGlyph()
-            .accessibilityHidden(true)
-        }
+        VoiceActivityOrb(activity: state.activity, diameter: 54)
+          .transaction { transaction in
+            if reduceMotion { transaction.animation = nil }
+          }
 
         if let warning = state.warning {
           Label(warning, systemImage: "clock.badge.exclamationmark")
@@ -408,18 +410,9 @@ struct RealtimeVoiceActiveView: View {
     case .failed: "Connection failed"
     }
   }
-}
 
-private struct VoiceActivityGlyph: View {
-  var body: some View {
-    HStack(alignment: .center, spacing: 4) {
-      ForEach([12.0, 22.0, 30.0, 18.0, 26.0, 14.0], id: \.self) { height in
-        Capsule()
-          .fill(.tint)
-          .frame(width: 4, height: height)
-      }
-    }
-    .frame(height: 36)
+  private var activityLabel: String {
+    state.activity == .inactive ? phaseLabel : VoiceActivityOrb.semanticDescription(state.activity)
   }
 }
 

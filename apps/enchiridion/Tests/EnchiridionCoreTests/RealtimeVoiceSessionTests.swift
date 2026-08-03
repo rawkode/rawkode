@@ -37,6 +37,70 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     await fixture.session.stop()
   }
 
+  func testActivityUsesResponseLifecycleAndRemoteAudioRatherThanTranscriptDeltas() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+
+    XCTAssertTrue(fixture.session.voiceActivity.isListening)
+    XCTAssertFalse(fixture.session.voiceActivity.isPreparingResponse)
+    fixture.transport.emit(event("created", .responseCreated(RealtimeResponseCreated(responseID: "response-1"))))
+    await waitUntil { fixture.session.voiceActivity.isPreparingResponse }
+
+    fixture.transport.emitActivity(
+      RealtimeAudioActivitySample(generation: 1, inputLevel: .nan, outputLevel: .infinity)
+    )
+    await Task.yield()
+    XCTAssertFalse(fixture.session.voiceActivity.isResponding)
+
+    fixture.transport.emitActivity(
+      RealtimeAudioActivitySample(generation: 1, inputLevel: 0.2, outputLevel: 0.02)
+    )
+    await waitUntil { fixture.session.voiceActivity.isResponding }
+    XCTAssertTrue(fixture.session.voiceActivity.isPreparingResponse)
+    XCTAssertEqual(fixture.session.voiceActivity.inputLevel, 0.2)
+    XCTAssertEqual(fixture.session.voiceActivity.outputLevel, 0.02)
+
+    fixture.transport.emit(
+      event(
+        "done",
+        .responseDone(
+          RealtimeResponseDone(responseID: "response-1", status: .completed, statusDetails: nil, usage: nil)
+        )
+      )
+    )
+    await waitUntil { !fixture.session.voiceActivity.isResponding }
+    XCTAssertFalse(fixture.session.voiceActivity.isPreparingResponse)
+
+    await fixture.session.setMuted(true)
+    XCTAssertEqual(fixture.session.voiceActivity, .inactive)
+    await fixture.session.stop()
+  }
+
+  func testActivityFloodDoesNotDelayResponseControlEvents() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+
+    for _ in 0 ..< 5_000 {
+      fixture.transport.emitActivity(
+        RealtimeAudioActivitySample(generation: 1, inputLevel: 0.4, outputLevel: 0)
+      )
+    }
+    fixture.transport.emit(event("created", .responseCreated(RealtimeResponseCreated(responseID: "response-1"))))
+    await waitUntil { fixture.session.state.activeResponseID == "response-1" }
+
+    fixture.transport.emit(
+      event(
+        "done",
+        .responseDone(
+          RealtimeResponseDone(responseID: "response-1", status: .completed, statusDetails: nil, usage: nil)
+        )
+      )
+    )
+    await waitUntil { fixture.session.state.activeResponseID == nil }
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    await fixture.session.stop()
+  }
+
   func testDeniedPermissionNeverReadsKeyStartsTransportOrActivatesAudio() async throws {
     let fixture = try makeFixture(permission: .denied)
 
@@ -647,6 +711,8 @@ private struct FakeRealtimeAudioSession: RealtimeAudioSessionControlling {
 private final class FakeRealtimeTransport: RealtimeVoiceTransport {
   private let stream: AsyncStream<RealtimeServerEvent>
   private let continuation: AsyncStream<RealtimeServerEvent>.Continuation
+  private let activityStream: AsyncStream<RealtimeAudioActivitySample>
+  private let activityContinuation: AsyncStream<RealtimeAudioActivitySample>.Continuation
   private let calls: CallRecorder
   private let gates: SessionGates
   private var shouldFailNextInputEnable = false
@@ -658,6 +724,11 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
     let pair = AsyncStream.makeStream(of: RealtimeServerEvent.self)
     stream = pair.stream
     continuation = pair.continuation
+    let activity = AsyncStream<RealtimeAudioActivitySample>.makeStream(
+      bufferingPolicy: .bufferingNewest(1)
+    )
+    activityStream = activity.stream
+    activityContinuation = activity.continuation
   }
 
   func start(
@@ -680,6 +751,10 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
 
   func events() -> AsyncStream<RealtimeServerEvent> {
     stream
+  }
+
+  func activity() -> AsyncStream<RealtimeAudioActivitySample> {
+    activityStream
   }
 
   func send(_ command: RealtimeClientCommand) async throws {
@@ -713,6 +788,10 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
 
   func emit(_ event: RealtimeServerEvent) {
     continuation.yield(event)
+  }
+
+  func emitActivity(_ sample: RealtimeAudioActivitySample) {
+    activityContinuation.yield(sample)
   }
 
   func finishEvents() {

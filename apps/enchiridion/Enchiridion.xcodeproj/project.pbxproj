@@ -17,6 +17,7 @@
 		A19FCA210000000000000001 /* RealtimeVoiceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA240000000000000001 /* RealtimeVoiceRuntime.swift */; };
 		A19FCA220000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */; };
 		A19FCA230000000000000001 /* RealtimeWebRTCVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19FCA250000000000000001 /* RealtimeWebRTCVoiceTransport.swift */; };
+		A17C71010000000000000001 /* RealtimeWebRTCVoiceTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C71020000000000000001 /* RealtimeWebRTCVoiceTransportTests.swift */; };
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		1D7D44FED0008DA93CE6631A /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */; };
@@ -266,6 +267,7 @@
 		AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticBrowseText.swift; sourceTree = "<group>"; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
 		B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRelationshipPresentationTests.swift; sourceTree = "<group>"; };
+		A17C71020000000000000001 /* RealtimeWebRTCVoiceTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCVoiceTransportTests.swift; sourceTree = "<group>"; };
 		B4BD02A67B53232AAF5AC5EA /* RealtimeBridge */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RealtimeBridge; path = Sources/SharedUI/Resources/RealtimeBridge; sourceTree = SOURCE_ROOT; };
 		B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantAppIntents.swift; sourceTree = "<group>"; };
 		BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLifecycleActions.swift; sourceTree = "<group>"; };
@@ -479,6 +481,7 @@
 			children = (
 				B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */,
 				51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */,
+				A17C71020000000000000001 /* RealtimeWebRTCVoiceTransportTests.swift */,
 			);
 			path = EnchiridionMobileTests;
 			sourceTree = "<group>";
@@ -886,6 +889,7 @@
 			files = (
 				6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */,
 				6474858D82A6C7D1EC5F34BC /* PageReferenceTextFormattingTests.swift in Sources */,
+				A17C71010000000000000001 /* RealtimeWebRTCVoiceTransportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
