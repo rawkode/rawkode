@@ -275,9 +275,9 @@ enum GraphSQLExecutor {
     guard code == SQLITE_OK else { throw GraphQueryError.sqlite("Could not bind query argument.") }
   }
 
-  /// Compiled modules provision their public views into this local catalog. Reading it before the
-  /// authorizer is installed lets future modules become queryable without widening access to any
-  /// private table or requiring a hand-maintained global allowlist.
+  /// Trusted, compiled first-party modules provision their public views into this local catalog.
+  /// Reading it before the authorizer is installed avoids a hand-maintained global allowlist. The
+  /// projection statement itself is trusted application code; this is not a third-party sandbox.
   private static func moduleProjectionSources(_ connection: OpaquePointer) -> Set<String> {
     var statement: OpaquePointer?
     guard

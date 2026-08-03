@@ -36,6 +36,40 @@ enum WatchWorkoutRouteStatePolicy {
     return foundRoute ? .saved : .unavailable
   }
 }
+
+/// Serializes route writes for one workout. Once draining begins, callbacks may no longer append
+/// points; every batch accepted before that boundary completes before finalization proceeds.
+@MainActor
+final class WatchWorkoutRouteInsertionQueue<Element> {
+  private let insert: @MainActor (Element) async throws -> Void
+  private var tail: Task<Void, Never>?
+  private(set) var isAccepting = true
+  private(set) var hasFailed = false
+
+  init(insert: @escaping @MainActor (Element) async throws -> Void) { self.insert = insert }
+
+  @discardableResult
+  func enqueue(_ element: Element) -> Bool {
+    guard isAccepting else { return false }
+    let previous = tail
+    tail = Task { @MainActor [weak self] in
+      await previous?.value
+      guard let self, !self.hasFailed else { return }
+      do { try await self.insert(element) } catch { self.hasFailed = true }
+    }
+    return true
+  }
+
+  func stopAndDrain() async -> Bool {
+    isAccepting = false
+    await tail?.value
+    tail = nil
+    return !hasFailed
+  }
+
+  func stopAccepting() { isAccepting = false }
+}
+
 @MainActor protocol WatchWorkoutHealthKitExporting: AnyObject {
   func begin(eventID: UUID, activity: WorkoutActivity, startedAt: Date) async
   func cancel(eventID: UUID) async
@@ -57,6 +91,7 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
   private var activeSessions: [UUID: HKWorkoutSession] = [:]
   private var authorizedEvents: Set<UUID> = []
   private var routeBuilders: [UUID: HKWorkoutRouteBuilder] = [:]
+  private var routeInsertions: [UUID: WatchWorkoutRouteInsertionQueue<[CLLocation]>] = [:]
   private var locationManagers: [UUID: CLLocationManager] = [:]
   private var routeEventsByManagerID: [ObjectIdentifier: UUID] = [:]
   private var routeStates: [UUID: WorkoutRouteState] = [:]
@@ -87,14 +122,18 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
         routeStates[eventID] = .unavailable
         return
       }
-      routeBuilders[eventID] = HKWorkoutRouteBuilder(healthStore: store, device: .local())
+      let builder = HKWorkoutRouteBuilder(healthStore: store, device: .local())
+      routeBuilders[eventID] = builder
+      routeInsertions[eventID] = .init { locations in
+        try await builder.insertRouteData(locations)
+      }
       location.startUpdatingLocation()
     }
   }
   func cancel(eventID: UUID) async {
     activeSessions.removeValue(forKey: eventID)?.end()
     authorizedEvents.remove(eventID)
-    cleanUpRoute(eventID: eventID)
+    await stopAndCleanUpRoute(eventID: eventID)
   }
   func finishOrRecover(eventID: UUID, activity: WorkoutActivity, startedAt: Date, completedAt: Date)
     async -> WatchWorkoutHealthKitExport
@@ -103,7 +142,7 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
     if existing.state == .saved {
       activeSessions.removeValue(forKey: eventID)?.end()
       authorizedEvents.remove(eventID)
-      cleanUpRoute(eventID: eventID)
+      await stopAndCleanUpRoute(eventID: eventID)
       return existing
     }
     guard HKHealthStore.isHealthDataAvailable() else {
@@ -114,7 +153,7 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
         authorizedEvents.contains(eventID) ? .revoked : .notAuthorized
       activeSessions.removeValue(forKey: eventID)?.end()
       authorizedEvents.remove(eventID)
-      cleanUpRoute(eventID: eventID)
+      await stopAndCleanUpRoute(eventID: eventID)
       return .init(state: state, routeState: activity.requiresRoute ? .unavailable : .notRequested)
     }
     let workout = HKWorkout(
@@ -131,7 +170,7 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
       let routeState = await finishRoute(eventID: eventID, workout: workout, activity: activity)
       return .init(state: .saved, workoutUUID: workout.uuid.uuidString, routeState: routeState)
     } catch {
-      cleanUpRoute(eventID: eventID)
+      await stopAndCleanUpRoute(eventID: eventID)
       return .init(state: .failed, errorCategory: "save-failed")
     }
   }
@@ -141,12 +180,9 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
     let managerID = ObjectIdentifier(manager)
     Task { @MainActor in
       guard let event = self.routeEventsByManagerID[managerID],
-        let builder = self.routeBuilders[event], !locations.isEmpty
+        let insertions = self.routeInsertions[event], !locations.isEmpty
       else { return }
-      do { try await builder.insertRouteData(locations) } catch {
-        self.routeBuilders.removeValue(forKey: event)
-        self.routeStates[event] = .failed
-      }
+      _ = insertions.enqueue(locations)
     }
   }
   nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -156,8 +192,11 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
       guard let event = self.routeEventsByManagerID[managerID] else { return }
       if status == .authorizedWhenInUse || status == .authorizedAlways {
         if self.routeBuilders[event] == nil {
-          self.routeBuilders[event] = HKWorkoutRouteBuilder(
-            healthStore: self.store, device: .local())
+          let builder = HKWorkoutRouteBuilder(healthStore: self.store, device: .local())
+          self.routeBuilders[event] = builder
+          self.routeInsertions[event] = .init { locations in
+            try await builder.insertRouteData(locations)
+          }
           self.locationManagers[event]?.startUpdatingLocation()
         }
       } else if let state = WatchWorkoutRouteStatePolicy.authorization(status) {
@@ -172,11 +211,15 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
   {
     defer { cleanUpRoute(eventID: eventID) }
     guard activity.requiresRoute else { return .notRequested }
+    locationManagers[eventID]?.stopUpdatingLocation()
+    let insertsSucceeded = await routeInsertions[eventID]?.stopAndDrain() ?? false
+    if !insertsSucceeded, routeStates[eventID] == nil { routeStates[eventID] = .failed }
     let priorState = routeStates[eventID]
     guard let builder = routeBuilders[eventID] else {
       return WatchWorkoutRouteStatePolicy.finalized(
         priorState: priorState, hasBuilder: false, savedRoute: false)
     }
+    guard insertsSucceeded else { return .failed }
     let savedRoute = await withCheckedContinuation { continuation in
       builder.finishRoute(with: workout, metadata: nil) { route, _ in
         continuation.resume(returning: route != nil)
@@ -245,7 +288,14 @@ final class WatchHealthKitExportService: NSObject, WatchWorkoutHealthKitExportin
       routeEventsByManagerID.removeValue(forKey: ObjectIdentifier(manager))
     }
     routeBuilders.removeValue(forKey: eventID)
+    routeInsertions.removeValue(forKey: eventID)?.stopAccepting()
     routeStates.removeValue(forKey: eventID)
+  }
+
+  private func stopAndCleanUpRoute(eventID: UUID) async {
+    locationManagers[eventID]?.stopUpdatingLocation()
+    _ = await routeInsertions[eventID]?.stopAndDrain()
+    cleanUpRoute(eventID: eventID)
   }
 }
 extension WorkoutActivity {

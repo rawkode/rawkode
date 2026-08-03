@@ -4,6 +4,16 @@ import XCTest
 
 @MainActor
 final class WatchWorkoutCaptureTests: XCTestCase {
+  private actor Gate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    var isWaiting: Bool { continuation != nil }
+    func wait() async { await withCheckedContinuation { continuation = $0 } }
+    func release() {
+      continuation?.resume()
+      continuation = nil
+    }
+  }
+
   private final class HealthKit: WatchWorkoutHealthKitExporting {
     var cancelled = 0
     var finishes = 0
@@ -95,6 +105,37 @@ final class WatchWorkoutCaptureTests: XCTestCase {
       WatchWorkoutRouteStatePolicy.recovered(
         requiresRoute: false, foundRoute: false, queryFailed: false),
       .notRequested)
+  }
+
+  func testRouteFinishDrainsAcceptedInsertsAndRejectsLatePoints() async {
+    let gate = Gate()
+    var started: [Int] = []
+    var completed: [Int] = []
+    let queue = WatchWorkoutRouteInsertionQueue<Int> { value in
+      started.append(value)
+      if value == 1 { await gate.wait() }
+      completed.append(value)
+    }
+    XCTAssertTrue(queue.enqueue(1))
+    XCTAssertTrue(queue.enqueue(2))
+    while !(await gate.isWaiting) { await Task.yield() }
+
+    var finishReturned = false
+    let finish = Task { @MainActor in
+      let result = await queue.stopAndDrain()
+      finishReturned = true
+      return result
+    }
+    await Task.yield()
+    XCTAssertFalse(finishReturned)
+    XCTAssertFalse(queue.enqueue(3))
+
+    await gate.release()
+    let finishResult = await finish.value
+    XCTAssertTrue(finishResult)
+    XCTAssertTrue(finishReturned)
+    XCTAssertEqual(started, [1, 2])
+    XCTAssertEqual(completed, [1, 2])
   }
 
   func testPartialCaptureIsExactlyAcknowledged() async throws {
