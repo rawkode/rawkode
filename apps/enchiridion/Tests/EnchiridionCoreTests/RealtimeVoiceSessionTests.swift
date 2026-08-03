@@ -155,6 +155,11 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     let calls = await fixture.calls.values()
     XCTAssertEqual(fixture.session.receipt?.completion, .failed)
     XCTAssertEqual(fixture.session.receipt?.failureCode, "transport_closed")
+    XCTAssertEqual(
+      fixture.session.receipt?.failureMessage,
+      "The OpenAI Voice connection closed. Start a new conversation to try again."
+    )
+    XCTAssertTrue(fixture.session.state.captions.isEmpty)
     XCTAssertTrue(calls.contains("transport.close"))
     XCTAssertTrue(calls.contains("audio.deactivate"))
   }
@@ -391,23 +396,135 @@ final class RealtimeVoiceSessionTests: XCTestCase {
   }
 
   func testSafetyDuringSuspendedPermissionTerminatesWithoutStartingResources() async throws {
-    try await assertStartupSafetyTerminates(at: .permission)
+    try await assertStartupLifecycleTerminates(at: .permission)
   }
 
   func testSafetyDuringSuspendedCredentialReadTerminatesWithoutStartingTransport() async throws {
-    try await assertStartupSafetyTerminates(at: .credential)
+    try await assertStartupLifecycleTerminates(at: .credential)
   }
 
   func testSafetyDuringSuspendedTransportStartClosesLatePeerWithoutRevival() async throws {
-    try await assertStartupSafetyTerminates(at: .transportStart)
+    try await assertStartupLifecycleTerminates(at: .transportStart)
   }
 
   func testSafetyDuringSuspendedAudioActivationClosesAndDeactivatesLateResources() async throws {
-    try await assertStartupSafetyTerminates(at: .audioActivation)
+    try await assertStartupLifecycleTerminates(at: .audioActivation)
   }
 
   func testSafetyDuringSuspendedInitialInputEnableRestoresInputOffAndClosesPeer() async throws {
-    try await assertStartupSafetyTerminates(at: .inputEnable)
+    try await assertStartupLifecycleTerminates(at: .inputEnable)
+  }
+
+  func testAudioSafetyDuringStartupFailsInsteadOfPublishingEnded() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.credential.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleSafetyEvent(.interruptionBegan)
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+    await gate.resume()
+    await start.value
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains("transport.start"))
+  }
+
+  func testInactiveDuringCredentialStartupFailsWithRetryableInterruption() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.credential.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleLifecycleChange(.inactive)
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+    XCTAssertTrue(fixture.session.state.captions.isEmpty)
+    await gate.resume()
+    await start.value
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains("transport.start"))
+  }
+
+  func testInactivePermissionPromptWaitsForExplicitActiveBeforeReadingCredential() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.microphone.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleLifecycleChange(.inactive)
+    await gate.resume()
+    await waitUntil { fixture.session.state.phase == .requestingMicrophone }
+    let callsBeforeActive = await fixture.calls.values()
+    XCTAssertEqual(callsBeforeActive, ["microphone.permission"])
+
+    await fixture.session.handleLifecycleChange(.active)
+    await start.value
+
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    let callsAfterActive = await fixture.calls.values()
+    XCTAssertEqual(
+      callsAfterActive,
+      ["microphone.permission", "credential.read", "transport.start", "audio.activate", "input.on"]
+    )
+    await fixture.session.stop()
+  }
+
+  func testBackgroundWhilePermissionWaitsFailsWithoutCredentialOrRevival() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.microphone.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleLifecycleChange(.inactive)
+    await fixture.session.handleLifecycleChange(.background)
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+
+    await gate.resume()
+    await start.value
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains("credential.read"))
+    XCTAssertFalse(calls.contains("transport.start"))
+  }
+
+  func testStopWhileAwaitingActiveCannotReviveSession() async throws {
+    let fixture = try makeFixture(initialLifecycleState: .inactive)
+    let start = Task { await fixture.session.start() }
+    await waitUntil { fixture.session.state.phase == .requestingMicrophone }
+    await Task.yield()
+
+    await fixture.session.stop()
+    await fixture.session.handleLifecycleChange(.active)
+    await start.value
+
+    XCTAssertEqual(fixture.session.state.phase, .ended)
+    XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains("credential.read"))
+  }
+
+  func testInitialBackgroundStartFailsWithoutPermissionOrCredentials() async throws {
+    let fixture = try makeFixture(initialLifecycleState: .background)
+
+    await fixture.session.start()
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+    XCTAssertEqual(
+      fixture.session.receipt?.failureMessage,
+      "OpenAI Voice was interrupted while starting. Try again when Enchiridion is active."
+    )
+    let calls = await fixture.calls.values()
+    XCTAssertTrue(calls.isEmpty)
   }
 
   func testStopWhileUnmuteIsSuspendedLeavesTerminalStateAndInputOff() async throws {
@@ -520,7 +637,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     case inputEnable
   }
 
-  private func assertStartupSafetyTerminates(
+  private func assertStartupLifecycleTerminates(
     at startupGate: StartupGate,
     file: StaticString = #filePath,
     line: UInt = #line
@@ -542,10 +659,18 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     let start = Task { await fixture.session.start() }
     await gate.waitUntilEntered()
 
-    await fixture.session.handleSafetyEvent(.appInactive)
+    await fixture.session.handleLifecycleChange(.background)
 
-    XCTAssertEqual(fixture.session.state.phase, .ended, file: file, line: line)
-    XCTAssertEqual(fixture.session.receipt?.completion, .safetyPause, file: file, line: line)
+    XCTAssertEqual(fixture.session.state.phase, .failed, file: file, line: line)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed, file: file, line: line)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted", file: file, line: line)
+    XCTAssertEqual(
+      fixture.session.receipt?.failureMessage,
+      "OpenAI Voice was interrupted while starting. Try again when Enchiridion is active.",
+      file: file,
+      line: line
+    )
+    XCTAssertTrue(fixture.session.state.captions.isEmpty, file: file, line: line)
     let callsAtTermination = await fixture.calls.values()
     XCTAssertFalse(callsAtTermination.contains("input.on"), file: file, line: line)
     switch startupGate {
@@ -561,15 +686,12 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       XCTAssertTrue(callsAtTermination.contains("transport.close"), file: file, line: line)
     }
 
-    await fixture.session.resumeAfterSafetyPause()
-    XCTAssertEqual(fixture.session.state.phase, .ended, file: file, line: line)
-
     await gate.resume()
     await start.value
 
     let finalCalls = await fixture.calls.values()
-    XCTAssertEqual(fixture.session.state.phase, .ended, file: file, line: line)
-    XCTAssertEqual(fixture.session.receipt?.completion, .safetyPause, file: file, line: line)
+    XCTAssertEqual(fixture.session.state.phase, .failed, file: file, line: line)
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed, file: file, line: line)
     XCTAssertEqual(
       finalCalls.last(where: { $0.hasPrefix("input.") }),
       startupGate == .permission || startupGate == .credential ? nil : "input.off",
@@ -606,7 +728,8 @@ final class RealtimeVoiceSessionTests: XCTestCase {
   }
 
   private func makeFixture(
-    permission: RealtimeMicrophonePermission = .authorized
+    permission: RealtimeMicrophonePermission = .authorized,
+    initialLifecycleState: RealtimeVoiceLifecycleState = .active
   ) throws -> Fixture {
     let calls = CallRecorder()
     let gates = SessionGates()
@@ -622,7 +745,8 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       microphone: FakeMicrophone(permission: permission, calls: calls, gates: gates),
       credentialReader: FakeCredentialReader(binding: binding, calls: calls, gates: gates),
       transport: transport,
-      audioSession: FakeRealtimeAudioSession(calls: calls, gates: gates)
+      audioSession: FakeRealtimeAudioSession(calls: calls, gates: gates),
+      initialLifecycleState: initialLifecycleState
     )
     return Fixture(session: session, transport: transport, calls: calls, gates: gates)
   }

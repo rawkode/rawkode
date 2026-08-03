@@ -523,6 +523,15 @@ public enum RealtimeVoicePhase: Equatable, Sendable {
   case failed
 }
 
+/// The app lifecycle signal is intentionally separate from audio safety
+/// events. In particular, the system may make the app inactive while it is
+/// presenting the microphone permission sheet.
+public enum RealtimeVoiceLifecycleState: Equatable, Sendable {
+  case active
+  case inactive
+  case background
+}
+
 public enum RealtimeCaptionRole: String, Codable, Equatable, Sendable {
   case user
   case assistant

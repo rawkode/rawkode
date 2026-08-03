@@ -17,14 +17,16 @@ final class RealtimeVoiceCoordinator {
   private(set) var setupFailure: String?
 
   private let route: RealtimeVoiceRouteSnapshot
+  private var lifecycleState: RealtimeVoiceLifecycleState = .active
 
   init(route: RealtimeVoiceRouteSnapshot) {
     self.route = route
   }
 
-  func start() {
+  func start(initialLifecycleState: RealtimeVoiceLifecycleState) {
     guard session == nil || session?.receipt != nil else { return }
     setupFailure = nil
+    lifecycleState = initialLifecycleState
 
     do {
       let voiceSession = try RealtimeVoiceSession(
@@ -33,7 +35,8 @@ final class RealtimeVoiceCoordinator {
         credentialReader: OpenAICredentialStore(),
         transport: RealtimeWebRTCVoiceTransport(),
         audioSession: realtimeAudioSessionController(),
-        safetyEvents: realtimeSafetyEventSource()
+        safetyEvents: realtimeSafetyEventSource(),
+        initialLifecycleState: initialLifecycleState
       )
       session = voiceSession
       Task { await voiceSession.start() }
@@ -47,7 +50,7 @@ final class RealtimeVoiceCoordinator {
       guard let self else { return }
       await session?.stop()
       session = nil
-      start()
+      start(initialLifecycleState: lifecycleState)
     }
   }
 
@@ -55,9 +58,9 @@ final class RealtimeVoiceCoordinator {
     Task { await session?.stop() }
   }
 
-  func handleScenePhaseChange(isActive: Bool) {
-    guard !isActive else { return }
-    Task { await session?.handleSafetyEvent(.appInactive) }
+  func handleLifecycleChange(_ lifecycle: RealtimeVoiceLifecycleState) {
+    lifecycleState = lifecycle
+    Task { await session?.handleLifecycleChange(lifecycle) }
   }
 }
 

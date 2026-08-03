@@ -11,6 +11,9 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("pinned OpenAI endpoint"))
     #expect(source.contains("never sends notes, tasks, calendars, or local tools"))
     #expect(source.contains("RealtimeVoiceCoordinator(route: route)"))
+    #expect(source.contains("coordinator.start(initialLifecycleState: lifecycleState(for: scenePhase))"))
+    #expect(source.contains("case .inactive: .inactive"))
+    #expect(source.contains("case .background: .background"))
     #expect(!source.contains("RealtimeVoiceDevelopmentRoute"))
     #expect(!source.contains("URLSession"))
     #expect(!source.lowercased().contains("bearer"))
@@ -22,6 +25,7 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("keyboardShortcut(\".\", modifiers: .command)"))
     #expect(source.contains("Button(\"Open Sound Settings\""))
     #expect(source.contains("ViewThatFits(in: .horizontal)"))
+    #expect(source.contains("RealtimeVoiceRecoveryActions"))
   }
 
   @Test

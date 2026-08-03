@@ -51,7 +51,7 @@ struct RealtimeVoiceLobbyView: View {
       }
     }
     .onChange(of: scenePhase) { _, phase in
-      coordinator?.handleScenePhaseChange(isActive: phase == .active)
+      coordinator?.handleLifecycleChange(lifecycleState(for: phase))
     }
     .onDisappear { coordinator?.stop() }
     #if os(macOS)
@@ -189,7 +189,16 @@ struct RealtimeVoiceLobbyView: View {
     let coordinator = RealtimeVoiceCoordinator(route: route)
     self.coordinator = coordinator
     stage = .active
-    coordinator.start()
+    coordinator.start(initialLifecycleState: lifecycleState(for: scenePhase))
+  }
+
+  private func lifecycleState(for phase: ScenePhase) -> RealtimeVoiceLifecycleState {
+    switch phase {
+    case .active: .active
+    case .inactive: .inactive
+    case .background: .background
+    @unknown default: .background
+    }
   }
 
   private func startAppleConversation() {

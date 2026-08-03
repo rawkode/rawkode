@@ -11,6 +11,11 @@ public final class RealtimeVoiceSession {
     let reason: AssistantVoicePauseReason
   }
 
+  private struct ActiveWaiter {
+    let generation: UInt64
+    let continuation: CheckedContinuation<Void, Never>
+  }
+
   public nonisolated static let warningDelay: Duration = .seconds(13 * 60)
   public nonisolated static let hardLimit: Duration = .seconds(15 * 60)
   /// Teardown commands must never hold the terminal state hostage. This is
@@ -38,6 +43,8 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private var operationEpoch: UInt64 = 0
   @ObservationIgnored private var pauseEpoch: UInt64 = 0
   @ObservationIgnored private var activePause: ActivePause?
+  @ObservationIgnored private var lifecycleState: RealtimeVoiceLifecycleState
+  @ObservationIgnored private var activeWaiter: ActiveWaiter?
   @ObservationIgnored private var pendingPausedFailure: RealtimeVoiceFailure?
   @ObservationIgnored private var startedAt: Date?
   @ObservationIgnored private var eventTask: Task<Void, Never>?
@@ -63,6 +70,7 @@ public final class RealtimeVoiceSession {
     sleep: @escaping @Sendable (Duration) async throws -> Void = {
       try await Task.sleep(for: $0)
     },
+    initialLifecycleState: RealtimeVoiceLifecycleState = .active,
     limitWarningDelay: Duration = RealtimeVoiceSession.warningDelay,
     hardLimitDelay: Duration = RealtimeVoiceSession.hardLimit
   ) throws {
@@ -78,6 +86,7 @@ public final class RealtimeVoiceSession {
     self.safetyEvents = safetyEvents
     self.now = now
     self.sleep = sleep
+    lifecycleState = initialLifecycleState
     self.limitWarningDelay = limitWarningDelay
     self.hardLimitDelay = hardLimitDelay
     reducer = RealtimeVoiceReducer(configuration: configuration)
@@ -138,6 +147,11 @@ public final class RealtimeVoiceSession {
     startedAt = now()
     setPhase(.requestingMicrophone)
 
+    guard lifecycleState != .background else {
+      await terminalFailure(startupInterruptedFailure, generation: currentGeneration)
+      return
+    }
+
     let permission = await microphone.requestPermission()
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
     guard permission == .authorized else {
@@ -148,6 +162,10 @@ public final class RealtimeVoiceSession {
       )
       return
     }
+    guard await waitForActiveAfterPermission(
+      generation: currentGeneration,
+      operation: currentOperation
+    ) else { return }
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
 
     setPhase(.readingCredential)
@@ -354,6 +372,10 @@ public final class RealtimeVoiceSession {
 
   public func handleSafetyEvent(_ event: AssistantVoiceSafetyEvent) async {
     guard isActive, !isStopping else { return }
+    if case .appInactive = event {
+      await handleLifecycleChange(.inactive)
+      return
+    }
     let reason: AssistantVoicePauseReason?
     switch event {
     case .interruptionBegan:
@@ -367,17 +389,44 @@ public final class RealtimeVoiceSession {
     case .mediaServicesLost, .mediaServicesReset:
       reason = .mediaServicesRestarted
     case .appInactive:
-      reason = .appInactive
+      return
     }
     guard let reason else { return }
     switch state.phase {
     case .requestingMicrophone, .readingCredential, .connecting:
-      await finish(completion: .safetyPause)
+      await terminalFailure(startupInterruptedFailure, generation: generation)
       return
     default:
       break
     }
     await pause(for: reason)
+  }
+
+  /// Accepts a concrete scene lifecycle signal from the voice surface. The
+  /// microphone permission prompt can transiently make the app inactive; that
+  /// is not a completed conversation and must wait for an explicit return to
+  /// active before native credential or WebRTC work begins.
+  public func handleLifecycleChange(_ lifecycle: RealtimeVoiceLifecycleState) async {
+    lifecycleState = lifecycle
+    guard isActive, !isStopping else { return }
+
+    switch lifecycle {
+    case .active:
+      resumeActiveWaiterIfNeeded()
+    case .inactive:
+      if state.phase == .requestingMicrophone { return }
+      if isStartupPhase {
+        await terminalFailure(startupInterruptedFailure, generation: generation)
+      } else {
+        await pause(for: .appInactive)
+      }
+    case .background:
+      if isStartupPhase {
+        await terminalFailure(startupInterruptedFailure, generation: generation)
+      } else {
+        await pause(for: .appInactive)
+      }
+    }
   }
 
   /// Explicitly resumes the existing peer connection. It never reconnects or
@@ -678,6 +727,7 @@ public final class RealtimeVoiceSession {
     transportStartedGeneration = nil
     audioOwnerGeneration = nil
     activePause = nil
+    resumeActiveWaiterIfNeeded()
     pendingPausedFailure = nil
     respondingResponseID = nil
     eventTask?.cancel()
@@ -794,6 +844,57 @@ public final class RealtimeVoiceSession {
 
   private func isSessionCurrent(_ expectedGeneration: UInt64) -> Bool {
     expectedGeneration == generation && receipt == nil && !isStopping
+  }
+
+  private var isStartupPhase: Bool {
+    switch state.phase {
+    case .requestingMicrophone, .readingCredential, .connecting:
+      true
+    default:
+      false
+    }
+  }
+
+  private var startupInterruptedFailure: RealtimeVoiceFailure {
+    RealtimeVoiceFailure(
+      code: "startup_interrupted",
+      message: "OpenAI Voice was interrupted while starting. Try again when Enchiridion is active."
+    )
+  }
+
+  private func waitForActiveAfterPermission(
+    generation expectedGeneration: UInt64,
+    operation expectedOperation: UInt64
+  ) async -> Bool {
+    guard isOperationCurrent(expectedGeneration, operation: expectedOperation) else { return false }
+    guard lifecycleState != .background else {
+      await terminalFailure(startupInterruptedFailure, generation: expectedGeneration)
+      return false
+    }
+    guard lifecycleState == .inactive else { return true }
+    await withCheckedContinuation { continuation in
+      guard isOperationCurrent(expectedGeneration, operation: expectedOperation),
+        lifecycleState == .inactive
+      else {
+        continuation.resume()
+        return
+      }
+      activeWaiter = ActiveWaiter(generation: expectedGeneration, continuation: continuation)
+    }
+    return isOperationCurrent(expectedGeneration, operation: expectedOperation)
+      && lifecycleState == .active
+  }
+
+  private func resumeActiveWaiterIfNeeded() {
+    guard let waiter = activeWaiter else { return }
+    activeWaiter = nil
+    // A superseded waiter cannot control a newer session, but must still be
+    // released so a cancelled start never remains suspended.
+    guard waiter.generation == generation || receipt != nil || isStopping else {
+      waiter.continuation.resume()
+      return
+    }
+    waiter.continuation.resume()
   }
 
   private func isOperationCurrent(
