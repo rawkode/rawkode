@@ -10,6 +10,21 @@ import AVFoundation
 
 /// Owns one explicitly user-started OpenAI Voice session for the lobby. This
 /// object deliberately has no access to the text-assistant context or tools.
+struct RealtimeVoiceCoordinatorLifecycleState: Equatable {
+  private(set) var generation: UInt64 = 0
+  private(set) var isClosed = false
+
+  mutating func close() {
+    guard !isClosed else { return }
+    isClosed = true
+    generation &+= 1
+  }
+
+  func allowsRetry(requestGeneration: UInt64) -> Bool {
+    !isClosed && requestGeneration == generation
+  }
+}
+
 @MainActor
 @Observable
 final class RealtimeVoiceCoordinator {
@@ -18,13 +33,17 @@ final class RealtimeVoiceCoordinator {
 
   private let route: RealtimeVoiceRouteSnapshot
   private var lifecycleState: RealtimeVoiceLifecycleState = .active
+  private var coordinatorLifecycle = RealtimeVoiceCoordinatorLifecycleState()
 
   init(route: RealtimeVoiceRouteSnapshot) {
     self.route = route
   }
 
   func start(initialLifecycleState: RealtimeVoiceLifecycleState) {
-    guard session == nil || session?.receipt != nil else { return }
+    guard
+      !coordinatorLifecycle.isClosed,
+      session == nil || session?.receipt != nil
+    else { return }
     setupFailure = nil
     lifecycleState = initialLifecycleState
 
@@ -49,9 +68,13 @@ final class RealtimeVoiceCoordinator {
     guard let session, Self.canRetry(phase: session.state.phase, receipt: session.receipt) else {
       return
     }
+    let retryGeneration = coordinatorLifecycle.generation
     Task { @MainActor [weak self] in
       guard let self else { return }
-      guard self.session === session else { return }
+      guard
+        self.coordinatorLifecycle.allowsRetry(requestGeneration: retryGeneration),
+        self.session === session
+      else { return }
       self.session = nil
       start(initialLifecycleState: lifecycleState)
     }
@@ -65,6 +88,8 @@ final class RealtimeVoiceCoordinator {
   }
 
   func stop() {
+    coordinatorLifecycle.close()
+    let session = session
     Task { await session?.stop() }
   }
 

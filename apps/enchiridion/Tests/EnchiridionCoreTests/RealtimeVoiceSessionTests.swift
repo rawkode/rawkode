@@ -584,6 +584,22 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertFalse(calls.contains("credential.read"))
   }
 
+  func testCancellingStartupWhileAwaitingActiveEndsAndCannotReviveSession() async throws {
+    let fixture = try makeFixture(initialLifecycleState: .inactive)
+    let start = Task { await fixture.session.start() }
+    await waitUntil { fixture.session.state.phase == .requestingMicrophone }
+
+    start.cancel()
+    await waitUntil { fixture.session.state.phase == .ended }
+    await start.value
+    await fixture.session.handleLifecycleChange(.active)
+
+    XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains("credential.read"))
+    XCTAssertFalse(calls.contains("transport.start"))
+  }
+
   func testInitialBackgroundStartFailsWithoutPermissionOrCredentials() async throws {
     let fixture = try makeFixture(initialLifecycleState: .background)
 

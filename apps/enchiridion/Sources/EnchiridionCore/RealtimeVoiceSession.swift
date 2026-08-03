@@ -13,6 +13,7 @@ public final class RealtimeVoiceSession {
 
   private struct ActiveWaiter {
     let generation: UInt64
+    let operation: UInt64
     let continuation: CheckedContinuation<Void, Never>
   }
 
@@ -934,23 +935,56 @@ public final class RealtimeVoiceSession {
     generation expectedGeneration: UInt64,
     operation expectedOperation: UInt64
   ) async -> Bool {
-    guard isOperationCurrent(expectedGeneration, operation: expectedOperation) else { return false }
+    guard
+      !Task.isCancelled,
+      isOperationCurrent(expectedGeneration, operation: expectedOperation)
+    else { return false }
     guard lifecycleState != .background else {
       await terminalFailure(startupInterruptedFailure, generation: expectedGeneration)
       return false
     }
     guard lifecycleState == .inactive else { return true }
-    await withCheckedContinuation { continuation in
-      guard isOperationCurrent(expectedGeneration, operation: expectedOperation),
-        lifecycleState == .inactive
-      else {
-        continuation.resume()
-        return
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard
+          !Task.isCancelled,
+          isOperationCurrent(expectedGeneration, operation: expectedOperation),
+          lifecycleState == .inactive
+        else {
+          continuation.resume()
+          return
+        }
+        activeWaiter = ActiveWaiter(
+          generation: expectedGeneration,
+          operation: expectedOperation,
+          continuation: continuation
+        )
       }
-      activeWaiter = ActiveWaiter(generation: expectedGeneration, continuation: continuation)
+    } onCancel: {
+      Task { @MainActor [weak self] in
+        await self?.cancelActiveWaiter(
+          generation: expectedGeneration,
+          operation: expectedOperation
+        )
+      }
     }
-    return isOperationCurrent(expectedGeneration, operation: expectedOperation)
+    return !Task.isCancelled
+      && isOperationCurrent(expectedGeneration, operation: expectedOperation)
       && lifecycleState == .active
+  }
+
+  private func cancelActiveWaiter(
+    generation expectedGeneration: UInt64,
+    operation expectedOperation: UInt64
+  ) async {
+    guard
+      let waiter = activeWaiter,
+      waiter.generation == expectedGeneration,
+      waiter.operation == expectedOperation
+    else { return }
+    activeWaiter = nil
+    waiter.continuation.resume()
+    await finish(completion: .cancelled)
   }
 
   private func resumeActiveWaiterIfNeeded() {
@@ -969,7 +1003,8 @@ public final class RealtimeVoiceSession {
     _ expectedGeneration: UInt64,
     operation expectedOperation: UInt64
   ) -> Bool {
-    isSessionCurrent(expectedGeneration)
+    !Task.isCancelled
+      && isSessionCurrent(expectedGeneration)
       && expectedOperation == operationEpoch
       && activePause == nil
   }

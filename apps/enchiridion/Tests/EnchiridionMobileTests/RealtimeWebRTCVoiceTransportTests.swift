@@ -27,6 +27,18 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     XCTAssertTrue(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: failedReceipt))
   }
 
+  func testClosingCoordinatorInvalidatesQueuedRetryAndPreventsRestart() {
+    var lifecycle = RealtimeVoiceCoordinatorLifecycleState()
+    let queuedRetryGeneration = lifecycle.generation
+
+    XCTAssertTrue(lifecycle.allowsRetry(requestGeneration: queuedRetryGeneration))
+    lifecycle.close()
+
+    XCTAssertTrue(lifecycle.isClosed)
+    XCTAssertFalse(lifecycle.allowsRetry(requestGeneration: queuedRetryGeneration))
+    XCTAssertFalse(lifecycle.allowsRetry(requestGeneration: lifecycle.generation))
+  }
+
   func testOrbDescribesConcurrentActivityWithoutHiddenReasoningLanguage() {
     let description = VoiceActivityOrb.semanticDescription(
       VoiceActivitySnapshot(
