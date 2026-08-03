@@ -19,11 +19,13 @@ public enum AssistantProvider: String, Codable, CaseIterable, Sendable {
 public enum AssistantVoiceProvider: String, Codable, CaseIterable, Sendable {
   case appleOnDevice
   case openAIRealtime
+  case qwenRealtime
 
   public var title: String {
     switch self {
     case .appleOnDevice: "Apple On Device"
     case .openAIRealtime: "OpenAI Realtime"
+    case .qwenRealtime: "Qwen Audio Realtime"
     }
   }
 }
@@ -638,6 +640,10 @@ public final class AssistantProviderPreferencesStore {
         && hasCurrentVoiceConsent
         && hasValidSelectedRealtimeModel
         && hasValidSelectedRealtimeVoice
+    case .qwenRealtime:
+      // Qwen is independently configured and validated. Runtime checks its
+      // frozen route and fails closed if it becomes unavailable.
+      true
     }
   }
 

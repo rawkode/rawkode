@@ -65,7 +65,9 @@ struct EnchiridionMacApp: App {
       AssistantConversationView(
         session: runtime.assistantSession,
         unavailableReason: runtime.assistantUnavailableReason,
-        providerSettings: runtime.assistantProviderSettings
+        providerSettings: runtime.assistantProviderSettings,
+        qwenProviderSettings: runtime.qwenProviderSettings,
+        qwenToolCoordinator: runtime.qwenToolCoordinator
       )
       .frame(minWidth: 480, minHeight: 560)
     }
@@ -83,7 +85,8 @@ struct EnchiridionMacApp: App {
           )
         },
         assistantVoicePreferences: runtime.assistantVoicePreferences,
-        assistantProviderSettings: runtime.assistantProviderSettings
+        assistantProviderSettings: runtime.assistantProviderSettings,
+        qwenProviderSettings: runtime.qwenProviderSettings
       )
     }
   }
@@ -99,10 +102,12 @@ final class EnchiridionMacRuntime {
   let assistantVoicePreferences = AssistantVoicePreferences()
   let openAICredentialStore: OpenAICredentialStore
   let assistantProviderSettings: AssistantProviderSettingsController
+  let qwenProviderSettings = QwenProviderSettingsController()
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
   private(set) var textAssistant: OpenAIResponsesAssistant?
   private(set) var assistantSession: AssistantConversationSession?
+  private(set) var qwenToolCoordinator: AssistantRealtimeToolCoordinator?
   private(set) var repositoryError: String?
 
   var repository: LibraryRepository? { vaultSession?.repository }
@@ -128,6 +133,7 @@ final class EnchiridionMacRuntime {
     }
     rebuildWorkspaceDependents()
     Task { await assistantProviderSettings.refreshCredentialState() }
+    Task { await qwenProviderSettings.refresh() }
   }
 
   func selectVault(_ id: VaultID) throws {
@@ -173,5 +179,6 @@ final class EnchiridionMacRuntime {
       assistant: textAssistant,
       voicePreferences: assistantVoicePreferences
     )
+    qwenToolCoordinator = store.makeAssistantRealtimeToolCoordinator()
   }
 }

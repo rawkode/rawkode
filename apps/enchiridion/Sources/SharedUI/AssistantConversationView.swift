@@ -17,6 +17,8 @@ struct AssistantConversationView: View {
   let unavailableReason: String?
   let presentation: AssistantConversationPresentation
   let providerSettings: AssistantProviderSettingsController?
+  let qwenProviderSettings: QwenProviderSettingsController
+  let qwenToolCoordinator: AssistantRealtimeToolCoordinator?
   let onOpenProviderSettings: (() -> Void)?
 
   @Environment(\.dismiss) private var dismiss
@@ -26,6 +28,7 @@ struct AssistantConversationView: View {
   @State private var draft = ""
   @State private var pendingOpenAIConsent: PendingOpenAIConsent?
   @State private var realtimeVoiceLobby: RealtimeVoiceLobbyRoute?
+  @State private var qwenVoiceLobby: QwenRealtimeVoiceLobbyRoute?
   @State private var followsLatestTurn = true
   @State private var explicitlyAcceptedTurnID: UUID?
   @FocusState private var composerIsFocused: Bool
@@ -41,12 +44,16 @@ struct AssistantConversationView: View {
     unavailableReason: String?,
     presentation: AssistantConversationPresentation = .dismissible,
     providerSettings: AssistantProviderSettingsController? = nil,
+    qwenProviderSettings: QwenProviderSettingsController = QwenProviderSettingsController(),
+    qwenToolCoordinator: AssistantRealtimeToolCoordinator? = nil,
     onOpenProviderSettings: (() -> Void)? = nil
   ) {
     self.session = session
     self.unavailableReason = unavailableReason
     self.presentation = presentation
     self.providerSettings = providerSettings
+    self.qwenProviderSettings = qwenProviderSettings
+    self.qwenToolCoordinator = qwenToolCoordinator
     self.onOpenProviderSettings = onOpenProviderSettings
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("-ShowRealtimeVoiceLobby") {
@@ -124,9 +131,15 @@ struct AssistantConversationView: View {
       .fullScreenCover(item: $realtimeVoiceLobby) { lobby in
         realtimeVoiceLobby(lobby, conversationSession: session)
       }
+      .fullScreenCover(item: $qwenVoiceLobby) { lobby in
+        qwenVoiceLobby(lobby, conversationSession: session)
+      }
     #else
       .sheet(item: $realtimeVoiceLobby) { lobby in
         realtimeVoiceLobby(lobby, conversationSession: session)
+      }
+      .sheet(item: $qwenVoiceLobby) { lobby in
+        qwenVoiceLobby(lobby, conversationSession: session)
       }
     #endif
   }
@@ -137,6 +150,21 @@ struct AssistantConversationView: View {
   ) -> some View {
     RealtimeVoiceLobbyView(
       route: lobby.snapshot,
+      onKeepApple: {
+        providerSettings?.selectVoiceProvider(.appleOnDevice)
+        await conversationSession?.startVoice()
+      },
+      onOpenSettings: openAppSettings
+    )
+  }
+
+  private func qwenVoiceLobby(
+    _ lobby: QwenRealtimeVoiceLobbyRoute,
+    conversationSession: AssistantConversationSession?
+  ) -> some View {
+    QwenRealtimeVoiceLobbyView(
+      route: lobby.snapshot,
+      toolCoordinator: qwenToolCoordinator,
       onKeepApple: {
         providerSettings?.selectVoiceProvider(.appleOnDevice)
         await conversationSession?.startVoice()
@@ -337,6 +365,10 @@ struct AssistantConversationView: View {
         guard let providerSettings else { return }
         realtimeVoiceLobby = RealtimeVoiceLobbyRoute(
           snapshot: providerSettings.voiceRouteSnapshot()
+        )
+      } else if providerSettings?.selectedVoiceProvider == .qwenRealtime {
+        qwenVoiceLobby = QwenRealtimeVoiceLobbyRoute(
+          snapshot: qwenProviderSettings.voiceRouteSnapshot()
         )
       } else {
         Task { await session.startVoice() }
@@ -556,7 +588,9 @@ struct AssistantConversationView: View {
   }
 
   private func voiceButtonIsDisabled(_ session: AssistantConversationSession) -> Bool {
-    if providerSettings?.selectedVoiceProvider == .openAIRealtime {
+    if providerSettings?.selectedVoiceProvider == .openAIRealtime
+      || providerSettings?.selectedVoiceProvider == .qwenRealtime
+    {
       return session.isRunning || providerSettings == nil
     }
     if session.isVoiceRunning { return false }
@@ -567,12 +601,18 @@ struct AssistantConversationView: View {
     if providerSettings?.selectedVoiceProvider == .openAIRealtime {
       return "Open OpenAI Voice lobby"
     }
+    if providerSettings?.selectedVoiceProvider == .qwenRealtime {
+      return "Open Qwen Voice"
+    }
     return "Listen"
   }
 
   private func voiceButtonAccessibilityHint(_ session: AssistantConversationSession) -> String {
     if providerSettings?.selectedVoiceProvider == .openAIRealtime {
       return "Opens a lobby without requesting microphone access, reading the key, or connecting."
+    }
+    if providerSettings?.selectedVoiceProvider == .qwenRealtime {
+      return "Starts the frozen Qwen route saved in Assistant Settings without another provider or location prompt."
     }
     return "Starts an Apple On Device voice conversation. Microphone audio never goes to OpenAI."
   }
@@ -584,6 +624,7 @@ struct AssistantConversationView: View {
     }
     await session.refreshVoiceAvailability()
     await providerSettings?.refreshCredentialState()
+    await qwenProviderSettings.refresh()
   }
 
   private func stopSurface() {

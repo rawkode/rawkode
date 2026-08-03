@@ -35,7 +35,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.
-        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and, only after you explicitly select and consent to OpenAI Voice, sends live audio and transcripts directly to OpenAI.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and selected cloud voice providers. OpenAI Voice requires explicit voice consent. Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing).
         NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured
@@ -108,7 +108,7 @@ targets:
           - remote-notification
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.
-        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and, only after you explicitly select and consent to OpenAI Voice, sends live audio and transcripts directly to OpenAI.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and selected cloud voice providers. OpenAI Voice requires explicit voice consent. Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing).
         NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured

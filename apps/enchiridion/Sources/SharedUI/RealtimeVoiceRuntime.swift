@@ -66,7 +66,7 @@ final class RealtimeVoiceCoordinator {
 }
 
 @MainActor
-private final class SystemRealtimeMicrophoneAuthorizer: RealtimeMicrophoneAuthorizing {
+final class SystemRealtimeMicrophoneAuthorizer: RealtimeMicrophoneAuthorizing {
   func requestPermission() async -> RealtimeMicrophonePermission {
     #if os(macOS)
       switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -102,7 +102,7 @@ private final class SystemRealtimeMicrophoneAuthorizer: RealtimeMicrophoneAuthor
 }
 
 @MainActor
-private func realtimeAudioSessionController() -> any RealtimeAudioSessionControlling {
+func realtimeAudioSessionController() -> any RealtimeAudioSessionControlling {
   #if os(iOS)
     HandheldConversationAudioSessionController()
   #else

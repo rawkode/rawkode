@@ -55,7 +55,8 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("Personal development only"))
     #expect(source.contains("Backend required"))
     #expect(source.contains("RealtimeVoiceDevelopmentRoute.isEnabled"))
-    #expect(source.contains("CarPlay and App Intents always use Apple On Device"))
+    #expect(source.contains("CarPlay follows the selected Apple On Device or Qwen voice route"))
+    #expect(source.contains("App Intents remain Apple On Device"))
     #expect(source.contains("use the saved key for a connection"))
     #expect(!source.contains("read the key"))
   }
@@ -78,23 +79,62 @@ struct RealtimeVoiceUIInvariantTests {
   }
 
   @Test
-  func carPlayAndAppIntentRemainAppleOnly() throws {
+  func carPlaySupportsTheSelectedQwenRouteWhileAppIntentsRemainAppleOnly() throws {
     let carPlayApp = try read("Sources/iOS/EnchiridioniOSApp.swift")
     let carPlayCoordinator = try read("Sources/iOS/CarPlayVoiceCoordinator.swift")
     let intent = try read("Sources/SharedUI/AssistantAppIntents.swift")
     let forbidden = ["openAIRealtime", "RealtimeVoice", "RealtimeCredential", "RealtimeWebRTC"]
 
     #expect(carPlayApp.contains("surface: .carPlay"))
+    #expect(carPlayCoordinator.contains("QwenRealtimeVoiceSession"))
+    #expect(carPlayCoordinator.contains("usesQwenVoice"))
+    let safetyStart = try #require(
+      carPlayCoordinator.range(of: "func pauseForSafety")
+    )
+    let safetyEnd = try #require(
+      carPlayCoordinator.range(
+        of: "private func prepareConversation",
+        range: safetyStart.upperBound ..< carPlayCoordinator.endIndex
+      )
+    )
+    let safety = carPlayCoordinator[safetyStart.lowerBound ..< safetyEnd.lowerBound]
+    let qwenStop = try #require(safety.range(of: "await qwenSession.stop()"))
+    let audioStop = try #require(safety.range(of: "deactivateCarPlayAudioSession()"))
+    #expect(qwenStop.lowerBound < audioStop.lowerBound)
+    #expect(safety.contains("self.qwenSession = nil"))
+    #expect(safety.contains("self.presentedQwenMutationID = nil"))
+    let disconnectStart = try #require(
+      carPlayCoordinator.range(of: "func disconnect()")
+    )
+    let disconnectEnd = try #require(
+      carPlayCoordinator.range(
+        of: "func resumeAfterBecomingActive",
+        range: disconnectStart.upperBound ..< carPlayCoordinator.endIndex
+      )
+    )
+    let disconnect = carPlayCoordinator[
+      disconnectStart.lowerBound ..< disconnectEnd.lowerBound
+    ]
+    let capturedSession = try #require(
+      disconnect.range(of: "let closingQwenSession = qwenSession")
+    )
+    let qwenDisconnectStop = try #require(
+      disconnect.range(of: "await closingQwenSession.stop()")
+    )
+    let disconnectAudioStop = try #require(
+      disconnect.range(of: "deactivateCarPlayAudioSession()")
+    )
+    #expect(capturedSession.lowerBound < qwenDisconnectStop.lowerBound)
+    #expect(qwenDisconnectStop.lowerBound < disconnectAudioStop.lowerBound)
     for token in forbidden {
-      #expect(!carPlayCoordinator.contains(token))
       #expect(!intent.contains(token))
     }
   }
 
   @Test
-  func microphonePurposeStringsNameTheConditionalOpenAITransfer() throws {
+  func microphonePurposeStringsNameBothCloudAuthorizationPaths() throws {
     let expected =
-      "only after you explicitly select and consent to OpenAI Voice, sends live audio and transcripts directly to OpenAI"
+      "Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing)."
     let project = try read("project.yml")
     let mobile = try read("Configuration/EnchiridionMobile-Info.plist")
     let mac = try read("Configuration/EnchiridionMac-Info.plist")

@@ -41,6 +41,10 @@ final class CarPlayVoiceCoordinator: NSObject {
 
   private var session: AssistantConversationSession?
   private var unavailableReason: @MainActor () -> String?
+  private var qwenRoute: @MainActor () -> QwenVoiceRouteSnapshot?
+  private var usesQwenVoice: @MainActor () -> Bool
+  private var qwenTools: @MainActor () -> AssistantRealtimeToolCoordinator?
+  private var qwenSession: QwenRealtimeVoiceSession?
   private let audioSession = AVAudioSession.sharedInstance()
   private let safetyObservers = CarPlayNotificationObserverBag()
   private let logger = Logger(
@@ -56,28 +60,41 @@ final class CarPlayVoiceCoordinator: NSObject {
   private var startAttemptID: UUID?
   private var setupReason: String?
   private var observedVoiceOperationCompletionGeneration: UInt64 = 0
+  private var presentedQwenMutationID: String?
   private var ownsCarPlayAudioSession = false
   private var isConnected = false
   private var isTemplatePresented = false
 
   init(
     session: AssistantConversationSession?,
-    unavailableReason: @escaping @MainActor () -> String?
+    unavailableReason: @escaping @MainActor () -> String?,
+    qwenRoute: @escaping @MainActor () -> QwenVoiceRouteSnapshot? = { nil },
+    usesQwenVoice: @escaping @MainActor () -> Bool = { false },
+    qwenTools: @escaping @MainActor () -> AssistantRealtimeToolCoordinator? = { nil }
   ) {
     self.session = session
     self.unavailableReason = unavailableReason
+    self.qwenRoute = qwenRoute
+    self.usesQwenVoice = usesQwenVoice
+    self.qwenTools = qwenTools
     super.init()
     observeSafetyEvents()
   }
 
   func update(
     session: AssistantConversationSession?,
-    unavailableReason: @escaping @MainActor () -> String?
+    unavailableReason: @escaping @MainActor () -> String?,
+    qwenRoute: @escaping @MainActor () -> QwenVoiceRouteSnapshot? = { nil },
+    usesQwenVoice: @escaping @MainActor () -> Bool = { false },
+    qwenTools: @escaping @MainActor () -> AssistantRealtimeToolCoordinator? = { nil }
   ) {
     let connectedController = interfaceController
     disconnect()
     self.session = session
     self.unavailableReason = unavailableReason
+    self.qwenRoute = qwenRoute
+    self.usesQwenVoice = usesQwenVoice
+    self.qwenTools = qwenTools
     if let connectedController {
       connect(to: connectedController)
     }
@@ -95,6 +112,7 @@ final class CarPlayVoiceCoordinator: NSObject {
     startAttemptID = nil
     setupReason = nil
     observedVoiceOperationCompletionGeneration = 0
+    presentedQwenMutationID = nil
 
     let template = makeVoiceTemplate()
     voiceTemplate = template
@@ -128,14 +146,23 @@ final class CarPlayVoiceCoordinator: NSObject {
     startAttemptID = nil
     setupReason = nil
     observedVoiceOperationCompletionGeneration = 0
+    presentedQwenMutationID = nil
     connectionID = nil
     interfaceController = nil
     voiceTemplate = nil
     let closingSurfaceID = surfaceID
+    let closingAppleSession = session
+    let closingQwenSession = qwenSession
     surfaceID = nil
-    if let session, let closingSurfaceID {
+    qwenSession = nil
+    if closingQwenSession != nil || (closingAppleSession != nil && closingSurfaceID != nil) {
       Task { [weak self] in
-        await session.stopSurface(closingSurfaceID)
+        if let closingQwenSession {
+          await closingQwenSession.stop()
+        }
+        if let closingAppleSession, let closingSurfaceID {
+          await closingAppleSession.stopSurface(closingSurfaceID)
+        }
         guard let self, !self.isConnected else { return }
         self.deactivateCarPlayAudioSession()
       }
@@ -158,7 +185,15 @@ final class CarPlayVoiceCoordinator: NSObject {
     Task { [weak self] in
       guard let self else { return }
       guard self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
-      await self.session?.stop()
+      if let qwenSession = self.qwenSession {
+        await qwenSession.stop()
+        guard self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
+        self.qwenSession = nil
+        self.presentedQwenMutationID = nil
+        self.observationGeneration &+= 1
+      } else {
+        await self.session?.stop()
+      }
       guard self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
       self.deactivateCarPlayAudioSession()
       self.transition(to: .ready, reason: "safe_idle_\(reason.rawValue)")
@@ -176,6 +211,14 @@ final class CarPlayVoiceCoordinator: NSObject {
     guard CarPlayAssistantPrivacySettings.isEnabled() else {
       showError(reason: "disabled_in_settings")
       return false
+    }
+    if usesQwenVoice() {
+      guard qwenRoute()?.isAuthorized == true else {
+        showError(reason: "qwen_route_unavailable")
+        return false
+      }
+      transition(to: .ready, reason: "qwen_ready")
+      return true
     }
     guard unavailableReason() == nil else {
       showError(reason: "assistant_unavailable")
@@ -220,6 +263,14 @@ final class CarPlayVoiceCoordinator: NSObject {
     }
     guard CarPlayAssistantPrivacySettings.isEnabled() else {
       showError(reason: "disabled_in_settings")
+      return
+    }
+    if usesQwenVoice() {
+      guard let route = qwenRoute(), route.isAuthorized else {
+        showError(reason: "qwen_route_unavailable")
+        return
+      }
+      await startQwenConversation(route: route, connectionID: connectionID, surfaceID: surfaceID)
       return
     }
     guard unavailableReason() == nil else {
@@ -269,9 +320,147 @@ final class CarPlayVoiceCoordinator: NSObject {
     present(session.state, availability: session.voiceAvailability)
   }
 
+  private func startQwenConversation(
+    route: QwenVoiceRouteSnapshot,
+    connectionID: UUID,
+    surfaceID: UUID
+  ) async {
+    guard isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
+    transition(to: .starting, reason: "starting_qwen_conversation")
+    do {
+      try configureCarPlayAudioSession()
+    } catch {
+      showError(reason: "audio_session_unavailable")
+      return
+    }
+    let toolCoordinator = qwenTools()
+    let qwen = QwenRealtimeVoiceSession(
+      route: route,
+      credentialReader: QwenCredentialStore(),
+      transport: URLSessionQwenRealtimeVoiceTransport(),
+      microphone: SystemRealtimeMicrophoneAuthorizer(),
+      // CarPlay owns the active audio route. The Qwen session must not
+      // deactivate it independently during stop or a failed handshake.
+      audioSession: CarPlayQwenAudioSessionController(),
+      transcriptAuthorizer: toolCoordinator.map { _ in
+        QwenTranscriptAuthorizationPolicy()
+      },
+      ledger: toolCoordinator.map { _ in QwenVoiceAuthorizationLedger() },
+      toolCoordinator: toolCoordinator
+    )
+    qwenSession = qwen
+    await qwen.start()
+    guard isCurrentConnection(connectionID, surfaceID: surfaceID), qwenSession === qwen else {
+      await qwen.stop()
+      return
+    }
+    if case .failed = qwen.phase {
+      deactivateCarPlayAudioSession()
+      showError(reason: "qwen_connection_unavailable")
+    } else {
+      // Qwen's frozen route never falls back to Apple after a failed start.
+      transition(to: .listening, reason: "qwen_listening")
+      observationGeneration &+= 1
+      observeQwenSession(qwen, generation: observationGeneration)
+    }
+  }
+
+  private func observeQwenSession(
+    _ session: QwenRealtimeVoiceSession,
+    generation: UInt64
+  ) {
+    withObservationTracking(
+      {
+        _ = session.phase
+        _ = session.pendingMutations
+      },
+      onChange: Self.makeNonisolatedVoidHandler { [weak self, weak session] in
+        guard let self, let session, self.isConnected,
+          self.observationGeneration == generation,
+          self.qwenSession === session
+        else { return }
+        self.presentQwen(session.phase)
+        if let proposal = session.pendingMutations.first {
+          self.presentQwenMutation(proposal, session: session)
+        }
+        self.observeQwenSession(session, generation: generation)
+      }
+    )
+  }
+
+  private func presentQwen(_ phase: QwenRealtimePhase) {
+    switch phase {
+    case .connecting: transition(to: .starting, reason: "qwen_connecting")
+    case .listening, .userSpeaking: transition(to: .listening, reason: "qwen_listening")
+    case .responding: transition(to: .responding, reason: "qwen_responding")
+    case .failed: showError(reason: "qwen_connection_unavailable")
+    case .idle, .muted, .ending, .ended: break
+    }
+  }
+
+  private func presentQwenMutation(
+    _ proposal: QwenPendingMutation,
+    session: QwenRealtimeVoiceSession
+  ) {
+    guard presentedQwenMutationID != proposal.id else { return }
+    guard let interfaceController, isConnected, isTemplatePresented else {
+      Task { await session.rejectMutation(id: proposal.id) }
+      return
+    }
+    presentedQwenMutationID = proposal.id
+    let confirm = CPAlertAction(
+      title: "Confirm",
+      style: .default,
+      handler: Self.makeNonisolatedAlertHandler { [weak self, weak session] in
+        guard let self, let session, self.isConnected,
+          self.qwenSession === session,
+          self.presentedQwenMutationID == proposal.id
+        else { return }
+        self.presentedQwenMutationID = nil
+        await session.confirmMutation(id: proposal.id)
+      }
+    )
+    let cancel = CPAlertAction(
+      title: "Cancel",
+      style: .cancel,
+      handler: Self.makeNonisolatedAlertHandler { [weak self, weak session] in
+        guard let self, let session else { return }
+        self.presentedQwenMutationID = nil
+        await session.rejectMutation(id: proposal.id)
+      }
+    )
+    let actionName = proposal.name.replacingOccurrences(of: "_", with: " ")
+    let alert = CPAlertTemplate(
+      titleVariants: ["Confirm \(actionName)?"],
+      actions: [confirm, cancel]
+    )
+    interfaceController.presentTemplate(
+      alert,
+      animated: true,
+      completion: Self.makeNonisolatedTemplateCompletion { [weak self, weak session] success, _ in
+        guard let self, let session, !success,
+          self.presentedQwenMutationID == proposal.id
+        else { return }
+        self.presentedQwenMutationID = nil
+        await session.rejectMutation(id: proposal.id)
+      }
+    )
+  }
+
   private func stopConversation(connectionID: UUID, surfaceID: UUID) {
-    guard let session, isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
+    guard isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
     startAttemptID = nil
+    if let qwenSession {
+      Task { [weak self] in
+        await qwenSession.stop()
+        guard let self, self.isCurrentConnection(connectionID, surfaceID: surfaceID) else { return }
+        self.qwenSession = nil
+        self.deactivateCarPlayAudioSession()
+        self.transition(to: .ready, reason: "qwen_stopped")
+      }
+      return
+    }
+    guard let session else { return }
     Task { [weak self] in
       await session.stop()
       guard let self, self.isCurrentConnection(connectionID, surfaceID: surfaceID) else {
@@ -472,6 +661,12 @@ final class CarPlayVoiceCoordinator: NSObject {
     }
   }
 
+  nonisolated private static func makeNonisolatedAlertHandler(
+    _ action: @escaping @MainActor @Sendable () async -> Void
+  ) -> (CPAlertAction) -> Void {
+    { _ in Task { @MainActor in await action() } }
+  }
+
   nonisolated private static func makeNonisolatedTemplateCompletion(
     _ action: @escaping @MainActor @Sendable (Bool, Int) async -> Void
   ) -> (Bool, (any Error)?) -> Void {
@@ -604,4 +799,10 @@ final class CarPlayVoiceCoordinator: NSObject {
     ownsCarPlayAudioSession = false
     try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
   }
+}
+
+@MainActor
+private final class CarPlayQwenAudioSessionController: RealtimeAudioSessionControlling {
+  func activate() async throws {}
+  func deactivate() async {}
 }

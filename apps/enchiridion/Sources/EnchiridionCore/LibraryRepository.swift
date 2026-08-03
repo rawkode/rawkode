@@ -2000,6 +2000,7 @@ public actor LibraryRepository {
     data: TaskData,
     title: String? = nil,
     notes: String? = nil,
+    expectedVersion: TaskPageVersion? = nil,
     now: Date = Date(),
     calendar: Calendar = .current,
     requestingReminderAuthorization: Bool? = nil
@@ -2008,6 +2009,11 @@ public actor LibraryRepository {
       guard let current = try Self.fetchPage(db, id: pageID),
         current.hasSupertag(BuiltInSupertags.task)
       else { throw LibraryRepositoryError.invalidRecord }
+      if let expectedVersion {
+        guard current.heads == expectedVersion.heads,
+          current.dirtyGeneration == expectedVersion.dirtyGeneration
+        else { throw LibraryRepositoryError.taskClarificationStale }
+      }
       let normalizedData = Self.normalizedTaskData(
         data,
         pageID: pageID,
@@ -2221,12 +2227,18 @@ public actor LibraryRepository {
   @discardableResult
   public func completeTask(
     pageID: PageID,
+    expectedVersion: TaskPageVersion? = nil,
     now: Date = Date(),
     calendar: Calendar = .current
   ) throws -> TaskCompletionResult {
     try database.write { db in
       guard let current = try Self.fetchPage(db, id: pageID), var data = current.taskData else {
         throw LibraryRepositoryError.invalidRecord
+      }
+      if let expectedVersion {
+        guard current.heads == expectedVersion.heads,
+          current.dirtyGeneration == expectedVersion.dirtyGeneration
+        else { throw LibraryRepositoryError.taskClarificationStale }
       }
       guard data.state == .active else { throw LibraryRepositoryError.taskNotActive }
 

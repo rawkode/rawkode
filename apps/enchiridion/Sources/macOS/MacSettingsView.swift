@@ -13,6 +13,7 @@ struct MacSettingsView: View {
   let vaultContext: VaultSettingsContext?
   let assistantVoicePreferences: AssistantVoicePreferences
   let assistantProviderSettings: AssistantProviderSettingsController
+  let qwenProviderSettings: QwenProviderSettingsController
   @State private var showsVaultManager = false
 
   init(
@@ -20,13 +21,15 @@ struct MacSettingsView: View {
     contactsResolver: DeviceContactsResolver,
     vaultContext: VaultSettingsContext? = nil,
     assistantVoicePreferences: AssistantVoicePreferences,
-    assistantProviderSettings: AssistantProviderSettingsController
+    assistantProviderSettings: AssistantProviderSettingsController,
+    qwenProviderSettings: QwenProviderSettingsController = QwenProviderSettingsController()
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
     self.vaultContext = vaultContext
     self.assistantVoicePreferences = assistantVoicePreferences
     self.assistantProviderSettings = assistantProviderSettings
+    self.qwenProviderSettings = qwenProviderSettings
   }
 
   var body: some View {
@@ -52,7 +55,10 @@ struct MacSettingsView: View {
         }
         CalendarEventFilterSettingsSection(store: store)
         DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
-        AssistantProviderSettingsSection(controller: assistantProviderSettings)
+        AssistantProviderSettingsSection(
+          controller: assistantProviderSettings,
+          qwenController: qwenProviderSettings
+        )
         AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
       }
       .formStyle(.grouped)

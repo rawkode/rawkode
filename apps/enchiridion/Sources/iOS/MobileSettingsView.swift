@@ -9,6 +9,7 @@ struct MobileSettingsView: View {
   let workspaceDidChange: @MainActor () -> Void
   let assistantVoicePreferences: AssistantVoicePreferences
   let assistantProviderSettings: AssistantProviderSettingsController
+  let qwenProviderSettings: QwenProviderSettingsController
   @State private var showsVaultManager = false
   @AppStorage(CarPlayAssistantPrivacySettings.isEnabledKey)
   private var isCarPlayAssistantEnabled = true
@@ -20,7 +21,8 @@ struct MobileSettingsView: View {
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
     workspaceDidChange: @escaping @MainActor () -> Void = {},
     assistantVoicePreferences: AssistantVoicePreferences,
-    assistantProviderSettings: AssistantProviderSettingsController
+    assistantProviderSettings: AssistantProviderSettingsController,
+    qwenProviderSettings: QwenProviderSettingsController = QwenProviderSettingsController()
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -29,6 +31,7 @@ struct MobileSettingsView: View {
     self.workspaceDidChange = workspaceDidChange
     self.assistantVoicePreferences = assistantVoicePreferences
     self.assistantProviderSettings = assistantProviderSettings
+    self.qwenProviderSettings = qwenProviderSettings
   }
 
   var body: some View {
@@ -51,7 +54,10 @@ struct MobileSettingsView: View {
       }
       CalendarEventFilterSettingsSection(store: store)
       DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
-      AssistantProviderSettingsSection(controller: assistantProviderSettings)
+      AssistantProviderSettingsSection(
+        controller: assistantProviderSettings,
+        qwenController: qwenProviderSettings
+      )
       AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
       Section("CarPlay") {
         Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)

@@ -295,6 +295,18 @@ public final class LibraryStore {
     )
   }
 
+  /// Creates a session-scoped realtime tool executor that reuses the store's
+  /// single task-write boundary and its durable side-effect handling.
+  public func makeAssistantRealtimeToolCoordinator()
+    -> AssistantRealtimeToolCoordinator?
+  {
+    guard let repository, let taskMutationCoordinator else { return nil }
+    return AssistantRealtimeToolCoordinator(
+      repository: repository,
+      mutations: taskMutationCoordinator
+    )
+  }
+
   /// Dismisses the current presentation only. Durable side effects remain queued.
   public func acknowledgeTaskMutationWarnings() {
     taskMutationWarnings = []

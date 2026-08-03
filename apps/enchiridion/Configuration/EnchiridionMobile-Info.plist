@@ -39,8 +39,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>EnchiridionCodeSignEntitlements</key>
 	<string>$(CODE_SIGN_ENTITLEMENTS)</string>
 	<key>EnchiridionCodeSigningAllowed</key>
@@ -49,12 +47,14 @@
 	<string>CONFIGURE_GOOGLE_OAUTH_CLIENT_ID</string>
 	<key>GoogleOAuthRedirectScheme</key>
 	<string>enchiridion-google-oauth-unconfigured</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Enchiridion shows your local calendar events so you can attach private notes. It never edits events.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Enchiridion uses the microphone for Apple On Device voice and, only after you explicitly select and consent to OpenAI Voice, sends live audio and transcripts directly to OpenAI.</string>
+	<string>Enchiridion uses the microphone for Apple On Device voice and selected cloud voice providers. OpenAI Voice requires explicit voice consent. Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing).</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.</string>
 	<key>UIApplicationSceneManifest</key>

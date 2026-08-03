@@ -3,11 +3,23 @@ import SwiftUI
 
 struct AssistantProviderSettingsSection: View {
   let controller: AssistantProviderSettingsController
+  let qwenController: QwenProviderSettingsController
+
+  init(
+    controller: AssistantProviderSettingsController,
+    qwenController: QwenProviderSettingsController = QwenProviderSettingsController()
+  ) {
+    self.controller = controller
+    self.qwenController = qwenController
+  }
 
   var body: some View {
     Section("Assistant") {
       NavigationLink {
-        AssistantProviderSettingsView(controller: controller)
+        AssistantProviderSettingsView(
+          controller: controller,
+          qwenController: qwenController
+        )
       } label: {
         LabeledContent(
           "Default text provider",
@@ -25,12 +37,25 @@ struct AssistantProviderSettingsSection: View {
 
 struct AssistantProviderSettingsView: View {
   let controller: AssistantProviderSettingsController
+  let qwenController: QwenProviderSettingsController
+
+  @State private var qwenToken = ""
+  @State private var qwenWorkspaceID = ""
+  @State private var showsQwenDeleteConfirmation = false
 
   @Environment(\.openURL) private var openURL
   @State private var candidate = ""
   @State private var showsDeleteConfirmation = false
   @State private var showsTextConsentConfirmation = false
   @State private var showsVoiceConsentConfirmation = false
+
+  init(
+    controller: AssistantProviderSettingsController,
+    qwenController: QwenProviderSettingsController = QwenProviderSettingsController()
+  ) {
+    self.controller = controller
+    self.qwenController = qwenController
+  }
 
   var body: some View {
     Form {
@@ -41,12 +66,17 @@ struct AssistantProviderSettingsView: View {
         consentSection
       }
       voiceSection
+      qwenRealtimeSection
       securitySection
       billingSection
     }
     .formStyle(.grouped)
     .navigationTitle("Assistant Providers")
     .task { await controller.refreshCredentialState() }
+    .task {
+      await qwenController.refresh()
+      qwenWorkspaceID = qwenController.workspaceID ?? ""
+    }
     .onDisappear { candidate = "" }
     .confirmationDialog(
       "Delete OpenAI key from this device?",
@@ -102,6 +132,69 @@ struct AssistantProviderSettingsView: View {
     } message: {
       Text(OpenAIRealtimeVoiceConsentCopy.body)
     }
+    .confirmationDialog(
+      "Delete Qwen token from this device?",
+      isPresented: $showsQwenDeleteConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Delete from This Device", role: .destructive) {
+        qwenToken = ""
+        Task {
+          if await qwenController.deleteToken() {
+            controller.selectVoiceProvider(.appleOnDevice)
+          }
+        }
+      }
+      Button("Keep Token", role: .cancel) {}
+    } message: {
+      Text("This prevents future Qwen Voice sessions. It does not revoke the token in Model Studio.")
+    }
+  }
+
+  private var qwenRealtimeSection: some View {
+    Section("Qwen Audio Realtime") {
+      LabeledContent("Status", value: qwenController.isConfigured ? "Saved and verified" : "Not configured")
+      TextField("Beijing workspace ID", text: $qwenWorkspaceID)
+        .accessibilityHint("The workspace ID is used only to construct the Beijing Qwen Realtime endpoint.")
+      SecureField("Paste a Model Studio API key", text: $qwenToken)
+        .textContentType(.password)
+        .privacySensitive()
+      Picker("Tier", selection: Binding(get: { qwenController.model }, set: { qwenController.select(model: $0) })) {
+        ForEach(QwenRealtimeModel.allCases) { Text($0.title).tag($0) }
+      }
+      Picker("Voice", selection: Binding(get: { qwenController.voice }, set: { qwenController.select(voice: $0) })) {
+        ForEach(QwenRealtimeVoice.allCases) { Text($0.title).tag($0) }
+      }
+      Button(qwenController.isValidating ? "Verifying…" : "Verify and Save Qwen Token") {
+        let token = qwenToken
+        let workspaceID = qwenWorkspaceID
+        Task { if await qwenController.verifyAndSave(token: token, workspaceID: workspaceID) { qwenToken = "" } }
+      }
+      .disabled(qwenController.isValidating || qwenToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      if qwenController.isConfigured {
+        Button("Use Qwen Audio Realtime") {
+          controller.selectVoiceProvider(.qwenRealtime)
+        }
+        .disabled(controller.selectedVoiceProvider == .qwenRealtime)
+        Button("Delete from This Device", role: .destructive) { showsQwenDeleteConfirmation = true }
+          .disabled(qwenController.isValidating)
+      }
+      if let error = qwenController.error {
+        Text(qwenErrorCopy(error)).font(.caption).foregroundStyle(.red)
+      }
+      Text("Saving a verified Model Studio token is your explicit opt-in to Qwen Audio Realtime and processing in the China (Beijing) region. Enchiridion does not show a separate provider or location consent prompt. Qwen uses only the workspace-specific Beijing endpoint. Native confirmation still applies to mutating or destructive local actions.")
+        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private func qwenErrorCopy(_ error: QwenWorkspaceValidationError) -> String {
+    switch error {
+    case .invalidWorkspace: "Enter a valid Qwen Model Studio workspace ID."
+    case .rejected: "Qwen rejected this token or workspace."
+    case .redirectBlocked: "Qwen verification rejected an unexpected redirect."
+    case .timedOut: "Qwen verification timed out. Try again later."
+    case .unavailable: "Qwen could not verify this token. Try again later."
+    }
   }
 
   private var providerSection: some View {
@@ -126,7 +219,7 @@ struct AssistantProviderSettingsView: View {
       )
 
       Text(
-        "Text chat and voice use separate defaults. CarPlay and App Intents always use Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
+        "Text chat and voice use separate defaults. CarPlay follows the selected Apple On Device or Qwen voice route; App Intents remain Apple On Device. Apple Private Cloud Compute is not offered because Enchiridion has no verified PCC entitlement or runtime path."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
@@ -288,6 +381,8 @@ struct AssistantProviderSettingsView: View {
           .tag(AssistantVoiceProvider.appleOnDevice)
         Text(AssistantVoiceProvider.openAIRealtime.title)
           .tag(AssistantVoiceProvider.openAIRealtime)
+        Text(AssistantVoiceProvider.qwenRealtime.title)
+          .tag(AssistantVoiceProvider.qwenRealtime)
       }
 
       if controller.credentialState == .savedAndVerified {
@@ -407,6 +502,10 @@ struct AssistantProviderSettingsView: View {
           } else {
             showsVoiceConsentConfirmation = true
           }
+        case .qwenRealtime:
+          controller.selectVoiceProvider(
+            qwenController.isConfigured ? .qwenRealtime : .appleOnDevice
+          )
         }
       }
     )
@@ -436,7 +535,7 @@ struct AssistantProviderSettingsView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI. The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. CarPlay and App Intents always use Apple On Device.
+    Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI. The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. OpenAI is not used by CarPlay or App Intents.
     """
   }
 }

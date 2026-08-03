@@ -522,6 +522,23 @@ public actor TaskMutationCoordinator {
     }
   }
 
+  /// Applies a user-confirmed assistant proposal only if the task has not changed
+  /// since the proposal was presented. The repository performs the comparison in
+  /// the same SQLite transaction as the write.
+  public func update(
+    pageID: PageID,
+    data: TaskData,
+    title: String? = nil,
+    notes: String? = nil,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date()
+  ) async -> TaskMutationResult<PageSnapshot> {
+    do {
+      let page = try await repository.updateTask(pageID: pageID, data: data, title: title, notes: notes, expectedVersion: expectedVersion, now: now, calendar: calendar)
+      return await success(operation: .update, value: page, changedPageIDs: [page.id], mutationEffects: [.scheduleReminder(page, requestingAuthorization: data.reminder != nil), .indexSpotlight(page)])
+    } catch { return .failure(failure(operation: .update, error: error)) }
+  }
+
   public func complete(
     _ pageID: PageID,
     now: Date = Date()
@@ -549,6 +566,19 @@ public actor TaskMutationCoordinator {
     } catch {
       return .failure(failure(operation: .complete, error: error))
     }
+  }
+
+  public func complete(
+    _ pageID: PageID,
+    expectedVersion: TaskPageVersion,
+    now: Date = Date()
+  ) async -> TaskMutationResult<TaskCompletionResult> {
+    do {
+      let result = try await repository.completeTask(pageID: pageID, expectedVersion: expectedVersion, now: now, calendar: calendar)
+      var effects: [TaskMutationEffect] = [.cancelReminder(result.completed.id), .removeSpotlight(result.completed.id)]
+      if let successor = result.successor { effects += [.scheduleReminder(successor, requestingAuthorization: false), .indexSpotlight(successor)] }
+      return await success(operation: .complete, value: result, changedPageIDs: result.changedPageIDs, mutationEffects: effects)
+    } catch { return .failure(failure(operation: .complete, error: error)) }
   }
 
   public func undoCompletion(

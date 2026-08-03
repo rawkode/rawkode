@@ -9,6 +9,7 @@ struct MobileLibraryScreen: View {
   let workspaceDidChange: @MainActor () -> Void
   let assistantVoicePreferences: AssistantVoicePreferences
   let assistantProviderSettings: AssistantProviderSettingsController
+  let qwenProviderSettings: QwenProviderSettingsController
   @State private var query = ""
   @State private var editingTag: SupertagDefinition?
   @State private var editingView: LiveQueryDefinition?
@@ -20,7 +21,8 @@ struct MobileLibraryScreen: View {
     selectVault: @escaping @MainActor (VaultID) throws -> Void = { _ in },
     workspaceDidChange: @escaping @MainActor () -> Void = {},
     assistantVoicePreferences: AssistantVoicePreferences,
-    assistantProviderSettings: AssistantProviderSettingsController
+    assistantProviderSettings: AssistantProviderSettingsController,
+    qwenProviderSettings: QwenProviderSettingsController = QwenProviderSettingsController()
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -29,6 +31,7 @@ struct MobileLibraryScreen: View {
     self.workspaceDidChange = workspaceDidChange
     self.assistantVoicePreferences = assistantVoicePreferences
     self.assistantProviderSettings = assistantProviderSettings
+    self.qwenProviderSettings = qwenProviderSettings
   }
 
   var body: some View {
@@ -126,7 +129,8 @@ struct MobileLibraryScreen: View {
               selectVault: selectVault,
               workspaceDidChange: workspaceDidChange,
               assistantVoicePreferences: assistantVoicePreferences,
-              assistantProviderSettings: assistantProviderSettings
+              assistantProviderSettings: assistantProviderSettings,
+              qwenProviderSettings: qwenProviderSettings
             )
           } label: {
             Label("Settings", systemImage: "gearshape")
