@@ -6470,6 +6470,25 @@ public actor LibraryRepository {
         }
       }
     }
+    migrator.registerMigration("v23-workout-import-receipts") { db in
+      try db.create(table: "workout_import_receipts") { table in
+        table.column("module_id", .text).notNull()
+        table.column("event_id", .text).notNull()
+        table.column("payload_hash", .text).notNull()
+        table.column("root_page_id", .text).notNull().references("pages", onDelete: .restrict)
+        table.column("imported_at", .double).notNull()
+        table.primaryKey(["module_id", "event_id"])
+      }
+      try db.create(table: "workout_import_quarantine") { table in
+        table.column("module_id", .text).notNull()
+        table.column("event_id", .text).notNull()
+        table.column("payload_hash", .text).notNull()
+        table.column("reason", .text).notNull()
+        table.column("received_at", .double).notNull()
+        table.primaryKey(["module_id", "event_id", "payload_hash"])
+      }
+      try GraphDatabaseSchema.createWorkoutPublicViews(in: db)
+    }
     return migrator
   }()
 

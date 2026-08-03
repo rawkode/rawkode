@@ -53,6 +53,10 @@ enum GraphSQLExecutor {
     "graph_edges",
     "graph_issues",
     "graph_text_search",
+    "graph_workouts_v1",
+    "graph_workout_exercises_v1",
+    "graph_workout_sets_v1",
+    "graph_workout_splits_v1",
   ]
 
   private static let ftsShadowSources: Set<String> = [
