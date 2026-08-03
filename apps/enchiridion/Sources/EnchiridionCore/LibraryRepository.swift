@@ -3486,13 +3486,14 @@ public actor LibraryRepository {
     try database.read { db in
       try Row.fetchAll(
         db,
-        sql: "SELECT * FROM supertag_schemas WHERE cloud_dirty = 1 ORDER BY modified_at"
+        sql: "SELECT * FROM supertag_schemas WHERE cloud_dirty = 1 AND id NOT LIKE 'dev.rawkode.enchiridion.%' ORDER BY modified_at"
       ).compactMap(Self.decodeSupertagCloudRecord)
     }
   }
 
   public func supertagCloudRecord(id: SupertagID) throws -> SupertagCloudRecord? {
-    try database.read { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return nil }
+    return try database.read { db in
       try Row.fetchOne(
         db,
         sql: "SELECT * FROM supertag_schemas WHERE id = ?",
@@ -3507,7 +3508,8 @@ public actor LibraryRepository {
     sentGeneration: Int64,
     systemFields: Data
   ) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       try db.execute(
         sql: """
           UPDATE supertag_schemas
@@ -3536,7 +3538,8 @@ public actor LibraryRepository {
     dirtyGeneration: Int64,
     systemFields: Data
   ) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       var normalized = definition
       normalized.id = id
       normalized.isDeleted = isDeleted
@@ -3589,7 +3592,8 @@ public actor LibraryRepository {
 
   @discardableResult
   public func applyCloudSupertagRecordDeletion(id: SupertagID) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       guard let localIsDirty = try Bool.fetchOne(
         db,
         sql: "SELECT cloud_dirty FROM supertag_schemas WHERE id = ?",
@@ -3619,6 +3623,7 @@ public actor LibraryRepository {
   }
 
   public func clearSupertagCloudRecordMetadata(id: SupertagID) throws {
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return }
     try database.write { db in
       try db.execute(
         sql: "UPDATE supertag_schemas SET cloud_record = NULL, cloud_dirty = 1 WHERE id = ?",
