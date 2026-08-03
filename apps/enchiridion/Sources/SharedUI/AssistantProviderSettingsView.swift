@@ -432,15 +432,11 @@ struct AssistantProviderSettingsView: View {
 
       LabeledContent(
         "Connection",
-        value: RealtimeVoiceDevelopmentRoute.isEnabled
-          ? "Personal development only"
-          : "Backend required"
+        value: "Direct device BYOK"
       )
         .foregroundStyle(.secondary)
       Text(
-        RealtimeVoiceDevelopmentRoute.isEnabled
-          ? "This Debug-only personal development route uses the saved key only in native code to establish an audio-only OpenAI Voice session. It is not a production connection path and does not disclose notes, tasks, calendars, or local tools. Apple On Device voice remains available."
-          : "Production OpenAI Voice requires a backend that issues short-lived client credentials. This release does not request microphone access, use the saved key for a connection, upload audio, or connect. Apple On Device voice remains available."
+        "Your saved Platform key remains in this device's Keychain. Native code sends it only in the Authorization header to the pinned OpenAI endpoint after you start an audio-only session. Voice sends audio and transcripts only; notes, tasks, calendars, and local tools stay on-device. API use is billed separately from ChatGPT. Apple On Device voice remains available."
       )
       .font(.caption)
       .foregroundStyle(.secondary)

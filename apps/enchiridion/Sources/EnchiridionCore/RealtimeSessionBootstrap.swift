@@ -1,7 +1,6 @@
 import Foundation
 
 public enum RealtimeSessionBootstrapError: Error, Equatable, Sendable {
-  case developmentRouteDisabled
   case invalidEndpoint
   case redirectBlocked
   case invalidHTTPResponse
@@ -21,9 +20,7 @@ public struct RealtimeSessionBootstrapResult: Equatable, Sendable {
   }
 }
 
-/// Produces an answer SDP for a frozen Realtime route. Production relay and
-/// ephemeral-secret implementations can conform here without changing the
-/// WebRTC or voice-session contracts.
+/// Produces an answer SDP for the frozen native Realtime BYOK route.
 public protocol RealtimeSessionBootstrap: Sendable {
   func bootstrap(
     offerSDP: String,
@@ -116,40 +113,14 @@ public actor URLSessionRealtimeCallsHTTPLoader: RealtimeCallsHTTPLoading {
   }
 }
 
-/// The personal/development-only bootstrap. It uses the verified Platform key
-/// only while constructing a native Authorization header. The public default
-/// is disabled in every build; the explicitly named development factory is
-/// compiled as disabled in Release.
+/// Uses the verified Platform key only while constructing a native
+/// Authorization header for the pinned OpenAI Realtime endpoint.
 public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
-  private let isDevelopmentRouteEnabled: Bool
   private let loader: any RealtimeCallsHTTPLoading
 
-  /// Creates a bootstrap that never enables the direct standard-key route.
   public init(
     loader: any RealtimeCallsHTTPLoading = URLSessionRealtimeCallsHTTPLoader()
   ) {
-    self.isDevelopmentRouteEnabled = false
-    self.loader = loader
-  }
-
-  /// Creates the personal-development route for Debug builds only. Release
-  /// builds return the same disabled bootstrap as ``init(loader:)``.
-  public static func personalDevelopment() -> DirectBYOKBootstrap {
-    #if DEBUG
-      DirectBYOKBootstrap(isDevelopmentRouteEnabled: true)
-    #else
-      DirectBYOKBootstrap()
-    #endif
-  }
-
-  /// Core test seam for exercising the native request implementation. This is
-  /// intentionally internal: application composition must use either the
-  /// permanently disabled public initializer or ``personalDevelopment()``.
-  init(
-    isDevelopmentRouteEnabled: Bool,
-    loader: any RealtimeCallsHTTPLoading = URLSessionRealtimeCallsHTTPLoader()
-  ) {
-    self.isDevelopmentRouteEnabled = isDevelopmentRouteEnabled
     self.loader = loader
   }
 
@@ -159,9 +130,6 @@ public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
   ) async throws -> RealtimeSessionBootstrapResult {
-    guard isDevelopmentRouteEnabled else {
-      throw RealtimeSessionBootstrapError.developmentRouteDisabled
-    }
     guard credential.binding == route.credentialBinding else {
       throw RealtimeSessionBootstrapError.invalidEndpoint
     }
@@ -224,9 +192,5 @@ public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
       })
     else { return nil }
     return value
-  }
-
-  var isDevelopmentRouteEnabledForTesting: Bool {
-    isDevelopmentRouteEnabled
   }
 }

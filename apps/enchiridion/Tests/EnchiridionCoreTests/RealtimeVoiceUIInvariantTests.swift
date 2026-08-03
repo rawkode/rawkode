@@ -3,18 +3,15 @@ import Testing
 
 struct RealtimeVoiceUIInvariantTests {
   @Test
-  func lobbyStartsOnlyTheExplicitDebugDevelopmentRoute() throws {
+  func lobbyStartsTheDirectBYOKRouteInEveryBuildConfiguration() throws {
     let source = try read("Sources/SharedUI/RealtimeVoiceSurface.swift")
 
     #expect(source.contains("OpenAIRealtimeVoiceConsentCopy.body"))
-    #expect(source.contains("Personal development connection"))
-    #expect(
-      source.contains(
-        "OpenAI Voice requires a backend connection in release builds"
-      )
-    )
+    #expect(source.contains("only in the Authorization header"))
+    #expect(source.contains("pinned OpenAI endpoint"))
+    #expect(source.contains("never sends notes, tasks, calendars, or local tools"))
     #expect(source.contains("RealtimeVoiceCoordinator(route: route)"))
-    #expect(source.contains("RealtimeVoiceDevelopmentRoute.isEnabled"))
+    #expect(!source.contains("RealtimeVoiceDevelopmentRoute"))
     #expect(!source.contains("URLSession"))
     #expect(!source.lowercased().contains("bearer"))
     #expect(source.contains("accessibilityReduceMotion"))
@@ -25,6 +22,20 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("keyboardShortcut(\".\", modifiers: .command)"))
     #expect(source.contains("Button(\"Open Sound Settings\""))
     #expect(source.contains("ViewThatFits(in: .horizontal)"))
+  }
+
+  @Test
+  func nativeBootstrapHasNoConfigurationGateOrAlternateCredentialRoute() throws {
+    let bootstrap = try read("Sources/EnchiridionCore/RealtimeSessionBootstrap.swift")
+    let transport = try read("Sources/SharedUI/RealtimeWebRTCVoiceTransport.swift")
+
+    #expect(bootstrap.contains("public actor DirectBYOKBootstrap"))
+    #expect(bootstrap.contains("request.setValue(\"Bearer \\(secret)\", forHTTPHeaderField: \"Authorization\")"))
+    #expect(!bootstrap.contains("#if DEBUG"))
+    #expect(!bootstrap.contains("developmentRouteDisabled"))
+    #expect(!bootstrap.lowercased().contains("ephemeral-secret"))
+    #expect(transport.contains("bootstrap: any RealtimeSessionBootstrap = DirectBYOKBootstrap()"))
+    #expect(!transport.contains("RealtimeVoiceDevelopmentRoute"))
   }
 
   @Test
@@ -52,12 +63,13 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(source.contains("Verified Realtime model"))
     #expect(source.contains("Official OpenAI voice"))
     #expect(source.contains("Revoke OpenAI Voice Consent"))
-    #expect(source.contains("Personal development only"))
-    #expect(source.contains("Backend required"))
-    #expect(source.contains("RealtimeVoiceDevelopmentRoute.isEnabled"))
+    #expect(source.contains("Direct device BYOK"))
+    #expect(source.contains("only in the Authorization header"))
+    #expect(source.contains("pinned OpenAI endpoint"))
     #expect(source.contains("CarPlay follows the selected Apple On Device or Qwen voice route"))
     #expect(source.contains("App Intents remain Apple On Device"))
-    #expect(source.contains("use the saved key for a connection"))
+    #expect(!source.contains("Backend required"))
+    #expect(!source.contains("Personal development only"))
     #expect(!source.contains("read the key"))
   }
 

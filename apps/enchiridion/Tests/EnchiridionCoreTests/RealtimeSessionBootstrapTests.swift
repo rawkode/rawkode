@@ -4,35 +4,19 @@ import XCTest
 
 @MainActor
 final class RealtimeSessionBootstrapTests: XCTestCase {
-  func testDevelopmentDisabledFailsBeforeLoaderInvocation() async throws {
+  func testPublicBootstrapUsesNativeBYOKInEveryBuildConfiguration() async throws {
     let fixture = try makeFixture()
     let loader = FakeRealtimeCallsLoader(exchange: validExchange())
     let bootstrap = DirectBYOKBootstrap(loader: loader)
 
-    do {
-      _ = try await bootstrap.bootstrap(
-        offerSDP: "v=0",
-        route: fixture.route,
-        configuration: fixture.configuration,
-        credential: fixture.credential
-      )
-      XCTFail("Expected the development route to be disabled")
-    } catch {
-      XCTAssertEqual(error as? RealtimeSessionBootstrapError, .developmentRouteDisabled)
-    }
+    _ = try await bootstrap.bootstrap(
+      offerSDP: "v=0",
+      route: fixture.route,
+      configuration: fixture.configuration,
+      credential: fixture.credential
+    )
     let invocationCount = await loader.invocationCount
-    XCTAssertEqual(invocationCount, 0)
-  }
-
-  func testPublicPersonalDevelopmentFactoryUsesDebugOnlyDecision() async throws {
-    let bootstrap = DirectBYOKBootstrap.personalDevelopment()
-    let isEnabled = await bootstrap.isDevelopmentRouteEnabledForTesting
-
-    #if DEBUG
-      XCTAssertTrue(isEnabled)
-    #else
-      XCTAssertFalse(isEnabled)
-    #endif
+    XCTAssertEqual(invocationCount, 1)
   }
 
   func testRejectsRedirectBeforeAcceptingAnswer() async throws {
@@ -45,7 +29,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
         body: Data("v=0\r\n".utf8)
       )
     )
-    let bootstrap = DirectBYOKBootstrap(isDevelopmentRouteEnabled: true, loader: loader)
+    let bootstrap = DirectBYOKBootstrap(loader: loader)
 
     do {
       _ = try await bootstrap.bootstrap(
@@ -70,7 +54,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
         body: Data("unauthorized".utf8)
       )
     )
-    let bootstrap = DirectBYOKBootstrap(isDevelopmentRouteEnabled: true, loader: loader)
+    let bootstrap = DirectBYOKBootstrap(loader: loader)
 
     do {
       _ = try await bootstrap.bootstrap(
@@ -91,7 +75,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
   func testRejectsMalformedNativeAnswer() async throws {
     let fixture = try makeFixture()
     let loader = FakeRealtimeCallsLoader(exchange: validExchange(body: Data()))
-    let bootstrap = DirectBYOKBootstrap(isDevelopmentRouteEnabled: true, loader: loader)
+    let bootstrap = DirectBYOKBootstrap(loader: loader)
 
     do {
       _ = try await bootstrap.bootstrap(
@@ -111,7 +95,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
     let loader = FakeRealtimeCallsLoader(
       exchange: validExchange(body: Data("v=0\r\na=answer\r\n".utf8))
     )
-    let bootstrap = DirectBYOKBootstrap(isDevelopmentRouteEnabled: true, loader: loader)
+    let bootstrap = DirectBYOKBootstrap(loader: loader)
 
     let result = try await bootstrap.bootstrap(
       offerSDP: "v=0\r\na=offer\r\n",
@@ -124,9 +108,9 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
     XCTAssertEqual(result.requestID, "req_valid_answer")
     let lastRequest = await loader.lastRequest
     let request = try XCTUnwrap(lastRequest)
-    XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fake-development-key")
+    XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fake-platform-key")
     let body = try XCTUnwrap(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
-    XCTAssertFalse(body.contains("fake-development-key"))
+    XCTAssertFalse(body.contains("fake-platform-key"))
     XCTAssertFalse(body.contains("Bearer"))
   }
 
@@ -140,7 +124,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
     return (
       route,
       try RealtimeVoiceConfiguration(route: route),
-      RealtimeCredentialLease(credential: "fake-development-key", binding: binding)
+      RealtimeCredentialLease(credential: "fake-platform-key", binding: binding)
     )
   }
 

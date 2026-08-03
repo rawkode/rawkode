@@ -23,10 +23,6 @@ final class RealtimeVoiceCoordinator {
   }
 
   func start() {
-    guard RealtimeVoiceDevelopmentRoute.isEnabled else {
-      setupFailure = "OpenAI Voice needs a backend connection in release builds."
-      return
-    }
     guard session == nil || session?.receipt != nil else { return }
     setupFailure = nil
 

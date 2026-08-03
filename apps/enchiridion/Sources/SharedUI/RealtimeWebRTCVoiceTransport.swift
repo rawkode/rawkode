@@ -188,7 +188,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
   init(
     bridge: any RealtimeWebRTCBridging = RealtimeWebRTCBridge(),
-    bootstrap: any RealtimeSessionBootstrap = DirectBYOKBootstrap.personalDevelopment(),
+    bootstrap: any RealtimeSessionBootstrap = DirectBYOKBootstrap(),
     codec: RealtimeProtocolCodec = RealtimeProtocolCodec()
   ) {
     self.bridge = bridge
@@ -217,7 +217,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
   ) async throws -> RealtimeSessionCreated {
-    guard case .idle = lifecycle, RealtimeVoiceDevelopmentRoute.isEnabled else {
+    guard case .idle = lifecycle else {
       throw TransportError.unavailable
     }
     let attempt = UUID()
@@ -583,12 +583,4 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       await self.bridge.stop()
     }
   }
-}
-
-enum RealtimeVoiceDevelopmentRoute {
-  #if DEBUG
-    static let isEnabled = true
-  #else
-    static let isEnabled = false
-  #endif
 }

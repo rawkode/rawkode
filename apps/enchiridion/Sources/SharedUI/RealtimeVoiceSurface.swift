@@ -74,7 +74,7 @@ struct RealtimeVoiceLobbyView: View {
         }
         .accessibilityElement(children: .combine)
 
-        developmentRouteDisclosure
+        directBYOKDisclosure
 
         VStack(spacing: 12) {
           Button(OpenAIRealtimeVoiceConsentCopy.startActionTitle) {
@@ -84,9 +84,7 @@ struct RealtimeVoiceLobbyView: View {
           .controlSize(.large)
           .frame(maxWidth: .infinity, minHeight: 56)
           .accessibilityHint(
-            RealtimeVoiceDevelopmentRoute.isEnabled
-              ? "Requests microphone access only after this explicit action, then starts the selected OpenAI Voice route."
-              : "Explains that production OpenAI Voice requires a backend connection."
+            "Requests microphone access only after this explicit action, then starts the selected OpenAI Voice route."
           )
 
           Button(OpenAIRealtimeVoiceConsentCopy.keepAppleActionTitle) {
@@ -112,7 +110,7 @@ struct RealtimeVoiceLobbyView: View {
     } description: {
       Text(
         coordinator?.setupFailure
-          ?? "This release requires a backend connection for OpenAI Voice. Use Apple On Device now, or review Assistant Settings."
+          ?? "OpenAI Voice could not start the selected direct-device route. Review Assistant Settings or use Apple On Device now."
       )
     } actions: {
       VStack(spacing: 10) {
@@ -137,32 +135,18 @@ struct RealtimeVoiceLobbyView: View {
   }
 
   @ViewBuilder
-  private var developmentRouteDisclosure: some View {
-    if RealtimeVoiceDevelopmentRoute.isEnabled {
-      Label {
-        Text(
-          "Personal development connection. After you start, Enchiridion requests microphone access and uses the saved key only in native code to establish this audio-only OpenAI Voice session. It does not send notes, tasks, calendars, or local tools."
-        )
-      } icon: {
-        Image(systemName: "wrench.and.screwdriver.fill")
-          .foregroundStyle(.orange)
-      }
-      .font(.callout)
-      .fixedSize(horizontal: false, vertical: true)
-      .accessibilityElement(children: .combine)
-    } else {
-      Label {
-        Text(
-          "OpenAI Voice requires a backend connection in release builds. This screen does not request microphone access, use the saved key for a connection, or send anything."
-        )
-      } icon: {
-        Image(systemName: "lock.trianglebadge.exclamationmark")
-          .foregroundStyle(.orange)
-      }
-      .font(.callout)
-      .fixedSize(horizontal: false, vertical: true)
-      .accessibilityElement(children: .combine)
+  private var directBYOKDisclosure: some View {
+    Label {
+      Text(
+        "After you start, Enchiridion requests microphone access and uses your saved Platform key only in native code, only in the Authorization header, and only for the pinned OpenAI endpoint. This audio-only session sends live audio and transcripts; it never sends notes, tasks, calendars, or local tools. API use is billed separately from ChatGPT. A compromised or unlocked device may expose the key."
+      )
+    } icon: {
+      Image(systemName: "key.fill")
+        .foregroundStyle(.orange)
     }
+    .font(.callout)
+    .fixedSize(horizontal: false, vertical: true)
+    .accessibilityElement(children: .combine)
   }
 
   @ViewBuilder
@@ -202,10 +186,6 @@ struct RealtimeVoiceLobbyView: View {
   }
 
   private func startOpenAIVoice() {
-    guard RealtimeVoiceDevelopmentRoute.isEnabled else {
-      stage = .unavailable
-      return
-    }
     let coordinator = RealtimeVoiceCoordinator(route: route)
     self.coordinator = coordinator
     stage = .active

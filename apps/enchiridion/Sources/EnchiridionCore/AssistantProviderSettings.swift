@@ -154,7 +154,7 @@ public struct RealtimeVoiceRouteSnapshot: Equatable, Sendable {
       && credentialBinding != nil
   }
 
-  #if DEBUG
+  #if DEBUG || ENCHIRIDION_TESTING
     func replacingAuthorityVersionsForTesting(
       modelCatalogVersion: Int?,
       voiceCatalogVersion: Int?,
