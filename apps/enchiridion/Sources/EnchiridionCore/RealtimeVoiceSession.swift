@@ -140,6 +140,16 @@ public final class RealtimeVoiceSession {
   /// handshake -> system audio activation. The transport keeps the microphone
   /// track disabled until all handshake stages have completed.
   public func start() async {
+    await withTaskCancellationHandler {
+      await startOperation()
+    } onCancel: {
+      Task { @MainActor [weak self] in
+        await self?.cancelStartupIfNeeded()
+      }
+    }
+  }
+
+  private func startOperation() async {
     guard state.phase == .idle, receipt == nil, !isStopping else { return }
     generation &+= 1
     operationEpoch &+= 1
@@ -148,12 +158,15 @@ public final class RealtimeVoiceSession {
     startedAt = now()
     setPhase(.requestingMicrophone)
 
+    if await finishIfCancelled(generation: currentGeneration) { return }
+
     guard lifecycleState != .background else {
       await terminalFailure(startupInterruptedFailure, generation: currentGeneration)
       return
     }
 
     let permission = await microphone.requestPermission()
+    if await finishIfCancelled(generation: currentGeneration) { return }
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
     guard permission == .authorized else {
       let code = permission == .denied ? "microphone_denied" : "microphone_restricted"
@@ -341,6 +354,23 @@ public final class RealtimeVoiceSession {
       guard let self else { return }
       await self.enforceLimits(generation: currentGeneration)
     }
+  }
+
+  private func cancelStartupIfNeeded() async {
+    guard receipt == nil, !isStopping, isStartupPhase else { return }
+    await finish(completion: .cancelled)
+  }
+
+  private func finishIfCancelled(generation expectedGeneration: UInt64) async -> Bool {
+    guard Task.isCancelled else { return false }
+    guard
+      expectedGeneration == generation,
+      receipt == nil,
+      !isStopping,
+      isStartupPhase
+    else { return true }
+    await finish(completion: .cancelled)
+    return true
   }
 
   public func setMuted(_ isMuted: Bool) async {
@@ -935,8 +965,8 @@ public final class RealtimeVoiceSession {
     generation expectedGeneration: UInt64,
     operation expectedOperation: UInt64
   ) async -> Bool {
+    if await finishIfCancelled(generation: expectedGeneration) { return false }
     guard
-      !Task.isCancelled,
       isOperationCurrent(expectedGeneration, operation: expectedOperation)
     else { return false }
     guard lifecycleState != .background else {

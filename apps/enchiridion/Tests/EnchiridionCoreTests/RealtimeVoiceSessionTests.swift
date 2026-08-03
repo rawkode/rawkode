@@ -600,6 +600,24 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertFalse(calls.contains("transport.start"))
   }
 
+  func testCancellingBeforeInactiveWaiterRegistrationEndsStartup() async throws {
+    let fixture = try makeFixture(initialLifecycleState: .inactive)
+    let gate = AsyncGate()
+    await fixture.gates.microphone.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    start.cancel()
+    await waitUntil { fixture.session.state.phase == .ended }
+    await gate.resume()
+    await start.value
+    await fixture.session.handleLifecycleChange(.active)
+
+    XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(calls, ["microphone.permission"])
+  }
+
   func testInitialBackgroundStartFailsWithoutPermissionOrCredentials() async throws {
     let fixture = try makeFixture(initialLifecycleState: .background)
 
