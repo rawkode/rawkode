@@ -24,6 +24,8 @@
 	<string>Enchiridion records workout metrics you choose to save from Apple Watch.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Enchiridion saves completed Apple Watch workouts to Health.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Record outdoor workout routes in Apple Health. Route coordinates are never sent to Enchiridion.</string>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKBackgroundModes</key>

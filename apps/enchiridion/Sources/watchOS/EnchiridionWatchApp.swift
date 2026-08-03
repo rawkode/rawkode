@@ -48,15 +48,19 @@ private struct WatchWorkoutCaptureView: View {
     List {
       Text(checkpoint.phase == .interrupted ? "Workout interrupted" : "Recording").font(.headline)
       if let message = store.validationMessage { Text(message).foregroundStyle(.secondary) }
-      switch checkpoint.draft {
-      case .strength(let exercises): StrengthCaptureFields(store: store, exercises: exercises)
-      case .cardio(let draft): CardioCaptureFields(store: store, draft: draft)
+      if checkpoint.phase == .saving {
+        ProgressView("Saving workout")
+      } else {
+        switch checkpoint.draft {
+        case .strength(let exercises): StrengthCaptureFields(store: store, exercises: exercises)
+        case .cardio(let draft): CardioCaptureFields(store: store, draft: draft)
+        }
       }
       if checkpoint.phase == .interrupted {
         Button("Resume") { store.resume() }
         Button("Save Partial") { Task { await store.save(status: .partial) } }
         Button("Discard", role: .destructive) { store.cancel() }
-      } else {
+      } else if checkpoint.phase != .saving {
         Button("Finish") { Task { await store.save(status: .complete) } }
         Button("Cancel", role: .destructive) { store.cancel() }
       }
@@ -104,8 +108,8 @@ private struct StrengthCaptureFields: View {
           Button("Remove exercise", role: .destructive) { store.removeExercise(exercise.id) }
         }
       }
-      Button("Add exercise") { store.addExercise() }
     }
+    Button("Add exercise") { store.addExercise() }
   }
 }
 private struct CardioCaptureFields: View {

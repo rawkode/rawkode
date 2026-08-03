@@ -195,7 +195,12 @@ final class WatchWorkoutCaptureStore {
     let checkpoint = Checkpoint(eventID: UUID(), startedAt: Date(), phase: .recording, draft: draft)
     state.checkpoint = checkpoint
     phase = .recording
-    guard persist() else { return }
+    guard persist() else {
+      // No active capture may exist unless its event identity is durable.
+      state.checkpoint = nil
+      phase = .idle
+      return
+    }
     Task {
       await healthKit.begin(
         eventID: checkpoint.eventID, activity: activity, startedAt: checkpoint.startedAt)
@@ -221,6 +226,7 @@ final class WatchWorkoutCaptureStore {
   }
   func cancel() {
     guard let checkpoint = state.checkpoint else { return }
+    guard checkpoint.phase != .saving else { return }
     Task { await healthKit.cancel(eventID: checkpoint.eventID) }
     state.checkpoint = nil
     phase = .idle
@@ -234,6 +240,7 @@ final class WatchWorkoutCaptureStore {
   func supportExport(_ item: Quarantine) -> Data? { try? JSONEncoder().encode(item.envelope) }
   func save(status: WorkoutCaptureStatus) async {
     guard var c = state.checkpoint else { return }
+    guard c.phase != .saving else { return }
     guard validate(c.draft) else { return }
     let completedAt = Date()
     c.phase = .saving
@@ -329,6 +336,7 @@ final class WatchWorkoutCaptureStore {
       try persistence.save(state)
       return true
     } catch {
+      persistenceBlocked = true
       validationMessage = "Could not save workout capture."
       return false
     }

@@ -176,6 +176,7 @@ targets:
         WKCompanionAppBundleIdentifier: dev.rawkode.enchiridion
         WKBackgroundModes:
           - workout-processing
+        NSLocationWhenInUseUsageDescription: Record outdoor workout routes in Apple Health. Route coordinates are never sent to Enchiridion.
         NSHealthShareUsageDescription: Enchiridion records workout metrics you choose to save from Apple Watch.
         NSHealthUpdateUsageDescription: Enchiridion saves completed Apple Watch workouts to Health.
     sources:

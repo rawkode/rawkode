@@ -305,7 +305,6 @@
 		814FF580F8360F41285F41C8 /* PageReferenceOpenAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageReferenceOpenAction.swift; sourceTree = "<group>"; };
 		825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantVoicePreferences.swift; sourceTree = "<group>"; };
 		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
-		8585F72200080350DB90B801 /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceSurface.swift; sourceTree = "<group>"; };
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
@@ -595,7 +594,6 @@
 		785D6AAD1B7617AC92FA27D7 /* EnchiridionWatchTests */ = {
 			isa = PBXGroup;
 			children = (
-				8585F72200080350DB90B801 /* .gitkeep */,
 				D9471E84B9CC349962CB0060 /* WatchWorkoutCaptureTests.swift */,
 			);
 			path = EnchiridionWatchTests;

@@ -1,3 +1,4 @@
+import CoreLocation
 import EnchiridionWorkoutTransport
 import XCTest
 
@@ -48,6 +49,52 @@ final class WatchWorkoutCaptureTests: XCTestCase {
     try? await Task.sleep(for: .milliseconds(10))
     XCTAssertEqual(health.cancelled, 1)
     XCTAssertEqual(transfer.envelopes.count, 0)
+  }
+
+  func testStartRollsBackWhenInitialCheckpointCannotPersist() {
+    let unwritable = WatchWorkoutPersistence(url: FileManager.default.temporaryDirectory)
+    let store = WatchWorkoutCaptureStore(
+      persistence: unwritable, healthKit: HealthKit(), transfer: Transfer())
+    store.beginStrength()
+    XCTAssertNil(store.checkpoint)
+    XCTAssertTrue(store.persistenceBlocked)
+  }
+
+  func testRouteAuthorizationDenialIsUnavailable() {
+    XCTAssertEqual(WatchWorkoutRouteStatePolicy.authorization(.denied), .unavailable)
+    XCTAssertEqual(WatchWorkoutRouteStatePolicy.authorization(.restricted), .unavailable)
+    XCTAssertNil(WatchWorkoutRouteStatePolicy.authorization(.notDetermined))
+    XCTAssertNil(WatchWorkoutRouteStatePolicy.authorization(.authorizedWhenInUse))
+  }
+
+  func testRouteFinalizationDistinguishesSavedFailedAndUnavailable() {
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.finalized(
+        priorState: nil, hasBuilder: true, savedRoute: true),
+      .saved)
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.finalized(
+        priorState: nil, hasBuilder: true, savedRoute: false),
+      .failed)
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.finalized(
+        priorState: nil, hasBuilder: false, savedRoute: false),
+      .unavailable)
+  }
+
+  func testRecoveredRouteStateIsActivityAware() {
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.recovered(
+        requiresRoute: true, foundRoute: true, queryFailed: false),
+      .saved)
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.recovered(
+        requiresRoute: true, foundRoute: false, queryFailed: true),
+      .failed)
+    XCTAssertEqual(
+      WatchWorkoutRouteStatePolicy.recovered(
+        requiresRoute: false, foundRoute: false, queryFailed: false),
+      .notRequested)
   }
 
   func testPartialCaptureIsExactlyAcknowledged() async throws {
