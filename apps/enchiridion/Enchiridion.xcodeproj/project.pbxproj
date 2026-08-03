@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
+		0172EB8F97E41038CBACBD70 /* TodayWorkspaceTransitionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */; };
 		087A39046047331DDD0CB62F /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
@@ -33,6 +34,7 @@
 		34ACFA0FCB726153AABFC8B1 /* SemanticBrowseText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */; };
 		3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250D8A1FB97475734517559F /* MacDailyTaskContext.swift */; };
 		36962054295F03760BB825DD /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F507163A58A73341C55E4CB4 /* WebKit.framework */; };
+		383DCEA9BCD3F070F56C0EF8 /* DayPlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309C4773DED80B9C6BF85B33 /* DayPlanView.swift */; };
 		39957488BAB87B576815EA51 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */; };
 		39A12EE8FD0949AE9F59A70E /* Social.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E38E3D37CCD497ABF150C23A /* Social.framework */; };
 		3BC0CC9DEC7D6BBF99C1B95E /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */; };
@@ -64,6 +66,7 @@
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */; };
 		6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */; };
 		70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
@@ -71,6 +74,7 @@
 		74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
 		7845169927C30F09425C0E77 /* CalendarAgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */; };
 		7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */; };
+		7EA0F23EEAB687FA031A8390 /* DayPlanProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F53E8FEB2418049339279 /* DayPlanProjection.swift */; };
 		7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		82E9E242902EB55707C88FF1 /* DeviceContactsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */; };
 		8418C11580D7E921F83365BC /* PageLifecycleActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */; };
@@ -143,6 +147,7 @@
 		D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */; };
 		D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
 		D8E60E651B6339FEC1E4A06B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B20EC98721AA71FBB0962DB /* Assets.xcassets */; };
+		DA4E2CF2B07978113B93890F /* TodayWorkspaceTransitionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */; };
 		DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */; };
 		DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
 		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
@@ -160,10 +165,10 @@
 		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		E9508EB961677501422890A2 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
+		EDD7BF6DAF685B8173DE91FB /* RosePinePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543FE018A2E4F3E408311426 /* RosePinePalette.swift */; };
 		EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */; };
 		F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */; };
 		F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
-		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
 		FCD11CD558E7F31C7BC4A374 /* EnchiridionTaskShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FCE1175FD35F74F763C47431 /* RealtimeBridge in Resources */ = {isa = PBXBuildFile; fileRef = B4BD02A67B53232AAF5AC5EA /* RealtimeBridge */; };
 		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
@@ -228,6 +233,7 @@
 		28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPlanningViews.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaRows.swift; sourceTree = "<group>"; };
+		309C4773DED80B9C6BF85B33 /* DayPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanView.swift; sourceTree = "<group>"; };
 		31DFF3CD751EC0680E7E70C1 /* GraphRelationshipViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRelationshipViews.swift; sourceTree = "<group>"; };
 		41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarChrome.swift; sourceTree = "<group>"; };
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
@@ -235,7 +241,7 @@
 		4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderNotificationCoordinator.swift; sourceTree = "<group>"; };
 		4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaView.swift; sourceTree = "<group>"; };
 		51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageReferenceTextFormattingTests.swift; sourceTree = "<group>"; };
-		594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScreen.swift; sourceTree = "<group>"; };
+		543FE018A2E4F3E408311426 /* RosePinePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosePinePalette.swift; sourceTree = "<group>"; };
 		5B20EC98721AA71FBB0962DB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
 		5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagementViews.swift; sourceTree = "<group>"; };
@@ -256,10 +262,12 @@
 		8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRow.swift; sourceTree = "<group>"; };
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
+		8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjectionTests.swift; sourceTree = "<group>"; };
 		8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTodayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8D41119C15894B2A284BCB01 /* EnchiridionMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnchiridionMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceTransitionCoordinator.swift; sourceTree = "<group>"; };
 		948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSystemSpeechOutput.swift; sourceTree = "<group>"; };
 		96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
 		96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionUndoModifier.swift; sourceTree = "<group>"; };
@@ -283,6 +291,8 @@
 		BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationRuntime.swift; sourceTree = "<group>"; };
 		C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderAppDelegate.swift; sourceTree = "<group>"; };
 		C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonReferenceCreationForm.swift; sourceTree = "<group>"; };
+		C97F53E8FEB2418049339279 /* DayPlanProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjection.swift; sourceTree = "<group>"; };
+		C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceTransitionCoordinatorTests.swift; sourceTree = "<group>"; };
 		CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
 		CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManagementView.swift; sourceTree = "<group>"; };
 		D01C78BB8752D4959D32D9E9 /* Enchiridion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -396,16 +406,19 @@
 				4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */,
 				41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */,
 				CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */,
-				594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */,
 				DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */,
 				A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */,
 				720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */,
 				1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */,
+				C97F53E8FEB2418049339279 /* DayPlanProjection.swift */,
+				309C4773DED80B9C6BF85B33 /* DayPlanView.swift */,
 				5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */,
 				DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */,
 				D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */,
 				2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */,
 				F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */,
+				543FE018A2E4F3E408311426 /* RosePinePalette.swift */,
+				912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */,
 				9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */,
 			);
 			path = iOS;
@@ -492,10 +505,12 @@
 			isa = PBXGroup;
 			children = (
 				B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */,
+				8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */,
 				AE056AEA8ACA9A7AB83665CD /* EditorFlushControllerTests.swift */,
 				104662C94B10782309E1EB9B /* EditorPersistenceSessionTests.swift */,
 				BA74ED56BC8B515110CE321F /* PageReferenceSelectionResolverTests.swift */,
 				51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */,
+				C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */,
 			);
 			path = EnchiridionMobileTests;
 			sourceTree = "<group>";
@@ -836,11 +851,12 @@
 				FF2FEEAC12639A1D21480172 /* CalendarDayStrip.swift in Sources */,
 				8AAFFCB10E8DBA2C62023E3E /* CalendarEventFilterSettingsSection.swift in Sources */,
 				FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */,
-				F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */,
 				8ED761D9FB82EF9B4DBE8776 /* CarPlayAssistantPrivacySettings.swift in Sources */,
 				C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */,
 				00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */,
 				D2A35D7137F26A24D0D4AB92 /* DailyTaskContext.swift in Sources */,
+				7EA0F23EEAB687FA031A8390 /* DayPlanProjection.swift in Sources */,
+				383DCEA9BCD3F070F56C0EF8 /* DayPlanView.swift in Sources */,
 				8860C174604A5B979C3A104B /* DeviceContactPicker.swift in Sources */,
 				68AA474F3E1F28D661B29426 /* DeviceContactsLifecycleModifier.swift in Sources */,
 				82E9E242902EB55707C88FF1 /* DeviceContactsResolver.swift in Sources */,
@@ -872,6 +888,7 @@
 				6266E583A7D2398FF29F5025 /* PersonReferenceCreationForm.swift in Sources */,
 				D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */,
 				DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */,
+				EDD7BF6DAF685B8173DE91FB /* RosePinePalette.swift in Sources */,
 				48BBBFAEA62D217A23B33E34 /* SemanticBrowseText.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
@@ -882,6 +899,7 @@
 				7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */,
 				BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */,
 				5E764416E1D9F740E73E8C09 /* TaskWorkbench.swift in Sources */,
+				DA4E2CF2B07978113B93890F /* TodayWorkspaceTransitionCoordinator.swift in Sources */,
 				EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */,
 				CCA4C3B4D33E63877C0D862D /* VaultManagementView.swift in Sources */,
 				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
@@ -906,10 +924,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */,
+				6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */,
 				40811CB0F6893471E71E2286 /* EditorFlushControllerTests.swift in Sources */,
 				97F18510A92B13BEC7897705 /* EditorPersistenceSessionTests.swift in Sources */,
 				583CE1A9B4F570675365853B /* PageReferenceSelectionResolverTests.swift in Sources */,
 				6474858D82A6C7D1EC5F34BC /* PageReferenceTextFormattingTests.swift in Sources */,
+				0172EB8F97E41038CBACBD70 /* TodayWorkspaceTransitionCoordinatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

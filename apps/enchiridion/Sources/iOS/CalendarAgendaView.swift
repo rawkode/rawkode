@@ -8,6 +8,7 @@ struct CalendarAgendaView: View {
   let error: String?
   let isSearching: Bool
   let calendar: Calendar
+  var showsTitle = true
   let capacityPlan: DayCapacityPlan
   let scheduleTask: (TaskItem, Date) -> Void
   let openOccurrenceNote: (CalendarEventSnapshot) -> Void
@@ -18,7 +19,9 @@ struct CalendarAgendaView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      CalendarAgendaTitle(selectedDay: selectedDay, error: error, calendar: calendar)
+      if showsTitle {
+        CalendarAgendaTitle(selectedDay: selectedDay, error: error, calendar: calendar)
+      }
       if !isLoading { CalendarCapacitySummary(plan: capacityPlan) }
       CalendarAgendaContent(
         selectedDay: selectedDay,
@@ -45,19 +48,25 @@ private struct CalendarCapacitySummary: View {
         Label("Day capacity", systemImage: "clock.badge.checkmark")
           .font(.subheadline.weight(.semibold))
         Spacer(minLength: 12)
-        Text(plan.overCapacityMinutes > 0
-          ? "\(duration(plan.overCapacityMinutes)) over"
-          : "\(duration(plan.availableMinutes)) open")
-          .font(.subheadline.monospacedDigit().weight(.medium))
-          .foregroundStyle(plan.overCapacityMinutes > 0 ? Color.orange : Color.secondary)
+        Text(
+          plan.overCapacityMinutes > 0
+            ? "\(duration(plan.overCapacityMinutes)) over"
+            : "\(duration(plan.availableMinutes)) open"
+        )
+        .font(.subheadline.monospacedDigit().weight(.medium))
+        .foregroundStyle(plan.overCapacityMinutes > 0 ? Color.orange : Color.secondary)
       }
-      Text("\(duration(plan.plannedMinutes)) planned · \(duration(plan.unscheduledMinutes)) to place")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      Text(
+        "\(duration(plan.plannedMinutes)) planned · \(duration(plan.unscheduledMinutes)) to place"
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
       if plan.tasksWithoutEstimates > 0 {
-        Text("\(plan.tasksWithoutEstimates) \(plan.tasksWithoutEstimates == 1 ? "task" : "tasks") without estimates")
-          .font(.caption)
-          .foregroundStyle(.tertiary)
+        Text(
+          "\(plan.tasksWithoutEstimates) \(plan.tasksWithoutEstimates == 1 ? "task" : "tasks") without estimates"
+        )
+        .font(.caption)
+        .foregroundStyle(.tertiary)
       }
     }
     .padding(12)
@@ -85,8 +94,11 @@ private struct CalendarAgendaTitle: View {
   var body: some View {
     HStack(alignment: .firstTextBaseline) {
       VStack(alignment: .leading, spacing: 3) {
-        Text(calendar.isDateInToday(selectedDay) ? "Today" : selectedDay.formatted(.dateTime.weekday(.wide)))
-          .font(.title2.weight(.bold))
+        Text(
+          calendar.isDateInToday(selectedDay)
+            ? "Today" : selectedDay.formatted(.dateTime.weekday(.wide))
+        )
+        .font(.title2.weight(.bold))
         Text(selectedDay.formatted(.dateTime.month(.abbreviated).day().year()))
           .font(.subheadline)
           .foregroundStyle(.secondary)
@@ -118,7 +130,9 @@ private struct CalendarAgendaContent: View {
       CalendarAgendaPlaceholder()
     } else if allDayItems.isEmpty && timedItems.isEmpty {
       ContentUnavailableView {
-        Label(emptyTitle, systemImage: error == nil ? "calendar.badge.checkmark" : "calendar.badge.exclamationmark")
+        Label(
+          emptyTitle,
+          systemImage: error == nil ? "calendar.badge.checkmark" : "calendar.badge.exclamationmark")
       } description: {
         Text(emptyDescription)
       }

@@ -71,7 +71,7 @@ private struct CalendarAgendaEventRow: View {
         .frame(width: 72, alignment: .trailing)
         .padding(.top, 2)
       Circle()
-        .fill(.tint)
+        .fill(CalendarSourceColor.color(for: event.calendarColorHex))
         .frame(width: 8, height: 8)
         .padding(.top, 5)
         .accessibilityHidden(true)
@@ -115,13 +115,26 @@ private struct CalendarAgendaEventRow: View {
   }
 }
 
+private enum CalendarSourceColor {
+  static func color(for hex: String?) -> Color {
+    guard let hex else { return .accentColor }
+    let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
+    guard value.count == 6, let rgb = UInt64(value, radix: 16) else { return .accentColor }
+    return Color(
+      red: Double((rgb >> 16) & 0xFF) / 255,
+      green: Double((rgb >> 8) & 0xFF) / 255,
+      blue: Double(rgb & 0xFF) / 255
+    )
+  }
+}
+
 private struct CalendarAgendaTaskRow: View {
   let task: TaskItem
   let placement: CalendarTaskPlacement
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
-      Image(systemName: "checkmark.circle")
+      Image(systemName: "checklist")
         .foregroundStyle(.secondary).font(.title3).padding(.top, 1).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 4) {
         Text(task.page.displayTitle).font(.body.weight(.semibold)).foregroundStyle(.primary)

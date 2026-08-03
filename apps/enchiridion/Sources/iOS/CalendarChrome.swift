@@ -1,38 +1,5 @@
 import SwiftUI
 
-struct CalendarHeader: View {
-  let selectedDay: Date
-  let showDatePicker: () -> Void
-
-  var body: some View {
-    HStack(alignment: .firstTextBaseline) {
-      Button(action: showDatePicker) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(selectedDay.formatted(.dateTime.month(.wide).year()))
-            .font(.system(.largeTitle, design: .rounded, weight: .bold))
-            .foregroundStyle(.primary)
-          Text(selectedDay.formatted(.dateTime.weekday(.wide).day()))
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        .contentShape(.rect)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Choose date, currently \(selectedDay.formatted(date: .long, time: .omitted))")
-
-      Spacer(minLength: 12)
-
-      Label("Read-only", systemImage: "lock")
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.thinMaterial, in: Capsule())
-        .accessibilityHint("Events can be opened as linked Enchiridion notes")
-    }
-  }
-}
-
 struct CalendarFilterMenu: View {
   let calendarTitles: [String]
   @Binding var selectedCalendarTitles: Set<String>
@@ -40,13 +7,17 @@ struct CalendarFilterMenu: View {
   var body: some View {
     Menu {
       Button(action: showAllCalendars) {
-        Label("All calendars", systemImage: selectedCalendarTitles.isEmpty ? "checkmark" : "calendar")
+        Label(
+          "All calendars", systemImage: selectedCalendarTitles.isEmpty ? "checkmark" : "calendar")
       }
       if !calendarTitles.isEmpty {
         Divider()
         ForEach(calendarTitles, id: \.self) { title in
-          Button { toggle(title) } label: {
-            Label(title, systemImage: selectedCalendarTitles.contains(title) ? "checkmark" : "calendar")
+          Button {
+            toggle(title)
+          } label: {
+            Label(
+              title, systemImage: selectedCalendarTitles.contains(title) ? "checkmark" : "calendar")
           }
         }
       }
@@ -64,26 +35,5 @@ struct CalendarFilterMenu: View {
     } else {
       selectedCalendarTitles.insert(title)
     }
-  }
-}
-
-struct CalendarDatePicker: View {
-  @Binding var selectedDay: Date
-  let dismiss: () -> Void
-
-  var body: some View {
-    NavigationStack {
-      DatePicker("Choose a day", selection: $selectedDay, displayedComponents: .date)
-        .datePickerStyle(.graphical)
-        .padding()
-        .navigationTitle("Choose Date")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .confirmationAction) {
-            Button("Done", action: dismiss)
-          }
-        }
-    }
-    .presentationDetents([.medium])
   }
 }

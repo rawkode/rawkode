@@ -77,7 +77,9 @@ enum CalendarAgendaDate {
     .sorted {
       if $0.isAllDay != $1.isAllDay { return $0.isAllDay }
       if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
-      return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+      let titleOrder = $0.title.localizedStandardCompare($1.title)
+      if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+      return $0.id < $1.id
     }
   }
 
@@ -122,8 +124,10 @@ enum CalendarAgendaDate {
         if lhs.placement.sortDate != rhs.placement.sortDate {
           return lhs.placement.sortDate < rhs.placement.sortDate
         }
-        return lhs.task.page.displayTitle.localizedStandardCompare(rhs.task.page.displayTitle)
-          == .orderedAscending
+        let titleOrder = lhs.task.page.displayTitle.localizedStandardCompare(
+          rhs.task.page.displayTitle)
+        if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+        return lhs.task.id.rawValue < rhs.task.id.rawValue
       }
   }
 
@@ -134,7 +138,8 @@ enum CalendarAgendaDate {
     (events.map(CalendarAgendaItem.event) + tasks.map { .task($0.task, $0.placement) })
       .sorted { lhs, rhs in
         if lhs.isAllDay != rhs.isAllDay { return lhs.isAllDay }
-        return lhs.sortDate < rhs.sortDate
+        if lhs.sortDate != rhs.sortDate { return lhs.sortDate < rhs.sortDate }
+        return lhs.id < rhs.id
       }
   }
 }
