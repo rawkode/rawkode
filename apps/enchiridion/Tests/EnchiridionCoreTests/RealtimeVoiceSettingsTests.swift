@@ -61,6 +61,60 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertEqual(store.storedPayloadForTesting.voiceConsentVersion, 2)
   }
 
+  func testLegacyVoiceConsentFieldsRoundTripLosslesslyWithoutAuthorizingVoice() throws {
+    let binding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
+    let withLegacyFields = AssistantProviderPreferencesPayload(
+      selectedProvider: .openAI,
+      credentialRevision: binding.revision,
+      credentialFingerprint: binding.fingerprint,
+      verifiedCatalogVersion: OpenAIModelCatalog.version,
+      verifiedTextModelIDs: ["gpt-5.6-terra"],
+      verifiedRealtimeModelIDs: ["gpt-realtime-2.1-mini"],
+      selectedTextModelID: "gpt-5.6-terra",
+      selectedVoiceProvider: .openAIRealtime,
+      selectedRealtimeModelID: "gpt-realtime-2.1-mini",
+      selectedRealtimeVoiceID: "marin",
+      voiceConsentVersion: 2,
+      voiceConsentCredentialRevision: binding.revision,
+      voiceConsentCredentialFingerprint: binding.fingerprint,
+      voiceConsentModelCatalogVersion: OpenAIModelCatalog.version,
+      voiceConsentVoiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version,
+      voiceConsentModelID: "gpt-realtime-2.1-mini",
+      voiceConsentVoiceID: "marin"
+    )
+    let withoutLegacyFields = AssistantProviderPreferencesPayload(
+      selectedProvider: .openAI,
+      credentialRevision: binding.revision,
+      credentialFingerprint: binding.fingerprint,
+      verifiedCatalogVersion: OpenAIModelCatalog.version,
+      verifiedTextModelIDs: ["gpt-5.6-terra"],
+      verifiedRealtimeModelIDs: ["gpt-realtime-2.1-mini"],
+      selectedTextModelID: "gpt-5.6-terra",
+      selectedVoiceProvider: .openAIRealtime,
+      selectedRealtimeModelID: "gpt-realtime-2.1-mini",
+      selectedRealtimeVoiceID: "marin"
+    )
+
+    for payload in [withLegacyFields, withoutLegacyFields] {
+      let encoded = try JSONEncoder().encode(payload)
+      let decoded = try JSONDecoder().decode(AssistantProviderPreferencesPayload.self, from: encoded)
+      XCTAssertEqual(decoded, payload)
+      XCTAssertEqual(decoded.version, 3)
+      XCTAssertEqual(decoded.credentialRevision, binding.revision)
+      XCTAssertEqual(decoded.credentialFingerprint, binding.fingerprint)
+      XCTAssertEqual(decoded.selectedVoiceProvider, .openAIRealtime)
+      XCTAssertEqual(decoded.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+      XCTAssertEqual(decoded.selectedRealtimeVoiceID, "marin")
+      XCTAssertEqual(decoded.voiceConsentVersion, payload.voiceConsentVersion)
+      XCTAssertEqual(decoded.voiceConsentCredentialRevision, payload.voiceConsentCredentialRevision)
+      XCTAssertEqual(decoded.voiceConsentCredentialFingerprint, payload.voiceConsentCredentialFingerprint)
+      XCTAssertEqual(decoded.voiceConsentModelCatalogVersion, payload.voiceConsentModelCatalogVersion)
+      XCTAssertEqual(decoded.voiceConsentVoiceCatalogVersion, payload.voiceConsentVoiceCatalogVersion)
+      XCTAssertEqual(decoded.voiceConsentModelID, payload.voiceConsentModelID)
+      XCTAssertEqual(decoded.voiceConsentVoiceID, payload.voiceConsentVoiceID)
+    }
+  }
+
   func testVerifiedCredentialModelAndVoiceAuthorizeTheRealtimeRoute() {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let firstBinding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")

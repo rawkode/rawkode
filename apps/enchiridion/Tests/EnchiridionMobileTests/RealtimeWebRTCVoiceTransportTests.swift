@@ -5,6 +5,28 @@ import EnchiridionCore
 
 @MainActor
 final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
+  func testOpenAIVoiceRetryEligibilityRequiresTerminalFailedSession() {
+    let failedReceipt = RealtimeVoiceReceipt(
+      requestedModelID: "gpt-realtime-2.1-mini",
+      requestedVoiceID: "marin",
+      startedAt: .distantPast,
+      endedAt: .distantPast,
+      completion: .failed
+    )
+    let cancelledReceipt = RealtimeVoiceReceipt(
+      requestedModelID: "gpt-realtime-2.1-mini",
+      requestedVoiceID: "marin",
+      startedAt: .distantPast,
+      endedAt: .distantPast,
+      completion: .cancelled
+    )
+
+    XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .listening, receipt: nil))
+    XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .ended, receipt: cancelledReceipt))
+    XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: cancelledReceipt))
+    XCTAssertTrue(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: failedReceipt))
+  }
+
   func testOrbDescribesConcurrentActivityWithoutHiddenReasoningLanguage() {
     let description = VoiceActivityOrb.semanticDescription(
       VoiceActivitySnapshot(

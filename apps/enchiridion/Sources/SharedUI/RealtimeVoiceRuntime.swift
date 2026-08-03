@@ -46,12 +46,22 @@ final class RealtimeVoiceCoordinator {
   }
 
   func retry() {
+    guard let session, Self.canRetry(phase: session.state.phase, receipt: session.receipt) else {
+      return
+    }
     Task { @MainActor [weak self] in
       guard let self else { return }
-      await session?.stop()
-      session = nil
+      guard self.session === session else { return }
+      self.session = nil
       start(initialLifecycleState: lifecycleState)
     }
+  }
+
+  static func canRetry(
+    phase: RealtimeVoicePhase,
+    receipt: RealtimeVoiceReceipt?
+  ) -> Bool {
+    phase == .failed && receipt?.completion == .failed
   }
 
   func stop() {

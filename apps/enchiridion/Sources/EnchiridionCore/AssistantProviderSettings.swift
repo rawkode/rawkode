@@ -485,6 +485,17 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     try container.encode(selectedVoiceProvider, forKey: .selectedVoiceProvider)
     try container.encodeIfPresent(selectedRealtimeModelID, forKey: .selectedRealtimeModelID)
     try container.encodeIfPresent(selectedRealtimeVoiceID, forKey: .selectedRealtimeVoiceID)
+    try container.encodeIfPresent(voiceConsentVersion, forKey: .voiceConsentVersion)
+    try container.encodeIfPresent(
+      voiceConsentCredentialRevision, forKey: .voiceConsentCredentialRevision)
+    try container.encodeIfPresent(
+      voiceConsentCredentialFingerprint, forKey: .voiceConsentCredentialFingerprint)
+    try container.encodeIfPresent(
+      voiceConsentModelCatalogVersion, forKey: .voiceConsentModelCatalogVersion)
+    try container.encodeIfPresent(
+      voiceConsentVoiceCatalogVersion, forKey: .voiceConsentVoiceCatalogVersion)
+    try container.encodeIfPresent(voiceConsentModelID, forKey: .voiceConsentModelID)
+    try container.encodeIfPresent(voiceConsentVoiceID, forKey: .voiceConsentVoiceID)
   }
 }
 

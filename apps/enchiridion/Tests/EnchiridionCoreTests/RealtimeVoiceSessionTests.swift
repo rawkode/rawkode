@@ -499,6 +499,31 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     await start.value
   }
 
+  func testExternalRouteDowngradeDuringStartupRemainsRetryableFailure() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.audioActivation.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.handleSafetyEvent(
+      .routeChanged(
+        reason: .routeConfigurationChange,
+        previous: AssistantAudioRouteSnapshot(
+          inputs: [.bluetoothHFP], outputs: [.bluetoothHFP]
+        ),
+        current: AssistantAudioRouteSnapshot(
+          inputs: [.builtInMic], outputs: [.builtInSpeaker]
+        )
+      )
+    )
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "startup_interrupted")
+    await gate.resume()
+    await start.value
+  }
+
   func testInactivePermissionPromptWaitsForExplicitActiveBeforeReadingCredential() async throws {
     let fixture = try makeFixture()
     let gate = AsyncGate()

@@ -437,8 +437,8 @@ public final class RealtimeVoiceSession {
       // its own play-and-record route. Ignore only known benign changes that
       // retain microphone and output IO; an unavailable or removed route,
       // interruption, and media-service failure remain retryable failures.
-      if case .routeChanged(let changeReason, _, let current) = event,
-        isBenignStartupRouteChange(changeReason, current: current)
+      if case .routeChanged(let changeReason, let previous, let current) = event,
+        isBenignStartupRouteChange(changeReason, previous: previous, current: current)
       {
         return
       }
@@ -909,16 +909,25 @@ public final class RealtimeVoiceSession {
 
   private func isBenignStartupRouteChange(
     _ reason: AssistantAudioRouteChangeReason,
+    previous: AssistantAudioRouteSnapshot?,
     current: AssistantAudioRouteSnapshot
   ) -> Bool {
     guard current.hasRequiredVoiceIO else { return false }
     return switch reason {
-    case .categoryChange, .newDeviceAvailable, .override, .wakeFromSleep,
-      .routeConfigurationChange:
+    case .categoryChange, .newDeviceAvailable, .override, .wakeFromSleep:
       true
+    case .routeConfigurationChange:
+      // A configuration update while retaining the same public route is a
+      // normal part of configuring WebRTC. Do not mask a private/external
+      // output disappearing into the built-in speaker or receiver.
+      previous?.outputs.contains(where: isPrivateOrExternalOutput) != true
     case .unknown, .oldDeviceUnavailable, .noSuitableRoute:
       false
     }
+  }
+
+  private func isPrivateOrExternalOutput(_ port: AssistantAudioPort) -> Bool {
+    port != .builtInReceiver && port != .builtInSpeaker
   }
 
   private func waitForActiveDuringStartup(
