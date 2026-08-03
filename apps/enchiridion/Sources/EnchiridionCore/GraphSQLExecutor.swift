@@ -110,12 +110,14 @@ enum GraphSQLExecutor {
     sqlite3_limit(connection, SQLITE_LIMIT_COMPOUND_SELECT, 50)
     sqlite3_limit(connection, SQLITE_LIMIT_EXPR_DEPTH, 100)
 
-    let authorizer = AuthorizerState()
+    let authorizer = AuthorizerState(
+      allowedSources: allowedSources.union(moduleProjectionSources(connection)))
     let authorizerPointer = Unmanaged.passRetained(authorizer).toOpaque()
     defer { Unmanaged<AuthorizerState>.fromOpaque(authorizerPointer).release() }
     sqlite3_set_authorizer(connection, authorizerCallback, authorizerPointer)
 
-    let deadline = DispatchTime.now().uptimeNanoseconds
+    let deadline =
+      DispatchTime.now().uptimeNanoseconds
       + UInt64(limits.maximumDuration * 1_000_000_000)
     let progress = ProgressState(deadline: deadline)
     let progressPointer = Unmanaged.passRetained(progress).toOpaque()
@@ -194,48 +196,51 @@ enum GraphSQLExecutor {
     return .init(columns: columns, rows: rows, wasTruncated: truncated, elapsed: elapsed)
   }
 
-  private static let authorizerCallback: @convention(c) (
-    UnsafeMutableRawPointer?,
-    Int32,
-    UnsafePointer<CChar>?,
-    UnsafePointer<CChar>?,
-    UnsafePointer<CChar>?,
-    UnsafePointer<CChar>?
-  ) -> Int32 = { pointer, action, first, second, _, context in
-    guard let pointer else { return SQLITE_DENY }
-    let state = Unmanaged<AuthorizerState>.fromOpaque(pointer).takeUnretainedValue()
-    switch action {
-    case SQLITE_SELECT, SQLITE_RECURSIVE:
-      return SQLITE_OK
-    case SQLITE_READ:
-      let source = first.map { String(cString: $0).lowercased() } ?? ""
-      let view = context.map { String(cString: $0).lowercased() }
-      if allowedSources.contains(source) || ftsShadowSources.contains(source)
-        || view.map(allowedSources.contains) == true
-      {
+  private static let authorizerCallback:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      Int32,
+      UnsafePointer<CChar>?,
+      UnsafePointer<CChar>?,
+      UnsafePointer<CChar>?,
+      UnsafePointer<CChar>?
+    ) -> Int32 = { pointer, action, first, second, _, context in
+      guard let pointer else { return SQLITE_DENY }
+      let state = Unmanaged<AuthorizerState>.fromOpaque(pointer).takeUnretainedValue()
+      switch action {
+      case SQLITE_SELECT, SQLITE_RECURSIVE:
         return SQLITE_OK
-      }
-      state.deniedOperation = source.isEmpty ? "private storage" : source
-      return SQLITE_DENY
-    case SQLITE_FUNCTION:
-      let function = second.map { String(cString: $0).lowercased() }
-        ?? first.map { String(cString: $0).lowercased() }
-        ?? ""
-      guard allowedFunctions.contains(function) else {
-        state.deniedOperation = function.isEmpty ? "an unsafe SQL function" : "the \(function) function"
+      case SQLITE_READ:
+        let source = first.map { String(cString: $0).lowercased() } ?? ""
+        let view = context.map { String(cString: $0).lowercased() }
+        if state.allowedSources.contains(source) || ftsShadowSources.contains(source)
+          || view.map(state.allowedSources.contains) == true
+        {
+          return SQLITE_OK
+        }
+        state.deniedOperation = source.isEmpty ? "private storage" : source
+        return SQLITE_DENY
+      case SQLITE_FUNCTION:
+        let function =
+          second.map { String(cString: $0).lowercased() }
+          ?? first.map { String(cString: $0).lowercased() }
+          ?? ""
+        guard allowedFunctions.contains(function) else {
+          state.deniedOperation =
+            function.isEmpty ? "an unsafe SQL function" : "the \(function) function"
+          return SQLITE_DENY
+        }
+        return SQLITE_OK
+      case SQLITE_PRAGMA:
+        let pragma = first.map { String(cString: $0).lowercased() } ?? ""
+        if pragma == "data_version" { return SQLITE_OK }
+        state.deniedOperation = pragma.isEmpty ? "a pragma" : "the \(pragma) pragma"
+        return SQLITE_DENY
+      default:
+        state.deniedOperation = "a write or schema operation"
         return SQLITE_DENY
       }
-      return SQLITE_OK
-    case SQLITE_PRAGMA:
-      let pragma = first.map { String(cString: $0).lowercased() } ?? ""
-      if pragma == "data_version" { return SQLITE_OK }
-      state.deniedOperation = pragma.isEmpty ? "a pragma" : "the \(pragma) pragma"
-      return SQLITE_DENY
-    default:
-      state.deniedOperation = "a write or schema operation"
-      return SQLITE_DENY
     }
-  }
 
   private static let progressCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = {
     pointer in
@@ -263,10 +268,34 @@ enum GraphSQLExecutor {
       }
     case .blob(let value):
       code = value.withUnsafeBytes { buffer in
-        sqlite3_bind_blob(statement, index, buffer.baseAddress, Int32(buffer.count), sqliteTransient)
+        sqlite3_bind_blob(
+          statement, index, buffer.baseAddress, Int32(buffer.count), sqliteTransient)
       }
     }
     guard code == SQLITE_OK else { throw GraphQueryError.sqlite("Could not bind query argument.") }
+  }
+
+  /// Compiled modules provision their public views into this local catalog. Reading it before the
+  /// authorizer is installed lets future modules become queryable without widening access to any
+  /// private table or requiring a hand-maintained global allowlist.
+  private static func moduleProjectionSources(_ connection: OpaquePointer) -> Set<String> {
+    var statement: OpaquePointer?
+    guard
+      sqlite3_prepare_v2(
+        connection, "SELECT view_name FROM module_projection_declarations", -1, &statement, nil)
+        == SQLITE_OK,
+      let statement
+    else { return [] }
+    defer { sqlite3_finalize(statement) }
+    var result = Set<String>()
+    while sqlite3_step(statement) == SQLITE_ROW {
+      guard let text = sqlite3_column_text(statement, 0) else { continue }
+      let name = String(cString: text).lowercased()
+      if name.range(of: "^graph_[a-z0-9_]+$", options: .regularExpression) != nil {
+        result.insert(name)
+      }
+    }
+    return result
   }
 
   private static func columnValue(_ statement: OpaquePointer, index: Int32) -> GraphSQLValue {
@@ -309,7 +338,7 @@ enum GraphSQLExecutor {
     var index = 0
     while index < bytes.count {
       switch bytes[index] {
-      case 39: // String literal.
+      case 39:  // String literal.
         index += 1
         var literal: [UInt8] = []
         while index < bytes.count {
@@ -329,7 +358,7 @@ enum GraphSQLExecutor {
         // SQLite accepts single-quoted table names in FROM clauses for compatibility.
         let identifier = String(decoding: literal, as: UTF8.self).lowercased()
         if ftsShadowSources.contains(identifier) { return identifier }
-      case 34, 96, 91: // Quoted identifier.
+      case 34, 96, 91:  // Quoted identifier.
         let terminator: UInt8 = bytes[index] == 91 ? 93 : bytes[index]
         index += 1
         let start = index
@@ -372,7 +401,9 @@ enum GraphSQLExecutor {
 }
 
 private final class AuthorizerState {
+  let allowedSources: Set<String>
   var deniedOperation: String?
+  init(allowedSources: Set<String>) { self.allowedSources = allowedSources }
 }
 
 private final class ProgressState {

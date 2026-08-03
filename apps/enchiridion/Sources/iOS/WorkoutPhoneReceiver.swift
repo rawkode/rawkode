@@ -52,6 +52,20 @@ final class WorkoutPhoneReceiver {
       envelope.version == EnchiridionWorkoutTransport.version,
       envelope.isAuthentic(), UUID(uuidString: envelope.eventID) != nil
     else { return .rejected }
+    guard LibraryRepository.isValidWorkoutCapture(envelope) else {
+      // The tuple is authentic but cannot be imported. Record it without claiming a vault route,
+      // then send the existing terminal conflict disposition so the Watch quarantines it rather
+      // than retrying an immutable invalid capture forever.
+      if let registry {
+        try? registry.quarantineWorkoutCapture(
+          moduleID: envelope.moduleID, eventID: envelope.eventID,
+          payloadHash: envelope.payloadHash, reason: "invalid workout payload"
+        )
+        try? registry.enqueueWorkoutResponse(.init(envelope, disposition: .conflict))
+        drainAcknowledgements()
+      }
+      return .conflict
+    }
     guard let registry, let vaultSession else { return .pending }
 
     let route: WorkoutCaptureRoute

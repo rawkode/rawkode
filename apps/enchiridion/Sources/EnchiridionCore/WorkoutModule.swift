@@ -99,18 +99,19 @@ public enum WorkoutModule {
     projections: [
       .init(
         id: "dev.rawkode.enchiridion.workouts.projection.workouts.v1",
-        viewName: "graph_workouts_v1", version: 1, statement: "SELECT * FROM graph_workouts_v1"),
+        viewName: "graph_module_workouts_v1", version: 1,
+        statement: "SELECT * FROM graph_workouts_v1"),
       .init(
         id: "dev.rawkode.enchiridion.workouts.projection.exercises.v1",
-        viewName: "graph_workout_exercises_v1", version: 1,
+        viewName: "graph_module_workout_exercises_v1", version: 1,
         statement: "SELECT * FROM graph_workout_exercises_v1"),
       .init(
         id: "dev.rawkode.enchiridion.workouts.projection.sets.v1",
-        viewName: "graph_workout_sets_v1", version: 1,
+        viewName: "graph_module_workout_sets_v1", version: 1,
         statement: "SELECT * FROM graph_workout_sets_v1"),
       .init(
         id: "dev.rawkode.enchiridion.workouts.projection.splits.v1",
-        viewName: "graph_workout_splits_v1", version: 1,
+        viewName: "graph_module_workout_splits_v1", version: 1,
         statement: "SELECT * FROM graph_workout_splits_v1"),
     ],
     viewTypes: [.init(id: .init(rawValue: "dev.rawkode.enchiridion.workouts.summary"))]
@@ -291,7 +292,7 @@ extension LibraryRepository {
       try Row.fetchAll(
         db,
         sql:
-          "SELECT workout_id,title,activity,started_at,duration_seconds,status FROM graph_workouts_v1 ORDER BY started_at DESC LIMIT ?",
+          "SELECT workout_id,title,activity,started_at,duration_seconds,status FROM graph_module_workouts_v1 ORDER BY started_at DESC LIMIT ?",
         arguments: [max(1, min(limit, 500))]
       ).compactMap { row in
         guard let id: String = row["workout_id"], let title: String = row["title"],
@@ -434,6 +435,12 @@ extension LibraryRepository {
       .joined()
     return .init(rawValue: "workout_\(digest)")
   }
+  /// Authentication proves an envelope was not altered in transit; semantic validation is still
+  /// required before callers claim an immutable vault route.
+  public static func isValidWorkoutCapture(_ envelope: WorkoutCaptureEnvelope) -> Bool {
+    (try? validate(envelope)) != nil
+  }
+
   private static func validate(_ e: WorkoutCaptureEnvelope) throws {
     let finite: (Double?) -> Bool = { $0.map { $0.isFinite && $0 >= 0 } ?? true }
     let elapsed = e.completedAt.timeIntervalSince(e.startedAt)

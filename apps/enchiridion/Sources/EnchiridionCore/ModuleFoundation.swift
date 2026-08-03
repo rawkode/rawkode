@@ -38,7 +38,9 @@ public enum DeclarationOwnership: Codable, Hashable, Sendable {
 
 /// Resolves ownership without changing the durable shape of legacy declarations.
 public enum DeclarationOwnershipResolver {
-  public static func ownership(of identifier: String, registry: ModuleRegistry) -> DeclarationOwnership {
+  public static func ownership(of identifier: String, registry: ModuleRegistry)
+    -> DeclarationOwnership
+  {
     for manifest in registry.manifests where manifest.namespace.contains(identifier) {
       return .module(manifest.id)
     }
@@ -54,14 +56,20 @@ public struct ModuleProjectionDeclaration: Codable, Hashable, Sendable, Identifi
   public let statement: String
 
   public init(id: String, viewName: String, version: Int, statement: String) {
-    self.id = id; self.viewName = viewName; self.version = version; self.statement = statement
+    self.id = id
+    self.viewName = viewName
+    self.version = version
+    self.statement = statement
   }
 }
 
 public struct ModuleViewTypeDeclaration: Codable, Hashable, Sendable, Identifiable {
   public let id: ViewTypeID
   public let version: Int
-  public init(id: ViewTypeID, version: Int = 1) { self.id = id; self.version = version }
+  public init(id: ViewTypeID, version: Int = 1) {
+    self.id = id
+    self.version = version
+  }
 }
 
 public struct EnchiridionModuleManifest: Sendable {
@@ -82,8 +90,12 @@ public struct EnchiridionModuleManifest: Sendable {
     projections: [ModuleProjectionDeclaration] = [],
     viewTypes: [ModuleViewTypeDeclaration] = []
   ) {
-    self.id = id; self.version = version; self.namespace = namespace ?? .init(moduleID: id)
-    self.supertags = supertags; self.relations = relations; self.projections = projections
+    self.id = id
+    self.version = version
+    self.namespace = namespace ?? .init(moduleID: id)
+    self.supertags = supertags
+    self.relations = relations
+    self.projections = projections
     self.viewTypes = viewTypes
   }
 }
@@ -122,38 +134,50 @@ public struct ModuleRegistry: Sendable {
       guard manifest.version > 0, manifest.namespace.moduleID == manifest.id,
         manifest.namespace.prefix.hasSuffix("."), !manifest.namespace.prefix.isEmpty
       else { throw ModuleRegistryError.invalidNamespace(manifest.id) }
-      guard modules.insert(manifest.id).inserted else { throw ModuleRegistryError.duplicateModule(manifest.id) }
+      guard modules.insert(manifest.id).inserted else {
+        throw ModuleRegistryError.duplicateModule(manifest.id)
+      }
       for projection in manifest.projections {
-        guard Self.isValidProjectionViewName(projection.viewName), Self.isSafeProjectionStatement(projection.statement),
+        guard projection.version > 0, Self.isValidProjectionViewName(projection.viewName),
+          Self.isSafeProjectionStatement(projection.statement),
           projectionViews.insert(projection.viewName).inserted
         else { throw ModuleRegistryError.invalidProjection(projection.id) }
       }
-      let declared = manifest.supertags.map(\.id.rawValue) + manifest.relations.map(\.id.rawValue)
+      let declared =
+        manifest.supertags.map(\.id.rawValue) + manifest.relations.map(\.id.rawValue)
         + manifest.projections.map(\.id) + manifest.viewTypes.map(\.id.rawValue)
       for identifier in declared {
         guard manifest.namespace.contains(identifier) else {
           throw ModuleRegistryError.foreignDeclaration(module: manifest.id, identifier: identifier)
         }
-        guard identifiers.insert(identifier).inserted else { throw ModuleRegistryError.identifierCollision(identifier) }
+        guard identifiers.insert(identifier).inserted else {
+          throw ModuleRegistryError.identifierCollision(identifier)
+        }
       }
     }
     self.manifests = ordered
   }
 
-  private static func isValidProjectionViewName(_ value: String) -> Bool {
+  static func isValidProjectionViewName(_ value: String) -> Bool {
     value.range(of: "^graph_[a-z0-9_]+$", options: .regularExpression) != nil
   }
 
   /// Projections are code-owned but still get a deliberately narrow SQL contract. They are a
   /// single query body, never a DDL/DML script.
-  private static func isSafeProjectionStatement(_ statement: String) -> Bool {
+  static func isSafeProjectionStatement(_ statement: String) -> Bool {
     let normalized = statement.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !normalized.isEmpty, !normalized.contains(";"), !normalized.contains("--"), !normalized.contains("/*"),
+    guard !normalized.isEmpty, !normalized.contains(";"), !normalized.contains("--"),
+      !normalized.contains("/*"),
       normalized.range(of: "^SELECT\\b", options: [.regularExpression, .caseInsensitive]) != nil
     else { return false }
-    let words = normalized.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
-    let forbidden: Set<String> = ["insert", "update", "delete", "drop", "alter", "create", "attach", "pragma", "vacuum", "replace"]
-    return !words.contains(where: { forbidden.contains($0) }) && words.filter { $0 == "select" }.count == 1
+    let words = normalized.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+    let forbidden: Set<String> = [
+      "insert", "update", "delete", "drop", "alter", "create", "attach", "pragma", "vacuum",
+      "replace",
+    ]
+    return !words.contains(where: { forbidden.contains($0) })
+      && words.filter { $0 == "select" }.count == 1
   }
 
   public func writeCapability(for id: EnchiridionModuleID) -> ModuleWriteCapability? {
@@ -170,54 +194,210 @@ public struct ModuleWriteCapability: Hashable, Sendable {
 extension LibraryRepository {
   /// Installs only additive, compiled declarations. They are local metadata and must never enter
   /// CloudKit's user-editable schema stream.
-  public func reconcileModule(_ manifest: EnchiridionModuleManifest, using capability: ModuleWriteCapability) throws {
+  public func reconcileModule(
+    _ manifest: EnchiridionModuleManifest, using capability: ModuleWriteCapability
+  ) throws {
     guard capability.moduleID == manifest.id else {
-      throw ModuleRegistryError.foreignDeclaration(module: capability.moduleID, identifier: manifest.id.rawValue)
+      throw ModuleRegistryError.foreignDeclaration(
+        module: capability.moduleID, identifier: manifest.id.rawValue)
     }
     try database.write { db in
+      try Self.reconcileModuleProjections(manifest, in: db)
       for declaration in manifest.supertags {
         guard manifest.namespace.contains(declaration.id.rawValue) else {
-          throw ModuleRegistryError.foreignDeclaration(module: manifest.id, identifier: declaration.id.rawValue)
+          throw ModuleRegistryError.foreignDeclaration(
+            module: manifest.id, identifier: declaration.id.rawValue)
         }
         let resolved = try Self.additivelyMergedModuleSupertag(declaration, in: db)
-        try db.execute(sql: """
-          INSERT INTO supertag_schemas (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,cloud_synced_generation)
-          VALUES (?,?,?,?,999,?,0,0,0)
-          ON CONFLICT(id) DO UPDATE SET name=excluded.name, definition_json=excluded.definition_json,
-            deleted=0, modified_at=excluded.modified_at, cloud_dirty=0, cloud_record=NULL
-          """, arguments: [resolved.id.rawValue, resolved.name, try JSONEncoder.enchiridion.encode(resolved), false, Date().timeIntervalSince1970])
+        try db.execute(
+          sql: """
+            INSERT INTO supertag_schemas (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,cloud_synced_generation)
+            VALUES (?,?,?,?,999,?,0,0,0)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name, definition_json=excluded.definition_json,
+              deleted=0, modified_at=excluded.modified_at, cloud_dirty=0, cloud_record=NULL
+            """,
+          arguments: [
+            resolved.id.rawValue, resolved.name, try JSONEncoder.enchiridion.encode(resolved),
+            false, Date().timeIntervalSince1970,
+          ])
       }
       for relation in manifest.relations {
         guard manifest.namespace.contains(relation.id.rawValue) else {
-          throw ModuleRegistryError.foreignDeclaration(module: manifest.id, identifier: relation.id.rawValue)
+          throw ModuleRegistryError.foreignDeclaration(
+            module: manifest.id, identifier: relation.id.rawValue)
         }
         var local = relation
         local.isSystem = true
         try GraphDatabaseSchema.saveRelation(local, in: db, modifiedAt: Date())
-        try db.execute(sql: "UPDATE _graph_relation_definitions SET cloud_dirty = 0, cloud_record = NULL WHERE id = ?", arguments: [relation.id.rawValue])
+        try db.execute(
+          sql:
+            "UPDATE _graph_relation_definitions SET cloud_dirty = 0, cloud_record = NULL WHERE id = ?",
+          arguments: [relation.id.rawValue])
       }
       try GraphDatabaseSchema.rebuildTagClosure(in: db)
       try GraphProjectionStore.refreshIssues(in: db)
     }
   }
 
-  /// A module may only reconcile declarations inside its own namespace.
-  public func saveModuleSupertag(_ definition: SupertagDefinition, using capability: ModuleWriteCapability, registry: ModuleRegistry) throws {
-    guard let manifest = registry.manifests.first(where: { $0.id == capability.moduleID }),
-      manifest.supertags.contains(where: { $0.id == definition.id })
-    else { throw ModuleRegistryError.foreignDeclaration(module: capability.moduleID, identifier: definition.id.rawValue) }
-    try reconcileModule(.init(id: manifest.id, version: manifest.version, namespace: manifest.namespace, supertags: [definition]), using: capability)
+  /// Materializes a manifest's read-only projections locally. The catalog records the exact
+  /// declaration which created each view so a same-version rewrite cannot silently alter a
+  /// query, while an explicit version bump can replace only the owning module's view.
+  private static func reconcileModuleProjections(
+    _ manifest: EnchiridionModuleManifest,
+    in db: Database
+  ) throws {
+    try db.execute(
+      sql: """
+        CREATE TABLE IF NOT EXISTS module_projection_declarations (
+          projection_id TEXT PRIMARY KEY NOT NULL,
+          module_id TEXT NOT NULL,
+          view_name TEXT NOT NULL UNIQUE,
+          version INTEGER NOT NULL,
+          statement TEXT NOT NULL
+        )
+        """)
+
+    for projection in manifest.projections {
+      guard projection.version > 0,
+        ModuleRegistry.isValidProjectionViewName(projection.viewName),
+        ModuleRegistry.isSafeProjectionStatement(projection.statement)
+      else { throw ModuleRegistryError.invalidProjection(projection.id) }
+
+      let existing = try Row.fetchOne(
+        db,
+        sql: """
+          SELECT module_id, view_name, version, statement
+          FROM module_projection_declarations WHERE projection_id = ?
+          """,
+        arguments: [projection.id]
+      )
+      if let existing {
+        let owner: String = existing["module_id"] ?? ""
+        let viewName: String = existing["view_name"] ?? ""
+        let version: Int = existing["version"] ?? 0
+        let statement: String = existing["statement"] ?? ""
+        guard owner == manifest.id.rawValue, viewName == projection.viewName else {
+          throw ModuleRegistryError.invalidProjection(projection.id)
+        }
+        if version == projection.version {
+          guard statement == projection.statement else {
+            throw ModuleRegistryError.incompatibleUpgrade(projection.id)
+          }
+          let sqliteSQL = try String.fetchOne(
+            db,
+            sql: "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?",
+            arguments: [projection.viewName]
+          )
+          guard sqliteSQL == nil || Self.matchesProjection(projection, sqliteSQL: sqliteSQL!) else {
+            throw ModuleRegistryError.invalidProjection(projection.id)
+          }
+          if sqliteSQL == nil { try Self.createModuleProjection(projection, in: db) }
+          continue
+        }
+        guard version < projection.version else {
+          throw ModuleRegistryError.incompatibleUpgrade(projection.id)
+        }
+        try db.execute(sql: "DROP VIEW IF EXISTS \"\(projection.viewName)\"")
+        try Self.createModuleProjection(projection, in: db)
+        try db.execute(
+          sql:
+            "UPDATE module_projection_declarations SET version = ?, statement = ? WHERE projection_id = ?",
+          arguments: [projection.version, projection.statement, projection.id]
+        )
+        continue
+      }
+
+      let existingOwner = try String.fetchOne(
+        db,
+        sql: "SELECT projection_id FROM module_projection_declarations WHERE view_name = ?",
+        arguments: [projection.viewName]
+      )
+      guard existingOwner == nil else { throw ModuleRegistryError.invalidProjection(projection.id) }
+      let sqliteViewSQL = try String.fetchOne(
+        db,
+        sql: "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?",
+        arguments: [projection.viewName]
+      )
+      guard sqliteViewSQL == nil || Self.matchesProjection(projection, sqliteSQL: sqliteViewSQL!)
+      else {
+        throw ModuleRegistryError.invalidProjection(projection.id)
+      }
+      if sqliteViewSQL == nil { try Self.createModuleProjection(projection, in: db) }
+      try db.execute(
+        sql: """
+          INSERT INTO module_projection_declarations (projection_id,module_id,view_name,version,statement)
+          VALUES (?,?,?,?,?)
+          """,
+        arguments: [
+          projection.id, manifest.id.rawValue, projection.viewName, projection.version,
+          projection.statement,
+        ]
+      )
+    }
   }
 
-  private static func additivelyMergedModuleSupertag(_ incoming: SupertagDefinition, in db: Database) throws -> SupertagDefinition {
-    guard let data = try Data.fetchOne(db, sql: "SELECT definition_json FROM supertag_schemas WHERE id = ?", arguments: [incoming.id.rawValue]),
+  private static func createModuleProjection(
+    _ projection: ModuleProjectionDeclaration, in db: Database
+  )
+    throws
+  {
+    // `viewName` is regex-constrained above, and `statement` has the registry's one-SELECT
+    // contract. Quoting the identifier also makes this safe if SQLite keywords are introduced.
+    try db.execute(sql: "CREATE VIEW \"\(projection.viewName)\" AS \(projection.statement)")
+  }
+
+  private static func matchesProjection(
+    _ projection: ModuleProjectionDeclaration, sqliteSQL: String
+  ) -> Bool {
+    guard
+      let range = sqliteSQL.range(of: "\\bAS\\b", options: [.regularExpression, .caseInsensitive])
+    else {
+      return false
+    }
+    return normalizedProjectionSQL(String(sqliteSQL[range.upperBound...]))
+      == normalizedProjectionSQL(projection.statement)
+  }
+
+  private static func normalizedProjectionSQL(_ sql: String) -> String {
+    sql.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+  }
+
+  /// A module may only reconcile declarations inside its own namespace.
+  public func saveModuleSupertag(
+    _ definition: SupertagDefinition, using capability: ModuleWriteCapability,
+    registry: ModuleRegistry
+  ) throws {
+    guard let manifest = registry.manifests.first(where: { $0.id == capability.moduleID }),
+      manifest.supertags.contains(where: { $0.id == definition.id })
+    else {
+      throw ModuleRegistryError.foreignDeclaration(
+        module: capability.moduleID, identifier: definition.id.rawValue)
+    }
+    try reconcileModule(
+      .init(
+        id: manifest.id, version: manifest.version, namespace: manifest.namespace,
+        supertags: [definition]), using: capability)
+  }
+
+  private static func additivelyMergedModuleSupertag(
+    _ incoming: SupertagDefinition, in db: Database
+  ) throws -> SupertagDefinition {
+    guard
+      let data = try Data.fetchOne(
+        db, sql: "SELECT definition_json FROM supertag_schemas WHERE id = ?",
+        arguments: [incoming.id.rawValue]),
       let existing = try? JSONDecoder.enchiridion.decode(SupertagDefinition.self, from: data)
     else { return incoming }
     var merged = incoming
-    for oldField in existing.fields where !incoming.fields.contains(where: { $0.id == oldField.id }) { merged.fields.append(oldField) }
+    for oldField in existing.fields where !incoming.fields.contains(where: { $0.id == oldField.id })
+    { merged.fields.append(oldField) }
     for field in incoming.fields {
-      if let old = existing.fields.first(where: { $0.id == field.id }), (old.type != field.type || old.allowsMultiple != field.allowsMultiple) {
-        throw ModuleRegistryError.incompatibleUpgrade("\(incoming.id.rawValue):\(field.id.rawValue)")
+      if let old = existing.fields.first(where: { $0.id == field.id }),
+        old.type != field.type || old.allowsMultiple != field.allowsMultiple
+      {
+        throw ModuleRegistryError.incompatibleUpgrade(
+          "\(incoming.id.rawValue):\(field.id.rawValue)")
       }
     }
     return merged

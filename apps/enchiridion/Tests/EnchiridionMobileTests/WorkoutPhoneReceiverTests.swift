@@ -64,13 +64,39 @@ final class WorkoutPhoneReceiverTests: XCTestCase {
     XCTAssertTrue(try fixture.registry.pendingWorkoutAcknowledgements().isEmpty)
   }
 
-  private func workout(eventID: String = UUID().uuidString, repetitions: Int = 5)
+  func testAuthenticButInvalidEnvelopeIsQuarantinedBeforeRouteClaim() async throws {
+    let fixture = try makeFixture()
+    let sender = Sender()
+    let receiver = try WorkoutPhoneReceiver(
+      vaultSession: fixture.session, registry: fixture.registry, acknowledgementSender: sender
+    )
+    let envelope = workout(durationSeconds: 61)
+    XCTAssertTrue(envelope.isAuthentic())
+
+    let result = await receiver.receive(try JSONEncoder().encode(envelope))
+    XCTAssertEqual(result, .conflict)
+    XCTAssertNil(
+      try fixture.registry.existingWorkoutCaptureRoute(
+        moduleID: envelope.moduleID, eventID: envelope.eventID
+      )
+    )
+    let responseData = try XCTUnwrap(sender.values.last)
+    let response = try JSONDecoder().decode(WorkoutDeliveryResponse.self, from: responseData)
+    XCTAssertEqual(response.disposition, .conflict)
+    XCTAssertEqual(response.acknowledgement, .init(envelope))
+  }
+
+  private func workout(
+    eventID: String = UUID().uuidString,
+    repetitions: Int = 5,
+    durationSeconds: Double = 60
+  )
     -> WorkoutCaptureEnvelope
   {
     let start = Date(timeIntervalSince1970: 1_700_000_000)
     return .init(
       eventID: eventID, startedAt: start, completedAt: start.addingTimeInterval(60),
-      activity: .strengthTraining, status: .complete, durationSeconds: 60,
+      activity: .strengthTraining, status: .complete, durationSeconds: durationSeconds,
       payload: .strength(exercises: [
         .init(
           ordinal: 1, name: "Squat",
