@@ -10,11 +10,12 @@ public struct ViewTypeID: RawRepresentable, Codable, Hashable, Sendable, Identif
 /// It intentionally has no repository/store or SQL handle.
 @MainActor
 public struct ModuleViewContext {
+  public let vaultID: VaultID
   public let definition: LiveQueryDefinition
   public let items: [LiveQueryItem]
   public let dispatch: (ModuleViewCommand) -> Void
-  public init(definition: LiveQueryDefinition, items: [LiveQueryItem], dispatch: @escaping (ModuleViewCommand) -> Void) {
-    self.definition = definition; self.items = items; self.dispatch = dispatch
+  public init(vaultID: VaultID, definition: LiveQueryDefinition, items: [LiveQueryItem], dispatch: @escaping (ModuleViewCommand) -> Void) {
+    self.vaultID = vaultID; self.definition = definition; self.items = items; self.dispatch = dispatch
   }
 }
 

@@ -112,6 +112,11 @@ final class EnchiridionMacRuntime {
     return assistantSession == nil ? "Your local library is unavailable." : nil
   }
   private init() {
+    do {
+      try WorkoutModuleViews.register()
+    } catch {
+      preconditionFailure("First-party module view registration failed: \(error)")
+    }
     let credentialStore = OpenAICredentialStore()
     openAICredentialStore = credentialStore
     assistantProviderSettings = AssistantProviderSettingsController(

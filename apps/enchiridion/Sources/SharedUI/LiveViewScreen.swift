@@ -34,7 +34,7 @@ struct LiveViewScreen: View {
   var body: some View {
     Group {
       if let renderer = ModuleViewRendererRegistry.shared.renderer(for: definition.viewTypeID) {
-        renderer(ModuleViewContext(definition: definition, items: items) { command in
+        renderer(ModuleViewContext(vaultID: store.vaultID, definition: definition, items: items) { command in
           switch command {
           case .openPage(let scopedID) where scopedID.vaultID == store.vaultID:
             openPage(PageID(rawValue: scopedID.nodeID.rawValue))
