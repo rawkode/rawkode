@@ -167,14 +167,17 @@ public struct RealtimeProtocolCodec: Sendable {
 
     case "error":
       let error = try object(root["error"], event: type)
+      let code = optionalCode(error["code"] ?? error["type"])
       return RealtimeServerEvent(
         eventID: eventID,
         payload: .error(
           RealtimeCorrelatedError(
             eventID: eventID,
             responseID: optionalString(error["response_id"], maximum: 256),
-            code: optionalCode(error["code"] ?? error["type"]),
-            message: "OpenAI Voice reported a connection error."
+            code: code,
+            message: code.map {
+              "OpenAI Voice reported a connection error (\($0))."
+            } ?? "OpenAI Voice reported a connection error."
           )
         )
       )

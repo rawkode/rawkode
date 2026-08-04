@@ -740,7 +740,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
       capabilities: .init(
         catalogVersion: OpenAIModelCatalog.version,
         textModelIDs: textModelIDs,
-        realtimeModelIDs: ["gpt-realtime-2.1-mini"]
+        realtimeModelIDs: ["gpt-realtime-mini"]
       ),
       requestID: requestID
     )

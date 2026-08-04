@@ -70,4 +70,24 @@ final class TodayWorkspaceTransitionCoordinatorTests: XCTestCase {
 
     XCTAssertEqual(visiblePanel, .plan)
   }
+
+  func testImmediateTargetCancelsPendingWork() async {
+    let day = Date(timeIntervalSinceReferenceDate: 100)
+    let coordinator = TodayWorkspaceTransitionCoordinator(day: day)
+    let note = TodayWorkspaceTransitionCoordinator.Target(day: day, panel: .note)
+    let plan = TodayWorkspaceTransitionCoordinator.Target(
+      day: day.addingTimeInterval(86_400), panel: .plan)
+    var materializedNote = false
+
+    coordinator.request(note) { _, _ in
+      try? await Task.sleep(for: .seconds(1))
+      guard !Task.isCancelled else { return }
+      materializedNote = true
+    }
+    coordinator.showImmediately(plan)
+    await Task.yield()
+
+    XCTAssertFalse(materializedNote)
+    XCTAssertTrue(coordinator.isCurrent(coordinator.generation, target: plan))
+  }
 }

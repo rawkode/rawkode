@@ -65,7 +65,7 @@ struct DayPlanView: View {
         CalendarAgendaView(
           selectedDay: day, items: visibleItems, isLoading: store.isLoading,
           error: store.calendarError, isSearching: !searchText.isEmpty, calendar: calendar,
-          showsTitle: false,
+          showsTitle: true,
           capacityPlan: capacityPlan, scheduleTask: scheduleTask,
           openOccurrenceNote: openOccurrenceNote, openSeriesNote: openSeriesNote
         )
@@ -92,11 +92,13 @@ struct DayPlanView: View {
           }
         }
       }
-      .padding(.horizontal)
-      .padding(.vertical, 12)
+      .padding(.horizontal, 16)
+      .padding(.top, 8)
+      .padding(.bottom, 34)
       .frame(maxWidth: 760, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
     }
+    .background(RosePinePalette.calendarBackground)
     .refreshable { await refresh() }
   }
 }

@@ -63,46 +63,72 @@ private struct CalendarAgendaEventRow: View {
   let openOccurrenceNote: () -> Void
   let openSeriesNote: (() -> Void)?
 
+  @Environment(\.openURL) private var openURL
+
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      Text(timeRange)
-        .font(.caption.monospacedDigit().weight(.medium))
-        .foregroundStyle(.secondary)
-        .frame(width: 72, alignment: .trailing)
-        .padding(.top, 2)
+    HStack(alignment: .top, spacing: 10) {
       Circle()
         .fill(CalendarSourceColor.color(for: event.calendarColorHex))
-        .frame(width: 8, height: 8)
-        .padding(.top, 5)
+        .frame(width: 9, height: 9)
+        .padding(.top, 7)
         .accessibilityHidden(true)
       Button(action: openOccurrenceNote) {
         VStack(alignment: .leading, spacing: 4) {
+          Text(timeRange)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+          Text(event.title)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(3)
           HStack(spacing: 5) {
-            Text(event.title).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
-            if event.url != nil {
-              Image(systemName: "video").foregroundStyle(.secondary).accessibilityLabel(
-                "Video link")
+            if let location = event.location, !location.isEmpty {
+              Text(location)
+                .lineLimit(1)
             }
+            if let location = event.location, !location.isEmpty {
+              Text("·")
+            }
+            Text(event.calendarTitle)
+              .lineLimit(1)
           }
-          if let location = event.location, !location.isEmpty {
-            Label(location, systemImage: "mappin.and.ellipse")
-              .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-          }
-          Label(event.calendarTitle, systemImage: "calendar")
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          .font(.caption)
+          .foregroundStyle(.secondary)
         }
         .contentShape(.rect)
       }
       .buttonStyle(.plain)
       .accessibilityHint("Open linked event note")
       Spacer(minLength: 0)
-      if let openSeriesNote {
-        Button(action: openSeriesNote) { Image(systemName: "rectangle.stack") }
+      VStack(alignment: .trailing, spacing: 8) {
+        if let url = event.url {
+          Button { openURL(url) } label: {
+            Text("Join")
+              .font(.caption.weight(.semibold))
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.small)
+          .accessibilityLabel("Join \(event.title)")
+        }
+        if let openSeriesNote {
+          Button(action: openSeriesNote) {
+            Image(systemName: "note.text")
+              .font(.body.weight(.medium))
+          }
           .buttonStyle(.borderless)
+          .foregroundStyle(.secondary)
           .accessibilityLabel("Open series notes")
+        }
       }
     }
-    .padding(12)
+    .padding(.vertical, 14)
+    .overlay(alignment: .bottom) {
+      Divider()
+        .padding(.leading, 28)
+        .opacity(0.45)
+    }
     .accessibilityElement(children: .contain)
   }
 
@@ -135,7 +161,7 @@ private struct CalendarAgendaTaskRow: View {
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
       Image(systemName: "checklist")
-        .foregroundStyle(.secondary).font(.title3).padding(.top, 1).accessibilityHidden(true)
+        .foregroundStyle(.tint).font(.title3).padding(.top, 1).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 4) {
         Text(task.page.displayTitle).font(.body.weight(.semibold)).foregroundStyle(.primary)
           .lineLimit(2)
@@ -156,7 +182,12 @@ private struct CalendarAgendaTaskRow: View {
       Image(systemName: "chevron.right")
         .font(.caption.weight(.semibold)).foregroundStyle(.tertiary).accessibilityHidden(true)
     }
-    .padding(12)
+    .padding(.vertical, 13)
+    .overlay(alignment: .bottom) {
+      Divider()
+        .padding(.leading, 42)
+        .opacity(0.45)
+    }
     .accessibilityLabel("Task, \(task.page.displayTitle), \(placement.accessibilitySummary)")
     .accessibilityHint("Open task note")
   }
@@ -177,13 +208,10 @@ struct CalendarAgendaSection<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+      Text(title.uppercased())
+        .font(.caption2.weight(.bold))
+        .foregroundStyle(.secondary)
       VStack(spacing: 0) { content }
-        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(.separator.opacity(0.55))
-        }
     }
   }
 }
@@ -193,16 +221,15 @@ struct CalendarAgendaPlaceholder: View {
     CalendarAgendaSection(title: "Agenda") {
       ForEach(0..<4, id: \.self) { _ in
         HStack(spacing: 12) {
-          Text("09:30–10:15").font(.caption.monospacedDigit()).frame(
-            width: 72, alignment: .trailing)
           Circle().frame(width: 8, height: 8)
           VStack(alignment: .leading, spacing: 5) {
+            Text("09:30–10:15").font(.subheadline.weight(.semibold))
             Text("Calendar event title")
             Text("Calendar source").font(.caption)
           }
           Spacer()
         }
-        .padding(12)
+        .padding(.vertical, 13)
       }
     }
     .redacted(reason: .placeholder)

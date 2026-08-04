@@ -18,11 +18,10 @@ struct CalendarAgendaView: View {
   private var timedItems: [CalendarAgendaItem] { items.filter { !$0.isAllDay } }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: 0) {
       if showsTitle {
         CalendarAgendaTitle(selectedDay: selectedDay, error: error, calendar: calendar)
       }
-      if !isLoading { CalendarCapacitySummary(plan: capacityPlan) }
       CalendarAgendaContent(
         selectedDay: selectedDay,
         allDayItems: allDayItems,
@@ -36,53 +35,10 @@ struct CalendarAgendaView: View {
         openSeriesNote: openSeriesNote
       )
     }
-  }
-}
-
-private struct CalendarCapacitySummary: View {
-  let plan: DayCapacityPlan
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack {
-        Label("Day capacity", systemImage: "clock.badge.checkmark")
-          .font(.subheadline.weight(.semibold))
-        Spacer(minLength: 12)
-        Text(
-          plan.overCapacityMinutes > 0
-            ? "\(duration(plan.overCapacityMinutes)) over"
-            : "\(duration(plan.availableMinutes)) open"
-        )
-        .font(.subheadline.monospacedDigit().weight(.medium))
-        .foregroundStyle(plan.overCapacityMinutes > 0 ? Color.orange : Color.secondary)
-      }
-      Text(
-        "\(duration(plan.plannedMinutes)) planned · \(duration(plan.unscheduledMinutes)) to place"
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      if plan.tasksWithoutEstimates > 0 {
-        Text(
-          "\(plan.tasksWithoutEstimates) \(plan.tasksWithoutEstimates == 1 ? "task" : "tasks") without estimates"
-        )
-        .font(.caption)
-        .foregroundStyle(.tertiary)
-      }
-    }
-    .padding(12)
-    .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .strokeBorder(.separator.opacity(0.55))
-    }
-    .accessibilityElement(children: .combine)
-  }
-
-  private func duration(_ minutes: Int) -> String {
-    if minutes < 60 { return "\(minutes)m" }
-    let hours = minutes / 60
-    let remainder = minutes % 60
-    return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    .padding(.top, 8)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(RosePinePalette.calendarSurface)
+    .tint(RosePinePalette.calendarAccent)
   }
 }
 
@@ -92,17 +48,16 @@ private struct CalendarAgendaTitle: View {
   let calendar: Calendar
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(
-          calendar.isDateInToday(selectedDay)
-            ? "Today" : selectedDay.formatted(.dateTime.weekday(.wide))
-        )
-        .font(.title2.weight(.bold))
-        Text(selectedDay.formatted(.dateTime.month(.abbreviated).day().year()))
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-      }
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Text(
+        calendar.isDateInToday(selectedDay)
+          ? "TODAY" : selectedDay.formatted(.dateTime.weekday(.abbreviated)).uppercased()
+      )
+      .font(.title3.weight(.bold))
+      .foregroundStyle(.tint)
+      Text(selectedDay.formatted(.dateTime.month(.abbreviated).day().year()))
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
       Spacer(minLength: 12)
       if let error {
         Image(systemName: "exclamationmark.triangle")
@@ -154,7 +109,7 @@ private struct CalendarAgendaContent: View {
         }
       }
       if !timedItems.isEmpty {
-        CalendarAgendaSection(title: allDayItems.isEmpty ? "Agenda" : "Scheduled") {
+        VStack(spacing: 0) {
           ForEach(timedItems) { item in
             CalendarAgendaRow(
               item: item,

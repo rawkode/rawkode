@@ -11,7 +11,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       "version": 3,
       "selectedProvider": "openAI",
       "verifiedTextModelIDs": ["gpt-5.6-terra"],
-      "verifiedRealtimeModelIDs": ["gpt-realtime-2.1-mini"],
+      "verifiedRealtimeModelIDs": ["gpt-realtime-mini"],
       "selectedTextModelID": "gpt-5.6-terra",
     ]
     defaults.set(
@@ -36,15 +36,15 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       "credentialRevision": "revision-1",
       "credentialFingerprint": "fp-1",
       "verifiedCatalogVersion": OpenAIModelCatalog.version,
-      "verifiedRealtimeModelIDs": ["gpt-realtime-2.1-mini"],
-      "selectedRealtimeModelID": "gpt-realtime-2.1-mini",
+      "verifiedRealtimeModelIDs": ["gpt-realtime-mini"],
+      "selectedRealtimeModelID": "gpt-realtime-mini",
       "selectedRealtimeVoiceID": "marin",
       "voiceConsentVersion": 2,
       "voiceConsentCredentialRevision": "revision-1",
       "voiceConsentCredentialFingerprint": "fp-1",
       "voiceConsentModelCatalogVersion": OpenAIModelCatalog.version,
       "voiceConsentVoiceCatalogVersion": OpenAIRealtimeVoiceCatalog.version,
-      "voiceConsentModelID": "gpt-realtime-2.1-mini",
+      "voiceConsentModelID": "gpt-realtime-mini",
       "voiceConsentVoiceID": "marin",
     ]
     defaults.set(
@@ -55,7 +55,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: defaults)
 
     XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
-    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
     XCTAssertEqual(store.selectedRealtimeVoice, .marin)
     XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
     XCTAssertEqual(store.storedPayloadForTesting.voiceConsentVersion, 2)
@@ -69,17 +69,17 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       credentialFingerprint: binding.fingerprint,
       verifiedCatalogVersion: OpenAIModelCatalog.version,
       verifiedTextModelIDs: ["gpt-5.6-terra"],
-      verifiedRealtimeModelIDs: ["gpt-realtime-2.1-mini"],
+      verifiedRealtimeModelIDs: ["gpt-realtime-mini"],
       selectedTextModelID: "gpt-5.6-terra",
       selectedVoiceProvider: .openAIRealtime,
-      selectedRealtimeModelID: "gpt-realtime-2.1-mini",
+      selectedRealtimeModelID: "gpt-realtime-mini",
       selectedRealtimeVoiceID: "marin",
       voiceConsentVersion: 2,
       voiceConsentCredentialRevision: binding.revision,
       voiceConsentCredentialFingerprint: binding.fingerprint,
       voiceConsentModelCatalogVersion: OpenAIModelCatalog.version,
       voiceConsentVoiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version,
-      voiceConsentModelID: "gpt-realtime-2.1-mini",
+      voiceConsentModelID: "gpt-realtime-mini",
       voiceConsentVoiceID: "marin"
     )
     let withoutLegacyFields = AssistantProviderPreferencesPayload(
@@ -88,10 +88,10 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       credentialFingerprint: binding.fingerprint,
       verifiedCatalogVersion: OpenAIModelCatalog.version,
       verifiedTextModelIDs: ["gpt-5.6-terra"],
-      verifiedRealtimeModelIDs: ["gpt-realtime-2.1-mini"],
+      verifiedRealtimeModelIDs: ["gpt-realtime-mini"],
       selectedTextModelID: "gpt-5.6-terra",
       selectedVoiceProvider: .openAIRealtime,
-      selectedRealtimeModelID: "gpt-realtime-2.1-mini",
+      selectedRealtimeModelID: "gpt-realtime-mini",
       selectedRealtimeVoiceID: "marin"
     )
 
@@ -103,7 +103,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
       XCTAssertEqual(decoded.credentialRevision, binding.revision)
       XCTAssertEqual(decoded.credentialFingerprint, binding.fingerprint)
       XCTAssertEqual(decoded.selectedVoiceProvider, .openAIRealtime)
-      XCTAssertEqual(decoded.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+      XCTAssertEqual(decoded.selectedRealtimeModelID, "gpt-realtime-mini")
       XCTAssertEqual(decoded.selectedRealtimeVoiceID, "marin")
       XCTAssertEqual(decoded.voiceConsentVersion, payload.voiceConsentVersion)
       XCTAssertEqual(decoded.voiceConsentCredentialRevision, payload.voiceConsentCredentialRevision)
@@ -119,22 +119,22 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let firstBinding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"]),
+      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
       binding: firstBinding,
       selectDefaultTextModel: true
     )
     store.selectRealtimeVoice(id: "marin")
-    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.selectRealtimeVoice(id: "cedar")
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
-    store.selectRealtimeModel(id: "gpt-realtime-2.1")
+    store.selectRealtimeModel(id: "gpt-realtime")
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-2.1"]),
+      capabilities(realtime: ["gpt-realtime"]),
       binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
     )
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
@@ -144,7 +144,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let binding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-2.1-mini"]),
+      capabilities(realtime: ["gpt-realtime-mini"]),
       binding: binding,
       selectDefaultTextModel: true
     )
@@ -153,7 +153,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let route = store.voiceRouteSnapshot()
 
     XCTAssertTrue(route.isAuthorizedOpenAIRealtime)
-    XCTAssertEqual(route.modelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(route.modelID, "gpt-realtime-mini")
     XCTAssertEqual(route.voiceID, "marin")
     XCTAssertEqual(route.credentialBinding, binding)
     XCTAssertEqual(route.modelCatalogVersion, OpenAIModelCatalog.version)
@@ -199,7 +199,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
   func testRealtimeCatalogRejectsArbitraryModelsAndVoices() {
     XCTAssertEqual(
       OpenAIModelCatalog.realtimeOptions.map(\.id),
-      ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"]
+      ["gpt-realtime-mini", "gpt-realtime"]
     )
     XCTAssertEqual(OpenAIRealtimeVoiceCatalog.reviewed.first, .marin)
     XCTAssertEqual(OpenAIRealtimeVoiceCatalog.reviewed.dropFirst().first, .cedar)
@@ -208,11 +208,11 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let binding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-2.1-mini", "made-up-realtime"]),
+      capabilities(realtime: ["gpt-realtime-mini", "made-up-realtime"]),
       binding: binding,
       selectDefaultTextModel: true
     )
-    XCTAssertEqual(store.verifiedRealtimeModelIDs, ["gpt-realtime-2.1-mini"])
+    XCTAssertEqual(store.verifiedRealtimeModelIDs, ["gpt-realtime-mini"])
     store.selectRealtimeVoice(id: "made-up-voice")
     XCTAssertNil(store.selectedRealtimeVoice)
   }

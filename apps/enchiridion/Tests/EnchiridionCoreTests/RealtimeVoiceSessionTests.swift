@@ -24,7 +24,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin",
             requestID: "request-1"
           )
@@ -191,7 +191,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin"
           )
         )
@@ -213,7 +213,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertTrue(calls.contains("transport.close"))
     XCTAssertTrue(calls.contains("audio.deactivate"))
     XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
-    XCTAssertEqual(fixture.session.receipt?.actualModelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(fixture.session.receipt?.actualModelID, "gpt-realtime-mini")
     XCTAssertEqual(fixture.session.receipt?.actualVoiceID, "marin")
     XCTAssertEqual(fixture.session.receipt?.requestIDs, [])
   }
@@ -227,7 +227,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin"
           )
         )
@@ -260,7 +260,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin",
             requestID: "request-1"
           )
@@ -726,7 +726,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin"
           )
         )
@@ -877,7 +877,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     let gates = SessionGates()
     let binding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     let route = try makeAuthorizedRealtimeVoiceRoute(
-      modelID: "gpt-realtime-2.1-mini",
+      modelID: "gpt-realtime-mini",
       voiceID: "marin",
       binding: binding
     )

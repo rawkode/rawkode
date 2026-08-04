@@ -21,7 +21,7 @@ final class OpenAIModelsValidatorTests: XCTestCase {
 
   func testSuccessIntersectsServerIDsWithVersionedCapabilities() async throws {
     let response = successResponse(ids: [
-      "gpt-5.6-terra", "gpt-realtime-2.1-mini", "unreviewed-model",
+      "gpt-5.6-terra", "gpt-realtime-mini", "unreviewed-model",
     ])
     let result = try await OpenAIModelsValidator(
       transport: RecordingModelsTransport(response: response)
@@ -29,7 +29,7 @@ final class OpenAIModelsValidatorTests: XCTestCase {
 
     XCTAssertEqual(result.capabilities.catalogVersion, OpenAIModelCatalog.version)
     XCTAssertEqual(result.capabilities.textModelIDs, ["gpt-5.6-terra"])
-    XCTAssertEqual(result.capabilities.realtimeModelIDs, ["gpt-realtime-2.1-mini"])
+    XCTAssertEqual(result.capabilities.realtimeModelIDs, ["gpt-realtime-mini"])
     XCTAssertFalse(result.capabilities.textModelIDs.contains("unreviewed-model"))
   }
 

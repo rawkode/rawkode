@@ -324,13 +324,7 @@ public final class RealtimeVoiceSession {
       setPhase(.listening)
     } catch {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
-      await fail(
-        RealtimeVoiceFailure(
-          code: "connection_failed",
-          message: "Could not connect to OpenAI Voice."
-        ),
-        generation: currentGeneration
-      )
+      await fail(connectionFailure(for: error), generation: currentGeneration)
       return
     }
 
@@ -936,6 +930,34 @@ public final class RealtimeVoiceSession {
       code: "startup_interrupted",
       message: "OpenAI Voice was interrupted while starting. Try again when Enchiridion is active."
     )
+  }
+
+  private func connectionFailure(for error: Error) -> RealtimeVoiceFailure {
+    let message: String
+    switch error {
+    case RealtimeSessionBootstrapError.rejected(let statusCode, _):
+      switch statusCode {
+      case 401, 403:
+        message = "OpenAI rejected the voice request. Re-verify the Platform key in Assistant Settings."
+      case 429:
+        message = "OpenAI is rate-limiting voice requests. Wait a moment, then try again."
+      case 400..<500:
+        message = "OpenAI rejected the voice setup (HTTP \(statusCode)). Check the selected model and voice."
+      default:
+        message = "OpenAI could not start the voice session (HTTP \(statusCode)). Try again shortly."
+      }
+    case RealtimeSessionBootstrapError.connectionFailed:
+      message = "Could not reach OpenAI Voice. Check your network connection, then try again."
+    case RealtimeSessionBootstrapError.invalidAnswer:
+      message = "OpenAI returned an invalid voice connection response. Try again."
+    case RealtimeSessionBootstrapError.invalidEndpoint, RealtimeSessionBootstrapError.redirectBlocked:
+      message = "The OpenAI Voice endpoint was rejected. Open Assistant Settings and verify the route."
+    case RealtimeSessionBootstrapError.invalidHTTPResponse, RealtimeSessionBootstrapError.responseTooLarge:
+      message = "OpenAI returned an unusable voice connection response. Try again."
+    default:
+      message = "Could not connect to OpenAI Voice. Try again."
+    }
+    return RealtimeVoiceFailure(code: "connection_failed", message: message)
   }
 
   private func isBenignStartupRouteChange(

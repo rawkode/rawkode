@@ -7,7 +7,7 @@ final class RealtimeVoiceReducerTests: XCTestCase {
   func testConfigurationIsExactBoundedNoToolContract() throws {
     let configuration = try RealtimeVoiceConfiguration(route: route())
 
-    XCTAssertEqual(configuration.modelID, "gpt-realtime-2.1-mini")
+    XCTAssertEqual(configuration.modelID, "gpt-realtime-mini")
     XCTAssertEqual(configuration.voiceID, "marin")
     XCTAssertEqual(configuration.outputModalities, ["audio"])
     XCTAssertEqual(configuration.inputAudioTranscriptionModelID, "gpt-4o-mini-transcribe")
@@ -32,7 +32,7 @@ final class RealtimeVoiceReducerTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "session-1",
-            modelID: "gpt-realtime-2.1",
+            modelID: "gpt-realtime",
             voiceID: "marin"
           )
         )

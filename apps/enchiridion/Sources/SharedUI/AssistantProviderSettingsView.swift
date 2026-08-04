@@ -384,7 +384,14 @@ struct AssistantProviderSettingsView: View {
             Text(voice.title).tag(Optional(voice.id))
           }
         }
-
+      } else {
+        Label(
+          "Verify the OpenAI key again to refresh the Realtime voice models before starting voice.",
+          systemImage: "arrow.clockwise.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       LabeledContent(

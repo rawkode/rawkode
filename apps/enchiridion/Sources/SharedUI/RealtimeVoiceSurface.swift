@@ -67,10 +67,14 @@ struct RealtimeVoiceLobbyView: View {
     ContentUnavailableView {
       Label("OpenAI Voice Connection Unavailable", systemImage: "antenna.radiowaves.left.and.right.slash")
     } description: {
-      Text(
-        coordinator?.setupFailure
-          ?? "OpenAI Voice could not start the selected direct-device route. Review Assistant Settings or use Apple On Device now."
-      )
+      VStack(spacing: 16) {
+        VoiceRouteSummary(route: route)
+        Text(
+          coordinator?.setupFailure
+            ?? "OpenAI Voice could not start the selected direct-device route. Review Assistant Settings or use Apple On Device now."
+        )
+        .multilineTextAlignment(.center)
+      }
     } actions: {
       VStack(spacing: 10) {
         Button("Try Again") { restartOpenAIVoice() }
@@ -321,17 +325,21 @@ struct RealtimeVoiceActiveView: View {
       Divider()
 
       HStack(spacing: 20) {
-        Button(action: onToggleMute) {
-          Label(state.isMuted ? "Unmute microphone" : "Mute microphone", systemImage: state.isMuted ? "mic.slash.fill" : "mic.fill")
+        Button(action: microphoneAction) {
+          Label(
+            microphoneAccessibilityLabel,
+            systemImage: isPausedForResume ? "mic.fill" : (state.isMuted ? "mic.slash.fill" : "mic.fill")
+          )
             .labelStyle(.iconOnly)
             .frame(width: 56, height: 56)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
         .keyboardShortcut("m", modifiers: [.command, .shift])
-        .accessibilityLabel(state.isMuted ? "Unmute microphone" : "Mute microphone")
+        .accessibilityLabel(microphoneAccessibilityLabel)
+        .disabled(state.failureMessage != nil)
 
-        if case .paused = state.phase {
+        if case .paused = state.phase, state.failureMessage == nil {
           Button("Resume", action: onResume)
             .buttonStyle(.borderedProminent)
             .frame(minHeight: 44)
@@ -355,7 +363,11 @@ struct RealtimeVoiceActiveView: View {
   }
 
   private var phaseLabel: String {
-    switch state.phase {
+    if state.failureMessage != nil {
+      return "Connection failed"
+    }
+
+    return switch state.phase {
     case .idle: "Ready"
     case .requestingMicrophone: "Requesting microphone"
     case .readingCredential: "Preparing securely"
@@ -374,6 +386,24 @@ struct RealtimeVoiceActiveView: View {
 
   private var activityLabel: String {
     state.activity == .inactive ? phaseLabel : VoiceActivityOrb.semanticDescription(state.activity)
+  }
+
+  private var isPausedForResume: Bool {
+    if case .paused = state.phase {
+      return state.failureMessage == nil
+    }
+    return false
+  }
+
+  private var microphoneAction: () -> Void {
+    isPausedForResume ? onResume : onToggleMute
+  }
+
+  private var microphoneAccessibilityLabel: String {
+    if isPausedForResume {
+      return "Resume microphone"
+    }
+    return state.isMuted ? "Unmute microphone" : "Mute microphone"
   }
 }
 

@@ -15,6 +15,7 @@ struct TodayWorkspaceView: View {
   @State private var datePicker: TodayDatePickerSelection?
   @State private var presentedSheet: TodaySheet?
   @State private var searchText = ""
+  @State private var isSearchPresented = false
   @State private var selectedCalendarTitles: Set<String> = []
   @State private var isEditorFocused = false
   @State private var isOpeningNote = false
@@ -38,12 +39,15 @@ struct TodayWorkspaceView: View {
           panel: $panel,
           events: filteredEvents,
           calendar: calendar,
+          searchText: $searchText,
+          isSearchPresented: $isSearchPresented,
+          calendarTitles: calendarTitles,
+          selectedCalendarTitles: $selectedCalendarTitles,
           showDatePicker: { requestDatePicker() },
           selectDay: requestDay,
-          selectPanel: requestPanel
+          selectPanel: requestPanel,
+          showChangedPages: { presentedSheet = .pages }
         )
-        .padding(.horizontal)
-        .padding(.top, 8)
 
         Group {
           switch panel {
@@ -61,9 +65,6 @@ struct TodayWorkspaceView: View {
               viewAllAnytime: { presentedSheet = .tasks },
               refresh: { try? await store.refreshCalendar() }
             )
-            .searchable(
-              text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
-              prompt: "Search this day")
           case .note:
             note
           }
@@ -81,31 +82,15 @@ struct TodayWorkspaceView: View {
             .padding()
         }
       }
-      .background(RosePinePalette.background)
-      .navigationTitle("Today")
-      .navigationBarTitleDisplayMode(.inline)
+      .background(RosePinePalette.calendarBackground)
+      .tint(RosePinePalette.calendarAccent)
+      .navigationTitle("")
+      .toolbar(path.isEmpty ? .hidden : .visible, for: .navigationBar)
       .navigationDestination(for: PageID.self) { pageID in
         PageDestinationView(
           store: store, pageID: pageID, flushController: flushController, onOpenPage: navigate)
       }
       .disabled(isOpeningNote)
-      .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          Button("Today") { requestDay(Date()) }
-            .disabled(calendar.isDateInToday(day))
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-          Menu {
-            CalendarFilterMenu(
-              calendarTitles: calendarTitles, selectedCalendarTitles: $selectedCalendarTitles)
-            Button("Changed Pages", systemImage: "clock.arrow.circlepath") {
-              presentedSheet = .pages
-            }
-          } label: {
-            Label("More Today actions", systemImage: "ellipsis.circle")
-          }
-        }
-      }
     }
     .sheet(item: $datePicker) { selection in
       TodayDatePicker(initialDate: selection.date, selectDate: requestDay)
@@ -188,10 +173,34 @@ struct TodayWorkspaceView: View {
   }
 
   private func requestDatePicker() {
+    if panel == .plan {
+      datePicker = TodayDatePickerSelection(date: day)
+      return
+    }
     requestTransition(.init(day: day, panel: transitionPanel(panel)), presentPicker: true)
   }
   private func requestDay(_ date: Date) {
-    requestTransition(.init(day: calendar.startOfDay(for: date), panel: transitionPanel(panel)))
+    let targetDay = calendar.startOfDay(for: date)
+    guard !calendar.isDate(targetDay, inSameDayAs: day) else { return }
+
+    if panel == .plan {
+      let target = TodayWorkspaceTransitionCoordinator.Target(day: targetDay, panel: .plan)
+      transition.showImmediately(target)
+      transitionError = nil
+      datePicker = nil
+      path.removeAll()
+      isOpeningNote = false
+      if reduceMotion {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { day = targetDay }
+      } else {
+        withAnimation(.easeInOut(duration: 0.18)) { day = targetDay }
+      }
+      return
+    }
+
+    requestTransition(.init(day: targetDay, panel: .note))
   }
   private func requestPanel(_ panel: TodayPanel) {
     requestTransition(.init(day: day, panel: transitionPanel(panel)))
@@ -310,27 +319,164 @@ private struct TodayWorkspaceChrome: View {
   @Binding var panel: TodayPanel
   let events: [CalendarEventSnapshot]
   let calendar: Calendar
+  @Binding var searchText: String
+  @Binding var isSearchPresented: Bool
+  let calendarTitles: [String]
+  @Binding var selectedCalendarTitles: Set<String>
   let showDatePicker: () -> Void
   let selectDay: (Date) -> Void
   let selectPanel: (TodayPanel) -> Void
+  let showChangedPages: () -> Void
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Button(action: showDatePicker) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(calendar.isDateInToday(day) ? "Today" : day.formatted(.dateTime.weekday(.wide)))
-            .font(.title2.weight(.bold))
-          Text(day.formatted(.dateTime.month(.wide).day().year()))
-            .font(.subheadline)
-            .foregroundStyle(RosePinePalette.secondaryText)
-        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-      }.buttonStyle(.plain).accessibilityLabel(
-        "Choose date, currently \(day.formatted(date: .long, time: .omitted))")
+    VStack(spacing: 0) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Button {
+          selectDay(Date())
+        } label: {
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(day.formatted(.dateTime.month(.wide)))
+              .font(.system(size: 38, weight: .bold, design: .rounded))
+              .foregroundStyle(.primary)
+            Text(day.formatted(.dateTime.year()))
+              .font(.system(size: 38, weight: .regular, design: .rounded))
+              .foregroundStyle(RosePinePalette.calendarAccent)
+          }
+          .minimumScaleFactor(0.75)
+          .lineLimit(1)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+          "Go to today, currently \(day.formatted(date: .long, time: .omitted))")
+        .accessibilityHint("Returns the workspace to today")
+
+        Spacer(minLength: 8)
+
+        HStack(spacing: 4) {
+          Button {
+            if isSearchPresented {
+              searchText = ""
+              isSearchPresented = false
+            } else {
+              isSearchPresented = true
+            }
+          } label: {
+            Image(systemName: isSearchPresented ? "xmark" : "magnifyingglass")
+              .font(.body.weight(.semibold))
+              .frame(width: 34, height: 34)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .accessibilityLabel(isSearchPresented ? "Close search" : "Search this day")
+
+          Menu {
+            Button {
+              selectedCalendarTitles.removeAll()
+            } label: {
+              Label(
+                "All calendars",
+                systemImage: selectedCalendarTitles.isEmpty ? "checkmark" : "calendar")
+            }
+            if !calendarTitles.isEmpty {
+              Divider()
+              ForEach(calendarTitles, id: \.self) { title in
+                Button {
+                  if selectedCalendarTitles.contains(title) {
+                    selectedCalendarTitles.remove(title)
+                  } else {
+                    selectedCalendarTitles.insert(title)
+                  }
+                } label: {
+                  Label(
+                    title,
+                    systemImage: selectedCalendarTitles.contains(title) ? "checkmark" : "calendar")
+                }
+              }
+            }
+            Divider()
+            Button("Choose Date…", systemImage: "calendar") {
+              showDatePicker()
+            }
+            Button("Changed Pages", systemImage: "clock.arrow.circlepath", action: showChangedPages)
+          } label: {
+            Image(systemName: "ellipsis.circle")
+              .font(.title3.weight(.semibold))
+              .frame(width: 34, height: 34)
+          }
+          .foregroundStyle(.secondary)
+          .accessibilityLabel("More Today actions")
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 8)
+      .padding(.bottom, isSearchPresented ? 8 : 12)
+
+      if isSearchPresented {
+        HStack(spacing: 8) {
+          Image(systemName: "magnifyingglass")
+            .foregroundStyle(.secondary)
+          TextField("Search this day", text: $searchText)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+          if !searchText.isEmpty {
+            Button {
+              searchText = ""
+            } label: {
+              Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear search")
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+          RosePinePalette.calendarControlSurface,
+          in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+      }
+
       CalendarDayStrip(selectedDay: day, events: events, calendar: calendar, selectDay: selectDay)
-      Picker("Today workspace", selection: Binding(get: { panel }, set: { selectPanel($0) })) {
-        ForEach(TodayPanel.allCases) { Text($0.rawValue).tag($0) }
-      }.pickerStyle(.segmented)
-        .accessibilityLabel("Today workspace panel")
+      TodayPanelSwitcher(panel: panel, selectPanel: selectPanel)
     }
+    .background(RosePinePalette.calendarBackground)
+  }
+}
+
+private struct TodayPanelSwitcher: View {
+  let panel: TodayPanel
+  let selectPanel: (TodayPanel) -> Void
+
+  var body: some View {
+    HStack(spacing: 24) {
+      ForEach(TodayPanel.allCases) { option in
+        Button {
+          selectPanel(option)
+        } label: {
+          VStack(spacing: 7) {
+            Text(option.rawValue)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(panel == option ? .primary : .secondary)
+            Rectangle()
+              .fill(panel == option ? RosePinePalette.calendarAccent : .clear)
+              .frame(height: 2)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.top, 10)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(panel == option ? .isSelected : [])
+      }
+    }
+    .padding(.horizontal, 20)
+    .frame(height: 48)
+    .overlay(alignment: .bottom) { Divider() }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Today workspace panel")
   }
 }
 

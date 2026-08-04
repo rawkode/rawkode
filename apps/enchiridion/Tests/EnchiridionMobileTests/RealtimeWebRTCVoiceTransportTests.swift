@@ -7,14 +7,14 @@ import EnchiridionCore
 final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
   func testOpenAIVoiceRetryEligibilityRequiresTerminalFailedSession() {
     let failedReceipt = RealtimeVoiceReceipt(
-      requestedModelID: "gpt-realtime-2.1-mini",
+      requestedModelID: "gpt-realtime-mini",
       requestedVoiceID: "marin",
       startedAt: .distantPast,
       endedAt: .distantPast,
       completion: .failed
     )
     let cancelledReceipt = RealtimeVoiceReceipt(
-      requestedModelID: "gpt-realtime-2.1-mini",
+      requestedModelID: "gpt-realtime-mini",
       requestedVoiceID: "marin",
       startedAt: .distantPast,
       endedAt: .distantPast,
@@ -25,6 +25,20 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .ended, receipt: cancelledReceipt))
     XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: cancelledReceipt))
     XCTAssertTrue(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: failedReceipt))
+    XCTAssertTrue(
+      RealtimeVoiceCoordinator.canRetry(
+        phase: .paused(.interruption),
+        receipt: nil,
+        failure: RealtimeVoiceFailure(code: "server_error", message: "failed")
+      )
+    )
+    XCTAssertFalse(
+      RealtimeVoiceCoordinator.canRetry(
+        phase: .paused(.interruption),
+        receipt: nil,
+        failure: nil
+      )
+    )
   }
 
   func testClosingCoordinatorInvalidatesQueuedRetryAndPreventsRestart() {

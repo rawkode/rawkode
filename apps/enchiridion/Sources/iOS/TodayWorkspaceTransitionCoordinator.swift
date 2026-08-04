@@ -28,6 +28,17 @@ final class TodayWorkspaceTransitionCoordinator {
     }
   }
 
+  /// Invalidates pending materialization and makes the supplied target visible immediately.
+  ///
+  /// Plan-day changes do not need an asynchronous resource load. Keeping that path synchronous
+  /// prevents the date strip from waiting on editor or calendar work before the selection moves.
+  func showImmediately(_ target: Target) {
+    task?.cancel()
+    task = nil
+    self.target = target
+    generation &+= 1
+  }
+
   func isCurrent(_ generation: Int, target: Target) -> Bool {
     !Task.isCancelled && self.generation == generation && self.target == target
   }

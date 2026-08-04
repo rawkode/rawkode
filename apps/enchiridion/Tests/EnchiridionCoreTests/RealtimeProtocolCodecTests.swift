@@ -9,7 +9,7 @@ final class RealtimeProtocolCodecTests: XCTestCase {
       "event_id":"evt_session",
       "session":{
         "id":"sess_123",
-        "model":"gpt-realtime-2.1-mini",
+        "model":"gpt-realtime-mini",
         "audio":{
           "output":{"voice":"marin"}
         }
@@ -26,7 +26,7 @@ final class RealtimeProtocolCodecTests: XCTestCase {
         payload: .sessionCreated(
           RealtimeSessionCreated(
             sessionID: "sess_123",
-            modelID: "gpt-realtime-2.1-mini",
+            modelID: "gpt-realtime-mini",
             voiceID: "marin"
           )
         )
@@ -91,6 +91,25 @@ final class RealtimeProtocolCodecTests: XCTestCase {
 
   func testIgnoresUnknownEventTypes() throws {
     XCTAssertNil(try RealtimeProtocolCodec().decode(#"{"type":"future.event","value":42}"#))
+  }
+
+  func testPreservesSafeServerErrorCodeInVoiceFailureMessage() throws {
+    let event = try RealtimeProtocolCodec().decode(#"""
+      {"type":"error",
+      "event_id":"evt_error",
+      "error":{"type":"invalid_request_error","message":"private server detail"}
+    }
+    """#)
+
+    guard case let .error(error) = event?.payload else {
+      return XCTFail("Expected a decoded Realtime error")
+    }
+    XCTAssertEqual(error.code, "invalid_request_error")
+    XCTAssertEqual(
+      error.message,
+      "OpenAI Voice reported a connection error (invalid_request_error)."
+    )
+    XCTAssertFalse(error.message.contains("private server detail"))
   }
 
   func testRejectsMalformedKnownEventAndOversizedInput() {

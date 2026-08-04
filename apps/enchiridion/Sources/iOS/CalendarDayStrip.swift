@@ -8,53 +8,94 @@ struct CalendarDayStrip: View {
   let selectDay: (Date) -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var displayedStartDay: Date
 
-  private var selectedDayID: String {
-    CalendarDayStripItem.id(for: selectedDay, calendar: calendar)
+  init(
+    selectedDay: Date,
+    events: [CalendarEventSnapshot],
+    calendar: Calendar,
+    selectDay: @escaping (Date) -> Void
+  ) {
+    self.selectedDay = selectedDay
+    self.events = events
+    self.calendar = calendar
+    self.selectDay = selectDay
+    _displayedStartDay = State(initialValue: calendar.startOfDay(for: selectedDay))
   }
+
   private var days: [CalendarDayStripItem] {
-    CalendarDayStripItem.days(around: selectedDay, calendar: calendar)
+    (0..<7).compactMap { offset in
+      guard let date = calendar.date(byAdding: .day, value: offset, to: displayedStartDay)
+      else { return nil }
+      return CalendarDayStripItem(
+        date: date, id: CalendarDayStripItem.id(for: date, calendar: calendar))
+    }
   }
 
   var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView(.horizontal, showsIndicators: false) {
-        LazyHStack(spacing: 8) {
-          ForEach(days) { day in
-            CalendarDayButton(
-              day: day.date,
-              density: CalendarAgendaDate.eventDensity(
-                on: day.date, in: events, calendar: calendar),
-              isSelected: day.id == selectedDayID,
-              isToday: calendar.isDateInToday(day.date)
-            ) {
-              selectDay(day.date)
-            }
-            .id(day.id)
+    GeometryReader { proxy in
+      HStack(spacing: 0) {
+        ForEach(days) { day in
+          CalendarDayButton(
+            day: day.date,
+            density: CalendarAgendaDate.eventDensity(
+              on: day.date, in: events, calendar: calendar),
+            isSelected: calendar.isDate(day.date, inSameDayAs: selectedDay),
+            isToday: calendar.isDateInToday(day.date)
+          ) {
+            selectDay(day.date)
+          }
+          .frame(width: proxy.size.width / 7)
+          .overlay(alignment: .trailing) {
+            Rectangle()
+              .fill(.separator.opacity(0.45))
+              .frame(width: 1, height: 56)
+              .accessibilityHidden(true)
           }
         }
-        .padding(10)
       }
-      .fixedSize(horizontal: false, vertical: true)
-      .onAppear { scroll(to: selectedDayID, using: proxy, animated: false) }
-      .onChange(of: selectedDayID) { _, dayID in
-        scroll(to: dayID, using: proxy, animated: true)
-      }
+      .id(CalendarDayStripItem.id(for: displayedStartDay, calendar: calendar))
+      .frame(width: proxy.size.width, height: 84)
+      .contentShape(Rectangle())
+      .gesture(weekSwipe)
     }
-    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .accessibilityLabel("Days around selected date")
+    .frame(height: 84)
+    .background(RosePinePalette.calendarBackground)
+    .overlay(alignment: .top) { Divider() }
+    .overlay(alignment: .bottom) { Divider() }
+    .tint(RosePinePalette.calendarAccent)
+    .accessibilityLabel("Selected date and upcoming days")
+    .accessibilityHint("Swipe left or right to change week")
+    .onChange(of: selectedDay) { _, newDay in
+      let newStartDay = calendar.startOfDay(for: newDay)
+      guard newStartDay != displayedStartDay else { return }
+      animate { displayedStartDay = newStartDay }
+    }
   }
 
-  private func scroll(to dayID: String, using proxy: ScrollViewProxy, animated: Bool) {
-    Task { @MainActor in
-      await Task.yield()
-      if animated && !reduceMotion {
-        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(dayID, anchor: .center) }
-      } else {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { proxy.scrollTo(dayID, anchor: .center) }
-      }
+  private var weekSwipe: some Gesture {
+    DragGesture(minimumDistance: 28).onEnded { value in
+      guard abs(value.translation.width) > abs(value.translation.height) * 1.2,
+        abs(value.translation.width) > 48
+      else { return }
+
+      let offset = value.translation.width < 0 ? 7 : -7
+      guard let nextDay = calendar.date(
+        byAdding: .day, value: offset, to: calendar.startOfDay(for: selectedDay)
+      ) else { return }
+
+      animate { displayedStartDay = nextDay }
+      selectDay(nextDay)
+    }
+  }
+
+  private func animate(_ changes: () -> Void) {
+    if reduceMotion {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction, changes)
+    } else {
+      withAnimation(.easeInOut(duration: 0.18), changes)
     }
   }
 }
@@ -62,17 +103,6 @@ struct CalendarDayStrip: View {
 private struct CalendarDayStripItem: Identifiable {
   let date: Date
   let id: String
-
-  static func days(around day: Date, calendar: Calendar) -> [Self] {
-    (-14...14).compactMap { offset in
-      guard
-        let date = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: day))
-      else {
-        return nil
-      }
-      return .init(date: date, id: id(for: date, calendar: calendar))
-    }
-  }
 
   static func id(for day: Date, calendar: Calendar) -> String {
     DayKey(date: day, calendar: calendar).rawValue
@@ -89,21 +119,27 @@ private struct CalendarDayButton: View {
   var body: some View {
     Button(action: action) {
       VStack(spacing: 5) {
-        Text(day.formatted(.dateTime.weekday(.narrow))).font(.caption2.weight(.semibold))
-        Text(day.formatted(.dateTime.day())).font(.headline.monospacedDigit())
+        Text(day.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+          .font(.caption2.weight(.bold))
+          .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+
+        ZStack {
+          Circle()
+            .fill(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear))
+            .frame(width: 36, height: 36)
+          Circle()
+            .strokeBorder(.tint, lineWidth: 1.5)
+            .frame(width: 36, height: 36)
+            .opacity(isToday && !isSelected ? 1 : 0)
+          Text(day.formatted(.dateTime.day()))
+            .font(.body.monospacedDigit().weight(.semibold))
+            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        }
+
         CalendarEventDensity(density: density, isSelected: isSelected)
       }
-      .frame(minWidth: 44)
-      .padding(.vertical, 8)
-      .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
-      .background {
-        if isSelected {
-          Capsule().fill(.tint)
-        } else if isToday {
-          Capsule().strokeBorder(.tint, lineWidth: 1)
-        }
-      }
-      .contentShape(.rect)
+      .frame(maxWidth: .infinity)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
@@ -122,7 +158,7 @@ private struct CalendarEventDensity: View {
     HStack(spacing: 2) {
       ForEach(0..<min(density, 4), id: \.self) { _ in
         Circle()
-          .fill(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.tint))
+          .fill(isSelected ? AnyShapeStyle(.white.opacity(0.9)) : AnyShapeStyle(.tint))
           .frame(width: 4, height: 4)
       }
     }

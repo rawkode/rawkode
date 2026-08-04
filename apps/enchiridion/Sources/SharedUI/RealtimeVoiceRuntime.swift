@@ -59,18 +59,58 @@ final class RealtimeVoiceCoordinator {
       )
       session = voiceSession
       Task { await voiceSession.start() }
+    } catch let error as RealtimeVoiceContractError {
+      setupFailure = Self.setupFailureMessage(for: error)
     } catch {
-      setupFailure = "OpenAI Voice could not prepare the selected route."
+      setupFailure = "OpenAI Voice could not prepare the selected route. Try Assistant Settings, then try again."
+    }
+  }
+
+  private static func setupFailureMessage(for error: RealtimeVoiceContractError) -> String {
+    switch error {
+    case .unauthorizedRoute(let failure):
+      switch failure {
+      case .credentialVerificationRequired:
+        "Verify the OpenAI key again before starting OpenAI Voice."
+      case .modelSelectionRequired:
+        "Choose a verified Realtime model in Assistant Settings."
+      case .modelUnavailable:
+        "The selected Realtime model is no longer available. Verify the key and choose another model."
+      case .voiceUnavailable:
+        "Choose an official OpenAI voice in Assistant Settings."
+      case nil:
+        "OpenAI Voice is not configured yet. Review Assistant Settings."
+      }
+    case .modelNotAllowed:
+      "The selected Realtime model is not in Enchiridion's reviewed catalog. Verify the key again."
+    case .voiceNotAllowed:
+      "The selected voice is not available. Choose an official OpenAI voice in Assistant Settings."
+    case .modelMismatch, .voiceMismatch:
+      "OpenAI returned a different voice route than the one you selected. Verify the key and try again."
     }
   }
 
   func retry() {
-    guard let session, Self.canRetry(phase: session.state.phase, receipt: session.receipt) else {
+    guard let session,
+      Self.canRetry(
+        phase: session.state.phase,
+        receipt: session.receipt,
+        failure: session.state.failure
+      )
+    else {
       return
     }
     let retryGeneration = coordinatorLifecycle.generation
     Task { @MainActor [weak self] in
       guard let self else { return }
+      guard
+        self.coordinatorLifecycle.allowsRetry(requestGeneration: retryGeneration),
+        self.session === session
+      else { return }
+      // A paused session may still own the peer connection and audio route.
+      // Wait for its bounded teardown before constructing a replacement; doing
+      // both concurrently races WebRTC and AVAudioSession ownership.
+      await session.stop()
       guard
         self.coordinatorLifecycle.allowsRetry(requestGeneration: retryGeneration),
         self.session === session
@@ -82,9 +122,12 @@ final class RealtimeVoiceCoordinator {
 
   static func canRetry(
     phase: RealtimeVoicePhase,
-    receipt: RealtimeVoiceReceipt?
+    receipt: RealtimeVoiceReceipt?,
+    failure: RealtimeVoiceFailure? = nil
   ) -> Bool {
-    phase == .failed && receipt?.completion == .failed
+    if phase == .failed && receipt?.completion == .failed { return true }
+    if case .paused = phase, receipt == nil, failure != nil { return true }
+    return false
   }
 
   func stop() {

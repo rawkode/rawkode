@@ -261,9 +261,9 @@ public struct OpenAIVerifiedCapabilities: Equatable, Sendable {
 
 public enum OpenAIModelCatalog {
   // Increment whenever model capability claims are reviewed and changed.
-  public static let version = 20_260_730
+  public static let version = 20_260_804
   public static let preferredDefaultTextModelID = "gpt-5.6-terra"
-  public static let preferredDefaultRealtimeModelID = "gpt-realtime-2.1-mini"
+  public static let preferredDefaultRealtimeModelID = "gpt-realtime-mini"
 
   public static let shipped: [OpenAIModelOption] = [
     .init(
@@ -285,15 +285,15 @@ public enum OpenAIModelCatalog {
       capability: .text
     ),
     .init(
-      id: "gpt-realtime-2.1-mini",
+      id: "gpt-realtime-mini",
       title: "Efficient voice",
-      detail: "Reserved for a future Realtime implementation.",
+      detail: "Lower-cost OpenAI Realtime voice model.",
       capability: .realtime
     ),
     .init(
-      id: "gpt-realtime-2.1",
+      id: "gpt-realtime",
       title: "Highest-capability voice",
-      detail: "Reserved for a future Realtime implementation.",
+      detail: "Full-capability OpenAI Realtime voice model.",
       capability: .realtime
     ),
   ]
