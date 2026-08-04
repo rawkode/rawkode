@@ -250,6 +250,72 @@ enum GraphDatabaseSchema {
       """)
   }
 
+  /// Bounded, additive projections for the compiled workouts module. They deliberately expose
+  /// facts needed for analysis, never transport receipts or HealthKit route coordinates.
+  static func createWorkoutPublicViews(in db: Database) throws {
+    try db.execute(sql: """
+      CREATE VIEW graph_workouts_v1 AS
+      SELECT p.id AS workout_id, p.title,
+        MAX(CASE WHEN f.field_id = 'activity' THEN f.text_value END) AS activity,
+        MAX(CASE WHEN f.field_id = 'started-at' THEN f.date_time_value END) AS started_at,
+        MAX(CASE WHEN f.field_id = 'completed-at' THEN f.date_time_value END) AS completed_at,
+        MAX(CASE WHEN f.field_id = 'duration-seconds' THEN f.number_value END) AS duration_seconds,
+        MAX(CASE WHEN f.field_id = 'status' THEN f.text_value END) AS status,
+        MAX(CASE WHEN f.field_id = 'source' THEN f.text_value END) AS source,
+        MAX(CASE WHEN f.field_id = 'healthkit-export-state' THEN f.text_value END) AS healthkit_export_state,
+        MAX(CASE WHEN f.field_id = 'healthkit-workout-uuid' THEN f.text_value END) AS healthkit_workout_uuid,
+        MAX(CASE WHEN f.field_id = 'route-state' THEN f.text_value END) AS route_state,
+        MAX(CASE WHEN f.field_id = 'energy-kilocalories' THEN f.number_value END) AS energy_kilocalories,
+        MAX(CASE WHEN f.field_id = 'average-heart-rate' THEN f.number_value END) AS average_heart_rate,
+        MAX(CASE WHEN f.field_id = 'maximum-heart-rate' THEN f.number_value END) AS maximum_heart_rate,
+        MAX(CASE WHEN f.field_id = 'distance-meters' THEN f.number_value END) AS distance_meters,
+        MAX(CASE WHEN f.field_id = 'elevation-meters' THEN f.number_value END) AS elevation_meters,
+        MAX(CASE WHEN f.field_id = 'average-speed-meters-per-second' THEN f.number_value END) AS average_speed_meters_per_second,
+        MAX(CASE WHEN f.field_id = 'average-pace-seconds-per-kilometre' THEN f.number_value END) AS average_pace_seconds_per_kilometre,
+        MAX(CASE WHEN f.field_id = 'total-volume-kilograms' THEN f.number_value END) AS total_volume_kilograms
+      FROM pages p JOIN graph_node_tags t ON t.node_id = p.id
+      LEFT JOIN _graph_facts f ON f.node_id = p.id
+      WHERE t.tag_id = 'dev.rawkode.enchiridion.workouts.workout' AND p.deleted_at IS NULL
+      GROUP BY p.id, p.title
+      """)
+    try db.execute(sql: """
+      CREATE VIEW graph_workout_exercises_v1 AS
+      SELECT e.source_node_id AS workout_id, p.id AS exercise_id, p.title,
+        MAX(CASE WHEN f.field_id = 'ordinal' THEN f.number_value END) AS ordinal,
+        MAX(CASE WHEN f.field_id = 'set-count' THEN f.number_value END) AS set_count,
+        MAX(CASE WHEN f.field_id = 'volume-kilograms' THEN f.number_value END) AS volume_kilograms
+      FROM _graph_edges e JOIN pages p ON p.id = e.target_node_id LEFT JOIN _graph_facts f ON f.node_id = p.id
+      WHERE e.relation_id = 'dev.rawkode.enchiridion.workouts.workout-exercises' AND p.deleted_at IS NULL
+      GROUP BY e.source_node_id, p.id, p.title
+      """)
+    try db.execute(sql: """
+      CREATE VIEW graph_workout_sets_v1 AS
+      SELECT parent.source_node_id AS exercise_id, p.id AS set_id,
+        MAX(CASE WHEN f.field_id = 'ordinal' THEN f.number_value END) AS ordinal,
+        MAX(CASE WHEN f.field_id = 'repetitions' THEN f.number_value END) AS repetitions,
+        MAX(CASE WHEN f.field_id = 'load-kilograms' THEN f.number_value END) AS load_kilograms,
+        MAX(CASE WHEN f.field_id = 'volume-kilograms' THEN f.number_value END) AS volume_kilograms,
+        MAX(CASE WHEN f.field_id = 'rpe' THEN f.number_value END) AS rpe,
+        MAX(CASE WHEN f.field_id = 'completed-at' THEN f.date_time_value END) AS completed_at
+      FROM _graph_edges parent JOIN pages p ON p.id = parent.target_node_id LEFT JOIN _graph_facts f ON f.node_id = p.id
+      WHERE parent.relation_id = 'dev.rawkode.enchiridion.workouts.exercise-sets' AND p.deleted_at IS NULL
+      GROUP BY parent.source_node_id, p.id
+      """)
+    try db.execute(sql: """
+      CREATE VIEW graph_workout_splits_v1 AS
+      SELECT e.source_node_id AS workout_id, p.id AS split_id,
+        MAX(CASE WHEN f.field_id = 'ordinal' THEN f.number_value END) AS ordinal,
+        MAX(CASE WHEN f.field_id = 'distance-meters' THEN f.number_value END) AS distance_meters,
+        MAX(CASE WHEN f.field_id = 'duration-seconds' THEN f.number_value END) AS duration_seconds,
+        MAX(CASE WHEN f.field_id = 'pace-seconds-per-kilometre' THEN f.number_value END) AS pace_seconds_per_kilometre,
+        MAX(CASE WHEN f.field_id = 'average-heart-rate' THEN f.number_value END) AS average_heart_rate,
+        MAX(CASE WHEN f.field_id = 'energy-kilocalories' THEN f.number_value END) AS energy_kilocalories
+      FROM _graph_edges e JOIN pages p ON p.id = e.target_node_id LEFT JOIN _graph_facts f ON f.node_id = p.id
+      WHERE e.relation_id = 'dev.rawkode.enchiridion.workouts.workout-splits' AND p.deleted_at IS NULL
+      GROUP BY e.source_node_id, p.id
+      """)
+  }
+
   static func saveRelation(
     _ relation: RelationDefinition,
     in db: Database,

@@ -1836,7 +1836,8 @@ final class LibraryRepositoryTests: XCTestCase {
       )
     }
     let unchanged = try await fixture.repository.page(id: person.id)
-    XCTAssertEqual(unchanged?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
+    XCTAssertEqual(
+      unchanged?.objectMetadata.properties[key], [.email("marissa.flanagan@example.com")])
   }
 
   func testTaggedPersonInsertionSeedsNormalizedEmailAtomically() async throws {
@@ -1860,7 +1861,8 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(backlinks.map(\.id), [source.id])
   }
 
-  func testTaggedInsertionRejectsInvalidSeedAndMismatchedFallbackWithoutPartialState() async throws {
+  func testTaggedInsertionRejectsInvalidSeedAndMismatchedFallbackWithoutPartialState() async throws
+  {
     let fixture = try RepositoryFixture()
     let source = try await fixture.repository.createFreePage(title: "Source")
     let invalidSeed = try taggedPageReferenceRequest(
@@ -1907,7 +1909,8 @@ final class LibraryRepositoryTests: XCTestCase {
     try await fixture.repository.saveSupertag(child)
 
     let source = try await fixture.repository.createFreePage(title: "Source")
-    let inheritedKey = SupertagPropertyKey(supertagID: parent.id, fieldID: .init(rawValue: "website"))
+    let inheritedKey = SupertagPropertyKey(
+      supertagID: parent.id, fieldID: .init(rawValue: "website"))
     let request = try taggedPageReferenceRequest(
       source: source,
       supertagID: child.id,
@@ -1915,7 +1918,8 @@ final class LibraryRepositoryTests: XCTestCase {
     )
 
     let result = try await fixture.repository.createTaggedPageAndPersistReference(request)
-    XCTAssertEqual(result.target.objectMetadata.properties[inheritedKey], [.url("https://example.com")])
+    XCTAssertEqual(
+      result.target.objectMetadata.properties[inheritedKey], [.url("https://example.com")])
   }
 
   func testPersonEmailLookupFindsLegacyCasingAndDoesNotMergeCandidates() async throws {

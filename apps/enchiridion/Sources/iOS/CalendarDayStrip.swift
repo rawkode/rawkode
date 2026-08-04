@@ -9,7 +9,9 @@ struct CalendarDayStrip: View {
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-  private var selectedDayID: String { CalendarDayStripItem.id(for: selectedDay, calendar: calendar) }
+  private var selectedDayID: String {
+    CalendarDayStripItem.id(for: selectedDay, calendar: calendar)
+  }
   private var days: [CalendarDayStripItem] {
     CalendarDayStripItem.days(around: selectedDay, calendar: calendar)
   }
@@ -21,7 +23,8 @@ struct CalendarDayStrip: View {
           ForEach(days) { day in
             CalendarDayButton(
               day: day.date,
-              density: CalendarAgendaDate.eventDensity(on: day.date, in: events, calendar: calendar),
+              density: CalendarAgendaDate.eventDensity(
+                on: day.date, in: events, calendar: calendar),
               isSelected: day.id == selectedDayID,
               isToday: calendar.isDateInToday(day.date)
             ) {
@@ -32,6 +35,7 @@ struct CalendarDayStrip: View {
         }
         .padding(10)
       }
+      .fixedSize(horizontal: false, vertical: true)
       .onAppear { scroll(to: selectedDayID, using: proxy, animated: false) }
       .onChange(of: selectedDayID) { _, dayID in
         scroll(to: dayID, using: proxy, animated: true)
@@ -61,7 +65,9 @@ private struct CalendarDayStripItem: Identifiable {
 
   static func days(around day: Date, calendar: Calendar) -> [Self] {
     (-14...14).compactMap { offset in
-      guard let date = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: day)) else {
+      guard
+        let date = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: day))
+      else {
         return nil
       }
       return .init(date: date, id: id(for: date, calendar: calendar))
@@ -91,14 +97,19 @@ private struct CalendarDayButton: View {
       .padding(.vertical, 8)
       .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
       .background {
-        if isSelected { Capsule().fill(.tint) }
-        else if isToday { Capsule().strokeBorder(.tint, lineWidth: 1) }
+        if isSelected {
+          Capsule().fill(.tint)
+        } else if isToday {
+          Capsule().strokeBorder(.tint, lineWidth: 1)
+        }
       }
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(day.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
-    .accessibilityValue(density == 0 ? "No events" : "\(density) \(density == 1 ? "event" : "events")")
+    .accessibilityValue(
+      density == 0 ? "No events" : "\(density) \(density == 1 ? "event" : "events")"
+    )
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 }

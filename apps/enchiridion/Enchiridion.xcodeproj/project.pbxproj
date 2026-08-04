@@ -8,12 +8,16 @@
 
 /* Begin PBXBuildFile section */
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
+		0172EB8F97E41038CBACBD70 /* TodayWorkspaceTransitionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */; };
 		087A39046047331DDD0CB62F /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
+		0D1279208254DF9752DB273A /* WatchWorkoutCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9471E84B9CC349962CB0060 /* WatchWorkoutCaptureTests.swift */; };
 		103BE1E6FC4E3D33D2C218E0 /* RealtimeWebRTCVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D7C82B575E0783990D5543 /* RealtimeWebRTCVoiceTransport.swift */; };
 		105F420A5CB29170F60761A2 /* EntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */; };
+		1085A001658CB8ADCA5B758D /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BC1A2BC9202EDCE443309EA /* CoreLocation.framework */; };
 		11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */; };
 		1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
+		14F2C690C167A84C2CDB743B /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */; };
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
 		1831B142E884131ACA83BBF6 /* QwenRealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
@@ -22,12 +26,15 @@
 		220E3B996070293692F51A6A /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
 		22BEE60CB07405C9854BB9DA /* RealtimeWebRTCBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */; };
 		232340B69BA85A90700AB1E3 /* EnchiridionTodayTasksWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC0E2ACE25D5C871D0E95141 /* EnchiridionTodayTasksWidgetBundle.swift */; };
+		243AB706E278466A5691C7C5 /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0ED93C2370B8BE78F63CE /* EnchiridionWorkoutTransport */; };
 		2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */; };
 		292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43B5F7FE8066B45C8D015097 /* MacRootView.swift */; };
 		2ABEC83A5E8C94B9BDD2A682 /* EnchiridionTodayWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2B0242C5C406237F4EDB5B2F /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8B2B2BDF4CE2F20FAE1E3A85 /* HealthKit.framework */; };
 		2B4BA7A86289FDE6C71A5AC4 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7505584F1FCE5E2E0ACE89DD /* Speech.framework */; };
 		2D078C58978E5967EA6FBB9C /* AssistantConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */; };
 		2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785C87A8657C874FF5403E84 /* MacSettingsView.swift */; };
+		2D263E957E3C840A3ECFC6CA /* WatchWorkoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A9C68D8C6E630C9A90B09B /* WatchWorkoutCapture.swift */; };
 		2F5E720733F61532E2731C34 /* PageReferenceTextFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB78B2509F988C674630683 /* PageReferenceTextFormatting.swift */; };
 		2F7BD98BF9B80F87F0217CD8 /* TaskCompletionUndoModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */; };
 		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
@@ -36,6 +43,7 @@
 		34ACFA0FCB726153AABFC8B1 /* SemanticBrowseText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */; };
 		3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250D8A1FB97475734517559F /* MacDailyTaskContext.swift */; };
 		36962054295F03760BB825DD /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F507163A58A73341C55E4CB4 /* WebKit.framework */; };
+		383DCEA9BCD3F070F56C0EF8 /* DayPlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309C4773DED80B9C6BF85B33 /* DayPlanView.swift */; };
 		39957488BAB87B576815EA51 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */; };
 		39A12EE8FD0949AE9F59A70E /* Social.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E38E3D37CCD497ABF150C23A /* Social.framework */; };
 		3BC0CC9DEC7D6BBF99C1B95E /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */; };
@@ -54,6 +62,7 @@
 		48BBBFAEA62D217A23B33E34 /* SemanticBrowseText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */; };
 		4D30CAB0FFC6C0FA2DEF9FB7 /* DeviceContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */; };
 		4D9ECB3247D1E94F2F5BCE1E /* TaskManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */; };
+		4F05577CE475E8DA8F5A0CA2 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 78C7650B87945ED46D4D5D34 /* WatchConnectivity.framework */; };
 		51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */; };
 		5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
@@ -66,18 +75,23 @@
 		6266E583A7D2398FF29F5025 /* PersonReferenceCreationForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */; };
 		63A74E4A9ADB9FC569C65C30 /* PageReferenceOpenAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 814FF580F8360F41285F41C8 /* PageReferenceOpenAction.swift */; };
 		6474858D82A6C7D1EC5F34BC /* PageReferenceTextFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */; };
+		651D9B8D3E0C96ECE3BF8BD7 /* WorkoutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20D502962645FDAF359F207 /* WorkoutViews.swift */; };
 		68AA474F3E1F28D661B29426 /* DeviceContactsLifecycleModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27D35C9D4DEE0FD68B85047 /* DeviceContactsLifecycleModifier.swift */; };
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
 		6B39853CA97A135A3B673E42 /* QwenRealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
+		6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */; };
 		6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */; };
 		70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		748090CC891C45CC36173E26 /* ContactsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */; };
 		74E4789FBF03631D8746536A /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
 		7845169927C30F09425C0E77 /* CalendarAgendaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */; };
+		7A93456AF1A1EC01640F8C9A /* WorkoutPhoneReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F165E1A05F58C3C35E4F11 /* WorkoutPhoneReceiver.swift */; };
 		7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */; };
+		7DFC2E65C5C832E4E08F516E /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = B9E6531E0CE916366A251C73 /* EnchiridionWorkoutTransport */; };
+		7EA0F23EEAB687FA031A8390 /* DayPlanProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97F53E8FEB2418049339279 /* DayPlanProjection.swift */; };
 		7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		82E9E242902EB55707C88FF1 /* DeviceContactsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */; };
 		8418C11580D7E921F83365BC /* PageLifecycleActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */; };
@@ -106,8 +120,10 @@
 		A031938D495AA3E3701989E2 /* PageReferenceBrowsePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36E7BD65346AEAA3D645A2F /* PageReferenceBrowsePresentation.swift */; };
 		A1AF4B4993FF6A66FF07F7F8 /* EnchiridioniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */; };
 		A32C6AC40180C3A3228172C3 /* GraphQueryWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0938AF7A6668F0079D01E68F /* GraphQueryWorkspace.swift */; };
+		A353145577A96FDD34F0191A /* WatchWorkoutServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */; };
 		A40D92F77ECEF3BD9F93F222 /* TaskMutationWarningModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */; };
 		A45CFBCF225823A2564383EF /* SupertagSchemaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */; };
+		A5164E50AEB2F3FAA8E0B9B5 /* WorkoutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20D502962645FDAF359F207 /* WorkoutViews.swift */; };
 		A560FD670108778F88258DF9 /* TaskCompletionUndoModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */; };
 		A5744F1937704BEFF5CD50DD /* CalendarAgendaRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */; };
 		A7072F79F1EB9FDB56A85572 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
@@ -122,6 +138,7 @@
 		ADFEEFED47744B5DDC927214 /* TaskMutationWarningModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */; };
 		B270199CE123FA81C556D193 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = FC08746A35F52BA1CD0652FC /* EnchiridionCore */; };
 		B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
+		B43F9682D088B6C18A0E1BC6 /* WatchWorkoutServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */; };
 		B54F13D5E2C5129FE49DCFBF /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
 		B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
@@ -130,6 +147,7 @@
 		BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
 		BC8739C146641D258A35A088 /* AssistantVoicePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */; };
 		BD0279C6634EAD7C02316B27 /* PageReferenceSelectionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719BC8029C7B28B2E4A3991A /* PageReferenceSelectionResolver.swift */; };
+		C0B7AD325F599EF5E270ED49 /* EnchiridionWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6449139DF463334392AF367 /* EnchiridionWatchApp.swift */; };
 		C1A5C5FFDB9223FB6049AAD8 /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
 		C243B420C4273203FDB467C9 /* PageReferenceTextFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB78B2509F988C674630683 /* PageReferenceTextFormatting.swift */; };
 		C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */; };
@@ -145,6 +163,7 @@
 		CEAB5177991E19C711C72DF2 /* VaultManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */; };
 		CFB68BE51FFC3002C0B2A439 /* PersonNameEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0682E6D3339512E31330A48C /* PersonNameEditor.swift */; };
 		D0584F43527169484B81DB96 /* GraphRelationDefinitionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C78A2A912D114CC56B0E63 /* GraphRelationDefinitionsView.swift */; };
+		D08BF015DB6FFF2173B293B0 /* Enchiridion Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CF427C7237CA6F8FBE76A631 /* Enchiridion Watch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D1149A491B23B3D229E28CFB /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8E348F8C323D6A9956945CF /* AVFoundation.framework */; };
 		D23352015992D41FF8882FF2 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		D2A35D7137F26A24D0D4AB92 /* DailyTaskContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */; };
@@ -152,6 +171,8 @@
 		D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */; };
 		D6A4FDDB59D000F76FEF0787 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
 		D8E60E651B6339FEC1E4A06B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B20EC98721AA71FBB0962DB /* Assets.xcassets */; };
+		DA4E2CF2B07978113B93890F /* TodayWorkspaceTransitionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */; };
+		DA964A602C8CDFA17734B8AB /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = AB1878615D4178446C334543 /* EnchiridionWorkoutTransport */; };
 		DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */; };
 		DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
 		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
@@ -170,19 +191,28 @@
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		E9508EB961677501422890A2 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
 		EBCE84C17D01DFE6748AE67E /* QwenRealtimeVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */; };
+		EDD7BF6DAF685B8173DE91FB /* RosePinePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543FE018A2E4F3E408311426 /* RosePinePalette.swift */; };
+		EDE3DB71D7AAF88A0E07D28A /* WorkoutPhoneReceiverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447992772B2CCFAE1CF16509 /* WorkoutPhoneReceiverTests.swift */; };
 		EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */; };
 		F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */; };
 		F5A2695B4C553E2F99739EE4 /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
-		F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */; };
 		FCD11CD558E7F31C7BC4A374 /* EnchiridionTaskShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FCE1175FD35F74F763C47431 /* RealtimeBridge in Resources */ = {isa = PBXBuildFile; fileRef = B4BD02A67B53232AAF5AC5EA /* RealtimeBridge */; };
 		FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		FE693E4C3ED1D8CFD6E2D282 /* DeviceContactsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34D8CA6D64F25EE791CC4B7 /* DeviceContactsSettingsSection.swift */; };
 		FF2FEEAC12639A1D21480172 /* CalendarDayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */; };
 		FFC8ABA3D669D308FAD1714C /* TaskWorkbench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */; };
+		FFDD986E9F5F16BB645B9DB0 /* WatchWorkoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A9C68D8C6E630C9A90B09B /* WatchWorkoutCapture.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		081BBEBE79B10A94A63F40B5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CB3C241C71123388FD6B0E38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 51A7EBA662CB5C847C49F6A6;
+			remoteInfo = EnchiridionWatch;
+		};
 		13C288B5EF25D3DB0AAF8886 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = CB3C241C71123388FD6B0E38 /* Project object */;
@@ -196,6 +226,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 42EC224477BBE76A9C1F7B0D;
 			remoteInfo = EnchiridionTaskShare;
+		};
+		82085310AFC432D3C5D566EC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CB3C241C71123388FD6B0E38 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 51A7EBA662CB5C847C49F6A6;
+			remoteInfo = EnchiridionWatch;
 		};
 		CCB48924A95C6E64C7193404 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -219,6 +256,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6C111483718FDCA07A881C7A /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				D08BF015DB6FFF2173B293B0 /* Enchiridion Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -238,15 +286,19 @@
 		28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPlanningViews.swift; sourceTree = "<group>"; };
 		2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRootView.swift; sourceTree = "<group>"; };
 		2FB9B6918B67571BAC776C36 /* CalendarAgendaRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaRows.swift; sourceTree = "<group>"; };
+		309C4773DED80B9C6BF85B33 /* DayPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanView.swift; sourceTree = "<group>"; };
 		319DB59EC4B5896727EC6CE5 /* RealtimeWebRTCVoiceTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCVoiceTransportTests.swift; sourceTree = "<group>"; };
 		31DFF3CD751EC0680E7E70C1 /* GraphRelationshipViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRelationshipViews.swift; sourceTree = "<group>"; };
+		3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutServices.swift; sourceTree = "<group>"; };
 		41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarChrome.swift; sourceTree = "<group>"; };
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
+		447992772B2CCFAE1CF16509 /* WorkoutPhoneReceiverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPhoneReceiverTests.swift; sourceTree = "<group>"; };
+		45906AE890AABB6CD9F55535 /* EnchiridionWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EnchiridionWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCBridge.swift; sourceTree = "<group>"; };
 		4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderNotificationCoordinator.swift; sourceTree = "<group>"; };
 		4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaView.swift; sourceTree = "<group>"; };
 		51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageReferenceTextFormattingTests.swift; sourceTree = "<group>"; };
-		594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScreen.swift; sourceTree = "<group>"; };
+		543FE018A2E4F3E408311426 /* RosePinePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosePinePalette.swift; sourceTree = "<group>"; };
 		5B20EC98721AA71FBB0962DB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridioniOSApp.swift; sourceTree = "<group>"; };
 		5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagementViews.swift; sourceTree = "<group>"; };
@@ -258,6 +310,7 @@
 		720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayVoiceCoordinator.swift; sourceTree = "<group>"; };
 		7505584F1FCE5E2E0ACE89DD /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
 		785C87A8657C874FF5403E84 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
+		78C7650B87945ED46D4D5D34 /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
 		797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactsResolver.swift; sourceTree = "<group>"; };
 		7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasGeometry.swift; sourceTree = "<group>"; };
 		7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenRealtimeVoiceTransport.swift; sourceTree = "<group>"; };
@@ -269,15 +322,19 @@
 		89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardChrome.swift; sourceTree = "<group>"; };
 		8A15F61C325A3007FF986C56 /* NewEntryFocusedValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntryFocusedValue.swift; sourceTree = "<group>"; };
 		8A683189FA8C24FF8B2427AD /* RealtimeVoiceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceRuntime.swift; sourceTree = "<group>"; };
+		8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjectionTests.swift; sourceTree = "<group>"; };
+		8B2B2BDF4CE2F20FAE1E3A85 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
 		8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTodayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		8D41119C15894B2A284BCB01 /* EnchiridionMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnchiridionMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewScreen.swift; sourceTree = "<group>"; };
+		912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceTransitionCoordinator.swift; sourceTree = "<group>"; };
 		948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSystemSpeechOutput.swift; sourceTree = "<group>"; };
 		96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAgendaModels.swift; sourceTree = "<group>"; };
 		96D7C82B575E0783990D5543 /* RealtimeWebRTCVoiceTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCVoiceTransport.swift; sourceTree = "<group>"; };
 		96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskCompletionUndoModifier.swift; sourceTree = "<group>"; };
 		9AE19FE9B39E75CC38B2F324 /* Contacts.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Contacts.framework; path = System/Library/Frameworks/Contacts.framework; sourceTree = SDKROOT; };
+		9BC1A2BC9202EDCE443309EA /* CoreLocation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
 		9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceView.swift; sourceTree = "<group>"; };
 		9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardElementOverlay.swift; sourceTree = "<group>"; };
 		A27D35C9D4DEE0FD68B85047 /* DeviceContactsLifecycleModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactsLifecycleModifier.swift; sourceTree = "<group>"; };
@@ -288,6 +345,7 @@
 		AE056AEA8ACA9A7AB83665CD /* EditorFlushControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFlushControllerTests.swift; sourceTree = "<group>"; };
 		AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticBrowseText.swift; sourceTree = "<group>"; };
 		AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLibraryView.swift; sourceTree = "<group>"; };
+		B20D502962645FDAF359F207 /* WorkoutViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutViews.swift; sourceTree = "<group>"; };
 		B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventRelationshipPresentationTests.swift; sourceTree = "<group>"; };
 		B4BD02A67B53232AAF5AC5EA /* RealtimeBridge */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RealtimeBridge; path = Sources/SharedUI/Resources/RealtimeBridge; sourceTree = SOURCE_ROOT; };
 		B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantAppIntents.swift; sourceTree = "<group>"; };
@@ -298,20 +356,27 @@
 		C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenRealtimeVoiceSurface.swift; sourceTree = "<group>"; };
 		C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderAppDelegate.swift; sourceTree = "<group>"; };
 		C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonReferenceCreationForm.swift; sourceTree = "<group>"; };
+		C97F53E8FEB2418049339279 /* DayPlanProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjection.swift; sourceTree = "<group>"; };
+		C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceTransitionCoordinatorTests.swift; sourceTree = "<group>"; };
 		CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
 		CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManagementView.swift; sourceTree = "<group>"; };
+		CF427C7237CA6F8FBE76A631 /* Enchiridion Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Enchiridion Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D01C78BB8752D4959D32D9E9 /* Enchiridion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enchiridion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D3F165E1A05F58C3C35E4F11 /* WorkoutPhoneReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPhoneReceiver.swift; sourceTree = "<group>"; };
 		D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibrarySection+Presentation.swift"; sourceTree = "<group>"; };
 		D4347F52242BFA54AB59CF1D /* AssistantConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationView.swift; sourceTree = "<group>"; };
+		D6449139DF463334392AF367 /* EnchiridionWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionWatchApp.swift; sourceTree = "<group>"; };
 		D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceSpeechTranscriber.swift; sourceTree = "<group>"; };
 		D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasView.swift; sourceTree = "<group>"; };
 		D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardDrawingLayer.swift; sourceTree = "<group>"; };
+		D9471E84B9CC349962CB0060 /* WatchWorkoutCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutCaptureTests.swift; sourceTree = "<group>"; };
 		D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryScreen.swift; sourceTree = "<group>"; };
 		D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DAD9A3686C50BBA00FAD7EC9 /* EditorPersistenceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPersistenceSession.swift; sourceTree = "<group>"; };
 		DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventFilterSettingsSection.swift; sourceTree = "<group>"; };
 		DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayAssistantPrivacySettings.swift; sourceTree = "<group>"; };
 		DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryListScreen.swift; sourceTree = "<group>"; };
+		E0A9C68D8C6E630C9A90B09B /* WatchWorkoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutCapture.swift; sourceTree = "<group>"; };
 		E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtherPeopleView.swift; sourceTree = "<group>"; };
 		E29DEE908E7DAC137ABA64C5 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E38E3D37CCD497ABF150C23A /* Social.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Social.framework; path = System/Library/Frameworks/Social.framework; sourceTree = SDKROOT; };
@@ -339,6 +404,14 @@
 				989C08D0B1317BB4D5D7E339 /* AppIntents.framework in Frameworks */,
 				A997BF51D7CC828F0707BA81 /* WidgetKit.framework in Frameworks */,
 				925E3A4178EC475CC4ADAD53 /* EnchiridionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		31E789F8DC229F1D816883B8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7DFC2E65C5C832E4E08F516E /* EnchiridionWorkoutTransport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,6 +453,26 @@
 				36962054295F03760BB825DD /* WebKit.framework in Frameworks */,
 				7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */,
 				AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */,
+				243AB706E278466A5691C7C5 /* EnchiridionWorkoutTransport in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		93CB05E51B46A8EC49478921 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA964A602C8CDFA17734B8AB /* EnchiridionWorkoutTransport in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA24FE5EEB6577DE7642347 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B0242C5C406237F4EDB5B2F /* HealthKit.framework in Frameworks */,
+				4F05577CE475E8DA8F5A0CA2 /* WatchConnectivity.framework in Frameworks */,
+				1085A001658CB8ADCA5B758D /* CoreLocation.framework in Frameworks */,
+				14F2C690C167A84C2CDB743B /* EnchiridionWorkoutTransport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -394,10 +487,13 @@
 				61BEB1425D8AC0F0A8776B72 /* CarPlay.framework */,
 				9AE19FE9B39E75CC38B2F324 /* Contacts.framework */,
 				F19D2EBDC5F87EE5147087E6 /* ContactsUI.framework */,
+				9BC1A2BC9202EDCE443309EA /* CoreLocation.framework */,
 				8C57F425E589073F3CCF3DF9 /* FoundationModels.framework */,
+				8B2B2BDF4CE2F20FAE1E3A85 /* HealthKit.framework */,
 				E38E3D37CCD497ABF150C23A /* Social.framework */,
 				7505584F1FCE5E2E0ACE89DD /* Speech.framework */,
 				A9402DFAEC119B56FFF99F94 /* UniformTypeIdentifiers.framework */,
+				78C7650B87945ED46D4D5D34 /* WatchConnectivity.framework */,
 				F507163A58A73341C55E4CB4 /* WebKit.framework */,
 				D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */,
 			);
@@ -412,17 +508,21 @@
 				4C6FA57EB01E2D91A3EC2B37 /* CalendarAgendaView.swift */,
 				41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */,
 				CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */,
-				594FB5E8FA8F1AC33A0865C5 /* CalendarScreen.swift */,
 				DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */,
 				A64E087EF8C854F882AF3E55 /* CarPlayScene.swift */,
 				720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */,
 				1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */,
+				C97F53E8FEB2418049339279 /* DayPlanProjection.swift */,
+				309C4773DED80B9C6BF85B33 /* DayPlanView.swift */,
 				5BBC3293A34793EC285B34BB /* EnchiridioniOSApp.swift */,
 				DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */,
 				D95BB470402973ACB6C09128 /* MobileLibraryScreen.swift */,
 				2D7EE81CB0F9C21786FEA84D /* MobileRootView.swift */,
 				F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */,
+				543FE018A2E4F3E408311426 /* RosePinePalette.swift */,
+				912C9A9B969D59E3F09CAC4E /* TodayWorkspaceTransitionCoordinator.swift */,
 				9E57F27915D9A7C13920E995 /* TodayWorkspaceView.swift */,
+				D3F165E1A05F58C3C35E4F11 /* WorkoutPhoneReceiver.swift */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
@@ -495,9 +595,28 @@
 				D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */,
 				9FC9C67965AEB108C7118E14 /* WhiteboardElementOverlay.swift */,
 				040BA6B652D9E8EA278D5E67 /* WhiteboardTool.swift */,
+				B20D502962645FDAF359F207 /* WorkoutViews.swift */,
 				61ADCFF913B18B90A8574F77 /* Resources */,
 			);
 			path = SharedUI;
+			sourceTree = "<group>";
+		};
+		702C5C54B2D17D89FB40CE38 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				D6449139DF463334392AF367 /* EnchiridionWatchApp.swift */,
+				E0A9C68D8C6E630C9A90B09B /* WatchWorkoutCapture.swift */,
+				3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */,
+			);
+			path = watchOS;
+			sourceTree = "<group>";
+		};
+		785D6AAD1B7617AC92FA27D7 /* EnchiridionWatchTests */ = {
+			isa = PBXGroup;
+			children = (
+				D9471E84B9CC349962CB0060 /* WatchWorkoutCaptureTests.swift */,
+			);
+			path = EnchiridionWatchTests;
 			sourceTree = "<group>";
 		};
 		82C246F1A3B6A035FB7477CE /* Packages */ = {
@@ -512,12 +631,15 @@
 			isa = PBXGroup;
 			children = (
 				B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */,
+				8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */,
 				AE056AEA8ACA9A7AB83665CD /* EditorFlushControllerTests.swift */,
 				104662C94B10782309E1EB9B /* EditorPersistenceSessionTests.swift */,
 				ED10E6E5139BA44D18411D19 /* PageEditorTransitionAuthorityTests.swift */,
 				BA74ED56BC8B515110CE321F /* PageReferenceSelectionResolverTests.swift */,
 				51C1684BAC5DC974425C56B9 /* PageReferenceTextFormattingTests.swift */,
 				319DB59EC4B5896727EC6CE5 /* RealtimeWebRTCVoiceTransportTests.swift */,
+				C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */,
+				447992772B2CCFAE1CF16509 /* WorkoutPhoneReceiverTests.swift */,
 			);
 			path = EnchiridionMobileTests;
 			sourceTree = "<group>";
@@ -525,11 +647,13 @@
 		9D532DBFAABBD84E17504C05 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				CF427C7237CA6F8FBE76A631 /* Enchiridion Watch.app */,
 				D01C78BB8752D4959D32D9E9 /* Enchiridion.app */,
 				6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */,
 				8D41119C15894B2A284BCB01 /* EnchiridionMobileTests.xctest */,
 				FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */,
 				8BE72090FB588866EC798B62 /* EnchiridionTodayWidget.appex */,
+				45906AE890AABB6CD9F55535 /* EnchiridionWatchTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -542,6 +666,7 @@
 				6E9B1C9034899059B91D3C80 /* SharedUI */,
 				D739D39D344BFCB39157E4A9 /* TaskShareExtension */,
 				BDDA7F48BD12B92B406AC89F /* TodayTasksWidget */,
+				702C5C54B2D17D89FB40CE38 /* watchOS */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -591,6 +716,7 @@
 			isa = PBXGroup;
 			children = (
 				8F88BB30D151B5058AA0E849 /* EnchiridionMobileTests */,
+				785D6AAD1B7617AC92FA27D7 /* EnchiridionWatchTests */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -617,6 +743,25 @@
 			productReference = FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		51A7EBA662CB5C847C49F6A6 /* EnchiridionWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BFA0498C05F99DF1F5300753 /* Build configuration list for PBXNativeTarget "EnchiridionWatch" */;
+			buildPhases = (
+				C8B50363917FBF7E87B75DCC /* Sources */,
+				AAA24FE5EEB6577DE7642347 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnchiridionWatch;
+			packageProductDependencies = (
+				2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */,
+			);
+			productName = EnchiridionWatch;
+			productReference = CF427C7237CA6F8FBE76A631 /* Enchiridion Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		7437ED510D55094607A6D7EE /* EnchiridionMobile */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B5F4357527F7DFAD88E92FFC /* Build configuration list for PBXNativeTarget "EnchiridionMobile" */;
@@ -625,16 +770,19 @@
 				794E59A2D2ABA3F8FF9BC218 /* Resources */,
 				82BEC5343B5EDD2F6E5D3F58 /* Frameworks */,
 				5E49FE2FF17C827BAA62FB28 /* Embed Foundation Extensions */,
+				6C111483718FDCA07A881C7A /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				ADB330F23D4B40F3985634CC /* PBXTargetDependency */,
 				2B5CD5AB1E5F3B7C9BF2107E /* PBXTargetDependency */,
 				C1F9122612D65BB1D7968AE8 /* PBXTargetDependency */,
 			);
 			name = EnchiridionMobile;
 			packageProductDependencies = (
 				3E539EB8451EC283BFE5CA0D /* EnchiridionCore */,
+				F0C0ED93C2370B8BE78F63CE /* EnchiridionWorkoutTransport */,
 			);
 			productName = EnchiridionMobile;
 			productReference = 6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */;
@@ -645,6 +793,7 @@
 			buildConfigurationList = 6C7818F9DD6513CE621299B4 /* Build configuration list for PBXNativeTarget "EnchiridionMobileTests" */;
 			buildPhases = (
 				C877CCFBB1B38F806C09B4A6 /* Sources */,
+				31E789F8DC229F1D816883B8 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -653,9 +802,30 @@
 			);
 			name = EnchiridionMobileTests;
 			packageProductDependencies = (
+				B9E6531E0CE916366A251C73 /* EnchiridionWorkoutTransport */,
 			);
 			productName = EnchiridionMobileTests;
 			productReference = 8D41119C15894B2A284BCB01 /* EnchiridionMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B86F5DA2023122D206F756B9 /* EnchiridionWatchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 379FD00E78BD7B34880DAE37 /* Build configuration list for PBXNativeTarget "EnchiridionWatchTests" */;
+			buildPhases = (
+				7CC6043402DB9A10213A65AB /* Sources */,
+				93CB05E51B46A8EC49478921 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				08781DAFA698DE0FD7E63AB4 /* PBXTargetDependency */,
+			);
+			name = EnchiridionWatchTests;
+			packageProductDependencies = (
+				AB1878615D4178446C334543 /* EnchiridionWorkoutTransport */,
+			);
+			productName = EnchiridionWatchTests;
+			productReference = 45906AE890AABB6CD9F55535 /* EnchiridionWatchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */ = {
@@ -710,11 +880,18 @@
 						DevelopmentTeam = 6KXCJGJ45W;
 						ProvisioningStyle = Automatic;
 					};
+					51A7EBA662CB5C847C49F6A6 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+						ProvisioningStyle = Automatic;
+					};
 					7437ED510D55094607A6D7EE = {
 						DevelopmentTeam = 6KXCJGJ45W;
 						ProvisioningStyle = Automatic;
 					};
 					877762695536523C684317F1 = {
+						DevelopmentTeam = 6KXCJGJ45W;
+					};
+					B86F5DA2023122D206F756B9 = {
 						DevelopmentTeam = 6KXCJGJ45W;
 					};
 					C8963CBD331BC59BB77E63CE = {
@@ -728,7 +905,6 @@
 				};
 			};
 			buildConfigurationList = 6598C0901AC395B03B92DFBB /* Build configuration list for PBXProject "Enchiridion" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -741,14 +917,17 @@
 				90E6540D178D4DC182233438 /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 9D532DBFAABBD84E17504C05 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				F5C3C0B3B8897EE3525603E3 /* EnchiridionMac */,
 				7437ED510D55094607A6D7EE /* EnchiridionMobile */,
+				51A7EBA662CB5C847C49F6A6 /* EnchiridionWatch */,
+				B86F5DA2023122D206F756B9 /* EnchiridionWatchTests */,
 				877762695536523C684317F1 /* EnchiridionMobileTests */,
-				42EC224477BBE76A9C1F7B0D /* EnchiridionTaskShare */,
 				C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */,
+				42EC224477BBE76A9C1F7B0D /* EnchiridionTaskShare */,
 			);
 		};
 /* End PBXProject section */
@@ -841,6 +1020,7 @@
 				E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */,
 				C2E6F4E0C28B6135A015984F /* WhiteboardElementOverlay.swift in Sources */,
 				8B9B161C2F9F6A5C5A8F0C63 /* WhiteboardTool.swift in Sources */,
+				651D9B8D3E0C96ECE3BF8BD7 /* WorkoutViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -862,11 +1042,12 @@
 				FF2FEEAC12639A1D21480172 /* CalendarDayStrip.swift in Sources */,
 				8AAFFCB10E8DBA2C62023E3E /* CalendarEventFilterSettingsSection.swift in Sources */,
 				FE2119F17B97BFBC0414A3F5 /* CalendarEventRow.swift in Sources */,
-				F634AC10DF988AE5BD4782D2 /* CalendarScreen.swift in Sources */,
 				8ED761D9FB82EF9B4DBE8776 /* CarPlayAssistantPrivacySettings.swift in Sources */,
 				C2639A7EB7E845EA0F16E377 /* CarPlayScene.swift in Sources */,
 				00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */,
 				D2A35D7137F26A24D0D4AB92 /* DailyTaskContext.swift in Sources */,
+				7EA0F23EEAB687FA031A8390 /* DayPlanProjection.swift in Sources */,
+				383DCEA9BCD3F070F56C0EF8 /* DayPlanView.swift in Sources */,
 				8860C174604A5B979C3A104B /* DeviceContactPicker.swift in Sources */,
 				68AA474F3E1F28D661B29426 /* DeviceContactsLifecycleModifier.swift in Sources */,
 				82E9E242902EB55707C88FF1 /* DeviceContactsResolver.swift in Sources */,
@@ -902,6 +1083,7 @@
 				D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */,
 				DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */,
 				45038B2961636DD6EFE3A8FE /* RealtimeWebRTCVoiceTransport.swift in Sources */,
+				EDD7BF6DAF685B8173DE91FB /* RosePinePalette.swift in Sources */,
 				48BBBFAEA62D217A23B33E34 /* SemanticBrowseText.swift in Sources */,
 				E2D2F33CA0885506A77E459C /* SupertagPropertiesView.swift in Sources */,
 				94B898133AB10583F31A5D43 /* SupertagSchemaEditor.swift in Sources */,
@@ -912,6 +1094,7 @@
 				7DC40B372C37B96349F27278 /* TaskPlanningViews.swift in Sources */,
 				BB55209018648535F8C68363 /* TaskReminderNotificationCoordinator.swift in Sources */,
 				5E764416E1D9F740E73E8C09 /* TaskWorkbench.swift in Sources */,
+				DA4E2CF2B07978113B93890F /* TodayWorkspaceTransitionCoordinator.swift in Sources */,
 				EF3E3120300B86E63FD15C85 /* TodayWorkspaceView.swift in Sources */,
 				CCA4C3B4D33E63877C0D862D /* VaultManagementView.swift in Sources */,
 				B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */,
@@ -920,6 +1103,18 @@
 				D23352015992D41FF8882FF2 /* WhiteboardDrawingLayer.swift in Sources */,
 				3EBB8BE2893AB23F1D3CE0A2 /* WhiteboardElementOverlay.swift in Sources */,
 				9537B1D11AA0918C106D2C1D /* WhiteboardTool.swift in Sources */,
+				7A93456AF1A1EC01640F8C9A /* WorkoutPhoneReceiver.swift in Sources */,
+				A5164E50AEB2F3FAA8E0B9B5 /* WorkoutViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7CC6043402DB9A10213A65AB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2D263E957E3C840A3ECFC6CA /* WatchWorkoutCapture.swift in Sources */,
+				0D1279208254DF9752DB273A /* WatchWorkoutCaptureTests.swift in Sources */,
+				B43F9682D088B6C18A0E1BC6 /* WatchWorkoutServices.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -936,12 +1131,25 @@
 			buildActionMask = 2147483647;
 			files = (
 				6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */,
+				6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */,
 				40811CB0F6893471E71E2286 /* EditorFlushControllerTests.swift in Sources */,
 				97F18510A92B13BEC7897705 /* EditorPersistenceSessionTests.swift in Sources */,
 				6027565DFABF57B175B87A5E /* PageEditorTransitionAuthorityTests.swift in Sources */,
 				583CE1A9B4F570675365853B /* PageReferenceSelectionResolverTests.swift in Sources */,
 				6474858D82A6C7D1EC5F34BC /* PageReferenceTextFormattingTests.swift in Sources */,
 				61843ADED7659299F4CC2582 /* RealtimeWebRTCVoiceTransportTests.swift in Sources */,
+				0172EB8F97E41038CBACBD70 /* TodayWorkspaceTransitionCoordinatorTests.swift in Sources */,
+				EDE3DB71D7AAF88A0E07D28A /* WorkoutPhoneReceiverTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8B50363917FBF7E87B75DCC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0B7AD325F599EF5E270ED49 /* EnchiridionWatchApp.swift in Sources */,
+				FFDD986E9F5F16BB645B9DB0 /* WatchWorkoutCapture.swift in Sources */,
+				A353145577A96FDD34F0191A /* WatchWorkoutServices.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -957,6 +1165,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		08781DAFA698DE0FD7E63AB4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 51A7EBA662CB5C847C49F6A6 /* EnchiridionWatch */;
+			targetProxy = 081BBEBE79B10A94A63F40B5 /* PBXContainerItemProxy */;
+		};
 		2B5CD5AB1E5F3B7C9BF2107E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = C8963CBD331BC59BB77E63CE /* EnchiridionTodayWidget */;
@@ -966,6 +1179,11 @@
 			isa = PBXTargetDependency;
 			target = 7437ED510D55094607A6D7EE /* EnchiridionMobile */;
 			targetProxy = 13C288B5EF25D3DB0AAF8886 /* PBXContainerItemProxy */;
+		};
+		ADB330F23D4B40F3985634CC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 51A7EBA662CB5C847C49F6A6 /* EnchiridionWatch */;
+			targetProxy = 82085310AFC432D3C5D566EC /* PBXContainerItemProxy */;
 		};
 		C1F9122612D65BB1D7968AE8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1053,6 +1271,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
 		};
@@ -1112,6 +1331,25 @@
 			};
 			name = Debug;
 		};
+		65E98E9D676A6CCCEFF7DF18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.EnchiridionWatchTests;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Enchiridion Watch.app/Enchiridion Watch";
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
 		7C9065C1899F9F28E0D52DC9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1149,6 +1387,40 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A3372CDC5C38A1CEBD25E1B9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionWatch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion.watchkitapp;
+				PRODUCT_NAME = "Enchiridion Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		AC03F993FFE4DC0F6F2D967D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.EnchiridionWatchTests;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Enchiridion Watch.app/Enchiridion Watch";
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
 		};
@@ -1230,6 +1502,21 @@
 			};
 			name = Debug;
 		};
+		EE59CA511833CFA8B3EE1371 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Configuration/EnchiridionWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = "Configuration/EnchiridionWatch-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rawkode.enchiridion.watchkitapp;
+				PRODUCT_NAME = "Enchiridion Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
 		F4AC56E92DE6E8F813C765DF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1295,12 +1582,22 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Debug;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		379FD00E78BD7B34880DAE37 /* Build configuration list for PBXNativeTarget "EnchiridionWatchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				65E98E9D676A6CCCEFF7DF18 /* Debug */,
+				AC03F993FFE4DC0F6F2D967D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		6598C0901AC395B03B92DFBB /* Build configuration list for PBXProject "Enchiridion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1346,6 +1643,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		BFA0498C05F99DF1F5300753 /* Build configuration list for PBXNativeTarget "EnchiridionWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3372CDC5C38A1CEBD25E1B9 /* Debug */,
+				EE59CA511833CFA8B3EE1371 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		DAA52144007B722AB3EDACA8 /* Build configuration list for PBXNativeTarget "EnchiridionMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1365,6 +1671,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWorkoutTransport;
+		};
 		3E539EB8451EC283BFE5CA0D /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionCore;
@@ -1376,6 +1686,18 @@
 		98257A715412A302965BE5CE /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionCore;
+		};
+		AB1878615D4178446C334543 /* EnchiridionWorkoutTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWorkoutTransport;
+		};
+		B9E6531E0CE916366A251C73 /* EnchiridionWorkoutTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWorkoutTransport;
+		};
+		F0C0ED93C2370B8BE78F63CE /* EnchiridionWorkoutTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnchiridionWorkoutTransport;
 		};
 		FC08746A35F52BA1CD0652FC /* EnchiridionCore */ = {
 			isa = XCSwiftPackageProductDependency;

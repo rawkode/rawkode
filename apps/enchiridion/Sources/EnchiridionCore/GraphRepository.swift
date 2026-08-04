@@ -10,7 +10,7 @@ public struct RelationDefinitionCloudRecord: Sendable {
 
 extension LibraryRepository {
   public func relationDefinitions() throws -> [RelationDefinition] {
-    try database.read { db in
+    return try database.read { db in
       try Row.fetchAll(
         db,
         sql: """
@@ -30,7 +30,7 @@ extension LibraryRepository {
     let forward = definition.forwardName.trimmingCharacters(in: .whitespacesAndNewlines)
     let inverse = definition.inverseName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !forward.isEmpty, !inverse.isEmpty else { throw GraphModelError.invalidEndpoint }
-    try database.write { db in
+    return try database.write { db in
       if let existing = try Row.fetchOne(
         db,
         sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ?",
@@ -57,7 +57,7 @@ extension LibraryRepository {
     _ id: RelationID,
     now: Date = Date()
   ) throws {
-    try database.write { db in
+    return try database.write { db in
       guard var existing = try Row.fetchOne(
         db,
         sql: "SELECT definition_json FROM _graph_relation_definitions WHERE id = ?",
@@ -259,7 +259,7 @@ extension LibraryRepository {
         db,
         sql: """
           SELECT * FROM _graph_relation_definitions
-          WHERE cloud_dirty = 1 AND is_system = 0
+          WHERE cloud_dirty = 1 AND is_system = 0 AND id NOT LIKE 'dev.rawkode.enchiridion.%'
           ORDER BY modified_at, id
           """
       ).compactMap(Self.decodeRelationCloudRecord)
@@ -269,7 +269,8 @@ extension LibraryRepository {
   public func relationDefinitionCloudRecord(
     id: RelationID
   ) throws -> RelationDefinitionCloudRecord? {
-    try database.read { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return nil }
+    return try database.read { db in
       try Row.fetchOne(
         db,
         sql: "SELECT * FROM _graph_relation_definitions WHERE id = ? AND is_system = 0",
@@ -284,7 +285,8 @@ extension LibraryRepository {
     sentGeneration: Int64,
     systemFields: Data
   ) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       try db.execute(
         sql: """
           UPDATE _graph_relation_definitions
@@ -312,7 +314,8 @@ extension LibraryRepository {
     dirtyGeneration: Int64,
     systemFields: Data
   ) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       if let row = try Row.fetchOne(
         db,
         sql: "SELECT is_system, cloud_dirty FROM _graph_relation_definitions WHERE id = ?",
@@ -348,7 +351,8 @@ extension LibraryRepository {
 
   @discardableResult
   public func applyCloudRelationDefinitionRecordDeletion(id: RelationID) throws -> Bool {
-    try database.write { db in
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return false }
+    return try database.write { db in
       guard let row = try Row.fetchOne(
         db,
         sql: "SELECT definition_json,is_system,cloud_dirty FROM _graph_relation_definitions WHERE id = ?",
@@ -381,6 +385,7 @@ extension LibraryRepository {
   }
 
   public func clearRelationDefinitionCloudRecordMetadata(id: RelationID) throws {
+    guard !ModuleNamespace.isCompiledIdentifier(id.rawValue) else { return }
     try database.write { db in
       try db.execute(
         sql: """

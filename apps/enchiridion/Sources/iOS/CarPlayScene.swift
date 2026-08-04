@@ -2,6 +2,8 @@ import CarPlay
 import UIKit
 
 final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
+  private let workoutTransport = WorkoutWatchConnectivityTransport()
+
   func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -15,6 +17,15 @@ final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
         UIApplication.shared.open(url)
       }
     )
+    if let session = EnchiridionAppRuntime.shared.vaultSession,
+      let receiver = try? WorkoutPhoneReceiver(
+        vaultSession: session,
+        registry: session.catalog,
+        acknowledgementSender: workoutTransport
+      )
+    {
+      workoutTransport.start(receiver: receiver)
+    }
     return true
   }
 

@@ -60,6 +60,11 @@ final class EnchiridionAppRuntime {
   }
 
   private init() {
+    do {
+      try WorkoutModuleViews.register()
+    } catch {
+      preconditionFailure("First-party module view registration failed: \(error)")
+    }
     let credentialStore = OpenAICredentialStore()
     openAICredentialStore = credentialStore
     assistantProviderSettings = AssistantProviderSettingsController(

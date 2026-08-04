@@ -82,11 +82,6 @@ struct MobileRootView: View {
       .tag(MobileTab.assistant)
       .toolbar(tabBarVisibility, for: .tabBar)
 
-      CalendarScreen(store: store)
-        .tabItem { Label("Calendar", systemImage: "calendar") }
-        .tag(MobileTab.calendar)
-        .toolbar(tabBarVisibility, for: .tabBar)
-
       MobileLibraryScreen(
         store: store,
         contactsResolver: contactsResolver,
@@ -142,6 +137,7 @@ struct MobileRootView: View {
     .task { await refreshForActivation() }
     .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
+    .tint(RosePinePalette.accent)
     .onReceive(NotificationCenter.default.publisher(for: .enchiridionEditorFocusDidChange)) {
       notification in
       isEditorFocused = notification.userInfo?["isFocused"] as? Bool ?? false
@@ -224,7 +220,6 @@ private enum MobileTab: Hashable {
   case today
   case tasks
   case assistant
-  case calendar
   case library
 }
 

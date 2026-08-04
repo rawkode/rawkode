@@ -1,6 +1,27 @@
 import EnchiridionCore
 import SwiftUI
 
+/// Compiled renderers are opt-in. The caller always retains `LiveViewKind` as a safe fallback.
+@MainActor
+public final class ModuleViewRendererRegistry {
+  public typealias Renderer = @MainActor (ModuleViewContext) -> AnyView
+  public static let shared = ModuleViewRendererRegistry()
+  private var renderers: [ViewTypeID: Renderer] = [:]
+
+  public func register(_ typeID: ViewTypeID, renderer: @escaping Renderer) throws {
+    guard renderers[typeID] == nil else { throw ModuleViewRendererRegistryError.duplicate(typeID) }
+    renderers[typeID] = renderer
+  }
+
+  func renderer(for typeID: ViewTypeID?) -> Renderer? {
+    typeID.flatMap { renderers[$0] }
+  }
+}
+
+public enum ModuleViewRendererRegistryError: Error, Equatable {
+  case duplicate(ViewTypeID)
+}
+
 struct LiveViewScreen: View {
   let store: LibraryStore
   let definition: LiveQueryDefinition
@@ -12,12 +33,23 @@ struct LiveViewScreen: View {
 
   var body: some View {
     Group {
-      switch definition.viewKind {
-      case .list: list
-      case .table: table
-      case .board: board
-      case .calendar: calendar
-      case .canvas: canvas
+      if let renderer = ModuleViewRendererRegistry.shared.renderer(for: definition.viewTypeID) {
+        renderer(ModuleViewContext(vaultID: store.vaultID, definition: definition, items: items) { command in
+          switch command {
+          case .openPage(let scopedID) where scopedID.vaultID == store.vaultID:
+            openPage(PageID(rawValue: scopedID.nodeID.rawValue))
+          case .openPage:
+            break
+          }
+        })
+      } else {
+        switch definition.viewKind {
+        case .list: list
+        case .table: table
+        case .board: board
+        case .calendar: calendar
+        case .canvas: canvas
+        }
       }
     }
     .navigationTitle(definition.name)

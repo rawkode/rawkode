@@ -7,9 +7,11 @@ let package = Package(
   platforms: [
     .iOS(.v26),
     .macOS(.v26),
+    .watchOS(.v26),
   ],
   products: [
-    .library(name: "EnchiridionCore", targets: ["EnchiridionCore"])
+    .library(name: "EnchiridionCore", targets: ["EnchiridionCore"]),
+    .library(name: "EnchiridionWorkoutTransport", targets: ["EnchiridionWorkoutTransport"]),
   ],
   dependencies: [
     .package(
@@ -25,6 +27,7 @@ let package = Package(
     .target(
       name: "EnchiridionCore",
       dependencies: [
+        "EnchiridionWorkoutTransport",
         .product(name: "Automerge", package: "automerge-swift"),
         .product(name: "GRDB", package: "GRDB.swift"),
       ],
@@ -39,9 +42,14 @@ let package = Package(
         .linkedFramework("WidgetKit"),
       ]
     ),
+    .target(name: "EnchiridionWorkoutTransport"),
+    .testTarget(
+      name: "EnchiridionWorkoutTransportTests",
+      dependencies: ["EnchiridionWorkoutTransport"]
+    ),
     .testTarget(
       name: "EnchiridionCoreTests",
-      dependencies: ["EnchiridionCore"]
+      dependencies: ["EnchiridionCore", "EnchiridionWorkoutTransport"]
     ),
   ]
 )

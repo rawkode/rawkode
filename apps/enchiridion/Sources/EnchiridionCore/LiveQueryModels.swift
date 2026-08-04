@@ -102,6 +102,8 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
   public var filters: [LiveQueryFilter]
   public var sorts: [LiveQuerySort]
   public var viewKind: LiveViewKind
+  /// Optional compiled renderer. `viewKind` remains the durable generic fallback.
+  public var viewTypeID: ViewTypeID?
   public var visibleFieldIDs: [SupertagFieldID]
   public var groupFieldID: SupertagFieldID?
   public var startFieldID: SupertagFieldID?
@@ -116,6 +118,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     filters: [LiveQueryFilter] = [],
     sorts: [LiveQuerySort] = [.init(systemField: "title")],
     viewKind: LiveViewKind = .list,
+    viewTypeID: ViewTypeID? = nil,
     visibleFieldIDs: [SupertagFieldID] = [],
     groupFieldID: SupertagFieldID? = nil,
     startFieldID: SupertagFieldID? = nil,
@@ -129,6 +132,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     self.filters = filters
     self.sorts = sorts
     self.viewKind = viewKind
+    self.viewTypeID = viewTypeID
     self.visibleFieldIDs = visibleFieldIDs
     self.groupFieldID = groupFieldID
     self.startFieldID = startFieldID
@@ -170,7 +174,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, name, source, filters, sorts, viewKind, visibleFieldIDs, groupFieldID
+    case id, name, source, filters, sorts, viewKind, viewTypeID, visibleFieldIDs, groupFieldID
     case startFieldID, endFieldID, limit, peopleScope
   }
 
@@ -184,6 +188,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
       sorts: try values.decodeIfPresent([LiveQuerySort].self, forKey: .sorts)
         ?? [.init(systemField: "title")],
       viewKind: try values.decodeIfPresent(LiveViewKind.self, forKey: .viewKind) ?? .list,
+      viewTypeID: try values.decodeIfPresent(ViewTypeID.self, forKey: .viewTypeID),
       visibleFieldIDs: try values.decodeIfPresent(
         [SupertagFieldID].self,
         forKey: .visibleFieldIDs
@@ -205,6 +210,7 @@ public struct LiveQueryDefinition: Identifiable, Codable, Hashable, Sendable {
     try values.encode(filters, forKey: .filters)
     try values.encode(sorts, forKey: .sorts)
     try values.encode(viewKind, forKey: .viewKind)
+    try values.encodeIfPresent(viewTypeID, forKey: .viewTypeID)
     try values.encode(visibleFieldIDs, forKey: .visibleFieldIDs)
     try values.encodeIfPresent(groupFieldID, forKey: .groupFieldID)
     try values.encodeIfPresent(startFieldID, forKey: .startFieldID)

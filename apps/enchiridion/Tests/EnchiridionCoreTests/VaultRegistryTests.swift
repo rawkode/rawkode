@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import EnchiridionCore
+import EnchiridionWorkoutTransport
 
 final class VaultRegistryTests: XCTestCase {
   func testFreshCatalogCreatesPersonalVaultAndIndependentGraphPath() throws {
@@ -91,6 +92,93 @@ final class VaultRegistryTests: XCTestCase {
     let personalGraph = directory
       .appendingPathComponent("vaults/vault_personal/graph.sqlite")
     XCTAssertEqual(try Data(contentsOf: personalGraph), contents)
+  }
+
+  func testWorkoutRouteIsRecordedBeforeImportAndPinsTheOriginalDefaultVault() throws {
+    let fixture = try makeFixture()
+    let work = try fixture.registry.createVault(name: "Work")
+    let eventID = UUID().uuidString
+    let hash = String(repeating: "a", count: 64)
+
+    let first = try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts",
+      eventID: eventID,
+      payloadHash: hash
+    )
+    guard case let .claimed(route) = first else { return XCTFail("Expected first-observation claim") }
+    XCTAssertEqual(route.vaultID, .personal)
+
+    // This is the crash boundary: no importer has run, but a retry must remain
+    // pinned after the user changes their capture preference.
+    try fixture.registry.setDefaultCaptureVault(work.id)
+    let replay = try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts",
+      eventID: eventID,
+      payloadHash: hash
+    )
+    guard case let .existing(replayedRoute) = replay else { return XCTFail("Expected replay") }
+    XCTAssertEqual(replayedRoute.vaultID, .personal)
+  }
+
+  func testWorkoutRouteRejectsConflictsAndNeverReroutesDeletedDestination() throws {
+    let fixture = try makeFixture()
+    let work = try fixture.registry.createVault(name: "Work")
+    try fixture.registry.setDefaultCaptureVault(work.id)
+    let eventID = UUID().uuidString
+    let hash = String(repeating: "b", count: 64)
+    _ = try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts", eventID: eventID, payloadHash: hash
+    )
+
+    XCTAssertThrowsError(try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts", eventID: eventID,
+      payloadHash: String(repeating: "c", count: 64)
+    )) { XCTAssertEqual($0 as? WorkoutCaptureRouteError, .conflictingPayload) }
+
+    _ = try fixture.registry.deleteVault(work.id)
+    XCTAssertThrowsError(try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts", eventID: eventID, payloadHash: hash
+    )) { XCTAssertEqual($0 as? WorkoutCaptureRouteError, .routedVaultUnavailable) }
+  }
+
+  func testRecoveredWorkoutRouteNeverFallsBackToCurrentDefault() throws {
+    let fixture = try makeFixture()
+    let work = try fixture.registry.createVault(name: "Work")
+    try fixture.registry.setDefaultCaptureVault(work.id)
+    let eventID = UUID().uuidString
+    let hash = String(repeating: "e", count: 64)
+    let result = try fixture.registry.claimRecoveredWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts", eventID: eventID,
+      payloadHash: hash, recoveredVaultID: .personal
+    )
+    guard case let .claimed(route) = result else { return XCTFail("Expected recovery route") }
+    XCTAssertEqual(route.vaultID, .personal)
+    guard case let .existing(replay) = try fixture.registry.claimWorkoutCaptureRoute(
+      moduleID: "dev.rawkode.enchiridion.workouts", eventID: eventID, payloadHash: hash
+    ) else { return XCTFail("Expected persisted recovery route") }
+    XCTAssertEqual(replay.vaultID, .personal)
+  }
+
+  func testWorkoutAcknowledgementOutboxPersistsExactTupleUntilDelivered() throws {
+    let fixture = try makeFixture()
+    let acknowledgement = WorkoutImportAcknowledgement(
+      moduleID: "dev.rawkode.enchiridion.workouts",
+      eventID: UUID().uuidString,
+      payloadHash: String(repeating: "d", count: 64)
+    )
+    let response = WorkoutDeliveryResponse(
+      moduleID: acknowledgement.moduleID,
+      eventID: acknowledgement.eventID,
+      payloadHash: acknowledgement.payloadHash,
+      disposition: .conflict
+    )
+    try fixture.registry.enqueueWorkoutResponse(response)
+    let reopened = try VaultRegistry(path: fixture.catalogPath)
+    XCTAssertEqual(
+      try reopened.pendingWorkoutAcknowledgements().map(\.response), [response]
+    )
+    try reopened.acknowledgeWorkoutAcknowledgementDelivery(acknowledgement)
+    XCTAssertTrue(try reopened.pendingWorkoutAcknowledgements().isEmpty)
   }
 
   private func makeFixture() throws -> (

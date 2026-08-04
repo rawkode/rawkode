@@ -6,6 +6,7 @@ options:
   deploymentTarget:
     iOS: "26.0"
     macOS: "26.0"
+    watchOS: "26.0"
   generateEmptyDirectories: true
 
 packages:
@@ -16,7 +17,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: 6KXCJGJ45W
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "2026080303"
+    CURRENT_PROJECT_VERSION: "2026080304"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: true
@@ -130,6 +131,8 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - target: EnchiridionWatch
+        embed: true
       - target: EnchiridionTodayWidget
         embed: true
       - target: EnchiridionTaskShare
@@ -145,6 +148,8 @@ targets:
         weak: true
       - package: EnchiridionCore
         product: EnchiridionCore
+      - package: EnchiridionCore
+        product: EnchiridionWorkoutTransport
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion
@@ -154,6 +159,57 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMobile.entitlements
         CODE_SIGN_STYLE: Automatic
 
+  # Independent Watch app. WKT-04 owns Sources/watchOS and supplies the
+  # capture/outbox lifecycle; this target intentionally links only the wire
+  # contract, never the phone's graph/persistence implementation.
+  EnchiridionWatch:
+    type: application
+    platform: watchOS
+    productName: Enchiridion Watch
+    info:
+      path: Configuration/EnchiridionWatch-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: dev.rawkode.enchiridion
+        WKBackgroundModes:
+          - workout-processing
+        NSLocationWhenInUseUsageDescription: Record outdoor workout routes in Apple Health. Route coordinates are never sent to Enchiridion.
+        NSHealthShareUsageDescription: Enchiridion records workout metrics you choose to save from Apple Watch.
+        NSHealthUpdateUsageDescription: Enchiridion saves completed Apple Watch workouts to Health.
+    sources:
+      - Sources/watchOS
+    dependencies:
+      - sdk: HealthKit.framework
+      - sdk: WatchConnectivity.framework
+      - sdk: CoreLocation.framework
+      - package: EnchiridionCore
+        product: EnchiridionWorkoutTransport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion.watchkitapp
+        PRODUCT_NAME: Enchiridion Watch
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionWatch.entitlements
+        CODE_SIGN_STYLE: Automatic
+
+  EnchiridionWatchTests:
+    type: bundle.unit-test
+    platform: watchOS
+    deploymentTarget: "26.0"
+    sources:
+      - Tests/EnchiridionWatchTests
+      - Sources/watchOS/WatchWorkoutCapture.swift
+      - Sources/watchOS/WatchWorkoutServices.swift
+    dependencies:
+      - target: EnchiridionWatch
+      - package: EnchiridionCore
+        product: EnchiridionWorkoutTransport
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
   EnchiridionMobileTests:
     type: bundle.unit-test
     platform: iOS
@@ -162,6 +218,8 @@ targets:
       - Tests/EnchiridionMobileTests
     dependencies:
       - target: EnchiridionMobile
+      - package: EnchiridionCore
+        product: EnchiridionWorkoutTransport
     settings:
       base:
         BUNDLE_LOADER: $(TEST_HOST)
@@ -247,3 +305,14 @@ schemes:
     test:
       targets:
         - EnchiridionMobileTests
+
+  Enchiridion Watch:
+    build:
+      targets:
+        EnchiridionWatch: all
+        EnchiridionWatchTests: [test]
+    run:
+      config: Debug
+    test:
+      targets:
+        - EnchiridionWatchTests

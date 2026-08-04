@@ -31,6 +31,10 @@ public final class VaultSession {
   @ObservationIgnored private let startsStoresImmediately: Bool
   @ObservationIgnored private var backgroundStores: [VaultID: LibraryStore] = [:]
 
+  /// Process-wide catalog authority for non-UI background deliveries. Callers
+  /// still use `backgroundStore(forVault:)` for vault graph access.
+  public var catalog: VaultRegistry { registry }
+
   public convenience init(
     calendar: Calendar = .current,
     contactResolver: (any DeviceContactResolving)? = nil,
