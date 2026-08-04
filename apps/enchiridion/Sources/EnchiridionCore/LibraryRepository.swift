@@ -232,6 +232,8 @@ public struct PageSuggestion: Codable, Hashable, Sendable, Identifiable {
       return identity.occurrenceStart.formatted(date: .abbreviated, time: .shortened)
     case .calendarSeries:
       return "Series notes"
+    case .calendarMaterializedEvent:
+      return "Calendar event"
     case .daily, .free:
       return nil
     }
@@ -1249,6 +1251,146 @@ public actor LibraryRepository {
           """
       )
       try Self.pruneOrphanedCalendarPeople(db)
+    }
+  }
+
+  public func calendarEventMaterializationEnabled() throws -> Bool {
+    try database.read { db in
+      guard let data = try Data.fetchOne(
+        db, sql: "SELECT value FROM settings WHERE key = ?", arguments: [CalendarEventMaterialization.settingKey]
+      ) else { return false }
+      return (try? JSONDecoder.enchiridion.decode(Bool.self, from: data)) ?? false
+    }
+  }
+
+  /// This is intentionally local-only. Turning it off never deletes a synced Event
+  /// page; it simply stops provider refreshes from changing it.
+  public func setCalendarEventMaterializationEnabled(_ enabled: Bool) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
+        arguments: [CalendarEventMaterialization.settingKey, try JSONEncoder.enchiridion.encode(enabled)]
+      )
+    }
+  }
+
+  /// Copies the safe, semantic calendar projection into normal Event pages. This
+  /// shares the normal document/dirty-generation path, so CloudKit sees every
+  /// actual page change and unchanged snapshots are genuine no-ops.
+  public func materializeCalendarEvents(
+    _ events: [CalendarEventSnapshot],
+    provider: String? = nil,
+    authoritativeInterval: DateInterval? = nil,
+    now: Date = Date()
+  ) throws -> CalendarEventMaterializationReceipt {
+    guard try calendarEventMaterializationEnabled() else { return .init(skippedCount: events.count) }
+    let providerScope: String?
+    if let provider {
+      providerScope = CalendarEventMaterialization.sourceScopeDigest(for: provider)
+    } else {
+      providerScope = Set(events.map { $0.identity.provider }).count == 1
+        ? events.first.flatMap { CalendarEventMaterialization.sourceScopeDigest(for: $0.identity.provider) }
+        : nil
+    }
+    return try database.write { db in
+      var changed: [PageID] = []
+      var skipped = 0
+      let refreshStamp = now.timeIntervalSince1970
+      for event in events {
+        guard let identity = CalendarEventMaterialization.identity(for: event) else {
+          skipped += 1
+          continue
+        }
+        let pageID = PageID.materializedCalendarEvent(identity)
+        let existing = try Self.fetchPage(db, id: pageID)
+        var requested = CalendarEventMaterialization.providerProperties(for: event)
+        requested.merge(try Self.materializedPeopleProperties(db, event: event)) { _, incoming in incoming }
+        let state = try Row.fetchOne(
+          db,
+          sql: "SELECT detached_at,provider_baseline_json FROM calendar_materialization_state WHERE page_id = ?",
+          arguments: [pageID.rawValue]
+        )
+        let wasDetached: Double? = state?["detached_at"]
+        let previousBaselineData: Data? = state?["provider_baseline_json"]
+        let previousBaseline = previousBaselineData.flatMap {
+          try? JSONDecoder.enchiridion.decode(CalendarEventMaterializationBaseline.self, from: $0)
+        }
+        let incomingBaseline = CalendarEventMaterializationBaseline(
+          title: event.title, properties: requested
+        )
+        let userTouched = try existing.map { page in
+          guard !(try Self.materializedPageHasUserDelta(page, db: db)) else { return true }
+          if let previousBaseline { return !previousBaseline.matches(page) }
+          // A normal CloudKit import carries the deterministic Event page but
+          // not this device's local-only state row. Adopt only an exact incoming
+          // projection; anything else could be a user-edited conflict.
+          guard state == nil else { return true }
+          return !incomingBaseline.matches(page)
+        } ?? false
+        if existing != nil, wasDetached != nil || userTouched {
+          try Self.updateMaterializationState(
+            db, pageID: pageID, identity: identity, event: event,
+            baselineHash: CalendarEventMaterialization.baselineHash(for: event), now: now, detached: true
+          )
+          continue
+        }
+        let base = try Self.createPage(
+          db, id: pageID, kind: .calendarMaterializedEvent(identity), title: event.title, now: now
+        )
+        var mutation = base.document
+        var changedDocument = existing == nil
+        if existing != nil, base.title != event.title {
+          mutation = try PageDocument.replaceTitle(with: event.title, in: mutation).document
+          changedDocument = true
+        }
+        let current = base.objectMetadata.properties
+        for (key, values) in requested where current[key] != values {
+          mutation = try PageDocument.setProperty(key: key, values: values, in: mutation).document
+          changedDocument = true
+        }
+        // A provider no longer supplying a location must clear only the provider
+        // field. User body, title, tags, relations and pins are untouched.
+        for field in ["location", "organizer", "attendees"] {
+          let key = SupertagPropertyKey(supertagID: BuiltInSupertags.event, fieldID: .init(rawValue: field))
+          if requested[key] == nil, current[key] != nil {
+            mutation = try PageDocument.setProperty(key: key, values: [], in: mutation).document
+            changedDocument = true
+          }
+        }
+        if changedDocument && existing != nil {
+          let result = try PageDocument.addSupertag(BuiltInSupertags.event, in: mutation)
+          let updated = Self.updatedPage(base, with: result, now: now)
+          try Self.writePage(db, page: updated, cloudDirty: true)
+          try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+          changed.append(updated.id)
+        } else if existing == nil {
+          // The page is already cloud dirty from creation. Add the Event tag and
+          // fields in one document update so it never escapes as a blank note.
+          let result = try PageDocument.addSupertag(BuiltInSupertags.event, in: mutation)
+          // `mutation` already contains fields; addSupertag preserves them.
+          let updated = Self.updatedPage(base, with: result, now: now)
+          try Self.writePage(db, page: updated, cloudDirty: true)
+          try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+          changed.append(updated.id)
+        }
+        try Self.updateMaterializationState(
+          db, pageID: pageID, identity: identity, event: event,
+          baselineHash: CalendarEventMaterialization.baselineHash(for: event),
+          baseline: incomingBaseline, now: now, detached: false
+        )
+      }
+      // This method is called only after a provider returned its full horizon.
+      // Failures/cancellation never reach this transaction, therefore never
+      // advance a prune deadline or delete a previously materialized Event.
+      // Empty authoritative refreshes are meaningful too.  Never reconcile a
+      // mixed/unknown scope: that could age another provider's pages.
+      if let providerScope, let authoritativeInterval {
+        try Self.reconcileMaterializedCalendarRetention(
+          db, sourceScope: providerScope, authoritativeInterval: authoritativeInterval,
+          completedRefreshAt: refreshStamp, now: now, changed: &changed
+        )
+      }
+      return .init(changedPageIDs: changed, skippedCount: skipped)
     }
   }
 
@@ -4206,9 +4348,10 @@ public actor LibraryRepository {
     _ events: [CalendarEventSnapshot],
     provider: String,
     refreshedAt: Date = Date()
-  ) throws {
+  ) throws -> [CalendarEventSnapshot] {
     try database.write { db in
       let omissionPrefixes = try Self.calendarEventOmissionPrefixes(db)
+      var accepted: [CalendarEventSnapshot] = []
       try db.execute(sql: "UPDATE calendar_events SET active = 0 WHERE provider = ?", arguments: [provider])
       for sourceEvent in events where !CalendarEventOmissionRules.shouldOmit(
         title: sourceEvent.title,
@@ -4218,6 +4361,7 @@ public actor LibraryRepository {
         if let series = event.identity.series {
           event.identity.series = try Self.resolveSeries(db, event: event, series: series)
         }
+        accepted.append(event)
         try db.execute(
           sql: """
             INSERT INTO calendar_events
@@ -4260,6 +4404,7 @@ public actor LibraryRepository {
         arguments: [provider]
       )
       try Self.pruneOrphanedCalendarPeople(db)
+      return accepted
     }
   }
 
@@ -4425,7 +4570,7 @@ public actor LibraryRepository {
             sourceUnavailable: calendarTitle == nil
           )
 
-        case .daily, .free:
+        case .calendarMaterializedEvent, .daily, .free:
           break
         }
       }
@@ -5715,6 +5860,132 @@ public actor LibraryRepository {
     return page
   }
 
+  private static func updateMaterializationState(
+    _ db: Database,
+    pageID: PageID,
+    identity: CalendarMaterializedIdentity,
+    event: CalendarEventSnapshot,
+    baselineHash: String,
+    baseline: CalendarEventMaterializationBaseline? = nil,
+    now: Date,
+    detached: Bool
+  ) throws {
+    let timestamp = now.timeIntervalSince1970
+    try db.execute(
+      sql: """
+        INSERT INTO calendar_materialization_state
+          (page_id,generated_at,last_seen_complete_refresh_at,provider_baseline_hash,user_touched_at,
+           detached_at,prune_after,source_scope,event_end_at,provider_title,provider_baseline_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(page_id) DO UPDATE SET
+          last_seen_complete_refresh_at=excluded.last_seen_complete_refresh_at,
+          provider_baseline_hash=excluded.provider_baseline_hash,
+          user_touched_at=CASE WHEN excluded.user_touched_at IS NOT NULL
+            THEN COALESCE(calendar_materialization_state.user_touched_at, excluded.user_touched_at)
+            ELSE calendar_materialization_state.user_touched_at END,
+          detached_at=CASE WHEN excluded.detached_at IS NOT NULL
+            THEN COALESCE(calendar_materialization_state.detached_at, excluded.detached_at)
+            ELSE calendar_materialization_state.detached_at END,
+          prune_after=NULL,
+          source_scope=excluded.source_scope,
+          event_end_at=excluded.event_end_at,
+          provider_title=excluded.provider_title,
+          provider_baseline_json=COALESCE(excluded.provider_baseline_json, calendar_materialization_state.provider_baseline_json)
+        """,
+      arguments: [
+        pageID.rawValue, timestamp, timestamp, baselineHash,
+        detached ? timestamp : nil, detached ? timestamp : nil, nil,
+        identity.sourceScopeDigest ?? identity.uidDigest, event.endDate.timeIntervalSince1970, event.title,
+        baseline.flatMap { try? JSONEncoder.enchiridion.encode($0) },
+      ]
+    )
+  }
+
+  private static func materializedPageHasUserDelta(
+    _ page: PageSnapshot,
+    db: Database
+  ) throws -> Bool {
+    guard page.deletedAt == nil else { return true }
+    guard page.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      !page.isPinned,
+      page.objectMetadata.supertagIDs.allSatisfy({ $0 == BuiltInSupertags.event })
+    else { return true }
+    // Provider fields and their entity references are evaluated against the
+    // structured baseline above. Only independent page structure is a delta.
+    return false
+  }
+
+  private static func materializedPeopleProperties(
+    _ db: Database,
+    event: CalendarEventSnapshot
+  ) throws -> [SupertagPropertyKey: [SupertagValue]] {
+    let eventKey = storageKey(event.identity.stableKey)
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT a.person_page_id,a.role
+        FROM calendar_event_attendees a JOIN pages p ON p.id = a.person_page_id
+        WHERE a.event_key = ? AND p.person_visibility = ? AND p.person_cloud_eligible = 1
+        ORDER BY a.role,a.person_page_id
+        """,
+      arguments: [eventKey, PersonVisibility.promoted.rawValue]
+    )
+    var organizer: [SupertagValue] = []
+    var attendees: [SupertagValue] = []
+    for row in rows {
+      guard let rawID: String = row["person_page_id"] else { continue }
+      let value: SupertagValue = .page(.init(rawValue: rawID))
+      if (row["role"] as String?) == "organizer" { organizer.append(value) }
+      else { attendees.append(value) }
+    }
+    var output: [SupertagPropertyKey: [SupertagValue]] = [:]
+    let tag = BuiltInSupertags.event
+    if !organizer.isEmpty { output[.init(supertagID: tag, fieldID: .init(rawValue: "organizer"))] = organizer }
+    if !attendees.isEmpty { output[.init(supertagID: tag, fieldID: .init(rawValue: "attendees"))] = attendees }
+    return output
+  }
+
+  private static func reconcileMaterializedCalendarRetention(
+    _ db: Database,
+    sourceScope: String,
+    authoritativeInterval: DateInterval,
+    completedRefreshAt: Double,
+    now: Date,
+    changed: inout [PageID]
+  ) throws {
+    let grace = now.addingTimeInterval(30 * 24 * 60 * 60).timeIntervalSince1970
+    for row in try Row.fetchAll(
+      db,
+      sql: "SELECT page_id,event_end_at,prune_after,provider_baseline_json FROM calendar_materialization_state WHERE source_scope = ? AND detached_at IS NULL AND last_seen_complete_refresh_at < ? AND event_end_at >= ? AND event_end_at <= ?",
+      arguments: [
+        sourceScope, completedRefreshAt,
+        authoritativeInterval.start.timeIntervalSince1970,
+        authoritativeInterval.end.timeIntervalSince1970,
+      ]
+    ) {
+      guard let rawID: String = row["page_id"] else { continue }
+      if let deadline: Double = row["prune_after"], deadline <= now.timeIntervalSince1970 {
+        let pageID = PageID(rawValue: rawID)
+        guard let page = try fetchPage(db, id: pageID) else { continue }
+        let baselineData: Data? = row["provider_baseline_json"]
+        let baseline = baselineData.flatMap {
+          try? JSONDecoder.enchiridion.decode(CalendarEventMaterializationBaseline.self, from: $0)
+        }
+        if try materializedPageHasUserDelta(page, db: db) || baseline.map({ !$0.matches(page) }) ?? true {
+          try db.execute(sql: "UPDATE calendar_materialization_state SET user_touched_at = ?, detached_at = ?, prune_after = NULL WHERE page_id = ?", arguments: [now.timeIntervalSince1970, now.timeIntervalSince1970, rawID])
+          continue
+        }
+        let result = try PageDocument.setDeleted(now, in: page.document)
+        let deleted = updatedPage(page, with: result, now: now)
+        try writePage(db, page: deleted, cloudDirty: true)
+        try replaceReferences(db, pageID: pageID, references: result.projection.references)
+        changed.append(pageID)
+      } else {
+        try db.execute(sql: "UPDATE calendar_materialization_state SET prune_after = ? WHERE page_id = ?", arguments: [grace, rawID])
+      }
+    }
+  }
+
   private static func hasPurgeMarker(_ db: Database, pageID: PageID) throws -> Bool {
     try Bool.fetchOne(
       db,
@@ -6489,6 +6760,37 @@ public actor LibraryRepository {
       }
       try GraphDatabaseSchema.createWorkoutPublicViews(in: db)
     }
+    migrator.registerMigration("v24-calendar-event-materialization") { db in
+      try db.create(table: "calendar_materialization_state") { table in
+        table.column("page_id", .text).primaryKey().references("pages", onDelete: .cascade)
+        table.column("generated_at", .double).notNull()
+        table.column("last_seen_complete_refresh_at", .double).notNull().indexed()
+        table.column("provider_baseline_hash", .text).notNull()
+        table.column("user_touched_at", .double)
+        table.column("detached_at", .double)
+        table.column("prune_after", .double).indexed()
+        table.column("source_scope", .text).notNull()
+        table.column("event_end_at", .double).notNull().indexed()
+        table.column("provider_title", .text).notNull().defaults(to: "")
+        table.column("provider_baseline_json", .blob)
+      }
+    }
+    migrator.registerMigration("v25-calendar-event-materialization-provider-title") { db in
+      let columns = try db.columns(in: "calendar_materialization_state")
+      if !columns.contains(where: { $0.name == "provider_title" }) {
+        try db.alter(table: "calendar_materialization_state") { table in
+          table.add(column: "provider_title", .text).notNull().defaults(to: "")
+        }
+      }
+    }
+    migrator.registerMigration("v26-calendar-event-materialization-baseline") { db in
+      let columns = try db.columns(in: "calendar_materialization_state")
+      if !columns.contains(where: { $0.name == "provider_baseline_json" }) {
+        try db.alter(table: "calendar_materialization_state") { table in
+          table.add(column: "provider_baseline_json", .blob)
+        }
+      }
+    }
     return migrator
   }()
 
@@ -6544,6 +6846,9 @@ public actor LibraryRepository {
       dayKey = nil
     case .calendarSeries:
       kindTag = "calendarSeries"
+      dayKey = nil
+    case .calendarMaterializedEvent:
+      kindTag = "calendarMaterializedEvent"
       dayKey = nil
     }
     try db.execute(
@@ -6610,7 +6915,7 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO series_page_map (series_key,page_id) VALUES (?,?)",
         arguments: [series.canonicalKey, page.id.rawValue]
       )
-    case .daily, .free:
+    case .calendarMaterializedEvent, .daily, .free:
       break
     }
   }
@@ -7221,6 +7526,7 @@ public actor LibraryRepository {
     case .free: "page"
     case .calendarEvent: "calendar event note"
     case .calendarSeries: "calendar series note"
+    case .calendarMaterializedEvent: "calendar event"
     }
   }
 

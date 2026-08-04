@@ -115,19 +115,24 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
     let calendars: CalendarList = try await get("https://www.googleapis.com/calendar/v3/users/me/calendarList", token: token)
     var results: [CalendarEventSnapshot] = []
     for calendar in calendars.items ?? [] where calendar.selected != false {
-      var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendar.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? calendar.id)/events")!
-      components.queryItems = [
-        URLQueryItem(name: "timeMin", value: Self.rfc3339.string(from: start)),
-        URLQueryItem(name: "timeMax", value: Self.rfc3339.string(from: end)),
-        URLQueryItem(name: "singleEvents", value: "true"),
-        URLQueryItem(name: "showDeleted", value: "false"),
-        URLQueryItem(name: "maxResults", value: "2500"),
-      ]
-      guard let url = components.url else { continue }
-      let response: EventsList = try await get(url.absoluteString, token: token)
-      results.append(contentsOf: (response.items ?? []).compactMap { event in
-        Self.snapshot(event: event, calendar: calendar)
-      })
+      var pageToken: String?
+      repeat {
+        var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendar.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? calendar.id)/events")!
+        components.queryItems = [
+          URLQueryItem(name: "timeMin", value: Self.rfc3339.string(from: start)),
+          URLQueryItem(name: "timeMax", value: Self.rfc3339.string(from: end)),
+          URLQueryItem(name: "singleEvents", value: "true"),
+          URLQueryItem(name: "showDeleted", value: "false"),
+          URLQueryItem(name: "maxResults", value: "2500"),
+          pageToken.map { URLQueryItem(name: "pageToken", value: $0) },
+        ].compactMap { $0 }
+        guard let url = components.url else { throw GoogleCalendarError.invalidResponse }
+        let response: EventsList = try await get(url.absoluteString, token: token)
+        results.append(contentsOf: (response.items ?? []).compactMap { event in
+          Self.snapshot(event: event, calendar: calendar)
+        })
+        pageToken = response.nextPageToken
+      } while pageToken != nil
     }
     return results.sorted { $0.startDate < $1.startDate }
   }
@@ -239,7 +244,15 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
           isCurrentUser: organizer.selfIdentity == true,
           sourceIdentifier: organizer.id
         )
-      }
+      },
+      iCalendarUID: event.iCalUID,
+      originalStartDate: originalStart,
+      timeZoneIdentifier: event.start?.timeZone ?? event.originalStartTime?.timeZone ?? TimeZone.current.identifier,
+      // A moved all-day recurring occurrence keeps its original civil day for
+      // stable materialized-Event identity, just as timed occurrences keep
+      // `originalStartTime.dateTime` above.
+      originalStartCivilDay: (event.originalStartTime?.date ?? event.start?.date)
+        .map(DayKey.init(rawValue:))
     )
   }
 
@@ -284,7 +297,7 @@ private struct GoogleCalendar: Decodable {
   var selected: Bool?
   var backgroundColor: String?
 }
-private struct EventsList: Decodable { var items: [GoogleEvent]? }
+private struct EventsList: Decodable { var items: [GoogleEvent]?; var nextPageToken: String? }
 private struct GoogleEvent: Decodable {
   var id: String
   var status: String?
@@ -316,6 +329,7 @@ private struct GoogleAttendee: Decodable {
 private struct GoogleEventDate: Decodable {
   var date: String?
   var dateTime: String?
+  var timeZone: String?
   var resolvedDate: Date? {
     if let dateTime { return ISO8601DateFormatter().date(from: dateTime) }
     guard let date else { return nil }

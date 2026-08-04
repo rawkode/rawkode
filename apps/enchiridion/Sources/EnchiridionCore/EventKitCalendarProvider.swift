@@ -111,7 +111,13 @@ public final class EventKitCalendarProvider {
         calendarColorHex: Self.hexColor(event.calendar.cgColor),
         isDetached: event.isDetached,
         attendees: event.attendees?.map(Self.attendee),
-        organizer: event.organizer.map(Self.attendee)
+        organizer: event.organizer.map(Self.attendee),
+        iCalendarUID: event.calendarItemExternalIdentifier,
+        originalStartDate: occurrenceStart,
+        timeZoneIdentifier: event.timeZone?.identifier ?? TimeZone.current.identifier,
+        originalStartCivilDay: event.isAllDay
+          ? DayKey(date: occurrenceStart, calendar: Self.civilCalendar(timeZone: event.timeZone))
+          : nil
       )
     }.sorted {
       if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
@@ -135,6 +141,12 @@ public final class EventKitCalendarProvider {
     [calendar.source.sourceType.rawValue.description, calendar.source.title, calendar.title, calendar.type.rawValue.description]
       .joined(separator: "\u{0}")
       .lowercased()
+  }
+
+  private static func civilCalendar(timeZone: TimeZone?) -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone ?? .current
+    return calendar
   }
 
   private static func hexColor(_ color: CGColor?) -> String? {

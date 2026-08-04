@@ -2,6 +2,16 @@ import EnchiridionCore
 import Observation
 import SwiftUI
 
+private extension Color {
+  static var pageEditorBackground: Color {
+    #if os(macOS)
+    Color(nsColor: .windowBackgroundColor)
+    #else
+    Color(uiColor: .systemBackground)
+    #endif
+  }
+}
+
 extension Notification.Name {
   static let enchiridionEditorFocusDidChange = Notification.Name(
     "dev.rawkode.enchiridion.editorFocusDidChange"
@@ -238,15 +248,24 @@ private struct PagePropertiesView: View {
 
 struct PageEditorPresentation<Header: View> {
   let showsEditableTitle: Bool
+  let canvas: Color
   @ViewBuilder let header: () -> Header
 
-  init(showsEditableTitle: Bool = true, @ViewBuilder header: @escaping () -> Header) {
+  init(
+    showsEditableTitle: Bool = true,
+    canvas: Color = .pageEditorBackground,
+    @ViewBuilder header: @escaping () -> Header
+  ) {
     self.showsEditableTitle = showsEditableTitle
+    self.canvas = canvas
     self.header = header
   }
 
-  static func dailyWorkspace(@ViewBuilder header: @escaping () -> Header) -> Self {
-    Self(showsEditableTitle: false, header: header)
+  static func dailyWorkspace(
+    canvas: Color = .pageEditorBackground,
+    @ViewBuilder header: @escaping () -> Header
+  ) -> Self {
+    Self(showsEditableTitle: false, canvas: canvas, header: header)
   }
 }
 
@@ -2175,7 +2194,7 @@ private struct RichPageEditor<Header: View>: View {
       .padding(.top, 32)
       .padding(.bottom, 36)
     }
-    .background(.background)
+    .background(presentation.canvas)
     .findNavigator(isPresented: $editor.showsFind)
     .alert(
       "Couldn’t Open Reference",

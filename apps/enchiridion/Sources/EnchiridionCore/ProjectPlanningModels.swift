@@ -275,8 +275,20 @@ public enum WeeklyReviewPolicy {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [TaskItem] {
+    overdueTasks(
+      in: pages.compactMap(TaskItem.init(page:)),
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  public static func overdueTasks(
+    in tasks: [TaskItem],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [TaskItem] {
     let startOfToday = calendar.startOfDay(for: now)
-    return pages.compactMap(TaskItem.init(page:))
+    return tasks
       .filter { task in
         task.data.isActive
           && (task.data.deadline.map { $0 < startOfToday } == true
@@ -314,8 +326,23 @@ public struct WeeklyReviewSnapshot: Hashable, Sendable {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> Self {
-    let tasks = pages.compactMap(TaskItem.init(page:)).filter(\.data.isActive)
-    let overdueTasks = WeeklyReviewPolicy.overdueTasks(in: pages, now: now, calendar: calendar)
+    make(
+      pages: pages,
+      activeTasks: pages.compactMap(TaskItem.init(page:)).filter(\.data.isActive),
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  /// Builds a review snapshot from a caller-owned active-task projection. This
+  /// lets task home avoid reconstructing and rescanning the same task set.
+  public static func make(
+    pages: [PageSnapshot],
+    activeTasks tasks: [TaskItem],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Self {
+    let overdueTasks = WeeklyReviewPolicy.overdueTasks(in: tasks, now: now, calendar: calendar)
     let overdueTaskIDs = Set(overdueTasks.map(\.id))
     let reviewCutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
     let tasksByProject = Dictionary(

@@ -48,6 +48,37 @@ public struct TaskClarificationUndoOffer: Equatable, Sendable {
   }
 }
 
+/// The contact-link shape that can affect a Tasks-home person row. Refresh
+/// timestamps are deliberately excluded: refreshing unchanged device data
+/// must not invalidate every observing SwiftUI view.
+private struct ContactLinkUIPresentation: Hashable {
+  let pageID: PageID
+  let contactIdentifier: String
+  let matchedEmail: String
+  let recordIdentifier: String
+  let displayName: String
+  let organizationName: String?
+  let jobTitle: String?
+  let emails: [String]
+  let phoneNumbers: [String]
+  let birthday: ContactBirthday?
+  let thumbnailData: Data?
+
+  init(_ link: PersonContactLink) {
+    pageID = link.pageID
+    contactIdentifier = link.contactIdentifier
+    matchedEmail = link.matchedEmail
+    recordIdentifier = link.record.identifier
+    displayName = link.record.displayName
+    organizationName = link.record.organizationName
+    jobTitle = link.record.jobTitle
+    emails = link.record.emails.sorted()
+    phoneNumbers = link.record.phoneNumbers.sorted()
+    birthday = link.record.birthday
+    thumbnailData = link.record.thumbnailData
+  }
+}
+
 public enum TaskClarificationMutationResponse: Sendable {
   case applied(TaskClarificationMutationResult)
   case stale(String)
@@ -69,6 +100,7 @@ public final class LibraryStore {
   public private(set) var liveViewItems: [LiveQueryID: [LiveQueryItem]] = [:]
   public private(set) var whiteboardDocuments: [LiveQueryID: WhiteboardDocument] = [:]
   public private(set) var omissionPrefixes: [String] = CalendarEventOmissionRules.defaultPrefixes
+  public private(set) var calendarEventMaterializationEnabled = false
   public private(set) var otherPeople: [PageSnapshot] = []
   public private(set) var contactLinks: [PageID: PersonContactLink] = [:]
   public private(set) var syncStatus: SyncStatus = .localOnly
@@ -339,6 +371,7 @@ public final class LibraryStore {
       let loadedWhiteboards = try await repository.whiteboardDocuments()
       let loadedCalendarPageContexts = try await repository.calendarPageContexts()
       let loadedOmissionPrefixes = try await repository.calendarEventOmissionPrefixes()
+      let loadedCalendarEventMaterializationEnabled = try await repository.calendarEventMaterializationEnabled()
       let now = Date()
       let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
       let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
@@ -359,10 +392,11 @@ public final class LibraryStore {
       whiteboardDocuments = loadedWhiteboards
       calendarPageContexts = loadedCalendarPageContexts
       omissionPrefixes = loadedOmissionPrefixes
+      calendarEventMaterializationEnabled = loadedCalendarEventMaterializationEnabled
       calendarEvents = loadedCalendarEvents
       calendarRelationshipGeneration &+= 1
       otherPeople = loadedOtherPeople
-      contactLinks = loadedContactLinks
+      publishContactLinksIfChanged(loadedContactLinks)
       if policy == .reconcileSystemState {
         await taskSystemReconciliationCoordinator.submit(vaultID: vaultID, pages: live)
       }
@@ -441,12 +475,26 @@ public final class LibraryStore {
 
   public func taskPeople(includingOtherPeople: Bool) -> [PageSnapshot] {
     let candidates =
-      pages(with: BuiltInSupertags.person)
+      pages(with: BuiltInSupertags.person).filter {
+        $0.objectMetadata.personVisibility == .promoted
+      }
       + (includingOtherPeople ? otherPeople : [])
     return candidates.sorted {
-      personDisplayName(for: $0).localizedStandardCompare(personDisplayName(for: $1))
-        == .orderedAscending
+      let comparison = personDisplayName(for: $0).localizedStandardCompare(personDisplayName(for: $1))
+      if comparison != .orderedSame { return comparison == .orderedAscending }
+      return $0.id.rawValue < $1.id.rawValue
     }
+  }
+
+  /// A single render-ready projection for the Tasks home. It has no per-row
+  /// task queries, and intentionally includes only explicitly promoted people.
+  public func taskHomeSnapshot(now: Date = Date()) -> TaskHomeSnapshot {
+    return TaskHomeSnapshot.make(
+      pages: pages,
+      personTitle: personDisplayName(for:),
+      now: now,
+      calendar: calendar
+    )
   }
 
   public func personDisplayName(for page: PageSnapshot) -> String {
@@ -940,6 +988,26 @@ public final class LibraryStore {
     }
   }
 
+  public func setCalendarEventMaterializationEnabled(_ enabled: Bool) async {
+    guard let repository else { return }
+    do {
+      try await repository.setCalendarEventMaterializationEnabled(enabled)
+      calendarEventMaterializationEnabled = enabled
+      guard enabled else { return }
+      var receipts: [CalendarEventMaterializationReceipt] = []
+      for events in Dictionary(grouping: calendarEvents, by: { $0.identity.provider }).values {
+        guard let first = events.first else { continue }
+        receipts.append(try await repository.materializeCalendarEvents(
+          events, provider: first.identity.provider
+        ))
+      }
+      for pageID in receipts.flatMap(\.changedPageIDs) { await syncCoordinator?.pageDidChange(pageID) }
+      if receipts.contains(where: { !$0.changedPageIDs.isEmpty }) { await reload() }
+    } catch {
+      calendarError = error.localizedDescription
+    }
+  }
+
   public func addCalendarEventOmissionPrefix(_ prefix: String) async {
     await setCalendarEventOmissionPrefixes(omissionPrefixes + [prefix])
   }
@@ -1054,9 +1122,10 @@ public final class LibraryStore {
           matchedEmail: match.email
         )
       }
-      contactLinks = Dictionary(
+      let loadedContactLinks = Dictionary(
         uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
       )
+      publishContactLinksIfChanged(loadedContactLinks)
       startupError = nil
     } catch {
       startupError = error.localizedDescription
@@ -1091,6 +1160,19 @@ public final class LibraryStore {
     } catch {
       startupError = error.localizedDescription
     }
+  }
+
+  private func publishContactLinksIfChanged(_ updatedLinks: [PageID: PersonContactLink]) {
+    guard !Self.contactLinksHaveSameUIPresentation(contactLinks, updatedLinks) else { return }
+    contactLinks = updatedLinks
+  }
+
+  static func contactLinksHaveSameUIPresentation(
+    _ lhs: [PageID: PersonContactLink],
+    _ rhs: [PageID: PersonContactLink]
+  ) -> Bool {
+    Set(lhs.values.map(ContactLinkUIPresentation.init))
+      == Set(rhs.values.map(ContactLinkUIPresentation.init))
   }
 
   public func addSupertag(_ supertagID: SupertagID, to pageID: PageID) {
@@ -1672,9 +1754,13 @@ public final class LibraryStore {
     guard let repository, let calendarProvider else { return }
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
-    let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+    let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
     let events = try calendarProvider.events(from: start, through: end)
-    try await repository.replaceCalendarProjection(events, provider: "eventkit")
+    let accepted = try await repository.replaceCalendarProjection(events, provider: "eventkit")
+    let receipt = try await repository.materializeCalendarEvents(
+      accepted, provider: "eventkit", authoritativeInterval: .init(start: start, end: end)
+    )
+    for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
     await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarRelationshipGeneration &+= 1
@@ -1716,9 +1802,13 @@ public final class LibraryStore {
   ) async throws {
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
-    let end = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+    let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
     let events = try await provider.events(from: start, through: end)
-    try await repository.replaceCalendarProjection(events, provider: "google")
+    let accepted = try await repository.replaceCalendarProjection(events, provider: "google")
+    let receipt = try await repository.materializeCalendarEvents(
+      accepted, provider: "google", authoritativeInterval: .init(start: start, end: end)
+    )
+    for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
     await syncCoordinator?.enqueueDirtyChanges()
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarRelationshipGeneration &+= 1

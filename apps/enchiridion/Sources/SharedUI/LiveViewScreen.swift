@@ -28,6 +28,13 @@ struct LiveViewScreen: View {
   let openPage: (PageID) -> Void
   @State private var editingView: LiveQueryDefinition?
   @State private var showingDeleteConfirmation = false
+  @State private var selectedBoardColumnID: String?
+  @State private var previousBoardColumnIDs: [String] = []
+
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  #endif
 
   private var items: [LiveQueryItem] { store.liveViewItems[definition.id] ?? [] }
 
@@ -117,7 +124,20 @@ struct LiveViewScreen: View {
     }
   }
 
+  @ViewBuilder
   private var board: some View {
+    #if os(iOS)
+      if horizontalSizeClass == .compact {
+        compactBoard
+      } else {
+        regularBoard
+      }
+    #else
+      regularBoard
+    #endif
+  }
+
+  private var regularBoard: some View {
     ScrollView(.horizontal) {
       HStack(alignment: .top, spacing: 12) {
         ForEach(boardOptions, id: \.id) { option in
@@ -140,24 +160,124 @@ struct LiveViewScreen: View {
           .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
           .dropDestination(for: String.self) { identifiers, _ in
             guard let itemID = identifiers.first,
-              let item = items.first(where: { $0.id == itemID }),
-              case .page(let page) = item,
-              let fieldID = definition.groupFieldID,
-              case .supertag(let tagID) = definition.source
+              let item = items.first(where: { $0.id == itemID })
             else { return false }
-            store.setProperty(
-              pageID: page.id,
-              supertagID: tagID,
-              fieldID: fieldID,
-              values: option.id == "__unset" ? [] : [.select(option.id)]
-            )
-            return true
+            return moveBoardItem(item, to: option.id)
           }
         }
       }
       .padding()
     }
   }
+
+  #if os(iOS)
+    private var compactBoard: some View {
+      GeometryReader { proxy in
+        if boardOptions.isEmpty {
+          ContentUnavailableView(
+            "Board Unavailable",
+            systemImage: "rectangle.3.group",
+            description: Text("Choose a select field with columns to use this board on iPhone."))
+        } else {
+          TabView(selection: compactBoardSelection) {
+            ForEach(boardOptions, id: \.id) { option in
+              compactBoardColumn(option)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                .tag(option.id)
+            }
+          }
+          .tabViewStyle(.page(indexDisplayMode: .never))
+          .onAppear(perform: reconcileBoardColumnSelection)
+          .onChange(of: boardColumnIdentity) { _, _ in resetBoardColumnSelection() }
+          .onChange(of: boardOptionIDs) { _, _ in reconcileBoardColumnSelection() }
+        }
+      }
+      .background(EnchiridionRosePine.base)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var compactBoardSelection: Binding<String?> {
+      Binding(
+        get: { selectedBoardColumnID },
+        set: { newValue in
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
+            selectedBoardColumnID = newValue
+          }
+        }
+      )
+    }
+
+    private func compactBoardColumn(_ option: SupertagSelectOption) -> some View {
+      let columnIndex = boardOptionIDs.firstIndex(of: option.id).map { $0 + 1 } ?? 1
+      return ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+              Text(option.name)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(EnchiridionRosePine.text)
+              Text("Column \(columnIndex) of \(boardOptions.count)")
+                .font(.subheadline)
+                .foregroundStyle(EnchiridionRosePine.secondary)
+            }
+            Spacer(minLength: 12)
+            Text(boardItems(option.id).count.formatted())
+              .font(.title3.monospacedDigit().weight(.semibold))
+              .foregroundStyle(EnchiridionRosePine.iris)
+              .accessibilityLabel("\(boardItems(option.id).count) items")
+          }
+
+          Picker("Board column", selection: compactBoardSelection) {
+            ForEach(boardOptions, id: \.id) { candidate in
+              Text(candidate.name).tag(Optional(candidate.id))
+            }
+          }
+          .pickerStyle(.menu)
+          .frame(minHeight: 44, alignment: .leading)
+          .accessibilityHint("Select a board column")
+
+          LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(boardItems(option.id)) { item in
+              compactBoardCard(item, currentColumnID: option.id)
+            }
+          }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .background(EnchiridionRosePine.base)
+    }
+
+    @ViewBuilder
+    private func compactBoardCard(_ item: LiveQueryItem, currentColumnID: String) -> some View {
+      HStack(alignment: .top, spacing: 12) {
+        itemButton(item)
+          .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+
+        if boardOptions.contains(where: { $0.id != currentColumnID }) {
+          Menu {
+            ForEach(boardOptions.filter { $0.id != currentColumnID }, id: \.id) { destination in
+              Button("Move to \(destination.name)") {
+                _ = moveBoardItem(item, to: destination.id)
+              }
+            }
+          } label: {
+            Label("Move item", systemImage: "arrow.right.circle")
+              .labelStyle(.iconOnly)
+              .frame(minWidth: 44, minHeight: 44)
+          }
+          .accessibilityLabel("Move \(item.title)")
+        }
+      }
+      .padding(14)
+      .background(EnchiridionRosePine.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(EnchiridionRosePine.overlay, lineWidth: 1)
+      }
+    }
+  #endif
 
   private var calendar: some View {
     List {
@@ -229,10 +349,63 @@ struct LiveViewScreen: View {
   }
 
   private var boardOptions: [SupertagSelectOption] {
-    guard let fieldID = definition.groupFieldID else { return [] }
-    let options = sourceTag?.fields.first(where: { $0.id == fieldID })?.options ?? []
+    guard let fieldID = definition.groupFieldID,
+      let field = sourceTag?.fields.first(where: {
+        $0.id == fieldID && !$0.isDeleted && $0.type == .select
+      })
+    else { return [] }
+    let options = field.options
     return [.init(id: "__unset", name: "No status", color: "gray")] + options
   }
+
+  private var boardOptionIDs: [String] { boardOptions.map(\.id) }
+
+  private var boardColumnIdentity: String {
+    let source: String
+    switch definition.source {
+    case .pages: source = "pages"
+    case .supertag(let id): source = "supertag:\(id.rawValue)"
+    case .calendarEvents: source = "calendar-events"
+    case .workCalendar: source = "work-calendar"
+    }
+    return "\(definition.id.rawValue)|\(source)|\(definition.groupFieldID?.rawValue ?? "none")"
+  }
+
+  private func moveBoardItem(_ item: LiveQueryItem, to destinationID: String) -> Bool {
+    guard let mutation = LiveViewBoardMove.mutation(
+      item: item,
+      source: definition.source,
+      groupFieldID: definition.groupFieldID,
+      destinationID: destinationID,
+      validDestinationIDs: Set(boardOptionIDs)
+    ) else { return false }
+
+    store.setProperty(
+      pageID: mutation.pageID,
+      supertagID: mutation.supertagID,
+      fieldID: mutation.fieldID,
+      values: mutation.values
+    )
+    return true
+  }
+
+  #if os(iOS)
+    private func reconcileBoardColumnSelection() {
+      let reconciled = LiveViewBoardColumnSelection.reconciled(
+        currentSelection: selectedBoardColumnID,
+        previousOptionIDs: previousBoardColumnIDs,
+        optionIDs: boardOptionIDs
+      )
+      selectedBoardColumnID = reconciled
+      previousBoardColumnIDs = boardOptionIDs
+    }
+
+    private func resetBoardColumnSelection() {
+      selectedBoardColumnID = nil
+      previousBoardColumnIDs = []
+      reconcileBoardColumnSelection()
+    }
+  #endif
 
   private func boardItems(_ optionID: String) -> [LiveQueryItem] {
     guard let fieldID = definition.groupFieldID, case .supertag(let tagID) = definition.source

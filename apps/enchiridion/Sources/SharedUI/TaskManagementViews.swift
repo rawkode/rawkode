@@ -10,96 +10,38 @@ struct MobileTaskHomeScreen: View {
   @State private var showsQuickCapture = false
   @State private var collectionDraft: TaskCollectionDraft?
   @State private var editingPerspective: LiveQueryDefinition?
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
+    // Keep the entire home render on one bounded projection. In particular,
+    // rows must not individually query the full page collection for a count.
+    let snapshot = store.taskHomeSnapshot(now: Date())
+
     NavigationStack(path: $path) {
-      List {
-        Section {
-          ForEach(TaskSmartList.allCases) { list in
-            NavigationLink(value: MobileTaskDestination.list(.smart(list))) {
-              TaskNavigationLabel(
-                title: list.title,
-                systemImage: list.systemImage,
-                count: badgeCount(for: list)
-              )
-            }
-          }
-        }
-
-        if !openProjects.isEmpty {
-          Section("Open Projects") {
-            ForEach(openProjects) { project in
-              NavigationLink(value: MobileTaskDestination.list(.project(project.id))) {
-                TaskNavigationLabel(
-                  title: project.displayTitle,
-                  systemImage: "folder",
-                  count: store.tasks(in: .project(project.id)).count
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 28) {
+          LazyVGrid(columns: focusColumns, spacing: 12) {
+            ForEach(focusLists) { list in
+              NavigationLink(value: MobileTaskDestination.list(.smart(list))) {
+                let count = snapshot.focusCount(for: list)
+                TaskFocusTile(
+                  title: list.title,
+                  systemImage: list.systemImage,
+                  count: count,
+                  accessibilityCountDescription: focusCountDescription(for: list, count: count),
+                  tint: focusTint(for: list)
                 )
               }
+              .buttonStyle(.plain)
             }
           }
-        }
 
-        if !store.taskAreas.isEmpty {
-          Section("Areas") {
-            ForEach(store.taskAreas) { area in
-              NavigationLink(value: MobileTaskDestination.list(.area(area.id))) {
-                TaskNavigationLabel(
-                  title: area.displayTitle,
-                  systemImage: "square.grid.2x2",
-                  count: store.tasks(in: .area(area.id)).count
-                )
-              }
-            }
-          }
+          taskGroups(snapshot: snapshot)
         }
-
-        if !store.taskPeople.isEmpty {
-          Section("People") {
-            ForEach(store.taskPeople) { person in
-              NavigationLink(value: MobileTaskDestination.list(.person(person.id))) {
-                TaskNavigationLabel(
-                  title: store.personDisplayName(for: person),
-                  systemImage: "person",
-                  count: store.tasks(in: .person(person.id)).count
-                )
-              }
-            }
-          }
-        }
-
-        if !store.taskTags.isEmpty {
-          Section("Tags") {
-            ForEach(store.taskTags, id: \.self) { tag in
-              NavigationLink(value: MobileTaskDestination.list(.tag(tag))) {
-                TaskNavigationLabel(
-                  title: tag,
-                  systemImage: "tag",
-                  count: store.tasks(in: .tag(tag)).count
-                )
-              }
-            }
-          }
-        }
-
-        Section("Perspectives") {
-          ForEach(taskPerspectives) { perspective in
-            NavigationLink(value: MobileTaskDestination.perspective(perspective.id)) {
-              TaskNavigationLabel(
-                title: perspective.name,
-                systemImage: perspective.viewKind.systemImage,
-                count: taskPerspectiveItems(perspective).count
-              )
-            }
-          }
-          Button {
-            editingPerspective = .taskPerspectiveDraft()
-          } label: {
-            Label("New Perspective", systemImage: "plus")
-          }
-          .accessibilityHint("Creates a reusable filtered task list.")
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
       }
+      .background(EnchiridionRosePine.base)
       .navigationTitle("Tasks")
       .searchable(text: $query, prompt: "Search tasks")
       .overlay {
@@ -166,10 +108,95 @@ struct MobileTaskHomeScreen: View {
     }
   }
 
-  private func badgeCount(for list: TaskSmartList) -> Int? {
+  private var focusColumns: [GridItem] {
+    Array(
+      repeating: GridItem(.flexible(), spacing: 12),
+      count: dynamicTypeSize.isAccessibilitySize ? 1 : 2
+    )
+  }
+
+  private var focusLists: [TaskSmartList] { [.today, .inbox, .upcoming, .review] }
+
+  private func focusCountDescription(for list: TaskSmartList, count: Int) -> String {
+    if list == .review {
+      return "\(count) project\(count == 1 ? "" : "s") needing review"
+    }
+    return "\(count) task\(count == 1 ? "" : "s")"
+  }
+
+  private func focusTint(for list: TaskSmartList) -> Color {
     switch list {
-    case .logbook, .anytime, .someday, .review: nil
-    case .inbox, .today, .upcoming: store.taskCount(list)
+    case .today: EnchiridionRosePine.iris
+    case .inbox: EnchiridionRosePine.rose
+    case .upcoming: EnchiridionRosePine.gold
+    case .review: EnchiridionRosePine.pine
+    default: EnchiridionRosePine.foam
+    }
+  }
+
+  @ViewBuilder
+  private func taskGroups(snapshot: TaskHomeSnapshot) -> some View {
+    if !snapshot.projects.isEmpty {
+      TaskHomeGroup("Projects") {
+        ForEach(snapshot.projects) { project in
+          NavigationLink(value: MobileTaskDestination.list(.project(project.id))) {
+            TaskHomeRow(title: project.title, systemImage: "folder", count: project.activeTaskCount)
+          }
+        }
+      }
+    }
+
+    if !snapshot.areas.isEmpty {
+      TaskHomeGroup("Areas") {
+        ForEach(snapshot.areas) { area in
+          NavigationLink(value: MobileTaskDestination.list(.area(area.id))) {
+            TaskHomeRow(title: area.title, systemImage: "square.grid.2x2", count: area.activeTaskCount)
+          }
+        }
+      }
+    }
+
+    if !snapshot.people.isEmpty {
+      TaskHomeGroup("People") {
+        ForEach(snapshot.people) { person in
+          NavigationLink(value: MobileTaskDestination.list(.person(person.id))) {
+            TaskHomeRow(title: person.title, systemImage: "person", count: person.activeTaskCount)
+          }
+        }
+      }
+    }
+
+    if !snapshot.tags.isEmpty {
+      TaskHomeGroup("Tags") {
+        ForEach(snapshot.tags) { tag in
+          NavigationLink(value: MobileTaskDestination.list(.tag(tag.id))) {
+            TaskHomeRow(title: tag.title, systemImage: "tag", count: tag.activeTaskCount)
+          }
+        }
+      }
+    }
+
+    TaskHomeGroup("Perspectives") {
+      ForEach(taskPerspectives) { perspective in
+        NavigationLink(value: MobileTaskDestination.perspective(perspective.id)) {
+          TaskHomeRow(title: perspective.name, systemImage: perspective.viewKind.systemImage, count: taskPerspectiveItems(perspective).count)
+        }
+      }
+      Button {
+        editingPerspective = .taskPerspectiveDraft()
+      } label: {
+        Label("New Perspective", systemImage: "plus")
+          .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      }
+      .accessibilityHint("Creates a reusable filtered task list.")
+    }
+
+    TaskHomeGroup("More") {
+      ForEach([TaskSmartList.anytime, .someday, .logbook]) { list in
+        NavigationLink(value: MobileTaskDestination.list(.smart(list))) {
+          TaskHomeRow(title: list.title, systemImage: list.systemImage)
+        }
+      }
     }
   }
 
@@ -177,15 +204,122 @@ struct MobileTaskHomeScreen: View {
     store.savedViews.filter(\.isTaskListPerspective)
   }
 
-  private var openProjects: [PageSnapshot] {
-    store.taskProjects.filter { $0.projectData?.status.isOpen == true }
-  }
-
   private func taskPerspectiveItems(_ perspective: LiveQueryDefinition) -> [TaskItem] {
     (store.liveViewItems[perspective.id] ?? []).compactMap { item in
       guard case .page(let page) = item else { return nil }
       return TaskItem(page: page)
     }
+  }
+}
+
+private struct TaskFocusTile: View {
+  let title: String
+  let systemImage: String
+  let count: Int
+  let accessibilityCountDescription: String
+  let tint: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      HStack(alignment: .top) {
+        Image(systemName: systemImage)
+          .font(.title3.weight(.semibold))
+          .frame(width: 28, height: 28)
+          .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .foregroundStyle(tint)
+        Spacer(minLength: 8)
+        Text(count, format: .number)
+          .font(.title2.weight(.semibold).monospacedDigit())
+          .foregroundStyle(EnchiridionRosePine.text)
+      }
+
+      Text(title)
+        .font(.headline)
+        .foregroundStyle(EnchiridionRosePine.text)
+        .lineLimit(2)
+        .multilineTextAlignment(.leading)
+    }
+    .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+    .padding(16)
+    .background(EnchiridionRosePine.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 20, style: .continuous)
+        .strokeBorder(tint.opacity(0.22), lineWidth: 1)
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(title), \(accessibilityCountDescription)")
+    .accessibilityHint("Opens \(title).")
+  }
+}
+
+private struct TaskHomeGroup<Content: View>: View {
+  let title: LocalizedStringKey
+  @ViewBuilder let content: Content
+
+  init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+    self.title = title
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(title)
+        .font(.title3.weight(.semibold))
+        .foregroundStyle(EnchiridionRosePine.text)
+        .padding(.horizontal, 4)
+
+      VStack(spacing: 0) { content }
+        .background(EnchiridionRosePine.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+          RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(EnchiridionRosePine.overlay, lineWidth: 1)
+        }
+    }
+  }
+}
+
+private struct TaskHomeRow: View {
+  let title: String
+  let systemImage: String
+  var count: Int? = nil
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: systemImage)
+        .font(.body.weight(.semibold))
+        .foregroundStyle(EnchiridionRosePine.iris)
+        .frame(width: 28, height: 28)
+        .background(EnchiridionRosePine.iris.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+      Text(title)
+        .foregroundStyle(EnchiridionRosePine.text)
+        .lineLimit(2)
+
+      Spacer(minLength: 8)
+
+      if let count {
+        Text(count, format: .number)
+          .font(.subheadline.monospacedDigit())
+          .foregroundStyle(EnchiridionRosePine.secondary)
+      }
+
+      Image(systemName: "chevron.right")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(EnchiridionRosePine.secondary)
+        .accessibilityHidden(true)
+    }
+    .frame(maxWidth: .infinity, minHeight: 52)
+    .padding(.horizontal, 16)
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityHint("Opens \(title).")
+  }
+
+  private var accessibilityLabel: String {
+    guard let count else { return title }
+    return "\(title), \(count) task\(count == 1 ? "" : "s")"
   }
 }
 
@@ -2650,28 +2784,6 @@ private struct TaskSearchOverlay: View {
     .background(.background)
     .sheet(item: $selectedTaskID) { pageID in
       NavigationStack { TaskDetailScreen(store: store, pageID: pageID) }
-    }
-  }
-}
-
-private struct TaskNavigationLabel: View {
-  let title: String
-  let systemImage: String
-  let count: Int?
-
-  var body: some View {
-    Label {
-      HStack {
-        Text(title)
-        Spacer()
-        if let count, count > 0 {
-          Text(count, format: .number)
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-        }
-      }
-    } icon: {
-      Image(systemName: systemImage)
     }
   }
 }

@@ -1194,6 +1194,185 @@ public enum TaskQuery {
   }
 }
 
+/// The bounded, render-ready task index for the Tasks home screen.
+///
+/// It deliberately computes all active-task relationship counts from one
+/// task pass, rather than asking each visible row to query the whole library.
+public struct TaskHomeSnapshot: Hashable, Sendable {
+  public struct PageRow: Identifiable, Hashable, Sendable {
+    public let id: PageID
+    public let title: String
+    public let activeTaskCount: Int
+
+    public init(id: PageID, title: String, activeTaskCount: Int) {
+      self.id = id
+      self.title = title
+      self.activeTaskCount = activeTaskCount
+    }
+  }
+
+  public struct TagRow: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let title: String
+    public let activeTaskCount: Int
+
+    public init(id: String, title: String, activeTaskCount: Int) {
+      self.id = id
+      self.title = title
+      self.activeTaskCount = activeTaskCount
+    }
+  }
+
+  public let focusCounts: [TaskSmartList: Int]
+  public let weeklyReviewProjectCount: Int
+  public let projects: [PageRow]
+  public let areas: [PageRow]
+  /// Only people explicitly marked `.promoted` are represented here. Legacy
+  /// people with no visibility are intentionally omitted.
+  public let people: [PageRow]
+  public let tags: [TagRow]
+
+  public init(
+    focusCounts: [TaskSmartList: Int],
+    weeklyReviewProjectCount: Int,
+    projects: [PageRow],
+    areas: [PageRow],
+    people: [PageRow],
+    tags: [TagRow]
+  ) {
+    self.focusCounts = focusCounts
+    self.weeklyReviewProjectCount = weeklyReviewProjectCount
+    self.projects = projects
+    self.areas = areas
+    self.people = people
+    self.tags = tags
+  }
+
+  public func focusCount(for list: TaskSmartList) -> Int {
+    focusCounts[list, default: 0]
+  }
+
+  public static func make(
+    pages: [PageSnapshot],
+    personTitle: (PageSnapshot) -> String = { $0.displayTitle },
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Self {
+    let tasks = pages.compactMap(TaskItem.init(page:))
+    let day = calendar.dateInterval(of: .day, for: now)
+    var focusCounts = Dictionary(uniqueKeysWithValues: TaskSmartList.allCases.map { ($0, 0) })
+    var projectCounts: [PageID: Int] = [:]
+    var areaCounts: [PageID: Int] = [:]
+    var personCounts: [PageID: Int] = [:]
+    var tagCounts: [String: Int] = [:]
+    var allTags = Set<String>()
+
+    for task in tasks {
+      let normalizedTags = Set(TaskData.normalizedTags(task.data.tags))
+      allTags.formUnion(normalizedTags)
+      if task.data.state != .active {
+        focusCounts[.logbook, default: 0] += 1
+        continue
+      }
+
+      if task.data.placement == .inbox {
+        focusCounts[.inbox, default: 0] += 1
+      }
+      if let day,
+        task.data.scheduledAt.map({ $0 < day.end }) == true
+          || task.data.deadline.map({ $0 < day.end }) == true
+      {
+        focusCounts[.today, default: 0] += 1
+      }
+      if let day,
+        task.data.scheduledAt.map({ $0 >= day.end }) == true
+          || task.data.deadline.map({ $0 >= day.end }) == true
+      {
+        focusCounts[.upcoming, default: 0] += 1
+      }
+      if task.data.placement == .anytime, task.data.scheduledAt == nil {
+        focusCounts[.anytime, default: 0] += 1
+      }
+      if task.data.placement == .someday {
+        focusCounts[.someday, default: 0] += 1
+      }
+
+      if let projectID = task.data.projectID { projectCounts[projectID, default: 0] += 1 }
+      if let areaID = task.data.areaID { areaCounts[areaID, default: 0] += 1 }
+      for personID in Set(task.data.assigneeIDs) {
+        personCounts[personID, default: 0] += 1
+      }
+      for tag in normalizedTags {
+        tagCounts[tag, default: 0] += 1
+      }
+    }
+
+    let activeTasks = tasks.filter(\.data.isActive)
+    let weeklyReview = WeeklyReviewSnapshot.make(
+      pages: pages,
+      activeTasks: activeTasks,
+      now: now,
+      calendar: calendar
+    )
+    focusCounts[.review] = weeklyReview.projects.filter(\.needsReview).count
+
+    func pageRows(
+      with supertagID: SupertagID,
+      title: (PageSnapshot) -> String,
+      counts: [PageID: Int],
+      include: (PageSnapshot, Int) -> Bool = { _, _ in true }
+    ) -> [PageRow] {
+      pages.compactMap { page -> PageRow? in
+        let activeTaskCount = counts[page.id, default: 0]
+        guard page.deletedAt == nil,
+          page.hasSupertag(supertagID),
+          include(page, activeTaskCount)
+        else { return nil }
+        return PageRow(id: page.id, title: title(page), activeTaskCount: activeTaskCount)
+      }
+      .sorted(by: orderedBefore)
+    }
+
+    return Self(
+      focusCounts: focusCounts,
+      weeklyReviewProjectCount: weeklyReview.projects.filter(\.needsReview).count,
+      projects: pageRows(
+        with: BuiltInSupertags.project,
+        title: \.displayTitle,
+        counts: projectCounts,
+        include: { page, _ in page.projectData?.status.isOpen == true }
+      ),
+      areas: pageRows(
+        with: BuiltInSupertags.area,
+        title: \.displayTitle,
+        counts: areaCounts
+      ),
+      people: pageRows(
+        with: BuiltInSupertags.person,
+        title: personTitle,
+        counts: personCounts,
+        include: { page, activeTaskCount in
+          page.objectMetadata.personVisibility == .promoted && activeTaskCount > 0
+        }
+      ),
+      tags: allTags.map { TagRow(id: $0, title: $0, activeTaskCount: tagCounts[$0, default: 0]) }
+        .sorted(by: orderedBefore)
+    )
+  }
+
+  private static func orderedBefore(_ lhs: PageRow, _ rhs: PageRow) -> Bool {
+    let comparison = lhs.title.localizedStandardCompare(rhs.title)
+    if comparison != .orderedSame { return comparison == .orderedAscending }
+    return lhs.id.rawValue < rhs.id.rawValue
+  }
+
+  private static func orderedBefore(_ lhs: TagRow, _ rhs: TagRow) -> Bool {
+    let comparison = lhs.title.localizedStandardCompare(rhs.title)
+    if comparison != .orderedSame { return comparison == .orderedAscending }
+    return lhs.id < rhs.id
+  }
+}
+
 public enum TaskFields {
   public static let status = key("status")
   public static let placement = key("placement")

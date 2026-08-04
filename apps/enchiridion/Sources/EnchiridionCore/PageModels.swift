@@ -29,6 +29,12 @@ public struct PageID: RawRepresentable, Codable, Hashable, Sendable, Identifiabl
     Self(rawValue: "event_\(digest(identity.canonicalOccurrenceKey))")
   }
 
+  /// A cloud-safe calendar occurrence identifier. Provider identifiers and iCalendar
+  /// UIDs deliberately never appear in the page id or its kind.
+  public static func materializedCalendarEvent(_ identity: CalendarMaterializedIdentity) -> Self {
+    Self(rawValue: "calendar_event_\(digest(identity.stableKey))")
+  }
+
   public static func calendarSeries(_ identity: CalendarSeriesIdentity) -> Self {
     Self(rawValue: "series_\(digest(identity.canonicalKey))")
   }
@@ -179,11 +185,34 @@ public struct CalendarEventIdentity: Codable, Hashable, Sendable {
   }
 }
 
+/// The identity persisted with a synced Event page. `uidDigest` is SHA-256 of the
+/// normalised iCalendar UID, so neither an EventKit identifier nor a provider UID
+/// leaks into CloudKit.
+public struct CalendarMaterializedIdentity: Codable, Hashable, Sendable {
+  public static let version = 1
+  public var version: Int
+  public var uidDigest: String
+  public var occurrenceToken: String
+  public var sourceScopeDigest: String?
+
+  public init(version: Int = Self.version, uidDigest: String, occurrenceToken: String, sourceScopeDigest: String? = nil) {
+    self.version = version
+    self.uidDigest = uidDigest
+    self.occurrenceToken = occurrenceToken
+    self.sourceScopeDigest = sourceScopeDigest
+  }
+
+  public var stableKey: String {
+    ["calendar-materialized-v\(version)", uidDigest, occurrenceToken, sourceScopeDigest ?? ""].joined(separator: "\u{0}")
+  }
+}
+
 public enum PageKind: Codable, Hashable, Sendable {
   case daily(DayKey)
   case free
   case calendarEvent(CalendarEventIdentity)
   case calendarSeries(CalendarSeriesIdentity)
+  case calendarMaterializedEvent(CalendarMaterializedIdentity)
 }
 
 public struct AutomergeHeads: Codable, Hashable, Sendable {
@@ -305,6 +334,12 @@ public struct CalendarEventSnapshot: Identifiable, Codable, Hashable, Sendable {
   public var isDetached: Bool
   public var attendees: [CalendarAttendeeIdentity]?
   public var organizer: CalendarAttendeeIdentity?
+  /// Local-only provider projection data. These values are never copied into a
+  /// materialized page kind or CloudKit record.
+  public var iCalendarUID: String?
+  public var originalStartDate: Date?
+  public var timeZoneIdentifier: String?
+  public var originalStartCivilDay: DayKey?
 
   public var id: String { identity.stableKey }
 
@@ -321,7 +356,11 @@ public struct CalendarEventSnapshot: Identifiable, Codable, Hashable, Sendable {
     calendarColorHex: String? = nil,
     isDetached: Bool = false,
     attendees: [CalendarAttendeeIdentity]? = nil,
-    organizer: CalendarAttendeeIdentity? = nil
+    organizer: CalendarAttendeeIdentity? = nil,
+    iCalendarUID: String? = nil,
+    originalStartDate: Date? = nil,
+    timeZoneIdentifier: String? = nil,
+    originalStartCivilDay: DayKey? = nil
   ) {
     self.identity = identity
     self.title = title
@@ -336,6 +375,41 @@ public struct CalendarEventSnapshot: Identifiable, Codable, Hashable, Sendable {
     self.isDetached = isDetached
     self.attendees = attendees
     self.organizer = organizer
+    self.iCalendarUID = Self.nonEmpty(iCalendarUID)
+    self.originalStartDate = originalStartDate ?? identity.occurrenceStart
+    self.timeZoneIdentifier = timeZoneIdentifier
+    self.originalStartCivilDay = originalStartCivilDay
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case identity, title, startDate, endDate, isAllDay, location, notes, url, calendarTitle, calendarColorHex, isDetached, attendees, organizer, iCalendarUID, originalStartDate, timeZoneIdentifier, originalStartCivilDay
+  }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    identity = try c.decode(CalendarEventIdentity.self, forKey: .identity)
+    title = try c.decode(String.self, forKey: .title)
+    startDate = try c.decode(Date.self, forKey: .startDate)
+    endDate = try c.decode(Date.self, forKey: .endDate)
+    isAllDay = try c.decode(Bool.self, forKey: .isAllDay)
+    location = try c.decodeIfPresent(String.self, forKey: .location)
+    notes = try c.decodeIfPresent(String.self, forKey: .notes)
+    url = try c.decodeIfPresent(URL.self, forKey: .url)
+    calendarTitle = try c.decode(String.self, forKey: .calendarTitle)
+    calendarColorHex = try c.decodeIfPresent(String.self, forKey: .calendarColorHex)
+    isDetached = try c.decodeIfPresent(Bool.self, forKey: .isDetached) ?? false
+    attendees = try c.decodeIfPresent([CalendarAttendeeIdentity].self, forKey: .attendees)
+    organizer = try c.decodeIfPresent(CalendarAttendeeIdentity.self, forKey: .organizer)
+    iCalendarUID = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .iCalendarUID))
+    originalStartDate = try c.decodeIfPresent(Date.self, forKey: .originalStartDate) ?? identity.occurrenceStart
+    timeZoneIdentifier = try c.decodeIfPresent(String.self, forKey: .timeZoneIdentifier)
+    originalStartCivilDay = try c.decodeIfPresent(DayKey.self, forKey: .originalStartCivilDay)
+  }
+
+  private static func nonEmpty(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }
 

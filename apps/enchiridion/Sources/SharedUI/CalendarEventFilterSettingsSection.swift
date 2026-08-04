@@ -7,6 +7,15 @@ struct CalendarEventFilterSettingsSection: View {
   @State private var newPrefix = ""
 
   var body: some View {
+    Section("Calendar Events") {
+      Toggle("Materialize calendar Events", isOn: Binding(
+        get: { store.calendarEventMaterializationEnabled },
+        set: { enabled in Task { await store.setCalendarEventMaterializationEnabled(enabled) } }
+      ))
+      Text("Creates normal synced Event pages for calendar occurrences. Calendar accounts, raw identifiers, attendee addresses, notes, and links remain on this device.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
     Section("Omit Events") {
       ForEach(draftPrefixes.indices, id: \.self) { index in
         TextField("Title prefix", text: $draftPrefixes[index])
