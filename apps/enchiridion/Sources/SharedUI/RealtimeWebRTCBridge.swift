@@ -759,6 +759,16 @@ final class RealtimeWebRTCBridge: NSObject {
 extension RealtimeWebRTCBridge: RealtimeWebRTCBridging {}
 
 extension RealtimeWebRTCBridge: WKNavigationDelegate {
+  func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    // `stop()` intentionally destroys the view. Only an active, owned view
+    // represents an unexpected process loss, and the typed failure must reach
+    // the transport before the stream is closed.
+    guard !stopped, self.webView === webView,
+          let generation = authorizationState.activeGeneration else { return }
+    yield(.failure(generation: generation, code: "web_content_process_terminated"))
+    finishEvents()
+  }
+
   func webView(
     _ webView: WKWebView,
     decidePolicyFor navigationAction: WKNavigationAction,

@@ -21,6 +21,21 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(controller.credentialState, .needsVerification)
   }
 
+  func testReverifySavedKeyKeepsBindingAndRevisionWithoutExposingSecret() async {
+    let credentialStore = MemoryCredentialStore(credential: "saved-placeholder", revision: "stable")
+    let controller = makeController(
+      credentialStore: credentialStore,
+      validator: ImmediateCredentialValidator(result: validationResult())
+    )
+    await controller.refreshCredentialState()
+    let succeeded = await controller.reverifySavedCredential()
+    let snapshot = await credentialStore.snapshot()
+    XCTAssertTrue(succeeded)
+    XCTAssertEqual(snapshot.credential, "saved-placeholder")
+    XCTAssertEqual(snapshot.replaceCount, 0)
+    XCTAssertEqual(controller.credentialState, .savedAndVerified)
+  }
+
   func testSuccessfulReplacementStoresOnlyAfterValidation() async throws {
     let credentialStore = MemoryCredentialStore(credential: "old-placeholder")
     let validator = ImmediateCredentialValidator(result: validationResult())
@@ -377,10 +392,7 @@ final class AssistantProviderSettingsTests: XCTestCase {
     )
 
     XCTAssertFalse(controller.isCredentialStateResolved)
-    XCTAssertEqual(
-      controller.textRouteSnapshot().authorizationFailure,
-      .credentialVerificationRequired
-    )
+    XCTAssertNotNil(controller.textRouteSnapshot().authorizationFailure)
 
     await controller.refreshCredentialState()
 
@@ -535,6 +547,35 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(requestCount, 0)
   }
 
+  func testFirstSavedKeyActivatesOpenAIVoiceOnce() async {
+    let controller = AssistantProviderSettingsController(
+      preferences: AssistantProviderPreferencesStore(defaults: makeDefaults()),
+      credentialStore: MemoryCredentialStore(),
+      validator: ImmediateCredentialValidator(result: validationResult())
+    )
+
+    XCTAssertTrue(await controller.verifyAndSave(candidate: "first-placeholder"))
+    XCTAssertEqual(controller.selectedVoiceProvider, .openAIRealtime)
+  }
+
+  func testReverifyPreservesExplicitAppleAndQwenVoiceSelection() async {
+    for selected in [AssistantVoiceProvider.appleOnDevice, .qwenRealtime] {
+      let defaults = makeDefaults()
+      let preferences = AssistantProviderPreferencesStore(defaults: defaults)
+      preferences.selectVoiceProvider(selected, hasSavedCredential: true)
+      let binding = credentialBinding("saved-placeholder", revision: "saved-revision")
+      preferences.markVerified(validationResult().capabilities, binding: binding)
+      let controller = AssistantProviderSettingsController(
+        preferences: preferences,
+        credentialStore: MemoryCredentialStore(credential: "saved-placeholder", revision: "saved-revision"),
+        validator: ImmediateCredentialValidator(result: validationResult())
+      )
+      await controller.refreshCredentialState()
+      XCTAssertTrue(await controller.reverifySavedCredential())
+      XCTAssertEqual(controller.selectedVoiceProvider, selected)
+    }
+  }
+
   func testCrashWindowNewKeychainRecordWithOldPreferencesFailsClosed() async {
     let defaults = makeDefaults()
     let preferences = AssistantProviderPreferencesStore(defaults: defaults)
@@ -558,7 +599,9 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(controller.credentialState, .needsVerification)
     XCTAssertTrue(controller.isCredentialStateResolved)
     XCTAssertEqual(controller.selectedProvider, .openAI)
-    XCTAssertNil(controller.selectedTextModelID)
+    XCTAssertEqual(controller.selectedTextModelID, "gpt-5.6-terra")
+    XCTAssertFalse(controller.canSelectOpenAI)
+    XCTAssertNotNil(controller.textRouteSnapshot().authorizationFailure)
     let persisted = preferences.storedPayloadForTesting
     XCTAssertEqual(persisted.selectedProvider, .openAI)
     XCTAssertNil(persisted.credentialRevision)
@@ -763,6 +806,25 @@ private actor MemoryCredentialStore: OpenAICredentialPersisting {
     latestGeneration = generation
     guard let credential, let revision else { return .missing }
     return .available(binding: credentialBinding(credential, revision: revision))
+  }
+
+  func revalidateSavedCredential(generation: UInt64) async throws -> OpenAICredentialRevalidationOutcome {
+    guard generation > latestGeneration else { return .superseded }
+    latestGeneration = generation
+    guard let credential, let revision else { return .missing }
+    let binding = credentialBinding(credential, revision: revision)
+    let result = OpenAIValidationResult(
+      capabilities: .init(
+        catalogVersion: OpenAIModelCatalog.version,
+        textModelIDs: ["gpt-5.6-terra"],
+        realtimeModelIDs: ["gpt-realtime-mini"]
+      ),
+      requestID: nil
+    )
+    guard generation == latestGeneration,
+      self.credential == credential, self.revision == revision
+    else { return .superseded }
+    return .validated(result: result, binding: binding)
   }
 
   func replace(

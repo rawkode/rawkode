@@ -103,7 +103,6 @@ public enum RealtimeCallsRequestSpecBuilder {
       "output_modalities": configuration.outputModalities,
       "audio": [
         "input": [
-          "transcription": ["model": configuration.inputAudioTranscriptionModelID],
           "turn_detection": [
             "type": configuration.turnDetection.type,
             "eagerness": configuration.turnDetection.eagerness,

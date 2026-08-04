@@ -280,7 +280,9 @@ struct AssistantProviderSettingsView: View {
   private func verificationButton(retrySeconds: Int?) -> some View {
     Button {
       Task {
-        if await controller.verifyAndSave(candidate: candidate) { candidate = "" }
+        if candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          _ = await controller.reverifySavedCredential()
+        } else if await controller.verifyAndSave(candidate: candidate) { candidate = "" }
       }
     } label: {
       if controller.isValidating {
@@ -289,16 +291,21 @@ struct AssistantProviderSettingsView: View {
           Text("Verifying")
         }
       } else {
-        Text(controller.hasSavedCredential ? "Verify & Replace" : "Verify & Save")
+        Text(
+          controller.hasSavedCredential
+            ? (candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              ? "Verify Saved Key" : "Verify & Replace Key")
+            : "Verify & Save"
+        )
       }
     }
     .disabled(
-      candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        || controller.isValidating
+      (candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && !controller.hasSavedCredential) || controller.isValidating
         || retrySeconds != nil
     )
     .accessibilityHint(
-      "Sends one request to OpenAI's models endpoint, then saves the key only if accepted.")
+      "Sends one request to OpenAI's models endpoint. A saved key stays in the Keychain unless you paste a replacement.")
   }
 
   private var consentSection: some View {
@@ -406,9 +413,7 @@ struct AssistantProviderSettingsView: View {
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
 
-      Text(
-        "Saving a verified Platform key is your explicit opt-in to OpenAI Voice. Starting voice requests only the normal iOS microphone permission when needed; it does not show an additional provider or location confirmation."
-      )
+      Text("Saving or verifying this Platform key enables OpenAI Voice when this project lists a compatible Realtime model. Starting voice requests only the normal iOS microphone permission when needed.")
       .font(.caption)
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
@@ -495,7 +500,8 @@ struct AssistantProviderSettingsView: View {
 
   private var openAIConsentDisclosure: String {
     """
-    Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI. The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not authorize microphone access or OpenAI Voice; voice requires separate explicit consent. OpenAI is not used by CarPlay or App Intents.
+    Enchiridion sends submitted text and bounded OpenAI text-chat history directly from this device to OpenAI. The default text route sends no notes, tasks, calendar events, local search results, or local-tool outputs. Your API key stays in this device's Keychain. Requests use store:false, though OpenAI may retain abuse-monitoring data for up to 30 days. API usage is billed separately from ChatGPT. Text consent does not request microphone access or change the voice route. OpenAI is not used by CarPlay or App Intents.
     """
   }
+
 }

@@ -28,7 +28,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertFalse(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: false))
   }
 
-  func testBuild2026080303PayloadDecodesLegacyVoiceConsentWithoutResettingVoiceSelection() throws {
+  func testBuild2026080303PayloadMigratesVerifiedOpenAIVoiceWithoutAnotherConsent() throws {
     let defaults = makeDefaults()
     let legacyPayload: [String: Any] = [
       "version": 3,
@@ -119,22 +119,23 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let firstBinding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
+      capabilities(realtime: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"]),
       binding: firstBinding,
-      selectDefaultTextModel: true
+      selectPreferredTextModel: true
     )
     store.selectRealtimeVoice(id: "marin")
-    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1")
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.selectRealtimeVoice(id: "cedar")
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
-    store.selectRealtimeModel(id: "gpt-realtime")
+    store.selectRealtimeModel(id: "gpt-realtime-2.1")
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
 
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime"]),
+      capabilities(realtime: ["gpt-realtime-2.1"]),
       binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
     )
     XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
@@ -146,10 +147,9 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     store.markVerified(
       capabilities(realtime: ["gpt-realtime-mini"]),
       binding: binding,
-      selectDefaultTextModel: true
+      selectPreferredTextModel: true
     )
 
-    store.selectVoiceProvider(.openAIRealtime, hasSavedCredential: true)
     let route = store.voiceRouteSnapshot()
 
     XCTAssertTrue(route.isAuthorizedOpenAIRealtime)
@@ -160,6 +160,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     XCTAssertEqual(route.voiceCatalogVersion, OpenAIRealtimeVoiceCatalog.version)
     store.selectRealtimeVoice(id: "cedar")
     XCTAssertEqual(route.voiceID, "marin", "Existing route snapshot must remain immutable")
+    XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
     XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
     XCTAssertEqual(store.voiceRouteSnapshot().voiceID, "cedar")
   }
@@ -199,7 +200,7 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
   func testRealtimeCatalogRejectsArbitraryModelsAndVoices() {
     XCTAssertEqual(
       OpenAIModelCatalog.realtimeOptions.map(\.id),
-      ["gpt-realtime-mini", "gpt-realtime"]
+      ["gpt-realtime-2.1-mini", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime"]
     )
     XCTAssertEqual(OpenAIRealtimeVoiceCatalog.reviewed.first, .marin)
     XCTAssertEqual(OpenAIRealtimeVoiceCatalog.reviewed.dropFirst().first, .cedar)
@@ -210,11 +211,122 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     store.markVerified(
       capabilities(realtime: ["gpt-realtime-mini", "made-up-realtime"]),
       binding: binding,
-      selectDefaultTextModel: true
+      selectPreferredTextModel: true
     )
     XCTAssertEqual(store.verifiedRealtimeModelIDs, ["gpt-realtime-mini"])
     store.selectRealtimeVoice(id: "made-up-voice")
     XCTAssertNil(store.selectedRealtimeVoice)
+  }
+
+  func testPreferredRealtimeModelIsSelectedForNewVerifiedCredentials() {
+    let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
+
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"]),
+      binding: OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
+    )
+
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1")
+    XCTAssertTrue(store.hasValidSelectedRealtimeModel)
+  }
+
+  func testVerifiedRealtimeSelectionIsPreservedWhenStillAvailable() {
+    let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    let firstBinding = OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
+      binding: firstBinding
+    )
+    store.selectRealtimeModel(id: "gpt-realtime-mini")
+
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
+      binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
+    )
+
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
+  }
+
+  func testNoLongerAvailableRealtimeSelectionFallsBackAfterSuccessfulVerification() {
+    let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
+      binding: OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
+    )
+    store.selectRealtimeModel(id: "gpt-realtime-mini")
+
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime"]),
+      binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
+    )
+
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime")
+  }
+
+  func testCatalogReverificationAndFailuresPreserveVoiceIntentWithoutAuthorizing() throws {
+    let defaults = makeDefaults()
+    let staleCatalogPayload: [String: Any] = [
+      "version": 3,
+      "selectedVoiceProvider": "openAIRealtime",
+      "credentialRevision": "revision-1",
+      "credentialFingerprint": "fp-1",
+      "verifiedCatalogVersion": OpenAIModelCatalog.version - 1,
+      "verifiedRealtimeModelIDs": ["gpt-realtime-mini"],
+      "selectedRealtimeModelID": "gpt-realtime-mini",
+      "selectedRealtimeVoiceID": "marin",
+    ]
+    defaults.set(
+      try JSONSerialization.data(withJSONObject: staleCatalogPayload),
+      forKey: AssistantProviderPreferencesStore.defaultKey
+    )
+
+    let store = AssistantProviderPreferencesStore(defaults: defaults)
+    XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
+    XCTAssertFalse(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
+
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-mini", "gpt-realtime"]),
+      binding: OpenAICredentialBinding(revision: "revision-2", fingerprint: "fp-2")
+    )
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
+
+    store.markNeedsVerification()
+    XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
+    XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-mini")
+    XCTAssertFalse(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
+  }
+
+  func testReverificationReenablesPreservedOpenAIVoiceIntent() {
+    let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    let initialBinding = OpenAICredentialBinding(revision: "old", fingerprint: "old-fp")
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-2.1"]), binding: initialBinding
+    )
+    XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
+
+    store.markNeedsVerification()
+    store.markVerified(
+      capabilities(realtime: ["gpt-realtime-2.1"]),
+      binding: OpenAICredentialBinding(revision: "new", fingerprint: "new-fp")
+    )
+
+    XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
+    XCTAssertTrue(store.canSelectVoiceProvider(.openAIRealtime, hasSavedCredential: true))
+    XCTAssertTrue(store.voiceRouteSnapshot().isAuthorizedOpenAIRealtime)
+  }
+
+  func testCatalogRejectsUnshippedGPTLiveModelID() {
+    let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
+    store.markVerified(
+      capabilities(realtime: ["gpt-live-1", "gpt-realtime"]),
+      binding: OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")
+    )
+
+    XCTAssertEqual(store.verifiedRealtimeModelIDs, ["gpt-realtime"])
+    store.selectRealtimeModel(id: "gpt-live-1")
+    XCTAssertNil(store.selectedRealtimeModelID)
+    XCTAssertFalse(store.hasValidSelectedRealtimeModel)
   }
 
   private func capabilities(realtime: Set<String>) -> OpenAIVerifiedCapabilities {

@@ -6,17 +6,12 @@ import Foundation
 /// native side and is never serialised into JavaScript.
 @MainActor
 final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
-  private enum TransportError: Error {
-    case bridgeClosed
-    case bridgeFailure
-    case controlTimedOut
-    case handshakeTimedOut
-    case unavailable
-  }
+  private typealias TransportError = RealtimeVoiceTransportError
 
   private struct ActiveAttempt: Equatable {
     let identifier: UUID
     let generation: UInt64
+    let requestID: String?
   }
 
   private enum Lifecycle: Equatable {
@@ -176,6 +171,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   private let bridge: any RealtimeWebRTCBridging
   private let bootstrap: any RealtimeSessionBootstrap
   private let codec: RealtimeProtocolCodec
+  private let diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking
   private let serverEvents: AsyncStream<RealtimeServerEvent>
   private let serverEventContinuation: AsyncStream<RealtimeServerEvent>.Continuation
   private let audioActivity: AsyncStream<RealtimeAudioActivitySample>
@@ -185,15 +181,19 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   private var bridgeConsumptionTask: Task<Void, Never>?
   private var bridgeActivityTask: Task<Void, Never>?
   private var eventQueue: BridgeEventQueue?
+  private var lastTerminalFailure: RealtimeVoiceFailure?
+  private var diagnosticContext: OpenAIRealtimeVoiceDiagnosticContext?
 
   init(
     bridge: any RealtimeWebRTCBridging = RealtimeWebRTCBridge(),
     bootstrap: any RealtimeSessionBootstrap = DirectBYOKBootstrap(),
-    codec: RealtimeProtocolCodec = RealtimeProtocolCodec()
+    codec: RealtimeProtocolCodec = RealtimeProtocolCodec(),
+    diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking = OpenAIRealtimeVoiceOSLogDiagnosticSink()
   ) {
     self.bridge = bridge
     self.bootstrap = bootstrap
     self.codec = codec
+    self.diagnostics = diagnostics
     let stream = AsyncStream<RealtimeServerEvent>.makeStream()
     serverEvents = stream.stream
     serverEventContinuation = stream.continuation
@@ -213,6 +213,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
   func start(
     generation: UInt64,
+    diagnosticContext: OpenAIRealtimeVoiceDiagnosticContext,
     route: RealtimeVoiceRouteSnapshot,
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
@@ -220,8 +221,12 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     guard case .idle = lifecycle else {
       throw TransportError.unavailable
     }
+    lastTerminalFailure = nil
+    self.diagnosticContext = diagnosticContext
     let attempt = UUID()
+    let diagnosticAttempt = diagnosticContext.attemptToken
     lifecycle = .starting(attempt)
+    diagnostics.record(.init(stage: .transportStart, outcome: .started, generation: generation, attemptToken: diagnosticAttempt, modelID: configuration.modelID, voiceID: configuration.voiceID))
     let eventQueue = BridgeEventQueue()
     self.eventQueue = eventQueue
     await eventQueue.start(stream: bridge.events())
@@ -242,8 +247,11 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
         )
       }
       try requireStarting(attempt)
-      let active = ActiveAttempt(identifier: attempt, generation: generation)
+      let active = ActiveAttempt(
+        identifier: attempt, generation: generation, requestID: handshake.session.requestID
+      )
       lifecycle = .active(active)
+      diagnostics.record(.init(stage: .dataChannel, outcome: .succeeded, generation: generation, attemptToken: diagnosticAttempt, modelID: handshake.session.modelID, voiceID: handshake.session.voiceID, requestID: handshake.session.requestID))
       for event in handshake.bufferedEvents {
         serverEventContinuation.yield(event)
       }
@@ -251,6 +259,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       beginConsumingActivity(eventQueue, active: active)
       return handshake.session
     } catch {
+      diagnostics.record(.init(stage: .transportStart, outcome: .failed, generation: generation, attemptToken: diagnosticAttempt))
       await terminate()
       throw error
     }
@@ -295,6 +304,10 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     await terminate()
   }
 
+  func terminalFailure() -> RealtimeVoiceFailure? {
+    lastTerminalFailure
+  }
+
   private func performHandshake(
     attempt: UUID,
     eventQueue: BridgeEventQueue,
@@ -305,7 +318,7 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   ) async throws -> EstablishedHandshake {
     try requireStarting(attempt)
     try bridge.load()
-    try await waitForReady(eventQueue, attempt: attempt)
+    try await waitForReady(eventQueue, attempt: attempt, generation: generation)
 
     try requireStarting(attempt)
     let capability = try RealtimeWebRTCBridgeAuthorization.issue(
@@ -346,12 +359,14 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
 
   private func waitForReady(
     _ eventQueue: BridgeEventQueue,
-    attempt: UUID
+    attempt: UUID,
+    generation: UInt64
   ) async throws {
     while let event = await eventQueue.next() {
       try requireStarting(attempt)
       switch event {
       case .ready:
+        recordDiagnostic(.init(stage: .bridgeReady, outcome: .succeeded, generation: generation))
         return
       case .failure:
         throw TransportError.bridgeFailure
@@ -371,6 +386,8 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       try requireStarting(attempt)
       switch event {
       case let .offer(eventGeneration, sdp) where eventGeneration == generation:
+        _ = sdp
+        recordDiagnostic(.init(stage: .offer, outcome: .succeeded, generation: generation))
         return sdp
       case let .failure(eventGeneration, _) where eventGeneration == generation:
         throw TransportError.bridgeFailure
@@ -401,8 +418,10 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       switch event {
       case let .answerApplied(eventGeneration) where eventGeneration == generation:
         answerApplied = true
+        recordDiagnostic(.init(stage: .answerApplied, outcome: .succeeded, generation: generation, requestID: requestID))
       case let .dataChannelState(eventGeneration, "open") where eventGeneration == generation:
         dataChannelOpen = true
+        recordDiagnostic(.init(stage: .dataChannel, outcome: .succeeded, generation: generation, requestID: requestID))
       case let .serverEvent(eventGeneration, json) where eventGeneration == generation:
         guard let decoded = try codec.decode(json) else { continue }
         if case let .sessionCreated(created) = decoded.payload {
@@ -452,26 +471,32 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
               self.serverEventContinuation.yield(decoded)
             }
           } catch {
-            await self.terminate()
+            await self.terminate(failure: self.bridgeFailure(
+              "protocol", requestID: active.requestID
+            ))
             return
           }
-        case let .failure(eventGeneration, _) where eventGeneration == active.generation:
-          await self.terminate()
+        case let .failure(eventGeneration, code) where eventGeneration == active.generation:
+          await self.terminate(failure: self.bridgeFailure(code, requestID: active.requestID))
           return
         case let .dataChannelState(eventGeneration, state)
           where eventGeneration == active.generation && state != "open":
-          await self.terminate()
+          await self.terminate(failure: self.bridgeFailure(
+            "data_channel_\(state)", requestID: active.requestID
+          ))
           return
         case let .connectionState(eventGeneration, state)
           where eventGeneration == active.generation && (state == "failed" || state == "closed"):
-          await self.terminate()
+          await self.terminate(failure: self.bridgeFailure(
+            "ice_\(state)", requestID: active.requestID
+          ))
           return
         default:
           continue
         }
       }
       if self.isActive(active) {
-        await self.terminate()
+        await self.terminate(failure: self.bridgeFailure("bridge_stream_closed", requestID: active.requestID))
       }
     }
   }
@@ -506,6 +531,16 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       timeoutError: .controlTimedOut,
       operation: operation
     )
+  }
+
+  private func recordDiagnostic(_ event: OpenAIRealtimeVoiceDiagnosticEvent) {
+    guard let context = diagnosticContext, context.generation == event.generation else { return }
+    diagnostics.record(.init(
+      stage: event.stage, outcome: event.outcome, generation: context.generation,
+      attemptToken: context.attemptToken, httpStatus: event.httpStatus,
+      modelID: event.modelID, voiceID: event.voiceID, requestID: event.requestID,
+      reason: event.reason, inputDirection: event.inputDirection
+    ))
   }
 
   private func withDeadline<Value: Sendable>(
@@ -554,14 +589,35 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     return active == expected
   }
 
-  private func terminate() async {
+  private func bridgeFailure(_ rawCode: String, requestID: String?) -> RealtimeVoiceFailure {
+    switch rawCode {
+    case "protocol": return RealtimeVoiceFailure(code: "transport_protocol", message: "The OpenAI Voice bridge sent an invalid control message.", responseID: requestID)
+    case "bridgeOperationFailed": return RealtimeVoiceFailure(code: "transport_bridge_operation_failed", message: "The OpenAI Voice bridge operation failed.", responseID: requestID)
+    case "web_content_process_terminated": return RealtimeVoiceFailure(code: "transport_web_content_process_terminated", message: "The OpenAI Voice bridge process ended.", responseID: requestID)
+    case "data_channel_closed": return RealtimeVoiceFailure(code: "transport_data_channel_closed", message: "The OpenAI Voice data channel closed.", responseID: requestID)
+    case "data_channel_failed": return RealtimeVoiceFailure(code: "transport_data_channel_failed", message: "The OpenAI Voice data channel failed.", responseID: requestID)
+    case "ice_failed": return RealtimeVoiceFailure(code: "transport_ice_failed", message: "The OpenAI Voice network connection failed.", responseID: requestID)
+    case "ice_closed": return RealtimeVoiceFailure(code: "transport_ice_closed", message: "The OpenAI Voice network connection closed.", responseID: requestID)
+    case "bridge_stream_closed": return RealtimeVoiceFailure(code: "transport_bridge_stream_closed", message: "The OpenAI Voice bridge stream closed.", responseID: requestID)
+    default: break
+    }
+    return RealtimeVoiceFailure(
+      code: "transport_bridge_failure",
+      message: "The OpenAI Voice WebRTC connection ended.",
+      responseID: requestID
+    )
+  }
+
+  private func terminate(failure: RealtimeVoiceFailure? = nil) async {
     guard lifecycle != .closed else { return }
+    if let failure { lastTerminalFailure = failure }
     let activeGeneration: UInt64? = if case let .active(active) = lifecycle {
       active.generation
     } else {
       nil
     }
     lifecycle = .closed
+    diagnosticContext = nil
     bridgeConsumptionTask?.cancel()
     bridgeConsumptionTask = nil
     bridgeActivityTask?.cancel()

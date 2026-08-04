@@ -66,11 +66,20 @@ public enum AssistantProviderSettingsError: Equatable, Sendable {
 
 public protocol OpenAICredentialPersisting: Sendable {
   func readBinding(generation: UInt64) async throws -> OpenAICredentialReadOutcome
+  func revalidateSavedCredential(generation: UInt64) async throws -> OpenAICredentialRevalidationOutcome
   func replace(
     with credential: String,
     generation: UInt64
   ) async throws -> OpenAICredentialMutationOutcome
   func deleteCredential(generation: UInt64) async throws -> OpenAICredentialMutationOutcome
+}
+
+public extension OpenAICredentialPersisting {
+  func revalidateSavedCredential(generation: UInt64) async throws -> OpenAICredentialRevalidationOutcome {
+    // Test doubles and alternate stores must opt in explicitly before they can
+    // revalidate. The production Keychain actor supplies the secure path.
+    .superseded
+  }
 }
 
 extension OpenAICredentialStore: OpenAICredentialPersisting {}
@@ -226,7 +235,13 @@ public final class AssistantProviderSettingsController {
       preferences.markVerified(
         result.capabilities,
         binding: binding,
-        selectDefaultTextModel: shouldSelectDefaultTextModel
+        selectPreferredTextModel: shouldSelectDefaultTextModel,
+        // First explicit save is the user's single OpenAI Voice opt-in. A key
+        // replacement and saved-key recheck must never override Apple/Qwen.
+        activateOpenAIVoice: {
+          if case .inserted = mutation { return true }
+          return false
+        }()
       )
       hasSavedCredential = true
       credentialState = .savedAndVerified
@@ -253,6 +268,51 @@ public final class AssistantProviderSettingsController {
       }
       isValidating = false
       validationTask = nil
+      return false
+    }
+  }
+
+  /// Rechecks the existing Keychain credential. Neither this controller nor
+  /// SwiftUI receives the credential string.
+  @discardableResult
+  public func reverifySavedCredential() async -> Bool {
+    guard hasSavedCredential else { return false }
+    generation += 1
+    let operationGeneration = generation
+    validationTask?.cancel()
+    validationTask = nil
+    error = nil
+    lastRequestID = nil
+    retryUntil = nil
+    isValidating = true
+    do {
+      let outcome = try await credentialStore.revalidateSavedCredential(generation: operationGeneration)
+      guard operationGeneration == generation else { return false }
+      guard case let .validated(result, binding) = outcome else {
+        isValidating = false
+        switch outcome {
+        case .missing: persistAndPublishMissingCredentialFallback()
+        case .invalid: persistAndPublishVerificationFallback(hasSavedCredential: true)
+        case .superseded, .validated: break
+        }
+        return false
+      }
+      preferences.markVerified(result.capabilities, binding: binding)
+      hasSavedCredential = true
+      credentialState = .savedAndVerified
+      synchronizePreferences()
+      lastRequestID = result.requestID
+      isValidating = false
+      isCredentialStateResolved = true
+      return true
+    } catch is CancellationError {
+      guard operationGeneration == generation else { return false }
+      isValidating = false
+      return false
+    } catch {
+      guard operationGeneration == generation else { return false }
+      self.error = map(error)
+      isValidating = false
       return false
     }
   }
@@ -291,6 +351,14 @@ public final class AssistantProviderSettingsController {
   public func selectVoiceProvider(_ provider: AssistantVoiceProvider) {
     preferences.selectVoiceProvider(provider, hasSavedCredential: hasSavedCredential)
     synchronizePreferences()
+  }
+
+  @discardableResult
+  public func authorizeOpenAIVoiceAndSelect() -> Bool {
+    guard credentialState == .savedAndVerified else { return false }
+    let succeeded = preferences.authorizeOpenAIVoiceAndSelect()
+    synchronizePreferences()
+    return succeeded
   }
 
   public func setTextConsent(_ isGranted: Bool) {

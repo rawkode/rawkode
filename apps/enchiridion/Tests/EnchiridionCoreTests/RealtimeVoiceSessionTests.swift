@@ -5,6 +5,25 @@ import XCTest
 
 @MainActor
 final class RealtimeVoiceSessionTests: XCTestCase {
+  func testDiagnosticEventAllowlistRejectsUnknownModelVoiceAndUnsafeRequestID() {
+    let event = OpenAIRealtimeVoiceDiagnosticEvent(
+      stage: .bootstrapResponse,
+      outcome: .failed,
+      generation: 7,
+      attemptToken: .make(),
+      httpStatus: 9_999,
+      modelID: "not-a-model",
+      voiceID: "not-a-voice",
+      requestID: "contains a space"
+    )
+    XCTAssertEqual(event.generation, 7)
+    XCTAssertNotNil(event.attemptToken)
+    XCTAssertEqual(event.httpStatus, 999)
+    XCTAssertNil(event.modelID)
+    XCTAssertNil(event.voiceID)
+    XCTAssertNil(event.requestID)
+  }
+
   func testStartEnforcesPermissionCredentialTransportAudioInputOrder() async throws {
     let fixture = try makeFixture()
 
@@ -127,6 +146,40 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertTrue(calls.contains("input.off"))
     XCTAssertTrue(calls.contains("transport.close"))
     XCTAssertTrue(calls.contains("audio.deactivate"))
+  }
+
+  func testInputEnableDelayedBeyondTeardownDeadlineStillReachesListening() async throws {
+    let fixture = try makeFixture()
+    let gate = AsyncGate()
+    await fixture.gates.inputEnable.append(gate)
+    let start = Task { await fixture.session.start() }
+    await gate.waitUntilEntered()
+    // This is intentionally longer than the 250ms teardown deadline. The
+    // transport's own 8s control deadline, not teardown, governs this await.
+    try await Task.sleep(for: .milliseconds(300))
+    XCTAssertEqual(fixture.session.state.phase, .connecting)
+    await gate.resume()
+    await start.value
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    await fixture.session.stop()
+  }
+
+  func testInputFailureDiagnosticPrecedesOnceOnlyTerminalDiagnostic() async throws {
+    let diagnostics = RecordingDiagnostics()
+    let fixture = try makeFixture(diagnostics: diagnostics)
+    fixture.transport.failNextInputEnable()
+
+    await fixture.session.start()
+
+    let events = diagnostics.events
+    let inputFailure = try XCTUnwrap(events.firstIndex {
+      $0.stage == .input && $0.outcome == .failed
+    })
+    let terminal = try XCTUnwrap(events.firstIndex { $0.stage == .terminal })
+    XCTAssertLessThan(inputFailure, terminal)
+    XCTAssertEqual(events.filter { $0.stage == .terminal }.count, 1)
+    XCTAssertEqual(events[inputFailure].reason, .other)
+    XCTAssertEqual(events[terminal].reason, .inputEnableFailed)
   }
 
   func testSafetyPauseInputDisableFailureIsTerminalAndNeverPublishesPausedState() async throws {
@@ -871,7 +924,8 @@ final class RealtimeVoiceSessionTests: XCTestCase {
 
   private func makeFixture(
     permission: RealtimeMicrophonePermission = .authorized,
-    initialLifecycleState: RealtimeVoiceLifecycleState = .active
+    initialLifecycleState: RealtimeVoiceLifecycleState = .active,
+    diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking = OpenAIRealtimeVoiceNoopDiagnosticSink()
   ) throws -> Fixture {
     let calls = CallRecorder()
     let gates = SessionGates()
@@ -888,6 +942,7 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       credentialReader: FakeCredentialReader(binding: binding, calls: calls, gates: gates),
       transport: transport,
       audioSession: FakeRealtimeAudioSession(calls: calls, gates: gates),
+      diagnostics: diagnostics,
       initialLifecycleState: initialLifecycleState
     )
     return Fixture(session: session, transport: transport, calls: calls, gates: gates)
@@ -930,6 +985,11 @@ private actor CallRecorder {
   func values() -> [String] {
     calls
   }
+}
+
+private final class RecordingDiagnostics: OpenAIRealtimeVoiceDiagnosticSinking, @unchecked Sendable {
+  private(set) var events: [OpenAIRealtimeVoiceDiagnosticEvent] = []
+  func record(_ event: OpenAIRealtimeVoiceDiagnosticEvent) { events.append(event) }
 }
 
 private struct FakeMicrophone: RealtimeMicrophoneAuthorizing {
@@ -999,6 +1059,7 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
 
   func start(
     generation: UInt64,
+    diagnosticContext _: OpenAIRealtimeVoiceDiagnosticContext,
     route: RealtimeVoiceRouteSnapshot,
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease

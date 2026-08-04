@@ -117,11 +117,14 @@ public actor URLSessionRealtimeCallsHTTPLoader: RealtimeCallsHTTPLoading {
 /// Authorization header for the pinned OpenAI Realtime endpoint.
 public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
   private let loader: any RealtimeCallsHTTPLoading
+  private let diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking
 
   public init(
-    loader: any RealtimeCallsHTTPLoading = URLSessionRealtimeCallsHTTPLoader()
+    loader: any RealtimeCallsHTTPLoading = URLSessionRealtimeCallsHTTPLoader(),
+    diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking = OpenAIRealtimeVoiceOSLogDiagnosticSink()
   ) {
     self.loader = loader
+    self.diagnostics = diagnostics
   }
 
   public func bootstrap(
@@ -130,6 +133,7 @@ public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
   ) async throws -> RealtimeSessionBootstrapResult {
+    diagnostics.record(.init(stage: .bootstrapRequest, outcome: .started))
     guard credential.binding == route.credentialBinding else {
       throw RealtimeSessionBootstrapError.invalidEndpoint
     }
@@ -155,10 +159,13 @@ public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
     do {
       exchange = try await loader.load(request)
     } catch let error as RealtimeSessionBootstrapError {
+      diagnostics.record(.init(stage: .bootstrapResponse, outcome: .failed))
       throw error
     } catch is CancellationError {
+      diagnostics.record(.init(stage: .bootstrapResponse, outcome: .cancelled))
       throw CancellationError()
     } catch {
+      diagnostics.record(.init(stage: .bootstrapResponse, outcome: .failed))
       throw RealtimeSessionBootstrapError.connectionFailed
     }
     try Task.checkCancellation()
@@ -167,17 +174,24 @@ public actor DirectBYOKBootstrap: RealtimeSessionBootstrap {
     }
     let requestID = Self.sanitizedRequestID(exchange.header("x-request-id"))
     guard (200..<300).contains(exchange.statusCode) else {
+      diagnostics.record(.init(stage: .bootstrapResponse, outcome: .failed, httpStatus: exchange.statusCode, requestID: requestID))
       throw RealtimeSessionBootstrapError.rejected(
         statusCode: exchange.statusCode,
         requestID: requestID
       )
     }
     do {
-      return RealtimeSessionBootstrapResult(
+      let result = RealtimeSessionBootstrapResult(
         answerSDP: try RealtimeCallsRequestSpecBuilder.validateAnswer(exchange.body),
         requestID: requestID
       )
+      diagnostics.record(.init(stage: .bootstrapResponse, outcome: .succeeded, httpStatus: exchange.statusCode, requestID: requestID))
+      return result
     } catch {
+      diagnostics.record(.init(
+        stage: .bootstrapResponse, outcome: .failed,
+        httpStatus: exchange.statusCode, requestID: requestID
+      ))
       throw RealtimeSessionBootstrapError.invalidAnswer
     }
   }

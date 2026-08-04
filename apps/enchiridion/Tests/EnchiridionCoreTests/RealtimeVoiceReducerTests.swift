@@ -10,7 +10,6 @@ final class RealtimeVoiceReducerTests: XCTestCase {
     XCTAssertEqual(configuration.modelID, "gpt-realtime-mini")
     XCTAssertEqual(configuration.voiceID, "marin")
     XCTAssertEqual(configuration.outputModalities, ["audio"])
-    XCTAssertEqual(configuration.inputAudioTranscriptionModelID, "gpt-4o-mini-transcribe")
     XCTAssertEqual(configuration.turnDetection.type, "semantic_vad")
     XCTAssertEqual(configuration.turnDetection.eagerness, "auto")
     XCTAssertTrue(configuration.turnDetection.createResponse)

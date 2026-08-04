@@ -43,8 +43,7 @@ struct RealtimeCallsRequestSpecTests {
     #expect(object["tool_choice"] as? String == "none")
     let audio = try #require(object["audio"] as? [String: Any])
     let input = try #require(audio["input"] as? [String: Any])
-    let transcription = try #require(input["transcription"] as? [String: Any])
-    #expect(transcription["model"] as? String == "gpt-4o-mini-transcribe")
+    #expect(input["transcription"] == nil)
     let detection = try #require(input["turn_detection"] as? [String: Any])
     #expect(detection["type"] as? String == "semantic_vad")
     #expect(detection["eagerness"] as? String == "auto")
@@ -52,6 +51,43 @@ struct RealtimeCallsRequestSpecTests {
     #expect(detection["interrupt_response"] as? Bool == true)
     let output = try #require(audio["output"] as? [String: Any])
     #expect(output["voice"] as? String == fixture.configuration.voiceID)
+  }
+
+  @Test
+  func realtime21IsSerializedUnchangedAndRequiresAnExactEstablishedModel() throws {
+    let route = try makeAuthorizedRealtimeVoiceRoute(
+      modelID: "gpt-realtime-2.1",
+      voiceID: OpenAIRealtimeVoiceCatalog.preferredDefault.id,
+      binding: OpenAICredentialBinding(revision: "fixture-revision", fingerprint: "fixture")
+    )
+    let configuration = try RealtimeVoiceConfiguration(route: route)
+    let spec = try RealtimeCallsRequestSpecBuilder.buildForTesting(
+      offerSDP: "v=0\r\na=realtime-2.1\r\n",
+      route: route,
+      configuration: configuration,
+      boundary: boundary
+    )
+
+    let session = try #require(
+      JSONSerialization.jsonObject(
+        with: RealtimeCallsRequestSpecBuilder.sessionJSON(configuration)
+      ) as? [String: Any]
+    )
+    #expect(session["model"] as? String == "gpt-realtime-2.1")
+    let body = try #require(String(data: spec.body, encoding: .utf8))
+    #expect(body.contains("\"model\":\"gpt-realtime-2.1\""))
+    try configuration.validateActual(
+      modelID: "gpt-realtime-2.1",
+      voiceID: OpenAIRealtimeVoiceCatalog.preferredDefault.id
+    )
+    #expect(throws: RealtimeVoiceContractError.modelMismatch(
+      expected: "gpt-realtime-2.1", actual: "gpt-realtime-mini"
+    )) {
+      try configuration.validateActual(
+        modelID: "gpt-realtime-mini",
+        voiceID: OpenAIRealtimeVoiceCatalog.preferredDefault.id
+      )
+    }
   }
 
   @Test

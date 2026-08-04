@@ -1,5 +1,15 @@
 import Foundation
 
+/// Sanitised local WebRTC startup failures.  These never include SDP, ICE
+/// candidates, credentials, or server payloads.
+public enum RealtimeVoiceTransportError: Error, Equatable, Sendable {
+  case bridgeClosed
+  case bridgeFailure
+  case controlTimedOut
+  case handshakeTimedOut
+  case unavailable
+}
+
 public enum RealtimeVoiceContractError: Error, Equatable, Sendable {
   case unauthorizedRoute(OpenAIVoiceAuthorizationFailure?)
   case modelNotAllowed(String?)
@@ -30,7 +40,6 @@ public struct RealtimeSemanticVADConfiguration: Codable, Equatable, Sendable {
 /// The only Realtime session configuration Loop 12 may send. It deliberately
 /// has no tools, tracing, local context, or write capability.
 public struct RealtimeVoiceConfiguration: Codable, Equatable, Sendable {
-  public static let transcriptionModelID = "gpt-4o-mini-transcribe"
   public static let maximumOutputTokens = 1_024
   public static let instructions = """
     Be a concise, warm voice conversation partner. Greet the user briefly when the session begins. You cannot access notes, tasks, calendars, or any other local library content. If the user asks for local content, explain that OpenAI Voice cannot access it and offer Apple On Device voice or typed chat. Never claim that local content was searched or disclosed.
@@ -39,7 +48,6 @@ public struct RealtimeVoiceConfiguration: Codable, Equatable, Sendable {
   public let modelID: String
   public let voiceID: String
   public let outputModalities: [String]
-  public let inputAudioTranscriptionModelID: String
   public let turnDetection: RealtimeSemanticVADConfiguration
   public let instructions: String
   public let maxOutputTokens: Int
@@ -62,7 +70,6 @@ public struct RealtimeVoiceConfiguration: Codable, Equatable, Sendable {
     self.modelID = modelID
     self.voiceID = voiceID
     outputModalities = ["audio"]
-    inputAudioTranscriptionModelID = Self.transcriptionModelID
     turnDetection = RealtimeSemanticVADConfiguration()
     instructions = Self.instructions
     maxOutputTokens = Self.maximumOutputTokens
@@ -134,6 +141,11 @@ public protocol RealtimeMicrophoneAuthorizing: Sendable {
 public protocol RealtimeAudioSessionControlling: Sendable {
   func activate() async throws
   func deactivate() async
+  func resetAfterMediaServicesReset() async
+}
+
+public extension RealtimeAudioSessionControlling {
+  func resetAfterMediaServicesReset() async {}
 }
 
 public enum RealtimeClientCommand: Equatable, Sendable {
@@ -203,6 +215,7 @@ public protocol RealtimeVoiceTransport: Sendable {
   /// has also activated the system audio session.
   func start(
     generation: UInt64,
+    diagnosticContext: OpenAIRealtimeVoiceDiagnosticContext,
     route: RealtimeVoiceRouteSnapshot,
     configuration: RealtimeVoiceConfiguration,
     credential: RealtimeCredentialLease
@@ -216,6 +229,14 @@ public protocol RealtimeVoiceTransport: Sendable {
   /// transition. Callers must treat a failure as unsafe and tear down.
   func setInputEnabled(_ enabled: Bool) async throws
   func close() async
+  /// A bounded, sanitised terminal transport reason. This is deliberately
+  /// separate from server events: bridge/ICE/data-channel failures are local
+  /// transport facts and never become model input.
+  func terminalFailure() -> RealtimeVoiceFailure?
+}
+
+public extension RealtimeVoiceTransport {
+  func terminalFailure() -> RealtimeVoiceFailure? { nil }
 }
 
 /// The deliberately narrow native/WebKit boundary. Implementations are

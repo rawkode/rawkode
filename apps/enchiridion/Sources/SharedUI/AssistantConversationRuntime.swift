@@ -4,21 +4,54 @@ import Foundation
 #if os(iOS)
   import AVFoundation
 
-  @MainActor
-  protocol HandheldConversationAudioSessionBacking: AnyObject {
+  enum HandheldConversationAudioSessionError: Error, Equatable {
+    case leaseUnavailable
+  }
+
+  /// Process-wide ownership is deliberately separate from each controller's
+  /// lifecycle. A controller can release only its own opaque lease.
+  actor HandheldConversationAudioLeaseCoordinator {
+    static let shared = HandheldConversationAudioLeaseCoordinator()
+    private var owner: UUID?
+    private var generation: UInt64 = 0
+
+    func acquire(_ candidate: UUID) throws -> UInt64 {
+      guard owner == nil || owner == candidate else {
+        throw HandheldConversationAudioSessionError.leaseUnavailable
+      }
+      owner = candidate
+      generation &+= 1
+      return generation
+    }
+
+    func release(_ candidate: UUID, generation expected: UInt64) {
+      guard owner == candidate, generation == expected else { return }
+      owner = nil
+    }
+
+    func reset(_ candidate: UUID, generation expected: UInt64?) {
+      guard owner == candidate, expected == generation else { return }
+      owner = nil
+      generation &+= 1
+    }
+  }
+
+  protocol HandheldConversationAudioSessionBacking: AnyObject, Sendable {
     func setCategory(
       _ category: AVAudioSession.Category,
       mode: AVAudioSession.Mode,
       options: AVAudioSession.CategoryOptions
     ) throws
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
+    func activateConfigured() async throws
+    func deactivateConfigured() async throws
   }
 
-  @MainActor
   private final class SystemHandheldConversationAudioSessionBackend:
-    HandheldConversationAudioSessionBacking
+    HandheldConversationAudioSessionBacking, @unchecked Sendable
   {
     private let audioSession: AVAudioSession
+    private let fallbackQueue = DispatchQueue(label: "dev.rawkode.enchiridion.audio-session.fallback")
 
     init(audioSession: AVAudioSession = .sharedInstance()) {
       self.audioSession = audioSession
@@ -35,6 +68,42 @@ import Foundation
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
       try audioSession.setActive(active, options: options)
     }
+
+    func activateConfigured() async throws {
+      if #available(iOS 27.0, *) {
+        try await withCheckedThrowingContinuation { continuation in
+          audioSession.activate(options: []) { activated, error in
+            if activated { continuation.resume() }
+            else { continuation.resume(throwing: error ?? HandheldConversationAudioSessionError.leaseUnavailable) }
+          }
+        }
+      } else {
+        try await onFallbackQueue { try self.audioSession.setActive(true, options: []) }
+      }
+    }
+
+    func deactivateConfigured() async throws {
+      if #available(iOS 27.0, *) {
+        try await withCheckedThrowingContinuation { continuation in
+          audioSession.deactivate(options: [.notifyOthersOnDeactivation]) { deactivated, error in
+            if deactivated { continuation.resume() }
+            else { continuation.resume(throwing: error ?? HandheldConversationAudioSessionError.leaseUnavailable) }
+          }
+        }
+      } else {
+        try await onFallbackQueue { try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation) }
+      }
+    }
+
+
+    private func onFallbackQueue(_ work: @escaping @Sendable () throws -> Void) async throws {
+      try await withCheckedThrowingContinuation { continuation in
+        fallbackQueue.async {
+          do { try work(); continuation.resume() }
+          catch { continuation.resume(throwing: error) }
+        }
+      }
+    }
   }
 
   @MainActor
@@ -43,36 +112,122 @@ import Foundation
   {
     private let backend: any HandheldConversationAudioSessionBacking
     private var lifecycle = AssistantAudioSessionLifecycleState()
+    private let ownerID = UUID()
+    private var leaseGeneration: UInt64?
+    private enum Phase: Equatable { case idle, activating, active, deactivating }
+    private var phase: Phase = .idle
+    private let operationQueue = DispatchQueue(
+      label: "dev.rawkode.enchiridion.audio-session", qos: .userInitiated
+    )
+    private var operationGeneration: UInt64 = 0
+    private let forceLegacyActivationForTesting: Bool
+
+    var isActiveForTesting: Bool { lifecycle.isActive }
 
     init(
       backend: any HandheldConversationAudioSessionBacking =
-        SystemHandheldConversationAudioSessionBackend()
+        SystemHandheldConversationAudioSessionBackend(),
+      forceLegacyActivationForTesting: Bool = false
     ) {
       self.backend = backend
+      self.forceLegacyActivationForTesting = forceLegacyActivationForTesting
     }
 
     func activate() async throws {
-      guard !lifecycle.isActive else { return }
+      guard phase == .idle else {
+        if phase == .active { return }
+        throw HandheldConversationAudioSessionError.leaseUnavailable
+      }
+      phase = .activating
+      operationGeneration &+= 1
+      let activationGeneration = operationGeneration
+      let lease: UInt64
+      do {
+        lease = try await HandheldConversationAudioLeaseCoordinator.shared.acquire(ownerID)
+      } catch {
+        // A contender which failed to acquire must remain retryable. Do not
+        // overwrite a newer reset/transition that occurred while awaiting the
+        // process-wide coordinator.
+        if activationGeneration == operationGeneration, phase == .activating {
+          phase = .idle
+        }
+        throw error
+      }
+      guard activationGeneration == operationGeneration, phase == .activating else {
+        await HandheldConversationAudioLeaseCoordinator.shared.release(ownerID, generation: lease)
+        if phase == .activating { phase = .idle }
+        throw CancellationError()
+      }
+      var acquired = true
+      defer {
+        if acquired {
+          // Ownership becomes durable only after AVAudioSession succeeds.
+          Task { await HandheldConversationAudioLeaseCoordinator.shared.release(self.ownerID, generation: lease) }
+          self.phase = .idle
+        }
+      }
       if !lifecycle.isConfigured {
-        try backend.setCategory(
-          .playAndRecord,
-          mode: .voiceChat,
-          options: [.allowBluetoothHFP]
-        )
+        try await performOnAudioQueue { backend in
+          try backend.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+        }
         lifecycle.didConfigure()
       }
-      try backend.setActive(true, options: [])
+      if forceLegacyActivationForTesting {
+        try await performOnAudioQueue { backend in try backend.setActive(true, options: []) }
+      } else {
+        try await backend.activateConfigured()
+      }
+      guard activationGeneration == operationGeneration, phase == .activating else {
+        // A reset/newer owner may now control the process-wide session. Never
+        // compensate a stale completion by deactivating physical audio here.
+        throw CancellationError()
+      }
       lifecycle.didActivate()
+      leaseGeneration = lease
+      phase = .active
+      acquired = false
     }
 
     func deactivate() async {
-      guard lifecycle.isActive else { return }
+      guard phase == .active else { return }
+      phase = .deactivating
+      operationGeneration &+= 1
+      try? await backend.deactivateConfigured()
       lifecycle.didDeactivate()
-      try? backend.setActive(false, options: .notifyOthersOnDeactivation)
+      if let leaseGeneration {
+        await HandheldConversationAudioLeaseCoordinator.shared.release(ownerID, generation: leaseGeneration)
+        self.leaseGeneration = nil
+      }
+      phase = .idle
     }
 
     func resetAfterMediaServicesReset() async {
       lifecycle.resetAfterMediaServicesReset()
+      operationGeneration &+= 1
+      // Native activation/deactivation can still be in flight. Keep its lease
+      // until that callback completes so another controller cannot overlap the
+      // physical AVAudioSession transition.
+      guard phase != .activating && phase != .deactivating else { return }
+      phase = .idle
+      let lease = leaseGeneration
+      leaseGeneration = nil
+      await HandheldConversationAudioLeaseCoordinator.shared.reset(ownerID, generation: lease)
+    }
+
+    private func performOnAudioQueue(
+      _ operation: @escaping @Sendable (any HandheldConversationAudioSessionBacking) throws -> Void
+    ) async throws {
+      let backend = backend
+      try await withCheckedThrowingContinuation { continuation in
+        operationQueue.async {
+          do {
+            try operation(backend)
+            continuation.resume()
+          } catch {
+            continuation.resume(throwing: error)
+          }
+        }
+      }
     }
   }
 

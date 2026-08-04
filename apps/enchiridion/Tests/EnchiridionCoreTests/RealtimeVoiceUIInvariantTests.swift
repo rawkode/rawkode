@@ -62,15 +62,16 @@ struct RealtimeVoiceUIInvariantTests {
   }
 
   @Test
-  func settingsKeepTextConsentSeparateFromBYOKVoice() throws {
+  func settingsUseSavedKeyAsTheSingleBYOKVoiceOptIn() throws {
     let source = try read("Sources/SharedUI/AssistantProviderSettingsView.swift")
 
     #expect(source.contains("Default text provider"))
     #expect(source.contains("Default voice provider"))
     #expect(source.contains("Verified Realtime model"))
     #expect(source.contains("Official OpenAI voice"))
-    #expect(source.contains("Saving a verified Platform key is your explicit opt-in to OpenAI Voice."))
-    #expect(!source.contains("Voice consent"))
+    #expect(!source.contains("Review & Enable OpenAI Voice"))
+    #expect(!source.contains("Use OpenAI Voice?"))
+    #expect(source.contains("Saving or verifying this Platform key enables OpenAI Voice"))
     #expect(!source.contains("OpenAIRealtimeVoiceConsentCopy"))
     #expect(source.contains("Direct device BYOK"))
     #expect(source.contains("only in the Authorization header"))

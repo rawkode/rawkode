@@ -53,6 +53,13 @@ public enum OpenAICredentialReadOutcome: Equatable, Sendable {
   case superseded
 }
 
+public enum OpenAICredentialRevalidationOutcome: Sendable {
+  case validated(result: OpenAIValidationResult, binding: OpenAICredentialBinding)
+  case missing
+  case invalid
+  case superseded
+}
+
 struct OpenAIKeychainCredentialPayload: Codable, Equatable, Sendable {
   static let currentVersion = 1
 
@@ -146,22 +153,26 @@ public actor OpenAICredentialStore {
   private let client: any KeychainClient
   private let platform: OpenAICredentialPlatform
   private let revisionGenerator: @Sendable () -> String
+  private let revalidationValidator: any OpenAICredentialValidating
   private var latestAuthorityGeneration: UInt64 = 0
 
   public init(platform: OpenAICredentialPlatform = .current) {
     client = SystemKeychainClient()
     self.platform = platform
     revisionGenerator = { UUID().uuidString.lowercased() }
+    revalidationValidator = OpenAIModelsValidator()
   }
 
   init(
     client: any KeychainClient,
     platform: OpenAICredentialPlatform,
-    revisionGenerator: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() }
+    revisionGenerator: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
+    revalidationValidator: any OpenAICredentialValidating = OpenAIModelsValidator()
   ) {
     self.client = client
     self.platform = platform
     self.revisionGenerator = revisionGenerator
+    self.revalidationValidator = revalidationValidator
   }
 
   public func readBinding(generation: UInt64) throws -> OpenAICredentialReadOutcome {
@@ -185,6 +196,26 @@ public actor OpenAICredentialStore {
       return .invalid
     }
     return .available(binding: binding(for: payload))
+  }
+
+  /// Revalidates a saved credential without ever returning its secret beyond
+  /// this actor. Mutation and refresh share the same authority generation.
+  public func revalidateSavedCredential(
+    generation: UInt64
+  ) async throws -> OpenAICredentialRevalidationOutcome {
+    guard generation > latestAuthorityGeneration else { return .superseded }
+    latestAuthorityGeneration = generation
+    guard let captured = try readPayload() else { return .missing }
+    guard captured.version == OpenAIKeychainCredentialPayload.currentVersion,
+      !captured.credential.isEmpty, !captured.revision.isEmpty
+    else { return .invalid }
+    let capturedBinding = binding(for: captured)
+    let validation = try await revalidationValidator.validate(credential: captured.credential)
+    guard generation == latestAuthorityGeneration else { return .superseded }
+    guard let current = try readPayload(), binding(for: current) == capturedBinding else {
+      return .superseded
+    }
+    return .validated(result: validation, binding: capturedBinding)
   }
 
   /// Reads a credential only for an already-authorized inference turn. This
@@ -268,6 +299,17 @@ public actor OpenAICredentialStore {
         .map { String(format: "%02x", $0) }
         .joined()
     )
+  }
+
+  private func readPayload() throws -> OpenAIKeychainCredentialPayload? {
+    var result: CFTypeRef?
+    let status = client.copyMatching(OpenAIKeychainQuery.read() as CFDictionary, result: &result)
+    if status == errSecItemNotFound { return nil }
+    guard status == errSecSuccess else { throw map(status) }
+    guard let data = result as? Data,
+      let payload = try? JSONDecoder().decode(OpenAIKeychainCredentialPayload.self, from: data)
+    else { return OpenAIKeychainCredentialPayload(credential: "", revision: "") }
+    return payload
   }
 
   private func map(_ status: OSStatus) -> OpenAICredentialStoreError {

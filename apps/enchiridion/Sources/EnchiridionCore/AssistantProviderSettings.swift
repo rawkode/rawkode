@@ -261,9 +261,11 @@ public struct OpenAIVerifiedCapabilities: Equatable, Sendable {
 
 public enum OpenAIModelCatalog {
   // Increment whenever model capability claims are reviewed and changed.
-  public static let version = 20_260_804
+  // Reviewed against the current OpenAI Realtime API. GPT-Live is not an API
+  // model yet, so it is deliberately absent until a future catalog review.
+  public static let version = 20_260_806
   public static let preferredDefaultTextModelID = "gpt-5.6-terra"
-  public static let preferredDefaultRealtimeModelID = "gpt-realtime-mini"
+  public static let preferredDefaultRealtimeModelID = "gpt-realtime-2.1"
 
   public static let shipped: [OpenAIModelOption] = [
     .init(
@@ -285,15 +287,27 @@ public enum OpenAIModelCatalog {
       capability: .text
     ),
     .init(
-      id: "gpt-realtime-mini",
+      id: "gpt-realtime-2.1-mini",
       title: "Efficient voice",
-      detail: "Lower-cost OpenAI Realtime voice model.",
+      detail: "Current lower-cost OpenAI Realtime voice model.",
+      capability: .realtime
+    ),
+    .init(
+      id: "gpt-realtime-2.1",
+      title: "Highest-capability voice",
+      detail: "Current highest-capability OpenAI Realtime voice model.",
+      capability: .realtime
+    ),
+    .init(
+      id: "gpt-realtime-mini",
+      title: "Efficient voice (legacy)",
+      detail: "Legacy fallback when current Realtime models are unavailable.",
       capability: .realtime
     ),
     .init(
       id: "gpt-realtime",
-      title: "Highest-capability voice",
-      detail: "Full-capability OpenAI Realtime voice model.",
+      title: "Highest-capability voice (legacy)",
+      detail: "Legacy fallback when current Realtime models are unavailable.",
       capability: .realtime
     ),
   ]
@@ -326,6 +340,10 @@ public enum OpenAIModelCatalog {
 public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable {
   public static let currentVersion = 3
   public static let currentTextConsentVersion = 2
+  /// A saved, verified OpenAI key is the single opt-in for OpenAI Voice.
+  /// Kept only to decode older preferences without losing them.
+  public static let currentVoiceConsentVersion = 3
+  public static let currentOpenAIVoiceActivationMigrationVersion = 1
 
   public var version: Int
   public var selectedProvider: AssistantProvider
@@ -342,8 +360,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
   public var selectedRealtimeModelID: String?
   public var selectedRealtimeVoiceID: String?
   // Retained solely to decode payloads written by builds that required a
-  // second voice-consent grant. Saving a verified Platform key is now the
-  // complete voice opt-in, so new payloads deliberately omit these fields.
+  // second voice-consent grant. New behavior derives voice authorization from
+  // a verified credential plus a valid selected route.
   public var voiceConsentVersion: Int?
   public var voiceConsentCredentialRevision: String?
   public var voiceConsentCredentialFingerprint: String?
@@ -351,6 +369,10 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
   public var voiceConsentVoiceCatalogVersion: Int?
   public var voiceConsentModelID: String?
   public var voiceConsentVoiceID: String?
+  /// One-shot migration marker. This is intentionally independent from the
+  /// credential binding: it prevents an app update from overriding Apple or
+  /// Qwen after the user has selected either provider.
+  public var openAIVoiceActivationMigrationVersion: Int?
 
   public init(
     version: Int = currentVersion,
@@ -373,7 +395,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     voiceConsentModelCatalogVersion: Int? = nil,
     voiceConsentVoiceCatalogVersion: Int? = nil,
     voiceConsentModelID: String? = nil,
-    voiceConsentVoiceID: String? = nil
+    voiceConsentVoiceID: String? = nil,
+    openAIVoiceActivationMigrationVersion: Int? = nil
   ) {
     self.version = version
     self.selectedProvider = selectedProvider
@@ -396,6 +419,7 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     self.voiceConsentVoiceCatalogVersion = voiceConsentVoiceCatalogVersion
     self.voiceConsentModelID = voiceConsentModelID
     self.voiceConsentVoiceID = voiceConsentVoiceID
+    self.openAIVoiceActivationMigrationVersion = openAIVoiceActivationMigrationVersion
   }
 
   public static let defaults = AssistantProviderPreferencesPayload()
@@ -422,6 +446,7 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
     case voiceConsentVoiceCatalogVersion
     case voiceConsentModelID
     case voiceConsentVoiceID
+    case openAIVoiceActivationMigrationVersion
   }
 
   public init(from decoder: any Decoder) throws {
@@ -465,6 +490,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
       Int.self, forKey: .voiceConsentVoiceCatalogVersion)
     voiceConsentModelID = try container.decodeIfPresent(String.self, forKey: .voiceConsentModelID)
     voiceConsentVoiceID = try container.decodeIfPresent(String.self, forKey: .voiceConsentVoiceID)
+    openAIVoiceActivationMigrationVersion = try container.decodeIfPresent(
+      Int.self, forKey: .openAIVoiceActivationMigrationVersion)
   }
 
   public func encode(to encoder: any Encoder) throws {
@@ -496,6 +523,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
       voiceConsentVoiceCatalogVersion, forKey: .voiceConsentVoiceCatalogVersion)
     try container.encodeIfPresent(voiceConsentModelID, forKey: .voiceConsentModelID)
     try container.encodeIfPresent(voiceConsentVoiceID, forKey: .voiceConsentVoiceID)
+    try container.encodeIfPresent(
+      openAIVoiceActivationMigrationVersion, forKey: .openAIVoiceActivationMigrationVersion)
   }
 }
 
@@ -529,6 +558,9 @@ public final class AssistantProviderPreferencesStore {
       && payload.textConsentCredentialFingerprint == payload.credentialFingerprint
       && payload.credentialRevision != nil
       && payload.credentialFingerprint != nil
+  }
+  public var hasCurrentVoiceConsent: Bool {
+    hasValidSelectedRealtimeModel && hasValidSelectedRealtimeVoice
   }
   public var wasVerifiedForCurrentCatalog: Bool {
     payload.credentialRevision != nil
@@ -672,7 +704,8 @@ public final class AssistantProviderPreferencesStore {
   public func markVerified(
     _ capabilities: OpenAIVerifiedCapabilities,
     binding: OpenAICredentialBinding,
-    selectDefaultTextModel: Bool = false
+    selectPreferredTextModel: Bool = false,
+    activateOpenAIVoice: Bool = false
   ) {
     guard capabilities.catalogVersion == OpenAIModelCatalog.version else { return }
     let previousSelection = payload.selectedTextModelID
@@ -691,7 +724,7 @@ public final class AssistantProviderPreferencesStore {
 
     if let previousSelection, verifiedTextModelIDs.contains(previousSelection) {
       payload.selectedTextModelID = previousSelection
-    } else if selectDefaultTextModel,
+    } else if selectPreferredTextModel,
       verifiedTextModelIDs.contains(OpenAIModelCatalog.preferredDefaultTextModelID)
     {
       payload.selectedTextModelID = OpenAIModelCatalog.preferredDefaultTextModelID
@@ -702,17 +735,62 @@ public final class AssistantProviderPreferencesStore {
       verifiedRealtimeModelIDs.contains(previousRealtimeSelection)
     {
       payload.selectedRealtimeModelID = previousRealtimeSelection
-    } else if selectDefaultTextModel,
-      verifiedRealtimeModelIDs.contains(OpenAIModelCatalog.preferredDefaultRealtimeModelID)
+    } else if verifiedRealtimeModelIDs.contains(OpenAIModelCatalog.preferredDefaultRealtimeModelID)
     {
       payload.selectedRealtimeModelID = OpenAIModelCatalog.preferredDefaultRealtimeModelID
+    } else if let fallbackRealtimeModelID = OpenAIModelCatalog.realtimeOptions.first(where: {
+      verifiedRealtimeModelIDs.contains($0.id)
+    })?.id {
+      payload.selectedRealtimeModelID = fallbackRealtimeModelID
     } else {
       payload.selectedRealtimeModelID = nil
     }
     if !hasValidSelectedRealtimeVoice {
       payload.selectedRealtimeVoiceID = OpenAIRealtimeVoiceCatalog.preferredDefault.id
     }
+    // A successfully verified saved key is the sole consent point for voice.
+    // Select the route in the same persisted mutation, so settings cannot show
+    // a verified model while silently falling back to Apple.
+    if activateOpenAIVoice,
+      payload.selectedRealtimeModelID != nil,
+      hasValidSelectedRealtimeVoice
+    {
+      payload.selectedVoiceProvider = .openAIRealtime
+    }
     persist()
+  }
+
+  @discardableResult
+  public func authorizeOpenAIVoiceAndSelect() -> Bool {
+    guard wasVerifiedForCurrentCatalog,
+      let modelID = payload.selectedRealtimeModelID,
+      verifiedRealtimeModelIDs.contains(modelID),
+      let voiceID = payload.selectedRealtimeVoiceID,
+      OpenAIRealtimeVoiceCatalog.contains(voiceID),
+      let revision = payload.credentialRevision,
+      let fingerprint = payload.credentialFingerprint
+    else { return false }
+    _ = revision
+    _ = fingerprint
+    _ = modelID
+    _ = voiceID
+    payload.selectedVoiceProvider = .openAIRealtime
+    persist()
+    return true
+  }
+
+  @available(*, deprecated, renamed: "markVerified(_:binding:selectPreferredTextModel:activateOpenAIVoice:)")
+  public func markVerified(
+    _ capabilities: OpenAIVerifiedCapabilities,
+    binding: OpenAICredentialBinding,
+    selectDefaultTextModel: Bool
+  ) {
+    markVerified(
+      capabilities,
+      binding: binding,
+      selectPreferredTextModel: selectDefaultTextModel,
+      activateOpenAIVoice: false
+    )
   }
 
   public func markNeedsVerification() {
@@ -723,8 +801,9 @@ public final class AssistantProviderPreferencesStore {
     payload.verifiedCatalogVersion = nil
     payload.verifiedTextModelIDs = []
     payload.verifiedRealtimeModelIDs = []
-    payload.selectedTextModelID = nil
-    payload.selectedRealtimeModelID = nil
+    // Keep the user's requested models visible for the next successful
+    // verification, but clear all authority so neither route can run offline
+    // or against an unreviewed catalog.
     payload.selectedProvider = selectedProvider
     payload.selectedVoiceProvider = selectedVoiceProvider
     persist()
@@ -891,11 +970,38 @@ public final class AssistantProviderPreferencesStore {
     {
       payload.selectedRealtimeVoiceID = nil
     }
+    migrateVerifiedOpenAIVoiceSelectionIfNeeded()
     persist()
+  }
+
+  /// Migrates only the old OpenAI selection. Apple and Qwen are explicit
+  /// choices and are never changed by a catalog/app update.
+  private func migrateVerifiedOpenAIVoiceSelectionIfNeeded() {
+    guard payload.openAIVoiceActivationMigrationVersion
+      != AssistantProviderPreferencesPayload.currentOpenAIVoiceActivationMigrationVersion,
+      payload.selectedVoiceProvider == .openAIRealtime,
+      wasVerifiedForCurrentCatalog,
+      hasValidSelectedRealtimeModel
+    else { return }
+    if !hasValidSelectedRealtimeVoice {
+      payload.selectedRealtimeVoiceID = OpenAIRealtimeVoiceCatalog.preferredDefault.id
+    }
+    payload.openAIVoiceActivationMigrationVersion =
+      AssistantProviderPreferencesPayload.currentOpenAIVoiceActivationMigrationVersion
   }
 
   private func persist() {
     guard let data = try? encoder.encode(payload) else { return }
     defaults.set(data, forKey: key)
+  }
+
+  private func clearVoiceConsent() {
+    payload.voiceConsentVersion = nil
+    payload.voiceConsentCredentialRevision = nil
+    payload.voiceConsentCredentialFingerprint = nil
+    payload.voiceConsentModelCatalogVersion = nil
+    payload.voiceConsentVoiceCatalogVersion = nil
+    payload.voiceConsentModelID = nil
+    payload.voiceConsentVoiceID = nil
   }
 }

@@ -74,8 +74,11 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
 
   func testRejectsMalformedNativeAnswer() async throws {
     let fixture = try makeFixture()
-    let loader = FakeRealtimeCallsLoader(exchange: validExchange(body: Data()))
-    let bootstrap = DirectBYOKBootstrap(loader: loader)
+    let loader = FakeRealtimeCallsLoader(exchange: validExchange(
+      body: Data(), requestID: "req_invalid_answer"
+    ))
+    let diagnostics = RecordingVoiceDiagnosticSink()
+    let bootstrap = DirectBYOKBootstrap(loader: loader, diagnostics: diagnostics)
 
     do {
       _ = try await bootstrap.bootstrap(
@@ -88,6 +91,13 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
     } catch {
       XCTAssertEqual(error as? RealtimeSessionBootstrapError, .invalidAnswer)
     }
+    XCTAssertEqual(
+      diagnostics.events.last,
+      .init(
+        stage: .bootstrapResponse, outcome: .failed,
+        httpStatus: 200, requestID: "req_invalid_answer"
+      )
+    )
   }
 
   func testValidNativeAnswerReturnsSDPAndRequestIDAndKeepsCredentialOutOfBody() async throws {
@@ -128,14 +138,22 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
     )
   }
 
-  private func validExchange(body: Data = Data("v=0\r\na=answer\r\n".utf8)) -> RealtimeCallsHTTPExchange {
+  private func validExchange(
+    body: Data = Data("v=0\r\na=answer\r\n".utf8),
+    requestID: String = "req_valid_answer"
+  ) -> RealtimeCallsHTTPExchange {
     RealtimeCallsHTTPExchange(
       finalURL: RealtimeCallsRequestSpecBuilder.endpoint,
       statusCode: 201,
-      headers: ["x-request-id": "req_valid_answer"],
+      headers: ["x-request-id": requestID],
       body: body
     )
   }
+}
+
+private final class RecordingVoiceDiagnosticSink: OpenAIRealtimeVoiceDiagnosticSinking, @unchecked Sendable {
+  private(set) var events: [OpenAIRealtimeVoiceDiagnosticEvent] = []
+  func record(_ event: OpenAIRealtimeVoiceDiagnosticEvent) { events.append(event) }
 }
 
 private actor FakeRealtimeCallsLoader: RealtimeCallsHTTPLoading {

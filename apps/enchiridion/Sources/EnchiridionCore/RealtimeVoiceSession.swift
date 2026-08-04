@@ -35,6 +35,7 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private let transport: any RealtimeVoiceTransport
   @ObservationIgnored private let audioSession: any RealtimeAudioSessionControlling
   @ObservationIgnored private let safetyEvents: (any AssistantVoiceSafetyEventSource)?
+  @ObservationIgnored private let diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking
   @ObservationIgnored private let now: @Sendable () -> Date
   @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
   @ObservationIgnored private let limitWarningDelay: Duration
@@ -57,6 +58,8 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private var transportStartedGeneration: UInt64?
   @ObservationIgnored private var isStopping = false
   @ObservationIgnored private var respondingResponseID: String?
+  @ObservationIgnored private var diagnosticAttemptToken: OpenAIRealtimeVoiceAttemptToken?
+  @ObservationIgnored private var didEmitTerminalDiagnostic = false
 
   private static let responseAudibilityFloor = 0.015
 
@@ -67,6 +70,7 @@ public final class RealtimeVoiceSession {
     transport: any RealtimeVoiceTransport,
     audioSession: any RealtimeAudioSessionControlling,
     safetyEvents: (any AssistantVoiceSafetyEventSource)? = nil,
+    diagnostics: any OpenAIRealtimeVoiceDiagnosticSinking = OpenAIRealtimeVoiceOSLogDiagnosticSink(),
     now: @escaping @Sendable () -> Date = { Date() },
     sleep: @escaping @Sendable (Duration) async throws -> Void = {
       try await Task.sleep(for: $0)
@@ -85,6 +89,7 @@ public final class RealtimeVoiceSession {
     self.transport = transport
     self.audioSession = audioSession
     self.safetyEvents = safetyEvents
+    self.diagnostics = diagnostics
     self.now = now
     self.sleep = sleep
     lifecycleState = initialLifecycleState
@@ -154,6 +159,9 @@ public final class RealtimeVoiceSession {
     generation &+= 1
     operationEpoch &+= 1
     let currentGeneration = generation
+    diagnosticAttemptToken = .make()
+    didEmitTerminalDiagnostic = false
+    diagnostics.record(.init(stage: .sessionStart, outcome: .started, generation: currentGeneration, attemptToken: diagnosticAttemptToken, modelID: configuration.modelID, voiceID: configuration.voiceID))
     let currentOperation = operationEpoch
     startedAt = now()
     setPhase(.requestingMicrophone)
@@ -166,6 +174,7 @@ public final class RealtimeVoiceSession {
     }
 
     let permission = await microphone.requestPermission()
+    diagnostics.record(.init(stage: .microphone, outcome: permission == .authorized ? .succeeded : .failed, generation: currentGeneration, attemptToken: diagnosticAttemptToken))
     if await finishIfCancelled(generation: currentGeneration) { return }
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
     guard permission == .authorized else {
@@ -183,6 +192,7 @@ public final class RealtimeVoiceSession {
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
 
     setPhase(.readingCredential)
+    diagnostics.record(.init(stage: .credential, outcome: .started, generation: currentGeneration, attemptToken: diagnosticAttemptToken))
     let credential: RealtimeCredentialLease
     do {
       guard let binding = route.credentialBinding else {
@@ -211,16 +221,21 @@ public final class RealtimeVoiceSession {
     guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
 
     setPhase(.connecting)
+    diagnostics.record(.init(stage: .transportStart, outcome: .started, generation: currentGeneration, attemptToken: diagnosticAttemptToken, modelID: configuration.modelID, voiceID: configuration.voiceID))
     let stream = transport.events()
     let activity = transport.activity()
     do {
       transportAttemptGeneration = currentGeneration
       let established = try await transport.start(
         generation: currentGeneration,
+        diagnosticContext: OpenAIRealtimeVoiceDiagnosticContext(
+          attemptToken: diagnosticAttemptToken!, generation: currentGeneration
+        ),
         route: route,
         configuration: configuration,
         credential: credential
       )
+      diagnostics.record(.init(stage: .transportStart, outcome: .succeeded, generation: currentGeneration, attemptToken: diagnosticAttemptToken, modelID: established.modelID, voiceID: established.voiceID, requestID: established.requestID))
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
         if !isSessionCurrent(currentGeneration) {
           await performBoundedTeardown { await self.transport.close() }
@@ -270,7 +285,22 @@ public final class RealtimeVoiceSession {
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
-      try await audioSession.activate()
+      diagnostics.record(.init(stage: .audioSession, outcome: .started, generation: currentGeneration, attemptToken: diagnosticAttemptToken))
+      do {
+        try await audioSession.activate()
+      } catch {
+        guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
+        diagnostics.record(.init(stage: .audioSession, outcome: .failed, generation: currentGeneration, attemptToken: diagnosticAttemptToken))
+        await terminalFailure(
+          RealtimeVoiceFailure(
+            code: "audio_activate_failed",
+            message: "Could not activate OpenAI Voice audio."
+          ),
+          generation: currentGeneration
+        )
+        return
+      }
+      diagnostics.record(.init(stage: .audioSession, outcome: .succeeded, generation: currentGeneration, attemptToken: diagnosticAttemptToken))
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
         await performBoundedTeardown { await self.audioSession.deactivate() }
         if !isSessionCurrent(currentGeneration) {
@@ -291,7 +321,7 @@ public final class RealtimeVoiceSession {
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
-      guard await confirmInputTransition(true) else {
+      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -322,6 +352,8 @@ public final class RealtimeVoiceSession {
         return
       }
       setPhase(.listening)
+      diagnostics.record(.init(stage: .listening, outcome: .succeeded, generation: currentGeneration,
+                               attemptToken: diagnosticAttemptToken))
     } catch {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       await fail(connectionFailure(for: error), generation: currentGeneration)
@@ -383,7 +415,7 @@ public final class RealtimeVoiceSession {
     operationEpoch &+= 1
     let currentOperation = operationEpoch
     if isMuted {
-      guard await confirmInputTransition(false) else {
+      guard case .succeeded = await confirmInputTransition(false, generation: currentGeneration) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -411,7 +443,7 @@ public final class RealtimeVoiceSession {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       setPhase(.muted)
     } else {
-      guard await confirmInputTransition(true) else {
+      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -451,11 +483,17 @@ public final class RealtimeVoiceSession {
         current: current
       )
     case .mediaServicesLost, .mediaServicesReset:
+      await audioSession.resetAfterMediaServicesReset()
       reason = .mediaServicesRestarted
     case .appInactive:
       return
     }
     guard let reason else { return }
+    diagnostics.record(.init(
+      stage: .safety, outcome: .started, generation: generation,
+      attemptToken: diagnosticAttemptToken,
+      reason: reason == .mediaServicesRestarted ? .mediaServicesRestarted : .safetyInterruption
+    ))
     switch state.phase {
     case .requestingMicrophone, .readingCredential, .connecting:
       // AVAudioSession emits these notifications while this session configures
@@ -527,7 +565,7 @@ public final class RealtimeVoiceSession {
         return
       }
       audioOwnerGeneration = currentGeneration
-      guard await confirmInputTransition(true) else {
+      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
         guard isPauseResumeCurrent(
           generation: currentGeneration,
           operation: currentOperation,
@@ -607,7 +645,7 @@ public final class RealtimeVoiceSession {
       }
     }
     guard isSessionCurrent(currentGeneration), !isStopping else { return }
-    let failure = RealtimeVoiceFailure(
+    let failure = transport.terminalFailure() ?? RealtimeVoiceFailure(
       code: "transport_closed",
       message: "The OpenAI Voice connection closed. Start a new conversation to try again."
     )
@@ -654,7 +692,7 @@ public final class RealtimeVoiceSession {
 
     // Do not expose a resumable pause until the microphone track is confirmed
     // disabled. A safety pause with uncertain input state is terminal.
-    guard await confirmInputTransition(false) else {
+    guard case .succeeded = await confirmInputTransition(false, generation: currentGeneration) else {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       await terminalFailure(
         RealtimeVoiceFailure(
@@ -721,6 +759,12 @@ public final class RealtimeVoiceSession {
     generation currentGeneration: UInt64
   ) async {
     guard isSessionCurrent(currentGeneration), receipt == nil else { return }
+    if diagnosticReason(for: failure) == .webContentProcessTerminated {
+      diagnostics.record(.init(
+        stage: .webProcess, outcome: .failed, generation: currentGeneration,
+        attemptToken: diagnosticAttemptToken, reason: .webContentProcessTerminated
+      ))
+    }
     activePause = nil
     pendingPausedFailure = nil
     reducer.markLocalFailure(failure)
@@ -728,33 +772,55 @@ public final class RealtimeVoiceSession {
     await finish(completion: .failed, failure: failure)
   }
 
-  /// Starts the input transition in a separately cancellable task and waits
-  /// only for a bounded confirmation. This prevents a wedged bridge from
-  /// leaving a session in a live or resumable state with uncertain microphone
-  /// delivery.
-  private func confirmInputTransition(_ enabled: Bool) async -> Bool {
-    let gate = RealtimeVoiceOperationGate()
-    let transport = transport
-    let operation = Task { @MainActor in
-      do {
-        try await transport.setInputEnabled(enabled)
-        await gate.resolve(.succeeded)
-      } catch {
-        await gate.resolve(.failed)
-      }
+  /// The transport owns the eight-second bridge-control deadline. The 250ms
+  /// deadline remains teardown-only; it must not reject a valid control ack.
+  private func confirmInputTransition(
+    _ enabled: Bool, generation expectedGeneration: UInt64
+  ) async -> RealtimeVoiceInputTransitionResult {
+    let expectedOperation = operationEpoch
+    let expectedAttempt = diagnosticAttemptToken
+    func isCurrent() -> Bool {
+      isOperationCurrent(expectedGeneration, operation: expectedOperation)
+        && diagnosticAttemptToken == expectedAttempt
     }
-    let timeout = Task {
-      do {
-        try await Task.sleep(for: Self.transportOperationTimeout)
-      } catch {
-        return
+    guard isCurrent() else { return .cancelled }
+    diagnostics.record(.init(stage: .input, outcome: .started, generation: expectedGeneration,
+                             attemptToken: diagnosticAttemptToken,
+                             inputDirection: enabled ? .enable : .disable))
+    do {
+      try await transport.setInputEnabled(enabled)
+      guard isCurrent() else { return .cancelled }
+      diagnostics.record(.init(stage: .input, outcome: .succeeded, generation: expectedGeneration,
+                               attemptToken: diagnosticAttemptToken,
+                               inputDirection: enabled ? .enable : .disable))
+      return .succeeded
+    } catch is CancellationError {
+      guard isCurrent() else { return .cancelled }
+      diagnostics.record(.init(stage: .input, outcome: .cancelled, generation: expectedGeneration,
+                               attemptToken: diagnosticAttemptToken, reason: .cancelled,
+                               inputDirection: enabled ? .enable : .disable))
+      return .cancelled
+    } catch let error as RealtimeVoiceTransportError {
+      guard isCurrent() else { return .cancelled }
+      let reason: OpenAIRealtimeVoiceDiagnosticReason = switch error {
+      case .controlTimedOut: .controlTimedOut
+      case .bridgeClosed: .bridgeClosed
+      case .bridgeFailure: .bridgeFailure
+      default: .other
       }
-      await gate.resolve(.timedOut)
+      diagnostics.record(.init(
+        stage: .input, outcome: error == .controlTimedOut ? .timedOut : .failed,
+        generation: expectedGeneration, attemptToken: diagnosticAttemptToken, reason: reason,
+        inputDirection: enabled ? .enable : .disable
+      ))
+      return error == .controlTimedOut ? .controlTimedOut : .bridgeClosed
+    } catch {
+      guard isCurrent() else { return .cancelled }
+      diagnostics.record(.init(stage: .input, outcome: .failed, generation: expectedGeneration,
+                               attemptToken: diagnosticAttemptToken, reason: .other,
+                               inputDirection: enabled ? .enable : .disable))
+      return .other
     }
-    let result = await gate.wait()
-    operation.cancel()
-    timeout.cancel()
-    return result == .succeeded
   }
 
   /// Begins a teardown operation but never waits indefinitely for it. The
@@ -785,6 +851,10 @@ public final class RealtimeVoiceSession {
     completion: RealtimeVoiceSessionCompletion,
     failure: RealtimeVoiceFailure? = nil
   ) async {
+    if !didEmitTerminalDiagnostic {
+      didEmitTerminalDiagnostic = true
+      diagnostics.record(.init(stage: .terminal, outcome: completion == .cancelled ? .cancelled : (completion == .failed ? .failed : .succeeded), generation: generation, attemptToken: diagnosticAttemptToken, modelID: configuration.modelID, voiceID: configuration.voiceID, requestID: failure?.responseID, reason: diagnosticReason(for: failure)))
+    }
     guard receipt == nil, !isStopping else { return }
     let finishingGeneration = generation
     isStopping = true
@@ -846,6 +916,23 @@ public final class RealtimeVoiceSession {
     )
     setPhase(completion == .failed ? .failed : .ended)
     isStopping = false
+  }
+
+  private func diagnosticReason(
+    for failure: RealtimeVoiceFailure?
+  ) -> OpenAIRealtimeVoiceDiagnosticReason? {
+    guard let code = failure?.code else { return nil }
+    return switch code {
+    case "microphone_denied": .microphoneDenied
+    case "microphone_restricted": .microphoneRestricted
+    case "credential_unavailable": .credentialUnavailable
+    case "audio_activate_failed", "audio_resume_failed": .audioActivationFailed
+    case "input_enable_failed": .inputEnableFailed
+    case "input_disable_failed": .inputDisableFailed
+    case "route_mismatch": .routeMismatch
+    case "transport_web_content_process_terminated": .webContentProcessTerminated
+    default: .other
+    }
   }
 
   private func setPhase(_ phase: RealtimeVoicePhase) {
@@ -934,8 +1021,12 @@ public final class RealtimeVoiceSession {
 
   private func connectionFailure(for error: Error) -> RealtimeVoiceFailure {
     let message: String
+    let code: String
+    let requestID: String?
     switch error {
-    case RealtimeSessionBootstrapError.rejected(let statusCode, _):
+    case RealtimeSessionBootstrapError.rejected(let statusCode, let identifier):
+      code = "bootstrap_http_\(statusCode)"
+      requestID = identifier
       switch statusCode {
       case 401, 403:
         message = "OpenAI rejected the voice request. Re-verify the Platform key in Assistant Settings."
@@ -947,17 +1038,48 @@ public final class RealtimeVoiceSession {
         message = "OpenAI could not start the voice session (HTTP \(statusCode)). Try again shortly."
       }
     case RealtimeSessionBootstrapError.connectionFailed:
+      code = "bootstrap_network"
+      requestID = nil
       message = "Could not reach OpenAI Voice. Check your network connection, then try again."
     case RealtimeSessionBootstrapError.invalidAnswer:
+      code = "bootstrap_answer"
+      requestID = nil
       message = "OpenAI returned an invalid voice connection response. Try again."
     case RealtimeSessionBootstrapError.invalidEndpoint, RealtimeSessionBootstrapError.redirectBlocked:
+      code = "bootstrap_endpoint"
+      requestID = nil
       message = "The OpenAI Voice endpoint was rejected. Open Assistant Settings and verify the route."
     case RealtimeSessionBootstrapError.invalidHTTPResponse, RealtimeSessionBootstrapError.responseTooLarge:
+      code = "bootstrap_response"
+      requestID = nil
       message = "OpenAI returned an unusable voice connection response. Try again."
+    case RealtimeVoiceTransportError.bridgeFailure:
+      code = "webrtc_bridge_failure"
+      requestID = nil
+      message = "The local OpenAI Voice WebRTC bridge failed while starting. Try again."
+    case RealtimeVoiceTransportError.bridgeClosed:
+      code = "webrtc_bridge_closed"
+      requestID = nil
+      message = "The OpenAI Voice WebRTC bridge closed while starting. Try again."
+    case RealtimeVoiceTransportError.controlTimedOut:
+      code = "webrtc_control_timeout"
+      requestID = nil
+      message = "OpenAI Voice timed out while configuring WebRTC. Try again."
+    case RealtimeVoiceTransportError.handshakeTimedOut:
+      code = "webrtc_handshake_timeout"
+      requestID = nil
+      message = "OpenAI Voice timed out waiting for the WebRTC connection. Try again."
+    case RealtimeVoiceTransportError.unavailable:
+      code = "webrtc_unavailable"
+      requestID = nil
+      message = "OpenAI Voice is already starting or unavailable. Try again."
     default:
+      code = "bootstrap_unknown"
+      requestID = nil
       message = "Could not connect to OpenAI Voice. Try again."
     }
-    return RealtimeVoiceFailure(code: "connection_failed", message: message)
+    let diagnostic = requestID.map { " Request ID: \($0)." } ?? ""
+    return RealtimeVoiceFailure(code: code, message: message + diagnostic, responseID: requestID)
   }
 
   private func isBenignStartupRouteChange(
@@ -1083,6 +1205,10 @@ public final class RealtimeVoiceSession {
     )
   }
 
+}
+
+private enum RealtimeVoiceInputTransitionResult: Equatable, Sendable {
+  case succeeded, cancelled, controlTimedOut, bridgeClosed, other
 }
 
 private enum RealtimeVoiceOperationResult: Equatable, Sendable {

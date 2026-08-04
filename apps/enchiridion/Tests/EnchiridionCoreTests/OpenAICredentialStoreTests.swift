@@ -159,6 +159,80 @@ final class OpenAICredentialStoreTests: XCTestCase {
     XCTAssertEqual(staleDelete, .superseded)
   }
 
+  func testRevalidateSavedCredentialReturnsSameBindingWithoutMutation() async throws {
+    let data = try credentialData("saved", revision: "stable")
+    let client = RecordingKeychainClient(copyResults: [
+      .init(status: errSecSuccess, data: data), .init(status: errSecSuccess, data: data),
+    ])
+    let store = OpenAICredentialStore(
+      client: client, platform: .macOS, revalidationValidator: ImmediateStoreValidator()
+    )
+    let outcome = try await store.revalidateSavedCredential(generation: 1)
+    guard case let .validated(_, binding) = outcome else { return XCTFail("Expected validation") }
+    XCTAssertEqual(binding.revision, "stable")
+    let snapshot = client.snapshot()
+    XCTAssertTrue(snapshot.adds.isEmpty)
+    XCTAssertTrue(snapshot.updates.isEmpty)
+    XCTAssertTrue(snapshot.deletes.isEmpty)
+  }
+
+  func testRevalidateIsSupersededWhenNewerDeleteWinsWhileValidatorIsBlocked() async throws {
+    let data = try credentialData("saved", revision: "stable")
+    let validator = GatedStoreValidator()
+    let store = OpenAICredentialStore(
+      client: RecordingKeychainClient(copyResults: [.init(status: errSecSuccess, data: data)]),
+      platform: .macOS, revalidationValidator: validator
+    )
+    let task = Task { try await store.revalidateSavedCredential(generation: 1) }
+    await validator.waitForRequest()
+    _ = try await store.deleteCredential(generation: 2)
+    await validator.resume()
+    guard case .superseded = try await task.value else { return XCTFail("Expected superseded") }
+  }
+
+  func testRevalidateIsSupersededWhenNewerReplaceWinsWhileValidatorIsBlocked() async throws {
+    let data = try credentialData("saved", revision: "stable")
+    let validator = GatedStoreValidator()
+    let client = RecordingKeychainClient(
+      updateStatuses: [errSecSuccess], copyResults: [.init(status: errSecSuccess, data: data)]
+    )
+    let store = OpenAICredentialStore(
+      client: client, platform: .macOS, revalidationValidator: validator
+    )
+    let task = Task { try await store.revalidateSavedCredential(generation: 1) }
+    await validator.waitForRequest()
+    _ = try await store.replace(with: "new", generation: 2)
+    await validator.resume()
+    guard case .superseded = try await task.value else { return XCTFail("Expected superseded") }
+  }
+
+  func testRevalidateIsSupersededWhenKeychainPayloadChangesBetweenReads() async throws {
+    let first = try credentialData("saved", revision: "stable")
+    let second = try credentialData("other", revision: "new")
+    let store = OpenAICredentialStore(
+      client: RecordingKeychainClient(copyResults: [
+        .init(status: errSecSuccess, data: first), .init(status: errSecSuccess, data: second),
+      ]),
+      platform: .macOS, revalidationValidator: ImmediateStoreValidator()
+    )
+    let outcome = try await store.revalidateSavedCredential(generation: 1)
+    guard case .superseded = outcome else { return XCTFail("Expected superseded") }
+  }
+
+  func testRevalidateRejectsStaleGenerationBeforeCallingValidator() async throws {
+    let data = try credentialData("saved", revision: "stable")
+    let validator = ImmediateStoreValidator()
+    let store = OpenAICredentialStore(
+      client: RecordingKeychainClient(copyResults: [.init(status: errSecSuccess, data: data)]),
+      platform: .macOS, revalidationValidator: validator
+    )
+    _ = try await store.readBinding(generation: 2)
+    let outcome = try await store.revalidateSavedCredential(generation: 1)
+    guard case .superseded = outcome else { return XCTFail("Expected superseded") }
+    let requestCount = await validator.requestCount()
+    XCTAssertEqual(requestCount, 0)
+  }
+
   func testIOSAuthenticationFailureIsReportedAsPasscodeRequired() async {
     let client = RecordingKeychainClient(
       updateStatuses: [errSecItemNotFound], addStatuses: [errSecAuthFailed])
@@ -218,6 +292,29 @@ final class OpenAICredentialStoreTests: XCTestCase {
   private func keySet(_ values: CFString...) -> Set<String> {
     Set(values.map { $0 as String })
   }
+
+  private func credentialData(_ credential: String, revision: String) throws -> Data {
+    try JSONEncoder().encode(OpenAIKeychainCredentialPayload(credential: credential, revision: revision))
+  }
+}
+
+private actor ImmediateStoreValidator: OpenAICredentialValidating {
+  private var count = 0
+  func validate(credential: String) async throws -> OpenAIValidationResult {
+    count += 1
+    return .init(capabilities: .init(catalogVersion: OpenAIModelCatalog.version, textModelIDs: [], realtimeModelIDs: []), requestID: nil)
+  }
+  func requestCount() -> Int { count }
+}
+
+private actor GatedStoreValidator: OpenAICredentialValidating {
+  private var continuation: CheckedContinuation<Void, Never>?
+  func validate(credential: String) async throws -> OpenAIValidationResult {
+    await withCheckedContinuation { continuation in self.continuation = continuation }
+    return .init(capabilities: .init(catalogVersion: OpenAIModelCatalog.version, textModelIDs: [], realtimeModelIDs: []), requestID: nil)
+  }
+  func waitForRequest() async { while continuation == nil { await Task.yield() } }
+  func resume() { continuation?.resume(); continuation = nil }
 }
 
 private final class RecordingKeychainClient: KeychainClient, @unchecked Sendable {
