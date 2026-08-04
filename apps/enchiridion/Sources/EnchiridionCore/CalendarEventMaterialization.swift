@@ -85,6 +85,48 @@ public struct CalendarEventMaterializationReceipt: Sendable {
   }
 }
 
+/// A refresh result is authoritative only when it covers this entire interval.
+/// Providers must not manufacture this value from a partial response.
+public struct AuthoritativeCalendarProjection: Sendable {
+  public let provider: String
+  public let interval: DateInterval
+  public let events: [CalendarEventSnapshot]
+
+  init(provider: String, interval: DateInterval, events: [CalendarEventSnapshot]) {
+    let normalized = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+    precondition(!normalized.isEmpty, "Calendar provider is required")
+    self.provider = normalized
+    self.interval = interval
+    self.events = events
+  }
+}
+
+public struct AuthoritativeCalendarRefreshToken: Sendable, Hashable {
+  let provider: String
+  let id: UUID
+}
+
+public enum CalendarEventMaterializationBackfillStatus: String, Codable, Sendable {
+  case needed, running, completed
+}
+
+public struct CalendarEventMaterializationBackfillState: Codable, Sendable, Equatable {
+  public static let schemaVersion = 1
+  public var provider: String
+  public var schemaVersion: Int
+  public var status: CalendarEventMaterializationBackfillStatus
+  public var outcome: String?
+  public var updatedAt: Date
+
+  public init(provider: String, schemaVersion: Int = Self.schemaVersion, status: CalendarEventMaterializationBackfillStatus, outcome: String? = nil, updatedAt: Date = Date()) {
+    self.provider = provider
+    self.schemaVersion = schemaVersion
+    self.status = status
+    self.outcome = outcome
+    self.updatedAt = updatedAt
+  }
+}
+
 /// Local materialization state used solely to distinguish a provider refresh
 /// from a user override. Raw calendar identities never enter this value.
 struct CalendarEventMaterializationBaseline: Codable, Equatable, Sendable {

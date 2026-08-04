@@ -129,6 +129,7 @@ public final class LibraryStore {
     TaskSystemReconciliationCoordinator
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var editorLiveViewRefreshGeneration: UInt64 = 0
+  @ObservationIgnored private var calendarRefreshGenerations: [String: UInt64] = [:]
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
   @ObservationIgnored private let requestedVaultID: VaultID?
@@ -262,6 +263,27 @@ public final class LibraryStore {
       let pendingEffectOutcomes = await taskMutationCoordinator?.drainPendingEffects() ?? []
       taskMutationWarnings = pendingEffectOutcomes.compactMap(\.warning)
       await reload()
+      // Legacy local projections predate Event pages. Adopt them on startup so
+      // the normal dirty-page/CloudKit path sees existing calendar content.
+      let upgradeReceipt = try await repository.materializeActiveCalendarProjectionForUpgrade()
+      calendarEventMaterializationEnabled = true
+      for pageID in upgradeReceipt.changedPageIDs {
+        await syncCoordinator?.pageDidChange(pageID)
+      }
+      if !upgradeReceipt.changedPageIDs.isEmpty { await reload() }
+      // Restore only already-authorized providers; startup must never prompt.
+      let restoredEventKit = EventKitCalendarProvider()
+      if restoredEventKit.authorizationStatus == .fullAccess {
+        calendarProvider = restoredEventKit
+        try? await refreshCalendar()
+        restoredEventKit.startObserving { [weak self] in
+          Task { @MainActor in try? await self?.refreshCalendar() }
+        }
+      }
+      if GoogleCalendarProvider.isRestorable(), let google = try? GoogleCalendarProvider.fromBundle() {
+        googleCalendarProvider = google
+        try? await refreshGoogleCalendar(using: google, repository: repository)
+      }
       let now = Date()
       let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
       let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
@@ -1740,6 +1762,9 @@ public final class LibraryStore {
     calendarProvider = provider
     do {
       try await provider.requestAccess()
+      try await repository.setCalendarEventMaterializationEnabled(true)
+      calendarEventMaterializationEnabled = true
+      try await repository.markCalendarEventMaterializationBackfillNeeded(provider: "eventkit")
       try await refreshCalendar()
       provider.startObserving { [weak self] in
         Task { @MainActor in try? await self?.refreshCalendar() }
@@ -1752,16 +1777,21 @@ public final class LibraryStore {
 
   public func refreshCalendar() async throws {
     guard let repository, let calendarProvider else { return }
+    let generation = nextCalendarRefreshGeneration(for: "eventkit")
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
     let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
-    let events = try calendarProvider.events(from: start, through: end)
-    let accepted = try await repository.replaceCalendarProjection(events, provider: "eventkit")
-    let receipt = try await repository.materializeCalendarEvents(
-      accepted, provider: "eventkit", authoritativeInterval: .init(start: start, end: end)
-    )
-    for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
-    await syncCoordinator?.enqueueDirtyChanges()
+    do {
+      let token = try await repository.beginAuthoritativeCalendarRefresh(provider: "eventkit")
+      let projection = try calendarProvider.authoritativeProjection(from: start, through: end)
+      guard isCurrentCalendarRefresh(generation, provider: "eventkit") else { return }
+      let receipt = try await repository.applyAuthoritativeCalendarProjection(projection, token: token)
+      for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
+      await syncCoordinator?.enqueueDirtyChanges()
+    } catch {
+      throw error
+    }
+    guard isCurrentCalendarRefresh(generation, provider: "eventkit") else { return }
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarRelationshipGeneration &+= 1
     calendarPageContexts = try await repository.calendarPageContexts()
@@ -1782,6 +1812,9 @@ public final class LibraryStore {
       let provider = try googleCalendarProvider ?? GoogleCalendarProvider.fromBundle()
       googleCalendarProvider = provider
       try await provider.authorize()
+      try await repository.setCalendarEventMaterializationEnabled(true)
+      calendarEventMaterializationEnabled = true
+      try await repository.markCalendarEventMaterializationBackfillNeeded(provider: "google")
       try await refreshGoogleCalendar(using: provider, repository: repository)
       calendarError = nil
     } catch {
@@ -1800,16 +1833,21 @@ public final class LibraryStore {
     using provider: GoogleCalendarProvider,
     repository: LibraryRepository
   ) async throws {
+    let generation = nextCalendarRefreshGeneration(for: "google")
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
     let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
-    let events = try await provider.events(from: start, through: end)
-    let accepted = try await repository.replaceCalendarProjection(events, provider: "google")
-    let receipt = try await repository.materializeCalendarEvents(
-      accepted, provider: "google", authoritativeInterval: .init(start: start, end: end)
-    )
-    for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
-    await syncCoordinator?.enqueueDirtyChanges()
+    do {
+      let token = try await repository.beginAuthoritativeCalendarRefresh(provider: "google")
+      let projection = try await provider.authoritativeProjection(from: start, through: end)
+      guard isCurrentCalendarRefresh(generation, provider: "google") else { return }
+      let receipt = try await repository.applyAuthoritativeCalendarProjection(projection, token: token)
+      for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
+      await syncCoordinator?.enqueueDirtyChanges()
+    } catch {
+      throw error
+    }
+    guard isCurrentCalendarRefresh(generation, provider: "google") else { return }
     calendarEvents = try await repository.calendarEvents(from: start, through: end)
     calendarRelationshipGeneration &+= 1
     calendarPageContexts = try await repository.calendarPageContexts()
@@ -1819,5 +1857,15 @@ public final class LibraryStore {
   public func syncNow() async {
     await syncCoordinator?.syncNow()
     await reload()
+  }
+
+  private func nextCalendarRefreshGeneration(for provider: String) -> UInt64 {
+    let next = (calendarRefreshGenerations[provider] ?? 0) &+ 1
+    calendarRefreshGenerations[provider] = next
+    return next
+  }
+
+  private func isCurrentCalendarRefresh(_ generation: UInt64, provider: String) -> Bool {
+    calendarRefreshGenerations[provider] == generation
   }
 }

@@ -8,11 +8,12 @@ struct CalendarEventFilterSettingsSection: View {
 
   var body: some View {
     Section("Calendar Events") {
-      Toggle("Materialize calendar Events", isOn: Binding(
-        get: { store.calendarEventMaterializationEnabled },
-        set: { enabled in Task { await store.setCalendarEventMaterializationEnabled(enabled) } }
-      ))
-      Text("Creates normal synced Event pages for calendar occurrences. Calendar accounts, raw identifiers, attendee addresses, notes, and links remain on this device.")
+      NavigationLink {
+        CalendarEventPagesSettingsRoute(store: store)
+      } label: {
+        LabeledContent("Event Pages", value: "\(store.pages.filter { $0.hasSupertag(BuiltInSupertags.event) }.count)")
+      }
+      Text("Connecting a calendar creates and syncs normal Event pages. Calendar accounts, raw identifiers, attendee addresses, notes, and links remain on this device.")
         .font(.caption)
         .foregroundStyle(.secondary)
     }
@@ -60,5 +61,24 @@ struct CalendarEventFilterSettingsSection: View {
     guard normalized != store.omissionPrefixes else { return }
     draftPrefixes = normalized
     Task { await store.setCalendarEventOmissionPrefixes(normalized) }
+  }
+}
+
+private struct CalendarEventPagesSettingsRoute: View {
+  let store: LibraryStore
+  @State private var path: [PageID] = []
+
+  private var pages: [PageSnapshot] {
+    store.pages.filter { $0.hasSupertag(BuiltInSupertags.event) }
+  }
+
+  var body: some View {
+    List(pages) { page in
+      NavigationLink(value: page.id) {
+        PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
+      }
+    }
+    .navigationTitle("Event Pages")
+    .navigationDestination(for: PageID.self) { PageDestinationView(store: store, pageID: $0) }
   }
 }

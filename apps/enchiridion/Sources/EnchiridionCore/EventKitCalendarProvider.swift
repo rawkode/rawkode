@@ -125,6 +125,10 @@ public final class EventKitCalendarProvider {
     }
   }
 
+  public func authoritativeProjection(from start: Date, through end: Date) throws -> AuthoritativeCalendarProjection {
+    .init(provider: "eventkit", interval: .init(start: start, end: end), events: try events(from: start, through: end))
+  }
+
   public func startObserving(onChanged: @escaping @MainActor () -> Void) {
     self.onChanged = onChanged
     if let observation { NotificationCenter.default.removeObserver(observation) }

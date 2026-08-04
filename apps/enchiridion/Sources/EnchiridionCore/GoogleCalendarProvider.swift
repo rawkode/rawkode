@@ -112,9 +112,18 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
   public func events(from start: Date, through end: Date) async throws -> [CalendarEventSnapshot] {
     try await authorize()
     let token = try await validAccessToken()
-    let calendars: CalendarList = try await get("https://www.googleapis.com/calendar/v3/users/me/calendarList", token: token)
+    var calendars: [GoogleCalendar] = []
+    var calendarPageToken: String?
+    repeat {
+      var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/users/me/calendarList")!
+      components.queryItems = [calendarPageToken.map { URLQueryItem(name: "pageToken", value: $0) }].compactMap { $0 }
+      guard let url = components.url else { throw GoogleCalendarError.invalidResponse }
+      let page: CalendarList = try await get(url.absoluteString, token: token)
+      calendars.append(contentsOf: page.items ?? [])
+      calendarPageToken = page.nextPageToken
+    } while calendarPageToken != nil
     var results: [CalendarEventSnapshot] = []
-    for calendar in calendars.items ?? [] where calendar.selected != false {
+    for calendar in calendars where calendar.selected != false {
       var pageToken: String?
       repeat {
         var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/\(calendar.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? calendar.id)/events")!
@@ -135,6 +144,17 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
       } while pageToken != nil
     }
     return results.sorted { $0.startDate < $1.startDate }
+  }
+
+  public func authoritativeProjection(from start: Date, through end: Date) async throws -> AuthoritativeCalendarProjection {
+    .init(provider: "google", interval: .init(start: start, end: end), events: try await events(from: start, through: end))
+  }
+
+  /// Safe startup check: no UI and no prompt, only configuration plus an
+  /// existing refresh credential.
+  public static func isRestorable(from bundle: Bundle = .main) -> Bool {
+    guard let provider = try? fromBundle(bundle) else { return false }
+    return Keychain.refreshToken(clientID: provider.configuration.clientID) != nil
   }
 
   public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
@@ -290,7 +310,7 @@ private struct TokenResponse: Decodable {
   }
 }
 
-private struct CalendarList: Decodable { var items: [GoogleCalendar]? }
+private struct CalendarList: Decodable { var items: [GoogleCalendar]?; var nextPageToken: String? }
 private struct GoogleCalendar: Decodable {
   var id: String
   var summary: String

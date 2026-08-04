@@ -229,7 +229,7 @@ final class LibraryRepositoryTests: XCTestCase {
     event.iCalendarUID = "omitted@example.test"
     event.originalStartDate = start
     event.timeZoneIdentifier = "UTC"
-    event.title = "Birthday: private"
+    event.title = "Blocked: private"
     try await fixture.repository.setCalendarEventMaterializationEnabled(true)
     let accepted = try await fixture.repository.replaceCalendarProjection([event], provider: "google")
     XCTAssertTrue(accepted.isEmpty)
@@ -272,13 +272,15 @@ final class LibraryRepositoryTests: XCTestCase {
     event.title = "Updated provider title"
     let updated = try await fixture.repository.materializeCalendarEvents([event], provider: "google", now: start.addingTimeInterval(1))
     XCTAssertEqual(updated.changedPageIDs, [pageID])
-    XCTAssertEqual(try await fixture.repository.page(id: pageID)?.title, "Updated provider title")
+    let afterProviderTitle = try await fixture.repository.page(id: pageID)
+    XCTAssertEqual(afterProviderTitle?.title, "Updated provider title")
 
     _ = try await fixture.repository.renamePage(pageID: pageID, title: "My title", now: start.addingTimeInterval(2))
     event.title = "A later provider title"
     let detached = try await fixture.repository.materializeCalendarEvents([event], provider: "google", now: start.addingTimeInterval(3))
     XCTAssertTrue(detached.changedPageIDs.isEmpty)
-    XCTAssertEqual(try await fixture.repository.page(id: pageID)?.title, "My title")
+    let afterUserTitle = try await fixture.repository.page(id: pageID)
+    XCTAssertEqual(afterUserTitle?.title, "My title")
   }
 
   func testCalendarMaterializationPreservesProviderFieldOverrideAndAppliesAttendeeChanges() async throws {
@@ -295,10 +297,12 @@ final class LibraryRepositoryTests: XCTestCase {
     let locationKey = SupertagPropertyKey(supertagID: BuiltInSupertags.event, fieldID: .init(rawValue: "location"))
     try await fixture.repository.setProperty(pageID: pageID, key: locationKey, values: [.text("My room")])
     event.location = "Changed provider room"
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    let overridden = try await fixture.repository.materializeCalendarEvents(
       [event], provider: "google", now: start.addingTimeInterval(1)
-    ).changedPageIDs.isEmpty)
-    XCTAssertEqual(try await fixture.repository.page(id: pageID)?.objectMetadata.properties[locationKey], [.text("My room")])
+    )
+    XCTAssertTrue(overridden.changedPageIDs.isEmpty)
+    let afterLocationOverride = try await fixture.repository.page(id: pageID)
+    XCTAssertEqual(afterLocationOverride?.objectMetadata.properties[locationKey], [.text("My room")])
 
     var attendeeEvent = calendarEvent(provider: "google", id: "attendee-fields", start: start, end: start.addingTimeInterval(3_600))
     attendeeEvent.iCalendarUID = "attendee-fields@example.test"
@@ -309,18 +313,21 @@ final class LibraryRepositoryTests: XCTestCase {
     let attendeePage = try await fixture.repository.materializeCalendarEvents([attendeeEvent], provider: "google", now: start)
     attendeeEvent.attendees = [attendee]
     try await fixture.repository.replaceCalendarProjection([attendeeEvent], provider: "google")
-    _ = try await fixture.repository.promotePerson(pageID: .person(email: attendee.email))
-    XCTAssertEqual(try await fixture.repository.materializeCalendarEvents(
+    _ = try await fixture.repository.promotePerson(pageID: .person(email: try XCTUnwrap(attendee.email)))
+    let attendeeAdded = try await fixture.repository.materializeCalendarEvents(
       [attendeeEvent], provider: "google", now: start.addingTimeInterval(1)
-    ).changedPageIDs.count, 1)
+    )
+    XCTAssertEqual(attendeeAdded.changedPageIDs.count, 1)
     attendeeEvent.attendees = []
     try await fixture.repository.replaceCalendarProjection([attendeeEvent], provider: "google")
-    XCTAssertEqual(try await fixture.repository.materializeCalendarEvents(
+    let attendeeRemoved = try await fixture.repository.materializeCalendarEvents(
       [attendeeEvent], provider: "google", now: start.addingTimeInterval(2)
-    ).changedPageIDs.count, 1)
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    )
+    XCTAssertEqual(attendeeRemoved.changedPageIDs.count, 1)
+    let attendeeNoop = try await fixture.repository.materializeCalendarEvents(
       [attendeeEvent], provider: "google", now: start.addingTimeInterval(3)
-    ).changedPageIDs.isEmpty)
+    )
+    XCTAssertTrue(attendeeNoop.changedPageIDs.isEmpty)
     XCTAssertFalse(attendeePage.changedPageIDs.isEmpty)
   }
 
@@ -336,12 +343,14 @@ final class LibraryRepositoryTests: XCTestCase {
       [event], provider: "google", authoritativeInterval: .init(start: start.addingTimeInterval(-1), end: start.addingTimeInterval(7_200)), now: start
     )
     let pageID = try XCTUnwrap(first.changedPageIDs.first)
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    let incomplete = try await fixture.repository.materializeCalendarEvents(
       [], provider: "google", now: start.addingTimeInterval(1)
-    ).changedPageIDs.isEmpty)
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    )
+    XCTAssertTrue(incomplete.changedPageIDs.isEmpty)
+    let completeWithinGrace = try await fixture.repository.materializeCalendarEvents(
       [], provider: "google", authoritativeInterval: .init(start: start.addingTimeInterval(-1), end: start.addingTimeInterval(7_200)), now: start.addingTimeInterval(2)
-    ).changedPageIDs.isEmpty)
+    )
+    XCTAssertTrue(completeWithinGrace.changedPageIDs.isEmpty)
     let pruned = try await fixture.repository.materializeCalendarEvents(
       [], provider: "google", authoritativeInterval: .init(start: start.addingTimeInterval(-1), end: start.addingTimeInterval(7_200)), now: start.addingTimeInterval(31 * 24 * 60 * 60)
     )
@@ -365,14 +374,76 @@ final class LibraryRepositoryTests: XCTestCase {
       try await fixture.repository.setProperty(pageID: pageID, key: key, values: values, now: start)
     }
     try await fixture.repository.setCalendarEventMaterializationEnabled(true)
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    let adopted = try await fixture.repository.materializeCalendarEvents(
       [event], provider: "google", now: start.addingTimeInterval(1)
-    ).changedPageIDs.isEmpty)
+    )
+    XCTAssertTrue(adopted.changedPageIDs.isEmpty)
 
     event.location = "Updated room"
-    XCTAssertEqual(try await fixture.repository.materializeCalendarEvents(
+    let updated = try await fixture.repository.materializeCalendarEvents(
       [event], provider: "google", now: start.addingTimeInterval(2)
-    ).changedPageIDs, [pageID])
+    )
+    XCTAssertEqual(updated.changedPageIDs, [pageID])
+  }
+
+  func testAuthoritativeCalendarApplyMaterializesNormalEventPageAndCompletes() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "atomic", start: start, end: start.addingTimeInterval(3600))
+    event.iCalendarUID = "atomic@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    let token = try await fixture.repository.beginAuthoritativeCalendarRefresh(provider: "google", now: start)
+    let receipt = try await fixture.repository.applyAuthoritativeCalendarProjection(
+      .init(provider: "google", interval: .init(start: start.addingTimeInterval(-1), end: start.addingTimeInterval(7200)), events: [event]), token: token, now: start
+    )
+    XCTAssertFalse(receipt.changedPageIDs.isEmpty)
+    let pages = try await fixture.repository.pages(with: BuiltInSupertags.event)
+    XCTAssertEqual(pages.map(\.id), receipt.changedPageIDs)
+    let completed = try await fixture.repository.calendarEventMaterializationBackfillState(provider: "google")
+    XCTAssertEqual(completed?.status, .completed)
+  }
+
+  func testAuthoritativeCalendarApplyRejectsStaleAndDeficientIdentityKeepsRunning() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    let first = try await fixture.repository.beginAuthoritativeCalendarRefresh(provider: "google", now: start)
+    let current = try await fixture.repository.beginAuthoritativeCalendarRefresh(provider: "google", now: start)
+    await XCTAssertThrowsErrorAsync {
+      try await fixture.repository.applyAuthoritativeCalendarProjection(
+        .init(provider: "google", interval: .init(start: start, end: start.addingTimeInterval(1)), events: []), token: first, now: start
+      )
+    }
+    var deficient = calendarEvent(provider: "google", id: "missing", start: start, end: start.addingTimeInterval(3600))
+    deficient.iCalendarUID = nil
+    await XCTAssertThrowsErrorAsync {
+      try await fixture.repository.applyAuthoritativeCalendarProjection(
+        .init(provider: "google", interval: .init(start: start, end: start.addingTimeInterval(7200)), events: [deficient]), token: current, now: start
+      )
+    }
+    let running = try await fixture.repository.calendarEventMaterializationBackfillState(provider: "google")
+    XCTAssertEqual(running?.status, .running)
+  }
+
+  func testCalendarUpgradeBackfillsActiveProjectionAsEventPage() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(
+      provider: "eventkit", id: "legacy-projection", start: start,
+      end: start.addingTimeInterval(3_600)
+    )
+    event.iCalendarUID = "legacy-projection@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    _ = try await fixture.repository.replaceCalendarProjection([event], provider: "eventkit")
+
+    let receipt = try await fixture.repository.materializeActiveCalendarProjectionForUpgrade(now: start)
+    let eventPages = try await fixture.repository.pages(with: BuiltInSupertags.event)
+    let enabled = try await fixture.repository.calendarEventMaterializationEnabled()
+
+    XCTAssertEqual(eventPages.map(\.id), receipt.changedPageIDs)
+    XCTAssertEqual(eventPages.first?.title, event.title)
+    XCTAssertTrue(enabled)
   }
 
   func testCalendarMaterializationDetachesConflictingCloudPageWithoutLocalState() async throws {
@@ -388,10 +459,12 @@ final class LibraryRepositoryTests: XCTestCase {
       title: "My Cloud Title", supertagID: BuiltInSupertags.event, id: pageID, now: start
     )
     try await fixture.repository.setCalendarEventMaterializationEnabled(true)
-    XCTAssertTrue(try await fixture.repository.materializeCalendarEvents(
+    let detached = try await fixture.repository.materializeCalendarEvents(
       [event], provider: "google", now: start.addingTimeInterval(1)
-    ).changedPageIDs.isEmpty)
-    XCTAssertEqual(try await fixture.repository.page(id: pageID)?.title, "My Cloud Title")
+    )
+    XCTAssertTrue(detached.changedPageIDs.isEmpty)
+    let retained = try await fixture.repository.page(id: pageID)
+    XCTAssertEqual(retained?.title, "My Cloud Title")
   }
 
   @MainActor

@@ -285,6 +285,7 @@ public actor LibraryRepository {
 
   public nonisolated let path: String
   let database: DatabasePool
+  private var authoritativeCalendarRefreshTokens: [String: UUID] = [:]
 
   func assistantRead<T: Sendable>(
     _ access: @Sendable (Database) throws -> T
@@ -1274,6 +1275,116 @@ public actor LibraryRepository {
     }
   }
 
+  public func calendarEventMaterializationBackfillState(
+    provider: String
+  ) throws -> CalendarEventMaterializationBackfillState? {
+    try database.read { db in
+      guard let data = try Data.fetchOne(
+        db, sql: "SELECT state_json FROM calendar_materialization_backfills WHERE provider = ?", arguments: [provider]
+      ) else { return nil }
+      return try? JSONDecoder.enchiridion.decode(CalendarEventMaterializationBackfillState.self, from: data)
+    }
+  }
+
+  public func markCalendarEventMaterializationBackfillNeeded(
+    provider: String, now: Date = Date()
+  ) throws {
+    try writeCalendarMaterializationBackfillState(.init(provider: provider, status: .needed, updatedAt: now))
+  }
+
+  public func markCalendarEventMaterializationBackfillFailed(
+    provider: String, error: String, now: Date = Date()
+  ) throws {
+    try writeCalendarMaterializationBackfillState(.init(provider: provider, status: .needed, outcome: error, updatedAt: now))
+  }
+
+  public func markCalendarEventMaterializationBackfillCompleted(
+    provider: String, receipt: CalendarEventMaterializationReceipt, now: Date = Date()
+  ) throws {
+    try writeCalendarMaterializationBackfillState(
+      .init(provider: provider, status: .completed,
+            outcome: "Materialized \(receipt.changedPageIDs.count); skipped \(receipt.skippedCount)", updatedAt: now)
+    )
+  }
+
+  /// The durable running marker is deliberately written before exposing the
+  /// in-memory capability, so a failed write can never authorize an apply.
+  public func beginAuthoritativeCalendarRefresh(
+    provider: String, now: Date = Date()
+  ) throws -> AuthoritativeCalendarRefreshToken {
+    let token = UUID()
+    try database.write { db in
+      let state = CalendarEventMaterializationBackfillState(
+        provider: provider, status: .running, updatedAt: now
+      )
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)",
+        arguments: [provider, try JSONEncoder.enchiridion.encode(state)]
+      )
+    }
+    authoritativeCalendarRefreshTokens[provider] = token
+    return .init(provider: provider, id: token)
+  }
+
+  /// Atomically replaces one provider projection, updates its derived local
+  /// records, and materializes normal Event pages. A stale or failed fetch has
+  /// no token and therefore cannot change the authoritative projection.
+  public func applyAuthoritativeCalendarProjection(
+    _ projection: AuthoritativeCalendarProjection,
+    token: AuthoritativeCalendarRefreshToken,
+    now: Date = Date()
+  ) throws -> CalendarEventMaterializationReceipt {
+    guard projection.provider == token.provider,
+      authoritativeCalendarRefreshTokens[projection.provider] == token.id
+    else { throw LibraryRepositoryError.invalidRecord }
+    defer { authoritativeCalendarRefreshTokens[projection.provider] = nil }
+    return try database.write { db in
+      let prefixes = try Self.calendarEventOmissionPrefixes(db)
+      var accepted: [CalendarEventSnapshot] = []
+      // Validate materialization identity before changing any projection state.
+      for event in projection.events where !CalendarEventOmissionRules.shouldOmit(title: event.title, prefixes: prefixes) {
+        guard event.identity.provider == projection.provider,
+          CalendarEventMaterialization.identity(for: event) != nil
+        else {
+          throw LibraryRepositoryError.invalidRecord
+        }
+      }
+      try db.execute(sql: "UPDATE calendar_events SET active = 0 WHERE provider = ?", arguments: [projection.provider])
+      for source in projection.events where !CalendarEventOmissionRules.shouldOmit(title: source.title, prefixes: prefixes) {
+        var event = source
+        if let series = event.identity.series { event.identity.series = try Self.resolveSeries(db, event: event, series: series) }
+        accepted.append(event)
+        try db.execute(sql: """
+          INSERT INTO calendar_events (event_key,provider,event_json,start_at,end_at,active,refreshed_at,series_source_key,series_canonical_key)
+          VALUES (?,?,?,?,?,1,?,?,?) ON CONFLICT(event_key) DO UPDATE SET event_json=excluded.event_json,start_at=excluded.start_at,end_at=excluded.end_at,active=1,refreshed_at=excluded.refreshed_at,series_source_key=excluded.series_source_key,series_canonical_key=excluded.series_canonical_key
+          """, arguments: [Self.storageKey(event.identity.stableKey), projection.provider, try JSONEncoder.enchiridion.encode(event), event.startDate.timeIntervalSince1970, event.endDate.timeIntervalSince1970, now.timeIntervalSince1970, event.identity.series.map { Self.storageKey($0.sourceKey) }, event.identity.series.map { Self.storageKey($0.canonicalKey) }])
+        try Self.replaceAttendeeProjection(db, event: event, now: now)
+      }
+      try db.execute(sql: "DELETE FROM calendar_event_attendees WHERE event_key IN (SELECT event_key FROM calendar_events WHERE provider = ? AND active = 0)", arguments: [projection.provider])
+      try db.execute(sql: "DELETE FROM calendar_events WHERE provider = ? AND active = 0 AND event_key NOT IN (SELECT event_key FROM event_page_map)", arguments: [projection.provider])
+      try Self.pruneOrphanedCalendarPeople(db)
+
+      let receipt = try Self.materializeCalendarEvents(
+        db, accepted, provider: projection.provider, authoritativeInterval: projection.interval, now: now
+      )
+      // Final durable statement of a complete authoritative refresh.
+      let completed = CalendarEventMaterializationBackfillState(provider: projection.provider, status: .completed, outcome: "Materialized \(receipt.changedPageIDs.count); skipped \(receipt.skippedCount)", updatedAt: now)
+      try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [projection.provider, try JSONEncoder.enchiridion.encode(completed)])
+      return receipt
+    }
+  }
+
+  private func writeCalendarMaterializationBackfillState(
+    _ state: CalendarEventMaterializationBackfillState
+  ) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)",
+        arguments: [state.provider, try JSONEncoder.enchiridion.encode(state)]
+      )
+    }
+  }
+
   /// Copies the safe, semantic calendar projection into normal Event pages. This
   /// shares the normal document/dirty-generation path, so CloudKit sees every
   /// actual page change and unchanged snapshots are genuine no-ops.
@@ -1284,15 +1395,58 @@ public actor LibraryRepository {
     now: Date = Date()
   ) throws -> CalendarEventMaterializationReceipt {
     guard try calendarEventMaterializationEnabled() else { return .init(skippedCount: events.count) }
-    let providerScope: String?
-    if let provider {
-      providerScope = CalendarEventMaterialization.sourceScopeDigest(for: provider)
-    } else {
-      providerScope = Set(events.map { $0.identity.provider }).count == 1
-        ? events.first.flatMap { CalendarEventMaterialization.sourceScopeDigest(for: $0.identity.provider) }
-        : nil
-    }
     return try database.write { db in
+      try Self.materializeCalendarEvents(
+        db, events, provider: provider, authoritativeInterval: authoritativeInterval, now: now
+      )
+    }
+  }
+
+  public func materializeActiveCalendarProjectionForUpgrade(
+    now: Date = Date()
+  ) throws -> CalendarEventMaterializationReceipt {
+    try database.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
+        arguments: [CalendarEventMaterialization.settingKey, try JSONEncoder.enchiridion.encode(true)]
+      )
+      let events = try Row.fetchAll(db, sql: "SELECT event_json FROM calendar_events WHERE active = 1")
+        .compactMap { row -> CalendarEventSnapshot? in
+          guard let data: Data = row["event_json"] else { return nil }
+          return try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data)
+        }
+      var changed = Set<PageID>()
+      var skipped = 0
+      for (provider, providerEvents) in Dictionary(grouping: events, by: { $0.identity.provider }) {
+        let receipt = try Self.materializeCalendarEvents(
+          db, providerEvents, provider: provider, authoritativeInterval: nil, now: now
+        )
+        changed.formUnion(receipt.changedPageIDs)
+        skipped += receipt.skippedCount
+        if providerEvents.contains(where: { CalendarEventMaterialization.identity(for: $0) == nil }) {
+          let needed = CalendarEventMaterializationBackfillState(provider: provider, status: .needed, updatedAt: now)
+          try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [provider, try JSONEncoder.enchiridion.encode(needed)])
+        }
+      }
+      return .init(changedPageIDs: changed.sorted { $0.rawValue < $1.rawValue }, skippedCount: skipped)
+    }
+  }
+
+  private static func materializeCalendarEvents(
+    _ db: Database,
+    _ events: [CalendarEventSnapshot],
+    provider: String?,
+    authoritativeInterval: DateInterval?,
+    now: Date
+  ) throws -> CalendarEventMaterializationReceipt {
+      let providerScope: String?
+      if let provider {
+        providerScope = CalendarEventMaterialization.sourceScopeDigest(for: provider)
+      } else {
+        providerScope = Set(events.map { $0.identity.provider }).count == 1
+          ? events.first.flatMap { CalendarEventMaterialization.sourceScopeDigest(for: $0.identity.provider) }
+          : nil
+      }
       var changed: [PageID] = []
       var skipped = 0
       let refreshStamp = now.timeIntervalSince1970
@@ -1391,7 +1545,6 @@ public actor LibraryRepository {
         )
       }
       return .init(changedPageIDs: changed, skippedCount: skipped)
-    }
   }
 
   public func contactCandidates() throws -> [PersonContactCandidate] {
@@ -6789,6 +6942,12 @@ public actor LibraryRepository {
         try db.alter(table: "calendar_materialization_state") { table in
           table.add(column: "provider_baseline_json", .blob)
         }
+      }
+    }
+    migrator.registerMigration("v27-calendar-event-materialization-backfills") { db in
+      try db.create(table: "calendar_materialization_backfills") { table in
+        table.column("provider", .text).primaryKey()
+        table.column("state_json", .blob).notNull()
       }
     }
     return migrator
