@@ -83,14 +83,6 @@ enum CalendarAgendaDate {
     }
   }
 
-  static func eventDensity(
-    on day: Date,
-    in events: [CalendarEventSnapshot],
-    calendar: Calendar
-  ) -> Int {
-    CalendarAgendaDate.events(on: day, in: events, calendar: calendar).count
-  }
-
   static func tasks(
     on day: Date,
     from pages: [PageSnapshot],

@@ -141,11 +141,13 @@ private struct CalendarAgendaEventRow: View {
   }
 }
 
-private enum CalendarSourceColor {
+enum CalendarSourceColor {
   static func color(for hex: String?) -> Color {
-    guard let hex else { return .accentColor }
+    guard let hex else { return RosePinePalette.calendarAccent }
     let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
-    guard value.count == 6, let rgb = UInt64(value, radix: 16) else { return .accentColor }
+    guard value.count == 6, let rgb = UInt64(value, radix: 16) else {
+      return RosePinePalette.calendarAccent
+    }
     return Color(
       red: Double((rgb >> 16) & 0xFF) / 255,
       green: Double((rgb >> 8) & 0xFF) / 255,
