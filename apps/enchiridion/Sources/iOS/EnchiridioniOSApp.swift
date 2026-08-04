@@ -6,6 +6,7 @@ import UIKit
 @main
 struct EnchiridioniOSApp: App {
   @UIApplicationDelegateAdaptor(EnchiridionAppDelegate.self) private var appDelegate
+  @Environment(\.scenePhase) private var scenePhase
   @State private var runtime = EnchiridionAppRuntime.shared
 
   var body: some Scene {
@@ -19,14 +20,15 @@ struct EnchiridioniOSApp: App {
         assistantSession: runtime.assistantSession,
         assistantUnavailableReason: runtime.assistantUnavailableReason,
         assistantVoicePreferences: runtime.assistantVoicePreferences,
-        assistantProviderSettings: runtime.assistantProviderSettings,
-        qwenProviderSettings: runtime.qwenProviderSettings,
-        qwenToolCoordinator: runtime.qwenToolCoordinator
+        assistantProviderSettings: runtime.assistantProviderSettings
       )
       .managesDeviceContacts(
         store: runtime.store,
         resolver: runtime.contactsResolver
       )
+      .onChange(of: scenePhase) { _, phase in
+        if phase == .active { runtime.retryRetiredProviderMigration() }
+      }
     }
   }
 }
@@ -41,14 +43,13 @@ final class EnchiridionAppRuntime {
   let assistantVoicePreferences = AssistantVoicePreferences()
   let openAICredentialStore: OpenAICredentialStore
   let assistantProviderSettings: AssistantProviderSettingsController
-  let qwenProviderSettings = QwenProviderSettingsController()
+  private let retiredQwenProviderMigrator = RetiredQwenProviderMigrator()
   private let fallbackStore: LibraryStore
   private(set) var assistant: FoundationModelAssistant?
   private(set) var textAssistant: OpenAIResponsesAssistant?
   private(set) var carPlayAssistant: FoundationModelAssistant?
   private(set) var assistantSession: AssistantConversationSession?
   private(set) var carPlayAssistantSession: AssistantConversationSession?
-  private(set) var qwenToolCoordinator: AssistantRealtimeToolCoordinator?
   private(set) var carPlayVoice: CarPlayVoiceCoordinator!
   private(set) var repositoryError: String?
 
@@ -60,6 +61,7 @@ final class EnchiridionAppRuntime {
   }
 
   private init() {
+    retiredQwenProviderMigrator.migrateIfNeeded()
     do {
       try WorkoutModuleViews.register()
     } catch {
@@ -81,7 +83,10 @@ final class EnchiridionAppRuntime {
     }
     rebuildWorkspaceDependents()
     Task { await assistantProviderSettings.refreshCredentialState() }
-    Task { await qwenProviderSettings.refresh() }
+  }
+
+  func retryRetiredProviderMigration() {
+    retiredQwenProviderMigrator.migrateIfNeeded()
   }
 
   func selectVault(_ id: VaultID) throws {
@@ -133,7 +138,6 @@ final class EnchiridionAppRuntime {
       voicePreferences: assistantVoicePreferences,
       surface: .carPlay
     )
-    qwenToolCoordinator = store.makeAssistantRealtimeToolCoordinator()
     let unavailableReason: @MainActor () -> String? = { [weak self] in
       guard let self else { return "Your local library is unavailable." }
       return assistantUnavailabilityMessage(
@@ -141,31 +145,15 @@ final class EnchiridionAppRuntime {
         repositoryError: self.repositoryError
       )
     }
-    let qwenRoute: @MainActor () -> QwenVoiceRouteSnapshot? = { [weak self] in
-      guard self?.assistantProviderSettings.selectedVoiceProvider == .qwenRealtime else { return nil }
-      return self?.qwenProviderSettings.voiceRouteSnapshot()
-    }
-    let usesQwenVoice: @MainActor () -> Bool = { [weak self] in
-      self?.assistantProviderSettings.selectedVoiceProvider == .qwenRealtime
-    }
-    let qwenTools: @MainActor () -> AssistantRealtimeToolCoordinator? = { [weak self] in
-      self?.qwenToolCoordinator
-    }
     if let carPlayVoice {
       carPlayVoice.update(
         session: carPlayAssistantSession,
-        unavailableReason: unavailableReason,
-        qwenRoute: qwenRoute,
-        usesQwenVoice: usesQwenVoice,
-        qwenTools: qwenTools
+        unavailableReason: unavailableReason
       )
     } else {
       carPlayVoice = CarPlayVoiceCoordinator(
         session: carPlayAssistantSession,
-        unavailableReason: unavailableReason,
-        qwenRoute: qwenRoute,
-        usesQwenVoice: usesQwenVoice,
-        qwenTools: qwenTools
+        unavailableReason: unavailableReason
       )
     }
   }

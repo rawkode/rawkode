@@ -1036,7 +1036,7 @@ public final class AssistantConversationSession {
       await transcriber?.resetAfterMediaServicesReset()
       await speaker?.resetAfterMediaServicesReset()
       await audioSessionController?.resetAfterMediaServicesReset()
-    case .interruptionBegan, .routeChanged, .appInactive:
+    case .interruptionBegan, .interruptionEnded, .routeChanged, .appInactive:
       break
     }
   }
@@ -1132,6 +1132,8 @@ public final class AssistantConversationSession {
     switch event {
     case .interruptionBegan:
       return .interruption
+    case .interruptionEnded:
+      return nil
     case .routeChanged(let reason, let previous, let current):
       return AssistantAudioRouteSafetyClassifier.pauseReason(
         reason: reason,

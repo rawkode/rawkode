@@ -1,14 +1,17 @@
 import Foundation
 
 public struct RealtimeVoiceFailure: Error, Equatable, Sendable {
+  public enum Provenance: Equatable, Sendable { case local, provider, transport, safety, audio }
   public let code: String?
   public let message: String
   public let responseID: String?
+  public let provenance: Provenance
 
-  public init(code: String? = nil, message: String, responseID: String? = nil) {
+  public init(code: String? = nil, message: String, responseID: String? = nil, provenance: Provenance = .local) {
     self.code = code
     self.message = message
     self.responseID = responseID
+    self.provenance = provenance
   }
 }
 
@@ -54,6 +57,9 @@ public struct RealtimeVoiceReducer: Sendable {
   private var seenEventIDs: Set<String> = []
   private var finalizedResponseIDs: Set<String> = []
   private var bargeInResponseIDs: Set<String> = []
+  private var responseDoneAwaitingPlayback: Set<String> = []
+  private var playbackDrainedBeforeDone: Set<String> = []
+  private var playbackStartedResponses: Set<String> = []
   private var inputTranscripts: [String: InputTranscript] = [:]
   private var responses: [String: ResponseAccumulator] = [:]
   private var latestInputItemID: String?
@@ -257,7 +263,43 @@ public struct RealtimeVoiceReducer: Sendable {
         statusDetails: done.statusDetails,
         usage: done.usage
       )
-      if completedWasActive, state.phase != .muted { state.phase = .listening }
+      if completedWasActive, state.phase != .muted {
+        if completion == .completed {
+          if playbackDrainedBeforeDone.remove(done.responseID) != nil {
+            playbackStartedResponses.remove(done.responseID)
+            state.phase = .listening
+          } else if playbackStartedResponses.contains(done.responseID) {
+            responseDoneAwaitingPlayback.insert(done.responseID)
+          } else {
+            state.phase = .listening
+          }
+        } else { state.phase = .listening }
+      }
+      return []
+
+    case .playbackStarted(let responseID):
+      guard !bargeInResponseIDs.contains(responseID), state.phase != .muted else { return [] }
+      playbackStartedResponses.insert(responseID)
+      state.activeResponseID = responseID
+      state.phase = .assistantSpeaking
+      return []
+
+    case .playbackDrained(let responseID):
+      playbackStartedResponses.remove(responseID)
+      if responseDoneAwaitingPlayback.remove(responseID) != nil {
+        if (state.activeResponseID == nil || state.activeResponseID == responseID),
+          state.phase != .muted
+        {
+          state.phase = .listening
+        }
+      } else { playbackDrainedBeforeDone.insert(responseID) }
+      return []
+
+    case .playbackInterrupted(let responseID):
+      responseDoneAwaitingPlayback.remove(responseID)
+      playbackDrainedBeforeDone.remove(responseID)
+      playbackStartedResponses.remove(responseID)
+      markAssistantCaption(responseID: responseID, status: .interrupted)
       return []
 
     case .rateLimitsUpdated(let rateLimits):
@@ -275,16 +317,21 @@ public struct RealtimeVoiceReducer: Sendable {
           status: .failed,
           statusDetails: RealtimeResponseStatusDetails(
             type: "error",
-            errorCode: error.code,
-            errorMessage: error.message
+            // The provider's error body is untrusted server text. Keep the
+            // receipt useful without persisting it into our local UI/state.
+            errorCode: "provider_error_other",
+            errorMessage: "OpenAI Voice reported an error."
           ),
           usage: nil
         )
       }
       let failure = RealtimeVoiceFailure(
-        code: error.code,
-        message: error.message,
-        responseID: error.responseID
+        // Provider codes/messages are not local control causes and must not
+        // leak into the user-visible terminal contract.
+        code: "provider_error_other",
+        message: "OpenAI Voice reported an error.",
+        responseID: error.responseID,
+        provenance: .provider
       )
       markLocalFailure(failure)
       return [.terminate(failure)]

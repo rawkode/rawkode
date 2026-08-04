@@ -182,6 +182,83 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertEqual(events[terminal].reason, .inputEnableFailed)
   }
 
+  func testSafetyPauseWithoutActiveResponseDisablesInputOnly() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(calls.filter { $0 == "input.off" }.count, 1)
+    XCTAssertFalse(calls.contains { $0.hasPrefix("send.response-cancel") || $0 == "send.output-clear" })
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+  }
+
+  func testRepeatedSafetyPauseWhileDisablePendingAndPausedIsDeduped() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.inputDisable.append(gate)
+    let first = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+    await fixture.session.handleSafetyEvent(.interruptionBegan)
+    await gate.resume()
+    await first.value
+    await fixture.session.handleSafetyEvent(.interruptionBegan)
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(calls.filter { $0 == "input.off" }.count, 1)
+    XCTAssertFalse(calls.contains { $0.hasPrefix("send.response-cancel") || $0 == "send.output-clear" })
+  }
+
+  func testResponseCompletionDuringInputDisableDoesNotCancelOrFinalizeStaleResponse() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    fixture.transport.emit(event("created", .responseCreated(RealtimeResponseCreated(responseID: "response-1"))))
+    await waitUntil { fixture.session.state.activeResponseID == "response-1" }
+    let gate = AsyncGate()
+    await fixture.gates.inputDisable.append(gate)
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+    fixture.transport.emit(event("done", .responseDone(RealtimeResponseDone(responseID: "response-1", status: .completed, statusDetails: nil, usage: nil))))
+    await waitUntil { fixture.session.state.activeResponseID == nil }
+    await gate.resume()
+    await pause.value
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains { $0.hasPrefix("send.response-cancel") || $0 == "send.output-clear" })
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+  }
+
+  func testNonAudibleActiveResponseCancelsWithoutClearingOutput() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    fixture.transport.emit(event("created", .responseCreated(RealtimeResponseCreated(responseID: "response-1"))))
+    await waitUntil { fixture.session.state.activeResponseID == "response-1" }
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let calls = await fixture.calls.values()
+    XCTAssertTrue(calls.contains("send.response-cancel:response-1"))
+    XCTAssertFalse(calls.contains("send.output-clear"))
+  }
+
+  func testAudibleActiveResponseCancelsThenClearsOutput() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    fixture.transport.emit(event("created", .responseCreated(RealtimeResponseCreated(responseID: "response-1"))))
+    await waitUntil { fixture.session.state.activeResponseID == "response-1" }
+    fixture.transport.emitActivity(.init(generation: 1, inputLevel: 0, outputLevel: 0.1))
+    await waitUntil { fixture.session.voiceActivity.isResponding }
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let calls = await fixture.calls.values()
+    let cancel = try XCTUnwrap(calls.firstIndex(of: "send.response-cancel:response-1"))
+    let clear = try XCTUnwrap(calls.firstIndex(of: "send.output-clear"))
+    XCTAssertLessThan(cancel, clear)
+  }
+
+  func testFinishWithoutResponseNeverCancelsOrClearsOutput() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.session.stop()
+    let calls = await fixture.calls.values()
+    XCTAssertFalse(calls.contains { $0.hasPrefix("send.response-cancel") || $0 == "send.output-clear" })
+  }
+
   func testSafetyPauseInputDisableFailureIsTerminalAndNeverPublishesPausedState() async throws {
     let fixture = try makeFixture()
     await startConnected(fixture)
@@ -261,8 +338,8 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     let calls = await fixture.calls.values()
     XCTAssertTrue(calls.contains("input.off"))
     XCTAssertTrue(calls.contains("send.input-clear"))
-    XCTAssertTrue(calls.contains("send.response-cancel:nil"))
-    XCTAssertTrue(calls.contains("send.output-clear"))
+    XCTAssertFalse(calls.contains { $0.hasPrefix("send.response-cancel") })
+    XCTAssertFalse(calls.contains("send.output-clear"))
     XCTAssertTrue(calls.contains("transport.close"))
     XCTAssertTrue(calls.contains("audio.deactivate"))
     XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
@@ -302,6 +379,169 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       "Safety resume must not reconnect"
     )
     await fixture.session.stop()
+  }
+
+  func testPendingDeactivationHidesPausedAndEarlyResumeIsNoOpUntilRelease() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.audioDeactivation.append(gate)
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+    XCTAssertNotEqual(fixture.session.state.phase, .paused(.appInactive))
+    await fixture.session.resumeAfterSafetyPause()
+    XCTAssertNotEqual(fixture.session.state.phase, .listening)
+    await gate.resume()
+    await pause.value
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+    await fixture.session.resumeAfterSafetyPause()
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+  }
+
+  func testDeactivationTimeoutTerminalizesWithoutPublishingResume() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.gates.audioDeactivationOutcome.setTimedOut()
+    await fixture.session.handleSafetyEvent(.appInactive)
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "audio_deactivate_timed_out")
+    let before = await fixture.calls.values()
+    await fixture.session.resumeAfterSafetyPause()
+    let after = await fixture.calls.values()
+    XCTAssertEqual(after, before)
+  }
+
+  func testDeactivationFailureWinsOverProviderFailureBufferedDuringPause() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.audioDeactivation.append(gate)
+    await fixture.gates.audioDeactivationOutcome.setTimedOut()
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+    fixture.transport.emit(event("provider", .error(.init(code: "input_enable_failed", message: "raw provider detail"))))
+    await Task.yield()
+    XCTAssertNotEqual(fixture.session.state.phase, .failed)
+    await gate.resume()
+    await pause.value
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "audio_deactivate_timed_out")
+  }
+
+  func testProviderErrorDuringPendingPauseIsDeferredAndSanitizedAfterRelease() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.audioDeactivation.append(gate)
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+    fixture.transport.emit(event("provider", .error(.init(code: "input_enable_failed", message: "raw provider detail"))))
+    await Task.yield()
+    XCTAssertNotEqual(fixture.session.state.phase, .failed)
+    await gate.resume()
+    await pause.value
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "provider_error_other")
+  }
+
+  func testGatedSafetyResumeLogsInputEnableAndPublishesListeningOnlyAfterSuccess() async throws {
+    let diagnostics = RecordingDiagnostics()
+    let fixture = try makeFixture(diagnostics: diagnostics)
+    await startConnected(fixture)
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let priorInputEvents = diagnostics.events.filter { $0.stage == .input }.count
+    let gate = AsyncGate()
+    await fixture.gates.inputEnable.append(gate)
+    let resume = Task { await fixture.session.resumeAfterSafetyPause() }
+    await gate.waitUntilEntered()
+
+    let pendingEvents = diagnostics.events.filter { $0.stage == .input }
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+    XCTAssertEqual(pendingEvents.dropFirst(priorInputEvents).last?.outcome, .started)
+    XCTAssertNil(fixture.session.receipt)
+
+    await gate.resume()
+    await resume.value
+    let resumedEvents = diagnostics.events.filter { $0.stage == .input }
+    XCTAssertEqual(resumedEvents.dropFirst(priorInputEvents).map(\.outcome), [.started, .succeeded])
+    XCTAssertEqual(fixture.session.state.phase, .listening)
+    XCTAssertNil(fixture.session.receipt)
+  }
+
+  func testStopDuringGatedSafetyResumeReleasesAudioWithoutFailure() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let gate = AsyncGate()
+    await fixture.gates.inputEnable.append(gate)
+    let resume = Task { await fixture.session.resumeAfterSafetyPause() }
+    await gate.waitUntilEntered()
+
+    await fixture.session.stop()
+    await gate.resume()
+    await resume.value
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .ended)
+    XCTAssertEqual(fixture.session.receipt?.completion, .cancelled)
+    XCTAssertTrue(calls.contains("audio.deactivate"))
+    XCTAssertEqual(calls.last(where: { $0.hasPrefix("input.") }), "input.off")
+  }
+
+  func testMuteCannotSupersedePendingSafetyPause() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.inputDisable.append(gate)
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+
+    await fixture.session.setMuted(true)
+    XCTAssertNotEqual(fixture.session.state.phase, .muted)
+    await gate.resume()
+    await pause.value
+
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+    XCTAssertEqual(calls.filter { $0 == "input.off" }.count, 1)
+  }
+
+  func testCurrentInputCancellationIsTerminalButStaleCancellationIsSilent() async throws {
+    let current = try makeFixture()
+    await startConnected(current)
+    current.transport.cancelNextInputDisable()
+    await current.session.setMuted(true)
+    XCTAssertEqual(current.session.state.phase, .failed)
+    XCTAssertEqual(current.session.receipt?.failureCode, "input_disable_failed")
+
+    let stale = try makeFixture()
+    await startConnected(stale)
+    await stale.session.handleSafetyEvent(.appInactive)
+    stale.transport.cancelNextInputEnable()
+    let gate = AsyncGate()
+    await stale.gates.inputEnable.append(gate)
+    let resume = Task { await stale.session.resumeAfterSafetyPause() }
+    await gate.waitUntilEntered()
+    await stale.session.stop()
+    await gate.resume()
+    await resume.value
+    XCTAssertEqual(stale.session.receipt?.completion, .cancelled)
+    XCTAssertEqual(stale.session.state.phase, .ended)
+  }
+
+  func testDoubleResumeClaimsSingleActivationAndInputEnable() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.session.handleSafetyEvent(.appInactive)
+    let gate = AsyncGate()
+    await fixture.gates.audioActivation.append(gate)
+    let first = Task { await fixture.session.resumeAfterSafetyPause() }
+    await gate.waitUntilEntered()
+    let second = Task { await fixture.session.resumeAfterSafetyPause() }
+    await gate.resume()
+    await first.value; await second.value
+    let calls = await fixture.calls.values()
+    XCTAssertEqual(calls.filter { $0 == "audio.activate" }.count, 2) // initial + one resume
+    XCTAssertEqual(calls.filter { $0 == "input.on" }.count, 2) // initial + one resume
   }
 
   func testBargeInCommandsAndResponseUsageReachFinalSessionReceipt() async throws {
@@ -753,13 +993,11 @@ final class RealtimeVoiceSessionTests: XCTestCase {
         .error(RealtimeCorrelatedError(code: "paused_error", message: "queued"))
       )
     )
-    await waitUntil {
-      fixture.session.state.turnReceipts.contains { $0.responseID == "response-2" }
-        && fixture.session.state.failure?.code == "paused_error"
-    }
+    await waitUntil { fixture.session.state.turnReceipts.contains { $0.responseID == "response-2" } }
     let commandsAfterEvents = await fixture.calls.values().filter { $0.hasPrefix("send.") }.count
 
     XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+    XCTAssertNil(fixture.session.state.failure)
     XCTAssertEqual(commandsAfterEvents, commandsBeforeEvents)
     XCTAssertEqual(
       fixture.session.state.turnReceipts.first(where: { $0.responseID == "response-2" })?
@@ -936,12 +1174,13 @@ final class RealtimeVoiceSessionTests: XCTestCase {
       binding: binding
     )
     let transport = FakeRealtimeTransport(calls: calls, gates: gates)
+    let audio = FakeRealtimeAudioSession(calls: calls, gates: gates)
     let session = try RealtimeVoiceSession(
       route: route,
       microphone: FakeMicrophone(permission: permission, calls: calls, gates: gates),
       credentialReader: FakeCredentialReader(binding: binding, calls: calls, gates: gates),
       transport: transport,
-      audioSession: FakeRealtimeAudioSession(calls: calls, gates: gates),
+      audioSession: audio,
       diagnostics: diagnostics,
       initialLifecycleState: initialLifecycleState
     )
@@ -1029,7 +1268,14 @@ private struct FakeRealtimeAudioSession: RealtimeAudioSessionControlling {
   }
 
   func deactivate() async {
+    if let gate = await gates.audioDeactivation.next() { await gate.suspend() }
     await calls.append("audio.deactivate")
+  }
+
+  func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult {
+    if await gates.audioDeactivationOutcome.isTimedOut() { return .timedOut }
+    await deactivate()
+    return .completed
   }
 }
 
@@ -1043,6 +1289,8 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
   private let gates: SessionGates
   private var shouldFailNextInputEnable = false
   private var shouldFailNextInputDisable = false
+  private var shouldCancelNextInputEnable = false
+  private var shouldCancelNextInputDisable = false
 
   init(calls: CallRecorder, gates: SessionGates) {
     self.calls = calls
@@ -1087,7 +1335,7 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
   func send(_ command: RealtimeClientCommand) async throws {
     switch command {
     case .responseCancel(let responseID):
-      await calls.append("send.response-cancel:\(responseID ?? "nil")")
+      await calls.append("send.response-cancel:\(responseID)")
     case .outputAudioBufferClear:
       await calls.append("send.output-clear")
     case .inputAudioBufferClear:
@@ -1106,6 +1354,14 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
     if !enabled, shouldFailNextInputDisable {
       shouldFailNextInputDisable = false
       throw FakeRealtimeTransportError.inputTransition
+    }
+    if enabled, shouldCancelNextInputEnable {
+      shouldCancelNextInputEnable = false
+      throw CancellationError()
+    }
+    if !enabled, shouldCancelNextInputDisable {
+      shouldCancelNextInputDisable = false
+      throw CancellationError()
     }
   }
 
@@ -1132,6 +1388,14 @@ private final class FakeRealtimeTransport: RealtimeVoiceTransport {
   func failNextInputDisable() {
     shouldFailNextInputDisable = true
   }
+
+  func cancelNextInputEnable() {
+    shouldCancelNextInputEnable = true
+  }
+
+  func cancelNextInputDisable() {
+    shouldCancelNextInputDisable = true
+  }
 }
 
 private enum FakeRealtimeTransportError: Error {
@@ -1143,8 +1407,16 @@ private final class SessionGates: @unchecked Sendable {
   let credential = GateQueue()
   let transportStart = GateQueue()
   let audioActivation = GateQueue()
+  let audioDeactivation = GateQueue()
+  let audioDeactivationOutcome = AudioDeactivationOutcome()
   let inputEnable = GateQueue()
   let inputDisable = GateQueue()
+}
+
+private actor AudioDeactivationOutcome {
+  private var timedOut = false
+  func setTimedOut() { timedOut = true }
+  func isTimedOut() -> Bool { timedOut }
 }
 
 private actor GateQueue {

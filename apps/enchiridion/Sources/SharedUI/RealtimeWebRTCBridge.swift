@@ -25,6 +25,7 @@ final class RealtimeWebRTCBridge: NSObject {
     case dataChannelState(generation: UInt64, state: String)
     case serverEvent(generation: UInt64, json: String)
     case audioActivity(generation: UInt64, inputLevel: Double, outputLevel: Double)
+    case inputCaptureState(generation: UInt64, state: RealtimeWebRTCInputCaptureState)
     case answerApplied(generation: UInt64)
     #if DEBUG
       case probeResult(
@@ -705,6 +706,14 @@ final class RealtimeWebRTCBridge: NSObject {
       } else {
         parsed = nil
       }
+    case "inputCaptureState":
+      guard let rawState = boundedString(payload["state"], maximum: 16),
+        let state = RealtimeWebRTCInputCaptureState(rawValue: rawState)
+      else {
+        parsed = nil
+        break
+      }
+      parsed = .inputCaptureState(generation: generation, state: state)
     case "answerApplied":
       parsed = payload.isEmpty ? .answerApplied(generation: generation) : nil
     case "error":
@@ -729,6 +738,8 @@ final class RealtimeWebRTCBridge: NSObject {
           inputLevel: inputLevel,
           outputLevel: outputLevel
         ))
+      case let .inputCaptureState(generation, state):
+        yield(.inputCaptureState(generation: generation, state: state))
       case let .answerApplied(generation):
         yield(.answerApplied(generation: generation))
       case let .error(generation, code):

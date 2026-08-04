@@ -70,6 +70,7 @@ public enum AssistantAudioRouteChangeReason: Int, Equatable, Sendable {
 
 public enum AssistantVoiceSafetyEvent: Equatable, Sendable {
   case interruptionBegan
+  case interruptionEnded(shouldResume: Bool)
   case routeChanged(
     reason: AssistantAudioRouteChangeReason,
     previous: AssistantAudioRouteSnapshot?,
@@ -167,8 +168,12 @@ public enum AssistantAudioRouteSafetyClassifier {
 /// Pure mapping used by the iOS notification adapter. AVFoundation raw values
 /// are converted at the boundary and never enter the session.
 public enum AssistantVoiceSafetyNotificationParser {
-  public static func interruption(rawType: UInt) -> AssistantVoiceSafetyEvent? {
-    rawType == 1 ? .interruptionBegan : nil
+  public static func interruption(rawType: UInt, rawOptions: UInt = 0) -> AssistantVoiceSafetyEvent? {
+    switch rawType {
+    case 1: .interruptionBegan
+    case 0: .interruptionEnded(shouldResume: rawOptions & 1 == 1)
+    default: nil
+    }
   }
 
   public static func routeChange(

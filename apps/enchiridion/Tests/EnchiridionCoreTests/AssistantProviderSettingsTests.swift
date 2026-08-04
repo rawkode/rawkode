@@ -559,8 +559,52 @@ final class AssistantProviderSettingsTests: XCTestCase {
     XCTAssertEqual(controller.selectedVoiceProvider, .openAIRealtime)
   }
 
-  func testReverifyPreservesExplicitAppleAndQwenVoiceSelection() async {
-    for selected in [AssistantVoiceProvider.appleOnDevice, .qwenRealtime] {
+  func testLegacyQwenVoiceSelectionDecodesLosslesslyAndIsImmediatelyCanonicalized() throws {
+    let defaults = makeDefaults()
+    let original = AssistantProviderPreferencesPayload(
+      selectedProvider: .openAI,
+      credentialRevision: "revision",
+      credentialFingerprint: "fingerprint",
+      verifiedCatalogVersion: OpenAIModelCatalog.version,
+      verifiedTextModelIDs: ["gpt-5.6-terra"],
+      verifiedRealtimeModelIDs: ["gpt-realtime-2.1"],
+      selectedTextModelID: "gpt-5.6-terra",
+      textConsentVersion: AssistantProviderPreferencesPayload.currentTextConsentVersion,
+      textConsentCredentialRevision: "revision",
+      textConsentCredentialFingerprint: "fingerprint",
+      selectedVoiceProvider: .appleOnDevice,
+      selectedRealtimeModelID: "gpt-realtime-2.1",
+      selectedRealtimeVoiceID: "marin",
+      voiceConsentVersion: 3,
+      voiceConsentCredentialRevision: "voice-revision",
+      voiceConsentCredentialFingerprint: "voice-fingerprint",
+      voiceConsentModelCatalogVersion: OpenAIModelCatalog.version,
+      voiceConsentVoiceCatalogVersion: OpenAIRealtimeVoiceCatalog.version,
+      voiceConsentModelID: "gpt-realtime-2.1",
+      voiceConsentVoiceID: "marin",
+      openAIVoiceActivationMigrationVersion: 1
+    )
+    var json = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any]
+    )
+    json["selectedVoiceProvider"] = "qwenRealtime"
+    defaults.set(
+      try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]),
+      forKey: AssistantProviderPreferencesStore.defaultKey
+    )
+
+    let store = AssistantProviderPreferencesStore(defaults: defaults)
+    var expected = original
+    expected.selectedVoiceProvider = .appleOnDevice
+    XCTAssertEqual(store.storedPayloadForTesting, expected)
+
+    let rewritten = try XCTUnwrap(defaults.data(forKey: AssistantProviderPreferencesStore.defaultKey))
+    let canonical = try XCTUnwrap(JSONSerialization.jsonObject(with: rewritten) as? [String: Any])
+    XCTAssertEqual(canonical["selectedVoiceProvider"] as? String, "appleOnDevice")
+  }
+
+  func testReverifyPreservesExplicitAppleVoiceSelection() async {
+    for selected in [AssistantVoiceProvider.appleOnDevice] {
       let defaults = makeDefaults()
       let preferences = AssistantProviderPreferencesStore(defaults: defaults)
       preferences.selectVoiceProvider(selected, hasSavedCredential: true)
@@ -576,6 +620,33 @@ final class AssistantProviderSettingsTests: XCTestCase {
       XCTAssertTrue(didReverify)
       XCTAssertEqual(controller.selectedVoiceProvider, selected)
     }
+  }
+
+  func testRetiredQwenMigratorPurgesExactCredentialAndAllThreeSelections() throws {
+    let defaults = makeDefaults()
+    for key in RetiredQwenProviderMigrator.defaultsKeys { defaults.set("retired", forKey: key) }
+    let purger = RecordingRetiredProviderPurger()
+    let migrator = RetiredQwenProviderMigrator(defaults: defaults, purger: purger)
+
+    XCTAssertTrue(migrator.migrateIfNeeded())
+    XCTAssertEqual(purger.requests.count, 1)
+    XCTAssertEqual(purger.requests.first?.service, RetiredQwenProviderMigrator.keychainService)
+    XCTAssertEqual(purger.requests.first?.account, RetiredQwenProviderMigrator.keychainAccount)
+    XCTAssertTrue(defaults.bool(forKey: RetiredQwenProviderMigrator.completionKey))
+    XCTAssertTrue(RetiredQwenProviderMigrator.defaultsKeys.allSatisfy { defaults.object(forKey: $0) == nil })
+    XCTAssertFalse(migrator.migrateIfNeeded())
+  }
+
+  func testRetiredQwenMigratorDoesNotMarkFailureSoForegroundCanRetry() throws {
+    let defaults = makeDefaults()
+    let purger = RecordingRetiredProviderPurger(failuresRemaining: 1)
+    let migrator = RetiredQwenProviderMigrator(defaults: defaults, purger: purger)
+
+    XCTAssertFalse(migrator.migrateIfNeeded())
+    XCTAssertFalse(defaults.bool(forKey: RetiredQwenProviderMigrator.completionKey))
+    XCTAssertTrue(migrator.migrateIfNeeded())
+    XCTAssertTrue(defaults.bool(forKey: RetiredQwenProviderMigrator.completionKey))
+    XCTAssertEqual(purger.requests.count, 2)
   }
 
   func testCrashWindowNewKeychainRecordWithOldPreferencesFailsClosed() async {
@@ -1117,5 +1188,21 @@ private actor GatedCredentialValidator: OpenAICredentialValidating {
     guard let index = pending.firstIndex(where: { $0.credential == credential }) else { return }
     let continuation = pending.remove(at: index).continuation
     continuation.resume(with: result)
+  }
+}
+
+private final class RecordingRetiredProviderPurger: RetiredProviderKeychainPurging, @unchecked Sendable {
+  struct Request { let service: String; let account: String }
+  var requests: [Request] = []
+  var failuresRemaining: Int
+
+  init(failuresRemaining: Int = 0) { self.failuresRemaining = failuresRemaining }
+
+  func purge(service: String, account: String) throws {
+    requests.append(.init(service: service, account: account))
+    if failuresRemaining > 0 {
+      failuresRemaining -= 1
+      throw RetiredProviderMigrationError.keychainUnavailable
+    }
   }
 }

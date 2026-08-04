@@ -29,8 +29,6 @@ struct MobileRootView: View {
   private let assistantUnavailableReason: String?
   private let assistantVoicePreferences: AssistantVoicePreferences
   private let assistantProviderSettings: AssistantProviderSettingsController
-  private let qwenProviderSettings: QwenProviderSettingsController
-  private let qwenToolCoordinator: AssistantRealtimeToolCoordinator?
 
   init(
     store: LibraryStore,
@@ -41,9 +39,7 @@ struct MobileRootView: View {
     assistantSession: AssistantConversationSession? = nil,
     assistantUnavailableReason: String? = nil,
     assistantVoicePreferences: AssistantVoicePreferences,
-    assistantProviderSettings: AssistantProviderSettingsController,
-    qwenProviderSettings: QwenProviderSettingsController = QwenProviderSettingsController(),
-    qwenToolCoordinator: AssistantRealtimeToolCoordinator? = nil
+    assistantProviderSettings: AssistantProviderSettingsController
   ) {
     self.store = store
     self.contactsResolver = contactsResolver
@@ -54,8 +50,6 @@ struct MobileRootView: View {
     self.assistantUnavailableReason = assistantUnavailableReason
     self.assistantVoicePreferences = assistantVoicePreferences
     self.assistantProviderSettings = assistantProviderSettings
-    self.qwenProviderSettings = qwenProviderSettings
-    self.qwenToolCoordinator = qwenToolCoordinator
   }
 
   var body: some View {
@@ -75,8 +69,6 @@ struct MobileRootView: View {
         unavailableReason: assistantUnavailableReason,
         presentation: .embedded,
         providerSettings: assistantProviderSettings,
-        qwenProviderSettings: qwenProviderSettings,
-        qwenToolCoordinator: qwenToolCoordinator,
         onOpenProviderSettings: {
           settingsDestination = .assistantProviders
         }
@@ -92,8 +84,7 @@ struct MobileRootView: View {
         selectVault: selectVault,
         workspaceDidChange: workspaceDidChange,
         assistantVoicePreferences: assistantVoicePreferences,
-        assistantProviderSettings: assistantProviderSettings,
-        qwenProviderSettings: qwenProviderSettings
+        assistantProviderSettings: assistantProviderSettings
       )
       .tabItem { Label("Library", systemImage: "books.vertical") }
       .tag(MobileTab.library)
@@ -112,8 +103,7 @@ struct MobileRootView: View {
         switch destination {
         case .assistantProviders:
           AssistantProviderSettingsView(
-            controller: assistantProviderSettings,
-            qwenController: qwenProviderSettings
+            controller: assistantProviderSettings
           )
         }
       }

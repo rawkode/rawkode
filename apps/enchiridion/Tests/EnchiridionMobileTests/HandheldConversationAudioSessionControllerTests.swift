@@ -94,6 +94,47 @@ final class HandheldConversationAudioSessionControllerTests: XCTestCase {
     await second.deactivate()
   }
 
+  func testTimedOutDeactivationRetainsLeaseUntilNativeCompletion() async throws {
+    let firstBackend = ControlledAudioBackend()
+    firstBackend.suspendActivation = false
+    firstBackend.suspendDeactivation = true
+    let secondBackend = ControlledAudioBackend()
+    let first = HandheldConversationAudioSessionController(backend: firstBackend)
+    let second = HandheldConversationAudioSessionController(backend: secondBackend)
+    try await first.activate()
+    let deactivation = Task { await first.deactivateWithResult() }
+    await firstBackend.waitForDeactivation()
+    let result = await deactivation.value
+    XCTAssertEqual(result, .timedOut)
+    do { try await second.activate(); XCTFail("lease must remain tombstoned") } catch {}
+    await firstBackend.resumeDeactivation()
+    await Task.yield()
+    let activation = Task { try await activateWhenLeaseAvailable(second) }
+    await secondBackend.waitForActivation()
+    await secondBackend.resumeActivation()
+    guard case .success = await activation.result else { return XCTFail("lease should release after callback") }
+    await second.deactivate()
+  }
+
+  func testFailedDeactivationLeaseIsReleasedOnlyByReset() async throws {
+    let firstBackend = ControlledAudioBackend()
+    firstBackend.suspendActivation = false
+    firstBackend.failDeactivation = true
+    let first = HandheldConversationAudioSessionController(backend: firstBackend)
+    let secondBackend = ControlledAudioBackend()
+    let second = HandheldConversationAudioSessionController(backend: secondBackend)
+    try await first.activate()
+    let result = await first.deactivateWithResult()
+    XCTAssertEqual(result, .failed)
+    do { try await second.activate(); XCTFail("failed tombstone must retain lease") } catch {}
+    await first.resetAfterMediaServicesReset()
+    let activation = Task { try await activateWhenLeaseAvailable(second) }
+    await secondBackend.waitForActivation()
+    await secondBackend.resumeActivation()
+    guard case .success = await activation.result else { return XCTFail("reset should release failed tombstone") }
+    await second.deactivate()
+  }
+
   func testNonOwnerReleaseAndStaleResetCannotRevokeNewerLease() async throws {
     let coordinator = HandheldConversationAudioLeaseCoordinator()
     let ownerA = UUID()
@@ -155,6 +196,7 @@ private final class ControlledAudioBackend: HandheldConversationAudioSessionBack
   private(set) var legacyActivationWasMain = true
   var suspendActivation = true
   var suspendDeactivation = false
+  var failDeactivation = false
 
   func setCategory(_: AVAudioSession.Category, mode _: AVAudioSession.Mode, options _: AVAudioSession.CategoryOptions) throws {
     calls.append("category"); categoryWasMain = Thread.isMainThread
@@ -168,6 +210,7 @@ private final class ControlledAudioBackend: HandheldConversationAudioSessionBack
     await withCheckedContinuation { activationContinuation = $0 }
   }
   func deactivateConfigured() async throws {
+    if failDeactivation { throw HandheldConversationAudioSessionError.leaseUnavailable }
     guard suspendDeactivation else { return }
     deactivationEntered = true
     await withCheckedContinuation { deactivationContinuation = $0 }

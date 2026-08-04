@@ -237,7 +237,7 @@ public final class AssistantProviderSettingsController {
         binding: binding,
         selectPreferredTextModel: shouldSelectDefaultTextModel,
         // First explicit save is the user's single OpenAI Voice opt-in. A key
-        // replacement and saved-key recheck must never override Apple/Qwen.
+        // replacement and saved-key recheck must never override Apple.
         activateOpenAIVoice: {
           if case .inserted = mutation { return true }
           return false

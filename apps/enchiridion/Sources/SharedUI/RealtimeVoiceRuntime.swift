@@ -48,12 +48,13 @@ final class RealtimeVoiceCoordinator {
     lifecycleState = initialLifecycleState
 
     do {
+      let nativeRuntime = NativeOpenAIRealtimeAudioRuntime()
       let voiceSession = try RealtimeVoiceSession(
         route: route,
         microphone: SystemRealtimeMicrophoneAuthorizer(),
         credentialReader: OpenAICredentialStore(),
-        transport: RealtimeWebRTCVoiceTransport(),
-        audioSession: realtimeAudioSessionController(),
+        transport: nativeRuntime,
+        audioSession: nativeRuntime,
         safetyEvents: realtimeSafetyEventSource(),
         initialLifecycleState: initialLifecycleState
       )

@@ -15,6 +15,7 @@ public enum OpenAIRealtimeVoiceDiagnosticReason: String, Codable, Sendable {
   case cancelled, controlTimedOut, bridgeClosed, bridgeFailure, unavailable
   case microphoneDenied, microphoneRestricted, credentialUnavailable
   case audioActivationFailed, inputEnableFailed, inputDisableFailed
+  case providerErrorOther
   case safetyInterruption, mediaServicesRestarted, webContentProcessTerminated
   case routeMismatch, other
 }

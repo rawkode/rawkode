@@ -45,9 +45,13 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private var operationEpoch: UInt64 = 0
   @ObservationIgnored private var pauseEpoch: UInt64 = 0
   @ObservationIgnored private var activePause: ActivePause?
+  @ObservationIgnored private var pendingPause: ActivePause?
+  @ObservationIgnored private var pendingPauseEpoch: UInt64?
   @ObservationIgnored private var lifecycleState: RealtimeVoiceLifecycleState
   @ObservationIgnored private var activeWaiter: ActiveWaiter?
   @ObservationIgnored private var pendingPausedFailure: RealtimeVoiceFailure?
+  @ObservationIgnored private var resumeEpoch: UInt64 = 0
+  @ObservationIgnored private var resumeInFlight = false
   @ObservationIgnored private var startedAt: Date?
   @ObservationIgnored private var eventTask: Task<Void, Never>?
   @ObservationIgnored private var activityTask: Task<Void, Never>?
@@ -121,8 +125,6 @@ public final class RealtimeVoiceSession {
       // Do not serialize these from deinit: a suspended bridge command must
       // not prevent close or audio deactivation from being initiated.
       Task { @MainActor in try? await transport.setInputEnabled(false) }
-      Task { @MainActor in try? await transport.send(.responseCancel(responseID: nil)) }
-      Task { @MainActor in try? await transport.send(.outputAudioBufferClear) }
       Task { @MainActor in await transport.close() }
       if shouldDeactivateAudio {
         Task { await audioSession.deactivate() }
@@ -321,7 +323,10 @@ public final class RealtimeVoiceSession {
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
-      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
+      guard case .succeeded = await confirmInputTransition(
+        true,
+        context: .unpaused(generation: currentGeneration, operation: currentOperation, attempt: diagnosticAttemptToken)
+      ) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -400,7 +405,7 @@ public final class RealtimeVoiceSession {
   }
 
   public func setMuted(_ isMuted: Bool) async {
-    guard isActive, !isStopping, activePause == nil else { return }
+    guard isActive, !isStopping, activePause == nil, pendingPause == nil else { return }
     if isMuted {
       switch state.phase {
       case .listening, .userSpeaking, .responding, .assistantSpeaking:
@@ -415,7 +420,10 @@ public final class RealtimeVoiceSession {
     operationEpoch &+= 1
     let currentOperation = operationEpoch
     if isMuted {
-      guard case .succeeded = await confirmInputTransition(false, generation: currentGeneration) else {
+      guard case .succeeded = await confirmInputTransition(
+        false,
+        context: .unpaused(generation: currentGeneration, operation: currentOperation, attempt: diagnosticAttemptToken)
+      ) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -443,7 +451,10 @@ public final class RealtimeVoiceSession {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       setPhase(.muted)
     } else {
-      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
+      guard case .succeeded = await confirmInputTransition(
+        true,
+        context: .unpaused(generation: currentGeneration, operation: currentOperation, attempt: diagnosticAttemptToken)
+      ) else {
         guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
         await terminalFailure(
           RealtimeVoiceFailure(
@@ -476,6 +487,17 @@ public final class RealtimeVoiceSession {
     switch event {
     case .interruptionBegan:
       reason = .interruption
+    case .interruptionEnded:
+      // Advisory only. Resume remains an explicit user action bound to the
+      // matching pause epoch; never re-enable the microphone automatically.
+      guard (pendingPause ?? activePause)?.reason == .interruption else {
+        diagnostics.record(.init(stage: .safety, outcome: .stale, generation: generation,
+                                 attemptToken: diagnosticAttemptToken, reason: .safetyInterruption))
+        return
+      }
+      diagnostics.record(.init(stage: .safety, outcome: .succeeded, generation: generation,
+                               attemptToken: diagnosticAttemptToken, reason: .safetyInterruption))
+      return
     case .routeChanged(let changeReason, let previous, let current):
       reason = AssistantAudioRouteSafetyClassifier.pauseReason(
         reason: changeReason,
@@ -543,8 +565,16 @@ public final class RealtimeVoiceSession {
     guard let pause = activePause,
       case .paused = state.phase,
       transportStartedGeneration == generation,
-      !isStopping
+      !isStopping,
+      pendingPause == nil,
+      !resumeInFlight
     else { return }
+    resumeInFlight = true
+    resumeEpoch &+= 1
+    let claimedResumeEpoch = resumeEpoch
+    defer {
+      if resumeEpoch == claimedResumeEpoch { resumeInFlight = false }
+    }
     let currentGeneration = generation
     operationEpoch &+= 1
     let currentOperation = operationEpoch
@@ -556,21 +586,37 @@ public final class RealtimeVoiceSession {
     }
     do {
       try await audioSession.activate()
-      guard isPauseResumeCurrent(
+      guard isResumeCurrent(
         generation: currentGeneration,
         operation: currentOperation,
-        pauseEpoch: pause.epoch
+        pauseEpoch: pause.epoch,
+        resumeEpoch: claimedResumeEpoch
       ) else {
         await performBoundedTeardown { await self.audioSession.deactivate() }
         return
       }
       audioOwnerGeneration = currentGeneration
-      guard case .succeeded = await confirmInputTransition(true, generation: currentGeneration) else {
-        guard isPauseResumeCurrent(
+      guard case .succeeded = await confirmInputTransition(
+        true,
+        context: .resume(
           generation: currentGeneration,
           operation: currentOperation,
-          pauseEpoch: pause.epoch
-        ) else { return }
+          attempt: diagnosticAttemptToken,
+          pauseEpoch: pause.epoch,
+          resumeEpoch: claimedResumeEpoch
+        )
+      ) else {
+        guard isResumeCurrent(
+          generation: currentGeneration,
+          operation: currentOperation,
+          pauseEpoch: pause.epoch,
+          resumeEpoch: claimedResumeEpoch
+        ) else {
+          await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+          await releaseAudioLeaseIfOwned(generation: currentGeneration)
+          return
+        }
+        await releaseAudioLeaseIfOwned(generation: currentGeneration)
         await terminalFailure(
           RealtimeVoiceFailure(
             code: "input_enable_failed",
@@ -580,22 +626,24 @@ public final class RealtimeVoiceSession {
         )
         return
       }
-      guard isPauseResumeCurrent(
+      guard isResumeCurrent(
         generation: currentGeneration,
         operation: currentOperation,
-        pauseEpoch: pause.epoch
+        pauseEpoch: pause.epoch,
+        resumeEpoch: claimedResumeEpoch
       ) else {
         await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
-        await performBoundedTeardown { await self.audioSession.deactivate() }
+        await releaseAudioLeaseIfOwned(generation: currentGeneration)
         return
       }
       activePause = nil
       setPhase(.listening)
     } catch {
-      guard isPauseResumeCurrent(
+      guard isResumeCurrent(
         generation: currentGeneration,
         operation: currentOperation,
-        pauseEpoch: pause.epoch
+        pauseEpoch: pause.epoch,
+        resumeEpoch: claimedResumeEpoch
       ) else { return }
       await terminalFailure(
         RealtimeVoiceFailure(
@@ -614,13 +662,13 @@ public final class RealtimeVoiceSession {
     for await event in stream {
       guard isSessionCurrent(currentGeneration), !Task.isCancelled else { return }
       let effects = reducer.reduce(event)
-      synchronizeReducerState()
-      if activePause != nil {
+      if pendingPauseEpoch != nil || pendingPause != nil || activePause != nil {
         if case .terminate(let failure) = effects.first {
-          pendingPausedFailure = failure
+          if pendingPausedFailure == nil { pendingPausedFailure = failure }
         }
         continue
       }
+      synchronizeReducerState()
       for effect in effects {
         guard isSessionCurrent(currentGeneration) else { return }
         switch effect {
@@ -683,16 +731,36 @@ public final class RealtimeVoiceSession {
   }
 
   private func pause(for reason: AssistantVoicePauseReason) async {
-    guard !isStopping else { return }
+    guard !isStopping, activePause == nil, pendingPauseEpoch == nil else {
+      diagnostics.record(.init(stage: .safety, outcome: .stale, generation: generation,
+                               attemptToken: diagnosticAttemptToken, reason: .safetyInterruption))
+      return
+    }
     let currentGeneration = generation
     operationEpoch &+= 1
     let currentOperation = operationEpoch
     pauseEpoch &+= 1
     let pause = ActivePause(epoch: pauseEpoch, reason: reason)
+    let responseID = state.activeResponseID
+    let wasAudible = responseID.map { respondingResponseID == $0 } ?? false
+    pendingPauseEpoch = pause.epoch
+    pendingPause = pause
+    defer {
+      if pendingPauseEpoch == pause.epoch { pendingPauseEpoch = nil }
+      if pendingPause?.epoch == pause.epoch { pendingPause = nil }
+    }
 
     // Do not expose a resumable pause until the microphone track is confirmed
     // disabled. A safety pause with uncertain input state is terminal.
-    guard case .succeeded = await confirmInputTransition(false, generation: currentGeneration) else {
+    guard case .succeeded = await confirmInputTransition(
+      false,
+      context: .pauseDisable(
+        generation: currentGeneration,
+        operation: currentOperation,
+        attempt: diagnosticAttemptToken,
+        pauseEpoch: pause.epoch
+      )
+    ) else {
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else { return }
       await terminalFailure(
         RealtimeVoiceFailure(
@@ -708,34 +776,67 @@ public final class RealtimeVoiceSession {
       // cannot create a resumable state before input disable confirmation.
       return
     }
+    if let responseID {
+      // The response can complete while the bridge confirms input disable.
+      // Never cancel or finalize a stale response snapshot.
+      guard isPauseCurrent(generation: currentGeneration, operation: currentOperation, pauseEpoch: pause.epoch),
+            state.activeResponseID == responseID else {
+        let released = await deactivateAudioAfterPauseIfOwned(
+          generation: currentGeneration, operation: currentOperation, pauseEpoch: pause.epoch
+        )
+        if !released {
+          pendingPause = nil
+          await terminalFailure(RealtimeVoiceFailure(code: "audio_deactivate_timed_out", message: "Could not safely pause OpenAI Voice audio."), generation: currentGeneration)
+        }
+        return
+      }
+      await performBoundedTeardown {
+        try? await self.transport.send(.responseCancel(responseID: responseID))
+      }
+      if wasAudible {
+        guard isPauseCurrent(generation: currentGeneration, operation: currentOperation, pauseEpoch: pause.epoch),
+              state.activeResponseID == responseID else { return }
+        await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
+      }
+    }
+    guard isPauseCurrent(
+      generation: currentGeneration,
+      operation: currentOperation,
+      pauseEpoch: pause.epoch
+    ) else { return }
+    if let responseID, state.activeResponseID == responseID {
+      reducer.finishActiveResponse(as: .cancelled)
+      synchronizeReducerState()
+    }
+    let released = await deactivateAudioAfterPauseIfOwned(
+      generation: currentGeneration, operation: currentOperation, pauseEpoch: pause.epoch
+    )
+    if !released {
+      pendingPause = nil
+      await terminalFailure(RealtimeVoiceFailure(code: "audio_deactivate_timed_out", message: "Could not safely pause OpenAI Voice audio."), generation: currentGeneration)
+      return
+    }
+    guard isPauseCurrent(generation: currentGeneration, operation: currentOperation, pauseEpoch: pause.epoch) else { return }
+    if let deferred = pendingPausedFailure {
+      pendingPause = nil
+      pendingPausedFailure = nil
+      await terminalFailure(deferred, generation: currentGeneration)
+      return
+    }
+    pendingPause = nil
     activePause = pause
     setPhase(.paused(reason))
+  }
 
-    await performBoundedTeardown {
-      try? await self.transport.send(.responseCancel(responseID: self.state.activeResponseID))
-    }
-    guard isPauseCurrent(
-      generation: currentGeneration,
-      operation: currentOperation,
-      pauseEpoch: pause.epoch
-    ) else { return }
-    await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
-    guard isPauseCurrent(
-      generation: currentGeneration,
-      operation: currentOperation,
-      pauseEpoch: pause.epoch
-    ) else { return }
-    reducer.finishActiveResponse(as: .cancelled)
-    synchronizeReducerState()
-    if audioOwnerGeneration == currentGeneration {
-      await performBoundedTeardown { await self.audioSession.deactivate() }
-      guard isPauseCurrent(
-        generation: currentGeneration,
-        operation: currentOperation,
-        pauseEpoch: pause.epoch
-      ) else { return }
-      audioOwnerGeneration = nil
-    }
+  private func deactivateAudioAfterPauseIfOwned(
+    generation: UInt64, operation: UInt64, pauseEpoch: UInt64
+  ) async -> Bool {
+    guard audioOwnerGeneration == generation else { return true }
+    let result = await audioSession.deactivateWithResult()
+    guard result == .completed || result == .reset else { return false }
+    guard isPauseCurrent(generation: generation, operation: operation, pauseEpoch: pauseEpoch) else { return false }
+    audioOwnerGeneration = nil
+    return true
   }
 
   private func fail(
@@ -743,7 +844,7 @@ public final class RealtimeVoiceSession {
     generation currentGeneration: UInt64
   ) async {
     guard isSessionCurrent(currentGeneration), receipt == nil else { return }
-    if activePause != nil {
+    if activePause != nil || pendingPause != nil {
       pendingPausedFailure = failure
       return
     }
@@ -766,7 +867,9 @@ public final class RealtimeVoiceSession {
       ))
     }
     activePause = nil
+    pendingPause = nil
     pendingPausedFailure = nil
+    resumeInFlight = false
     reducer.markLocalFailure(failure)
     synchronizeReducerState()
     await finish(completion: .failed, failure: failure)
@@ -775,14 +878,11 @@ public final class RealtimeVoiceSession {
   /// The transport owns the eight-second bridge-control deadline. The 250ms
   /// deadline remains teardown-only; it must not reject a valid control ack.
   private func confirmInputTransition(
-    _ enabled: Bool, generation expectedGeneration: UInt64
+    _ enabled: Bool, context: RealtimeVoiceInputTransitionContext
   ) async -> RealtimeVoiceInputTransitionResult {
-    let expectedOperation = operationEpoch
-    let expectedAttempt = diagnosticAttemptToken
-    func isCurrent() -> Bool {
-      isOperationCurrent(expectedGeneration, operation: expectedOperation)
-        && diagnosticAttemptToken == expectedAttempt
-    }
+    let expectedGeneration = context.generation
+    let expectedAttempt = context.attempt
+    func isCurrent() -> Bool { isInputTransitionCurrent(context) }
     guard isCurrent() else { return .cancelled }
     diagnostics.record(.init(stage: .input, outcome: .started, generation: expectedGeneration,
                              attemptToken: diagnosticAttemptToken,
@@ -796,10 +896,10 @@ public final class RealtimeVoiceSession {
       return .succeeded
     } catch is CancellationError {
       guard isCurrent() else { return .cancelled }
-      diagnostics.record(.init(stage: .input, outcome: .cancelled, generation: expectedGeneration,
-                               attemptToken: diagnosticAttemptToken, reason: .cancelled,
+      diagnostics.record(.init(stage: .input, outcome: .failed, generation: expectedGeneration,
+                               attemptToken: expectedAttempt, reason: .bridgeFailure,
                                inputDirection: enabled ? .enable : .disable))
-      return .cancelled
+      return .bridgeClosed
     } catch let error as RealtimeVoiceTransportError {
       guard isCurrent() else { return .cancelled }
       let reason: OpenAIRealtimeVoiceDiagnosticReason = switch error {
@@ -821,6 +921,12 @@ public final class RealtimeVoiceSession {
                                inputDirection: enabled ? .enable : .disable))
       return .other
     }
+  }
+
+  private func releaseAudioLeaseIfOwned(generation expectedGeneration: UInt64) async {
+    guard audioOwnerGeneration == expectedGeneration else { return }
+    await performBoundedTeardown { await self.audioSession.deactivate() }
+    if audioOwnerGeneration == expectedGeneration { audioOwnerGeneration = nil }
   }
 
   /// Begins a teardown operation but never waits indefinitely for it. The
@@ -857,6 +963,8 @@ public final class RealtimeVoiceSession {
     }
     guard receipt == nil, !isStopping else { return }
     let finishingGeneration = generation
+    let responseID = state.activeResponseID
+    let wasAudible = responseID.map { respondingResponseID == $0 } ?? false
     isStopping = true
     generation &+= 1
     operationEpoch &+= 1
@@ -867,6 +975,8 @@ public final class RealtimeVoiceSession {
     transportStartedGeneration = nil
     audioOwnerGeneration = nil
     activePause = nil
+    pendingPause = nil
+    pendingPauseEpoch = nil
     resumeActiveWaiterIfNeeded()
     pendingPausedFailure = nil
     respondingResponseID = nil
@@ -885,10 +995,12 @@ public final class RealtimeVoiceSession {
       await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
     }
     if startedTransport {
-      await performBoundedTeardown {
-        try? await self.transport.send(.responseCancel(responseID: self.state.activeResponseID))
+      if let responseID {
+        await performBoundedTeardown { try? await self.transport.send(.responseCancel(responseID: responseID)) }
+        if wasAudible {
+          await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
+        }
       }
-      await performBoundedTeardown { try? await self.transport.send(.outputAudioBufferClear) }
     }
     reducer.finishActiveResponse(as: completion == .failed ? .failed : .cancelled)
     synchronizeReducerState()
@@ -929,6 +1041,7 @@ public final class RealtimeVoiceSession {
     case "audio_activate_failed", "audio_resume_failed": .audioActivationFailed
     case "input_enable_failed": .inputEnableFailed
     case "input_disable_failed": .inputDisableFailed
+    case "provider_error_other": .providerErrorOther
     case "route_mismatch": .routeMismatch
     case "transport_web_content_process_terminated": .webContentProcessTerminated
     default: .other
@@ -1190,7 +1303,7 @@ public final class RealtimeVoiceSession {
   ) -> Bool {
     isSessionCurrent(expectedGeneration)
       && expectedOperation == operationEpoch
-      && activePause?.epoch == expectedPauseEpoch
+      && (activePause?.epoch == expectedPauseEpoch || pendingPause?.epoch == expectedPauseEpoch)
   }
 
   private func isPauseResumeCurrent(
@@ -1205,6 +1318,88 @@ public final class RealtimeVoiceSession {
     )
   }
 
+  private func isResumeCurrent(
+    generation expectedGeneration: UInt64,
+    operation expectedOperation: UInt64,
+    pauseEpoch expectedPauseEpoch: UInt64,
+    resumeEpoch expectedResumeEpoch: UInt64
+  ) -> Bool {
+    !Task.isCancelled
+      && isSessionCurrent(expectedGeneration)
+      && expectedOperation == operationEpoch
+      && activePause?.epoch == expectedPauseEpoch
+      && pendingPause == nil
+      && resumeInFlight
+      && resumeEpoch == expectedResumeEpoch
+  }
+
+  private func isInputTransitionCurrent(_ context: RealtimeVoiceInputTransitionContext) -> Bool {
+    guard !Task.isCancelled,
+      isSessionCurrent(context.generation),
+      context.operation == operationEpoch,
+      diagnosticAttemptToken == context.attempt
+    else { return false }
+
+    switch context {
+    case .unpaused:
+      return activePause == nil && pendingPause == nil
+    case .pauseDisable(_, _, _, let pauseEpoch):
+      return activePause == nil
+        && pendingPause?.epoch == pauseEpoch
+        && pendingPauseEpoch == pauseEpoch
+    case .resume(_, _, _, let pauseEpoch, let resumeEpoch):
+      return activePause?.epoch == pauseEpoch
+        && pendingPause == nil
+        && resumeInFlight
+        && self.resumeEpoch == resumeEpoch
+    }
+  }
+
+}
+
+private enum RealtimeVoiceInputTransitionContext: Sendable {
+  case unpaused(
+    generation: UInt64,
+    operation: UInt64,
+    attempt: OpenAIRealtimeVoiceAttemptToken?
+  )
+  case pauseDisable(
+    generation: UInt64,
+    operation: UInt64,
+    attempt: OpenAIRealtimeVoiceAttemptToken?,
+    pauseEpoch: UInt64
+  )
+  case resume(
+    generation: UInt64,
+    operation: UInt64,
+    attempt: OpenAIRealtimeVoiceAttemptToken?,
+    pauseEpoch: UInt64,
+    resumeEpoch: UInt64
+  )
+
+  var generation: UInt64 {
+    switch self {
+    case .unpaused(let generation, _, _),
+      .pauseDisable(let generation, _, _, _),
+      .resume(let generation, _, _, _, _): generation
+    }
+  }
+
+  var operation: UInt64 {
+    switch self {
+    case .unpaused(_, let operation, _),
+      .pauseDisable(_, let operation, _, _),
+      .resume(_, let operation, _, _, _): operation
+    }
+  }
+
+  var attempt: OpenAIRealtimeVoiceAttemptToken? {
+    switch self {
+    case .unpaused(_, _, let attempt),
+      .pauseDisable(_, _, let attempt, _),
+      .resume(_, _, let attempt, _, _): attempt
+    }
+  }
 }
 
 private enum RealtimeVoiceInputTransitionResult: Equatable, Sendable {

@@ -16,25 +16,6 @@ final class AssistantToolAuthorizationTests: XCTestCase {
     XCTAssertEqual(neutral.facts, openAI.facts)
   }
 
-  func testLedgerRejectsForgedStaleAndReplayedCallsAndGatesFollowUps() async throws {
-    let ledger = QwenVoiceAuthorizationLedger()
-    let auth = AssistantTurnRetrievalAuthorization.none
-    let turn = RealtimeInputTurnID(rawValue: "turn")
-    let call = AssistantToolCallID(rawValue: "call")
-    await ledger.beginGeneration(7)
-    try await ledger.finalizeTranscript(generation: 7, turnID: turn, authorization: auth)
-    await XCTAssertThrowsErrorAsync(try await ledger.authorization(generation: 7, responseID: "forged", callID: call)) { XCTAssertEqual($0 as? QwenVoiceAuthorizationLedger.Failure, .unboundResponse) }
-    try await ledger.bindInputItem(generation: 7, itemID: "item", to: turn)
-    try await ledger.bindResponse(generation: 7, responseID: "response", forItem: "item")
-    let granted = try await ledger.authorization(generation: 7, responseID: "response", callID: call)
-    XCTAssertEqual(granted, auth)
-    await XCTAssertThrowsErrorAsync(try await ledger.authorization(generation: 7, responseID: "response", callID: call)) { XCTAssertEqual($0 as? QwenVoiceAuthorizationLedger.Failure, .duplicateCall) }
-    await XCTAssertThrowsErrorAsync(try await ledger.bindFollowUpResponse(generation: 7, responseID: "next", after: "response")) { XCTAssertEqual($0 as? QwenVoiceAuthorizationLedger.Failure, .responseNotReady) }
-    try await ledger.recordTerminalOutput(generation: 7, responseID: "response", callID: call)
-    try await ledger.bindFollowUpResponse(generation: 7, responseID: "next", after: "response")
-    await XCTAssertThrowsErrorAsync(try await ledger.authorization(generation: 8, responseID: "next", callID: .init(rawValue: "stale"))) { XCTAssertEqual($0 as? QwenVoiceAuthorizationLedger.Failure, .staleGeneration) }
-  }
-
   func testProposalConfirmationIsOneShotAndArgumentsStayImmutable() async throws {
     let ledger = AssistantTaskMutationProposalLedger()
     let call = AssistantToolCallID(rawValue: "create")
@@ -96,14 +77,6 @@ final class AssistantToolAuthorizationTests: XCTestCase {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("enchiridion-neutral-tools-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return try LibraryRepository(path: directory.appendingPathComponent("library.sqlite").path)
-  }
-
-  private func XCTAssertThrowsErrorAsync<T>(
-    _ expression: @autoclosure () async throws -> T,
-    _ handler: (Error) -> Void
-  ) async {
-    do { _ = try await expression(); XCTFail("Expected an error") }
-    catch { handler(error) }
   }
 
   private func unwrapSuccess<Value>(

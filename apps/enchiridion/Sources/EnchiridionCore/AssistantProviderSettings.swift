@@ -19,13 +19,11 @@ public enum AssistantProvider: String, Codable, CaseIterable, Sendable {
 public enum AssistantVoiceProvider: String, Codable, CaseIterable, Sendable {
   case appleOnDevice
   case openAIRealtime
-  case qwenRealtime
 
   public var title: String {
     switch self {
     case .appleOnDevice: "Apple On Device"
     case .openAIRealtime: "OpenAI Realtime"
-    case .qwenRealtime: "Qwen Audio Realtime"
     }
   }
 }
@@ -370,8 +368,8 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
   public var voiceConsentModelID: String?
   public var voiceConsentVoiceID: String?
   /// One-shot migration marker. This is intentionally independent from the
-  /// credential binding: it prevents an app update from overriding Apple or
-  /// Qwen after the user has selected either provider.
+  /// credential binding: it prevents an app update from overriding an
+  /// explicitly selected voice provider.
   public var openAIVoiceActivationMigrationVersion: Int?
 
   public init(
@@ -471,9 +469,17 @@ public struct AssistantProviderPreferencesPayload: Codable, Equatable, Sendable 
       String.self, forKey: .textConsentCredentialRevision)
     textConsentCredentialFingerprint = try container.decodeIfPresent(
       String.self, forKey: .textConsentCredentialFingerprint)
-    selectedVoiceProvider =
-      try container.decodeIfPresent(AssistantVoiceProvider.self, forKey: .selectedVoiceProvider)
-      ?? .appleOnDevice
+    // Decode this discriminator as a raw string so removing a retired voice
+    // provider never makes an otherwise valid v3 payload undecodable. The
+    // migration is intentionally exact: only the historical Qwen selection
+    // becomes Apple; all other v3 fields are decoded unchanged and the store's
+    // normal load reconciliation immediately writes canonical JSON back.
+    let rawVoiceProvider = try container.decodeIfPresent(String.self, forKey: .selectedVoiceProvider)
+    selectedVoiceProvider = switch rawVoiceProvider {
+    case "qwenRealtime": .appleOnDevice
+    case let raw?: AssistantVoiceProvider(rawValue: raw) ?? .appleOnDevice
+    case nil: .appleOnDevice
+    }
     selectedRealtimeModelID = try container.decodeIfPresent(
       String.self, forKey: .selectedRealtimeModelID)
     selectedRealtimeVoiceID = container.contains(.selectedRealtimeVoiceID)
@@ -637,10 +643,6 @@ public final class AssistantProviderPreferencesStore {
         && wasVerifiedForCurrentCatalog
         && hasValidSelectedRealtimeModel
         && hasValidSelectedRealtimeVoice
-    case .qwenRealtime:
-      // Qwen is independently configured and validated. Runtime checks its
-      // frozen route and fails closed if it becomes unavailable.
-      true
     }
   }
 
@@ -974,8 +976,8 @@ public final class AssistantProviderPreferencesStore {
     persist()
   }
 
-  /// Migrates only the old OpenAI selection. Apple and Qwen are explicit
-  /// choices and are never changed by a catalog/app update.
+  /// Migrates only an existing OpenAI selection. An explicit Apple selection
+  /// is never changed by a catalog or app update.
   private func migrateVerifiedOpenAIVoiceSelectionIfNeeded() {
     guard payload.openAIVoiceActivationMigrationVersion
       != AssistantProviderPreferencesPayload.currentOpenAIVoiceActivationMigrationVersion,

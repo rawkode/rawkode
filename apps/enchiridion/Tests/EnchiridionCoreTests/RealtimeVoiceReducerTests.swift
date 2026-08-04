@@ -315,6 +315,35 @@ final class RealtimeVoiceReducerTests: XCTestCase {
     )
   }
 
+  func testResponseDoneWaitsForTransportPlaybackDrain() {
+    var reducer = RealtimeVoiceReducer(configuration: try! RealtimeVoiceConfiguration(route: route()))
+    _ = reducer.reduce(event("created", .responseCreated(.init(responseID: "response-1"))))
+    _ = reducer.reduce(event("playing", .playbackStarted(responseID: "response-1")))
+    _ = reducer.reduce(event("done", .responseDone(.init(responseID: "response-1", status: .completed))))
+
+    XCTAssertEqual(reducer.state.phase, .assistantSpeaking)
+    _ = reducer.reduce(event("drained", .playbackDrained(responseID: "response-1")))
+    XCTAssertEqual(reducer.state.phase, .listening)
+  }
+
+  func testPlaybackDrainBeforeProviderDoneDoesNotPrematurelyReturnToListening() {
+    var reducer = RealtimeVoiceReducer(configuration: try! RealtimeVoiceConfiguration(route: route()))
+    _ = reducer.reduce(event("created", .responseCreated(.init(responseID: "response-1"))))
+    _ = reducer.reduce(event("playing", .playbackStarted(responseID: "response-1")))
+    _ = reducer.reduce(event("drained", .playbackDrained(responseID: "response-1")))
+    XCTAssertEqual(reducer.state.phase, .assistantSpeaking)
+    _ = reducer.reduce(event("done", .responseDone(.init(responseID: "response-1", status: .completed))))
+    XCTAssertEqual(reducer.state.phase, .listening)
+  }
+
+  func testCompletedResponseWithoutPlaybackReturnsToListening() {
+    var reducer = RealtimeVoiceReducer(configuration: try! RealtimeVoiceConfiguration(route: route()))
+    _ = reducer.reduce(event("created", .responseCreated(.init(responseID: "response-1"))))
+    _ = reducer.reduce(event("done", .responseDone(.init(responseID: "response-1", status: .completed))))
+
+    XCTAssertEqual(reducer.state.phase, .listening)
+  }
+
   private func route() -> RealtimeVoiceRouteSnapshot {
     try! makeAuthorizedRealtimeVoiceRoute(
       binding: OpenAICredentialBinding(revision: "revision-1", fingerprint: "fp-1")

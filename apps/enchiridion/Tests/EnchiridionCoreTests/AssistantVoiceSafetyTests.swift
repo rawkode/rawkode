@@ -72,8 +72,15 @@ final class AssistantVoiceSafetyTests: XCTestCase {
     }
   }
 
-  func testNotificationParserIgnoresInterruptionEndAndMapsPrimitivePayloads() {
-    XCTAssertNil(AssistantVoiceSafetyNotificationParser.interruption(rawType: 0))
+  func testNotificationParserMapsTypedInterruptionBeginEndAndResumeOption() {
+    XCTAssertEqual(
+      AssistantVoiceSafetyNotificationParser.interruption(rawType: 0),
+      .interruptionEnded(shouldResume: false)
+    )
+    XCTAssertEqual(
+      AssistantVoiceSafetyNotificationParser.interruption(rawType: 0, rawOptions: 1),
+      .interruptionEnded(shouldResume: true)
+    )
     XCTAssertEqual(
       AssistantVoiceSafetyNotificationParser.interruption(rawType: 1),
       .interruptionBegan

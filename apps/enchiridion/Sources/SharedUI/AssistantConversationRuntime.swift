@@ -8,6 +8,21 @@ import Foundation
     case leaseUnavailable
   }
 
+  private actor HandheldDeactivationResultGate {
+    private var result: RealtimeAudioSessionDeactivationResult?
+    private var waiter: CheckedContinuation<RealtimeAudioSessionDeactivationResult, Never>?
+    func resolve(_ candidate: RealtimeAudioSessionDeactivationResult) {
+      guard result == nil else { return }
+      result = candidate
+      let waiter = waiter; self.waiter = nil
+      waiter?.resume(returning: candidate)
+    }
+    func wait() async -> RealtimeAudioSessionDeactivationResult {
+      if let result { return result }
+      return await withCheckedContinuation { waiter = $0 }
+    }
+  }
+
   /// Process-wide ownership is deliberately separate from each controller's
   /// lifecycle. A controller can release only its own opaque lease.
   actor HandheldConversationAudioLeaseCoordinator {
@@ -114,12 +129,13 @@ import Foundation
     private var lifecycle = AssistantAudioSessionLifecycleState()
     private let ownerID = UUID()
     private var leaseGeneration: UInt64?
-    private enum Phase: Equatable { case idle, activating, active, deactivating }
+    private enum Phase: Equatable { case idle, activating, active, deactivating, deactivationFailed }
     private var phase: Phase = .idle
     private let operationQueue = DispatchQueue(
       label: "dev.rawkode.enchiridion.audio-session", qos: .userInitiated
     )
     private var operationGeneration: UInt64 = 0
+    private static let deactivationDeadline: Duration = .milliseconds(250)
     private let forceLegacyActivationForTesting: Bool
 
     var isActiveForTesting: Bool { lifecycle.isActive }
@@ -189,10 +205,41 @@ import Foundation
     }
 
     func deactivate() async {
-      guard phase == .active else { return }
+      _ = await deactivateWithResult()
+    }
+
+    func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult {
+      guard phase == .active else { return .completed }
       phase = .deactivating
       operationGeneration &+= 1
-      try? await backend.deactivateConfigured()
+      let completionGeneration = operationGeneration
+      let backend = backend
+      // This task deliberately outlives the bounded caller wait. It owns the
+      // global lease tombstone until the native callback actually completes.
+      let gate = HandheldDeactivationResultGate()
+      Task { @MainActor [weak self] in
+        do {
+          try await backend.deactivateConfigured()
+          await self?.completeDeactivation(generation: completionGeneration)
+          await gate.resolve(.completed)
+        } catch {
+          // Retain the tombstone/lease: only reset may authoritatively revoke
+          // a failed physical deactivation.
+          self?.phase = .deactivationFailed
+          await gate.resolve(.failed)
+        }
+      }
+      let timeout = Task {
+          try? await Task.sleep(for: Self.deactivationDeadline)
+          await gate.resolve(.timedOut)
+      }
+      let result = await gate.wait()
+      timeout.cancel()
+      return result
+    }
+
+    private func completeDeactivation(generation completionGeneration: UInt64) async {
+      guard phase == .deactivating, completionGeneration <= operationGeneration else { return }
       lifecycle.didDeactivate()
       if let leaseGeneration {
         await HandheldConversationAudioLeaseCoordinator.shared.release(ownerID, generation: leaseGeneration)
@@ -263,6 +310,23 @@ import Foundation
   final class HandheldConversationAudioEventSource:
     AssistantVoiceSafetyEventSource, @unchecked Sendable
   {
+    private final class InterruptionCoalescer: @unchecked Sendable {
+      private let lock = NSLock()
+      private var isOpen = false
+      func consume(_ event: AssistantVoiceSafetyEvent) -> AssistantVoiceSafetyEvent? {
+        lock.lock(); defer { lock.unlock() }
+        switch event {
+        case .interruptionBegan where !isOpen:
+          isOpen = true; return event
+        case .interruptionEnded where isOpen:
+          isOpen = false; return event
+        case .interruptionBegan, .interruptionEnded:
+          return nil
+        default:
+          return event
+        }
+      }
+    }
     private let notificationCenter: NotificationCenter
     private let audioSession: AVAudioSession
 
@@ -277,11 +341,15 @@ import Foundation
     func events() -> AsyncStream<AssistantVoiceSafetyEvent> {
       AsyncStream { continuation in
         let lifetime = NotificationObserverLifetime(notificationCenter: notificationCenter)
+        let interruptionCoalescer = InterruptionCoalescer()
         observe(AVAudioSession.interruptionNotification, lifetime: lifetime) { notification in
           guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-            let event = AssistantVoiceSafetyNotificationParser.interruption(rawType: rawType)
+            let event = AssistantVoiceSafetyNotificationParser.interruption(
+              rawType: rawType,
+              rawOptions: notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            )
           else { return }
-          continuation.yield(event)
+          if let event = interruptionCoalescer.consume(event) { continuation.yield(event) }
         }
         observe(AVAudioSession.routeChangeNotification, lifetime: lifetime) {
           [weak self] notification in

@@ -227,6 +227,25 @@ struct RealtimeCallsRequestSpecTests {
     let script = try #require(html.firstMatch(of: /(?s)<script>(.*?)<\/script>/)?.1)
     let digest = Data(SHA256.hash(data: Data(script.utf8))).base64EncodedString()
     #expect(html.contains("script-src 'sha256-\(digest)'"))
+
+    // Capture recovery is deliberately an invariant-rich bridge operation.
+    // Keep these seams static until a browser-level harness is available.
+    #expect(html.contains("let inputQueue = Promise.resolve()"))
+    #expect(html.contains("const operationEpoch = ++inputEpoch"))
+    #expect(html.contains("inputQueue = operation.catch(() => {})"))
+    #expect(html.contains("if (!message.enabled) {\n        track.enabled = false;\n        return;"))
+    #expect(html.contains("await withInputDeadline(() => navigator.mediaDevices.getUserMedia"))
+    #expect(html.contains("replacementTrack.enabled = false"))
+    #expect(html.contains("senders.length !== 1"))
+    #expect(html.contains("senders[0].replaceTrack(replacementTrack)"))
+    #expect(html.contains("senders[0].track !== replacementTrack"))
+    #expect(html.contains("for (const track of replacementStream.getTracks()) track.stop()"))
+    #expect(html.contains("track.readyState === \"live\""))
+    #expect(html.contains("audioContext.state === \"suspended\""))
+    #expect(html.contains("remoteAudio.srcObject) attachRemoteMeter"))
+    #expect(html.contains("inputCaptureState\", { state: \"recovering\""))
+    #expect(html.contains("inputCaptureState\", { state: \"recovered\""))
+    #expect(html.contains("inputCaptureState\", { state: \"unavailable\""))
   }
 
   @Test
@@ -426,6 +445,13 @@ struct RealtimeCallsRequestSpecTests {
     )
     #expect(policy.acceptsPayload(type: "offer", keys: ["sdp"]))
     #expect(!policy.acceptsPayload(type: "offer", keys: ["sdp", "extra"]))
+    #expect(policy.acceptsPayload(type: "inputCaptureState", keys: ["state"]))
+    #expect(!policy.acceptsPayload(type: "inputCaptureState", keys: []))
+    #expect(!policy.acceptsPayload(type: "inputCaptureState", keys: ["state", "detail"]))
+    #expect(RealtimeWebRTCInputCaptureState(rawValue: "recovering") == .recovering)
+    #expect(RealtimeWebRTCInputCaptureState(rawValue: "recovered") == .recovered)
+    #expect(RealtimeWebRTCInputCaptureState(rawValue: "unavailable") == .unavailable)
+    #expect(RealtimeWebRTCInputCaptureState(rawValue: "arbitrary") == nil)
     #expect(!policy.acceptsPayload(type: "unknown", keys: []))
   }
 

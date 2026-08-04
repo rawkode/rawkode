@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'sha256-4IoK6N4ekdfdBUO2dvf+mOa+92mA8rhp1yERl7qHbfk='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
+    content="default-src 'none'; script-src 'sha256-0UaaoMviBxBcP+9FKX06ZHIrDME2Mre6OlPC6dAuqvs='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
   >
   <meta name="referrer" content="no-referrer">
   <title>Enchiridion Realtime Audio</title>
@@ -30,6 +30,9 @@
   let inputAnalyser = null;
   let outputAnalyser = null;
   let meterTimer = null;
+  let INPUT_RECOVERY_TIMEOUT_MILLISECONDS = 3000;
+  let inputQueue = Promise.resolve();
+  let inputEpoch = 0;
 
   function byteLength(value) {
     return new TextEncoder().encode(value).byteLength;
@@ -72,6 +75,23 @@
       && peer === sessionPeer
       && channel === sessionChannel
       && microphone === sessionStream;
+  }
+
+  function invalidateInputOperations() {
+    inputEpoch += 1;
+    return inputEpoch;
+  }
+
+  function inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, sessionStream) {
+    return inputEpoch === operationEpoch
+      && isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream);
+  }
+
+  function withInputDeadline(operation) {
+    return Promise.race([
+      operation(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("input recovery timed out")), INPUT_RECOVERY_TIMEOUT_MILLISECONDS))
+    ]);
   }
 
   function requireAttemptCurrent(sessionGeneration, sessionEpoch) {
@@ -154,6 +174,7 @@
 
   function invalidateCurrentTransport() {
     transportEpoch += 1;
+    invalidateInputOperations();
     const previousPeer = peer;
     const previousChannel = channel;
     const previousStream = microphone;
@@ -309,24 +330,78 @@
     sessionChannel.send(json);
   }
 
+  function canonicalAudioTrack(stream) {
+    const audioTracks = stream?.getAudioTracks?.() || [];
+    const videoTracks = stream?.getVideoTracks?.() || [];
+    if (audioTracks.length !== 1 || videoTracks.length !== 0) throw new Error("microphone track is invalid");
+    return audioTracks[0];
+  }
+
+  function isHealthyInputTrack(track, stream) {
+    return !!track && stream?.active === true && track.readyState === "live" && track.muted !== true;
+  }
+
+  async function recoverInputTrack(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream, oldTrack) {
+    post(sessionGeneration, "inputCaptureState", { state: "recovering" });
+    let replacementStream = null;
+    try {
+      if (audioContext && audioContext.state === "suspended") {
+        await withInputDeadline(() => audioContext.resume());
+      }
+      replacementStream = await withInputDeadline(() => navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false
+      }));
+      const replacementTrack = canonicalAudioTrack(replacementStream);
+      replacementTrack.enabled = false;
+      if (!inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream)
+        || sessionPeer.connectionState === "closed") throw staleTransportError();
+      const senders = sessionPeer.getSenders().filter((sender) => sender.track === oldTrack && sender.track?.kind === "audio");
+      if (senders.length !== 1) throw new Error("microphone sender is invalid");
+      await withInputDeadline(() => senders[0].replaceTrack(replacementTrack));
+      if (!inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream)
+        || sessionPeer.connectionState === "closed" || senders[0].track !== replacementTrack) throw staleTransportError();
+      microphone = replacementStream;
+      startMetering(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, replacementStream);
+      if (remoteAudio.srcObject) attachRemoteMeter(remoteAudio.srcObject, sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, replacementStream);
+      for (const track of oldStream.getTracks()) track.stop();
+      post(sessionGeneration, "inputCaptureState", { state: "recovered" });
+      return replacementTrack;
+    } catch (error) {
+      if (replacementStream) for (const track of replacementStream.getTracks()) track.stop();
+      if (error?.isStaleTransport === true) throw error;
+      post(sessionGeneration, "inputCaptureState", { state: "unavailable" });
+      throw error;
+    }
+  }
+
   function setInputEnabled(message) {
     const messageGeneration = requireCurrentGeneration(message);
-    const sessionEpoch = transportEpoch;
-    const sessionPeer = peer;
-    const sessionChannel = channel;
-    const sessionStream = microphone;
     if (typeof message.enabled !== "boolean") throw new Error("enabled is invalid");
-    if (!sessionPeer || !sessionChannel || !sessionStream
-      || !isTransportCurrent(messageGeneration, sessionEpoch, sessionPeer, sessionChannel, sessionStream)
-      || sessionPeer.connectionState === "closed") {
-      throw new Error("microphone is unavailable");
-    }
-    const audioTracks = sessionStream.getAudioTracks();
-    const videoTracks = sessionStream.getVideoTracks();
-    if (audioTracks.length !== 1 || videoTracks.length !== 0) {
-      throw new Error("microphone track is invalid");
-    }
-    audioTracks[0].enabled = message.enabled;
+    const operationEpoch = ++inputEpoch;
+    const operation = inputQueue.then(async () => {
+      const sessionEpoch = transportEpoch;
+      const sessionPeer = peer;
+      const sessionChannel = channel;
+      const sessionStream = microphone;
+      if (!sessionPeer || !sessionChannel || !sessionStream
+        || !inputOperationCurrent(messageGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, sessionStream)
+        || sessionPeer.connectionState === "closed") throw new Error("microphone is unavailable");
+      let track = canonicalAudioTrack(sessionStream);
+      if (!message.enabled) {
+        track.enabled = false;
+        return;
+      }
+      if (!isHealthyInputTrack(track, sessionStream)) {
+        track = await recoverInputTrack(messageGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, sessionStream, track);
+      }
+      if (!inputOperationCurrent(messageGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, microphone)
+        || sessionPeer.connectionState === "closed" || !isHealthyInputTrack(track, microphone)) throw staleTransportError();
+      await withInputDeadline(async () => { track.enabled = true; });
+      if (!inputOperationCurrent(messageGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, microphone)
+        || sessionPeer.connectionState === "closed" || track.enabled !== true) throw staleTransportError();
+    });
+    inputQueue = operation.catch(() => {});
+    return operation;
   }
 
   function expose(operation) {

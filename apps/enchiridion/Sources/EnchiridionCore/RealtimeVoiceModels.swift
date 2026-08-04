@@ -104,7 +104,7 @@ public struct RealtimeCredentialLease: @unchecked Sendable {
   /// Gives a native transport temporary access while constructing its exact
   /// Authorization header. The lease never exposes a stored public String and
   /// must not be retained, logged, serialized, or forwarded to web content.
-  func withSecret<Result>(
+  public func withSecret<Result>(
     _ body: (String) throws -> Result
   ) rethrows -> Result {
     try body(credential)
@@ -141,15 +141,29 @@ public protocol RealtimeMicrophoneAuthorizing: Sendable {
 public protocol RealtimeAudioSessionControlling: Sendable {
   func activate() async throws
   func deactivate() async
+  /// Completion is distinct from request initiation: physical AVAudioSession
+  /// release can outlive the caller's bounded teardown wait.
+  func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult
   func resetAfterMediaServicesReset() async
 }
 
+public enum RealtimeAudioSessionDeactivationResult: Equatable, Sendable {
+  case completed
+  case timedOut
+  case failed
+  case reset
+}
+
 public extension RealtimeAudioSessionControlling {
+  func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult {
+    await deactivate()
+    return .completed
+  }
   func resetAfterMediaServicesReset() async {}
 }
 
 public enum RealtimeClientCommand: Equatable, Sendable {
-  case responseCancel(responseID: String?)
+  case responseCancel(responseID: String)
   case outputAudioBufferClear
   case inputAudioBufferClear
 }
@@ -257,6 +271,12 @@ public protocol RealtimeWebRTCBridging: AnyObject {
   func events() -> AsyncStream<RealtimeWebRTCBridgeEvent>
 }
 
+public enum RealtimeWebRTCInputCaptureState: String, Equatable, Sendable {
+  case recovering
+  case recovered
+  case unavailable
+}
+
 public enum RealtimeWebRTCBridgeEvent: Equatable, Sendable {
   case ready
   case offer(generation: UInt64, sdp: String)
@@ -264,6 +284,7 @@ public enum RealtimeWebRTCBridgeEvent: Equatable, Sendable {
   case dataChannelState(generation: UInt64, state: String)
   case serverEvent(generation: UInt64, json: String)
   case audioActivity(generation: UInt64, inputLevel: Double, outputLevel: Double)
+  case inputCaptureState(generation: UInt64, state: RealtimeWebRTCInputCaptureState)
   case answerApplied(generation: UInt64)
   case failure(generation: UInt64, code: String)
 }
@@ -513,6 +534,9 @@ public enum RealtimeServerEventPayload: Equatable, Sendable {
   case outputAudioTranscriptDelta(RealtimeOutputTranscriptDelta)
   case outputAudioTranscriptDone(RealtimeOutputTranscriptDone)
   case responseDone(RealtimeResponseDone)
+  case playbackStarted(responseID: String)
+  case playbackDrained(responseID: String)
+  case playbackInterrupted(responseID: String)
   case rateLimitsUpdated([RealtimeRateLimit])
   case error(RealtimeCorrelatedError)
   case outputAudioBufferCleared

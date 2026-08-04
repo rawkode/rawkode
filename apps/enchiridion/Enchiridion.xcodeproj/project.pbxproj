@@ -20,7 +20,7 @@
 		1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
 		14F2C690C167A84C2CDB743B /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */; };
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
-		1831B142E884131ACA83BBF6 /* QwenRealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */; };
+		165B631D8CAC87979D400EE1 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		1D7D44FED0008DA93CE6631A /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */; };
 		1E8B08844D436F8DA97131F3 /* TodayTasksWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE02C2A91D5E8250D8BADF4 /* TodayTasksWidget.swift */; };
@@ -39,7 +39,6 @@
 		2F5E720733F61532E2731C34 /* PageReferenceTextFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB78B2509F988C674630683 /* PageReferenceTextFormatting.swift */; };
 		2F7BD98BF9B80F87F0217CD8 /* TaskCompletionUndoModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FD1482EC943483B8E9F710 /* TaskCompletionUndoModifier.swift */; };
 		3067F6FDF94E2BEBEB78825D /* EnchiridionMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */; };
-		3138882B395E0301B75F9F87 /* QwenRealtimeVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */; };
 		317D339572EC534C3AF7B209 /* EnchiridionRosePineTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04CADD7E14E6F666B1BC729 /* EnchiridionRosePineTheme.swift */; };
 		32FFA9788E39F5A2F0E99262 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
 		34ACFA0FCB726153AABFC8B1 /* SemanticBrowseText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */; };
@@ -81,7 +80,6 @@
 		68AA474F3E1F28D661B29426 /* DeviceContactsLifecycleModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27D35C9D4DEE0FD68B85047 /* DeviceContactsLifecycleModifier.swift */; };
 		68F18242C1FE152D6D7C6CA3 /* CalendarEventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8891F3408363BE8F0C4DABED /* CalendarEventRow.swift */; };
 		6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */; };
-		6B39853CA97A135A3B673E42 /* QwenRealtimeVoiceSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */; };
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
 		6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */; };
 		6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */; };
@@ -165,6 +163,7 @@
 		C921A645C82312DE86A54D6C /* EditorPersistenceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAD9A3686C50BBA00FAD7EC9 /* EditorPersistenceSession.swift */; };
 		C9CC857D1F28219726E04AAA /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
 		CCA4C3B4D33E63877C0D862D /* VaultManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */; };
+		CCC1E0718BD75FF9B103D146 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */; };
 		CE4D5E7155EB0E73AA144F02 /* PersonNameEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0682E6D3339512E31330A48C /* PersonNameEditor.swift */; };
 		CEAB5177991E19C711C72DF2 /* VaultManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */; };
 		CFB68BE51FFC3002C0B2A439 /* PersonNameEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0682E6D3339512E31330A48C /* PersonNameEditor.swift */; };
@@ -197,7 +196,6 @@
 		E8952D3D68A43758D23E1211 /* WhiteboardDrawingLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A76A1059320AF5A463BCB /* WhiteboardDrawingLayer.swift */; };
 		E89A84E39679A54EE06462E7 /* SupertagPropertiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF130800D16354D0460E0A38 /* SupertagPropertiesView.swift */; };
 		E9508EB961677501422890A2 /* Contacts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9AE19FE9B39E75CC38B2F324 /* Contacts.framework */; };
-		EBCE84C17D01DFE6748AE67E /* QwenRealtimeVoiceTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */; };
 		EDA6957409E4652BA95D0E41 /* EnchiridionRosePineTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04CADD7E14E6F666B1BC729 /* EnchiridionRosePineTheme.swift */; };
 		EDD7BF6DAF685B8173DE91FB /* RosePinePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543FE018A2E4F3E408311426 /* RosePinePalette.swift */; };
 		EDE3DB71D7AAF88A0E07D28A /* WorkoutPhoneReceiverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447992772B2CCFAE1CF16509 /* WorkoutPhoneReceiverTests.swift */; };
@@ -322,7 +320,6 @@
 		78C7650B87945ED46D4D5D34 /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
 		797DD36CB5B375DD04E4CB63 /* DeviceContactsResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactsResolver.swift; sourceTree = "<group>"; };
 		7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiteboardCanvasGeometry.swift; sourceTree = "<group>"; };
-		7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenRealtimeVoiceTransport.swift; sourceTree = "<group>"; };
 		814FF580F8360F41285F41C8 /* PageReferenceOpenAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageReferenceOpenAction.swift; sourceTree = "<group>"; };
 		825BF572F6D224BED8BD5FAD /* AssistantVoicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantVoicePreferences.swift; sourceTree = "<group>"; };
 		8429F983D316681D30BF3165 /* EnchiridionMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnchiridionMacApp.swift; sourceTree = "<group>"; };
@@ -365,7 +362,6 @@
 		BA74ED56BC8B515110CE321F /* PageReferenceSelectionResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageReferenceSelectionResolverTests.swift; sourceTree = "<group>"; };
 		BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLifecycleActions.swift; sourceTree = "<group>"; };
 		BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantConversationRuntime.swift; sourceTree = "<group>"; };
-		C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenRealtimeVoiceSurface.swift; sourceTree = "<group>"; };
 		C13780FE9A222B8284EF0FF3 /* TaskReminderAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderAppDelegate.swift; sourceTree = "<group>"; };
 		C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonReferenceCreationForm.swift; sourceTree = "<group>"; };
 		C97F53E8FEB2418049339279 /* DayPlanProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjection.swift; sourceTree = "<group>"; };
@@ -386,6 +382,7 @@
 		D9C3C3EB64DA4FB0979160BE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		DAD9A3686C50BBA00FAD7EC9 /* EditorPersistenceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPersistenceSession.swift; sourceTree = "<group>"; };
 		DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventFilterSettingsSection.swift; sourceTree = "<group>"; };
+		DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeOpenAIRealtimeAudioRuntime.swift; sourceTree = "<group>"; };
 		DE3BEEFEC16AC191B57779CA /* CarPlayAssistantPrivacySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayAssistantPrivacySettings.swift; sourceTree = "<group>"; };
 		DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryListScreen.swift; sourceTree = "<group>"; };
 		E0A9C68D8C6E630C9A90B09B /* WatchWorkoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutCapture.swift; sourceTree = "<group>"; };
@@ -580,6 +577,7 @@
 				D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */,
 				EEDDF4F97412AB87022ED166 /* LiveViewBoardSupport.swift */,
 				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
+				DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */,
 				D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */,
 				E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */,
 				BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */,
@@ -589,8 +587,6 @@
 				5DB78B2509F988C674630683 /* PageReferenceTextFormatting.swift */,
 				0682E6D3339512E31330A48C /* PersonNameEditor.swift */,
 				C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */,
-				C09EC68E13FBAB224E60EE23 /* QwenRealtimeVoiceSurface.swift */,
-				7DDA26B83B4C5483F91E101C /* QwenRealtimeVoiceTransport.swift */,
 				8A683189FA8C24FF8B2427AD /* RealtimeVoiceRuntime.swift */,
 				85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */,
 				45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */,
@@ -1008,6 +1004,7 @@
 				3677B1C36F6FBBCB3FECB27C /* MacDailyTaskContext.swift in Sources */,
 				292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */,
 				2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */,
+				CCC1E0718BD75FF9B103D146 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
 				51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */,
@@ -1018,8 +1015,6 @@
 				2F5E720733F61532E2731C34 /* PageReferenceTextFormatting.swift in Sources */,
 				CFB68BE51FFC3002C0B2A439 /* PersonNameEditor.swift in Sources */,
 				E189EF6F3095B37FCA5EB886 /* PersonReferenceCreationForm.swift in Sources */,
-				6B39853CA97A135A3B673E42 /* QwenRealtimeVoiceSurface.swift in Sources */,
-				3138882B395E0301B75F9F87 /* QwenRealtimeVoiceTransport.swift in Sources */,
 				ACA396FD49471D3339560A98 /* RealtimeVoiceRuntime.swift in Sources */,
 				11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */,
 				22BEE60CB07405C9854BB9DA /* RealtimeWebRTCBridge.swift in Sources */,
@@ -1093,6 +1088,7 @@
 				8C603F0E6737426D6BA20E61 /* MobileRootView.swift in Sources */,
 				6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */,
 				06D06CF4F648479F628A9CD4 /* MobileTabSelectionCoordinator.swift in Sources */,
+				165B631D8CAC87979D400EE1 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
 				3F1BF0174D64D0FE39ED02BB /* OnDeviceSpeechTranscriber.swift in Sources */,
 				3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */,
 				8A55C779BD86C9700B4BAB10 /* PageLifecycleActions.swift in Sources */,
@@ -1102,8 +1098,6 @@
 				C243B420C4273203FDB467C9 /* PageReferenceTextFormatting.swift in Sources */,
 				CE4D5E7155EB0E73AA144F02 /* PersonNameEditor.swift in Sources */,
 				6266E583A7D2398FF29F5025 /* PersonReferenceCreationForm.swift in Sources */,
-				1831B142E884131ACA83BBF6 /* QwenRealtimeVoiceSurface.swift in Sources */,
-				EBCE84C17D01DFE6748AE67E /* QwenRealtimeVoiceTransport.swift in Sources */,
 				868CC2CD2F428C500B3566C2 /* RealtimeVoiceRuntime.swift in Sources */,
 				D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */,
 				DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */,
