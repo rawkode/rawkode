@@ -13,6 +13,9 @@ struct CalendarDayStrip: View {
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var timelineStartDay: Date
+  @State private var latestSelectedDay: Date
+  @State private var rebaseGeneration = 0
+  @State private var deferredRebaseTask: Task<Void, Never>?
 
   init(
     selectedDay: Date,
@@ -32,6 +35,7 @@ struct CalendarDayStrip: View {
         to: startOfSelectedDay
       ) ?? startOfSelectedDay
     )
+    _latestSelectedDay = State(initialValue: startOfSelectedDay)
   }
 
   private var days: [CalendarDayStripItem] {
@@ -75,16 +79,24 @@ struct CalendarDayStrip: View {
               }
             }
           }
+          .animation(selectionAnimation, value: selectedDay)
         }
         .scrollDisabled(true)
         .frame(width: proxy.size.width, height: 84)
         .contentShape(Rectangle())
         .simultaneousGesture(weekSwipe)
         .onAppear {
-          scroll(scrollProxy, to: calendar.startOfDay(for: selectedDay), animated: false)
+          let day = calendar.startOfDay(for: selectedDay)
+          latestSelectedDay = day
+          scroll(scrollProxy, to: day, animated: false)
         }
         .onChange(of: selectedDay) { _, newDay in
           moveSelection(to: newDay, with: scrollProxy)
+        }
+        .onDisappear {
+          rebaseGeneration &+= 1
+          deferredRebaseTask?.cancel()
+          deferredRebaseTask = nil
         }
       }
     }
@@ -112,8 +124,18 @@ struct CalendarDayStrip: View {
     }
   }
 
+  private var selectionAnimation: Animation? {
+    reduceMotion ? nil : .smooth(duration: 0.30, extraBounce: 0)
+  }
+
   private func moveSelection(to date: Date, with proxy: ScrollViewProxy) {
     let day = calendar.startOfDay(for: date)
+    latestSelectedDay = day
+    rebaseGeneration &+= 1
+    let generation = rebaseGeneration
+    deferredRebaseTask?.cancel()
+    deferredRebaseTask = nil
+
     guard day < timelineStartDay || day > timelineEndDay else {
       scroll(proxy, to: day, animated: true)
       return
@@ -130,9 +152,14 @@ struct CalendarDayStrip: View {
       timelineStartDay = newTimelineStartDay
     }
 
-    Task { @MainActor in
+    deferredRebaseTask = Task { @MainActor in
       await Task.yield()
+      guard !Task.isCancelled, generation == rebaseGeneration,
+        calendar.isDate(latestSelectedDay, inSameDayAs: day)
+      else { return }
       scroll(proxy, to: day, animated: false)
+      guard generation == rebaseGeneration else { return }
+      deferredRebaseTask = nil
     }
   }
 
@@ -140,13 +167,13 @@ struct CalendarDayStrip: View {
     let changes = {
       proxy.scrollTo(CalendarDayStripItem.id(for: day, calendar: calendar), anchor: .leading)
     }
-    guard animated, !reduceMotion else {
+    guard animated, let selectionAnimation else {
       var transaction = Transaction()
       transaction.disablesAnimations = true
       withTransaction(transaction, changes)
       return
     }
-    withAnimation(.easeInOut(duration: 0.26), changes)
+    withAnimation(selectionAnimation, changes)
   }
 }
 

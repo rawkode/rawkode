@@ -19,6 +19,21 @@ final class TodayWorkspaceTransitionCoordinatorTests: XCTestCase {
     XCTAssertEqual(coordinator.generation, 1)
   }
 
+  func testForcedIdenticalTargetStartsNewRequest() async {
+    let day = Date(timeIntervalSinceReferenceDate: 100)
+    let coordinator = TodayWorkspaceTransitionCoordinator(day: day)
+    let target = TodayWorkspaceTransitionCoordinator.Target(day: day, panel: .plan)
+    var requests = 0
+
+    coordinator.request(target) { _, _ in requests += 1 }
+    await Task.yield()
+    coordinator.request(target, force: true) { _, _ in requests += 1 }
+    await Task.yield()
+
+    XCTAssertEqual(requests, 2)
+    XCTAssertEqual(coordinator.generation, 2)
+  }
+
   func testNewTargetSupersedesPreviousGeneration() async {
     let day = Date(timeIntervalSinceReferenceDate: 100)
     let coordinator = TodayWorkspaceTransitionCoordinator(day: day)

@@ -4,8 +4,8 @@ import UIKit
 
 struct TodayWorkspaceView: View {
   let store: LibraryStore
+  let returnToTodayRequest: Int
 
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.layoutDirection) private var layoutDirection
   @State private var day: Date
   @State private var panel: TodayPanel = .plan
@@ -21,14 +21,17 @@ struct TodayWorkspaceView: View {
   @State private var isOpeningNote = false
   @State private var transitionError: String?
   @State private var transitionAlertMessage: String?
+  @State private var lastConsumedReturnToTodayRequest: Int
 
   private let calendar = Calendar.current
 
-  init(store: LibraryStore) {
+  init(store: LibraryStore, returnToTodayRequest: Int = 0) {
     self.store = store
+    self.returnToTodayRequest = returnToTodayRequest
     let today = Calendar.current.startOfDay(for: Date())
     _day = State(initialValue: today)
     _transition = State(initialValue: TodayWorkspaceTransitionCoordinator(day: today))
+    _lastConsumedReturnToTodayRequest = State(initialValue: returnToTodayRequest)
   }
 
   var body: some View {
@@ -123,13 +126,18 @@ struct TodayWorkspaceView: View {
       note in
       isEditorFocused = note.userInfo?["isFocused"] as? Bool ?? false
     }
+    .onChange(of: returnToTodayRequest) { _, request in
+      guard request > lastConsumedReturnToTodayRequest else { return }
+      lastConsumedReturnToTodayRequest = request
+      requestReturnToToday()
+    }
   }
 
   @ViewBuilder private var note: some View {
     if store.page(id: dailyPageID) != nil {
       PageEditorView(
         store: store, pageID: dailyPageID,
-        presentation: .dailyWorkspace { EmptyView() },
+        presentation: .dailyWorkspace(canvas: RosePinePalette.calendarBackground) { EmptyView() },
         flushController: flushController, onOpenPage: navigate, showsPageActions: false
       )
     } else if store.isLoading || isOpeningNote {
@@ -181,7 +189,10 @@ struct TodayWorkspaceView: View {
   }
   private func requestDay(_ date: Date) {
     let targetDay = calendar.startOfDay(for: date)
-    guard !calendar.isDate(targetDay, inSameDayAs: day) else { return }
+    guard !calendar.isDate(targetDay, inSameDayAs: day) else {
+      datePicker = nil
+      return
+    }
 
     if panel == .plan {
       let target = TodayWorkspaceTransitionCoordinator.Target(day: targetDay, panel: .plan)
@@ -190,13 +201,7 @@ struct TodayWorkspaceView: View {
       datePicker = nil
       path.removeAll()
       isOpeningNote = false
-      if reduceMotion {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { day = targetDay }
-      } else {
-        withAnimation(.easeInOut(duration: 0.18)) { day = targetDay }
-      }
+      day = targetDay
       return
     }
 
@@ -204,6 +209,43 @@ struct TodayWorkspaceView: View {
   }
   private func requestPanel(_ panel: TodayPanel) {
     requestTransition(.init(day: day, panel: transitionPanel(panel)))
+  }
+
+  private func requestReturnToToday() {
+    let today = calendar.startOfDay(for: Date())
+    let target = TodayWorkspaceTransitionCoordinator.Target(
+      day: today, panel: transitionPanel(panel))
+
+    transition.request(target, force: true) { generation, target in
+      guard await flushController.flush(), transition.isCurrent(generation, target: target) else {
+        if transition.isCurrent(generation, target: target) {
+          transitionAlertMessage = "Couldn’t save the daily note. Please try again."
+        }
+        return
+      }
+
+      guard transition.isCurrent(generation, target: target) else { return }
+      transitionError = nil
+      if target.panel == .note {
+        isOpeningNote = true
+        let pageID = await store.openDailyPage(for: target.day)
+        guard transition.isCurrent(generation, target: target) else { return }
+        guard pageID != nil else {
+          isOpeningNote = false
+          transitionAlertMessage = store.startupError ?? "Couldn’t open this daily note. Please try again."
+          return
+        }
+      }
+
+      transition.commitIfCurrent(generation, target: target) {
+        datePicker = nil
+        presentedSheet = nil
+        path.removeAll()
+        day = target.day
+        panel = target.panel == .plan ? .plan : .note
+        isOpeningNote = false
+      }
+    }
   }
 
   private func requestTransition(
@@ -227,7 +269,6 @@ struct TodayWorkspaceView: View {
       }
       guard transition.isCurrent(generation, target: target) else { return }
       transitionError = nil
-      datePicker = nil
       if target.panel == .note {
         isOpeningNote = true
         let pageID = await store.openDailyPage(for: target.day)
@@ -239,6 +280,7 @@ struct TodayWorkspaceView: View {
           return
         }
         transition.commitIfCurrent(generation, target: target) {
+          datePicker = nil
           path.removeAll()
           day = target.day
           panel = .note
@@ -246,6 +288,7 @@ struct TodayWorkspaceView: View {
         }
       } else {
         transition.commitIfCurrent(generation, target: target) {
+          datePicker = nil
           path.removeAll()
           day = target.day
           panel = .plan
@@ -332,7 +375,7 @@ private struct TodayWorkspaceChrome: View {
     VStack(spacing: 0) {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
         Button {
-          selectDay(Date())
+          showDatePicker()
         } label: {
           HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(day.formatted(.dateTime.month(.wide)))
@@ -348,8 +391,8 @@ private struct TodayWorkspaceChrome: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-          "Go to today, currently \(day.formatted(date: .long, time: .omitted))")
-        .accessibilityHint("Returns the workspace to today")
+          "Choose date, currently \(day.formatted(date: .long, time: .omitted))")
+        .accessibilityHint("Opens a calendar to choose another date")
 
         Spacer(minLength: 8)
 
@@ -497,7 +540,6 @@ private struct TodayDatePicker: View {
         ToolbarItem(placement: .confirmationAction) {
           Button("Open Date") {
             selectDate(date)
-            dismiss()
           }
         }
       }

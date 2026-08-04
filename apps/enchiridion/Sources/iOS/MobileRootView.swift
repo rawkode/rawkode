@@ -7,7 +7,10 @@ struct MobileRootView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   let store: LibraryStore
-  @State private var selectedTab: MobileTab = .today
+  @State private var tabSelection: MobileTabSelectionCoordinator<MobileTab> = .init(
+    selectedTab: .today,
+    todayTab: .today
+  )
   @State private var requestedTaskSelection: TaskListSelection?
   @State private var requestedTaskID: PageID?
   @State private var routedTaskStore: LibraryStore?
@@ -56,8 +59,8 @@ struct MobileRootView: View {
   }
 
   var body: some View {
-    TabView(selection: $selectedTab) {
-      TodayWorkspaceView(store: store)
+    TabView(selection: tabSelectionBinding) {
+      TodayWorkspaceView(store: store, returnToTodayRequest: tabSelection.todayReturnRequest)
         .tabItem { Label("Today", systemImage: "sun.max") }
         .tag(MobileTab.today)
         .toolbar(tabBarVisibility, for: .tabBar)
@@ -156,6 +159,13 @@ struct MobileRootView: View {
     isEditorFocused || isKeyboardVisible ? .hidden : .visible
   }
 
+  private var tabSelectionBinding: Binding<MobileTab> {
+    Binding(
+      get: { tabSelection.selectedTab },
+      set: { tabSelection.select($0) }
+    )
+  }
+
   private func receive(_ route: TaskDeepLinkRoute) async {
     do {
       let workspaceStore = try workspaceStore(for: route.vaultID)
@@ -180,7 +190,7 @@ struct MobileRootView: View {
   }
 
   private func apply(_ route: TaskDeepLinkRoute, store: LibraryStore) {
-    selectedTab = .tasks
+    tabSelection.select(.tasks)
     requestedTaskSelection = .smart(route.list)
 
     switch route {

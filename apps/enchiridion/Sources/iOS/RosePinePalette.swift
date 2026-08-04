@@ -22,13 +22,22 @@ enum RosePinePalette {
         : UIColor(red: 144 / 255, green: 122 / 255, blue: 169 / 255, alpha: 1)  // Dawn iris
     })
 
-  // Today uses one system-coherent canvas. Calendar selection is a deeper rose
-  // so it belongs to Enchiridion rather than borrowing the system-blue calendar
-  // treatment. It remains dark enough for white selected-day text in either
-  // appearance.
-  static let calendarBackground = Color(uiColor: .systemBackground)
+  // Today deliberately uses the Rosé Pine canvas rather than inheriting a
+  // system surface. Calendar selection is a deeper rose so it belongs to
+  // Enchiridion rather than borrowing the system-blue calendar treatment.
+  static let calendarBackground = background
   static let calendarAccent = Color(
     uiColor: UIColor(red: 177 / 255, green: 67 / 255, blue: 106 / 255, alpha: 1))
-  static let calendarSurface = calendarBackground
-  static let calendarControlSurface = Color(uiColor: .secondarySystemBackground)
+  static let calendarSurface = Color(
+    uiColor: UIColor { traits in
+      traits.userInterfaceStyle == .dark
+        ? UIColor(red: 31 / 255, green: 29 / 255, blue: 46 / 255, alpha: 1)
+        : UIColor(red: 255 / 255, green: 250 / 255, blue: 247 / 255, alpha: 1)
+    })
+  static let calendarControlSurface = Color(
+    uiColor: UIColor { traits in
+      traits.userInterfaceStyle == .dark
+        ? UIColor(red: 57 / 255, green: 53 / 255, blue: 82 / 255, alpha: 1)
+        : UIColor(red: 242 / 255, green: 233 / 255, blue: 222 / 255, alpha: 1)
+    })
 }

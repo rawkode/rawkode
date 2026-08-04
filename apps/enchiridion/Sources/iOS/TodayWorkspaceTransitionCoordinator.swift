@@ -15,8 +15,12 @@ final class TodayWorkspaceTransitionCoordinator {
   init(day: Date, panel: Panel = .plan) { target = .init(day: day, panel: panel) }
   deinit { task?.cancel() }
 
-  func request(_ target: Target, operation: @escaping @MainActor (Int, Target) async -> Void) {
-    guard target != self.target || task == nil else { return }
+  func request(
+    _ target: Target,
+    force: Bool = false,
+    operation: @escaping @MainActor (Int, Target) async -> Void
+  ) {
+    guard force || target != self.target || task == nil else { return }
     task?.cancel()
     self.target = target
     generation &+= 1
