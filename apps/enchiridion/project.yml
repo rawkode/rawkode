@@ -36,8 +36,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.
-        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and OpenAI Voice. OpenAI Voice requires explicit voice consent.
-        NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice, selected cloud voice providers, and meeting transcription. Meeting audio is never retained after transcription. OpenAI Voice requires explicit voice consent. Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing).
+        NSSpeechRecognitionUsageDescription: Enchiridion transcribes explicit voice requests and meetings on device. Meeting audio is never retained after transcription.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)
@@ -67,6 +67,7 @@ targets:
       - sdk: FoundationModels.framework
         weak: true
       - sdk: Speech.framework
+      - sdk: ScreenCaptureKit.framework
       - sdk: WebKit.framework
       - package: EnchiridionCore
         product: EnchiridionCore
@@ -145,8 +146,8 @@ targets:
           - remote-notification
         NSCalendarsFullAccessUsageDescription: Enchiridion shows your local calendar events so you can attach private notes. It never edits events.
         NSContactsUsageDescription: Enchiridion uses contacts you allow to enrich people already found in your calendars. It never imports your address book.
-        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice and OpenAI Voice. OpenAI Voice requires explicit voice consent.
-        NSSpeechRecognitionUsageDescription: Enchiridion transcribes your questions on device so it can answer from your private calendar and notes.
+        NSMicrophoneUsageDescription: Enchiridion uses the microphone for Apple On Device voice, selected cloud voice providers, and meeting transcription. Meeting audio is never retained after transcription. OpenAI Voice requires explicit voice consent. Saving a verified Qwen token is your explicit opt-in to send live audio to Qwen Audio Realtime in China (Beijing).
+        NSSpeechRecognitionUsageDescription: Enchiridion transcribes explicit voice requests and meetings on device. Meeting audio is never retained after transcription.
         GoogleOAuthClientID: CONFIGURE_GOOGLE_OAUTH_CLIENT_ID
         GoogleOAuthRedirectScheme: enchiridion-google-oauth-unconfigured
         EnchiridionCodeSignEntitlements: $(CODE_SIGN_ENTITLEMENTS)

@@ -158,7 +158,9 @@ public enum PageDocument {
   public static let schemaVersion = 2
   public static let maximumDocumentBytes = 20 * 1_024 * 1_024
   public static let maximumChangeBytes = 1 * 1_024 * 1_024
+  public static let maximumMeetingTranscriptChangeBytes = 256 * 1_024
   public static let pageReferenceMark = "__ext__dev.rawkode.enchiridion.page-reference"
+  public static let meetingSemanticProvenanceMark = "__ext__dev.rawkode.enchiridion.meeting-semantic"
   public static let strongMark = "strong"
   public static let emphasisMark = "em"
   public static let strikethroughMark = "strike"
@@ -387,6 +389,10 @@ public enum PageDocument {
     )
   }
 
+  public static func meetingSemanticMark(operationID: String) -> PageRichTextMark {
+    PageRichTextMark(name: meetingSemanticProvenanceMark, value: .string(operationID))
+  }
+
   public static func addSupertag(
     _ supertagID: SupertagID,
     in snapshot: Data
@@ -562,6 +568,178 @@ public enum PageDocument {
     let document = try Document(snapshot)
     try validate(document)
     return try projection(document, pageID: pageID)
+  }
+
+  /// Reads the Event-page resource map. Transcript segments remain separate CRDT map entries,
+  /// so a long meeting is never rewritten as one unbounded Automerge change.
+  public static func meetingTranscript(
+    resourceKey: String,
+    in snapshot: Data
+  ) throws -> MeetingTranscriptResource? {
+    let document = try Document(snapshot)
+    try validate(document)
+    let resourceMaps = try document.getAll(obj: .ROOT, key: "meetingResources").compactMap { value -> ObjId? in
+      guard case .Object(let object, .Map) = value else { return nil }
+      return object
+    }
+    var resources: [ObjId] = []
+    for map in resourceMaps {
+      resources.append(contentsOf: try document.getAll(obj: map, key: resourceKey).compactMap { value -> ObjId? in
+        guard case .Object(let object, .Map) = value else { return nil }
+        return object
+      })
+    }
+
+    var metadataJSON: [String] = []
+    var segmentJSON: [String] = []
+    for resource in resources {
+      metadataJSON.append(contentsOf: try document.getAll(obj: resource, key: "metadata").compactMap {
+        guard case .Scalar(.String(let value)) = $0 else { return nil }
+        return value
+      })
+      let segmentMaps = try document.getAll(obj: resource, key: "segments").compactMap { value -> ObjId? in
+        guard case .Object(let object, .Map) = value else { return nil }
+        return object
+      }
+      for segments in segmentMaps {
+        for (key, _) in try document.mapEntries(obj: segments) {
+          segmentJSON.append(contentsOf: try document.getAll(obj: segments, key: key).compactMap {
+            guard case .Scalar(.String(let value)) = $0 else { return nil }
+            return value
+          })
+        }
+      }
+    }
+
+    var merged: MeetingTranscriptResource?
+    for json in metadataJSON.sorted() {
+      guard let data = json.data(using: .utf8) else { continue }
+      let candidate = try JSONDecoder.enchiridion.decode(MeetingTranscriptResource.self, from: data)
+      merged = mergeMeetingTranscript(merged, candidate)
+    }
+    guard var value = merged else { return nil }
+    for json in segmentJSON.sorted() {
+      guard let data = json.data(using: .utf8),
+        let segment = try? JSONDecoder.enchiridion.decode(MeetingTranscriptSegment.self, from: data)
+      else { continue }
+      var candidate = value
+      candidate.segments = [segment]
+      value = mergeMeetingTranscript(value, candidate)
+    }
+    try validateMeetingTranscript(value)
+    return value
+  }
+
+  public static func upsertMeetingTranscript(
+    _ incoming: MeetingTranscriptResource,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection, changed: Bool) {
+    guard incoming.id == MeetingTranscriptResource.resourceKey(for: incoming.eventPageID) else {
+      throw MeetingTranscriptError.invalidResource
+    }
+    try validateMeetingTranscript(incoming)
+    let original = try Document(snapshot)
+    try validate(original)
+    let previousHeads = heads(original)
+    let existing = try meetingTranscript(resourceKey: incoming.id, in: snapshot)
+    let merged = mergeMeetingTranscript(existing, incoming)
+    try validateMeetingTranscript(merged)
+    guard existing != merged else {
+      return (snapshot, previousHeads, try projection(original), false)
+    }
+
+    let resources: ObjId
+    if case .Object(let object, .Map)? = try original.get(obj: .ROOT, key: "meetingResources") { resources = object }
+    else { resources = try original.putObject(obj: .ROOT, key: "meetingResources", ty: .Map) }
+    let resource: ObjId
+    if case .Object(let object, .Map)? = try original.get(obj: resources, key: merged.id) { resource = object }
+    else { resource = try original.putObject(obj: resources, key: merged.id, ty: .Map) }
+    let segments: ObjId
+    if case .Object(let object, .Map)? = try original.get(obj: resource, key: "segments") { segments = object }
+    else { segments = try original.putObject(obj: resource, key: "segments", ty: .Map) }
+    var metadata = merged
+    metadata.segments = []
+    let metadataData = try JSONEncoder.enchiridion.encode(metadata)
+    guard metadataData.count <= maximumMeetingTranscriptChangeBytes else {
+      throw MeetingTranscriptError.changeTooLarge
+    }
+    try original.put(obj: resource, key: "metadata", value: .String(String(decoding: metadataData, as: UTF8.self)))
+    for segment in merged.segments {
+      let encoded = try JSONEncoder.enchiridion.encode(segment)
+      guard encoded.count <= maximumMeetingTranscriptChangeBytes else {
+        throw MeetingTranscriptError.changeTooLarge
+      }
+      try original.put(obj: segments, key: segment.id, value: .String(String(decoding: encoded, as: UTF8.self)))
+    }
+    original.commitWith(message: "Update meeting transcript", timestamp: Date())
+    let changed = try original.encodeChangesSince(heads: previousHeads.changeHashes ?? [])
+    guard changed.count <= maximumMeetingTranscriptChangeBytes else { throw MeetingTranscriptError.changeTooLarge }
+    let document = original.save()
+    guard document.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    return (document, heads(original), try projection(original), true)
+  }
+
+  private static func mergeMeetingTranscript(
+    _ existing: MeetingTranscriptResource?, _ incoming: MeetingTranscriptResource
+  ) -> MeetingTranscriptResource {
+    guard var value = existing else { return incoming }
+    value.transcriptState = .monotonic(value.transcriptState, incoming.transcriptState)
+    value.analysisState = .monotonic(value.analysisState, incoming.analysisState)
+    value.semanticState = .monotonic(value.semanticState, incoming.semanticState)
+    value.analysisReceipt = incoming.analysisReceipt ?? value.analysisReceipt
+    value.semanticReceipt = incoming.semanticReceipt ?? value.semanticReceipt
+    var segments = Dictionary(uniqueKeysWithValues: value.segments.map { ($0.id, $0) })
+    for incomingSegment in incoming.segments {
+      if let current = segments[incomingSegment.id] {
+        var resolved = incomingSegment
+        let currentAssignment = (
+          current.speakerAssignmentRevision ?? 0,
+          current.speakerAssignmentOperationID ?? ""
+        )
+        let incomingAssignment = (
+          incomingSegment.speakerAssignmentRevision ?? 0,
+          incomingSegment.speakerAssignmentOperationID ?? ""
+        )
+        if incomingAssignment < currentAssignment
+          || (incomingAssignment == currentAssignment && incomingSegment.speakerPageID == nil)
+        {
+          resolved.speakerPageID = current.speakerPageID
+          resolved.speakerAssignmentRevision = current.speakerAssignmentRevision
+          resolved.speakerAssignmentOperationID = current.speakerAssignmentOperationID
+        }
+        segments[incomingSegment.id] = resolved
+      } else { segments[incomingSegment.id] = incomingSegment }
+    }
+    value.segments = segments.values.sorted { ($0.startTime, $0.id) < ($1.startTime, $1.id) }
+    if let analysis = incoming.analysis,
+      analysis.transcriptHash == MeetingTranscriptHash.value(for: value.segments) {
+      value.analysis = analysis
+    }
+    if let analysis = value.analysis,
+      analysis.transcriptHash != MeetingTranscriptHash.value(for: value.segments) {
+      value.analysis = nil
+      value.analysisReceipt = nil
+      value.analysisState = .incomplete
+    }
+    if let receipt = value.semanticReceipt,
+      receipt.transcriptHash != MeetingTranscriptHash.value(for: value.segments) {
+      value.semanticReceipt = nil
+      value.semanticState = .incomplete
+    }
+    return value
+  }
+
+  private static func validateMeetingTranscript(_ resource: MeetingTranscriptResource) throws {
+    guard resource.format == MeetingTranscriptResource.format,
+      resource.schemaVersion == MeetingTranscriptResource.schemaVersion,
+      resource.segments.count <= MeetingTranscriptResource.maximumSegmentCount,
+      Set(resource.segments.map(\.id)).count == resource.segments.count,
+      resource.segments.allSatisfy({ !$0.id.isEmpty && !$0.speakerClusterID.isEmpty && $0.startTime >= 0 && $0.endTime >= $0.startTime }),
+      (resource.segments.map(\.endTime).max() ?? 0) <= MeetingTranscriptResource.maximumDurationSeconds
+    else { throw MeetingTranscriptError.resourceLimit }
+    guard try JSONEncoder.enchiridion.encode(resource).count <= MeetingTranscriptResource.maximumResourceBytes else {
+      throw MeetingTranscriptError.resourceLimit
+    }
   }
 
   public static func encodedChanges(from snapshot: Data, since heads: AutomergeHeads) throws -> Data {

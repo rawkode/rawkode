@@ -581,6 +581,33 @@ public final class LibraryStore {
     }
   }
 
+  /// Applies a meeting-specific conditional Undo, then publishes every changed
+  /// page to the normal CloudKit path. The result distinguishes partial Undo
+  /// from no-op so UI can explain preserved user-edited entities.
+  public func undoMeetingSemanticMutation(
+    operationID: String,
+    authority: MeetingAutomationAuthority
+  ) async throws -> MeetingSemanticUndoResult {
+    try await undoMeetingSemanticMutation(eventPageID: authority.eventPageID, operationID: operationID)
+  }
+
+  /// Durable Event-page Undo: valid after capture authority expiry because the
+  /// transcript resource receipt and exact provenance block are revalidated.
+  public func undoMeetingSemanticMutation(
+    eventPageID: PageID,
+    operationID: String
+  ) async throws -> MeetingSemanticUndoResult {
+    guard let repository else { throw LibraryRepositoryError.pageNotFound }
+    let result = try await repository.undoMeetingSemanticPlan(
+      operationID: operationID, eventPageID: eventPageID, vaultID: vaultID
+    )
+    guard result.didChange else { return result }
+    _ = await reload()
+    await syncCoordinator?.pageDidChange(eventPageID)
+    for pageID in result.trashedEntityIDs { await syncCoordinator?.pageDidChange(pageID) }
+    return result
+  }
+
   public func taggedSuggestions(matching query: String, supertagID: SupertagID) async
     -> [PageSuggestion]
   {
@@ -1610,6 +1637,24 @@ public final class LibraryStore {
       startupError = error.localizedDescription
       return nil
     }
+  }
+
+  /// Stores transcript text on the canonical Event page and schedules the ordinary page-sync
+  /// path; it never writes a local-provider side note.
+  @discardableResult
+  public func upsertMeetingTranscript(
+    _ resource: MeetingTranscriptResource,
+    for event: CalendarEventSnapshot
+  ) async throws -> MeetingTranscriptPersistenceResult {
+    guard let repository else {
+      throw LibraryRepositoryError.databaseUnavailable(startupError ?? "Unknown error")
+    }
+    let result = try await repository.upsertMeetingTranscript(resource, for: event)
+    await reload()
+    for pageID in result.changedPageIDs {
+      await syncCoordinator?.pageDidChange(pageID)
+    }
+    return result
   }
 
   @discardableResult
