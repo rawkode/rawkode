@@ -90,6 +90,11 @@ public enum TaskClarificationMutationResponse: Sendable {
 public final class LibraryStore {
   public private(set) var vaultID: VaultID
   public private(set) var pages: [PageSnapshot] = []
+  public private(set) var resolvedBookmarks: [PageSnapshot] = []
+  public private(set) var bookmarkSyncedCaptureHistory: [BookmarkSyncedCaptureEvent] = []
+  public private(set) var bookmarkCaptureHistoryIssues: [BookmarkCaptureHistoryIssue] = []
+  public private(set) var suppressedBookmarkTrash: [PageID: SuppressedBookmarkTrashPresentation] = [:]
+  public private(set) var bookmarkAliasSuggestions: [BookmarkAliasSuggestion] = []
   public private(set) var calendarEvents: [CalendarEventSnapshot] = []
   /// Changes whenever the provider-backed calendar projection is refreshed or reloaded.
   /// Relationship screens use this as a cheap observable invalidation token.
@@ -233,6 +238,45 @@ public final class LibraryStore {
         if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt < rhs.modifiedAt }
         return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
       }
+  }
+
+  public func savedLinks(on dayKey: DayKey, timeZoneIdentifier: String) -> [BookmarkSavedLink] {
+    BookmarkSavedLinksProjection.rows(
+      dayKey: dayKey,
+      timeZoneIdentifier: timeZoneIdentifier,
+      events: bookmarkSyncedCaptureHistory,
+      resolvedPages: resolvedBookmarks
+    )
+  }
+
+  public var bookmarkLibraryLinks: [BookmarkSavedLink] {
+    BookmarkSavedLinksProjection.rows(
+      events: bookmarkSyncedCaptureHistory,
+      resolvedPages: resolvedBookmarks
+    )
+  }
+
+  public var bookmarkHistoryDiagnosticSummary: BookmarkHistoryDiagnosticSummary? {
+    BookmarkSavedLinksProjection.diagnosticSummary(issues: bookmarkCaptureHistoryIssues)
+  }
+
+  public func suppressedBookmarkTrashPresentation(
+    for pageID: PageID
+  ) -> SuppressedBookmarkTrashPresentation? {
+    suppressedBookmarkTrash[pageID]
+  }
+
+  public func pageContentAccess(for pageID: PageID) -> PageContentAccess {
+    guard let suppressed = suppressedBookmarkTrash[pageID] else { return .allowed }
+    return .suppressedBookmark(suppressed)
+  }
+
+  public func canOpenPage(_ pageID: PageID) -> Bool {
+    pageContentAccess(for: pageID) == .allowed
+  }
+
+  public func canRestore(pageID: PageID) -> Bool {
+    suppressedBookmarkTrash[pageID] == nil
   }
 
   public func start() async {
@@ -387,6 +431,20 @@ public final class LibraryStore {
       let trash = try await repository.pages(in: .trash)
       let loadedPages = (live + trash).sorted { $0.modifiedAt > $1.modifiedAt }
       let loadedSupertags = try await repository.supertags()
+      let loadedResolvedBookmarks = try await repository.resolvedBookmarkPages()
+      let loadedBookmarkSyncedCaptureHistory = try await repository.bookmarkSyncedCaptureEvents()
+      let loadedBookmarkCaptureHistoryIssues = try await repository.bookmarkCaptureHistoryIssues()
+      var loadedSuppressedBookmarkTrash: [PageID: SuppressedBookmarkTrashPresentation] = [:]
+      for page in trash {
+        guard let key = BookmarkSavedLinksProjection.urlKey(for: page),
+          let state = try await repository.bookmarkSuppressionState(for: key)
+        else { continue }
+        loadedSuppressedBookmarkTrash[page.id] = .init(
+          pageID: page.id,
+          permanentDeletionRequested: state.permanentRequested
+        )
+      }
+      let loadedBookmarkAliasSuggestions = try await repository.bookmarkAliases()
       let loadedSavedViews = try await repository.savedViews()
       var viewItems: [LiveQueryID: [LiveQueryItem]] = [:]
       for view in loadedSavedViews { viewItems[view.id] = try await repository.run(view) }
@@ -408,6 +466,11 @@ public final class LibraryStore {
 
       guard generation == reloadGeneration else { return nil }
       pages = loadedPages
+      resolvedBookmarks = loadedResolvedBookmarks
+      bookmarkSyncedCaptureHistory = loadedBookmarkSyncedCaptureHistory
+      bookmarkCaptureHistoryIssues = loadedBookmarkCaptureHistoryIssues
+      suppressedBookmarkTrash = loadedSuppressedBookmarkTrash
+      bookmarkAliasSuggestions = loadedBookmarkAliasSuggestions
       supertags = loadedSupertags
       savedViews = loadedSavedViews
       liveViewItems = viewItems
@@ -422,7 +485,9 @@ public final class LibraryStore {
       if policy == .reconcileSystemState {
         await taskSystemReconciliationCoordinator.submit(vaultID: vaultID, pages: live)
       }
-      if let selectedPageID, page(id: selectedPageID) == nil {
+      if let selectedPageID,
+        page(id: selectedPageID) == nil || !canOpenPage(selectedPageID)
+      {
         self.selectedPageID = live.first?.id
       }
       startupError = nil
@@ -1711,6 +1776,10 @@ public final class LibraryStore {
   }
 
   public func restore(pageID: PageID) {
+    guard canRestore(pageID: pageID) else {
+      startupError = suppressedBookmarkTrash[pageID]?.explanation
+      return
+    }
     let isTask = page(id: pageID)?.hasSupertag(BuiltInSupertags.task) == true
     Task {
       if isTask, let taskMutationCoordinator {

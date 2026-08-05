@@ -43,54 +43,75 @@ struct PageListScreen: View {
             }
           } else {
             ForEach(pages) { page in
-              NavigationLink(value: page.id) {
-                PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
-              }
-              .swipeActions(edge: .trailing, allowsFullSwipe: section != .trash) {
-                if section == .trash {
-                  Button(role: .destructive) {
-                    pagePendingPermanentDeletion = page
-                  } label: {
-                    Label("Delete Permanently", systemImage: "trash.slash")
+              if let suppressed = store.suppressedBookmarkTrashPresentation(for: page.id) {
+                SuppressedBookmarkTrashRow(page: page, presentation: suppressed)
+                  .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                      pagePendingPermanentDeletion = page
+                    } label: {
+                      Label("Delete Permanently", systemImage: "trash.slash")
+                    }
+                    .accessibilityHint(
+                      "Opens a confirmation. The content stays in Trash until deletion is safe to finish."
+                    )
                   }
-                  .accessibilityHint("Opens a confirmation before permanently deleting this page.")
-                } else {
-                  Button(role: .destructive) {
-                    store.moveToTrash(pageID: page.id)
-                  } label: {
-                    Label("Move to Trash", systemImage: "trash")
+                  .contextMenu {
+                    PageLifecycleMenuActions(
+                      store: store,
+                      page: page,
+                      requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+                    )
                   }
-                  .accessibilityHint("Moves this page to Trash, where it can be restored.")
+              } else {
+                NavigationLink(value: page.id) {
+                  PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
                 }
-              }
-              .swipeActions(edge: .leading) {
-                if section == .trash {
-                  Button {
-                    store.restore(pageID: page.id)
-                  } label: {
-                    Label("Restore", systemImage: "arrow.uturn.backward")
+                .swipeActions(edge: .trailing, allowsFullSwipe: section != .trash) {
+                  if section == .trash {
+                    Button(role: .destructive) {
+                      pagePendingPermanentDeletion = page
+                    } label: {
+                      Label("Delete Permanently", systemImage: "trash.slash")
+                    }
+                    .accessibilityHint("Opens a confirmation before permanently deleting this page.")
+                  } else {
+                    Button(role: .destructive) {
+                      store.moveToTrash(pageID: page.id)
+                    } label: {
+                      Label("Move to Trash", systemImage: "trash")
+                    }
+                    .accessibilityHint("Moves this page to Trash, where it can be restored.")
                   }
-                  .tint(.blue)
-                  .accessibilityHint("Returns this page to the library.")
-                } else {
-                  Button {
-                    store.togglePinned(pageID: page.id)
-                  } label: {
-                    Label(
-                      page.isPinned ? "Unpin" : "Pin",
-                      systemImage: page.isPinned ? "pin.slash" : "pin")
-                  }
-                  .tint(.orange)
-                  .accessibilityHint(
-                    page.isPinned ? "Removes this page from Pinned." : "Adds this page to Pinned.")
                 }
-              }
-              .contextMenu {
-                PageLifecycleMenuActions(
-                  store: store,
-                  page: page,
-                  requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
-                )
+                .swipeActions(edge: .leading) {
+                  if section == .trash {
+                    Button {
+                      store.restore(pageID: page.id)
+                    } label: {
+                      Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+                    .tint(.blue)
+                    .accessibilityHint("Returns this page to the library.")
+                  } else {
+                    Button {
+                      store.togglePinned(pageID: page.id)
+                    } label: {
+                      Label(
+                        page.isPinned ? "Unpin" : "Pin",
+                        systemImage: page.isPinned ? "pin.slash" : "pin")
+                    }
+                    .tint(.orange)
+                    .accessibilityHint(
+                      page.isPinned ? "Removes this page from Pinned." : "Adds this page to Pinned.")
+                  }
+                }
+                .contextMenu {
+                  PageLifecycleMenuActions(
+                    store: store,
+                    page: page,
+                    requestPermanentDeletion: { pagePendingPermanentDeletion = $0 }
+                  )
+                }
               }
             }
           }
@@ -110,6 +131,9 @@ struct PageListScreen: View {
       }
       .confirmsPermanentPageDeletion(page: $pagePendingPermanentDeletion) {
         store.purge(pageID: $0)
+      }
+      .onChange(of: Set(store.suppressedBookmarkTrash.keys)) { _, _ in
+        path.removeAll { !store.canOpenPage($0) }
       }
     }
   }

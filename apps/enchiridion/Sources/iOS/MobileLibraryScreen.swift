@@ -61,7 +61,11 @@ struct MobileLibraryScreen: View {
         Section("Supertags") {
           ForEach(store.supertags) { tag in
             NavigationLink {
-              SupertagMobileCollection(store: store, tag: tag)
+              if tag.id == BuiltInSupertags.bookmark {
+                MobileBookmarkLibraryDestination(store: store)
+              } else {
+                SupertagMobileCollection(store: store, tag: tag)
+              }
             } label: {
               Label {
                 HStack {
@@ -71,7 +75,7 @@ struct MobileLibraryScreen: View {
                     .foregroundStyle(.secondary)
                 }
               } icon: {
-                Image(systemName: tag.symbol)
+                Image(systemName: tag.id == BuiltInSupertags.bookmark ? "bookmark" : tag.symbol)
               }
             }
           }
@@ -139,6 +143,24 @@ struct MobileLibraryScreen: View {
       .sheet(item: $editingView) { view in
         LiveViewEditor(store: store, definition: view)
       }
+    }
+  }
+}
+
+private struct MobileBookmarkLibraryDestination: View {
+  let store: LibraryStore
+  @State private var openedPageID: PageID?
+
+  var body: some View {
+    BookmarkLibraryList(
+      links: store.bookmarkLibraryLinks,
+      aliasCount: store.bookmarkAliasSuggestions.count,
+      historyDiagnostic: store.bookmarkHistoryDiagnosticSummary,
+      openPage: { openedPageID = $0 }
+    )
+    .navigationTitle("Bookmarks")
+    .sheet(item: $openedPageID) { pageID in
+      NavigationStack { PageDestinationView(store: store, pageID: pageID) }
     }
   }
 }

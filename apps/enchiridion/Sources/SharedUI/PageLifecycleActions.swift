@@ -29,12 +29,20 @@ struct PageLifecycleMenuActions: View {
       }
       .accessibilityHint("Moves this page to Trash, where it can be restored.")
     } else {
-      Button {
-        store.restore(pageID: page.id)
-      } label: {
-        Label("Restore", systemImage: "arrow.uturn.backward")
+      if let suppressed = store.suppressedBookmarkTrashPresentation(for: page.id) {
+        Button {} label: {
+          Label("Cannot Restore", systemImage: "lock")
+        }
+        .disabled(true)
+        .accessibilityHint(suppressed.explanation)
+      } else {
+        Button {
+          store.restore(pageID: page.id)
+        } label: {
+          Label("Restore", systemImage: "arrow.uturn.backward")
+        }
+        .accessibilityHint("Returns this page to the library.")
       }
-      .accessibilityHint("Returns this page to the library.")
       Divider()
       Button(role: .destructive) {
         requestPermanentDeletion(page)
@@ -65,7 +73,7 @@ private struct PermanentPageDeletionConfirmation: ViewModifier {
         self.page = nil
       }
     } message: { page in
-      Text("\(page.displayTitle) and its data will be permanently deleted. This cannot be undone.")
+      Text(PagePermanentDeletionCopy.message(for: page))
     }
   }
 

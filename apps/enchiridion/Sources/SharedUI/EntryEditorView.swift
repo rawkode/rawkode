@@ -58,32 +58,59 @@ struct PageDestinationView: View {
   }
 
   var body: some View {
-    switch PageDestinationClassifier.classify(store.page(id: pageID)) {
-    case .unavailable:
-      ContentUnavailableView(
-        "Page unavailable",
-        systemImage: "doc.questionmark",
-        description: Text("Choose another page from the library.")
-      )
-    case .task, .entity:
-      if let page = store.page(id: pageID) {
-        EntityDetailView(
+    switch store.pageContentAccess(for: pageID) {
+    case .suppressedBookmark(let presentation):
+      SuppressedBookmarkDestination(presentation: presentation)
+    case .allowed:
+      switch PageDestinationClassifier.classify(store.page(id: pageID)) {
+      case .unavailable:
+        ContentUnavailableView(
+          "Page unavailable",
+          systemImage: "doc.questionmark",
+          description: Text("Choose another page from the library.")
+        )
+      case .task, .entity:
+        if let page = store.page(id: pageID) {
+          EntityDetailView(
+            store: store,
+            page: page,
+            flushController: flushController,
+            findController: findController,
+            onOpenPage: guardedExternalOpenPage
+          )
+        }
+      case .note:
+        PageEditorView(
           store: store,
-          page: page,
+          pageID: pageID,
           flushController: flushController,
           findController: findController,
-          onOpenPage: onOpenPage
+          onOpenPage: guardedExternalOpenPage
         )
       }
-    case .note:
-      PageEditorView(
-        store: store,
-        pageID: pageID,
-        flushController: flushController,
-        findController: findController,
-        onOpenPage: onOpenPage
-      )
     }
+  }
+
+  private var guardedExternalOpenPage: ((PageID) -> Void)? {
+    guard let onOpenPage else { return nil }
+    return { destination in
+      guard store.canOpenPage(destination) else { return }
+      onOpenPage(destination)
+    }
+  }
+}
+
+private struct SuppressedBookmarkDestination: View {
+  let presentation: SuppressedBookmarkTrashPresentation
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(presentation.status, systemImage: "lock")
+    } description: {
+      Text(presentation.explanation)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("\(presentation.status). \(presentation.explanation)")
   }
 }
 
@@ -450,7 +477,11 @@ struct PageEditorView<Header: View>: View {
 
   var body: some View {
     Group {
-      if let page = store.page(id: transitionAuthority.authoritativePageID) {
+      if case .suppressedBookmark(let presentation) = store.pageContentAccess(
+        for: transitionAuthority.authoritativePageID
+      ) {
+        SuppressedBookmarkDestination(presentation: presentation)
+      } else if let page = store.page(id: transitionAuthority.authoritativePageID) {
         if page.isOtherPerson, page.deletedAt == nil {
           OtherPersonPromotionGate(store: store, page: page)
             .navigationTitle("")
@@ -500,7 +531,7 @@ struct PageEditorView<Header: View>: View {
       guard let request = await transitionAuthority.prepareLoad(
         pageID,
         generation: generation,
-        isAvailable: { store.page(id: pageID) != nil },
+        isAvailable: { store.page(id: pageID) != nil && store.canOpenPage(pageID) },
         flush: { await flushController.flush() }
       ) else {
         return
@@ -606,6 +637,7 @@ struct PageEditorView<Header: View>: View {
   }
 
   private func openPage(_ destination: PageID) {
+    guard store.canOpenPage(destination) else { return }
     if let onOpenPage {
       onOpenPage(destination)
       return

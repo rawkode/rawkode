@@ -619,21 +619,33 @@ struct MacRootView: View {
       let todaysEvents = store.events(on: Date())
       List(selection: pageSelectionBinding) {
         if case .supertag(let tagID) = selection {
-          let taggedPages = store.pages(with: tagID).filter {
-            query.isEmpty || $0.title.localizedStandardContains(query)
-              || $0.plainText.localizedStandardContains(query)
-          }
-          if taggedPages.isEmpty {
-            ContentUnavailableView(
-              "No tagged pages",
-              systemImage: "number",
-              description: Text("Apply this Supertag to a page or selected text.")
+          if tagID == BuiltInSupertags.bookmark {
+            BookmarkLibraryRows(
+              links: store.bookmarkLibraryLinks.filter {
+                query.isEmpty || $0.page.title.localizedStandardContains(query)
+                  || $0.page.plainText.localizedStandardContains(query)
+              },
+              aliasCount: store.bookmarkAliasSuggestions.count,
+              historyDiagnostic: store.bookmarkHistoryDiagnosticSummary,
+              openPage: selectPage
             )
           } else {
-            ForEach(taggedPages) { page in
-              PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
-                .tag(page.id)
-                .contextMenu { contextMenu(for: page) }
+            let taggedPages = store.pages(with: tagID).filter {
+              query.isEmpty || $0.title.localizedStandardContains(query)
+                || $0.plainText.localizedStandardContains(query)
+            }
+            if taggedPages.isEmpty {
+              ContentUnavailableView(
+                "No tagged pages",
+                systemImage: "number",
+                description: Text("Apply this Supertag to a page or selected text.")
+              )
+            } else {
+              ForEach(taggedPages) { page in
+                PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
+                  .tag(page.id)
+                  .contextMenu { contextMenu(for: page) }
+              }
             }
           }
         } else if section == .calendar {
@@ -699,9 +711,14 @@ struct MacRootView: View {
               .disabled(section == .trash)
             } else {
               ForEach(pages) { page in
-                PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
-                  .tag(page.id)
-                  .contextMenu { contextMenu(for: page) }
+                if let suppressed = store.suppressedBookmarkTrashPresentation(for: page.id) {
+                  SuppressedBookmarkTrashRow(page: page, presentation: suppressed)
+                    .contextMenu { contextMenu(for: page) }
+                } else {
+                  PageRowView(page: page, calendarContext: store.calendarPageContext(for: page.id))
+                    .tag(page.id)
+                    .contextMenu { contextMenu(for: page) }
+                }
               }
             }
           }
@@ -797,7 +814,7 @@ struct MacRootView: View {
       set: { destination in
         Task { @MainActor in
           guard await editorFlushController.flush() else { return }
-          store.selectedPageID = destination
+          assignSelectedPage(destination, in: store)
         }
       }
     )
@@ -853,12 +870,12 @@ struct MacRootView: View {
     switch route {
     case .list:
       showsQuickTaskCapture = false
-      store.selectedPageID = nil
+      assignSelectedPage(nil, in: store)
     case .task(let identity, list: _):
       showsQuickTaskCapture = false
-      store.selectedPageID = identity.nodeID
+      assignSelectedPage(identity.nodeID, in: store)
     case .quickAdd:
-      store.selectedPageID = nil
+      assignSelectedPage(nil, in: store)
       showsQuickTaskCapture = true
     }
   }
@@ -881,8 +898,20 @@ struct MacRootView: View {
   private func selectPage(_ pageID: PageID) {
     Task { @MainActor in
       guard await editorFlushController.flush() else { return }
-      store.selectedPageID = pageID
+      assignSelectedPage(pageID, in: store)
     }
+  }
+
+  private func assignSelectedPage(_ pageID: PageID?, in destinationStore: LibraryStore) {
+    guard let pageID else {
+      destinationStore.selectedPageID = nil
+      return
+    }
+    guard destinationStore.canOpenPage(pageID) else {
+      destinationStore.selectedPageID = nil
+      return
+    }
+    destinationStore.selectedPageID = pageID
   }
 
   private func selectDay(_ date: Date) {
@@ -902,6 +931,10 @@ struct MacRootView: View {
   }
 
   private func presentTodayPageAfterFlush(_ pageID: PageID) {
+    guard store.canOpenPage(pageID) else {
+      todayPresentedPageID = nil
+      return
+    }
     todayPresentedPageID = pageID
   }
 
@@ -949,6 +982,10 @@ private struct MacTodayEventsSidebar: View {
 
   var body: some View {
     let events = store.events(on: day)
+    let savedLinks = store.savedLinks(
+      on: DayKey(date: day, calendar: .current),
+      timeZoneIdentifier: TimeZone.current.identifier
+    )
     List {
       Section(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
         if events.isEmpty {
@@ -969,6 +1006,13 @@ private struct MacTodayEventsSidebar: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+          }
+        }
+      }
+      if !savedLinks.isEmpty {
+        Section("Saved Links") {
+          ForEach(savedLinks) { link in
+            BookmarkPageRow(page: link.page, saveCount: link.saveCount) { openPage(link.page.id) }
           }
         }
       }

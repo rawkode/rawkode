@@ -68,6 +68,12 @@ struct TodayWorkspaceView: View {
               viewAllAnytime: { presentedSheet = .tasks },
               refresh: { try? await store.refreshCalendar() }
             )
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+              TodaySavedLinksSection(
+                links: store.savedLinks(on: DayKey(date: day, calendar: calendar), timeZoneIdentifier: timeZoneIdentifier),
+                openPage: openPage
+              )
+            }
           case .note:
             note
           }
@@ -131,6 +137,9 @@ struct TodayWorkspaceView: View {
       lastConsumedReturnToTodayRequest = request
       requestReturnToToday()
     }
+    .onChange(of: Set(store.suppressedBookmarkTrash.keys)) { _, _ in
+      path.removeAll { !store.canOpenPage($0) }
+    }
   }
 
   @ViewBuilder private var note: some View {
@@ -167,6 +176,7 @@ struct TodayWorkspaceView: View {
   private var calendarTitles: [String] {
     Array(Set(store.calendarEvents.map(\.calendarTitle))).sorted()
   }
+  private var timeZoneIdentifier: String { calendar.timeZone.identifier }
 
   private var panelSwipe: some Gesture {
     DragGesture(minimumDistance: 20).onEnded { value in
@@ -338,8 +348,32 @@ struct TodayWorkspaceView: View {
     }
   }
   private func navigate(_ pageID: PageID) {
+    guard store.canOpenPage(pageID) else { return }
     guard path.last != pageID else { return }
     path.append(pageID)
+  }
+}
+
+private struct TodaySavedLinksSection: View {
+  let links: [BookmarkSavedLink]
+  let openPage: (PageID) -> Void
+
+  var body: some View {
+    if !links.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Saved Links")
+          .font(.headline)
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
+        ForEach(links) { link in
+          BookmarkPageRow(page: link.page, saveCount: link.saveCount) { openPage(link.page.id) }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Saved Links")
+    }
   }
 }
 

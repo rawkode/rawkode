@@ -120,14 +120,20 @@ struct MobileRootView: View {
     .onChange(of: scenePhase) { _, phase in
       switch phase {
       case .active:
-        Task { await refreshForActivation() }
+        Task {
+          await refreshForActivation()
+          await EnchiridionAppRuntime.shared.refreshBookmarkCaptures()
+        }
       case .inactive, .background:
         EditorFlushController.flushForLifecycleTransition()
       @unknown default:
         break
       }
     }
-    .task { await refreshForActivation() }
+    .task {
+      await refreshForActivation()
+      await EnchiridionAppRuntime.shared.refreshBookmarkCaptures()
+    }
     .presentsTaskCompletionUndo(from: store)
     .presentsTaskMutationWarnings(from: store)
     .tint(RosePinePalette.accent)
