@@ -443,7 +443,7 @@ final class LibraryRepositoryTests: XCTestCase {
 
     XCTAssertEqual(eventPages.map(\.id), receipt.changedPageIDs)
     XCTAssertEqual(eventPages.first?.title, event.title)
-    XCTAssertTrue(enabled)
+    XCTAssertFalse(enabled, "A compatibility backfill must not opt the user into future calendar materialization")
   }
 
   func testCalendarMaterializationDetachesConflictingCloudPageWithoutLocalState() async throws {

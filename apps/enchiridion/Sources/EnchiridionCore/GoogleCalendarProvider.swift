@@ -8,9 +8,10 @@ import AppKit
 import UIKit
 #endif
 
-public enum GoogleCalendarError: Error, LocalizedError {
+public enum GoogleCalendarError: Error, LocalizedError, Equatable {
   case notConfigured
   case authorizationCancelled
+  case authorizationRevoked
   case invalidCallback
   case invalidResponse
   case api(String)
@@ -20,6 +21,7 @@ public enum GoogleCalendarError: Error, LocalizedError {
     case .notConfigured:
       "Google Calendar is not configured. Add GoogleOAuthClientID and GoogleOAuthRedirectScheme to the app configuration."
     case .authorizationCancelled: "Google authorization was cancelled."
+    case .authorizationRevoked: "Google Calendar access was revoked. Reconnect Google Calendar to continue."
     case .invalidCallback: "Google returned an invalid authorization response."
     case .invalidResponse: "Google Calendar returned an invalid response."
     case .api(let message): "Google Calendar is unavailable: \(message)"
@@ -150,6 +152,13 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
     .init(provider: "google", interval: .init(start: start, end: end), events: try await events(from: start, through: end))
   }
 
+  /// Refreshes the stored credential without fetching a calendar projection.
+  /// A successful result is the only startup condition that may authorize
+  /// legacy cached Google rows to become normal Event pages.
+  public func validateStoredAuthorization() async throws {
+    _ = try await validAccessToken()
+  }
+
   /// Safe startup check: no UI and no prompt, only configuration plus an
   /// existing refresh credential.
   public static func isRestorable(from bundle: Bundle = .main) -> Bool {
@@ -198,7 +207,7 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
       "\(Self.formEncode(key))=\(Self.formEncode(value))"
     }.sorted().joined(separator: "&").data(using: .utf8)
     let (data, response) = try await URLSession.shared.data(for: request)
-    try Self.validate(response: response, data: data)
+    try Self.validate(response: response, data: data, tokenEndpoint: true)
     return try JSONDecoder().decode(TokenResponse.self, from: data)
   }
 
@@ -276,13 +285,35 @@ public final class GoogleCalendarProvider: NSObject, ASWebAuthenticationPresenta
     )
   }
 
-  private static func validate(response: URLResponse, data: Data) throws {
+  private static func validate(
+    response: URLResponse,
+    data: Data,
+    tokenEndpoint: Bool = false
+  ) throws {
     guard let http = response as? HTTPURLResponse else { throw GoogleCalendarError.invalidResponse }
     guard (200..<300).contains(http.statusCode) else {
-      let message = (try? JSONDecoder().decode(GoogleAPIError.self, from: data).error.message)
-        ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-      throw GoogleCalendarError.api(message)
+      throw classifyHTTPFailure(statusCode: http.statusCode, data: data, tokenEndpoint: tokenEndpoint)
     }
+  }
+
+  /// Internal for focused, no-network classification tests. The error body is
+  /// never logged; callers receive only the stable category/message.
+  static func classifyHTTPFailure(
+    statusCode: Int,
+    data: Data,
+    tokenEndpoint: Bool
+  ) -> GoogleCalendarError {
+    let oauth = try? JSONDecoder().decode(GoogleOAuthError.self, from: data)
+    let calendar = try? JSONDecoder().decode(GoogleAPIError.self, from: data)
+    let message = oauth?.errorDescription
+      ?? calendar?.error.message
+      ?? HTTPURLResponse.localizedString(forStatusCode: statusCode)
+    if statusCode == 401
+      || (tokenEndpoint && statusCode == 400 && oauth?.error == "invalid_grant")
+    {
+      return .authorizationRevoked
+    }
+    return .api(message)
   }
 
   fileprivate static let rfc3339: ISO8601DateFormatter = {
@@ -361,6 +392,15 @@ private struct GoogleEventDate: Decodable {
 private struct GoogleAPIError: Decodable {
   struct Body: Decodable { var message: String }
   var error: Body
+}
+private struct GoogleOAuthError: Decodable {
+  var error: String
+  var errorDescription: String?
+
+  enum CodingKeys: String, CodingKey {
+    case error
+    case errorDescription = "error_description"
+  }
 }
 
 private enum Keychain {

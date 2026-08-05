@@ -1,4 +1,5 @@
 import Automerge
+import CryptoKit
 import Darwin
 import Foundation
 import GRDB
@@ -7,6 +8,7 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case pageNotFound
   case pagePurged
   case invalidRecord
+  case calendarMaterializationDisabled
   case bookmarkCaptureHistoryConflict
   case bookmarkIdentityFrozen
   case bookmarkSuppressed
@@ -27,6 +29,8 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .pageNotFound: "The page is no longer available."
     case .pagePurged: "This page was permanently removed."
     case .invalidRecord: "The local page record is invalid."
+    case .calendarMaterializationDisabled:
+      "Calendar Event page materialization is disabled."
     case .bookmarkCaptureHistoryConflict:
       "This capture identifier already belongs to different immutable bookmark history."
     case .bookmarkIdentityFrozen:
@@ -342,7 +346,7 @@ public actor LibraryRepository {
 
   public nonisolated let path: String
   let database: DatabasePool
-  private var authoritativeCalendarRefreshTokens: [String: UUID] = [:]
+  private var authoritativeCalendarRefreshTokens: [String: (id: UUID, eligibilityEpoch: Int64)] = [:]
 
   func assistantRead<T: Sendable>(
     _ access: @Sendable (Database) throws -> T
@@ -1673,6 +1677,9 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO settings (key,value) VALUES ('calendar.omission-prefixes',?)",
         arguments: [try JSONEncoder.enchiridion.encode(normalized)]
       )
+      // A response was classified under the previous omission policy. It is no
+      // longer safe to resume it after this durable policy change.
+      try Self.invalidateCalendarProjectionGenerations(db, provider: nil, now: Date())
       for row in try Row.fetchAll(
         db,
         sql: "SELECT event_key,event_json FROM calendar_events WHERE active = 1"
@@ -1698,6 +1705,8 @@ public actor LibraryRepository {
       )
       try Self.pruneOrphanedCalendarPeople(db)
     }
+    // A fetch that started under the former policy cannot install afterwards.
+    authoritativeCalendarRefreshTokens.removeAll()
   }
 
   public func calendarEventMaterializationEnabled() throws -> Bool {
@@ -1717,6 +1726,51 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
         arguments: [CalendarEventMaterialization.settingKey, try JSONEncoder.enchiridion.encode(enabled)]
       )
+      guard !enabled else { return }
+      // Local projection work is disposable. Never delete the normal Event
+      // pages here: users may have edited them and they are cloud documents.
+      try Self.invalidateCalendarProjectionGenerations(db, provider: nil, now: Date())
+    }
+    if !enabled { authoritativeCalendarRefreshTokens.removeAll() }
+  }
+
+  /// Call when provider authorization is revoked or the provider is removed.
+  /// This clears only local projection data and resumable work, never Event
+  /// pages or their CloudKit state.
+  public func invalidateCalendarProjectionAccess(provider: String, now: Date = Date()) throws {
+    try database.write { db in
+      try Self.invalidateCalendarProjectionGenerations(db, provider: provider, now: now)
+      try db.execute(sql: "INSERT INTO calendar_projection_access (provider,is_eligible,updated_at) VALUES (?,?,?) ON CONFLICT(provider) DO UPDATE SET is_eligible = excluded.is_eligible, updated_at = excluded.updated_at", arguments: [provider, false, now.timeIntervalSince1970])
+    }
+    authoritativeCalendarRefreshTokens[provider] = nil
+  }
+
+  /// Records current provider authorization for local-only legacy migration.
+  /// Callers must pass only providers that can be read right now.
+  public func setCalendarProjectionProviderEligible(_ provider: String, now: Date = Date()) throws {
+    try database.write { db in
+      try db.execute(sql: "INSERT INTO calendar_projection_access (provider,is_eligible,updated_at) VALUES (?,?,?) ON CONFLICT(provider) DO UPDATE SET is_eligible = excluded.is_eligible, updated_at = excluded.updated_at", arguments: [provider, true, now.timeIntervalSince1970])
+    }
+  }
+
+  /// Makes a crashed in-progress generation resumable. It deliberately does
+  /// not scan old `calendar_events`; only exact v31 item ledgers may resume.
+  public func recoverCalendarProjectionGenerations(now: Date = Date()) throws {
+    try database.write { db in
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'staged', updated_at = ? WHERE status = 'materializing'", arguments: [now.timeIntervalSince1970])
+    }
+  }
+
+  public func calendarProjectionGeneration(provider: String) throws -> CalendarProjectionGeneration? {
+    try database.read { db in try Self.calendarProjectionGeneration(db, provider: provider) }
+  }
+
+  /// Fetches only the changed page snapshots needed to publish a completed
+  /// batch. This avoids a full LibraryStore reload while the ledger drains.
+  public func pageSnapshots(ids: [PageID]) throws -> [PageSnapshot] {
+    guard !ids.isEmpty else { return [] }
+    return try database.read { db in
+      try ids.compactMap { try Self.fetchPage(db, id: $0) }
     }
   }
 
@@ -1758,7 +1812,17 @@ public actor LibraryRepository {
     provider: String, now: Date = Date()
   ) throws -> AuthoritativeCalendarRefreshToken {
     let token = UUID()
-    try database.write { db in
+    let start = try database.write { db -> (Int64, Bool) in
+      let setting = try Self.calendarMaterializationSetting(db)
+      guard setting != false else {
+        throw LibraryRepositoryError.calendarMaterializationDisabled
+      }
+      let epoch = try Self.nextCalendarProjectionEligibilityEpoch(db, provider: provider)
+      // A later fetch wins durably, even across a process death. Its apply is
+      // the only operation permitted to replace the current local projection.
+      let superseded = try String.fetchAll(db, sql: "SELECT id FROM calendar_projection_generations WHERE provider = ? AND status IN ('staged','materializing')", arguments: [provider])
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'superseded', updated_at = ? WHERE provider = ? AND status IN ('staged','materializing')", arguments: [now.timeIntervalSince1970, provider])
+      for id in superseded { try db.execute(sql: "DELETE FROM calendar_projection_generation_items WHERE generation_id = ?", arguments: [id]) }
       let state = CalendarEventMaterializationBackfillState(
         provider: provider, status: .running, updatedAt: now
       )
@@ -1766,9 +1830,11 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)",
         arguments: [provider, try JSONEncoder.enchiridion.encode(state)]
       )
+      return (epoch, setting == nil)
     }
-    authoritativeCalendarRefreshTokens[provider] = token
-    return .init(provider: provider, id: token)
+    let (epoch, legacyCompatibility) = start
+    authoritativeCalendarRefreshTokens[provider] = (token, epoch)
+    return .init(provider: provider, id: token, eligibilityEpoch: epoch, legacyCompatibility: legacyCompatibility)
   }
 
   /// Atomically replaces one provider projection, updates its derived local
@@ -1780,42 +1846,89 @@ public actor LibraryRepository {
     now: Date = Date()
   ) throws -> CalendarEventMaterializationReceipt {
     guard projection.provider == token.provider,
-      authoritativeCalendarRefreshTokens[projection.provider] == token.id
+      authoritativeCalendarRefreshTokens[projection.provider]?.id == token.id,
+      authoritativeCalendarRefreshTokens[projection.provider]?.eligibilityEpoch == token.eligibilityEpoch
     else { throw LibraryRepositoryError.invalidRecord }
     defer { authoritativeCalendarRefreshTokens[projection.provider] = nil }
     return try database.write { db in
+      // This fence must be first: resolving a series can create a local alias,
+      // and stale/disabled applies are required to write absolutely nothing.
+      let epoch = try Self.currentCalendarProjectionEligibilityEpoch(db, provider: projection.provider)
+      guard epoch == token.eligibilityEpoch,
+        (try Self.calendarMaterializationEnabled(db) || token.legacyCompatibility)
+      else { return .init() }
       let prefixes = try Self.calendarEventOmissionPrefixes(db)
-      var accepted: [CalendarEventSnapshot] = []
-      // Validate materialization identity before changing any projection state.
-      for event in projection.events where !CalendarEventOmissionRules.shouldOmit(title: event.title, prefixes: prefixes) {
-        guard event.identity.provider == projection.provider,
-          CalendarEventMaterialization.identity(for: event) != nil
-        else {
-          throw LibraryRepositoryError.invalidRecord
+      var partition = try Self.partitionCalendarProjection(projection, prefixes: prefixes)
+      // Direct callers from pre-opt-in repositories relied on strict rejection
+      // semantics. Explicit enabled v31 callers receive the new mixed/all-
+      // invalid partition behavior instead.
+      if token.legacyCompatibility, partition.rejectedCount > 0 {
+        throw LibraryRepositoryError.invalidRecord
+      }
+      // Series resolution is part of the immutable generation payload. Batches
+      // must materialize the very same identity committed to calendar_events.
+      for index in partition.accepted.indices {
+        if let series = partition.accepted[index].identity.series {
+          partition.accepted[index].identity.series = try Self.resolveSeries(
+            db, event: partition.accepted[index], series: series
+          )
         }
       }
+      let generation = CalendarProjectionGeneration(
+        provider: projection.provider, id: token.id, eligibilityEpoch: epoch,
+        snapshotVersion: 1, snapshotDigest: partition.snapshotDigest,
+        omissionPrefixDigest: partition.omissionPrefixDigest, status: .staged,
+        acceptedCount: partition.accepted.count, rejectedCount: partition.rejectedCount,
+        retentionEligible: partition.rejectedCount == 0, refreshAt: now,
+        nextOrdinal: 0, updatedAt: now
+      )
+      // Header, immutable items, provider projection and generation membership
+      // commit together. A crash produces either the previous generation or an
+      // exact resumable one, never a half-replaced provider projection.
+      try Self.insertCalendarProjectionGeneration(db, generation: generation, partition: partition, interval: projection.interval)
+      // An entirely malformed non-empty response must not erase the last good
+      // local projection. It is recorded as a terminal diagnostic only.
+      if projection.events.isEmpty == false, partition.accepted.isEmpty {
+        try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'completed' WHERE id = ?", arguments: [token.id.uuidString])
+        let state = CalendarEventMaterializationBackfillState(provider: projection.provider, status: .completed, outcome: "Rejected \(partition.rejectedCount)", updatedAt: now)
+        try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [projection.provider, try JSONEncoder.enchiridion.encode(state)])
+        return .init(skippedCount: partition.rejectedCount)
+      }
       try db.execute(sql: "UPDATE calendar_events SET active = 0 WHERE provider = ?", arguments: [projection.provider])
-      for source in projection.events where !CalendarEventOmissionRules.shouldOmit(title: source.title, prefixes: prefixes) {
-        var event = source
-        if let series = event.identity.series { event.identity.series = try Self.resolveSeries(db, event: event, series: series) }
-        accepted.append(event)
+      for event in partition.accepted {
         try db.execute(sql: """
           INSERT INTO calendar_events (event_key,provider,event_json,start_at,end_at,active,refreshed_at,series_source_key,series_canonical_key)
           VALUES (?,?,?,?,?,1,?,?,?) ON CONFLICT(event_key) DO UPDATE SET event_json=excluded.event_json,start_at=excluded.start_at,end_at=excluded.end_at,active=1,refreshed_at=excluded.refreshed_at,series_source_key=excluded.series_source_key,series_canonical_key=excluded.series_canonical_key
           """, arguments: [Self.storageKey(event.identity.stableKey), projection.provider, try JSONEncoder.enchiridion.encode(event), event.startDate.timeIntervalSince1970, event.endDate.timeIntervalSince1970, now.timeIntervalSince1970, event.identity.series.map { Self.storageKey($0.sourceKey) }, event.identity.series.map { Self.storageKey($0.canonicalKey) }])
-        try Self.replaceAttendeeProjection(db, event: event, now: now)
       }
       try db.execute(sql: "DELETE FROM calendar_event_attendees WHERE event_key IN (SELECT event_key FROM calendar_events WHERE provider = ? AND active = 0)", arguments: [projection.provider])
       try db.execute(sql: "DELETE FROM calendar_events WHERE provider = ? AND active = 0 AND event_key NOT IN (SELECT event_key FROM event_page_map)", arguments: [projection.provider])
       try Self.pruneOrphanedCalendarPeople(db)
 
-      let receipt = try Self.materializeCalendarEvents(
-        db, accepted, provider: projection.provider, authoritativeInterval: projection.interval, now: now
+      return try Self.resumeCalendarProjectionGeneration(
+        db, provider: projection.provider, expectedID: token.id,
+        expectedEpoch: epoch, batchLimit: 32, timeLimit: 0.045, now: now,
+        allowLegacyDisabled: token.legacyCompatibility
       )
-      // Final durable statement of a complete authoritative refresh.
-      let completed = CalendarEventMaterializationBackfillState(provider: projection.provider, status: .completed, outcome: "Materialized \(receipt.changedPageIDs.count); skipped \(receipt.skippedCount)", updatedAt: now)
-      try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [projection.provider, try JSONEncoder.enchiridion.encode(completed)])
-      return receipt
+    }
+  }
+
+  /// Advances at most one bounded materialization batch. It is safe to call on
+  /// every UI turn: stale, disabled, invalidated and already-complete work is a
+  /// no-op. A caller should reschedule while `isTerminal` is false.
+  public func resumeAuthoritativeCalendarProjection(
+    provider: String, batchLimit: Int = 32, timeLimit: TimeInterval = 0.045,
+    now: Date = Date()
+  ) throws -> CalendarEventMaterializationReceipt {
+    try database.write { db in
+      guard let generation = try Self.calendarProjectionGeneration(db, provider: provider),
+        generation.status == .staged || generation.status == .materializing
+      else { return .init() }
+      return try Self.resumeCalendarProjectionGeneration(
+        db, provider: provider, expectedID: generation.id,
+        expectedEpoch: generation.eligibilityEpoch, batchLimit: batchLimit,
+        timeLimit: timeLimit, now: now, allowLegacyDisabled: false
+      )
     }
   }
 
@@ -1827,6 +1940,164 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)",
         arguments: [state.provider, try JSONEncoder.enchiridion.encode(state)]
       )
+    }
+  }
+
+  private struct CalendarProjectionPartition {
+    var accepted: [CalendarEventSnapshot]
+    var rejectedCount: Int
+    var rejectionCategories: [String: Int]
+    var snapshotDigest: String
+    var omissionPrefixDigest: String
+  }
+
+  private static func partitionCalendarProjection(
+    _ projection: AuthoritativeCalendarProjection, prefixes: [String]
+  ) throws -> CalendarProjectionPartition {
+    let encoder = JSONEncoder.enchiridion
+    let prefixData = try encoder.encode(prefixes.sorted())
+    let prefixDigest = SHA256.hash(data: prefixData).map { String(format: "%02x", $0) }.joined()
+    // The digest commits to the exact ordered provider response, including
+    // rejected entries. Immutable items are sorted by their canonical bytes so
+    // duplicate/retry behavior is deterministic across launches.
+    let encoded = try projection.events.map { try encoder.encode($0) }
+    var digestData = Data("v1\u{0}\(projection.provider)\u{0}\(projection.interval.start.timeIntervalSince1970)\u{0}\(projection.interval.end.timeIntervalSince1970)\u{0}".utf8)
+    for data in encoded { digestData.append(data); digestData.append(0) }
+    let snapshotDigest = SHA256.hash(data: digestData).map { String(format: "%02x", $0) }.joined()
+    let ordered = zip(projection.events, encoded).sorted { lhs, rhs in
+      lhs.1.lexicographicallyPrecedes(rhs.1)
+    }
+    var seen = Set<String>()
+    var accepted: [CalendarEventSnapshot] = []
+    var rejectedCount = 0
+    var rejectionCategories: [String: Int] = [:]
+    func reject(_ category: String) {
+      rejectedCount += 1
+      rejectionCategories[category, default: 0] += 1
+    }
+    for (event, _) in ordered {
+      if event.identity.provider != projection.provider { reject("provider"); continue }
+      // Omitted items are deliberate policy exclusions, not provider-invalid
+      // records and must not poison retention eligibility.
+      if CalendarEventOmissionRules.shouldOmit(title: event.title, prefixes: prefixes) { continue }
+      guard CalendarEventMaterialization.identity(for: event) != nil else { reject("identity"); continue }
+      let key = storageKey(event.identity.stableKey)
+      guard seen.insert(key).inserted else { reject("duplicate"); continue }
+      accepted.append(event)
+    }
+    return .init(accepted: accepted, rejectedCount: rejectedCount, rejectionCategories: rejectionCategories, snapshotDigest: snapshotDigest, omissionPrefixDigest: prefixDigest)
+  }
+
+  private static func insertCalendarProjectionGeneration(
+    _ db: Database, generation: CalendarProjectionGeneration,
+    partition: CalendarProjectionPartition, interval: DateInterval
+  ) throws {
+    let superseded = try String.fetchAll(db, sql: "SELECT id FROM calendar_projection_generations WHERE provider = ? AND id <> ? AND status IN ('staged','materializing')", arguments: [generation.provider, generation.id.uuidString])
+    try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'superseded' WHERE provider = ? AND id <> ? AND status IN ('staged','materializing')", arguments: [generation.provider, generation.id.uuidString])
+    for id in superseded { try db.execute(sql: "DELETE FROM calendar_projection_generation_items WHERE generation_id = ?", arguments: [id]) }
+    try db.execute(sql: "INSERT INTO calendar_projection_generations (provider,id,eligibility_epoch,snapshot_version,snapshot_digest,omission_prefix_digest,status,accepted_count,rejected_count,retention_eligible,refresh_at,next_ordinal,interval_start,interval_end,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", arguments: [generation.provider, generation.id.uuidString, generation.eligibilityEpoch, generation.snapshotVersion, generation.snapshotDigest, generation.omissionPrefixDigest, generation.status.rawValue, generation.acceptedCount, generation.rejectedCount, generation.retentionEligible, generation.refreshAt.timeIntervalSince1970, generation.nextOrdinal, interval.start.timeIntervalSince1970, interval.end.timeIntervalSince1970, generation.updatedAt.timeIntervalSince1970])
+    var ordinal = 0
+    for event in partition.accepted {
+      let key = storageKey(event.identity.stableKey)
+      try db.execute(sql: "INSERT INTO calendar_projection_generation_items (provider,generation_id,ordinal,event_key,event_json) VALUES (?,?,?,?,?)", arguments: [generation.provider, generation.id.uuidString, ordinal, key, try JSONEncoder.enchiridion.encode(event)])
+      ordinal += 1
+    }
+    // Do not retain raw malformed identity details in diagnostics. The event
+    // snapshot is local-only, but aggregate categories are enough for UI logs.
+    for (category, count) in partition.rejectionCategories.sorted(by: { $0.key < $1.key }) {
+      try db.execute(sql: "INSERT INTO calendar_projection_generation_rejections (generation_id,category,count) VALUES (?,?,?)", arguments: [generation.id.uuidString, category, count])
+    }
+  }
+
+  private static func resumeCalendarProjectionGeneration(
+    _ db: Database, provider: String, expectedID: UUID, expectedEpoch: Int64,
+    batchLimit: Int, timeLimit: TimeInterval, now: Date, allowLegacyDisabled: Bool
+  ) throws -> CalendarEventMaterializationReceipt {
+    guard batchLimit > 0, (try calendarMaterializationEnabled(db) || allowLegacyDisabled),
+      let generation = try calendarProjectionGeneration(db, provider: provider),
+      generation.id == expectedID, generation.eligibilityEpoch == expectedEpoch,
+      generation.status == .staged || generation.status == .materializing,
+      try currentCalendarProjectionEligibilityEpoch(db, provider: provider) == expectedEpoch
+    else { return .init() }
+    let started = ProcessInfo.processInfo.systemUptime
+    let rows = try Row.fetchAll(db, sql: "SELECT ordinal,event_json FROM calendar_projection_generation_items WHERE provider = ? AND generation_id = ? AND ordinal >= ? ORDER BY ordinal LIMIT ?", arguments: [provider, expectedID.uuidString, generation.nextOrdinal, batchLimit])
+    var lastOrdinal = generation.nextOrdinal
+    try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'materializing', updated_at = ? WHERE provider = ? AND id = ? AND eligibility_epoch = ? AND status IN ('staged','materializing')", arguments: [now.timeIntervalSince1970, provider, expectedID.uuidString, expectedEpoch])
+    guard db.changesCount > 0 else { return .init() }
+    // Person/attendee projection is intentionally bounded with page work; the
+    // initial authoritative commit never creates a large contact transaction.
+    var changed: [PageID] = []
+    var skipped = 0
+    for row in rows {
+      if ProcessInfo.processInfo.systemUptime - started >= timeLimit { break }
+      guard let ordinal: Int = row["ordinal"], let data: Data = row["event_json"],
+        let event = try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data)
+      else { throw LibraryRepositoryError.invalidRecord }
+      try replaceAttendeeProjection(db, event: event, now: generation.refreshAt)
+      let receipt = try materializeCalendarEvents(db, [event], provider: provider, authoritativeInterval: nil, now: generation.refreshAt)
+      changed.append(contentsOf: receipt.changedPageIDs)
+      skipped += receipt.skippedCount
+      // Advance only after the exact item's Person and Page work committed in
+      // this transaction; a crash resumes the first unfinished ordinal.
+      lastOrdinal = ordinal + 1
+    }
+    let completed = lastOrdinal >= generation.acceptedCount
+    if completed {
+      let intervalStart: Double = try Double.fetchOne(db, sql: "SELECT interval_start FROM calendar_projection_generations WHERE provider = ? AND id = ?", arguments: [provider, expectedID.uuidString]) ?? now.timeIntervalSince1970
+      let intervalEnd: Double = try Double.fetchOne(db, sql: "SELECT interval_end FROM calendar_projection_generations WHERE provider = ? AND id = ?", arguments: [provider, expectedID.uuidString]) ?? now.timeIntervalSince1970
+      if generation.retentionEligible {
+        try reconcileMaterializedCalendarRetention(db, sourceScope: CalendarEventMaterialization.sourceScopeDigest(for: provider) ?? provider, authoritativeInterval: .init(start: .init(timeIntervalSince1970: intervalStart), end: .init(timeIntervalSince1970: intervalEnd)), completedRefreshAt: generation.refreshAt.timeIntervalSince1970, now: generation.refreshAt, changed: &changed)
+      }
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'completed', next_ordinal = ?, updated_at = ? WHERE provider = ? AND id = ? AND eligibility_epoch = ?", arguments: [lastOrdinal, now.timeIntervalSince1970, provider, expectedID.uuidString, expectedEpoch])
+      let state = CalendarEventMaterializationBackfillState(provider: provider, status: .completed, outcome: "Materialized \(changed.count); rejected \(generation.rejectedCount)", updatedAt: now)
+      try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [provider, try JSONEncoder.enchiridion.encode(state)])
+      try db.execute(sql: "DELETE FROM calendar_projection_generation_items WHERE generation_id = ?", arguments: [expectedID.uuidString])
+      return .init(changedPageIDs: changed, skippedCount: generation.rejectedCount + skipped, isTerminal: true)
+    }
+    try db.execute(sql: "UPDATE calendar_projection_generations SET next_ordinal = ?, updated_at = ? WHERE provider = ? AND id = ? AND eligibility_epoch = ?", arguments: [lastOrdinal, now.timeIntervalSince1970, provider, expectedID.uuidString, expectedEpoch])
+    return .init(changedPageIDs: changed, skippedCount: generation.rejectedCount + skipped, isTerminal: false)
+  }
+
+  private static func calendarMaterializationEnabled(_ db: Database) throws -> Bool {
+    try calendarMaterializationSetting(db) ?? false
+  }
+
+  private static func calendarMaterializationSetting(_ db: Database) throws -> Bool? {
+    guard let data = try Data.fetchOne(db, sql: "SELECT value FROM settings WHERE key = ?", arguments: [CalendarEventMaterialization.settingKey]) else { return nil }
+    return (try? JSONDecoder.enchiridion.decode(Bool.self, from: data)) ?? false
+  }
+
+  private static func currentCalendarProjectionEligibilityEpoch(_ db: Database, provider: String) throws -> Int64 {
+    try Int64.fetchOne(db, sql: "SELECT eligibility_epoch FROM calendar_projection_epochs WHERE provider = ?", arguments: [provider]) ?? 0
+  }
+
+  private static func nextCalendarProjectionEligibilityEpoch(_ db: Database, provider: String) throws -> Int64 {
+    let next = try currentCalendarProjectionEligibilityEpoch(db, provider: provider) + 1
+    try db.execute(sql: "INSERT INTO calendar_projection_epochs (provider,eligibility_epoch) VALUES (?,?) ON CONFLICT(provider) DO UPDATE SET eligibility_epoch = excluded.eligibility_epoch", arguments: [provider, next])
+    return next
+  }
+
+  private static func calendarProjectionGeneration(_ db: Database, provider: String) throws -> CalendarProjectionGeneration? {
+    guard let row = try Row.fetchOne(db, sql: "SELECT provider,id,eligibility_epoch,snapshot_version,snapshot_digest,omission_prefix_digest,status,accepted_count,rejected_count,retention_eligible,refresh_at,next_ordinal,updated_at FROM calendar_projection_generations WHERE provider = ? ORDER BY updated_at DESC LIMIT 1", arguments: [provider]),
+      let provider: String = row["provider"], let idString: String = row["id"], let id = UUID(uuidString: idString),
+      let epoch: Int64 = row["eligibility_epoch"], let version: Int = row["snapshot_version"],
+      let digest: String = row["snapshot_digest"], let prefixes: String = row["omission_prefix_digest"],
+      let statusString: String = row["status"], let status = CalendarProjectionGenerationStatus(rawValue: statusString),
+      let accepted: Int = row["accepted_count"], let rejected: Int = row["rejected_count"], let eligible: Bool = row["retention_eligible"], let refresh: Double = row["refresh_at"], let next: Int = row["next_ordinal"], let updated: Double = row["updated_at"]
+    else { return nil }
+    return .init(provider: provider, id: id, eligibilityEpoch: epoch, snapshotVersion: version, snapshotDigest: digest, omissionPrefixDigest: prefixes, status: status, acceptedCount: accepted, rejectedCount: rejected, retentionEligible: eligible, refreshAt: .init(timeIntervalSince1970: refresh), nextOrdinal: next, updatedAt: .init(timeIntervalSince1970: updated))
+  }
+
+  private static func invalidateCalendarProjectionGenerations(_ db: Database, provider: String?, now: Date) throws {
+    if let provider {
+      _ = try nextCalendarProjectionEligibilityEpoch(db, provider: provider)
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'invalidated', updated_at = ? WHERE provider = ? AND status IN ('staged','materializing')", arguments: [now.timeIntervalSince1970, provider])
+      try db.execute(sql: "DELETE FROM calendar_projection_generation_items WHERE provider = ?", arguments: [provider])
+    } else {
+      let providers = try String.fetchAll(db, sql: "SELECT DISTINCT provider FROM calendar_projection_generations")
+      for provider in providers { _ = try nextCalendarProjectionEligibilityEpoch(db, provider: provider) }
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'invalidated', updated_at = ? WHERE status IN ('staged','materializing')", arguments: [now.timeIntervalSince1970])
+      try db.execute(sql: "DELETE FROM calendar_projection_generation_items")
     }
   }
 
@@ -1848,33 +2119,79 @@ public actor LibraryRepository {
   }
 
   public func materializeActiveCalendarProjectionForUpgrade(
+    eligibleProviders: Set<String>? = nil,
     now: Date = Date()
   ) throws -> CalendarEventMaterializationReceipt {
     try database.write { db in
-      try db.execute(
-        sql: "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
-        arguments: [CalendarEventMaterialization.settingKey, try JSONEncoder.enchiridion.encode(true)]
-      )
-      let events = try Row.fetchAll(db, sql: "SELECT event_json FROM calendar_events WHERE active = 1")
-        .compactMap { row -> CalendarEventSnapshot? in
-          guard let data: Data = row["event_json"] else { return nil }
-          return try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data)
-        }
+      // v30's unconditional scan made launch latency proportional to the whole
+      // historical calendar. Surface one bounded legacy slice so existing
+      // local projections do not vanish after migration; the next provider
+      // refresh establishes the exact v31 ledger for the remaining horizon.
+      // An explicit user disable is authoritative. An absent legacy setting is
+      // compatible with the historic upgrade path but never writes a setting.
+      if try Self.calendarMaterializationSetting(db) == false { return .init() }
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'staged', updated_at = ? WHERE status = 'materializing'", arguments: [now.timeIntervalSince1970])
+      let eligible: Set<String>
+      if let eligibleProviders {
+        eligible = eligibleProviders
+      } else {
+        eligible = Set(try String.fetchAll(db, sql: "SELECT DISTINCT e.provider FROM calendar_events e LEFT JOIN calendar_projection_access a ON a.provider = e.provider WHERE e.active = 1 AND COALESCE(a.is_eligible,1) = 1"))
+      }
+      guard !eligible.isEmpty else { return .init() }
+      let candidates = try Row.fetchAll(db, sql: "SELECT rowid,event_key,provider,event_json FROM calendar_events WHERE active = 1 AND provider IN (\(eligible.map { _ in "?" }.joined(separator: ","))) AND event_key NOT IN (SELECT event_key FROM calendar_legacy_upgrade_receipts) AND rowid NOT IN (SELECT source_rowid FROM calendar_legacy_upgrade_skips WHERE source_rowid IS NOT NULL) ORDER BY start_at,event_key LIMIT 256", arguments: StatementArguments(eligible.sorted()))
       var changed = Set<PageID>()
       var skipped = 0
-      for (provider, providerEvents) in Dictionary(grouping: events, by: { $0.identity.provider }) {
-        let receipt = try Self.materializeCalendarEvents(
-          db, providerEvents, provider: provider, authoritativeInterval: nil, now: now
-        )
+      var valid: [(sourceKey: String, rowID: Int64?, event: CalendarEventSnapshot)] = []
+      for row in candidates {
+        let rowID: Int64? = row["rowid"]
+        let key: String? = row["event_key"]
+        let storedProvider: String? = row["provider"]
+        guard let data: Data = row["event_json"],
+          let event = try? JSONDecoder.enchiridion.decode(CalendarEventSnapshot.self, from: data)
+        else {
+          try Self.recordLegacyCalendarUpgradeSkip(db, eventKey: key, rowID: rowID, reason: "decode", now: now)
+          skipped += 1
+          continue
+        }
+        guard CalendarEventMaterialization.identity(for: event) != nil else {
+          try Self.recordLegacyCalendarUpgradeSkip(db, eventKey: key, rowID: rowID, reason: "identity", now: now)
+          skipped += 1
+          continue
+        }
+        guard event.identity.provider == storedProvider else {
+          try Self.recordLegacyCalendarUpgradeSkip(db, eventKey: key, rowID: rowID, reason: "provider", now: now)
+          skipped += 1
+          continue
+        }
+        guard let key else {
+          try Self.recordLegacyCalendarUpgradeSkip(db, eventKey: nil, rowID: rowID, reason: "key", now: now)
+          skipped += 1
+          continue
+        }
+        valid.append((key, rowID, event))
+        if valid.count == 32 { break }
+      }
+      for (provider, items) in Dictionary(grouping: valid, by: { $0.event.identity.provider }) {
+        let events = items.map(\.event)
+        let receipt = try Self.materializeCalendarEvents(db, events, provider: provider, authoritativeInterval: nil, now: now)
         changed.formUnion(receipt.changedPageIDs)
         skipped += receipt.skippedCount
-        if providerEvents.contains(where: { CalendarEventMaterialization.identity(for: $0) == nil }) {
-          let needed = CalendarEventMaterializationBackfillState(provider: provider, status: .needed, updatedAt: now)
-          try db.execute(sql: "INSERT OR REPLACE INTO calendar_materialization_backfills (provider,state_json) VALUES (?,?)", arguments: [provider, try JSONEncoder.enchiridion.encode(needed)])
+        for item in items {
+          try db.execute(sql: "INSERT OR IGNORE INTO calendar_legacy_upgrade_receipts (event_key,completed_at) VALUES (?,?)", arguments: [item.sourceKey, now.timeIntervalSince1970])
         }
       }
       return .init(changedPageIDs: changed.sorted { $0.rawValue < $1.rawValue }, skippedCount: skipped)
     }
+  }
+
+  private static func recordLegacyCalendarUpgradeSkip(
+    _ db: Database, eventKey: String?, rowID: Int64?, reason: String, now: Date
+  ) throws {
+    // `calendar_events.event_key` is not-null in every supported schema, but
+    // retaining rowid makes a damaged legacy row permanently non-selectable
+    // even if an external SQLite repair left it malformed.
+    let stableKey = eventKey?.isEmpty == false ? eventKey! : "rowid:\(rowID ?? -1)"
+    try db.execute(sql: "INSERT OR IGNORE INTO calendar_legacy_upgrade_skips (event_key,source_rowid,reason,recorded_at) VALUES (?,?,?,?)", arguments: [stableKey, rowID, reason, now.timeIntervalSince1970])
   }
 
   private static func materializeCalendarEvents(
@@ -7585,6 +7902,108 @@ public actor LibraryRepository {
         sql: "INSERT OR REPLACE INTO bookmark_projection_backfills (projection,completed_at) VALUES ('capture-events-v30',?)",
         arguments: [migrationDate.timeIntervalSince1970]
       )
+    }
+    migrator.registerMigration("v31-calendar-projection-generation-ledger") { db in
+      // Local-only staging: raw event snapshots and rejection detail never
+      // enter a page document or CloudKit record.
+      try db.create(table: "calendar_projection_epochs") { table in
+        table.column("provider", .text).primaryKey()
+        table.column("eligibility_epoch", .integer).notNull().defaults(to: 0)
+      }
+      try db.create(table: "calendar_projection_generations") { table in
+        table.column("provider", .text).notNull().indexed()
+        table.column("id", .text).primaryKey()
+        table.column("eligibility_epoch", .integer).notNull()
+        table.column("snapshot_version", .integer).notNull()
+        table.column("snapshot_digest", .text).notNull()
+        table.column("omission_prefix_digest", .text).notNull()
+        table.column("status", .text).notNull().indexed()
+        table.column("accepted_count", .integer).notNull()
+        table.column("rejected_count", .integer).notNull()
+        table.column("retention_eligible", .boolean).notNull()
+        table.column("refresh_at", .double).notNull()
+        table.column("next_ordinal", .integer).notNull().defaults(to: 0)
+        table.column("interval_start", .double).notNull()
+        table.column("interval_end", .double).notNull()
+        table.column("updated_at", .double).notNull()
+      }
+      try db.create(index: "calendar_projection_generations_provider_updated", on: "calendar_projection_generations", columns: ["provider", "updated_at"])
+      try db.create(table: "calendar_projection_generation_items") { table in
+        table.column("provider", .text).notNull()
+        table.column("generation_id", .text).notNull().references("calendar_projection_generations", onDelete: .cascade)
+        table.column("ordinal", .integer).notNull()
+        table.column("event_key", .text).notNull()
+        table.column("event_json", .blob).notNull()
+        table.primaryKey(["generation_id", "ordinal"])
+      }
+      try db.create(index: "calendar_projection_generation_items_resume", on: "calendar_projection_generation_items", columns: ["provider", "generation_id", "ordinal"])
+      try db.create(table: "calendar_projection_generation_rejections") { table in
+        table.column("generation_id", .text).notNull().references("calendar_projection_generations", onDelete: .cascade)
+        table.column("category", .text).notNull()
+        table.column("count", .integer).notNull()
+        table.primaryKey(["generation_id", "category"])
+      }
+    }
+    migrator.registerMigration("v32-calendar-projection-ledger-corrections") { db in
+      let columns = try db.columns(in: "calendar_projection_generations")
+      if !columns.contains(where: { $0.name == "retention_eligible" }) {
+        try db.alter(table: "calendar_projection_generations") { table in
+          table.add(column: "retention_eligible", .boolean).notNull().defaults(to: false)
+          table.add(column: "refresh_at", .double).notNull().defaults(to: 0)
+        }
+      }
+      // Generation payload is restartable staging, so discard the short-lived
+      // v31 item shape rather than retaining rejected raw snapshots or a
+      // not-null `accepted` column that the corrected writer must not use.
+      // v32 changes the immutable-item shape. Any old in-flight payload is
+      // intentionally discarded, so terminalize its header in the same
+      // migration before recovery can observe an orphan resumable job.
+      try db.execute(sql: "UPDATE calendar_projection_generations SET status = 'invalidated', updated_at = ? WHERE status IN ('staged','materializing')", arguments: [Date().timeIntervalSince1970])
+      try db.drop(table: "calendar_projection_generation_items")
+      try db.create(table: "calendar_projection_generation_items") { table in
+        table.column("provider", .text).notNull()
+        table.column("generation_id", .text).notNull().references("calendar_projection_generations", onDelete: .cascade)
+        table.column("ordinal", .integer).notNull()
+        table.column("event_key", .text).notNull()
+        table.column("event_json", .blob).notNull()
+        table.primaryKey(["generation_id", "ordinal"])
+      }
+      try db.create(index: "calendar_projection_generation_items_resume_v32", on: "calendar_projection_generation_items", columns: ["provider", "generation_id", "ordinal"])
+      try db.drop(table: "calendar_projection_generation_rejections")
+      try db.create(table: "calendar_projection_generation_rejections") { table in
+        table.column("generation_id", .text).notNull().references("calendar_projection_generations", onDelete: .cascade)
+        table.column("category", .text).notNull()
+        table.column("count", .integer).notNull()
+        table.primaryKey(["generation_id", "category"])
+      }
+    }
+    migrator.registerMigration("v33-calendar-legacy-upgrade-progress-and-access") { db in
+      try db.create(table: "calendar_projection_access") { table in
+        table.column("provider", .text).primaryKey()
+        table.column("is_eligible", .boolean).notNull()
+        table.column("updated_at", .double).notNull()
+      }
+      try db.create(table: "calendar_legacy_upgrade_receipts") { table in
+        table.column("event_key", .text).primaryKey()
+        table.column("completed_at", .double).notNull()
+      }
+      try db.create(table: "calendar_legacy_upgrade_skips") { table in
+        table.column("event_key", .text).primaryKey()
+        table.column("source_rowid", .integer).unique()
+        table.column("reason", .text).notNull()
+        table.column("recorded_at", .double).notNull()
+      }
+    }
+    migrator.registerMigration("v34-calendar-legacy-upgrade-poison-rows") { db in
+      let columns = try db.columns(in: "calendar_legacy_upgrade_skips")
+      if !columns.contains(where: { $0.name == "source_rowid" }) {
+        try db.alter(table: "calendar_legacy_upgrade_skips") { table in
+          // SQLite cannot add a UNIQUE column. The separate partial index below
+          // preserves uniqueness while allowing existing v33 databases to open.
+          table.add(column: "source_rowid", .integer)
+        }
+      }
+      try db.create(index: "calendar_legacy_upgrade_skips_source_rowid", on: "calendar_legacy_upgrade_skips", columns: ["source_rowid"], options: .unique)
     }
     return migrator
   }()

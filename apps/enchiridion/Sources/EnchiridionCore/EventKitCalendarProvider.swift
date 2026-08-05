@@ -1,7 +1,7 @@
-import EventKit
+@preconcurrency import EventKit
 import Foundation
 
-public enum CalendarProviderError: Error, LocalizedError, Equatable {
+public enum CalendarProviderError: Error, LocalizedError, Equatable, Sendable {
   case accessDenied
   case accessRestricted
   case unavailable(String)
@@ -18,29 +18,57 @@ public enum CalendarProviderError: Error, LocalizedError, Equatable {
   }
 }
 
+/// The subset of EventKit authorization that Enchiridion needs. Keeping this
+/// Sendable prevents EventKit framework values from leaking out of the owner.
+public enum EventKitCalendarAuthorization: Sendable, Equatable {
+  case notDetermined
+  case restricted
+  case denied
+  case writeOnly
+  case fullAccess
+}
+
+/// The only boundary between the application and EventKit. Implementations own
+/// their EventKit objects and return value snapshots exclusively, so callers
+/// never hold an `EKEvent`, `EKCalendar`, or `EKEventStore` across an await.
+public protocol EventKitCalendarSnapshotSource: Sendable {
+  func authorizationStatus() async -> EventKitCalendarAuthorization
+  func requestFullAccess() async throws -> Bool
+  func authoritativeProjection(from start: Date, through end: Date) async throws
+    -> AuthoritativeCalendarProjection
+  func startObserving(onChanged: @escaping @Sendable () -> Void) async
+  func stopObserving() async
+}
+
+/// Main-actor facade for a serial EventKit owner. UI state can safely hold this
+/// object, while all synchronous EventKit enumeration and mapping stays on the
+/// private owner actor rather than blocking the main actor.
 @MainActor
 public final class EventKitCalendarProvider {
-  private let eventStore: EKEventStore
-  private var observation: NSObjectProtocol?
-  private var onChanged: (@MainActor () -> Void)?
+  private let source: any EventKitCalendarSnapshotSource
+  private var onChanged: (@MainActor @Sendable () -> Void)?
+  private var observationGeneration: UInt64 = 0
 
-  public init(eventStore: EKEventStore = EKEventStore()) {
-    self.eventStore = eventStore
+  public init() {
+    source = EventKitCalendarSource()
+  }
+
+  public init(source: any EventKitCalendarSnapshotSource) {
+    self.source = source
   }
 
   isolated deinit {
-    if let observation {
-      NotificationCenter.default.removeObserver(observation)
-    }
+    let source = source
+    Task { await source.stopObserving() }
   }
 
-  public var authorizationStatus: EKAuthorizationStatus {
-    EKEventStore.authorizationStatus(for: .event)
+  public func authorizationStatus() async -> EventKitCalendarAuthorization {
+    await source.authorizationStatus()
   }
 
   public func requestAccess() async throws {
-    switch authorizationStatus {
-    case .fullAccess, .authorized:
+    switch await source.authorizationStatus() {
+    case .fullAccess:
       return
     case .restricted:
       throw CalendarProviderError.accessRestricted
@@ -48,7 +76,7 @@ public final class EventKitCalendarProvider {
       throw CalendarProviderError.accessDenied
     case .notDetermined:
       do {
-        guard try await eventStore.requestFullAccessToEvents() else {
+        guard try await source.requestFullAccess() else {
           throw CalendarProviderError.accessDenied
         }
       } catch let error as CalendarProviderError {
@@ -56,35 +84,152 @@ public final class EventKitCalendarProvider {
       } catch {
         throw CalendarProviderError.unavailable(error.localizedDescription)
       }
-    @unknown default:
-      throw CalendarProviderError.accessDenied
     }
   }
 
-  public func events(from start: Date, through end: Date) throws -> [CalendarEventSnapshot] {
-    guard authorizationStatus == .fullAccess else {
+  public func events(from start: Date, through end: Date) async throws -> [CalendarEventSnapshot] {
+    try await authoritativeProjection(from: start, through: end).events
+  }
+
+  public func authoritativeProjection(
+    from start: Date,
+    through end: Date
+  ) async throws -> AuthoritativeCalendarProjection {
+    guard await source.authorizationStatus() == .fullAccess else {
       throw CalendarProviderError.accessDenied
     }
+    try Task.checkCancellation()
+    let projection = try await source.authoritativeProjection(from: start, through: end)
+    try Task.checkCancellation()
+    return projection
+  }
+
+  public func startObserving(onChanged: @escaping @MainActor @Sendable () -> Void) async {
+    observationGeneration &+= 1
+    let generation = observationGeneration
+    self.onChanged = onChanged
+    await source.startObserving { [weak self] in
+      Task { @MainActor [weak self] in
+        guard let self, self.observationGeneration == generation else { return }
+        self.onChanged?()
+      }
+    }
+  }
+
+  public func stopObserving() async {
+    observationGeneration &+= 1
+    onChanged = nil
+    await source.stopObserving()
+  }
+}
+
+/// A serial owner for one and only one `EKEventStore`. EventKit's synchronous
+/// fetch APIs are intentionally invoked here, never from `MainActor`.
+private actor EventKitCalendarSource: EventKitCalendarSnapshotSource {
+  private var eventStore: EKEventStore?
+  private let notificationCenter: NotificationCenter
+  private var observation: NSObjectProtocol?
+
+  init(notificationCenter: NotificationCenter = .default) {
+    self.notificationCenter = notificationCenter
+  }
+
+  isolated deinit {
+    if let observation {
+      notificationCenter.removeObserver(observation)
+    }
+  }
+
+  func authorizationStatus() -> EventKitCalendarAuthorization {
+    switch EKEventStore.authorizationStatus(for: .event) {
+    case .fullAccess, .authorized:
+      .fullAccess
+    case .restricted:
+      .restricted
+    case .denied:
+      .denied
+    case .writeOnly:
+      .writeOnly
+    case .notDetermined:
+      .notDetermined
+    @unknown default:
+      .denied
+    }
+  }
+
+  func requestFullAccess() async throws -> Bool {
+    do {
+      return try await ownedEventStore().requestFullAccessToEvents()
+    } catch {
+      throw CalendarProviderError.unavailable(error.localizedDescription)
+    }
+  }
+
+  func authoritativeProjection(from start: Date, through end: Date) throws
+    -> AuthoritativeCalendarProjection
+  {
+    let eventStore = ownedEventStore()
     eventStore.refreshSourcesIfNecessary()
     let calendars = eventStore.calendars(for: .event)
     let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: calendars)
     let sourceEvents = eventStore.events(matching: predicate)
+    let snapshots = Self.snapshots(from: sourceEvents)
+    return .init(provider: "eventkit", interval: .init(start: start, end: end), events: snapshots)
+  }
 
+  func startObserving(onChanged: @escaping @Sendable () -> Void) {
+    if let observation { notificationCenter.removeObserver(observation) }
+    let eventStore = ownedEventStore()
+    observation = notificationCenter.addObserver(
+      forName: .EKEventStoreChanged,
+      object: eventStore,
+      queue: nil
+    ) { _ in
+      onChanged()
+    }
+  }
+
+  func stopObserving() {
+    if let observation { notificationCenter.removeObserver(observation) }
+    observation = nil
+  }
+
+  /// This is actor-isolated deliberately: constructing `EKEventStore` can do
+  /// synchronous provider work, so a façade created on `MainActor` must not
+  /// allocate it until an EventKit operation actually reaches this owner.
+  private func ownedEventStore() -> EKEventStore {
+    if let eventStore { return eventStore }
+    let eventStore = EKEventStore()
+    self.eventStore = eventStore
+    return eventStore
+  }
+
+  private static func snapshots(from sourceEvents: [EKEvent]) -> [CalendarEventSnapshot] {
     let duplicateKeys = Dictionary(grouping: sourceEvents) { event in
-      let external = event.calendarItemExternalIdentifier ?? event.calendarItemIdentifier
+      let external = event.calendarItemExternalIdentifier ?? ""
       return "\(external)\u{0}\(event.startDate.timeIntervalSince1970)"
     }.filter { $0.value.count > 1 }.keys
 
     return sourceEvents.map { event in
       let startDate = event.startDate ?? .distantPast
       let endDate = event.endDate ?? startDate
-      let external = event.calendarItemExternalIdentifier ?? event.calendarItemIdentifier
+      // A local EventKit identifier is useful for diagnostics only. It must
+      // never stand in for the provider's external UID: events without one
+      // remain visible locally but are rejected by materialization later.
+      let external = event.calendarItemExternalIdentifier ?? ""
       let duplicateKey = "\(external)\u{0}\(startDate.timeIntervalSince1970)"
-      let disambiguator: String? = duplicateKeys.contains(duplicateKey)
-        ? Self.calendarFingerprint(event.calendar)
-        : nil
+      let disambiguator: String?
+      if external.isEmpty {
+        // Keep local-only snapshots independently addressable without turning
+        // the local identifier into a provider or CloudKit identity.
+        disambiguator = "local:\(event.calendarItemIdentifier)"
+      } else {
+        disambiguator = duplicateKeys.contains(duplicateKey)
+          ? calendarFingerprint(event.calendar)
+          : nil
+      }
       let occurrenceStart = event.occurrenceDate ?? startDate
-      let series = (event.hasRecurrenceRules || event.occurrenceDate != nil)
+      let series = (!external.isEmpty && (event.hasRecurrenceRules || event.occurrenceDate != nil))
         ? CalendarSeriesIdentity(
           provider: "eventkit",
           externalIdentifier: external,
@@ -108,36 +253,23 @@ public final class EventKitCalendarProvider {
         notes: event.notes?.nonEmpty,
         url: event.url,
         calendarTitle: event.calendar.title,
-        calendarColorHex: Self.hexColor(event.calendar.cgColor),
+        calendarColorHex: hexColor(event.calendar.cgColor),
         isDetached: event.isDetached,
-        attendees: event.attendees?.map(Self.attendee),
-        organizer: event.organizer.map(Self.attendee),
+        attendees: event.attendees?.map(attendee),
+        organizer: event.organizer.map(attendee),
         iCalendarUID: event.calendarItemExternalIdentifier,
         originalStartDate: occurrenceStart,
         timeZoneIdentifier: event.timeZone?.identifier ?? TimeZone.current.identifier,
         originalStartCivilDay: event.isAllDay
-          ? DayKey(date: occurrenceStart, calendar: Self.civilCalendar(timeZone: event.timeZone))
+          ? DayKey(date: occurrenceStart, calendar: civilCalendar(timeZone: event.timeZone))
           : nil
       )
     }.sorted {
       if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
-      return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-    }
-  }
-
-  public func authoritativeProjection(from start: Date, through end: Date) throws -> AuthoritativeCalendarProjection {
-    .init(provider: "eventkit", interval: .init(start: start, end: end), events: try events(from: start, through: end))
-  }
-
-  public func startObserving(onChanged: @escaping @MainActor () -> Void) {
-    self.onChanged = onChanged
-    if let observation { NotificationCenter.default.removeObserver(observation) }
-    observation = NotificationCenter.default.addObserver(
-      forName: .EKEventStoreChanged,
-      object: eventStore,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor in self?.onChanged?() }
+      if $0.title != $1.title {
+        return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+      }
+      return $0.id < $1.id
     }
   }
 

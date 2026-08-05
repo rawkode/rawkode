@@ -6,6 +6,42 @@ public enum LibraryReloadPolicy: Equatable, Sendable {
   case reconcileSystemState
 }
 
+/// Deliberately aggregate-only calendar work state. It tells a surface whether
+/// background work exists without leaking provider identities, account names,
+/// or event content into observable application state.
+public enum CalendarRefreshPhase: Equatable, Sendable {
+  case idle
+  case refreshing
+  case materializing
+}
+
+public struct CalendarRefreshProgress: Equatable, Sendable {
+  public let activeProviderCount: Int
+  public let materializingProviderCount: Int
+  public let processedEventCount: Int
+  public let totalEventCount: Int
+  public let skippedEventCount: Int
+
+  public init(
+    activeProviderCount: Int = 0, materializingProviderCount: Int = 0,
+    processedEventCount: Int = 0, totalEventCount: Int = 0, skippedEventCount: Int = 0
+  ) {
+    self.activeProviderCount = activeProviderCount
+    self.materializingProviderCount = materializingProviderCount
+    self.processedEventCount = processedEventCount
+    self.totalEventCount = totalEventCount
+    self.skippedEventCount = skippedEventCount
+  }
+}
+
+private enum CalendarRefreshStoreError: LocalizedError {
+  case stalledMaterialization
+
+  var errorDescription: String? {
+    "Calendar Event-page materialization made no progress. Refresh Calendar to retry."
+  }
+}
+
 public struct TaskCompletionUndoOffer: Equatable, Sendable {
   public let taskTitle: String
   public let receipt: TaskCompletionUndoReceipt
@@ -120,6 +156,8 @@ public final class LibraryStore {
   public private(set) var taskClarificationUndoFailure: String?
   public private(set) var taskClarificationError: String?
   public private(set) var calendarError: String?
+  public private(set) var calendarRefreshPhase: CalendarRefreshPhase = .idle
+  public private(set) var calendarRefreshProgress = CalendarRefreshProgress()
   public private(set) var whiteboardError: String?
   public var selectedPageID: PageID?
 
@@ -135,6 +173,12 @@ public final class LibraryStore {
   @ObservationIgnored private var reloadGeneration: UInt64 = 0
   @ObservationIgnored private var editorLiveViewRefreshGeneration: UInt64 = 0
   @ObservationIgnored private var calendarRefreshGenerations: [String: UInt64] = [:]
+  @ObservationIgnored private var calendarRefreshTasks: [String: Task<Void, Never>] = [:]
+  @ObservationIgnored private var calendarRefreshTaskIDs: [String: UUID] = [:]
+  @ObservationIgnored private var calendarRefreshPhases: [String: CalendarRefreshPhase] = [:]
+  @ObservationIgnored private var calendarRefreshPendingProviders: Set<String> = []
+  @ObservationIgnored private var calendarRefreshWork: [String: (processed: Int, total: Int, skipped: Int)] = [:]
+  @ObservationIgnored private var calendarStoreGeneration: UInt64 = 0
   @ObservationIgnored private var taskMutationCoordinator: TaskMutationCoordinator?
   @ObservationIgnored private var undoOfferGeneration: UInt64 = 0
   @ObservationIgnored private let requestedVaultID: VaultID?
@@ -148,6 +192,7 @@ public final class LibraryStore {
     repository: LibraryRepository? = nil,
     calendar: Calendar = .current,
     contactResolver: (any DeviceContactResolving)? = nil,
+    calendarProvider: EventKitCalendarProvider? = nil,
     startImmediately: Bool = true,
     taskSystemReconciliationCoordinator: TaskSystemReconciliationCoordinator = .shared,
     taskMutationEffects: TaskMutationEffectExecutor? = nil,
@@ -158,6 +203,7 @@ public final class LibraryStore {
     self.calendar = calendar
     self.taskInterpreter = taskInterpreter
     self.contactResolver = contactResolver
+    self.calendarProvider = calendarProvider
     self.taskSystemReconciliationCoordinator = taskSystemReconciliationCoordinator
     self.repository = repository
     requestedVaultID = vaultID
@@ -307,32 +353,6 @@ public final class LibraryStore {
       let pendingEffectOutcomes = await taskMutationCoordinator?.drainPendingEffects() ?? []
       taskMutationWarnings = pendingEffectOutcomes.compactMap(\.warning)
       await reload()
-      // Legacy local projections predate Event pages. Adopt them on startup so
-      // the normal dirty-page/CloudKit path sees existing calendar content.
-      let upgradeReceipt = try await repository.materializeActiveCalendarProjectionForUpgrade()
-      calendarEventMaterializationEnabled = true
-      for pageID in upgradeReceipt.changedPageIDs {
-        await syncCoordinator?.pageDidChange(pageID)
-      }
-      if !upgradeReceipt.changedPageIDs.isEmpty { await reload() }
-      // Restore only already-authorized providers; startup must never prompt.
-      let restoredEventKit = EventKitCalendarProvider()
-      if restoredEventKit.authorizationStatus == .fullAccess {
-        calendarProvider = restoredEventKit
-        try? await refreshCalendar()
-        restoredEventKit.startObserving { [weak self] in
-          Task { @MainActor in try? await self?.refreshCalendar() }
-        }
-      }
-      if GoogleCalendarProvider.isRestorable(), let google = try? GoogleCalendarProvider.fromBundle() {
-        googleCalendarProvider = google
-        try? await refreshGoogleCalendar(using: google, repository: repository)
-      }
-      let now = Date()
-      let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
-      let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
-      calendarEvents = try await repository.calendarEvents(
-        from: calendarStart, through: calendarEnd)
       if CloudSyncCoordinator.hasRequiredEntitlement {
         let coordinator = CloudSyncCoordinator(
           repository: repository,
@@ -349,6 +369,11 @@ public final class LibraryStore {
       } else {
         syncStatus = .localOnly
       }
+      // Calendar enumeration and Event-page materialization are intentionally
+      // outside the launch critical path. `reload()` above has already
+      // published cached local projection data and the daily page, so Today
+      // and the editor are usable while the durable ledger drains.
+      scheduleStartupCalendarRecovery(repository: repository)
     } catch {
       startupError = error.localizedDescription
       isLoading = false
@@ -357,6 +382,18 @@ public final class LibraryStore {
 
   public func stop() async {
     reloadGeneration &+= 1
+    calendarStoreGeneration &+= 1
+    for provider in Set(calendarRefreshGenerations.keys).union(calendarRefreshTasks.keys) {
+      _ = nextCalendarRefreshGeneration(for: provider)
+    }
+    for task in calendarRefreshTasks.values { task.cancel() }
+    calendarRefreshTasks = [:]
+    calendarRefreshTaskIDs = [:]
+    calendarRefreshPendingProviders = []
+    calendarRefreshWork = [:]
+    calendarRefreshPhases = [:]
+    publishCalendarRefreshStatus()
+    await calendarProvider?.stopObserving()
     await syncCoordinator?.stop()
     syncCoordinator = nil
     taskMutationCoordinator = nil
@@ -1067,8 +1104,14 @@ public final class LibraryStore {
     do {
       try await repository.setCalendarEventOmissionPrefixes(prefixes)
       omissionPrefixes = try await repository.calendarEventOmissionPrefixes()
-      try await refreshEnabledCalendarProviders()
-      await reload()
+      // An omission policy applies immediately to the cached local projection
+      // even when the app has no configured provider to fetch a replacement.
+      // Keep this narrow: Settings must not trigger a whole-library reload.
+      try await reloadCachedCalendarProjection(repository: repository)
+      // The repository invalidates the old exact generation before this
+      // method returns. A new provider projection therefore safely supersedes
+      // it; do not block Settings or reload the entire library for it.
+      scheduleEnabledCalendarProviderRefreshes()
       calendarError = nil
     } catch {
       calendarError = error.localizedDescription
@@ -1080,16 +1123,13 @@ public final class LibraryStore {
     do {
       try await repository.setCalendarEventMaterializationEnabled(enabled)
       calendarEventMaterializationEnabled = enabled
-      guard enabled else { return }
-      var receipts: [CalendarEventMaterializationReceipt] = []
-      for events in Dictionary(grouping: calendarEvents, by: { $0.identity.provider }).values {
-        guard let first = events.first else { continue }
-        receipts.append(try await repository.materializeCalendarEvents(
-          events, provider: first.identity.provider
-        ))
+      guard enabled else {
+        invalidateScheduledCalendarRefreshes()
+        await calendarProvider?.stopObserving()
+        return
       }
-      for pageID in receipts.flatMap(\.changedPageIDs) { await syncCoordinator?.pageDidChange(pageID) }
-      if receipts.contains(where: { !$0.changedPageIDs.isEmpty }) { await reload() }
+      await restartEventKitObservation()
+      scheduleEnabledCalendarProviderRefreshes()
     } catch {
       calendarError = error.localizedDescription
     }
@@ -1835,10 +1875,11 @@ public final class LibraryStore {
       calendarEventMaterializationEnabled = true
       try await repository.markCalendarEventMaterializationBackfillNeeded(provider: "eventkit")
       try await refreshCalendar()
-      provider.startObserving { [weak self] in
-        Task { @MainActor in try? await self?.refreshCalendar() }
+      await provider.startObserving { [weak self] in
+        Task { @MainActor in self?.scheduleEventKitRefresh(debounced: true) }
       }
     } catch {
+      await invalidateEventKitAccessIfNeeded(error, repository: repository)
       calendarError = error.localizedDescription
     }
     _ = repository
@@ -1846,26 +1887,41 @@ public final class LibraryStore {
 
   public func refreshCalendar() async throws {
     guard let repository, let calendarProvider else { return }
+    cancelScheduledCalendarRefresh(provider: "eventkit")
+    try await refreshEventKitCalendar(
+      using: calendarProvider,
+      repository: repository,
+      storeGeneration: calendarStoreGeneration
+    )
+  }
+
+  private func refreshEventKitCalendar(
+    using provider: EventKitCalendarProvider,
+    repository: LibraryRepository,
+    storeGeneration: UInt64
+  ) async throws {
     let generation = nextCalendarRefreshGeneration(for: "eventkit")
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
     let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
     do {
       let token = try await repository.beginAuthoritativeCalendarRefresh(provider: "eventkit")
-      let projection = try calendarProvider.authoritativeProjection(from: start, through: end)
-      guard isCurrentCalendarRefresh(generation, provider: "eventkit") else { return }
+      calendarRefreshPhases["eventkit"] = .refreshing
+      publishCalendarRefreshStatus()
+      let projection = try await provider.authoritativeProjection(from: start, through: end)
+      guard isCurrentCalendarRefresh(generation, provider: "eventkit"),
+        storeGeneration == calendarStoreGeneration
+      else { return }
       let receipt = try await repository.applyAuthoritativeCalendarProjection(projection, token: token)
-      for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
-      await syncCoordinator?.enqueueDirtyChanges()
+      try await publishCalendarMaterializationReceipt(
+        receipt, provider: "eventkit", repository: repository, start: start, end: end,
+        generation: generation, storeGeneration: storeGeneration
+      )
     } catch {
+      calendarRefreshPhases["eventkit"] = .idle
+      publishCalendarRefreshStatus()
       throw error
     }
-    guard isCurrentCalendarRefresh(generation, provider: "eventkit") else { return }
-    calendarEvents = try await repository.calendarEvents(from: start, through: end)
-    calendarRelationshipGeneration &+= 1
-    calendarPageContexts = try await repository.calendarPageContexts()
-    if contactResolver != nil { await refreshContactEnrichments() }
-    calendarError = nil
   }
 
   public func events(on date: Date) -> [CalendarEventSnapshot] {
@@ -1887,6 +1943,7 @@ public final class LibraryStore {
       try await refreshGoogleCalendar(using: provider, repository: repository)
       calendarError = nil
     } catch {
+      await invalidateGoogleAccessIfNeeded(error, repository: repository)
       calendarError = error.localizedDescription
     }
   }
@@ -1903,24 +1960,29 @@ public final class LibraryStore {
     repository: LibraryRepository
   ) async throws {
     let generation = nextCalendarRefreshGeneration(for: "google")
+    let storeGeneration = calendarStoreGeneration
     let now = Date()
     let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
     let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
     do {
       let token = try await repository.beginAuthoritativeCalendarRefresh(provider: "google")
+      calendarRefreshPhases["google"] = .refreshing
+      publishCalendarRefreshStatus()
       let projection = try await provider.authoritativeProjection(from: start, through: end)
-      guard isCurrentCalendarRefresh(generation, provider: "google") else { return }
+      guard isCurrentCalendarRefresh(generation, provider: "google"),
+        storeGeneration == calendarStoreGeneration
+      else { return }
       let receipt = try await repository.applyAuthoritativeCalendarProjection(projection, token: token)
-      for pageID in receipt.changedPageIDs { await syncCoordinator?.pageDidChange(pageID) }
-      await syncCoordinator?.enqueueDirtyChanges()
+      try await publishCalendarMaterializationReceipt(
+        receipt, provider: "google", repository: repository, start: start, end: end,
+        generation: generation, storeGeneration: storeGeneration
+      )
     } catch {
+      calendarRefreshPhases["google"] = .idle
+      publishCalendarRefreshStatus()
+      await invalidateGoogleAccessIfNeeded(error, repository: repository)
       throw error
     }
-    guard isCurrentCalendarRefresh(generation, provider: "google") else { return }
-    calendarEvents = try await repository.calendarEvents(from: start, through: end)
-    calendarRelationshipGeneration &+= 1
-    calendarPageContexts = try await repository.calendarPageContexts()
-    if contactResolver != nil { await refreshContactEnrichments() }
   }
 
   public func syncNow() async {
@@ -1931,10 +1993,354 @@ public final class LibraryStore {
   private func nextCalendarRefreshGeneration(for provider: String) -> UInt64 {
     let next = (calendarRefreshGenerations[provider] ?? 0) &+ 1
     calendarRefreshGenerations[provider] = next
+    calendarRefreshWork[provider] = nil
     return next
   }
 
   private func isCurrentCalendarRefresh(_ generation: UInt64, provider: String) -> Bool {
     calendarRefreshGenerations[provider] == generation
+  }
+
+  private func scheduleStartupCalendarRecovery(repository: LibraryRepository) {
+    scheduleCalendarTask(provider: "eventkit") { [weak self] storeGeneration in
+      guard let self else { return }
+      do {
+        // An explicit disabled preference is a hard boundary: do not touch a
+        // provider, resume a generation, or materialize legacy cached rows.
+        guard self.calendarEventMaterializationEnabled else { return }
+        let eventKit = self.calendarProvider ?? EventKitCalendarProvider()
+        let eventKitEligible = await eventKit.authorizationStatus() == .fullAccess
+        if eventKitEligible { self.calendarProvider = eventKit }
+        else { try await repository.invalidateCalendarProjectionAccess(provider: "eventkit") }
+        let google: GoogleCalendarProvider?
+        if GoogleCalendarProvider.isRestorable(), let restored = try? GoogleCalendarProvider.fromBundle() {
+          do {
+            // Credential presence is not authorization. Refresh it before
+            // allowing any legacy cached Google rows to create Event pages.
+            try await restored.validateStoredAuthorization()
+            google = restored
+          } catch {
+            google = nil
+            if error is GoogleCalendarError, isGoogleAuthorizationLoss(error) {
+              try await repository.invalidateCalendarProjectionAccess(provider: "google")
+            }
+          }
+          self.googleCalendarProvider = restored
+        } else {
+          google = nil
+          try await repository.invalidateCalendarProjectionAccess(provider: "google")
+        }
+        var eligibleProviders = Set<String>()
+        if eventKitEligible {
+          try await repository.setCalendarProjectionProviderEligible("eventkit")
+          eligibleProviders.insert("eventkit")
+        }
+        if google != nil {
+          try await repository.setCalendarProjectionProviderEligible("google")
+          eligibleProviders.insert("google")
+        }
+        _ = try await repository.materializeActiveCalendarProjectionForUpgrade(
+          eligibleProviders: eligibleProviders
+        )
+        try await repository.recoverCalendarProjectionGenerations()
+        guard storeGeneration == self.calendarStoreGeneration,
+          self.calendarEventMaterializationEnabled
+        else { return }
+        if eventKitEligible {
+          try await self.resumeCalendarProjection(
+            provider: "eventkit", repository: repository, storeGeneration: storeGeneration
+          )
+          guard storeGeneration == self.calendarStoreGeneration else { return }
+          await eventKit.startObserving { [weak self] in
+            Task { @MainActor in self?.scheduleEventKitRefresh(debounced: true) }
+          }
+          try await self.refreshEventKitCalendar(
+            using: eventKit, repository: repository, storeGeneration: storeGeneration
+          )
+        }
+        if let google {
+          try await self.resumeCalendarProjection(
+            provider: "google", repository: repository, storeGeneration: storeGeneration
+          )
+          guard storeGeneration == self.calendarStoreGeneration else { return }
+          try await self.refreshGoogleCalendar(using: google, repository: repository)
+        }
+      } catch is CancellationError {
+        // Cancellation is an expected stop/supersede boundary.
+      } catch {
+        guard storeGeneration == self.calendarStoreGeneration, !Task.isCancelled else { return }
+        await self.invalidateEventKitAccessIfNeeded(error, repository: repository)
+        guard storeGeneration == self.calendarStoreGeneration else { return }
+        self.calendarError = error.localizedDescription
+      }
+    }
+
+  }
+
+  private func scheduleEnabledCalendarProviderRefreshes() {
+    if calendarProvider != nil { scheduleEventKitRefresh() }
+    scheduleGoogleCalendarRefresh()
+  }
+
+  private func scheduleGoogleCalendarRefresh() {
+    guard calendarEventMaterializationEnabled,
+      let repository, let google = googleCalendarProvider
+    else { return }
+    if calendarRefreshTasks["google"] != nil {
+      calendarRefreshPendingProviders.insert("google")
+      return
+    }
+    scheduleCalendarTask(provider: "google") { [weak self] storeGeneration in
+      guard let self, storeGeneration == self.calendarStoreGeneration else { return }
+      do {
+        try await self.refreshGoogleCalendar(using: google, repository: repository)
+      } catch is CancellationError {
+        // Expected when a newer omission policy supersedes this work.
+      } catch {
+        guard storeGeneration == self.calendarStoreGeneration, !Task.isCancelled else { return }
+        self.calendarError = error.localizedDescription
+      }
+    }
+  }
+
+  private func restartEventKitObservation() async {
+    guard let provider = calendarProvider,
+      await provider.authorizationStatus() == .fullAccess
+    else { return }
+    await provider.startObserving { [weak self] in
+      Task { @MainActor in self?.scheduleEventKitRefresh(debounced: true) }
+    }
+  }
+
+  private func scheduleEventKitRefresh(debounced: Bool = false) {
+    guard calendarEventMaterializationEnabled,
+      let repository, let provider = calendarProvider
+    else { return }
+    if calendarRefreshTasks["eventkit"] != nil {
+      calendarRefreshPendingProviders.insert("eventkit")
+      return
+    }
+    scheduleCalendarTask(provider: "eventkit") { [weak self] storeGeneration in
+      guard let self else { return }
+      do {
+        if debounced { try await Task.sleep(for: .milliseconds(250)) }
+        try await self.refreshEventKitCalendar(
+          using: provider, repository: repository, storeGeneration: storeGeneration
+        )
+      } catch is CancellationError {
+        // Expected when stopped or superseded.
+      } catch {
+        guard storeGeneration == self.calendarStoreGeneration, !Task.isCancelled else { return }
+        await self.invalidateEventKitAccessIfNeeded(error, repository: repository)
+        guard storeGeneration == self.calendarStoreGeneration else { return }
+        self.calendarError = error.localizedDescription
+      }
+    }
+  }
+
+  private func scheduleCalendarLedgerRecovery(provider: String, repository: LibraryRepository) {
+    scheduleCalendarTask(provider: provider) { [weak self] storeGeneration in
+      guard let self else { return }
+      do {
+        try await self.resumeCalendarProjection(
+          provider: provider, repository: repository, storeGeneration: storeGeneration
+        )
+      } catch is CancellationError {
+        // Expected when materialization is disabled or the store is stopped.
+      } catch {
+        guard storeGeneration == self.calendarStoreGeneration, !Task.isCancelled else { return }
+        self.calendarError = error.localizedDescription
+      }
+    }
+  }
+
+  private func scheduleCalendarTask(
+    provider: String,
+    operation: @escaping @MainActor @Sendable (UInt64) async -> Void
+  ) {
+    guard calendarRefreshTasks[provider] == nil else { return }
+    let taskID = UUID()
+    let storeGeneration = calendarStoreGeneration
+    calendarRefreshTaskIDs[provider] = taskID
+    calendarRefreshTasks[provider] = Task { [weak self] in
+      await operation(storeGeneration)
+      self?.finishCalendarTask(provider: provider, taskID: taskID)
+    }
+  }
+
+  private func finishCalendarTask(provider: String, taskID: UUID) {
+    guard calendarRefreshTaskIDs[provider] == taskID else { return }
+    calendarRefreshTasks[provider] = nil
+    calendarRefreshTaskIDs[provider] = nil
+    if calendarRefreshPhases[provider] != nil {
+      calendarRefreshPhases[provider] = .idle
+      publishCalendarRefreshStatus()
+    }
+    if calendarRefreshPendingProviders.remove(provider) != nil {
+      if provider == "eventkit" { scheduleEventKitRefresh(debounced: true) }
+      if provider == "google" { scheduleGoogleCalendarRefresh() }
+    }
+  }
+
+  private func cancelScheduledCalendarRefresh(provider: String) {
+    _ = nextCalendarRefreshGeneration(for: provider)
+    calendarRefreshTasks[provider]?.cancel()
+    calendarRefreshTasks[provider] = nil
+    calendarRefreshTaskIDs[provider] = nil
+    calendarRefreshPendingProviders.remove(provider)
+  }
+
+  private func invalidateScheduledCalendarRefreshes() {
+    for provider in Set(calendarRefreshGenerations.keys).union(calendarRefreshTasks.keys) {
+      cancelScheduledCalendarRefresh(provider: provider)
+    }
+    calendarRefreshPhases = [:]
+    calendarRefreshWork = [:]
+    publishCalendarRefreshStatus()
+  }
+
+  private func resumeCalendarProjection(
+    provider: String,
+    repository: LibraryRepository,
+    storeGeneration: UInt64
+  ) async throws {
+    let generation = nextCalendarRefreshGeneration(for: provider)
+    let interval = calendarInterval()
+    let receipt = try await repository.resumeAuthoritativeCalendarProjection(provider: provider)
+    try await publishCalendarMaterializationReceipt(
+      receipt, provider: provider, repository: repository, start: interval.start, end: interval.end,
+      generation: generation, storeGeneration: storeGeneration
+    )
+  }
+
+  private func publishCalendarMaterializationReceipt(
+    _ initialReceipt: CalendarEventMaterializationReceipt,
+    provider: String,
+    repository: LibraryRepository,
+    start: Date,
+    end: Date,
+    generation: UInt64,
+    storeGeneration: UInt64
+  ) async throws {
+    var receipt = initialReceipt
+    var lastMaterializedOrdinal = -1
+    while true {
+      guard isCurrentCalendarRefresh(generation, provider: provider),
+        storeGeneration == calendarStoreGeneration
+      else { return }
+      calendarRefreshPhases[provider] = receipt.isTerminal ? .refreshing : .materializing
+      publishCalendarRefreshStatus()
+      // The projection commit has already completed. Publish its local event
+      // rows and the exact changed Event pages immediately rather than waiting
+      // for the entire ledger or issuing a whole-library reload.
+      let loadedEvents = try await repository.calendarEvents(from: start, through: end)
+      let loadedContexts = try await repository.calendarPageContexts()
+      let changedPages = try await repository.pageSnapshots(ids: receipt.changedPageIDs)
+      let durableProgress = try await repository.calendarProjectionGeneration(provider: provider)
+      guard isCurrentCalendarRefresh(generation, provider: provider),
+        storeGeneration == calendarStoreGeneration
+      else { return }
+      calendarEvents = loadedEvents
+      calendarPageContexts = loadedContexts
+      mergeCalendarPageSnapshots(changedPages)
+      if let durableProgress {
+        calendarRefreshWork[provider] = (
+          min(durableProgress.nextOrdinal, durableProgress.acceptedCount),
+          durableProgress.acceptedCount,
+          durableProgress.rejectedCount
+        )
+      } else {
+        calendarRefreshWork[provider] = nil
+      }
+      publishCalendarRefreshStatus()
+      calendarRelationshipGeneration &+= 1
+      if !receipt.changedPageIDs.isEmpty { await syncCoordinator?.enqueueDirtyChanges() }
+      if receipt.isTerminal { break }
+      guard let durableProgress,
+        durableProgress.nextOrdinal > lastMaterializedOrdinal
+      else { throw CalendarRefreshStoreError.stalledMaterialization }
+      lastMaterializedOrdinal = durableProgress.nextOrdinal
+      try Task.checkCancellation()
+      await Task.yield()
+      receipt = try await repository.resumeAuthoritativeCalendarProjection(provider: provider)
+    }
+    guard isCurrentCalendarRefresh(generation, provider: provider),
+      storeGeneration == calendarStoreGeneration
+    else { return }
+    calendarRefreshPhases[provider] = .idle
+    publishCalendarRefreshStatus()
+    if contactResolver != nil { await refreshContactEnrichments() }
+    calendarError = nil
+  }
+
+  private func mergeCalendarPageSnapshots(_ snapshots: [PageSnapshot]) {
+    guard !snapshots.isEmpty else { return }
+    var merged = Dictionary(uniqueKeysWithValues: pages.map { ($0.id, $0) })
+    for page in snapshots { merged[page.id] = page }
+    pages = merged.values.sorted { $0.modifiedAt > $1.modifiedAt }
+  }
+
+  private func calendarInterval(now: Date = Date()) -> DateInterval {
+    let start = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+    let end = calendar.date(byAdding: .month, value: 18, to: now) ?? now
+    return .init(start: start, end: end)
+  }
+
+  private func reloadCachedCalendarProjection(repository: LibraryRepository) async throws {
+    let interval = calendarInterval()
+    let loadedEvents = try await repository.calendarEvents(from: interval.start, through: interval.end)
+    let loadedContexts = try await repository.calendarPageContexts()
+    calendarEvents = loadedEvents
+    calendarPageContexts = loadedContexts
+    calendarRelationshipGeneration &+= 1
+  }
+
+  private func publishCalendarRefreshStatus() {
+    let active = calendarRefreshPhases.values.filter { $0 != .idle }
+    calendarRefreshProgress = .init(
+      activeProviderCount: active.count,
+      materializingProviderCount: active.filter { $0 == .materializing }.count,
+      processedEventCount: calendarRefreshWork.values.reduce(0) { $0 + $1.processed },
+      totalEventCount: calendarRefreshWork.values.reduce(0) { $0 + $1.total },
+      skippedEventCount: calendarRefreshWork.values.reduce(0) { $0 + $1.skipped }
+    )
+    if active.contains(.materializing) { calendarRefreshPhase = .materializing }
+    else if active.contains(.refreshing) { calendarRefreshPhase = .refreshing }
+    else { calendarRefreshPhase = .idle }
+  }
+
+  private func invalidateEventKitAccessIfNeeded(
+    _ error: Error,
+    repository: LibraryRepository
+  ) async {
+    guard let providerError = error as? CalendarProviderError,
+      providerError == .accessDenied || providerError == .accessRestricted
+    else { return }
+    cancelScheduledCalendarRefresh(provider: "eventkit")
+    await calendarProvider?.stopObserving()
+    do {
+      try await repository.invalidateCalendarProjectionAccess(provider: "eventkit")
+    } catch {
+      calendarError = "\(providerError.localizedDescription) (calendar access cleanup failed: \(error.localizedDescription))"
+    }
+  }
+
+  private func isGoogleAuthorizationLoss(_ error: Error) -> Bool {
+    guard let googleError = error as? GoogleCalendarError else { return false }
+    if case .authorizationRevoked = googleError { return true }
+    return false
+  }
+
+  private func invalidateGoogleAccessIfNeeded(
+    _ error: Error,
+    repository: LibraryRepository
+  ) async {
+    guard isGoogleAuthorizationLoss(error) else { return }
+    cancelScheduledCalendarRefresh(provider: "google")
+    do {
+      try await repository.invalidateCalendarProjectionAccess(provider: "google")
+    } catch {
+      calendarError = "Google Calendar access was revoked, but local cleanup failed: \(error.localizedDescription)"
+    }
   }
 }

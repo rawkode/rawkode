@@ -45,7 +45,6 @@ struct MobileSettingsView: View {
       Section("Calendar") {
         Button("Enable Local Calendars") { Task { await store.enableCalendar() } }
         Button("Connect Google Calendar") { Task { await store.enableGoogleCalendar() } }
-        if let error = store.calendarError { Text(error).foregroundStyle(.red) }
         Text("Calendar access is read-only. Local events stay in EventKit; Google connects directly from this device with OAuth and no Enchiridion server.")
           .font(.caption).foregroundStyle(.secondary)
       }
