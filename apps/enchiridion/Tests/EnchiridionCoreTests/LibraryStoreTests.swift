@@ -199,6 +199,152 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(unchanged.dirtyGeneration, page.dirtyGeneration)
   }
 
+  func testCalendarTapResolvesEnabledOccurrenceToMaterializedEventWithoutLegacyMapping() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "tap-event", start: start, end: start.addingTimeInterval(3_600))
+    event.iCalendarUID = "tap-event@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+
+    let result = try await fixture.repository.resolveCalendarEventPage(for: event, now: start)
+    let identity = try XCTUnwrap(CalendarEventMaterialization.identity(for: event))
+    let loadedPage = try await fixture.repository.page(id: result.pageID)
+    let page = try XCTUnwrap(loadedPage)
+
+    XCTAssertEqual(result.resolutionKind, .materializedEvent)
+    XCTAssertEqual(result.pageID, PageID.materializedCalendarEvent(identity))
+    XCTAssertEqual(result.changedPageIDs, [result.pageID])
+    XCTAssertTrue(page.hasSupertag(BuiltInSupertags.event))
+    for (key, values) in CalendarEventMaterialization.providerProperties(for: event) {
+      XCTAssertEqual(page.objectMetadata.properties[key], values)
+    }
+    let contexts = try await fixture.repository.calendarPageContexts()
+    XCTAssertNil(contexts[result.pageID])
+
+    let reopened = try await fixture.repository.resolveCalendarEventPage(for: event, now: start.addingTimeInterval(1))
+    XCTAssertEqual(reopened.pageID, result.pageID)
+    XCTAssertTrue(reopened.changedPageIDs.isEmpty)
+  }
+
+  func testCalendarTapOpensExistingDetachedEventWithoutOverwriteOrSyncChanges() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "detached-tap", start: start, end: start.addingTimeInterval(3_600))
+    event.iCalendarUID = "detached-tap@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+    let first = try await fixture.repository.resolveCalendarEventPage(for: event, now: start)
+    _ = try await fixture.repository.renamePage(
+      pageID: first.pageID, title: "My meeting notes", now: start.addingTimeInterval(1)
+    )
+    event.title = "Provider renamed meeting"
+
+    let reopened = try await fixture.repository.resolveCalendarEventPage(for: event, now: start.addingTimeInterval(2))
+    let page = try await fixture.repository.page(id: first.pageID)
+
+    XCTAssertEqual(reopened.resolutionKind, .materializedEvent)
+    XCTAssertEqual(reopened.pageID, first.pageID)
+    XCTAssertTrue(reopened.changedPageIDs.isEmpty)
+    XCTAssertEqual(page?.title, "My meeting notes")
+  }
+
+  func testCalendarTapKeepsExistingCanonicalEventWhenMaterializationIsLaterDisabled() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "disabled-existing-tap", start: start, end: start.addingTimeInterval(3_600))
+    event.iCalendarUID = "disabled-existing-tap@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+    let first = try await fixture.repository.resolveCalendarEventPage(for: event, now: start)
+    try await fixture.repository.setCalendarEventMaterializationEnabled(false)
+
+    let reopened = try await fixture.repository.resolveCalendarEventPage(for: event, now: start.addingTimeInterval(1))
+    let enabled = try await fixture.repository.calendarEventMaterializationEnabled()
+    let contexts = try await fixture.repository.calendarPageContexts()
+
+    XCTAssertEqual(reopened.resolutionKind, .materializedEvent)
+    XCTAssertEqual(reopened.pageID, first.pageID)
+    XCTAssertTrue(reopened.changedPageIDs.isEmpty)
+    XCTAssertFalse(enabled)
+    XCTAssertNil(contexts[first.pageID])
+  }
+
+  func testCalendarTapFallsBackFromTombstonedCanonicalEventWithoutRematerializingIt() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "tombstoned-tap", start: start, end: start.addingTimeInterval(3_600))
+    event.iCalendarUID = "tombstoned-tap@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+    let canonical = try await fixture.repository.resolveCalendarEventPage(for: event, now: start)
+    try await fixture.repository.moveToTrash(pageID: canonical.pageID, now: start.addingTimeInterval(1))
+
+    let fallback = try await fixture.repository.resolveCalendarEventPage(for: event, now: start.addingTimeInterval(2))
+    let tombstone = try await fixture.repository.page(id: canonical.pageID)
+
+    XCTAssertEqual(fallback.resolutionKind, .legacyOccurrence)
+    XCTAssertNotEqual(fallback.pageID, canonical.pageID)
+    XCTAssertFalse(fallback.changedPageIDs.contains(canonical.pageID))
+    XCTAssertNotNil(tombstone?.deletedAt)
+    XCTAssertEqual(tombstone?.title, event.title)
+  }
+
+  func testCalendarTapFallsBackToLegacyOccurrenceWhenMaterializationIsDisabledOrMalformed() async throws {
+    let fixture = try RepositoryFixture()
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var valid = calendarEvent(provider: "google", id: "disabled-tap", start: start, end: start.addingTimeInterval(3_600))
+    valid.iCalendarUID = "disabled-tap@example.test"
+    valid.originalStartDate = start
+    valid.timeZoneIdentifier = "UTC"
+    let identity = try XCTUnwrap(CalendarEventMaterialization.identity(for: valid))
+
+    let disabled = try await fixture.repository.resolveCalendarEventPage(for: valid, now: start)
+    XCTAssertEqual(disabled.resolutionKind, .legacyOccurrence)
+    XCTAssertEqual(disabled.pageID, PageID.calendarOccurrence(valid.identity))
+    let absentCanonical = try await fixture.repository.page(id: .materializedCalendarEvent(identity))
+    XCTAssertNil(absentCanonical)
+
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+    var malformed = calendarEvent(provider: "google", id: "malformed-tap", start: start, end: start.addingTimeInterval(3_600))
+    malformed.iCalendarUID = nil
+    let fallback = try await fixture.repository.resolveCalendarEventPage(for: malformed, now: start)
+    XCTAssertEqual(fallback.resolutionKind, .legacyOccurrence)
+    XCTAssertEqual(fallback.pageID, PageID.calendarOccurrence(malformed.identity))
+    let eventPages = try await fixture.repository.pages(with: BuiltInSupertags.event)
+    XCTAssertTrue(eventPages.isEmpty)
+  }
+
+  @MainActor
+  func testStoreCalendarTapSynchronizesOnlyNewlyMaterializedEventPages() async throws {
+    let fixture = try RepositoryFixture()
+    let probe = PageSynchronizationProbe()
+    let store = LibraryStore(
+      repository: fixture.repository,
+      startImmediately: false,
+      pageSynchronizationObserver: { pageID in await probe.record(pageID) }
+    )
+    let start = Date(timeIntervalSince1970: 1_817_000_000)
+    var event = calendarEvent(provider: "google", id: "store-tap", start: start, end: start.addingTimeInterval(3_600))
+    event.iCalendarUID = "store-tap@example.test"
+    event.originalStartDate = start
+    event.timeZoneIdentifier = "UTC"
+    try await fixture.repository.setCalendarEventMaterializationEnabled(true)
+
+    let openedFirst = await store.openCalendarEventPage(event)
+    let openedSecond = await store.openCalendarEventPage(event)
+    let first = try XCTUnwrap(openedFirst)
+    let second = try XCTUnwrap(openedSecond)
+    let synchronizedIDs = await probe.pageIDs()
+
+    XCTAssertEqual(second, first)
+    XCTAssertEqual(synchronizedIDs, [first])
+  }
+
   func testCalendarMaterializationScopesProvidersAndOmitsOtherPeople() async throws {
     let fixture = try RepositoryFixture()
     let start = Date(timeIntervalSince1970: 1_817_000_000)

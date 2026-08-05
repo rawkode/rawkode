@@ -1530,13 +1530,13 @@ public final class LibraryStore {
   public func openCalendarEventPage(_ event: CalendarEventSnapshot) async -> PageID? {
     guard let repository else { return nil }
     do {
-      let result = try await repository.calendarEventPages(for: event)
-      selectedPageID = result.occurrence.id
+      let result = try await repository.resolveCalendarEventPage(for: event)
+      selectedPageID = result.pageID
       await reload()
-      for pageID in result.createdPageIDs {
-        await syncCoordinator?.pageDidChange(pageID)
+      for pageID in result.changedPageIDs {
+        await synchronizePage(pageID)
       }
-      return result.occurrence.id
+      return result.pageID
     } catch {
       startupError = error.localizedDescription
       return nil
