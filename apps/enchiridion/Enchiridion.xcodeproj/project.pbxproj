@@ -67,7 +67,9 @@
 		51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */; };
 		5291BA3C3C7401D9E73A0E79 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		5461DBCFEEE1F0AD9F53FF76 /* EntryEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34DEE0C4C94BFA4F642C799 /* EntryEditorView.swift */; };
+		552F2945D319CB8815ADE5B7 /* NativeWebRTCCompatibilityProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73ED1233D7276EDB0A7956C /* NativeWebRTCCompatibilityProbe.swift */; };
 		583CE1A9B4F570675365853B /* PageReferenceSelectionResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA74ED56BC8B515110CE321F /* PageReferenceSelectionResolverTests.swift */; };
+		5A67CB964D160924543F5D73 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = DBA92E6E885BC8C0845D8057 /* LiveKitWebRTC */; };
 		5C23DF0B3B9DC353EE2BA2FA /* PageReferenceSelectionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719BC8029C7B28B2E4A3991A /* PageReferenceSelectionResolver.swift */; };
 		5E764416E1D9F740E73E8C09 /* TaskWorkbench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */; };
 		5ED250DC36C0979006A5BC2A /* TaskPlanningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28402AC196EC51B0A3E782CF /* TaskPlanningViews.swift */; };
@@ -142,7 +144,9 @@
 		ADFEEFED47744B5DDC927214 /* TaskMutationWarningModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */; };
 		B270199CE123FA81C556D193 /* EnchiridionCore in Frameworks */ = {isa = PBXBuildFile; productRef = FC08746A35F52BA1CD0652FC /* EnchiridionCore */; };
 		B2AB811BC8E3C184F52AA920 /* LiveViewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */; };
+		B4087999740C0AD780B39AB6 /* LiveKitWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B0C7E9C10ED02013B543BC0B /* LiveKitWebRTC */; };
 		B43F9682D088B6C18A0E1BC6 /* WatchWorkoutServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */; };
+		B44F640F27DCCB34C1873B9D /* NativeWebRTCCompatibilityProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73ED1233D7276EDB0A7956C /* NativeWebRTCCompatibilityProbe.swift */; };
 		B54F13D5E2C5129FE49DCFBF /* TaskReminderNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4992038E65A7C111FF05ABD2 /* TaskReminderNotificationCoordinator.swift */; };
 		B5FB222A23AB462464526625 /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
 		B68CA822E35720463AB56093 /* WhiteboardCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD10EE53C2822339A541B7B /* WhiteboardCanvasGeometry.swift */; };
@@ -400,6 +404,7 @@
 		F57CE6ED235E121064FFF38A /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
 		F58D1AB494B3CACDFDAA6873 /* EntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryRowView.swift; sourceTree = "<group>"; };
 		F5CBBC0AA631127161681E80 /* TaskMutationWarningModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskMutationWarningModifier.swift; sourceTree = "<group>"; };
+		F73ED1233D7276EDB0A7956C /* NativeWebRTCCompatibilityProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebRTCCompatibilityProbe.swift; sourceTree = "<group>"; };
 		F8E348F8C323D6A9956945CF /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		FC8B13571610AEEA8EE9D51A /* EnchiridionTaskShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = EnchiridionTaskShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEF2344F7F29266FD14A246D /* SupertagSchemaEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupertagSchemaEditor.swift; sourceTree = "<group>"; };
@@ -438,6 +443,7 @@
 				98477947C93F3983F1AD46DF /* Speech.framework in Frameworks */,
 				452506AD7D5B7DEAFA840789 /* WebKit.framework in Frameworks */,
 				8A3F244560903434B8230411 /* EnchiridionCore in Frameworks */,
+				B4087999740C0AD780B39AB6 /* LiveKitWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -465,6 +471,7 @@
 				7F83AD5F7268D70C19B8ADC1 /* FoundationModels.framework in Frameworks */,
 				AD52CB10D1EFFCA2869BB1B5 /* EnchiridionCore in Frameworks */,
 				243AB706E278466A5691C7C5 /* EnchiridionWorkoutTransport in Frameworks */,
+				5A67CB964D160924543F5D73 /* LiveKitWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -578,6 +585,7 @@
 				EEDDF4F97412AB87022ED166 /* LiveViewBoardSupport.swift */,
 				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
 				DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */,
+				F73ED1233D7276EDB0A7956C /* NativeWebRTCCompatibilityProbe.swift */,
 				D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */,
 				E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */,
 				BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */,
@@ -799,6 +807,7 @@
 			packageProductDependencies = (
 				3E539EB8451EC283BFE5CA0D /* EnchiridionCore */,
 				F0C0ED93C2370B8BE78F63CE /* EnchiridionWorkoutTransport */,
+				DBA92E6E885BC8C0845D8057 /* LiveKitWebRTC */,
 			);
 			productName = EnchiridionMobile;
 			productReference = 6F1AB1F1982E7F6ECA41C152 /* Enchiridion.app */;
@@ -878,6 +887,7 @@
 			name = EnchiridionMac;
 			packageProductDependencies = (
 				98257A715412A302965BE5CE /* EnchiridionCore */,
+				B0C7E9C10ED02013B543BC0B /* LiveKitWebRTC */,
 			);
 			productName = EnchiridionMac;
 			productReference = D01C78BB8752D4959D32D9E9 /* Enchiridion.app */;
@@ -930,6 +940,7 @@
 			mainGroup = F4288FD3331F5FFD9DA8FEF0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				15EDDE4246B37BA1E470F884 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
 				90E6540D178D4DC182233438 /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -1005,6 +1016,7 @@
 				292A9C10C840361E1A602C11 /* MacRootView.swift in Sources */,
 				2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */,
 				CCC1E0718BD75FF9B103D146 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
+				552F2945D319CB8815ADE5B7 /* NativeWebRTCCompatibilityProbe.swift in Sources */,
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
 				51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */,
@@ -1089,6 +1101,7 @@
 				6ABFF90A6DB1182C7A417B24 /* MobileSettingsView.swift in Sources */,
 				06D06CF4F648479F628A9CD4 /* MobileTabSelectionCoordinator.swift in Sources */,
 				165B631D8CAC87979D400EE1 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
+				B44F640F27DCCB34C1873B9D /* NativeWebRTCCompatibilityProbe.swift in Sources */,
 				3F1BF0174D64D0FE39ED02BB /* OnDeviceSpeechTranscriber.swift in Sources */,
 				3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */,
 				8A55C779BD86C9700B4BAB10 /* PageLifecycleActions.swift in Sources */,
@@ -1692,6 +1705,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		15EDDE4246B37BA1E470F884 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/webrtc-xcframework.git";
+			requirement = {
+				kind = exactVersion;
+				version = 144.7559.11;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1713,9 +1737,19 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionWorkoutTransport;
 		};
+		B0C7E9C10ED02013B543BC0B /* LiveKitWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 15EDDE4246B37BA1E470F884 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;
+			productName = LiveKitWebRTC;
+		};
 		B9E6531E0CE916366A251C73 /* EnchiridionWorkoutTransport */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EnchiridionWorkoutTransport;
+		};
+		DBA92E6E885BC8C0845D8057 /* LiveKitWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 15EDDE4246B37BA1E470F884 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */;
+			productName = LiveKitWebRTC;
 		};
 		F0C0ED93C2370B8BE78F63CE /* EnchiridionWorkoutTransport */ = {
 			isa = XCSwiftPackageProductDependency;
