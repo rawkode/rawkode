@@ -27,7 +27,15 @@ struct EnchiridioniOSApp: App {
         resolver: runtime.contactsResolver
       )
       .onChange(of: scenePhase) { _, phase in
-        if phase == .active { runtime.retryRetiredProviderMigration() }
+        if phase == .active {
+          runtime.retryRetiredProviderMigration()
+          runtime.reconcileMeetingPrompts()
+        } else if phase == .background {
+          MeetingTranscriptionRuntime.shared.sweepTransientCloudAudio()
+        }
+      }
+      .onChange(of: runtime.store.calendarRelationshipGeneration) { _, _ in
+        runtime.reconcileMeetingPrompts()
       }
     }
   }
@@ -61,6 +69,7 @@ final class EnchiridionAppRuntime {
   }
 
   private init() {
+    MeetingTranscriptionPromptScheduler.registerNotificationCategory()
     retiredQwenProviderMigrator.migrateIfNeeded()
     do {
       try WorkoutModuleViews.register()
@@ -82,6 +91,7 @@ final class EnchiridionAppRuntime {
       repositoryError = error.localizedDescription
     }
     rebuildWorkspaceDependents()
+    configureMeetingTranscription()
     Task { await assistantProviderSettings.refreshCredentialState() }
   }
 
@@ -104,6 +114,21 @@ final class EnchiridionAppRuntime {
         try await EnchiridionAppRuntime.shared.vaultSession?.backgroundStore(forVault: vaultID)
       },
       openURL: { url in UIApplication.shared.open(url) }
+    )
+    configureMeetingTranscription()
+  }
+
+  func reconcileMeetingPrompts() {
+    MeetingTranscriptionRuntime.shared.reconcile(store: store)
+  }
+
+  private func configureMeetingTranscription() {
+    MeetingTranscriptionRuntime.shared.configure(
+      store: store,
+      repository: repository,
+      credentialStore: openAICredentialStore,
+      providerSettings: assistantProviderSettings,
+      captureFactory: { MeetingMicrophoneCapture() }
     )
   }
 

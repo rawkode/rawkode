@@ -52,6 +52,7 @@ struct MobileSettingsView: View {
       DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
       AssistantProviderSettingsSection(controller: assistantProviderSettings)
       AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
+      MeetingTranscriptionSettingsSection()
       Section("CarPlay") {
         Toggle("CarPlay Assistant", isOn: $isCarPlayAssistantEnabled)
         Text("When enabled, voice transcription, Apple Intelligence, calendar lookup, and note search run only on this iPhone. Diagnostics record operational state only—never transcripts or note content.")

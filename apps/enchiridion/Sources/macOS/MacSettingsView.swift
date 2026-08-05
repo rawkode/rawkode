@@ -54,6 +54,7 @@ struct MacSettingsView: View {
         DeviceContactsSettingsSection(store: store, resolver: contactsResolver)
         AssistantProviderSettingsSection(controller: assistantProviderSettings)
         AssistantVoiceSettingsSection(preferences: assistantVoicePreferences)
+        MeetingTranscriptionSettingsSection()
       }
       .formStyle(.grouped)
       .navigationTitle("Settings")

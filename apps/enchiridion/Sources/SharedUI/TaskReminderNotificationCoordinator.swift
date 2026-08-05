@@ -31,6 +31,7 @@ final class TaskReminderNotificationCoordinator: NSObject, UNUserNotificationCen
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse
   ) async {
+    if await MeetingPromptNotificationCoordinator.shared.handle(response) { return }
     let route = TaskReminderScheduler.route(
       actionIdentifier: response.actionIdentifier,
       userInfo: response.notification.request.content.userInfo,

@@ -148,6 +148,17 @@ public struct EditorCommitReceipt: Codable, Hashable, Sendable {
   public var duplicate: Bool
 }
 
+public struct MeetingTranscriptPersistenceResult: Hashable, Sendable {
+  public var pageID: PageID
+  public var heads: AutomergeHeads
+  public var changedPageIDs: [PageID]
+  public var resource: MeetingTranscriptResource
+
+  public init(pageID: PageID, heads: AutomergeHeads, changedPageIDs: [PageID], resource: MeetingTranscriptResource) {
+    self.pageID = pageID; self.heads = heads; self.changedPageIDs = changedPageIDs; self.resource = resource
+  }
+}
+
 /// Describes the durable pair created when an editor creates a tagged page and
 /// inserts its reference into an existing page.
 public struct TaggedPageReferenceInsertionRequest: Sendable {
@@ -1206,6 +1217,295 @@ public actor LibraryRepository {
     now: Date = Date()
   ) throws -> PageSnapshot {
     try calendarEventPages(for: event, now: now).occurrence
+  }
+
+  /// Meeting capture is an explicit user action and therefore always materializes the canonical
+  /// Event page, independently of the background calendar-materialization preference.
+  @discardableResult
+  public func forceMaterializeCanonicalEventPage(
+    for event: CalendarEventSnapshot,
+    now: Date = Date()
+  ) throws -> PageSnapshot {
+    try calendarEventPages(for: event, now: now).occurrence
+  }
+
+  /// Incrementally persists a transcript. Each segment becomes its own Automerge map entry and
+  /// database write, preserving current heads and keeping every sync change bounded.
+  public func upsertMeetingTranscript(
+    _ resource: MeetingTranscriptResource,
+    for event: CalendarEventSnapshot,
+    now: Date = Date()
+  ) throws -> MeetingTranscriptPersistenceResult {
+    guard resource.eventPageID == PageID.calendarOccurrence(event.identity) || resource.eventPageID == PageID.calendarEvent(event.identity) else {
+      throw MeetingTranscriptError.invalidResource
+    }
+    let eventPage = try forceMaterializeCanonicalEventPage(for: event, now: now)
+    guard resource.eventPageID == eventPage.id else { throw MeetingTranscriptError.invalidResource }
+    var current = eventPage
+    var changed = false
+    let batches = resource.segments.isEmpty ? [[]] : resource.segments.map { [$0] }
+    for segments in batches {
+      var batch = resource
+      batch.segments = segments
+      let write = try database.write { db -> (PageSnapshot, Bool) in
+        guard let latest = try Self.fetchPage(db, id: eventPage.id) else { throw LibraryRepositoryError.pageNotFound }
+        let result = try PageDocument.upsertMeetingTranscript(batch, in: latest.document)
+        guard result.changed else { return (latest, false) }
+        let updated = Self.updatedPage(latest, with: (result.document, result.heads, result.projection), now: now)
+        try Self.writePage(db, page: updated, cloudDirty: true)
+        try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+        return (updated, true)
+      }
+      current = write.0; changed = changed || write.1
+    }
+    guard let projected = try PageDocument.meetingTranscript(resourceKey: resource.id, in: current.document) else {
+      throw MeetingTranscriptError.invalidResource
+    }
+    return .init(pageID: current.id, heads: current.heads, changedPageIDs: changed ? [current.id] : [], resource: projected)
+  }
+
+  public func meetingTranscript(
+    resourceKey: String,
+    on pageID: PageID
+  ) throws -> MeetingTranscriptResource? {
+    guard let page = try self.page(id: pageID) else { throw LibraryRepositoryError.pageNotFound }
+    return try PageDocument.meetingTranscript(resourceKey: resourceKey, in: page.document)
+  }
+
+  public func persistMeetingAnalysis(_ analysis: MeetingAnalysis, authority: MeetingAutomationCompletionAuthority, vaultID: VaultID, now: Date = Date()) throws {
+    guard authority.authority.vaultID == vaultID else { throw MeetingAnalysisError.unauthorized }
+    try database.write { db in
+      let start = authority.authority
+      guard let page = try Self.fetchPage(db, id: start.eventPageID), page.deletedAt == nil,
+        var resource = try PageDocument.meetingTranscript(resourceKey: MeetingTranscriptResource.resourceKey(for: start.eventPageID), in: page.document),
+        MeetingTranscriptHash.value(for: resource.segments) == authority.transcriptHash,
+        analysis.transcriptHash == authority.transcriptHash
+      else { throw MeetingAnalysisError.transcriptChanged }
+      if resource.analysis == analysis { return }
+      resource.analysis = analysis; resource.analysisState = .complete
+      resource.analysisReceipt = .init(algorithm: start.analysisRoute.route.rawValue, algorithmVersion: start.analysisRoute.cloudModelID ?? "on-device", completedAt: now)
+      let result = try PageDocument.upsertMeetingTranscript(resource, in: page.document)
+      guard result.changed else { return }
+      let updated = Self.updatedPage(page, with: (result.document, result.heads, result.projection), now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updated.id, references: result.projection.references)
+    }
+  }
+
+  /// Captures the repository state used by the meeting-only semantic authority.
+  /// This intentionally does not consult generic assistant authorization.
+  public func meetingSemanticLiveContext(
+    authority: MeetingAutomationAuthority,
+    vaultID: VaultID
+  ) throws -> MeetingSemanticLiveContext {
+    guard let page = try self.page(id: authority.eventPageID), page.deletedAt == nil,
+      let transcript = try PageDocument.meetingTranscript(
+        resourceKey: MeetingTranscriptResource.resourceKey(for: authority.eventPageID), in: page.document)
+    else { throw MeetingSemanticMutationError.liveContextMismatch }
+    let definitions = try supertags()
+    let snapshots = try authority.allowedSupertags.map { frozen -> MeetingAllowedSupertagSnapshot in
+      guard let definition = definitions.first(where: { $0.id == frozen.supertagID && !$0.isDeleted }) else {
+        throw MeetingSemanticMutationError.schemaDrift
+      }
+      return .init(
+        supertagID: frozen.supertagID,
+        schemaFingerprint: MeetingSemanticSchemaFingerprint.value(for: definition),
+        allowedFieldIDs: frozen.allowedFieldIDs,
+        allowedRelationIDs: frozen.allowedRelationIDs
+      )
+    }
+    return .init(vaultID: vaultID, eventPageID: page.id, sessionID: authority.sessionID,
+                 transcriptHash: MeetingTranscriptHash.value(for: transcript.segments), allowedSupertags: snapshots)
+  }
+
+  /// Applies the narrow meeting plan in one database transaction. All entity IDs
+  /// are supplied by the coordinator, are deterministic, and never originate
+  /// from model output. The Event note is read immediately before the write so
+  /// normal Automerge merge heads preserve user-authored content.
+  public func applyMeetingSemanticPlan(
+    _ plan: MeetingSemanticMutationPlan,
+    vaultID: VaultID,
+    now: Date = Date()
+  ) throws -> MeetingSemanticReceipt {
+    guard plan.authority.authority.vaultID == vaultID else { throw MeetingSemanticMutationError.liveContextMismatch }
+    return try database.write { db in
+      let authority = plan.authority.authority
+      guard now >= authority.issuedAt, now <= authority.expiresAt,
+        authority.capabilities.mayCreateLinkedEntities,
+        authority.capabilities.mayWriteEventNote,
+        authority.capabilities.mayWriteTranscriptResource,
+        let event = try Self.fetchPage(db, id: authority.eventPageID), event.deletedAt == nil,
+        let resource = try PageDocument.meetingTranscript(
+          resourceKey: MeetingTranscriptResource.resourceKey(for: authority.eventPageID), in: event.document),
+        MeetingTranscriptHash.value(for: resource.segments) == plan.authority.transcriptHash
+      else { throw MeetingSemanticMutationError.liveContextMismatch }
+
+      if let receipt = resource.semanticReceipt, receipt.operationID == plan.operationID { return receipt }
+      guard plan.proposals.count <= authority.capabilities.maximumTotalEntities else { throw MeetingSemanticMutationError.capExceeded }
+      let definitions = try Row.fetchAll(db, sql: "SELECT definition_json FROM supertag_schemas WHERE deleted = 0")
+        .compactMap { row -> SupertagDefinition? in
+          guard let data: Data = row["definition_json"] else { return nil }
+          return try? JSONDecoder.enchiridion.decode(SupertagDefinition.self, from: data)
+        }
+      let frozen = Dictionary(uniqueKeysWithValues: authority.allowedSupertags.map { ($0.supertagID, $0) })
+      for (tag, snapshot) in frozen {
+        guard let definition = definitions.first(where: { $0.id == tag && !$0.isDeleted }),
+          MeetingSemanticSchemaFingerprint.value(for: definition) == snapshot.schemaFingerprint
+        else { throw MeetingSemanticMutationError.schemaDrift }
+      }
+
+      var outcomes: [MeetingSemanticEntityOutcome] = []
+      for proposal in plan.proposals {
+        guard frozen[proposal.supertagID] != nil else { throw MeetingSemanticMutationError.unknownSupertag }
+        let existingByID = try Self.fetchPage(db, id: proposal.entityID)
+        let existingByTitle = try Row.fetchOne(
+          db,
+          sql: "SELECT p.* FROM pages p JOIN page_supertags s ON s.page_id = p.id WHERE p.deleted_at IS NULL AND s.supertag_id = ? AND p.title = ? COLLATE NOCASE LIMIT 1",
+          arguments: [proposal.supertagID.rawValue, proposal.title]
+        ).map(Self.decodePage)
+        let entity: PageSnapshot
+        let disposition: MeetingSemanticEntityOutcome.Disposition
+        let createdHash: String?
+        if let existingByID {
+          // A deterministic-ID collision must still satisfy the conservative
+          // identity predicate; never attach an unrelated pre-existing page.
+          guard existingByID.title.caseInsensitiveCompare(proposal.title) == .orderedSame,
+            existingByID.hasSupertag(proposal.supertagID)
+          else { throw MeetingSemanticMutationError.malformedProposal }
+          entity = existingByID; disposition = .reused; createdHash = nil
+        }
+        else if let existingByTitle { entity = existingByTitle; disposition = .reused; createdHash = nil }
+        else {
+          let created = try Self.createPage(db, id: proposal.entityID, kind: .free, title: proposal.title, now: now)
+          let tagged = try Self.addingSupertag(proposal.supertagID, in: created.document)
+          entity = Self.updatedPage(created, with: tagged, now: now)
+          try Self.writePage(db, page: entity, cloudDirty: true)
+          try Self.replaceReferences(db, pageID: entity.id, references: tagged.projection.references)
+          disposition = .created
+          createdHash = MeetingSemanticDocumentHash.value(for: entity.document)
+        }
+        outcomes.append(.init(proposalID: proposal.id, pageID: entity.id, disposition: disposition, createdDocumentHash: createdHash))
+      }
+
+      let entityTitles = try outcomes.map { outcome -> String in
+        guard let entity = try Self.fetchPage(db, id: outcome.pageID) else { throw LibraryRepositoryError.pageNotFound }
+        return entity.title
+      }
+      let existingBody = try PageDocument.richText(in: event.document).body
+      let blockPrefix = existingBody.characters.isEmpty ? "" : "\n\n"
+      let blockText = blockPrefix + "Meeting entities\n"
+        + entityTitles.map { "• \($0)\n" }.joined()
+      let receipt = MeetingSemanticReceipt(algorithm: "meeting-semantic", algorithmVersion: "1", completedAt: now, operationID: plan.operationID, transcriptHash: plan.authority.transcriptHash, analysisHash: plan.analysisHash, noteBlockHash: MeetingSemanticTextHash.value(for: blockText), entityOutcomes: outcomes)
+      var body = existingBody
+      let provenance = PageDocument.meetingSemanticMark(operationID: plan.operationID)
+      var heading = AttributedString(blockPrefix + "Meeting entities\n")
+      heading[heading.startIndex..<heading.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [provenance]
+      body.append(heading)
+      for (outcome, title) in zip(outcomes, entityTitles) {
+        var reference = AttributedString("• \(title)\n")
+        reference[reference.startIndex..<reference.endIndex][PageRichTextAttributes.AutomergeMarks.self] = [provenance]
+        let start = reference.index(reference.startIndex, offsetByCharacters: 2)
+        reference[start..<reference.index(beforeCharacter: reference.endIndex)][PageRichTextAttributes.AutomergeMarks.self] = [
+          provenance,
+          try PageDocument.pageReferenceMark(to: outcome.pageID, label: title),
+        ]
+        body.append(reference)
+      }
+      let note = try PageDocument.replaceRichText(title: event.title, body: body, in: event.document)
+      var resourceUpdate = resource
+      resourceUpdate.semanticState = .complete
+      resourceUpdate.semanticReceipt = receipt
+      let final = try PageDocument.upsertMeetingTranscript(resourceUpdate, in: note.document)
+      let updated = Self.updatedPage(event, with: (final.document, final.heads, final.projection), now: now)
+      try Self.writePage(db, page: updated, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updated.id, references: final.projection.references)
+      return receipt
+    }
+  }
+
+  /// Removes only the exact provenance block and trashes only entities for which
+  /// the receipt still proves exclusive ownership. A partial result is expected
+  /// when a user edited a generated entity or linked it elsewhere.
+  public func undoMeetingSemanticPlan(
+    operationID: String,
+    eventPageID: PageID,
+    vaultID: VaultID,
+    now: Date = Date()
+  ) throws -> MeetingSemanticUndoResult {
+    return try database.write { db in
+      guard let event = try Self.fetchPage(db, id: eventPageID), event.deletedAt == nil,
+        var resource = try PageDocument.meetingTranscript(resourceKey: MeetingTranscriptResource.resourceKey(for: eventPageID), in: event.document),
+        let receipt = resource.semanticReceipt, receipt.operationID == operationID
+      else { throw MeetingSemanticMutationError.liveContextMismatch }
+
+      var body = try PageDocument.richText(in: event.document).body
+      let provenance = PageDocument.meetingSemanticMark(operationID: operationID)
+      var removedBlock = false
+      let markedRanges = body.runs.compactMap { run -> Range<AttributedString.Index>? in
+        let marks = run[PageRichTextAttributes.AutomergeMarks.self] ?? []
+        return marks.contains(provenance) ? run.range : nil
+      }
+      if let first = markedRanges.first, let last = markedRanges.last {
+        let blockRange = first.lowerBound..<last.upperBound
+        let isContinuous = body[blockRange].runs.allSatisfy { run in
+          (run[PageRichTextAttributes.AutomergeMarks.self] ?? []).contains(provenance)
+        }
+        let exactBlock = String(body[blockRange].characters)
+        guard let expectedBlockHash = receipt.noteBlockHash,
+          isContinuous,
+          MeetingSemanticTextHash.value(for: exactBlock) == expectedBlockHash
+        else {
+          return .init(removedNoteBlock: false, preservedEntityIDs: receipt.entityOutcomes.filter { $0.disposition == .created }.map(\.pageID))
+        }
+        body.replaceSubrange(blockRange, with: AttributedString())
+        removedBlock = true
+      }
+
+      guard removedBlock else {
+        return .init(removedNoteBlock: false, preservedEntityIDs: receipt.entityOutcomes.filter { $0.disposition == .created }.map(\.pageID))
+      }
+
+      var trashed: [PageID] = []
+      var preserved: [PageID] = []
+      for outcome in receipt.entityOutcomes where outcome.disposition == .created {
+        guard let expected = outcome.createdDocumentHash,
+          let page = try Self.fetchPage(db, id: outcome.pageID), page.deletedAt == nil,
+          MeetingSemanticDocumentHash.value(for: page.document) == expected
+        else { preserved.append(outcome.pageID); continue }
+        let foreignReferenceCount = try Int.fetchOne(
+          db, sql: "SELECT COUNT(*) FROM page_references WHERE target_page_id = ? AND source_page_id <> ?",
+          arguments: [page.id.rawValue, event.id.rawValue]
+        ) ?? 0
+        guard foreignReferenceCount == 0 else { preserved.append(page.id); continue }
+        let deleted = try PageDocument.setDeleted(now, in: page.document)
+        let updated = Self.updatedPage(page, with: deleted, now: now)
+        try Self.writePage(db, page: updated, cloudDirty: true)
+        try Self.replaceReferences(db, pageID: updated.id, references: deleted.projection.references)
+        trashed.append(page.id)
+      }
+
+      resource.semanticReceipt = nil
+      resource.semanticState = .complete
+      let note = try PageDocument.replaceRichText(title: event.title, body: body, in: event.document)
+      let final = try PageDocument.upsertMeetingTranscript(resource, in: note.document)
+      let updatedEvent = Self.updatedPage(event, with: (final.document, final.heads, final.projection), now: now)
+      try Self.writePage(db, page: updatedEvent, cloudDirty: true)
+      try Self.replaceReferences(db, pageID: updatedEvent.id, references: final.projection.references)
+      return .init(removedNoteBlock: true, trashedEntityIDs: trashed, preservedEntityIDs: preserved)
+    }
+  }
+
+  /// Immediate-authority convenience retained for in-flight callers. Durable
+  /// Event-page Undo must use the operation/event overload above, which does not
+  /// depend on an expired capture authority.
+  public func undoMeetingSemanticPlan(
+    operationID: String,
+    authority: MeetingAutomationAuthority,
+    vaultID: VaultID,
+    now: Date = Date()
+  ) throws -> MeetingSemanticUndoResult {
+    guard authority.vaultID == vaultID else { throw MeetingSemanticMutationError.liveContextMismatch }
+    return try undoMeetingSemanticPlan(operationID: operationID, eventPageID: authority.eventPageID, vaultID: vaultID, now: now)
   }
 
   public func calendarSeriesPage(

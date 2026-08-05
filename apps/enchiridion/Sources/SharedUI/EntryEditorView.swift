@@ -2178,6 +2178,19 @@ private struct RichPageEditor<Header: View>: View {
         presentation.header()
         calendarContextView
 
+        // Event transcripts are first-class resources, deliberately placed before
+        // the editable note so generated meeting material never masquerades as
+        // user-authored prose.
+        if let resource = meetingTranscriptResource {
+          MeetingTranscriptResourceView(
+            resource: resource,
+            event: calendarContext?.event,
+            store: store,
+            openPage: openPage
+          )
+          .padding(.bottom, 24)
+        }
+
         if presentation.showsEditableTitle {
           TextField("Untitled", text: $editor.title, axis: .vertical)
             .font(.largeTitle.weight(.bold))
@@ -2397,6 +2410,11 @@ private struct RichPageEditor<Header: View>: View {
       }
     }
     #endif
+  }
+
+  private var meetingTranscriptResource: MeetingTranscriptResource? {
+    let key = MeetingTranscriptResource.resourceKey(for: page.id)
+    return try? PageDocument.meetingTranscript(resourceKey: key, in: page.document)
   }
 
   private var editorLoadTaskID: String {
