@@ -350,11 +350,7 @@ private final class NativeRealtimeAudioPipeline {
       consume: append, activity: activity
     )
     self.ingress = ingress
-    input.installTap(onBus: 0, bufferSize: 480, format: source) { buffer, _ in
-      // Real-time callback: bounded copy + signal only.  No Data allocation,
-      // conversion, base64, actor hop, RMS, or Task construction is allowed.
-      ingress.push(buffer)
-    }
+    input.installTap(onBus: 0, bufferSize: 480, format: source, block: NativeRealtimeCaptureTap.make(ingress: ingress))
     engine.prepare(); try engine.start(); player.play(); running = true
   }
   func stopCapture() { if running { engine.inputNode.removeTap(onBus: 0) }; ingress?.stop(); ingress = nil; running = false }
@@ -376,6 +372,18 @@ private final class NativeRealtimeAudioPipeline {
     if !player.isPlaying { player.play() }; activity(0, Self.level(pcm)); return Int(buffer.frameLength)
   }
   nonisolated fileprivate static func level(_ bytes: Data) -> Double { let samples = bytes.withUnsafeBytes { $0.bindMemory(to: Int16.self) }; let peak = samples.reduce(0) { max($0, abs(Int($1))) }; return min(1, Double(peak) / Double(Int16.max)) }
+}
+
+/// Builds the Core Audio callback outside `NativeRealtimeAudioPipeline`'s
+/// main-actor isolation. AVAudioNodeTapBlock is imported as non-Sendable, so
+/// this nonisolated factory is the boundary that prevents the callback from
+/// inheriting the pipeline's global-actor isolation.
+private enum NativeRealtimeCaptureTap {
+  static func make(ingress: NativeRealtimeCaptureIngress) -> AVAudioNodeTapBlock {
+    { [ingress] buffer, _ in
+      ingress.push(buffer)
+    }
+  }
 }
 
 /// Fixed-slot SPSC capture ingress. Slots are allocated once; overflow drops
