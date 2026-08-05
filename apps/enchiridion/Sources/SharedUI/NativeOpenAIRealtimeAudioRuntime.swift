@@ -2,6 +2,130 @@ import AVFoundation
 import EnchiridionCore
 import Foundation
 
+/// Performs the small, bounded decode needed to schedule native output audio
+/// before handing all other server events to the protocol codec. Keeping this
+/// separate avoids rejecting a valid 64 KiB audio delta merely because its JSON
+/// envelope is a little larger than the codec's general event limit.
+enum NativeRealtimeOutputAudioDeltaPreflight {
+  static let maximumEnvelopeBytes = 66 * 1024
+  static let maximumBase64Bytes = 64 * 1024
+  /// The largest decoded payload representable by a padded 64 KiB base64
+  /// string. Keeping this derived makes the two wire limits coherent.
+  static let maximumPCMBytes = maximumBase64Bytes / 4 * 3
+  private static let maximumIdentifierBytes = 1_024
+  private static let maximumContentIndex = 1_024
+
+  struct Delta: Sendable, Equatable {
+    let responseID: String
+    let itemID: String
+    let contentIndex: Int
+    let pcm: Data
+  }
+
+  enum Result: Sendable, Equatable {
+    case notAudio
+    case valid(Delta)
+    case invalid
+  }
+
+  static func parse(_ text: String) -> Result {
+    guard text.utf8.count <= maximumEnvelopeBytes else {
+      return isLikelyOutputAudioDelta(text) ? .invalid : .notAudio
+    }
+    guard let data = text.data(using: .utf8),
+      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return isLikelyOutputAudioDelta(text) ? .invalid : .notAudio
+    }
+    guard root["type"] as? String == "response.output_audio.delta" else { return .notAudio }
+    guard let responseID = root["response_id"] as? String,
+      responseID.utf8.count <= maximumIdentifierBytes,
+      !responseID.isEmpty,
+      let itemID = root["item_id"] as? String,
+      itemID.utf8.count <= maximumIdentifierBytes,
+      !itemID.isEmpty,
+      let contentIndex = boundedContentIndex(in: root),
+      let encoded = root["delta"] as? String,
+      encoded.utf8.count <= maximumBase64Bytes,
+      let pcm = Data(base64Encoded: encoded),
+      !pcm.isEmpty,
+      pcm.count <= maximumPCMBytes,
+      pcm.count.isMultiple(of: 2)
+    else { return .invalid }
+    return .valid(.init(responseID: responseID, itemID: itemID, contentIndex: contentIndex, pcm: pcm))
+  }
+
+  /// This deliberately only distinguishes the known audio type before the
+  /// absolute JSON bound. It never attempts to parse an oversized payload.
+  private static func isLikelyOutputAudioDelta(_ text: String) -> Bool {
+    text.contains("\"response.output_audio.delta\"")
+  }
+
+  private static func boundedContentIndex(in root: [String: Any]) -> Int? {
+    guard let value = root["content_index"], !(value is Bool),
+      let number = value as? NSNumber
+    else { return nil }
+    let double = number.doubleValue
+    guard double.isFinite,
+      double.rounded(.towardZero) == double,
+      (0 ... Double(maximumContentIndex)).contains(double),
+      let index = Int(exactly: double)
+    else { return nil }
+    return index
+  }
+}
+
+struct NativeRealtimeRenderedBuffer: Sendable, Equatable {
+  let generation: UInt64
+  let playbackID: UInt64
+  let responseID: String
+  let itemID: String
+  let contentIndex: Int
+  let renderedFrames: Int
+}
+
+/// Main-actor-owned bookkeeping for scheduled output. The opaque playback ID
+/// makes callbacks from canceled audio unobservable, even if OpenAI reuses a
+/// response identifier for a later response.
+struct NativeRealtimePlaybackLedger {
+  private struct Entry: Sendable {
+    let responseID: String
+    let itemID: String
+    let contentIndex: Int
+  }
+
+  private var nextPlaybackID: UInt64 = 0
+  private var entries: [UInt64: Entry] = [:]
+
+  mutating func reserve(responseID: String, itemID: String, contentIndex: Int) -> UInt64 {
+    nextPlaybackID &+= 1
+    entries[nextPlaybackID] = .init(responseID: responseID, itemID: itemID, contentIndex: contentIndex)
+    return nextPlaybackID
+  }
+
+  mutating func abandon(_ playbackID: UInt64) { entries[playbackID] = nil }
+
+  mutating func cancel(responseID: String) {
+    entries = entries.filter { $0.value.responseID != responseID }
+  }
+
+  mutating func cancelAll() { entries.removeAll() }
+
+  mutating func complete(
+    _ buffer: NativeRealtimeRenderedBuffer,
+    activeGeneration: UInt64?
+  ) -> (responseID: String, isDrained: Bool)? {
+    guard activeGeneration == buffer.generation,
+      let entry = entries[buffer.playbackID],
+      entry.responseID == buffer.responseID,
+      entry.itemID == buffer.itemID,
+      entry.contentIndex == buffer.contentIndex
+    else { return nil }
+    entries[buffer.playbackID] = nil
+    return (entry.responseID, !entries.values.contains { $0.responseID == entry.responseID })
+  }
+}
+
 /// The native-only OpenAI Realtime path.  Unlike the legacy WebRTC bridge this
 /// object owns one WebSocket, one receiver and one serial writer for the whole
 /// lifetime of a voice attempt.  It is intentionally injected as both the
@@ -27,7 +151,7 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
   /// The only data used for a truncate is locally rendered audio from this
   /// response. It is reset before a new response can reuse an item id.
   private var renderedOutput: RenderedOutput?
-  private var scheduledByResponse: [String: Int] = [:]
+  private var playbackLedger = NativeRealtimePlaybackLedger()
 
   private struct RenderedOutput {
     let responseID: String
@@ -53,6 +177,8 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
     credential.withSecret { request.setValue("Bearer \($0)", forHTTPHeaderField: "Authorization") }
     let urlSession = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
     let task = urlSession.webSocketTask(with: request)
+    renderedOutput = nil
+    playbackLedger.cancelAll()
     session = urlSession; socket = task; activeGeneration = generation; task.resume()
     do {
       let created = try await receiveSessionCreated()
@@ -93,14 +219,9 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
             Task { @MainActor [weak self] in
               self?.activityContinuation.yield(.init(generation: generation, inputLevel: input, outputLevel: output))
             }
-          }, rendered: { [weak self] responseID, itemID, contentIndex, frames in
+          }, rendered: { [weak self] buffer in
             Task { @MainActor [weak self] in
-              self?.finishRenderedBuffer(
-                responseID: responseID,
-                itemID: itemID,
-                contentIndex: contentIndex,
-                renderedFrames: frames
-              )
+              self?.finishRenderedBuffer(buffer)
             }
           }
         )
@@ -108,14 +229,22 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
       try audio?.startCapture()
     } else { audio?.stopCapture() }
   }
-  func close() async { microphoneEnabled = false; audio?.stop(); audio = nil; receiver?.cancel(); receiver = nil; socket?.cancel(with: .goingAway, reason: nil); socket = nil; session?.invalidateAndCancel(); session = nil; activeGeneration = nil }
+  func close() async {
+    microphoneEnabled = false
+    audio?.stop(); audio = nil
+    receiver?.cancel(); receiver = nil
+    socket?.cancel(with: .goingAway, reason: nil); socket = nil
+    session?.invalidateAndCancel(); session = nil
+    activeGeneration = nil
+    renderedOutput = nil
+    playbackLedger.cancelAll()
+  }
 
   func send(_ command: RealtimeClientCommand) async throws {
     // The writer is a strict interruption barrier: clear local work before
     // sending control so a stale capture append cannot cross a cancel.
     switch command {
     case let .responseCancel(responseID):
-      audio?.interruptOutput()
       let truncate: RenderedOutput? = {
         guard let output = renderedOutput,
           output.responseID == responseID,
@@ -123,6 +252,9 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
         else { return nil }
         return output
       }()
+      audio?.interruptOutput()
+      playbackLedger.cancel(responseID: responseID)
+      if renderedOutput?.responseID == responseID { renderedOutput = nil }
       try await writer.interrupt(
         control: { [weak self] in
           guard let self else { return }
@@ -131,10 +263,11 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
         sendAppend: { [weak self] frame in try await self?.sendCapturedAudio(frame, generation: self?.activeGeneration ?? 0) }
       )
       continuation.yield(.init(payload: .playbackInterrupted(responseID: responseID)))
-      renderedOutput = nil
       return
     case .outputAudioBufferClear:
       audio?.interruptOutput()
+      renderedOutput = nil
+      playbackLedger.cancelAll()
       try await writer.interrupt(
         control: { [weak self] in try await self?.sendCommand(command) },
         sendAppend: { [weak self] frame in try await self?.sendCapturedAudio(frame, generation: self?.activeGeneration ?? 0) }
@@ -159,8 +292,25 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
       do {
         while !Task.isCancelled, self.activeGeneration == generation {
           let text = try await self.receiveText()
-          self.consumeNativeAudioDelta(text, generation: generation)
-          if let event = try self.codec.decode(text) { self.continuation.yield(event) }
+          // A close/restart may have happened while receive() was suspended.
+          // Never let that old socket's terminal result affect the new turn.
+          guard self.activeGeneration == generation else { return }
+          switch self.consumeNativeAudioDelta(text, generation: generation) {
+          case .valid:
+            // Native output audio has already been scheduled. The generic
+            // codec retains its 64 KiB limit for every other event type.
+            continue
+          case .invalid:
+            self.failure = RealtimeVoiceFailure(
+              code: "native_output_audio_invalid",
+              message: "OpenAI Voice returned invalid audio."
+            )
+            self.continuation.finish()
+            await self.close()
+            return
+          case .notAudio:
+            if let event = try self.codec.decode(text) { self.continuation.yield(event) }
+          }
         }
       } catch where !Task.isCancelled {
         self.failure = RealtimeVoiceFailure(code: "native_transport_closed", message: "The OpenAI Voice connection closed.")
@@ -215,26 +365,35 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
     ])
   }
 
-  private func consumeNativeAudioDelta(_ text: String, generation: UInt64) {
-    guard let data = text.data(using: .utf8),
-      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      root["type"] as? String == "response.output_audio.delta",
-      let responseID = root["response_id"] as? String,
-      let itemID = root["item_id"] as? String,
-      let contentIndex = root["content_index"] as? Int,
-      let encoded = root["delta"] as? String,
-      encoded.utf8.count <= 64 * 1024,
-      let pcm = Data(base64Encoded: encoded), pcm.count <= 48_000
-    else { return }
-    let scheduled = audio?.play(
-      pcm,
-      responseID: responseID,
-      itemID: itemID,
-      contentIndex: contentIndex
-    )
-    guard (scheduled ?? 0) > 0 else { return }
-    scheduledByResponse[responseID, default: 0] += 1
-    continuation.yield(.init(payload: .playbackStarted(responseID: responseID)))
+  private func consumeNativeAudioDelta(
+    _ text: String,
+    generation: UInt64
+  ) -> NativeRealtimeOutputAudioDeltaPreflight.Result {
+    let parsed = NativeRealtimeOutputAudioDeltaPreflight.parse(text)
+    switch parsed {
+    case .notAudio, .invalid:
+      return parsed
+    case let .valid(delta):
+      guard activeGeneration == generation else { return parsed }
+      let playbackID = playbackLedger.reserve(
+        responseID: delta.responseID,
+        itemID: delta.itemID,
+        contentIndex: delta.contentIndex
+      )
+      let scheduled = audio?.play(
+        delta.pcm,
+        playbackID: playbackID,
+        responseID: delta.responseID,
+        itemID: delta.itemID,
+        contentIndex: delta.contentIndex
+      )
+      guard (scheduled ?? 0) > 0 else {
+        playbackLedger.abandon(playbackID)
+        return .invalid
+      }
+      continuation.yield(.init(payload: .playbackStarted(responseID: delta.responseID)))
+      return .valid(delta)
+    }
   }
 
   private func commandObject(_ command: RealtimeClientCommand) throws -> [String: Any] {
@@ -261,28 +420,24 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
       ])
     }
   }
-  private func finishRenderedBuffer(
-    responseID: String,
-    itemID: String,
-    contentIndex: Int,
-    renderedFrames: Int
-  ) {
-    if renderedOutput?.responseID == responseID,
-      renderedOutput?.itemID == itemID,
-      renderedOutput?.contentIndex == contentIndex
+  private func finishRenderedBuffer(_ buffer: NativeRealtimeRenderedBuffer) {
+    guard let completion = playbackLedger.complete(buffer, activeGeneration: activeGeneration) else { return }
+    if renderedOutput?.responseID == buffer.responseID,
+      renderedOutput?.itemID == buffer.itemID,
+      renderedOutput?.contentIndex == buffer.contentIndex
     {
-      renderedOutput?.renderedFrames += renderedFrames
+      renderedOutput?.renderedFrames += buffer.renderedFrames
     } else {
       renderedOutput = .init(
-        responseID: responseID,
-        itemID: itemID,
-        contentIndex: contentIndex,
-        renderedFrames: renderedFrames
+        responseID: buffer.responseID,
+        itemID: buffer.itemID,
+        contentIndex: buffer.contentIndex,
+        renderedFrames: buffer.renderedFrames
       )
     }
-    let remaining = max(0, (scheduledByResponse[responseID] ?? 1) - 1)
-    if remaining == 0 { scheduledByResponse[responseID] = nil; continuation.yield(.init(payload: .playbackDrained(responseID: responseID))) }
-    else { scheduledByResponse[responseID] = remaining }
+    if completion.isDrained {
+      continuation.yield(.init(payload: .playbackDrained(responseID: completion.responseID)))
+    }
   }
 }
 
@@ -331,13 +486,13 @@ private final class NativeRealtimeAudioPipeline {
   private let generation: UInt64
   private let append: @Sendable (Data) async -> Void
   private let activity: @Sendable (Double, Double) -> Void
-  private let rendered: @Sendable (String, String, Int, Int) -> Void
+  private let rendered: @Sendable (NativeRealtimeRenderedBuffer) -> Void
   private let engine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000, channels: 1, interleaved: true)!
   private var running = false
   private var ingress: NativeRealtimeCaptureIngress?
-  init(generation: UInt64, append: @escaping @Sendable (Data) async -> Void, activity: @escaping @Sendable (Double, Double) -> Void, rendered: @escaping @Sendable (String, String, Int, Int) -> Void) {
+  init(generation: UInt64, append: @escaping @Sendable (Data) async -> Void, activity: @escaping @Sendable (Double, Double) -> Void, rendered: @escaping @Sendable (NativeRealtimeRenderedBuffer) -> Void) {
     self.generation = generation; self.append = append; self.activity = activity; self.rendered = rendered
     engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: captureFormat)
   }
@@ -358,6 +513,7 @@ private final class NativeRealtimeAudioPipeline {
   func interruptOutput() { player.stop(); if running { player.play() }; activity(0, 0) }
   @discardableResult func play(
     _ pcm: Data,
+    playbackID: UInt64,
     responseID: String,
     itemID: String,
     contentIndex: Int
@@ -366,12 +522,38 @@ private final class NativeRealtimeAudioPipeline {
     buffer.frameLength = buffer.frameCapacity
     pcm.copyBytes(to: UnsafeMutableRawBufferPointer(start: buffer.int16ChannelData![0], count: pcm.count))
     let renderedFrames = Int(buffer.frameLength)
-    player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [rendered] _ in
-      rendered(responseID, itemID, contentIndex, renderedFrames)
-    }
+    NativeRealtimePlaybackCompletion.schedule(
+      buffer,
+      on: player,
+      rendered: .init(
+        generation: generation,
+        playbackID: playbackID,
+        responseID: responseID,
+        itemID: itemID,
+        contentIndex: contentIndex,
+        renderedFrames: renderedFrames
+      ),
+      sink: rendered
+    )
     if !player.isPlaying { player.play() }; activity(0, Self.level(pcm)); return Int(buffer.frameLength)
   }
   nonisolated fileprivate static func level(_ bytes: Data) -> Double { let samples = bytes.withUnsafeBytes { $0.bindMemory(to: Int16.self) }; let peak = samples.reduce(0) { max($0, abs(Int($1))) }; return min(1, Double(peak) / Double(Int16.max)) }
+}
+
+/// Constructs the callback passed to `AVAudioPlayerNode` outside the
+/// main-actor pipeline. Its capture list contains only immutable completion
+/// metadata and the explicitly Sendable sink back to runtime accounting.
+enum NativeRealtimePlaybackCompletion {
+  nonisolated static func schedule(
+    _ buffer: AVAudioPCMBuffer,
+    on player: AVAudioPlayerNode,
+    rendered: NativeRealtimeRenderedBuffer,
+    sink: @escaping @Sendable (NativeRealtimeRenderedBuffer) -> Void
+  ) {
+    player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [rendered, sink] _ in
+      sink(rendered)
+    }
+  }
 }
 
 /// Builds the Core Audio callback outside `NativeRealtimeAudioPipeline`'s

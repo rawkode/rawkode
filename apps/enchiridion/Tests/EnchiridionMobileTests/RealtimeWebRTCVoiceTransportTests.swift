@@ -1,5 +1,6 @@
 import XCTest
 import EnchiridionCore
+import Foundation
 
 @testable import Enchiridion
 
@@ -113,5 +114,139 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     var iterator = currentActivity.makeAsyncIterator()
     let deliveredLevel = await iterator.next()
     XCTAssertEqual(deliveredLevel, 0.3)
+  }
+
+  func testNativeAudioPreflightAcceptsEnvelopeSlightlyAboveCoreLimit() throws {
+    let pcm = Data(repeating: 0, count: NativeRealtimeOutputAudioDeltaPreflight.maximumPCMBytes)
+    let json = try nativeAudioEnvelope(delta: pcm.base64EncodedString())
+
+    XCTAssertEqual(pcm.base64EncodedString().utf8.count, 64 * 1024)
+    XCTAssertGreaterThan(json.utf8.count, RealtimeProtocolCodec.maximumEventBytes)
+    XCTAssertLessThanOrEqual(json.utf8.count, NativeRealtimeOutputAudioDeltaPreflight.maximumEnvelopeBytes)
+    guard case let .valid(delta) = NativeRealtimeOutputAudioDeltaPreflight.parse(json) else {
+      return XCTFail("expected bounded native audio delta")
+    }
+    XCTAssertEqual(delta.pcm, pcm)
+  }
+
+  func testNativeAudioPreflightRejectsOversizedEnvelopeAndBase64() throws {
+    let oversizedEnvelope = try nativeAudioEnvelope(
+      delta: Data([0, 0]).base64EncodedString(),
+      padding: String(repeating: "x", count: NativeRealtimeOutputAudioDeltaPreflight.maximumEnvelopeBytes)
+    )
+    XCTAssertEqual(NativeRealtimeOutputAudioDeltaPreflight.parse(oversizedEnvelope), .invalid)
+
+    let oversizedBase64 = try nativeAudioEnvelope(
+      delta: String(repeating: "A", count: NativeRealtimeOutputAudioDeltaPreflight.maximumBase64Bytes + 1)
+    )
+    XCTAssertEqual(NativeRealtimeOutputAudioDeltaPreflight.parse(oversizedBase64), .invalid)
+
+    let whitespaceDelimitedOversizedAudio = """
+    {
+      "padding": "\(String(repeating: "x", count: NativeRealtimeOutputAudioDeltaPreflight.maximumEnvelopeBytes))",
+      "type" : "response.output_audio.delta"
+    }
+    """
+    XCTAssertEqual(NativeRealtimeOutputAudioDeltaPreflight.parse(whitespaceDelimitedOversizedAudio), .invalid)
+  }
+
+  func testNativeAudioPreflightRejectsInvalidBase64AndOddPCM() throws {
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(try nativeAudioEnvelope(delta: "not base64!")),
+      .invalid
+    )
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(delta: Data([0, 0, 0]).base64EncodedString())
+      ),
+      .invalid
+    )
+  }
+
+  func testNativeAudioPreflightRejectsBooleanAndNonIntegralContentIndex() throws {
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(delta: Data([0, 0]).base64EncodedString(), contentIndex: true)
+      ),
+      .invalid
+    )
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(delta: Data([0, 0]).base64EncodedString(), contentIndex: 1.5)
+      ),
+      .invalid
+    )
+  }
+
+  func testOversizedNonAudioStillUsesCoreCodecLimit() {
+    let json = #"{\"type\":\"future.event\",\"value\":\""#
+      + String(repeating: "x", count: RealtimeProtocolCodec.maximumEventBytes)
+      + #"\"}"#
+    XCTAssertEqual(NativeRealtimeOutputAudioDeltaPreflight.parse(json), .notAudio)
+    XCTAssertThrowsError(try RealtimeProtocolCodec().decode(json)) { error in
+      XCTAssertEqual(error as? RealtimeProtocolCodecError, .eventTooLarge)
+    }
+  }
+
+  func testPlaybackLedgerIgnoresStaleGenerationAndCanceledResponseReuse() {
+    var ledger = NativeRealtimePlaybackLedger()
+    let oldPlaybackID = ledger.reserve(responseID: "response", itemID: "old", contentIndex: 0)
+    let old = nativeRendered(playbackID: oldPlaybackID, itemID: "old")
+
+    XCTAssertNil(ledger.complete(old, activeGeneration: 42))
+    ledger.cancel(responseID: "response")
+    let currentPlaybackID = ledger.reserve(responseID: "response", itemID: "new", contentIndex: 0)
+
+    XCTAssertNil(ledger.complete(old, activeGeneration: 41))
+    let current = nativeRendered(playbackID: currentPlaybackID, itemID: "new")
+    XCTAssertNil(
+      ledger.complete(
+        nativeRendered(playbackID: currentPlaybackID, itemID: "mismatched"),
+        activeGeneration: 41
+      )
+    )
+    let completion = ledger.complete(current, activeGeneration: 41)
+    XCTAssertEqual(completion?.responseID, "response")
+    XCTAssertEqual(completion?.isDrained, true)
+
+    let clearedPlaybackID = ledger.reserve(responseID: "other", itemID: "cleared", contentIndex: 0)
+    ledger.cancelAll()
+    XCTAssertNil(
+      ledger.complete(
+        nativeRendered(playbackID: clearedPlaybackID, responseID: "other", itemID: "cleared"),
+        activeGeneration: 41
+      )
+    )
+  }
+
+  private func nativeAudioEnvelope(
+    delta: String,
+    padding: String? = nil,
+    contentIndex: Any = 0
+  ) throws -> String {
+    var object: [String: Any] = [
+      "type": "response.output_audio.delta",
+      "response_id": "response",
+      "item_id": "item",
+      "content_index": contentIndex,
+      "delta": delta,
+    ]
+    if let padding { object["padding"] = padding }
+    return String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+  }
+
+  private func nativeRendered(
+    playbackID: UInt64,
+    responseID: String = "response",
+    itemID: String
+  ) -> NativeRealtimeRenderedBuffer {
+    .init(
+      generation: 41,
+      playbackID: playbackID,
+      responseID: responseID,
+      itemID: itemID,
+      contentIndex: 0,
+      renderedFrames: 480
+    )
   }
 }
