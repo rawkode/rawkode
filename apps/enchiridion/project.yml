@@ -58,6 +58,8 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - target: EnchiridionMacTaskShare
+        embed: true
       - sdk: AVFoundation.framework
       - sdk: AppIntents.framework
       - sdk: Contacts.framework
@@ -75,6 +77,39 @@ targets:
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMac.entitlements
         CODE_SIGN_STYLE: Automatic
+
+  EnchiridionMacTaskShare:
+    type: app-extension
+    platform: macOS
+    productName: EnchiridionMacTaskShare
+    info:
+      path: Configuration/EnchiridionMacTaskShare-Info.plist
+      properties:
+        CFBundleDisplayName: Add to Enchiridion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MacShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 12
+    sources:
+      - Sources/MacTaskShareExtension
+    dependencies:
+      - sdk: Social.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - package: EnchiridionCore
+        product: EnchiridionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion.mac-task-share
+        PRODUCT_NAME: EnchiridionMacTaskShare
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMacTaskShare.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
 
   EnchiridionMobile:
     type: application

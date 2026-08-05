@@ -161,6 +161,12 @@ final class EnchiridionMacRuntime {
       },
       openURL: { url in NSWorkspace.shared.open(url) }
     )
+    Task {
+      await MacBookmarkCaptureRuntime.shared.configure {
+        await EnchiridionMacRuntime.shared.store.reload()
+      }
+      await MacBookmarkCaptureRuntime.shared.drainInbox()
+    }
   }
 
   func store(for vaultID: VaultID) throws -> LibraryStore? {

@@ -26,6 +26,7 @@ final class EnchiridionAppDelegate: NSObject, UIApplicationDelegate {
     {
       workoutTransport.start(receiver: receiver)
     }
+    Task { await EnchiridionAppRuntime.shared.refreshBookmarkCaptures() }
     return true
   }
 

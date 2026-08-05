@@ -107,6 +107,13 @@ final class EnchiridionAppRuntime {
     )
   }
 
+  /// Runs queued external bookmark captures without changing the selected vault. A successful
+  /// import reloads only the currently selected store, which refreshes Today as well.
+  func refreshBookmarkCaptures() async {
+    guard await BookmarkCaptureRuntime.shared.refresh() else { return }
+    await store.reload()
+  }
+
   func store(for vaultID: VaultID) throws -> LibraryStore? {
     guard let vaultSession else {
       return store.vaultID == vaultID ? store : nil
