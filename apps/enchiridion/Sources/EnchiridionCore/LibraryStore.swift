@@ -91,6 +91,10 @@ public final class LibraryStore {
   public private(set) var vaultID: VaultID
   public private(set) var pages: [PageSnapshot] = []
   public private(set) var calendarEvents: [CalendarEventSnapshot] = []
+  /// Whether the initial local calendar agenda query has reached a terminal state.
+  /// This is intentionally independent from provider and full-library reload state.
+  public private(set) var calendarAgendaIsReady = false
+  public private(set) var calendarAgendaLoadError: String?
   /// Changes whenever the provider-backed calendar projection is refreshed or reloaded.
   /// Relationship screens use this as a cheap observable invalidation token.
   public private(set) var calendarRelationshipGeneration: UInt64 = 0
@@ -250,11 +254,13 @@ public final class LibraryStore {
       } catch {
         startupError = error.localizedDescription
         isLoading = false
+        resolveCalendarAgendaInitialLoad(error: startupError)
       }
       isOpeningRepository = false
     }
     guard let repository else {
       isLoading = false
+      resolveCalendarAgendaInitialLoad(error: startupError)
       return
     }
     do {
@@ -262,7 +268,7 @@ public final class LibraryStore {
       selectedPageID = selectedPageID ?? today.id
       let pendingEffectOutcomes = await taskMutationCoordinator?.drainPendingEffects() ?? []
       taskMutationWarnings = pendingEffectOutcomes.compactMap(\.warning)
-      await reload()
+      guard await reload() != nil else { return }
       // Legacy local projections predate Event pages. Adopt them on startup so
       // the normal dirty-page/CloudKit path sees existing calendar content.
       let upgradeReceipt = try await repository.materializeActiveCalendarProjectionForUpgrade()
@@ -270,7 +276,9 @@ public final class LibraryStore {
       for pageID in upgradeReceipt.changedPageIDs {
         await syncCoordinator?.pageDidChange(pageID)
       }
-      if !upgradeReceipt.changedPageIDs.isEmpty { await reload() }
+      if !upgradeReceipt.changedPageIDs.isEmpty {
+        guard await reload() != nil else { return }
+      }
       // Restore only already-authorized providers; startup must never prompt.
       let restoredEventKit = EventKitCalendarProvider()
       if restoredEventKit.authorizationStatus == .fullAccess {
@@ -308,6 +316,9 @@ public final class LibraryStore {
     } catch {
       startupError = error.localizedDescription
       isLoading = false
+      if !calendarAgendaIsReady {
+        resolveCalendarAgendaInitialLoad(error: startupError)
+      }
     }
   }
 
@@ -379,9 +390,36 @@ public final class LibraryStore {
   public func reload(
     policy: LibraryReloadPolicy = .reconcileSystemState
   ) async -> [PageSnapshot]? {
-    guard let repository else { return nil }
+    guard let repository else {
+      startupError = startupError ?? "The library is unavailable."
+      resolveCalendarAgendaInitialLoad(error: startupError)
+      isLoading = false
+      return nil
+    }
     reloadGeneration &+= 1
     let generation = reloadGeneration
+    let now = Date()
+    let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+    let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+
+    let loadedCalendarEvents: [CalendarEventSnapshot]
+    do {
+      loadedCalendarEvents = try await repository.calendarEvents(
+        from: calendarStart,
+        through: calendarEnd
+      )
+      guard generation == reloadGeneration else { return nil }
+      calendarEvents = loadedCalendarEvents
+      calendarAgendaLoadError = nil
+      calendarAgendaIsReady = true
+    } catch {
+      guard generation == reloadGeneration else { return nil }
+      resolveCalendarAgendaInitialLoad(error: error.localizedDescription)
+      startupError = error.localizedDescription
+      isLoading = false
+      return nil
+    }
+
     do {
       let live = try await repository.pages(in: .allPages)
       let trash = try await repository.pages(in: .trash)
@@ -394,13 +432,6 @@ public final class LibraryStore {
       let loadedCalendarPageContexts = try await repository.calendarPageContexts()
       let loadedOmissionPrefixes = try await repository.calendarEventOmissionPrefixes()
       let loadedCalendarEventMaterializationEnabled = try await repository.calendarEventMaterializationEnabled()
-      let now = Date()
-      let calendarStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
-      let calendarEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
-      let loadedCalendarEvents = try await repository.calendarEvents(
-        from: calendarStart,
-        through: calendarEnd
-      )
       let loadedOtherPeople = try await repository.otherPeople()
       let loadedContactLinks = Dictionary(
         uniqueKeysWithValues: try await repository.contactLinks().map { ($0.pageID, $0) }
@@ -434,6 +465,11 @@ public final class LibraryStore {
       isLoading = false
       return nil
     }
+  }
+
+  private func resolveCalendarAgendaInitialLoad(error: String?) {
+    calendarAgendaLoadError = error ?? calendarAgendaLoadError ?? "The calendar agenda is unavailable."
+    calendarAgendaIsReady = true
   }
 
   @discardableResult

@@ -63,8 +63,9 @@ struct DayPlanView: View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 16) {
         CalendarAgendaView(
-          selectedDay: day, items: visibleItems, isLoading: store.isLoading,
-          error: store.calendarError, isSearching: !searchText.isEmpty, calendar: calendar,
+          selectedDay: day, items: visibleItems, isLoading: !store.calendarAgendaIsReady,
+          error: store.calendarAgendaLoadError ?? store.calendarError,
+          isSearching: !searchText.isEmpty, calendar: calendar,
           showsTitle: true,
           capacityPlan: capacityPlan, scheduleTask: scheduleTask,
           openOccurrenceNote: openOccurrenceNote, openSeriesNote: openSeriesNote
