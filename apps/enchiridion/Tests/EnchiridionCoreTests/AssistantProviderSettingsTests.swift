@@ -554,7 +554,8 @@ final class AssistantProviderSettingsTests: XCTestCase {
       validator: ImmediateCredentialValidator(result: validationResult())
     )
 
-    XCTAssertTrue(await controller.verifyAndSave(candidate: "first-placeholder"))
+    let didVerify = await controller.verifyAndSave(candidate: "first-placeholder")
+    XCTAssertTrue(didVerify)
     XCTAssertEqual(controller.selectedVoiceProvider, .openAIRealtime)
   }
 
@@ -571,7 +572,8 @@ final class AssistantProviderSettingsTests: XCTestCase {
         validator: ImmediateCredentialValidator(result: validationResult())
       )
       await controller.refreshCredentialState()
-      XCTAssertTrue(await controller.reverifySavedCredential())
+      let didReverify = await controller.reverifySavedCredential()
+      XCTAssertTrue(didReverify)
       XCTAssertEqual(controller.selectedVoiceProvider, selected)
     }
   }
