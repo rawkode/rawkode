@@ -93,6 +93,7 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MacShareViewController
           NSExtensionAttributes:
             NSExtensionActivationRule:
+              NSExtensionActivationDictionaryVersion: 2
               NSExtensionActivationSupportsText: true
               NSExtensionActivationSupportsWebURLWithMaxCount: 12
     sources:
@@ -304,6 +305,7 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
             NSExtensionActivationRule:
+              NSExtensionActivationDictionaryVersion: 2
               NSExtensionActivationSupportsText: true
               NSExtensionActivationSupportsWebURLWithMaxCount: 12
     sources:

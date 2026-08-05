@@ -1,4 +1,5 @@
 import EnchiridionCore
+import OSLog
 import Social
 import UniformTypeIdentifiers
 import UIKit
@@ -29,6 +30,10 @@ private final class SharedContentAccumulator: @unchecked Sendable {
 @objc(ShareViewController)
 final class ShareViewController: SLComposeServiceViewController {
   private static let maximumSharedURLs = 12
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.rawkode.enchiridion.task-share",
+    category: "share-extension"
+  )
 
   private var sharedText: [String] = []
   private var sharedURLs: [URL] = []
@@ -37,6 +42,7 @@ final class ShareViewController: SLComposeServiceViewController {
 
   override func presentationAnimationDidFinish() {
     super.presentationAnimationDidFinish()
+    Self.logger.notice("share_launch input_items=\(self.extensionContext?.inputItems.count ?? 0, privacy: .public)")
     loadSharedContent()
   }
 
@@ -54,6 +60,7 @@ final class ShareViewController: SLComposeServiceViewController {
     }
 
     guard !hasTooManyValidURLs else {
+      Self.logger.error("bookmark_too_many_urls url_count=\(self.sharedURLs.count, privacy: .public) maximum_count=\(Self.maximumSharedURLs, privacy: .public)")
       bookmarkAlert("Enchiridion can save up to 12 valid web links at once.")
       return
     }
@@ -78,11 +85,13 @@ final class ShareViewController: SLComposeServiceViewController {
         )
         switch await mutations.create(draft) {
         case .success:
+          Self.logger.notice("task_save_success")
           extensionContext?.completeRequest(returningItems: nil)
         case .failure(let failure):
           throw failure
         }
       } catch {
+        Self.logger.error("task_save_failure")
         validationAlert("Enchiridion couldn’t save this task. Open the app once, then try again.")
       }
     }
@@ -107,6 +116,7 @@ final class ShareViewController: SLComposeServiceViewController {
   private func saveBookmarks(_ urls: [URL]) {
     let invalidURLs = urls.filter { BookmarkURLKey(submittedURL: $0.absoluteString) == nil }
     guard invalidURLs.isEmpty else {
+      Self.logger.error("bookmark_invalid url_count=\(urls.count, privacy: .public) invalid_count=\(invalidURLs.count, privacy: .public)")
       bookmarkAlert("Only valid http or https links can be saved as bookmarks.")
       return
     }
@@ -144,11 +154,14 @@ final class ShareViewController: SLComposeServiceViewController {
           _ = try await inbox.enqueue(captureID: captureID, request: request, vaultID: vaultID, now: now)
           committed += 1
         }
+        Self.logger.notice("bookmark_save_success enqueued_count=\(committed, privacy: .public)")
         extensionContext?.completeRequest(returningItems: nil)
       } catch {
         if committed > 0 {
+          Self.logger.error("bookmark_enqueue_failure_partial enqueued_count=\(committed, privacy: .public) requested_count=\(urls.count, privacy: .public)")
           bookmarkAlert("Saved \(committed) of \(urls.count) bookmarks. The remaining links were not saved; try again.")
         } else {
+          Self.logger.error("bookmark_queue_or_setup_failure requested_count=\(urls.count, privacy: .public)")
           bookmarkAlert("Enchiridion couldn’t open the bookmark queue. Open the app once, then try again.")
         }
       }
@@ -200,6 +213,9 @@ final class ShareViewController: SLComposeServiceViewController {
       self.sharedURLs = loaded.urls
       self.sharedText = loaded.text
       self.isLoadingSharedContent = false
+      Self.logger.notice(
+        "share_content_loaded provider_count=\(providers.count, privacy: .public) url_representations=\(urlProviders.count, privacy: .public) text_representations=\(textProviders.count, privacy: .public) loaded_urls=\(loaded.urls.count, privacy: .public) loaded_text=\(loaded.text.count, privacy: .public)"
+      )
       self.validateContent()
 
       if self.hasTooManyValidURLs {
