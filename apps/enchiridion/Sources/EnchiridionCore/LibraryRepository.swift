@@ -7,6 +7,10 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
   case pageNotFound
   case pagePurged
   case invalidRecord
+  case bookmarkCaptureHistoryConflict
+  case bookmarkIdentityFrozen
+  case bookmarkSuppressed
+  case bookmarkDeletionCarrier
   case projectHasActiveTasks(count: Int)
   case projectClosureUndoUnavailable
   case taskProjectClosed(projectID: PageID)
@@ -23,6 +27,14 @@ public enum LibraryRepositoryError: Error, Equatable, LocalizedError {
     case .pageNotFound: "The page is no longer available."
     case .pagePurged: "This page was permanently removed."
     case .invalidRecord: "The local page record is invalid."
+    case .bookmarkCaptureHistoryConflict:
+      "This capture identifier already belongs to different immutable bookmark history."
+    case .bookmarkIdentityFrozen:
+      "A bookmark with synced capture history cannot change its source identity."
+    case .bookmarkSuppressed:
+      "This bookmark was deleted and will not be recreated until it is explicitly restored."
+    case .bookmarkDeletionCarrier:
+      "Bookmark deletion records cannot be edited, restored, or removed."
     case .projectHasActiveTasks(let count):
       "Complete or move the project's \(count) active task\(count == 1 ? "" : "s") before closing it."
     case .projectClosureUndoUnavailable:
@@ -247,6 +259,51 @@ public struct PurgeMarker: Codable, Hashable, Sendable {
   public var cloudRecord: Data?
 }
 
+/// The durable, generation-fenced lifecycle for permanent bookmark deletion.
+public enum BookmarkPermanentDeletionStage: String, Codable, Hashable, Sendable {
+  case preparing
+  case carrierPendingAck
+  case carrierAcknowledged
+  case purgingCandidates
+  case stable
+}
+
+/// Privacy-minimal deletion state. URL text and user content never enter this projection.
+public struct BookmarkSuppressionState: Codable, Hashable, Sendable, Identifiable {
+  public var urlKeyDigest: String
+  public var stage: BookmarkPermanentDeletionStage
+  public var carrierPageID: PageID?
+  public var requiredGeneration: Int64?
+  public var acknowledgedGeneration: Int64?
+  public var permanentRequested: Bool
+
+  public var id: String { urlKeyDigest }
+}
+
+/// A sanitized history diagnostic. Raw Automerge values and URLs remain repository-internal.
+public struct BookmarkCaptureHistoryIssue: Hashable, Sendable, Identifiable {
+  public var reason: String
+  public var pageIDs: [PageID]
+
+  public var id: String {
+    reason + ":" + pageIDs.map(\.rawValue).joined(separator: ",")
+  }
+}
+
+/// Digest-only handoff emitted after app-queryable candidate data has been logically removed.
+public struct BookmarkPermanentDeletionHandoff: Codable, Hashable, Sendable, Identifiable {
+  public var urlKeyDigest: String
+  public var completedAt: Date
+
+  public var id: String { urlKeyDigest }
+}
+
+enum BookmarkPageWriteOrigin {
+  case local
+  case remote
+  case system
+}
+
 public struct SavedViewCloudRecord: Sendable {
   public var id: LiveQueryID
   public var definition: LiveQueryDefinition
@@ -319,6 +376,364 @@ public actor LibraryRepository {
 
   public func closeDatabase() throws {
     try database.close()
+  }
+
+  /// Materializes one capture receipt, its page (when no live local identity exists), and all
+  /// bookmark projections atomically. The receipt is deliberately the allocation authority: a
+  /// crash cannot cause a retry of the same UUID to allocate a second page.
+  public func materializeBookmark(_ request: BookmarkCaptureRequest) throws -> BookmarkCaptureResult {
+    guard let key = BookmarkURLKey(submittedURL: request.submittedURL) else {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    let syncedEvent: BookmarkSyncedCaptureEvent
+    do {
+      syncedEvent = try BookmarkSyncedCaptureEvent(
+        captureID: request.captureID,
+        urlKey: key,
+        submittedURL: request.submittedURL,
+        capturedAt: request.capturedAt,
+        dayKey: request.dayKey,
+        timeZoneIdentifier: request.timeZoneIdentifier
+      )
+    } catch {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    return try database.write { db in
+      let capture = request.captureID.uuidString.lowercased()
+      if try Self.isBookmarkIdentitySuppressed(db, digest: key.digest) {
+        let retainedPageID = try String.fetchOne(
+          db,
+          sql: """
+            SELECT page_id FROM bookmark_identity_candidates
+            WHERE url_key_digest = ? ORDER BY page_id LIMIT 1
+            """,
+          arguments: [key.digest]
+        ) ?? String.fetchOne(
+          db,
+          sql: "SELECT page_id FROM bookmark_capture_receipts WHERE canonical_url = ? ORDER BY page_id LIMIT 1",
+          arguments: [key.canonicalURL]
+        )
+        if let retainedPageID {
+          return .init(pageID: .init(rawValue: retainedPageID), urlKey: key, duplicate: true)
+        }
+        throw LibraryRepositoryError.bookmarkSuppressed
+      }
+      if let receipt = try Row.fetchOne(
+        db,
+        sql: "SELECT page_id,canonical_url FROM bookmark_capture_receipts WHERE capture_id = ?",
+        arguments: [capture]
+      ), let existing: String = receipt["page_id"] {
+        let receiptCanonical: String? = receipt["canonical_url"]
+        let candidateCanonical = try String.fetchOne(
+          db,
+          sql: "SELECT canonical_url FROM bookmark_identity_candidates WHERE page_id = ? ORDER BY url_key_digest LIMIT 1",
+          arguments: [existing]
+        )
+        let canonical = receiptCanonical ?? candidateCanonical
+        guard let canonical, let originalKey = BookmarkURLKey(submittedURL: canonical) else {
+          throw LibraryRepositoryError.invalidRecord
+        }
+        guard originalKey == key else {
+          throw LibraryRepositoryError.bookmarkCaptureHistoryConflict
+        }
+        if let originalEvent = try Self.localSyncedBookmarkCaptureEvent(db, captureID: capture),
+          originalEvent != syncedEvent
+        {
+          throw LibraryRepositoryError.bookmarkCaptureHistoryConflict
+        }
+        let pageID = PageID(rawValue: existing)
+        if let page = try Self.fetchPage(db, id: pageID) {
+          let appended = try PageDocument.appendBookmarkCaptureEvent(syncedEvent, in: page.document)
+          if appended.document != page.document {
+            try Self.writePage(
+              db,
+              page: Self.updatedPage(page, with: appended, now: syncedEvent.capturedAt),
+              cloudDirty: true
+            )
+          }
+        }
+        return .init(pageID: .init(rawValue: existing), urlKey: originalKey, duplicate: true)
+      }
+      let winner: String? = try String.fetchOne(db, sql: """
+        SELECT c.page_id FROM bookmark_identity_candidates c
+        JOIN pages p ON p.id = c.page_id
+        WHERE c.url_key_digest = ? AND p.deleted_at IS NULL
+        ORDER BY c.page_id LIMIT 1
+        """, arguments: [key.digest])
+      let pageID = winner.map(PageID.init(rawValue:)) ?? .free()
+      let page: PageSnapshot
+      let duplicate: Bool
+      if let winner, let current = try Self.fetchPage(db, id: .init(rawValue: winner)) {
+        let mutation = try PageDocument.appendBookmarkCaptureEvent(syncedEvent, in: current.document)
+        if mutation.document == current.document {
+          page = current
+        } else {
+          page = Self.updatedPage(current, with: mutation, now: syncedEvent.capturedAt)
+          try Self.writePage(db, page: page, cloudDirty: true)
+        }
+        duplicate = true
+      } else {
+        let created = try PageDocument.create(
+          id: pageID,
+          kind: .free,
+          title: request.submittedURL,
+          createdAt: syncedEvent.capturedAt
+        )
+        var mutation = try PageDocument.addSupertag(
+          BuiltInSupertags.bookmark,
+          in: created.document
+        )
+        mutation = try PageDocument.setProperty(
+          key: .init(supertagID: BuiltInSupertags.bookmark, fieldID: BuiltInSupertags.bookmarkSourceURLField),
+          values: [.url(request.submittedURL)], in: mutation.document)
+        mutation = try PageDocument.appendBookmarkCaptureEvent(syncedEvent, in: mutation.document)
+        page = PageSnapshot(
+          id: pageID,
+          kind: .free,
+          title: mutation.projection.title,
+          plainText: mutation.projection.plainText,
+          document: mutation.document,
+          heads: mutation.heads,
+          createdAt: syncedEvent.capturedAt,
+          modifiedAt: syncedEvent.capturedAt,
+          deletedAt: mutation.projection.deletedAt,
+          isPinned: mutation.projection.isPinned,
+          dirtyGeneration: 1,
+          objectMetadata: mutation.projection.objectMetadata
+        )
+        try Self.writePage(db, page: page, cloudDirty: true)
+        duplicate = false
+      }
+      try db.execute(sql: """
+        INSERT INTO bookmark_capture_events
+          (capture_id,url_key_digest,url_key_version,canonical_url,submitted_url,note,captured_at,day_key,time_zone,source,platform,vault_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, arguments: [capture, key.digest, BookmarkURLKey.version, key.canonicalURL, request.submittedURL, request.note, syncedEvent.capturedAt.timeIntervalSince1970, request.dayKey.rawValue, request.timeZoneIdentifier, request.source, request.platform, request.vaultID.rawValue])
+      try db.execute(sql: "INSERT INTO bookmark_capture_receipts (capture_id,page_id,url_key_version,canonical_url) VALUES (?,?,?,?)", arguments: [capture, pageID.rawValue, BookmarkURLKey.version, key.canonicalURL])
+      return .init(pageID: pageID, urlKey: key, duplicate: duplicate)
+    }
+  }
+
+  public func bookmarkAliases() throws -> [BookmarkAliasSuggestion] {
+    try database.read { db in
+      try Row.fetchAll(db, sql: """
+        SELECT c.url_key_digest,c.canonical_url,c.page_id,
+               (SELECT c2.page_id FROM bookmark_identity_candidates c2 JOIN pages p2 ON p2.id=c2.page_id
+                WHERE c2.url_key_digest=c.url_key_digest AND p2.deleted_at IS NULL ORDER BY c2.page_id LIMIT 1) AS winner
+        FROM bookmark_identity_candidates c JOIN pages p ON p.id=c.page_id
+        WHERE p.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM bookmark_identity_suppressions d WHERE d.url_key_digest=c.url_key_digest)
+        """).compactMap { row in
+          guard let digest: String = row["url_key_digest"], let canonical: String = row["canonical_url"], let page: String = row["page_id"], let winner: String = row["winner"], page != winner,
+            let key = BookmarkURLKey(submittedURL: canonical), key.digest == digest else { return nil }
+          return .init(urlKey: key, winner: .init(rawValue: winner), alias: .init(rawValue: page))
+        }
+    }
+  }
+
+  /// Establishes a monotonic digest suppression, creates its distinct carrier, and tombstones
+  /// every current candidate in one transaction. Candidate content remains available in Trash
+  /// until permanent deletion is separately requested and carrier upload is acknowledged.
+  public func deleteBookmarkIdentity(
+    _ deletion: BookmarkIdentityDeletion,
+    now: Date = Date()
+  ) throws {
+    try database.write { db in
+      try Self.suppressBookmarkIdentity(db, deletion: deletion, now: now)
+    }
+  }
+
+  public func bookmarkCaptureEvents(dayKey: DayKey? = nil, timeZoneIdentifier: String? = nil) throws -> [BookmarkCaptureEvent] {
+    try database.read { db in
+      var sql = "SELECT * FROM bookmark_capture_events WHERE NOT EXISTS (SELECT 1 FROM bookmark_identity_suppressions d WHERE d.url_key_digest = bookmark_capture_events.url_key_digest) AND NOT EXISTS (SELECT 1 FROM bookmark_identity_deletions d WHERE d.url_key_digest = bookmark_capture_events.url_key_digest)"
+      var arguments: [DatabaseValueConvertible] = []
+      if let dayKey { sql += " AND day_key = ?"; arguments.append(dayKey.rawValue) }
+      if let timeZoneIdentifier { sql += " AND time_zone = ?"; arguments.append(timeZoneIdentifier) }
+      sql += " ORDER BY captured_at,capture_id"
+      return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments)).compactMap { row in
+        guard let rawID: String = row["capture_id"], let id = UUID(uuidString: rawID), let submitted: String = row["submitted_url"], let canonical: String = row["canonical_url"], let key = BookmarkURLKey(submittedURL: canonical), let captured: Double = row["captured_at"], let day: String = row["day_key"], let zone: String = row["time_zone"], let source: String = row["source"], let platform: String = row["platform"], let vault: String = row["vault_id"] else { return nil }
+        let dayKey = DayKey(rawValue: day)
+        return .init(captureID: id, urlKey: key, submittedURL: submitted, note: row["note"], capturedAt: .init(timeIntervalSince1970: captured), dayKey: dayKey, timeZoneIdentifier: zone, source: source, platform: platform, vaultID: .init(rawValue: vault))
+      }
+    }
+  }
+
+  /// Returns the deterministic global union of valid privacy-minimal capture facts. Identical
+  /// facts replicated by multiple candidate Pages collapse to one item; a divergent capture ID
+  /// is excluded in full and reported through `bookmarkCaptureHistoryIssues()`.
+  public func bookmarkSyncedCaptureEvents(
+    dayKey: DayKey? = nil,
+    timeZoneIdentifier: String? = nil
+  ) throws -> [BookmarkSyncedCaptureEvent] {
+    try database.read { db in
+      let rows = try Row.fetchAll(db, sql: """
+        SELECT s.capture_id,s.encoded_envelope,s.valid_identity,
+               CASE WHEN d.url_key_digest IS NULL THEN 0 ELSE 1 END AS suppressed
+        FROM bookmark_capture_event_sources s
+        LEFT JOIN bookmark_identity_suppressions d ON d.url_key_digest=s.url_key_digest
+        ORDER BY s.capture_id,s.encoded_envelope,s.page_id
+        """)
+      var grouped: [String: [(encoded: String, valid: Bool, suppressed: Bool)]] = [:]
+      for row in rows {
+        guard let captureID: String = row["capture_id"], let encoded: String = row["encoded_envelope"] else {
+          continue
+        }
+        grouped[captureID, default: []].append((
+          encoded,
+          row["valid_identity"] ?? false,
+          row["suppressed"] ?? false
+        ))
+      }
+      return grouped.keys.sorted().compactMap { captureID in
+        guard let sources = grouped[captureID],
+          Set(sources.map(\.encoded)).count == 1,
+          sources.contains(where: \.valid),
+          !sources.contains(where: \.suppressed),
+          let encoded = sources.first?.encoded,
+          let data = encoded.data(using: .utf8),
+          let event = try? JSONDecoder.enchiridion.decode(BookmarkSyncedCaptureEvent.self, from: data),
+          dayKey.map({ event.dayKey == $0 }) ?? true,
+          timeZoneIdentifier.map({ event.timeZoneIdentifier == $0 }) ?? true
+        else { return nil }
+        return event
+      }.sorted {
+        if $0.capturedAt != $1.capturedAt { return $0.capturedAt < $1.capturedAt }
+        return $0.captureID.uuidString < $1.captureID.uuidString
+      }
+    }
+  }
+
+  public func bookmarkCaptureHistoryIssues() throws -> [BookmarkCaptureHistoryIssue] {
+    try database.read { db in
+      var issues: [BookmarkCaptureHistoryIssue] = []
+      let localRows = try Row.fetchAll(db, sql: """
+        SELECT kind,page_id FROM bookmark_capture_event_issues
+        ORDER BY kind,page_id,issue_key
+        """)
+      var localGroups: [String: Set<PageID>] = [:]
+      for row in localRows {
+        guard let kind: String = row["kind"], let pageID: String = row["page_id"] else { continue }
+        localGroups[Self.sanitizedBookmarkHistoryIssueReason(kind), default: []]
+          .insert(.init(rawValue: pageID))
+      }
+      for reason in localGroups.keys.sorted() {
+        issues.append(.init(
+          reason: reason,
+          pageIDs: Array(localGroups[reason] ?? []).sorted { $0.rawValue < $1.rawValue }
+        ))
+      }
+
+      let sourceRows = try Row.fetchAll(db, sql: """
+        SELECT capture_id,encoded_envelope,page_id
+        FROM bookmark_capture_event_sources
+        ORDER BY capture_id,encoded_envelope,page_id
+        """)
+      var captures: [String: [(String, PageID)]] = [:]
+      for row in sourceRows {
+        guard let captureID: String = row["capture_id"],
+          let encoded: String = row["encoded_envelope"],
+          let rawPageID: String = row["page_id"]
+        else { continue }
+        captures[captureID, default: []].append((encoded, .init(rawValue: rawPageID)))
+      }
+      for captureID in captures.keys.sorted() {
+        guard let facts = captures[captureID], Set(facts.map(\.0)).count > 1 else { continue }
+        issues.append(.init(
+          reason: "Conflicting synced capture facts",
+          pageIDs: Array(Set(facts.map(\.1))).sorted { $0.rawValue < $1.rawValue }
+        ))
+      }
+      return issues.sorted {
+        if $0.reason != $1.reason { return $0.reason < $1.reason }
+        return $0.pageIDs.map(\.rawValue).lexicographicallyPrecedes($1.pageIDs.map(\.rawValue))
+      }
+    }
+  }
+
+  public func rebuildBookmarkCaptureEventProjection() throws {
+    try database.write { db in
+      try db.execute(sql: "DELETE FROM bookmark_capture_event_sources")
+      try db.execute(sql: "DELETE FROM bookmark_capture_event_issues")
+      try db.execute(sql: "DELETE FROM bookmark_frozen_identities")
+      for row in try Row.fetchAll(db, sql: "SELECT * FROM pages ORDER BY id") {
+        try Self.reconcileBookmarkCaptureEventProjection(db, page: Self.decodePage(row))
+      }
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO bookmark_projection_backfills (projection,completed_at) VALUES ('capture-events-v30',?)",
+        arguments: [Date().timeIntervalSince1970]
+      )
+    }
+  }
+
+  public func bookmarkSuppressionState(for key: BookmarkURLKey) throws -> BookmarkSuppressionState? {
+    try bookmarkSuppressionState(urlKeyDigest: key.digest)
+  }
+
+  public func bookmarkSuppressionState(urlKeyDigest: String) throws -> BookmarkSuppressionState? {
+    try database.read { db in
+      try Self.bookmarkSuppressionState(db, digest: urlKeyDigest)
+    }
+  }
+
+  public func bookmarkDeletionCarrierPageIDs(urlKeyDigest: String? = nil) throws -> [PageID] {
+    try database.read { db in
+      var sql = "SELECT page_id FROM bookmark_deletion_carriers"
+      var arguments: StatementArguments = []
+      if let urlKeyDigest {
+        sql += " WHERE url_key_digest = ?"
+        arguments += [urlKeyDigest]
+      }
+      sql += " ORDER BY page_id"
+      return try String.fetchAll(db, sql: sql, arguments: arguments).map(PageID.init(rawValue:))
+    }
+  }
+
+  public func bookmarkPermanentDeletionHandoffs() throws -> [BookmarkPermanentDeletionHandoff] {
+    try database.read { db in
+      try Row.fetchAll(
+        db,
+        sql: "SELECT url_key_digest,completed_at FROM bookmark_permanent_delete_handoffs ORDER BY completed_at,url_key_digest"
+      ).compactMap { row in
+        guard let digest: String = row["url_key_digest"], let completed: Double = row["completed_at"] else {
+          return nil
+        }
+        return .init(urlKeyDigest: digest, completedAt: Date(timeIntervalSince1970: completed))
+      }
+    }
+  }
+
+  private func bookmarkIdentity(for pageID: PageID) throws -> BookmarkURLKey? {
+    try database.read { db in
+      guard let canonical = try String.fetchOne(
+        db,
+        sql: "SELECT canonical_url FROM bookmark_identity_candidates WHERE page_id = ? ORDER BY url_key_digest LIMIT 1",
+        arguments: [pageID.rawValue]
+      ) else { return nil }
+      return BookmarkURLKey(submittedURL: canonical)
+    }
+  }
+
+  private func isBookmarkDeletionCarrier(pageID: PageID) throws -> Bool {
+    try database.read { db in
+      try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM bookmark_deletion_carriers WHERE page_id = ?)",
+        arguments: [pageID.rawValue]
+      ) ?? false
+    }
+  }
+
+  public func resolvedBookmarkPages() throws -> [PageSnapshot] {
+    try database.read { db in
+      try Row.fetchAll(db, sql: """
+        SELECT p.* FROM bookmark_identity_candidates c JOIN pages p ON p.id=c.page_id
+        WHERE p.deleted_at IS NULL
+          AND c.page_id = (SELECT c2.page_id FROM bookmark_identity_candidates c2 JOIN pages p2 ON p2.id=c2.page_id WHERE c2.url_key_digest=c.url_key_digest AND p2.deleted_at IS NULL ORDER BY c2.page_id LIMIT 1)
+          AND NOT EXISTS (SELECT 1 FROM bookmark_identity_suppressions d WHERE d.url_key_digest=c.url_key_digest)
+          AND NOT EXISTS (SELECT 1 FROM bookmark_identity_deletions d WHERE d.url_key_digest=c.url_key_digest)
+        ORDER BY p.modified_at DESC
+        """).map(Self.decodePage)
+    }
   }
 
   func pendingTaskEffectOutboxIdentities() throws -> [TaskEffectOutboxIdentity] {
@@ -699,6 +1114,10 @@ public actor LibraryRepository {
       case .trash:
         predicates.append("deleted_at IS NOT NULL AND COALESCE(person_visibility, 'promoted') <> 'other'")
       }
+      predicates.append("NOT EXISTS (SELECT 1 FROM bookmark_deletion_carriers c WHERE c.page_id=pages.id)")
+      if section != .trash {
+        predicates.append("NOT EXISTS (SELECT 1 FROM bookmark_identity_candidates c JOIN bookmark_identity_suppressions d ON d.url_key_digest=c.url_key_digest WHERE c.page_id=pages.id)")
+      }
 
       let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
       if !trimmedQuery.isEmpty {
@@ -937,10 +1356,25 @@ public actor LibraryRepository {
   }
 
   public func moveToTrash(pageID: PageID, now: Date = Date()) throws {
+    if let bookmark = try bookmarkIdentity(for: pageID) {
+      try deleteBookmarkIdentity(.init(deletionID: UUID(), urlKey: bookmark), now: now)
+      return
+    }
+    if try isBookmarkDeletionCarrier(pageID: pageID) {
+      throw LibraryRepositoryError.bookmarkDeletionCarrier
+    }
     _ = try setDeleted(now, pageID: pageID, now: now, requiringTask: false)
   }
 
   public func restore(pageID: PageID, now: Date = Date()) throws {
+    if try isBookmarkDeletionCarrier(pageID: pageID) {
+      throw LibraryRepositoryError.bookmarkDeletionCarrier
+    }
+    if let bookmark = try bookmarkIdentity(for: pageID),
+      try bookmarkSuppressionState(for: bookmark) != nil
+    {
+      throw LibraryRepositoryError.bookmarkSuppressed
+    }
     _ = try setDeleted(nil, pageID: pageID, now: now, requiringTask: false)
   }
 
@@ -953,6 +1387,17 @@ public actor LibraryRepository {
   }
 
   public func purge(pageID: PageID, now: Date = Date()) throws {
+    if try isBookmarkDeletionCarrier(pageID: pageID) {
+      throw LibraryRepositoryError.bookmarkDeletionCarrier
+    }
+    if let bookmark = try bookmarkIdentity(for: pageID),
+      try bookmarkSuppressionState(for: bookmark) != nil
+    {
+      try database.write { db in
+        try Self.requestPermanentBookmarkDeletion(db, digest: bookmark.digest, now: now)
+      }
+      return
+    }
     try purgePage(pageID: pageID, now: now, requiringTask: false)
   }
 
@@ -1034,7 +1479,7 @@ public actor LibraryRepository {
       let pattern = "%\(Self.escapeLike(query.trimmingCharacters(in: .whitespacesAndNewlines)))%"
       return try Row.fetchAll(
         db,
-        sql: "SELECT id,title,kind_json FROM pages WHERE deleted_at IS NULL AND COALESCE(person_visibility, 'promoted') <> 'other' AND title LIKE ? ESCAPE '\\' ORDER BY modified_at DESC LIMIT ?",
+        sql: "SELECT id,title,kind_json FROM pages WHERE deleted_at IS NULL AND COALESCE(person_visibility, 'promoted') <> 'other' AND NOT EXISTS (SELECT 1 FROM bookmark_deletion_carriers c WHERE c.page_id=pages.id) AND NOT EXISTS (SELECT 1 FROM bookmark_identity_candidates c JOIN bookmark_identity_suppressions d ON d.url_key_digest=c.url_key_digest WHERE c.page_id=pages.id) AND title LIKE ? ESCAPE '\\' ORDER BY modified_at DESC LIMIT ?",
         arguments: [pattern, limit]
       ).compactMap { row in
         guard let id: String = row["id"], let title: String = row["title"],
@@ -5136,8 +5581,14 @@ public actor LibraryRepository {
               cloud_synced_generation = MAX(cloud_synced_generation, ?),
               cloud_dirty = CASE WHEN dirty_generation <= ? THEN 0 ELSE 1 END
           WHERE id = ?
-          """,
+        """,
         arguments: [systemFields, sentGeneration, sentGeneration, pageID.rawValue]
+      )
+      try Self.acknowledgeBookmarkCarrierSave(
+        db,
+        pageID: pageID,
+        sentGeneration: sentGeneration,
+        now: Date()
       )
       return try Bool.fetchOne(
         db,
@@ -5215,6 +5666,13 @@ public actor LibraryRepository {
     deletedAt: Date = Date()
   ) throws -> Bool {
     try database.write { db in
+      if let carrierResult = try Self.applyBookmarkCarrierCloudDeletion(
+        db,
+        pageID: pageID,
+        deletedAt: deletedAt
+      ) {
+        return carrierResult
+      }
       if let operation = try String.fetchOne(
         db,
         sql: "SELECT desired_operation FROM page_cloud_privacy_states WHERE page_id = ?",
@@ -5275,6 +5733,13 @@ public actor LibraryRepository {
     systemFields: Data
   ) throws -> Bool {
     try database.write { db in
+      if let carrierResult = try Self.applyBookmarkCarrierCloudDeletion(
+        db,
+        pageID: pageID,
+        deletedAt: purgedAt
+      ) {
+        return carrierResult
+      }
       if let row = try Row.fetchOne(
         db,
         sql: "SELECT cloud_dirty FROM pages WHERE id = ?",
@@ -5403,7 +5868,13 @@ public actor LibraryRepository {
           dirtyGeneration: local.dirtyGeneration + (needsUpload ? 1 : 0),
           objectMetadata: merged.projection.objectMetadata
         )
-        try Self.writePage(db, page: page, cloudDirty: needsUpload, cloudRecord: systemFields)
+        try Self.writePage(
+          db,
+          page: page,
+          cloudDirty: needsUpload,
+          cloudRecord: systemFields,
+          bookmarkOrigin: .remote
+        )
         try db.execute(
           sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
           arguments: [finalCloudEligibility, pageID.rawValue]
@@ -5432,7 +5903,13 @@ public actor LibraryRepository {
           dirtyGeneration: 0,
           objectMetadata: projection.objectMetadata
         )
-        try Self.writePage(db, page: page, cloudDirty: false, cloudRecord: systemFields)
+        try Self.writePage(
+          db,
+          page: page,
+          cloudDirty: false,
+          cloudRecord: systemFields,
+          bookmarkOrigin: .remote
+        )
         try db.execute(
           sql: "UPDATE pages SET person_cloud_eligible = ? WHERE id = ?",
           arguments: [finalCloudEligibility, pageID.rawValue]
@@ -6519,7 +6996,7 @@ public actor LibraryRepository {
         table.column("sort_order", .integer).notNull().defaults(to: 0)
       }
       try db.create(table: "page_supertags") { table in
-        table.column("page_id", .text).notNull().references("pages", onDelete: .cascade)
+        table.column("page_id", .text).notNull()
         table.column("supertag_id", .text).notNull().indexed()
         table.primaryKey(["page_id", "supertag_id"])
       }
@@ -6950,8 +7427,932 @@ public actor LibraryRepository {
         table.column("state_json", .blob).notNull()
       }
     }
+    migrator.registerMigration("v28-bookmark-capture-foundation") { db in
+      // Immutable bookmark records are deliberately outside the Automerge/Page projection.
+      // They are local-only until an explicitly reviewed transport owns their replication.
+      try db.create(table: "bookmark_identity_candidates") { table in
+        table.column("url_key_digest", .text).notNull()
+        table.column("url_key_version", .text).notNull()
+        table.column("canonical_url", .text).notNull()
+        // Keep candidates independent of pages: receipts and identity facts must survive a
+        // normal page purge so retries cannot allocate a replacement.
+        table.column("page_id", .text).notNull()
+        table.primaryKey(["url_key_digest", "page_id"])
+      }
+      try db.create(table: "bookmark_capture_events") { table in
+        table.column("capture_id", .text).primaryKey()
+        table.column("url_key_digest", .text).notNull().indexed()
+        table.column("url_key_version", .text).notNull()
+        table.column("canonical_url", .text).notNull()
+        table.column("submitted_url", .text).notNull()
+        table.column("note", .text)
+        table.column("captured_at", .double).notNull()
+        table.column("day_key", .text).notNull().indexed()
+        table.column("time_zone", .text).notNull()
+        table.column("source", .text).notNull()
+        table.column("platform", .text).notNull()
+        table.column("vault_id", .text).notNull()
+      }
+      try db.create(table: "bookmark_identity_deletions") { table in
+        table.column("url_key_digest", .text).notNull()
+        table.column("url_key_version", .text).notNull()
+        table.column("canonical_url", .text).notNull()
+        table.column("deletion_id", .text).notNull()
+        table.primaryKey(["url_key_digest", "deletion_id"])
+      }
+      try db.create(table: "bookmark_capture_receipts") { table in
+        table.column("capture_id", .text).primaryKey()
+        // Receipts deliberately outlive page purge so replay cannot recreate deleted content.
+        table.column("page_id", .text).notNull()
+      }
+      let definition = BuiltInSupertags.all.first { $0.id == BuiltInSupertags.bookmark }!
+      try db.execute(sql: """
+        INSERT INTO supertag_schemas (id,name,definition_json,deleted,sort_order,modified_at,dirty_generation,cloud_dirty,cloud_synced_generation)
+        VALUES (?,?,?,?,?, ?,1,1,0)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,definition_json=excluded.definition_json,deleted=0,
+          modified_at=excluded.modified_at,dirty_generation=supertag_schemas.dirty_generation+1,cloud_dirty=1
+      """, arguments: [definition.id.rawValue, definition.name, try JSONEncoder.enchiridion.encode(definition), false, BuiltInSupertags.all.count - 1, Date().timeIntervalSince1970])
+      try GraphDatabaseSchema.rebuildTagClosure(in: db)
+    }
+    migrator.registerMigration("v29-bookmark-capture-receipt-key") { db in
+      let receiptColumns = try db.columns(in: "bookmark_capture_receipts")
+      if !receiptColumns.contains(where: { $0.name == "url_key_version" }) {
+        try db.alter(table: "bookmark_capture_receipts") { table in
+          table.add(column: "url_key_version", .text)
+        }
+      }
+      if !receiptColumns.contains(where: { $0.name == "canonical_url" }) {
+        try db.alter(table: "bookmark_capture_receipts") { table in
+          table.add(column: "canonical_url", .text)
+        }
+      }
+      // v28 had only the page ID. Preserve its replay behavior wherever a candidate is still
+      // available; newly written receipts always carry the frozen URL key directly.
+      try db.execute(sql: """
+        UPDATE bookmark_capture_receipts
+        SET url_key_version = ?, canonical_url = (
+          SELECT canonical_url FROM bookmark_identity_candidates c
+          WHERE c.page_id = bookmark_capture_receipts.page_id
+          ORDER BY c.url_key_digest LIMIT 1
+        )
+        WHERE canonical_url IS NULL
+        """, arguments: [BookmarkURLKey.version])
+      // `graph_tags` predates Bookmark. Keep this in a later migration so a database that
+      // already recorded v28 from an earlier build still refreshes the view definition.
+      try db.execute(sql: "DROP VIEW IF EXISTS graph_tags")
+      try db.execute(sql: """
+        CREATE VIEW graph_tags AS
+        SELECT id AS tag_id,
+               name,
+               sort_order,
+               deleted,
+               CASE WHEN id IN ('person','organization','company','event','place','area','project','task','bookmark')
+                 THEN 1 ELSE 0 END AS is_base
+        FROM supertag_schemas
+        WHERE id IS NOT NULL
+        """)
+    }
+    migrator.registerMigration("v30-bookmark-synced-history-and-deletion-state") { db in
+      try db.create(table: "bookmark_capture_event_sources") { table in
+        table.column("page_id", .text).notNull().references("pages", onDelete: .cascade)
+        table.column("root_key", .text).notNull()
+        table.column("capture_id", .text).notNull().indexed()
+        table.column("raw_hash", .text).notNull()
+        table.column("encoded_envelope", .text).notNull()
+        table.column("url_key_digest", .text).notNull().indexed()
+        table.column("captured_at", .double).notNull().indexed()
+        table.column("day_key", .text).notNull().indexed()
+        table.column("time_zone", .text).notNull()
+        table.column("valid_identity", .boolean).notNull().defaults(to: false)
+        table.primaryKey(["page_id", "root_key", "raw_hash"])
+      }
+      try db.create(table: "bookmark_capture_event_issues") { table in
+        table.column("page_id", .text).notNull().references("pages", onDelete: .cascade)
+        table.column("issue_key", .text).notNull()
+        table.column("root_key", .text).notNull()
+        table.column("raw_hash", .text).notNull()
+        table.column("kind", .text).notNull()
+        table.primaryKey(["page_id", "issue_key"])
+      }
+      try db.create(table: "bookmark_frozen_identities") { table in
+        table.column("page_id", .text).primaryKey().references("pages", onDelete: .cascade)
+        table.column("url_key_digest", .text).notNull().indexed()
+      }
+      try db.create(table: "bookmark_identity_suppressions") { table in
+        table.column("url_key_digest", .text).primaryKey()
+        table.column("url_key_version", .text).notNull()
+        table.column("deletion_id", .text).notNull()
+        table.column("deleted_at", .double).notNull()
+        table.column("stage", .text).notNull()
+        table.column("active_carrier_page_id", .text)
+        table.column("required_generation", .integer)
+        table.column("acknowledged_carrier_page_id", .text)
+        table.column("acknowledged_generation", .integer)
+        table.column("permanent_requested_at", .double)
+        table.column("stable_at", .double)
+      }
+      try db.create(table: "bookmark_deletion_carriers") { table in
+        table.column("page_id", .text).primaryKey().references("pages", onDelete: .cascade)
+        table.column("url_key_digest", .text).notNull().indexed()
+        table.column("deletion_id", .text).notNull()
+        table.column("generation", .integer).notNull()
+        table.column("acknowledged_generation", .integer)
+      }
+      try db.create(table: "bookmark_permanent_delete_handoffs") { table in
+        table.column("url_key_digest", .text).primaryKey()
+        table.column("completed_at", .double).notNull()
+      }
+      try db.create(table: "bookmark_projection_backfills") { table in
+        table.column("projection", .text).primaryKey()
+        table.column("completed_at", .double).notNull()
+      }
+
+      let migrationDate = Date()
+      try db.execute(sql: """
+        INSERT OR IGNORE INTO bookmark_identity_suppressions
+          (url_key_digest,url_key_version,deletion_id,deleted_at,stage)
+        SELECT url_key_digest,MIN(url_key_version),MIN(deletion_id),?,?
+        FROM bookmark_identity_deletions
+        GROUP BY url_key_digest
+        """, arguments: [migrationDate.timeIntervalSince1970, BookmarkPermanentDeletionStage.preparing.rawValue])
+
+      for row in try Row.fetchAll(db, sql: "SELECT * FROM pages ORDER BY id") {
+        let page = try LibraryRepository.decodePage(row)
+        try LibraryRepository.reconcileBookmarkCaptureEventProjection(db, page: page)
+      }
+      try LibraryRepository.recoverBookmarkDeletionState(db, now: migrationDate)
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO bookmark_projection_backfills (projection,completed_at) VALUES ('capture-events-v30',?)",
+        arguments: [migrationDate.timeIntervalSince1970]
+      )
+    }
     return migrator
   }()
+
+  private static func localSyncedBookmarkCaptureEvent(
+    _ db: Database,
+    captureID: String
+  ) throws -> BookmarkSyncedCaptureEvent? {
+    let projected = try String.fetchAll(
+      db,
+      sql: "SELECT DISTINCT encoded_envelope FROM bookmark_capture_event_sources WHERE capture_id = ? ORDER BY encoded_envelope",
+      arguments: [captureID]
+    )
+    if projected.count > 1 { throw LibraryRepositoryError.bookmarkCaptureHistoryConflict }
+    if let encoded = projected.first,
+      let data = encoded.data(using: .utf8),
+      let event = try? JSONDecoder.enchiridion.decode(BookmarkSyncedCaptureEvent.self, from: data)
+    {
+      return event
+    }
+    guard let row = try Row.fetchOne(
+      db,
+      sql: """
+        SELECT canonical_url,submitted_url,captured_at,day_key,time_zone
+        FROM bookmark_capture_events WHERE capture_id = ?
+        """,
+      arguments: [captureID]
+    ), let canonical: String = row["canonical_url"],
+      let submitted: String = row["submitted_url"],
+      let key = BookmarkURLKey(submittedURL: canonical),
+      let timestamp: Double = row["captured_at"],
+      let day: String = row["day_key"],
+      let timeZone: String = row["time_zone"],
+      let id = UUID(uuidString: captureID)
+    else { return nil }
+    do {
+      return try BookmarkSyncedCaptureEvent(
+        captureID: id,
+        urlKey: key,
+        submittedURL: submitted,
+        capturedAt: Date(timeIntervalSince1970: timestamp),
+        dayKey: DayKey(rawValue: day),
+        timeZoneIdentifier: timeZone
+      )
+    } catch {
+      throw LibraryRepositoryError.invalidRecord
+    }
+  }
+
+  private static func bookmarkSourceURLKey(in page: PageSnapshot) -> BookmarkURLKey? {
+    let sourceKey = SupertagPropertyKey(
+      supertagID: BuiltInSupertags.bookmark,
+      fieldID: BuiltInSupertags.bookmarkSourceURLField
+    )
+    guard let sourceURL = page.objectMetadata.properties[sourceKey]?.compactMap({ value -> String? in
+      guard case .url(let url) = value else { return nil }
+      return url
+    }).first else { return nil }
+    return BookmarkURLKey(submittedURL: sourceURL)
+  }
+
+  static func validateFrozenBookmarkIdentity(_ db: Database, page: PageSnapshot) throws {
+    let existingDigest = try String.fetchOne(
+      db,
+      sql: "SELECT url_key_digest FROM bookmark_frozen_identities WHERE page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+    let inspection = try PageDocument.bookmarkCaptureEvents(in: page.document)
+    let eventDigests = Set(inspection.events.map(\.event.urlKey.digest))
+    guard existingDigest != nil || !eventDigests.isEmpty else { return }
+    guard eventDigests.count == 1, let eventDigest = eventDigests.first else {
+      throw LibraryRepositoryError.bookmarkCaptureHistoryConflict
+    }
+    if let existingDigest, existingDigest != eventDigest {
+      throw LibraryRepositoryError.bookmarkIdentityFrozen
+    }
+    guard page.hasSupertag(BuiltInSupertags.bookmark),
+      bookmarkSourceURLKey(in: page)?.digest == eventDigest
+    else {
+      throw LibraryRepositoryError.bookmarkIdentityFrozen
+    }
+  }
+
+  static func reconcileBookmarkCaptureEventProjection(
+    _ db: Database,
+    page: PageSnapshot
+  ) throws {
+    try db.execute(
+      sql: "DELETE FROM bookmark_capture_event_sources WHERE page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+    try db.execute(
+      sql: "DELETE FROM bookmark_capture_event_issues WHERE page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+    try db.execute(
+      sql: "DELETE FROM bookmark_frozen_identities WHERE page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+
+    let inspection = try PageDocument.bookmarkCaptureEvents(in: page.document)
+    let eventDigests = Set(inspection.events.map(\.event.urlKey.digest))
+    let sourceDigest = bookmarkSourceURLKey(in: page)?.digest
+    let hasBookmarkTag = page.hasSupertag(BuiltInSupertags.bookmark)
+    let invalidRoots = Set(inspection.issues.map(\.rootKey))
+    let uniqueDigest = eventDigests.count == 1 ? eventDigests.first : nil
+
+    for source in inspection.events {
+      let event = source.event
+      let validIdentity = uniqueDigest == event.urlKey.digest
+        && sourceDigest == event.urlKey.digest
+        && hasBookmarkTag
+        && !invalidRoots.contains(source.rootKey)
+      try db.execute(sql: """
+        INSERT INTO bookmark_capture_event_sources
+          (page_id,root_key,capture_id,raw_hash,encoded_envelope,url_key_digest,
+           captured_at,day_key,time_zone,valid_identity)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, arguments: [
+          page.id.rawValue,
+          source.rootKey,
+          event.captureID.uuidString.lowercased(),
+          source.rawHash,
+          source.encodedEnvelope,
+          event.urlKey.digest,
+          event.capturedAt.timeIntervalSince1970,
+          event.dayKey.rawValue,
+          event.timeZoneIdentifier,
+          validIdentity,
+        ])
+    }
+
+    for issue in inspection.issues {
+      let key = "\(issue.kind.rawValue):\(issue.rootKey):\(issue.rawHash):\(issue.occurrence)"
+      try db.execute(sql: """
+        INSERT INTO bookmark_capture_event_issues
+          (page_id,issue_key,root_key,raw_hash,kind)
+        VALUES (?,?,?,?,?)
+        """, arguments: [page.id.rawValue, key, issue.rootKey, issue.rawHash, issue.kind.rawValue])
+    }
+
+    if let uniqueDigest {
+      try db.execute(
+        sql: "INSERT INTO bookmark_frozen_identities (page_id,url_key_digest) VALUES (?,?)",
+        arguments: [page.id.rawValue, uniqueDigest]
+      )
+      if !hasBookmarkTag || sourceDigest != uniqueDigest {
+        let rawHash = inspection.events.first?.rawHash ?? "identity"
+        try db.execute(sql: """
+          INSERT OR REPLACE INTO bookmark_capture_event_issues
+            (page_id,issue_key,root_key,raw_hash,kind)
+          VALUES (?,?,?,?,?)
+          """, arguments: [page.id.rawValue, "source-mismatch", "bookmark-source", rawHash, "sourceMismatch"])
+      }
+    } else if !eventDigests.isEmpty {
+      try db.execute(sql: """
+        INSERT OR REPLACE INTO bookmark_capture_event_issues
+          (page_id,issue_key,root_key,raw_hash,kind)
+        VALUES (?,?,?,?,?)
+        """, arguments: [page.id.rawValue, "identity-conflict", "bookmark-identity", "multiple", "multipleIdentityDigests"])
+    }
+  }
+
+  private static func sanitizedBookmarkHistoryIssueReason(_ kind: String) -> String {
+    switch kind {
+    case "sourceMismatch": return "Bookmark source does not match synced capture identity"
+    case "multipleIdentityDigests": return "Conflicting bookmark identities on one page"
+    case BookmarkCaptureEventIssueKind.conflictingValues.rawValue:
+      return "Conflicting synced capture values"
+    case BookmarkCaptureEventIssueKind.limitExceeded.rawValue:
+      return "Synced capture history exceeds the supported limit"
+    default:
+      return "Invalid synced capture history"
+    }
+  }
+
+  private static func isBookmarkIdentitySuppressed(_ db: Database, digest: String) throws -> Bool {
+    try Bool.fetchOne(db, sql: """
+      SELECT EXISTS(
+        SELECT 1 FROM bookmark_identity_suppressions WHERE url_key_digest = ?
+        UNION ALL
+        SELECT 1 FROM bookmark_identity_deletions WHERE url_key_digest = ?
+      )
+      """, arguments: [digest, digest]) ?? false
+  }
+
+  private static func bookmarkSuppressionState(
+    _ db: Database,
+    digest: String
+  ) throws -> BookmarkSuppressionState? {
+    guard let row = try Row.fetchOne(db, sql: """
+      SELECT stage,active_carrier_page_id,required_generation,acknowledged_generation,
+             permanent_requested_at
+      FROM bookmark_identity_suppressions WHERE url_key_digest = ?
+      """, arguments: [digest]),
+      let rawStage: String = row["stage"],
+      let stage = BookmarkPermanentDeletionStage(rawValue: rawStage)
+    else { return nil }
+    let rawCarrier: String? = row["active_carrier_page_id"]
+    let required: Int64? = row["required_generation"]
+    let acknowledged: Int64? = row["acknowledged_generation"]
+    let permanentAt: Double? = row["permanent_requested_at"]
+    return .init(
+      urlKeyDigest: digest,
+      stage: stage,
+      carrierPageID: rawCarrier.map(PageID.init(rawValue:)),
+      requiredGeneration: required,
+      acknowledgedGeneration: acknowledged,
+      permanentRequested: permanentAt != nil
+    )
+  }
+
+  static func reconcileBookmarkDeletionProjection(
+    _ db: Database,
+    page: PageSnapshot,
+    origin: BookmarkPageWriteOrigin,
+    cloudDirty: Bool
+  ) throws {
+    let inspection = try PageDocument.bookmarkIdentityDeletionCarrierInspection(in: page.document)
+    let deletions = inspection.deletionInspection.deletions.map(\.envelope)
+    guard !deletions.isEmpty else {
+      if origin == .remote,
+        let digest = try String.fetchOne(
+          db,
+          sql: "SELECT url_key_digest FROM bookmark_deletion_carriers WHERE page_id = ?",
+          arguments: [page.id.rawValue]
+        )
+      {
+        try ensureBookmarkDeletionCarrier(db, digest: digest, now: page.modifiedAt, forceNew: true)
+      }
+      return
+    }
+    for deletion in deletions {
+      try db.execute(
+        sql: """
+          INSERT INTO bookmark_identity_suppressions
+            (url_key_digest,url_key_version,deletion_id,deleted_at,stage)
+          VALUES (?,?,?,?,?) ON CONFLICT(url_key_digest) DO NOTHING
+          """,
+        arguments: [
+          deletion.urlKeyDigest,
+          deletion.urlKeyVersion,
+          deletion.deletionID.uuidString.lowercased(),
+          deletion.deletedAt.timeIntervalSince1970,
+          BookmarkPermanentDeletionStage.preparing.rawValue,
+        ]
+      )
+    }
+    if inspection.isCanonicalCarrier, let canonical = inspection.canonicalDeletion {
+      let provesCurrentGeneration = origin == .remote && !cloudDirty
+      let acknowledged: Int64? = provesCurrentGeneration ? page.dirtyGeneration : nil
+      try db.execute(
+        sql: """
+          INSERT INTO bookmark_deletion_carriers
+            (page_id,url_key_digest,deletion_id,generation,acknowledged_generation)
+          VALUES (?,?,?,?,?)
+          ON CONFLICT(page_id) DO UPDATE SET
+            url_key_digest=excluded.url_key_digest,
+            deletion_id=excluded.deletion_id,
+            generation=excluded.generation,
+            acknowledged_generation=COALESCE(
+              excluded.acknowledged_generation,
+              bookmark_deletion_carriers.acknowledged_generation
+            )
+          """,
+        arguments: [
+          page.id.rawValue,
+          canonical.urlKeyDigest,
+          canonical.deletionID.uuidString.lowercased(),
+          page.dirtyGeneration,
+          acknowledged,
+        ]
+      )
+      if provesCurrentGeneration {
+        try db.execute(
+          sql: """
+            UPDATE bookmark_identity_suppressions
+            SET stage=?,active_carrier_page_id=?,required_generation=?,
+                acknowledged_carrier_page_id=?,acknowledged_generation=?
+            WHERE url_key_digest=?
+            """,
+          arguments: [
+            BookmarkPermanentDeletionStage.carrierAcknowledged.rawValue,
+            page.id.rawValue,
+            page.dirtyGeneration,
+            page.id.rawValue,
+            page.dirtyGeneration,
+            canonical.urlKeyDigest,
+          ]
+        )
+      } else {
+        let acked = try Bool.fetchOne(
+          db,
+          sql: """
+            SELECT EXISTS(
+              SELECT 1 FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+              WHERE c.url_key_digest=? AND c.acknowledged_generation=c.generation
+            )
+            """,
+          arguments: [canonical.urlKeyDigest]
+        ) ?? false
+        if !acked {
+          try db.execute(
+            sql: """
+              UPDATE bookmark_identity_suppressions
+              SET stage=?,active_carrier_page_id=?,required_generation=?,
+                  acknowledged_carrier_page_id=NULL,acknowledged_generation=NULL
+              WHERE url_key_digest=?
+              """,
+            arguments: [
+              BookmarkPermanentDeletionStage.carrierPendingAck.rawValue,
+              page.id.rawValue,
+              page.dirtyGeneration,
+              canonical.urlKeyDigest,
+            ]
+          )
+        }
+      }
+      try tombstoneBookmarkCandidates(db, digest: canonical.urlKeyDigest, now: canonical.deletedAt)
+      if provesCurrentGeneration,
+        try Double.fetchOne(
+          db,
+          sql: "SELECT permanent_requested_at FROM bookmark_identity_suppressions WHERE url_key_digest=?",
+          arguments: [canonical.urlKeyDigest]
+        ) != nil
+      {
+        try purgeSuppressedBookmarkCandidates(
+          db,
+          digest: canonical.urlKeyDigest,
+          now: page.modifiedAt
+        )
+      }
+    } else {
+      // A system tombstone may preserve malformed deletion roots from a late old-client Page.
+      // The outer remote/local reconciliation owns carrier recovery; recursing here can allocate
+      // carriers without bound if the Page is intentionally noncanonical.
+      guard origin != .system else { return }
+      for digest in Set(deletions.map(\.urlKeyDigest)).sorted() {
+        try tombstoneBookmarkCandidates(db, digest: digest, now: page.modifiedAt)
+        try ensureBookmarkDeletionCarrier(db, digest: digest, now: page.modifiedAt)
+      }
+    }
+  }
+
+  private static func suppressBookmarkIdentity(
+    _ db: Database,
+    deletion: BookmarkIdentityDeletion,
+    now: Date
+  ) throws {
+    try db.execute(
+      sql: """
+        INSERT INTO bookmark_identity_deletions
+          (url_key_digest,url_key_version,canonical_url,deletion_id)
+        VALUES (?,?,?,?) ON CONFLICT(url_key_digest,deletion_id) DO NOTHING
+        """,
+      arguments: [
+        deletion.urlKey.digest,
+        BookmarkURLKey.version,
+        deletion.urlKey.canonicalURL,
+        deletion.deletionID.uuidString.lowercased(),
+      ]
+    )
+    try db.execute(
+      sql: """
+        INSERT INTO bookmark_identity_suppressions
+          (url_key_digest,url_key_version,deletion_id,deleted_at,stage)
+        VALUES (?,?,?,?,?) ON CONFLICT(url_key_digest) DO NOTHING
+        """,
+      arguments: [
+        deletion.urlKey.digest,
+        BookmarkURLKey.version,
+        deletion.deletionID.uuidString.lowercased(),
+        now.timeIntervalSince1970,
+        BookmarkPermanentDeletionStage.preparing.rawValue,
+      ]
+    )
+    try ensureBookmarkDeletionCarrier(db, digest: deletion.urlKey.digest, now: now)
+    try tombstoneBookmarkCandidates(db, digest: deletion.urlKey.digest, now: now)
+  }
+
+  private static func ensureBookmarkDeletionCarrier(
+    _ db: Database,
+    digest: String,
+    now: Date,
+    forceNew: Bool = false
+  ) throws {
+    if !forceNew {
+      let carrierIDs = try String.fetchAll(
+        db,
+        sql: """
+          SELECT c.page_id FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+          WHERE c.url_key_digest=? ORDER BY c.page_id
+          """,
+        arguments: [digest]
+      )
+      for rawID in carrierIDs {
+        let pageID = PageID(rawValue: rawID)
+        guard let page = try fetchPage(db, id: pageID),
+          let carrier = try? PageDocument.bookmarkIdentityDeletionCarrierInspection(in: page.document),
+          carrier.isCanonicalCarrier
+        else { continue }
+        let ack = try Int64.fetchOne(
+          db,
+          sql: "SELECT acknowledged_generation FROM bookmark_deletion_carriers WHERE page_id=?",
+          arguments: [rawID]
+        )
+        let stage: BookmarkPermanentDeletionStage = ack == page.dirtyGeneration
+          ? .carrierAcknowledged
+          : .carrierPendingAck
+        try db.execute(
+          sql: """
+            UPDATE bookmark_identity_suppressions
+            SET stage=?,active_carrier_page_id=?,required_generation=?,
+                acknowledged_carrier_page_id=?,acknowledged_generation=?
+            WHERE url_key_digest=?
+            """,
+          arguments: [
+            stage.rawValue,
+            rawID,
+            page.dirtyGeneration,
+            stage == .carrierAcknowledged ? rawID : nil,
+            stage == .carrierAcknowledged ? ack : nil,
+            digest,
+          ]
+        )
+        return
+      }
+    }
+    guard let row = try Row.fetchOne(
+      db,
+      sql: "SELECT deletion_id,deleted_at FROM bookmark_identity_suppressions WHERE url_key_digest=?",
+      arguments: [digest]
+    ), let deletedAt: Double = row["deleted_at"]
+    else { return }
+    let stored: String? = row["deletion_id"]
+    let deletionID = forceNew ? UUID() : (stored.flatMap(UUID.init(uuidString:)) ?? UUID())
+    let envelope = try BookmarkIdentityDeletionEnvelope(
+      deletionID: deletionID,
+      urlKeyDigest: digest,
+      deletedAt: Date(timeIntervalSince1970: deletedAt)
+    )
+    let candidate = try String.fetchOne(
+      db,
+      sql: "SELECT page_id FROM bookmark_identity_candidates WHERE url_key_digest=? ORDER BY page_id LIMIT 1",
+      arguments: [digest]
+    ).map(PageID.init(rawValue:)) ?? .free()
+    var carrierID = PageID.free()
+    while true {
+      if carrierID != candidate, try fetchPage(db, id: carrierID) == nil { break }
+      carrierID = .free()
+    }
+    let document = try PageDocument.makeBookmarkIdentityDeletionCarrier(
+      id: carrierID,
+      replacingCandidateID: candidate,
+      deletion: envelope
+    )
+    let carrierInspection = try PageDocument.bookmarkIdentityDeletionCarrierInspection(
+      in: document.document
+    )
+    guard carrierInspection.isCanonicalCarrier,
+      carrierInspection.canonicalDeletion?.urlKeyDigest == digest
+    else {
+      throw LibraryRepositoryError.invalidRecord
+    }
+    let carrier = PageSnapshot(
+      id: carrierID,
+      kind: .free,
+      title: document.projection.title,
+      plainText: document.projection.plainText,
+      document: document.document,
+      heads: document.heads,
+      createdAt: envelope.deletedAt,
+      modifiedAt: now,
+      deletedAt: document.projection.deletedAt,
+      isPinned: document.projection.isPinned,
+      dirtyGeneration: 1,
+      objectMetadata: document.projection.objectMetadata
+    )
+    try writePage(db, page: carrier, cloudDirty: true, bookmarkOrigin: .system)
+    try db.execute(
+      sql: """
+        UPDATE bookmark_identity_suppressions
+        SET stage=?,active_carrier_page_id=?,required_generation=?,
+            acknowledged_carrier_page_id=NULL,acknowledged_generation=NULL
+        WHERE url_key_digest=?
+        """,
+      arguments: [
+        BookmarkPermanentDeletionStage.carrierPendingAck.rawValue,
+        carrierID.rawValue,
+        carrier.dirtyGeneration,
+        digest,
+      ]
+    )
+  }
+
+  private static func tombstoneBookmarkCandidates(
+    _ db: Database,
+    digest: String,
+    now: Date
+  ) throws {
+    let ids = try String.fetchAll(
+      db,
+      sql: """
+        SELECT p.id FROM bookmark_identity_candidates c JOIN pages p ON p.id=c.page_id
+        WHERE c.url_key_digest=? AND p.deleted_at IS NULL ORDER BY p.id
+        """,
+      arguments: [digest]
+    )
+    for rawID in ids {
+      let id = PageID(rawValue: rawID)
+      guard let page = try fetchPage(db, id: id) else { continue }
+      let mutation = try PageDocument.setDeleted(now, in: page.document)
+      let updated = updatedPage(page, with: mutation, now: now)
+      try writePage(db, page: updated, cloudDirty: true, bookmarkOrigin: .system)
+      try replaceReferences(db, pageID: id, references: mutation.projection.references)
+    }
+  }
+
+  private static func requestPermanentBookmarkDeletion(
+    _ db: Database,
+    digest: String,
+    now: Date
+  ) throws {
+    try db.execute(
+      sql: """
+        UPDATE bookmark_identity_suppressions
+        SET permanent_requested_at=COALESCE(permanent_requested_at,?)
+        WHERE url_key_digest=?
+        """,
+      arguments: [now.timeIntervalSince1970, digest]
+    )
+    try ensureBookmarkDeletionCarrier(db, digest: digest, now: now)
+    let acked = try Bool.fetchOne(
+      db,
+      sql: """
+        SELECT EXISTS(
+          SELECT 1 FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+          WHERE c.url_key_digest=? AND c.acknowledged_generation=c.generation
+        )
+        """,
+      arguments: [digest]
+    ) ?? false
+    guard acked else { return }
+    try db.execute(
+      sql: "UPDATE bookmark_identity_suppressions SET stage=? WHERE url_key_digest=?",
+      arguments: [BookmarkPermanentDeletionStage.carrierAcknowledged.rawValue, digest]
+    )
+    try purgeSuppressedBookmarkCandidates(db, digest: digest, now: now)
+  }
+
+  private static func acknowledgeBookmarkCarrierSave(
+    _ db: Database,
+    pageID: PageID,
+    sentGeneration: Int64,
+    now: Date
+  ) throws {
+    guard let row = try Row.fetchOne(
+      db,
+      sql: """
+        SELECT c.url_key_digest,c.generation,p.dirty_generation
+        FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+        WHERE c.page_id=?
+        """,
+      arguments: [pageID.rawValue]
+    ), let digest: String = row["url_key_digest"],
+      let carrierGeneration: Int64 = row["generation"],
+      let pageGeneration: Int64 = row["dirty_generation"],
+      carrierGeneration == sentGeneration,
+      pageGeneration == sentGeneration
+    else { return }
+    try db.execute(
+      sql: """
+        UPDATE bookmark_deletion_carriers SET acknowledged_generation=?
+        WHERE page_id=? AND generation=?
+        """,
+      arguments: [sentGeneration, pageID.rawValue, sentGeneration]
+    )
+    try db.execute(
+      sql: """
+        UPDATE bookmark_identity_suppressions
+        SET stage=?,active_carrier_page_id=?,required_generation=?,
+            acknowledged_carrier_page_id=?,acknowledged_generation=?
+        WHERE url_key_digest=?
+        """,
+      arguments: [
+        BookmarkPermanentDeletionStage.carrierAcknowledged.rawValue,
+        pageID.rawValue,
+        sentGeneration,
+        pageID.rawValue,
+        sentGeneration,
+        digest,
+      ]
+    )
+    if try Double.fetchOne(
+      db,
+      sql: "SELECT permanent_requested_at FROM bookmark_identity_suppressions WHERE url_key_digest=?",
+      arguments: [digest]
+    ) != nil {
+      try purgeSuppressedBookmarkCandidates(db, digest: digest, now: now)
+    }
+  }
+
+  private static func purgeSuppressedBookmarkCandidates(
+    _ db: Database,
+    digest: String,
+    now: Date
+  ) throws {
+    let acked = try Bool.fetchOne(
+      db,
+      sql: """
+        SELECT EXISTS(
+          SELECT 1 FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+          WHERE c.url_key_digest=? AND c.acknowledged_generation=c.generation
+        )
+        """,
+      arguments: [digest]
+    ) ?? false
+    guard acked else { return }
+    try db.execute(
+      sql: "UPDATE bookmark_identity_suppressions SET stage=? WHERE url_key_digest=?",
+      arguments: [BookmarkPermanentDeletionStage.purgingCandidates.rawValue, digest]
+    )
+    let ids = try String.fetchAll(
+      db,
+      sql: "SELECT page_id FROM bookmark_identity_candidates WHERE url_key_digest=? ORDER BY page_id",
+      arguments: [digest]
+    )
+    for rawID in ids {
+      if let row = try Row.fetchOne(
+        db,
+        sql: "SELECT dirty_generation,cloud_record FROM pages WHERE id=?",
+        arguments: [rawID]
+      ) {
+        let generation: Int64 = row["dirty_generation"] ?? 0
+        let cloudRecord: Data? = row["cloud_record"]
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO purge_markers
+              (page_id,generation,purged_at,cloud_dirty,cloud_record)
+            VALUES (?,?,?,1,?)
+            """,
+          arguments: [rawID, generation + 1, now.timeIntervalSince1970, cloudRecord]
+        )
+        try db.execute(sql: "DELETE FROM pages WHERE id=?", arguments: [rawID])
+      }
+    }
+    if !ids.isEmpty {
+      let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+      try db.execute(
+        sql: "DELETE FROM bookmark_capture_receipts WHERE page_id IN (\(placeholders))",
+        arguments: StatementArguments(ids)
+      )
+    }
+    try db.execute(
+      sql: """
+        DELETE FROM bookmark_capture_receipts
+        WHERE capture_id IN (
+          SELECT capture_id FROM bookmark_capture_events WHERE url_key_digest=?
+        )
+        """,
+      arguments: [digest]
+    )
+    try db.execute(
+      sql: "DELETE FROM bookmark_capture_events WHERE url_key_digest=?",
+      arguments: [digest]
+    )
+    try db.execute(
+      sql: "DELETE FROM bookmark_identity_candidates WHERE url_key_digest=?",
+      arguments: [digest]
+    )
+    try db.execute(
+      sql: "DELETE FROM bookmark_identity_deletions WHERE url_key_digest=?",
+      arguments: [digest]
+    )
+    try db.execute(
+      sql: """
+        INSERT INTO bookmark_permanent_delete_handoffs (url_key_digest,completed_at)
+        VALUES (?,?) ON CONFLICT(url_key_digest) DO UPDATE SET completed_at=excluded.completed_at
+        """,
+      arguments: [digest, now.timeIntervalSince1970]
+    )
+    try db.execute(
+      sql: """
+        UPDATE bookmark_identity_suppressions SET stage=?,stable_at=?
+        WHERE url_key_digest=?
+        """,
+      arguments: [BookmarkPermanentDeletionStage.stable.rawValue, now.timeIntervalSince1970, digest]
+    )
+  }
+
+  static func recoverBookmarkDeletionState(_ db: Database, now: Date) throws {
+    let digests = try String.fetchAll(
+      db,
+      sql: "SELECT url_key_digest FROM bookmark_identity_suppressions ORDER BY url_key_digest"
+    )
+    for digest in digests {
+      try ensureBookmarkDeletionCarrier(db, digest: digest, now: now)
+      try tombstoneBookmarkCandidates(db, digest: digest, now: now)
+      if try Double.fetchOne(
+        db,
+        sql: "SELECT permanent_requested_at FROM bookmark_identity_suppressions WHERE url_key_digest=?",
+        arguments: [digest]
+      ) != nil {
+        try requestPermanentBookmarkDeletion(db, digest: digest, now: now)
+      }
+    }
+  }
+
+  private static func applyBookmarkCarrierCloudDeletion(
+    _ db: Database,
+    pageID: PageID,
+    deletedAt: Date
+  ) throws -> Bool? {
+    guard let row = try Row.fetchOne(
+      db,
+      sql: """
+        SELECT c.url_key_digest,p.cloud_dirty
+        FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+        WHERE c.page_id=?
+        """,
+      arguments: [pageID.rawValue]
+    ), let digest: String = row["url_key_digest"]
+    else { return nil }
+    let cloudDirty: Bool = row["cloud_dirty"] ?? false
+    if cloudDirty {
+      try db.execute(
+        sql: "UPDATE pages SET cloud_record=NULL,cloud_dirty=1 WHERE id=?",
+        arguments: [pageID.rawValue]
+      )
+      return true
+    }
+    try db.execute(sql: "DELETE FROM pages WHERE id=?", arguments: [pageID.rawValue])
+    if let survivor = try Row.fetchOne(
+      db,
+      sql: """
+        SELECT c.page_id,c.generation,c.acknowledged_generation
+        FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+        WHERE c.url_key_digest=? ORDER BY c.page_id LIMIT 1
+        """,
+      arguments: [digest]
+    ), let raw: String = survivor["page_id"],
+      let generation: Int64 = survivor["generation"]
+    {
+      let ack: Int64? = survivor["acknowledged_generation"]
+      let stage: BookmarkPermanentDeletionStage = ack == generation
+        ? .carrierAcknowledged
+        : .carrierPendingAck
+      try db.execute(
+        sql: """
+          UPDATE bookmark_identity_suppressions
+          SET stage=?,active_carrier_page_id=?,required_generation=?,
+              acknowledged_carrier_page_id=?,acknowledged_generation=?
+          WHERE url_key_digest=?
+          """,
+        arguments: [
+          stage.rawValue,
+          raw,
+          generation,
+          ack == generation ? raw : nil,
+          ack == generation ? ack : nil,
+          digest,
+        ]
+      )
+      return false
+    }
+    try ensureBookmarkDeletionCarrier(db, digest: digest, now: deletedAt, forceNew: true)
+    return true
+  }
 
   private static func enqueueTaskEffectOutbox(
     _ db: Database,
@@ -6988,8 +8389,21 @@ public actor LibraryRepository {
     _ db: Database,
     page: PageSnapshot,
     cloudDirty: Bool,
-    cloudRecord: Data? = nil
+    cloudRecord: Data? = nil,
+    bookmarkOrigin: BookmarkPageWriteOrigin = .local
   ) throws {
+    if bookmarkOrigin == .local,
+      try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM bookmark_deletion_carriers WHERE page_id = ?)",
+        arguments: [page.id.rawValue]
+      ) ?? false
+    {
+      throw LibraryRepositoryError.bookmarkDeletionCarrier
+    }
+    if bookmarkOrigin == .local {
+      try validateFrozenBookmarkIdentity(db, page: page)
+    }
     var affectedRelationIDs = try GraphProjectionStore.relationIDs(touching: page.id, in: db)
     let kindTag: String
     let dayKey: String?
@@ -7055,6 +8469,14 @@ public actor LibraryRepository {
       ]
     )
     try replaceObjectProjection(db, pageID: page.id, metadata: page.objectMetadata)
+    try reconcileBookmarkCaptureEventProjection(db, page: page)
+    try reconcileBookmarkDeletionProjection(
+      db,
+      page: page,
+      origin: bookmarkOrigin,
+      cloudDirty: cloudDirty
+    )
+    try reconcileBookmarkCandidate(db, page: page)
     try GraphProjectionStore.replacePage(page, references: nil, in: db)
     affectedRelationIDs.formUnion(
       try GraphProjectionStore.relationIDs(touching: page.id, in: db)
@@ -7077,6 +8499,97 @@ public actor LibraryRepository {
     case .calendarMaterializedEvent, .daily, .free:
       break
     }
+    try enforceSuppressedBookmarkPage(db, page: page)
+  }
+
+  /// Bookmark identity is an event-authoritative projection of the ordinary Bookmark Page.
+  /// Candidates deliberately survive tombstoning and suppression until acknowledged purge.
+  private static func reconcileBookmarkCandidate(_ db: Database, page: PageSnapshot) throws {
+    try db.execute(
+      sql: "DELETE FROM bookmark_identity_candidates WHERE page_id = ?",
+      arguments: [page.id.rawValue]
+    )
+    if try Bool.fetchOne(
+      db,
+      sql: "SELECT EXISTS(SELECT 1 FROM bookmark_deletion_carriers WHERE page_id=?)",
+      arguments: [page.id.rawValue]
+    ) ?? false {
+      return
+    }
+    let events = try PageDocument.bookmarkCaptureEvents(in: page.document).events.map(\.event)
+    let digests = Set(events.map(\.urlKey.digest))
+    if digests.count == 1,
+      let event = events.sorted(by: { $0.captureID.uuidString < $1.captureID.uuidString }).first
+    {
+      try db.execute(
+        sql: """
+          INSERT INTO bookmark_identity_candidates
+            (url_key_digest,url_key_version,canonical_url,page_id)
+          VALUES (?,?,?,?)
+          ON CONFLICT(url_key_digest,page_id) DO UPDATE SET
+            url_key_version=excluded.url_key_version,
+            canonical_url=excluded.canonical_url
+          """,
+        arguments: [
+          event.urlKey.digest,
+          BookmarkURLKey.version,
+          event.urlKey.canonicalURL,
+          page.id.rawValue,
+        ]
+      )
+      return
+    }
+    guard page.hasSupertag(BuiltInSupertags.bookmark),
+      let key = bookmarkSourceURLKey(in: page)
+    else { return }
+    try db.execute(
+      sql: """
+        INSERT INTO bookmark_identity_candidates
+          (url_key_digest,url_key_version,canonical_url,page_id)
+        VALUES (?,?,?,?) ON CONFLICT(url_key_digest,page_id) DO NOTHING
+        """,
+      arguments: [key.digest, BookmarkURLKey.version, key.canonicalURL, page.id.rawValue]
+    )
+  }
+
+  private static func enforceSuppressedBookmarkPage(
+    _ db: Database,
+    page: PageSnapshot
+  ) throws {
+    guard let digest = try String.fetchOne(
+      db,
+      sql: """
+        SELECT c.url_key_digest
+        FROM bookmark_identity_candidates c
+        JOIN bookmark_identity_suppressions d ON d.url_key_digest=c.url_key_digest
+        WHERE c.page_id=?
+        """,
+      arguments: [page.id.rawValue]
+    ) else { return }
+    let permanent = try Double.fetchOne(
+      db,
+      sql: "SELECT permanent_requested_at FROM bookmark_identity_suppressions WHERE url_key_digest=?",
+      arguments: [digest]
+    ) != nil
+    let acked = try Bool.fetchOne(
+      db,
+      sql: """
+        SELECT EXISTS(
+          SELECT 1 FROM bookmark_deletion_carriers c JOIN pages p ON p.id=c.page_id
+          WHERE c.url_key_digest=? AND c.acknowledged_generation=c.generation
+        )
+        """,
+      arguments: [digest]
+    ) ?? false
+    if permanent && acked {
+      try purgeSuppressedBookmarkCandidates(db, digest: digest, now: page.modifiedAt)
+      return
+    }
+    guard page.deletedAt == nil, let stored = try fetchPage(db, id: page.id) else { return }
+    let mutation = try PageDocument.setDeleted(page.modifiedAt, in: stored.document)
+    let tombstone = updatedPage(stored, with: mutation, now: page.modifiedAt)
+    try writePage(db, page: tombstone, cloudDirty: true, bookmarkOrigin: .system)
+    try replaceReferences(db, pageID: page.id, references: mutation.projection.references)
   }
 
   static func updatedPage(

@@ -169,7 +169,10 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
   private let repository: LibraryRepository
   private let statusHandler: @Sendable (SyncStatus) -> Void
   private let changeHandler: @Sendable () -> Void
-  private let container: CKContainer
+  // Creating a CKContainer eagerly aborts unsigned/unit-test hosts before any transport is used.
+  // Keep construction actor-isolated and lazy; production initializes it on the first real CloudKit
+  // operation, while deterministic record/asset tests remain fully local.
+  private lazy var container = CKContainer(identifier: Self.containerIdentifier)
   private let zoneID: CKRecordZone.ID
   private var engine: CKSyncEngine?
   private var assetRegistry = CloudAssetRegistry()
@@ -200,7 +203,6 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     self.repository = repository
     self.statusHandler = statusHandler
     self.changeHandler = changeHandler
-    container = CKContainer(identifier: Self.containerIdentifier)
     zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
   }
 
@@ -578,10 +580,12 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
               }
             } else {
               let pageID = PageID(rawValue: deletion.recordID.recordName)
-              let shouldRetry = try await repository.applyCloudPageRecordDeletion(pageID: pageID)
-              if shouldRetry {
+              let retryPageIDs = try await applyCloudPageRecordDeletion(pageID: pageID)
+              if !retryPageIDs.isEmpty {
                 syncEngine.state.add(
-                  pendingRecordZoneChanges: [.saveRecord(deletion.recordID)]
+                  pendingRecordZoneChanges: retryPageIDs.map {
+                    .saveRecord(recordID(for: $0))
+                  }
                 )
               }
             }
@@ -653,55 +657,10 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         for record in changes.savedRecords {
           do {
             let fields = try Self.systemFields(for: record)
-            let stillDirty: Bool
-            if record.recordType == RecordType.savedView {
-              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
-              stillDirty = try await repository.markViewCloudSaved(
-                id: viewID(for: record.recordID),
-                sentGeneration: generation,
-                systemFields: fields
-              )
-            } else if record.recordType == RecordType.supertag {
-              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
-              stillDirty = try await repository.markSupertagCloudSaved(
-                id: supertagID(for: record.recordID),
-                sentGeneration: generation,
-                systemFields: fields
-              )
-            } else if record.recordType == RecordType.graphRelation {
-              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
-              stillDirty = try await repository.markRelationDefinitionCloudSaved(
-                id: relationID(for: record.recordID),
-                sentGeneration: generation,
-                systemFields: fields
-              )
-            } else if record.recordType == RecordType.graphQuery {
-              let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
-              stillDirty = try await repository.markGraphQueryCloudSaved(
-                id: graphQueryID(for: record.recordID),
-                sentGeneration: generation,
-                systemFields: fields
-              )
-            } else if record.recordType == RecordType.page {
-              let pageID = PageID(rawValue: record.recordID.recordName)
-              if (record[Field.purged] as? NSNumber)?.boolValue == true {
-                let generation = (record[Field.purgeGeneration] as? NSNumber)?.int64Value ?? 0
-                stillDirty = try await repository.markPurgeCloudSaved(
-                  pageID: pageID,
-                  sentGeneration: generation,
-                  systemFields: fields
-                )
-              } else {
-                let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
-                stillDirty = try await repository.markCloudSaved(
-                  pageID: pageID,
-                  sentGeneration: generation,
-                  systemFields: fields
-                )
-              }
-            } else {
-              stillDirty = false
-            }
+            let stillDirty = try await persistCloudSaveAcknowledgement(
+              record,
+              systemFields: fields
+            )
             if Self.shouldImmediatelyRequeueAfterAcknowledgement(
               localPersistenceSucceeded: true,
               stillDirty: stillDirty
@@ -973,13 +932,44 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         id: graphQueryID(for: recordID)
       )
     } else {
-      shouldRetry = try await repository.applyCloudPageRecordDeletion(
+      let retryPageIDs = try await applyCloudPageRecordDeletion(
         pageID: PageID(rawValue: recordID.recordName)
       )
+      if !retryPageIDs.isEmpty {
+        syncEngine.state.add(
+          pendingRecordZoneChanges: retryPageIDs.map {
+            .saveRecord(self.recordID(for: $0))
+          }
+        )
+      }
+      return
     }
     if shouldRetry {
       syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
     }
+  }
+
+  /// A page deletion can cause the repository to create a replacement bookmark-deletion carrier
+  /// with a different Page ID. Derive retries from the repository's current durable dirty state
+  /// instead of blindly recreating the record ID that CloudKit just deleted.
+  private func applyCloudPageRecordDeletion(pageID: PageID) async throws -> [PageID] {
+    guard try await repository.applyCloudPageRecordDeletion(pageID: pageID) else { return [] }
+    return try await dirtyPageRecordIDs()
+  }
+
+  private func dirtyPageRecordIDs() async throws -> [PageID] {
+    let pages = try await repository.dirtyPages().map(\.id)
+    let purges = try await repository.dirtyPurgeMarkers().map(\.pageID)
+    return Set(pages + purges).sorted { $0.rawValue < $1.rawValue }
+  }
+
+  private func enqueueDirtyPageRecords(on syncEngine: CKSyncEngine?) async throws {
+    guard let syncEngine else { return }
+    let pageIDs = try await dirtyPageRecordIDs()
+    guard !pageIDs.isEmpty else { return }
+    syncEngine.state.add(
+      pendingRecordZoneChanges: pageIDs.map { .saveRecord(recordID(for: $0)) }
+    )
   }
 
   private func pauseForUnvalidatedAccount(
@@ -1163,6 +1153,94 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
     }
   }
 
+  private func persistCloudSaveAcknowledgement(
+    _ record: CKRecord,
+    systemFields: Data
+  ) async throws -> Bool {
+    if record.recordType == RecordType.savedView {
+      let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+      return try await repository.markViewCloudSaved(
+        id: viewID(for: record.recordID),
+        sentGeneration: generation,
+        systemFields: systemFields
+      )
+    }
+    if record.recordType == RecordType.supertag {
+      let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+      return try await repository.markSupertagCloudSaved(
+        id: supertagID(for: record.recordID),
+        sentGeneration: generation,
+        systemFields: systemFields
+      )
+    }
+    if record.recordType == RecordType.graphRelation {
+      let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+      return try await repository.markRelationDefinitionCloudSaved(
+        id: relationID(for: record.recordID),
+        sentGeneration: generation,
+        systemFields: systemFields
+      )
+    }
+    if record.recordType == RecordType.graphQuery {
+      let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+      return try await repository.markGraphQueryCloudSaved(
+        id: graphQueryID(for: record.recordID),
+        sentGeneration: generation,
+        systemFields: systemFields
+      )
+    }
+    guard record.recordType == RecordType.page else { return false }
+    let pageID = PageID(rawValue: record.recordID.recordName)
+    if (record[Field.purged] as? NSNumber)?.boolValue == true {
+      let generation = (record[Field.purgeGeneration] as? NSNumber)?.int64Value ?? 0
+      return try await repository.markPurgeCloudSaved(
+        pageID: pageID,
+        sentGeneration: generation,
+        systemFields: systemFields
+      )
+    }
+    let generation = (record[Field.dirtyGeneration] as? NSNumber)?.int64Value ?? 0
+    return try await repository.markCloudSaved(
+      pageID: pageID,
+      sentGeneration: generation,
+      systemFields: systemFields
+    )
+  }
+
+  // Narrow package-internal seams exercise the production CKRecord/CKAsset paths without a live
+  // CloudKit account. They intentionally expose no repository mutation that production does not
+  // already perform while preparing, receiving, or acknowledging a record.
+  func preparePageRecordForTesting(_ pageID: PageID) async -> CKRecord? {
+    await recordToSave(recordID(for: pageID))
+  }
+
+  func discardPreparedRecordForTesting(_ record: CKRecord) {
+    cleanupAsset(for: record)
+  }
+
+  func acknowledgePreparedRecordForTesting(_ record: CKRecord) async throws -> Bool {
+    defer { cleanupAsset(for: record) }
+    return try await persistCloudSaveAcknowledgement(
+      record,
+      systemFields: Self.systemFields(for: record)
+    )
+  }
+
+  func receiveRecordForTesting(_ record: CKRecord) async throws {
+    let wasAuthorized = isAccountAuthorized
+    isAccountAuthorized = true
+    defer { isAccountAuthorized = wasAuthorized }
+    try await receive(record)
+  }
+
+  func applyPageRecordDeletionForTesting(_ pageID: PageID) async throws -> [PageID] {
+    try await applyCloudPageRecordDeletion(pageID: pageID)
+  }
+
+  func dirtyPageRecordIDsForTesting() async throws -> [PageID] {
+    try await dirtyPageRecordIDs()
+  }
+
   static func pageForPendingSave(
     _ pageID: PageID,
     repository: LibraryRepository
@@ -1300,7 +1378,7 @@ public actor CloudSyncCoordinator: CKSyncEngineDelegate {
         systemFields: systemFields
       )
       if needsUpload {
-        engine?.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+        try await enqueueDirtyPageRecords(on: engine)
       }
       return
     }

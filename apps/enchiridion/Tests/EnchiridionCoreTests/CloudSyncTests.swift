@@ -1,4 +1,5 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import XCTest
 @testable import EnchiridionCore
@@ -806,6 +807,336 @@ final class CloudSyncRepositoryTests: XCTestCase {
         )
       ]
     )
+  }
+}
+
+final class BookmarkCloudCarrierTransportTests: XCTestCase {
+  func testOutgoingCarrierUsesOrdinaryPageAssetWithOnlyDigestDeletionContent() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let request = bookmarkRequest(
+      url: "https://private.example.test/article?token=never-upload-as-carrier",
+      note: "private-note-never-upload-as-carrier"
+    )
+    let bookmark = try await fixture.repository.materializeBookmark(request)
+    try await fixture.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    let carrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let carrierID = try XCTUnwrap(carrierIDs.first)
+    let coordinator = makeCoordinator(repository: fixture.repository)
+
+    let prepared = await coordinator.preparePageRecordForTesting(carrierID)
+    let record = try XCTUnwrap(prepared)
+    XCTAssertEqual(record.recordType, "Page")
+    XCTAssertEqual(record.recordID.recordName, carrierID.rawValue)
+    XCTAssertEqual(Set(record.allKeys()), Set([
+      "purged", "schemaVersion", "kind", "document", "contentHash", "modifiedAt",
+      "dirtyGeneration",
+    ]))
+    let kindData = try XCTUnwrap(record["kind"] as? Data)
+    XCTAssertEqual(try JSONDecoder.enchiridion.decode(PageKind.self, from: kindData), .free)
+    let asset = try XCTUnwrap(record["document"] as? CKAsset)
+    let assetURL = try XCTUnwrap(asset.fileURL)
+    let bytes = try Data(contentsOf: assetURL)
+    XCTAssertEqual(record["contentHash"] as? String, sha256(bytes))
+
+    let carrier = try PageDocument.bookmarkIdentityDeletionCarrierInspection(in: bytes)
+    XCTAssertTrue(carrier.isCanonicalCarrier)
+    XCTAssertEqual(carrier.canonicalDeletion?.urlKeyDigest, bookmark.urlKey.digest)
+    let projection = try PageDocument.inspect(bytes, pageID: carrierID)
+    XCTAssertEqual(projection.title, "Deleted Bookmark")
+    XCTAssertTrue(projection.plainText.isEmpty)
+    XCTAssertNotNil(projection.deletedAt)
+    for forbidden in [
+      request.submittedURL,
+      request.note ?? "",
+      request.source,
+      request.platform,
+      request.vaultID.rawValue,
+    ] where !forbidden.isEmpty {
+      XCTAssertNil(bytes.range(of: Data(forbidden.utf8)), "Carrier leaked \(forbidden)")
+    }
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: assetURL.path))
+    await coordinator.discardPreparedRecordForTesting(record)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: assetURL.path))
+  }
+
+  func testInboundActualCarrierAssetValidatesHashAndCreatesAcknowledgedSuppression() async throws {
+    let source = try CloudRepositoryFixture()
+    let request = bookmarkRequest(url: "https://source.example.test/private")
+    let bookmark = try await source.repository.materializeBookmark(request)
+    try await source.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    let carrierIDs = try await source.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let carrierID = try XCTUnwrap(carrierIDs.first)
+    let sourceCoordinator = makeCoordinator(repository: source.repository)
+    let prepared = await sourceCoordinator.preparePageRecordForTesting(carrierID)
+    let record = try XCTUnwrap(prepared)
+    let generation = try XCTUnwrap((record["dirtyGeneration"] as? NSNumber)?.int64Value)
+    XCTAssertGreaterThan(generation, 0)
+
+    let corruptTarget = try CloudRepositoryFixture()
+    let corruptCoordinator = makeCoordinator(repository: corruptTarget.repository)
+    let expectedHash = try XCTUnwrap(record["contentHash"] as? String)
+    record["contentHash"] = "corrupt" as NSString
+    do {
+      try await corruptCoordinator.receiveRecordForTesting(record)
+      XCTFail("A mismatched asset hash must be rejected")
+    } catch let error as CocoaError {
+      XCTAssertEqual(error.code, .fileReadCorruptFile)
+    }
+    let corruptState = try await corruptTarget.repository.bookmarkSuppressionState(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    XCTAssertNil(corruptState)
+
+    record["contentHash"] = expectedHash as NSString
+    let target = try CloudRepositoryFixture()
+    let targetCoordinator = makeCoordinator(repository: target.repository)
+    try await targetCoordinator.receiveRecordForTesting(record)
+
+    let fetchedState = try await target.repository.bookmarkSuppressionState(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let state = try XCTUnwrap(fetchedState)
+    XCTAssertEqual(state.stage, .carrierAcknowledged)
+    XCTAssertEqual(state.carrierPageID, carrierID)
+    XCTAssertEqual(state.acknowledgedGeneration, state.requiredGeneration)
+    let fetchedTargetCarrierPage = try await target.repository.page(id: carrierID)
+    let targetCarrierPage = try XCTUnwrap(fetchedTargetCarrierPage)
+    let targetCarrier = try PageDocument.bookmarkIdentityDeletionCarrierInspection(
+      in: targetCarrierPage.document
+    )
+    XCTAssertTrue(targetCarrier.isCanonicalCarrier)
+    let visiblePages = try await target.repository.pages(in: .allPages)
+    let resolvedBookmarks = try await target.repository.resolvedBookmarkPages()
+    let localCaptureHistory = try await target.repository.bookmarkCaptureEvents()
+    XCTAssertTrue(visiblePages.isEmpty)
+    XCTAssertTrue(resolvedBookmarks.isEmpty)
+    XCTAssertTrue(localCaptureHistory.isEmpty)
+
+    await sourceCoordinator.discardPreparedRecordForTesting(record)
+  }
+
+  func testPreparedRecordGenerationFencesStaleAndExactAcknowledgements() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let coordinator = makeCoordinator(repository: fixture.repository)
+    let page = try await fixture.repository.createFreePage(title: "Generation fence")
+    let stalePreparedRecord = await coordinator.preparePageRecordForTesting(page.id)
+    let stalePrepared = try XCTUnwrap(stalePreparedRecord)
+    let staleGeneration = try XCTUnwrap(
+      (stalePrepared["dirtyGeneration"] as? NSNumber)?.int64Value
+    )
+    XCTAssertEqual(staleGeneration, page.dirtyGeneration)
+
+    try await fixture.repository.togglePinned(pageID: page.id)
+    let staleStillDirty = try await coordinator.acknowledgePreparedRecordForTesting(stalePrepared)
+    XCTAssertTrue(staleStillDirty)
+    let fetchedAfterStale = try await fixture.repository.page(id: page.id)
+    let afterStale = try XCTUnwrap(fetchedAfterStale)
+    XCTAssertGreaterThan(afterStale.dirtyGeneration, staleGeneration)
+    let dirtyAfterStale = try await fixture.repository.dirtyPages()
+    XCTAssertTrue(dirtyAfterStale.contains { $0.id == page.id })
+
+    let exactPreparedRecord = await coordinator.preparePageRecordForTesting(page.id)
+    let exactPrepared = try XCTUnwrap(exactPreparedRecord)
+    let exactGeneration = try XCTUnwrap(
+      (exactPrepared["dirtyGeneration"] as? NSNumber)?.int64Value
+    )
+    XCTAssertEqual(exactGeneration, afterStale.dirtyGeneration)
+    let exactStillDirty = try await coordinator.acknowledgePreparedRecordForTesting(exactPrepared)
+    XCTAssertFalse(exactStillDirty)
+    let dirtyAfterExact = try await fixture.repository.dirtyPages()
+    XCTAssertFalse(dirtyAfterExact.contains { $0.id == page.id })
+  }
+
+  func testExactCarrierAcknowledgementAdvancesPermanentDeletionAndUploadsPurgeMarker() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let request = bookmarkRequest(url: "https://example.test/permanent")
+    let bookmark = try await fixture.repository.materializeBookmark(request)
+    try await fixture.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    try await fixture.repository.purge(
+      pageID: bookmark.pageID,
+      now: request.capturedAt.addingTimeInterval(1)
+    )
+    let carrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let carrierID = try XCTUnwrap(carrierIDs.first)
+    let coordinator = makeCoordinator(repository: fixture.repository)
+    let preparedRecord = await coordinator.preparePageRecordForTesting(carrierID)
+    let record = try XCTUnwrap(preparedRecord)
+    let sentGeneration = try XCTUnwrap((record["dirtyGeneration"] as? NSNumber)?.int64Value)
+
+    let stillDirty = try await coordinator.acknowledgePreparedRecordForTesting(record)
+
+    XCTAssertFalse(stillDirty)
+    let fetchedState = try await fixture.repository.bookmarkSuppressionState(for: bookmark.urlKey)
+    let state = try XCTUnwrap(fetchedState)
+    XCTAssertEqual(state.stage, .stable)
+    XCTAssertEqual(state.acknowledgedGeneration, sentGeneration)
+    let deletedCandidate = try await fixture.repository.page(id: bookmark.pageID)
+    XCTAssertNil(deletedCandidate)
+    let markers = try await fixture.repository.dirtyPurgeMarkers()
+    XCTAssertTrue(markers.contains { $0.pageID == bookmark.pageID })
+  }
+
+  func testCarrierDeletionQueuesSurvivorOrFreshReplacementByCurrentPageID() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let request = bookmarkRequest(url: "https://example.test/carrier-repair")
+    let bookmark = try await fixture.repository.materializeBookmark(request)
+    try await fixture.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    let firstCarrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let firstCarrierID = try XCTUnwrap(firstCarrierIDs.first)
+    let coordinator = makeCoordinator(repository: fixture.repository)
+    let preparedFirstRecord = await coordinator.preparePageRecordForTesting(firstCarrierID)
+    let firstRecord = try XCTUnwrap(preparedFirstRecord)
+    _ = try await coordinator.acknowledgePreparedRecordForTesting(firstRecord)
+    let fetchedTombstone = try await fixture.repository.page(id: bookmark.pageID)
+    let tombstone = try XCTUnwrap(fetchedTombstone)
+    _ = try await fixture.repository.markCloudSaved(
+      pageID: bookmark.pageID,
+      sentGeneration: tombstone.dirtyGeneration,
+      systemFields: Data([0x31])
+    )
+
+    let fetchedFirstPage = try await fixture.repository.page(id: firstCarrierID)
+    let firstPage = try XCTUnwrap(fetchedFirstPage)
+    let envelope = try XCTUnwrap(
+      try PageDocument.bookmarkIdentityDeletionCarrierInspection(in: firstPage.document)
+        .canonicalDeletion
+    )
+    let secondCarrierID = PageID.free()
+    let secondCarrier = try PageDocument.makeBookmarkIdentityDeletionCarrier(
+      id: secondCarrierID,
+      replacingCandidateID: bookmark.pageID,
+      deletion: envelope
+    )
+    _ = try await fixture.repository.mergeCloudPage(
+      pageID: secondCarrierID,
+      kind: .free,
+      remoteDocument: secondCarrier.document,
+      systemFields: Data([0x32]),
+      now: request.capturedAt.addingTimeInterval(2)
+    )
+
+    let survivorRetries = try await coordinator.applyPageRecordDeletionForTesting(firstCarrierID)
+    XCTAssertTrue(survivorRetries.isEmpty)
+    let survivingPage = try await fixture.repository.page(id: secondCarrierID)
+    XCTAssertNotNil(survivingPage)
+
+    let replacementRetries = try await coordinator.applyPageRecordDeletionForTesting(secondCarrierID)
+    let replacementIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let replacementID = try XCTUnwrap(replacementIDs.first)
+    XCTAssertNotEqual(replacementID, firstCarrierID)
+    XCTAssertNotEqual(replacementID, secondCarrierID)
+    XCTAssertEqual(replacementRetries, [replacementID])
+  }
+
+  func testLateCandidateAssetAfterSuppressionKeepsPurgeMarkerAndDoesNotResurrectPage() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let request = bookmarkRequest(url: "https://example.test/late-reupload")
+    let bookmark = try await fixture.repository.materializeBookmark(request)
+    let coordinator = makeCoordinator(repository: fixture.repository)
+    let preparedLateCandidate = await coordinator.preparePageRecordForTesting(bookmark.pageID)
+    let lateCandidateRecord = try XCTUnwrap(preparedLateCandidate)
+
+    try await fixture.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    try await fixture.repository.purge(
+      pageID: bookmark.pageID,
+      now: request.capturedAt.addingTimeInterval(1)
+    )
+    let carrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let carrierID = try XCTUnwrap(carrierIDs.first)
+    let preparedCarrierRecord = await coordinator.preparePageRecordForTesting(carrierID)
+    let carrierRecord = try XCTUnwrap(preparedCarrierRecord)
+    _ = try await coordinator.acknowledgePreparedRecordForTesting(carrierRecord)
+    let candidateAfterPurge = try await fixture.repository.page(id: bookmark.pageID)
+    XCTAssertNil(candidateAfterPurge)
+
+    try await coordinator.receiveRecordForTesting(lateCandidateRecord)
+
+    let candidateAfterLateRecord = try await fixture.repository.page(id: bookmark.pageID)
+    XCTAssertNil(candidateAfterLateRecord)
+    let dirtyMarkers = try await fixture.repository.dirtyPurgeMarkers()
+    XCTAssertTrue(dirtyMarkers.contains { $0.pageID == bookmark.pageID })
+    let dirtyRecordIDs = try await coordinator.dirtyPageRecordIDsForTesting()
+    XCTAssertTrue(dirtyRecordIDs.contains(bookmark.pageID))
+    await coordinator.discardPreparedRecordForTesting(lateCandidateRecord)
+  }
+
+  func testInboundPurgeOfLastCarrierCreatesDifferentDirtyCarrierRecord() async throws {
+    let fixture = try CloudRepositoryFixture()
+    let request = bookmarkRequest(url: "https://example.test/purged-carrier")
+    let bookmark = try await fixture.repository.materializeBookmark(request)
+    try await fixture.repository.moveToTrash(pageID: bookmark.pageID, now: request.capturedAt)
+    let initialCarrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let carrierID = try XCTUnwrap(initialCarrierIDs.first)
+    let coordinator = makeCoordinator(repository: fixture.repository)
+    let preparedCarrierRecord = await coordinator.preparePageRecordForTesting(carrierID)
+    let carrierRecord = try XCTUnwrap(preparedCarrierRecord)
+    _ = try await coordinator.acknowledgePreparedRecordForTesting(carrierRecord)
+    let fetchedTombstone = try await fixture.repository.page(id: bookmark.pageID)
+    let tombstone = try XCTUnwrap(fetchedTombstone)
+    _ = try await fixture.repository.markCloudSaved(
+      pageID: bookmark.pageID,
+      sentGeneration: tombstone.dirtyGeneration,
+      systemFields: Data([0x41])
+    )
+
+    let recordID = CKRecord.ID(
+      recordName: carrierID.rawValue,
+      zoneID: CKRecordZone.ID(
+        zoneName: CloudSyncCoordinator.zoneName,
+        ownerName: CKCurrentUserDefaultName
+      )
+    )
+    let purge = CKRecord(recordType: "Page", recordID: recordID)
+    purge["purged"] = NSNumber(value: true)
+    purge["purgeGeneration"] = NSNumber(value: 9)
+    purge["purgedAt"] = request.capturedAt.addingTimeInterval(3) as NSDate
+    purge["schemaVersion"] = NSNumber(value: 1)
+    try await coordinator.receiveRecordForTesting(purge)
+
+    let carrierIDs = try await fixture.repository.bookmarkDeletionCarrierPageIDs(
+      urlKeyDigest: bookmark.urlKey.digest
+    )
+    let replacementID = try XCTUnwrap(carrierIDs.first)
+    XCTAssertNotEqual(replacementID, carrierID)
+    let dirtyRecordIDs = try await coordinator.dirtyPageRecordIDsForTesting()
+    XCTAssertEqual(dirtyRecordIDs, [replacementID])
+  }
+
+  private func bookmarkRequest(url: String, note: String? = nil) -> BookmarkCaptureRequest {
+    BookmarkCaptureRequest(
+      captureID: UUID(),
+      submittedURL: url,
+      note: note,
+      capturedAt: Date(timeIntervalSince1970: 1_786_000_000),
+      dayKey: DayKey(rawValue: "2026-08-05"),
+      timeZoneIdentifier: "Europe/London",
+      source: "source-secret-never-upload-as-carrier",
+      platform: "platform-secret-never-upload-as-carrier",
+      vaultID: .personal
+    )
+  }
+
+  private func makeCoordinator(repository: LibraryRepository) -> CloudSyncCoordinator {
+    CloudSyncCoordinator(repository: repository, statusHandler: { _ in })
+  }
+
+  private func sha256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 }
 

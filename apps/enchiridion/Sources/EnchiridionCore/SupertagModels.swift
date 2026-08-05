@@ -210,6 +210,10 @@ public enum BuiltInSupertags {
   public static let project = SupertagID(rawValue: "project")
   public static let task = SupertagID(rawValue: "task")
   public static let place = SupertagID(rawValue: "place")
+  /// Structured bookmark data deliberately contains only its submitted source URL.
+  /// Title and body remain the canonical, user-editable Page document.
+  public static let bookmark = SupertagID(rawValue: "bookmark")
+  public static let bookmarkSourceURLField = SupertagFieldID(rawValue: "source-url")
 
   public static let all: [SupertagDefinition] = [
     definition(person, "Person", "person.crop.circle", [
@@ -282,6 +286,9 @@ public enum BuiltInSupertags {
       field("map-url", "Map URL", .url),
       field("time-zone", "Time zone", .text),
       field("notes", "Notes", .text, multiline: true),
+    ]),
+    definition(bookmark, "Bookmark", "bookmark", [
+      field(bookmarkSourceURLField.rawValue, "Source URL", .url),
     ]),
   ]
 

@@ -1,18 +1,95 @@
 import Automerge
+import CryptoKit
 import Foundation
 
 public enum PageDocumentError: Error, LocalizedError, Equatable {
   case documentTooLarge
   case invalidSchema
   case invalidHeads
+  case invalidBookmarkCaptureEvent
+  case bookmarkCaptureEventConflict
+  case bookmarkCaptureEventLimit
+  case invalidBookmarkIdentityDeletion
+  case bookmarkIdentityDeletionConflict
+  case bookmarkIdentityDeletionLimit
+  case bookmarkIdentityDeletionCarrierRequiresDistinctPageID
 
   public var errorDescription: String? {
     switch self {
     case .documentTooLarge: "The page exceeds the 20 MiB document limit."
     case .invalidSchema: "The page has an unsupported Automerge schema."
     case .invalidHeads: "The editor commit does not match its advertised Automerge heads."
+    case .invalidBookmarkCaptureEvent: "The bookmark capture event is invalid."
+    case .bookmarkCaptureEventConflict: "This bookmark capture identifier has conflicting facts."
+    case .bookmarkCaptureEventLimit: "This bookmark page has too many capture events."
+    case .invalidBookmarkIdentityDeletion: "The bookmark deletion marker is invalid."
+    case .bookmarkIdentityDeletionConflict: "This bookmark deletion identifier has conflicting facts."
+    case .bookmarkIdentityDeletionLimit: "This bookmark page has too many deletion markers."
+    case .bookmarkIdentityDeletionCarrierRequiresDistinctPageID:
+      "A deletion carrier must use a new page identifier."
     }
   }
+}
+
+public struct BookmarkCaptureEventProvenance: Hashable, Sendable, Identifiable {
+  public let rootKey: String
+  public let encodedEnvelope: String
+  public let rawHash: String
+  public let event: BookmarkSyncedCaptureEvent
+  public var id: String { "\(rootKey):\(rawHash)" }
+}
+
+public enum BookmarkCaptureEventIssueKind: String, Hashable, Sendable {
+  case nonScalar, invalidEnvelope, nonCanonicalEnvelope, mismatchedKey, conflictingValues, limitExceeded
+}
+
+public struct BookmarkCaptureEventIssue: Hashable, Sendable, Identifiable {
+  public let rootKey: String
+  public let rawHash: String
+  public let kind: BookmarkCaptureEventIssueKind
+  public let occurrence: Int
+
+  public init(
+    rootKey: String,
+    rawHash: String,
+    kind: BookmarkCaptureEventIssueKind,
+    occurrence: Int = 0
+  ) {
+    self.rootKey = rootKey
+    self.rawHash = rawHash
+    self.kind = kind
+    self.occurrence = occurrence
+  }
+
+  public var id: String {
+    "bookmark-capture-issue:\(kind.rawValue):\(rootKey):\(rawHash):\(occurrence)"
+  }
+}
+
+public struct BookmarkCaptureEventInspection: Hashable, Sendable {
+  public let events: [BookmarkCaptureEventProvenance]
+  public let issues: [BookmarkCaptureEventIssue]
+  public let rootKeyCount: Int
+}
+
+public struct BookmarkIdentityDeletionProvenance: Hashable, Sendable, Identifiable {
+  public let rootKey: String
+  public let encodedEnvelope: String
+  public let rawHash: String
+  public let envelope: BookmarkIdentityDeletionEnvelope
+  public var id: String { "\(rootKey):\(rawHash)" }
+}
+
+public struct BookmarkIdentityDeletionInspection: Hashable, Sendable {
+  public let deletions: [BookmarkIdentityDeletionProvenance]
+  public let issues: [BookmarkCaptureEventIssue]
+  public let rootKeyCount: Int
+}
+
+public struct BookmarkIdentityDeletionCarrierInspection: Hashable, Sendable {
+  public let deletionInspection: BookmarkIdentityDeletionInspection
+  public let canonicalDeletion: BookmarkIdentityDeletionEnvelope?
+  public let isCanonicalCarrier: Bool
 }
 
 public struct PageDocumentProjection: Hashable, Sendable {
@@ -86,6 +163,11 @@ public enum PageDocument {
   public static let emphasisMark = "em"
   public static let strikethroughMark = "strike"
   public static let codeMark = "code"
+  public static let bookmarkCaptureEventRootPrefix = "bookmarkCaptureEvent/"
+  public static let maximumBookmarkCaptureEvents = 4_096
+  public static let bookmarkIdentityDeletionRootPrefix = "bookmarkIdentityDeletion/"
+  public static let maximumBookmarkIdentityDeletions = 4_096
+  public static let bookmarkIdentityDeletionCarrierTitle = "Deleted Bookmark"
 
   public static func create(
     id: PageID,
@@ -486,6 +568,293 @@ public enum PageDocument {
     let document = try Document(snapshot)
     guard let changeHashes = heads.changeHashes else { throw PageDocumentError.invalidHeads }
     return try document.encodeChangesSince(heads: changeHashes)
+  }
+
+  /// Adds one immutable capture scalar without changing title, body, or object metadata. The
+  /// root-keyed shape means independent replicas can add different captures without a map-level
+  /// overwrite; equal replays leave the document byte-for-byte unchanged.
+  public static func appendBookmarkCaptureEvent(
+    _ event: BookmarkSyncedCaptureEvent,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    do { try event.validate() } catch { throw PageDocumentError.invalidBookmarkCaptureEvent }
+    let encoded: String
+    do {
+      let data = try event.canonicalData()
+      guard data.count <= BookmarkSyncedCaptureEvent.maximumEncodedBytes,
+        let value = String(data: data, encoding: .utf8)
+      else { throw PageDocumentError.invalidBookmarkCaptureEvent }
+      encoded = value
+    } catch let error as PageDocumentError { throw error }
+    catch { throw PageDocumentError.invalidBookmarkCaptureEvent }
+
+    let document = try Document(snapshot)
+    try validate(document)
+    let inspection = try bookmarkCaptureEventInspection(document)
+    let rootKey = bookmarkCaptureEventRootPrefix + event.captureID.uuidString.lowercased()
+    let existing = inspection.events.filter { $0.rootKey == rootKey }
+    if existing.contains(where: { $0.event == event }) {
+      return (snapshot, heads(document), try projection(document))
+    }
+    if !existing.isEmpty || inspection.issues.contains(where: { $0.rootKey == rootKey }) {
+      throw PageDocumentError.bookmarkCaptureEventConflict
+    }
+    guard inspection.rootKeyCount < maximumBookmarkCaptureEvents else {
+      throw PageDocumentError.bookmarkCaptureEventLimit
+    }
+    let priorHeads = document.heads()
+    try document.put(obj: .ROOT, key: rootKey, value: .String(encoded))
+    document.commitWith(message: "Capture bookmark", timestamp: event.capturedAt)
+    guard try document.encodeChangesSince(heads: priorHeads).count <= maximumChangeBytes else {
+      throw PageDocumentError.documentTooLarge
+    }
+    let saved = document.save()
+    guard saved.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    return (saved, heads(document), try projection(document))
+  }
+
+  public static func bookmarkCaptureEvents(in snapshot: Data) throws -> BookmarkCaptureEventInspection {
+    guard snapshot.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    let document = try Document(snapshot)
+    try validate(document)
+    return try bookmarkCaptureEventInspection(document)
+  }
+
+  public static func appendBookmarkIdentityDeletion(
+    _ deletion: BookmarkIdentityDeletionEnvelope,
+    in snapshot: Data
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    do { try deletion.validate() } catch { throw PageDocumentError.invalidBookmarkIdentityDeletion }
+    let encoded: String
+    do {
+      let data = try deletion.canonicalData()
+      guard data.count <= BookmarkIdentityDeletionEnvelope.maximumEncodedBytes,
+        let value = String(data: data, encoding: .utf8)
+      else { throw PageDocumentError.invalidBookmarkIdentityDeletion }
+      encoded = value
+    } catch let error as PageDocumentError { throw error }
+    catch { throw PageDocumentError.invalidBookmarkIdentityDeletion }
+    let document = try Document(snapshot)
+    try validate(document)
+    let inspection = try bookmarkIdentityDeletionInspection(document)
+    let rootKey = bookmarkIdentityDeletionRootPrefix + deletion.deletionID.uuidString.lowercased()
+    let existing = inspection.deletions.filter { $0.rootKey == rootKey }
+    if existing.contains(where: { $0.envelope == deletion }) {
+      return (snapshot, heads(document), try projection(document))
+    }
+    if !existing.isEmpty || inspection.issues.contains(where: { $0.rootKey == rootKey }) {
+      throw PageDocumentError.bookmarkIdentityDeletionConflict
+    }
+    guard inspection.rootKeyCount < maximumBookmarkIdentityDeletions else {
+      throw PageDocumentError.bookmarkIdentityDeletionLimit
+    }
+    let priorHeads = document.heads()
+    try document.put(obj: .ROOT, key: rootKey, value: .String(encoded))
+    document.commitWith(message: "Delete bookmark identity", timestamp: deletion.deletedAt)
+    guard try document.encodeChangesSince(heads: priorHeads).count <= maximumChangeBytes else {
+      throw PageDocumentError.documentTooLarge
+    }
+    let saved = document.save()
+    guard saved.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    return (saved, heads(document), try projection(document))
+  }
+
+  public static func bookmarkIdentityDeletions(
+    in snapshot: Data
+  ) throws -> BookmarkIdentityDeletionInspection {
+    guard snapshot.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    let document = try Document(snapshot)
+    try validate(document)
+    return try bookmarkIdentityDeletionInspection(document)
+  }
+
+  /// Creates a fresh, distinct carrier Page. It is intentionally not a transform of an original
+  /// Page: repository code must allocate a new ID and apply marker-dominance during cloud merges.
+  public static func makeBookmarkIdentityDeletionCarrier(
+    id: PageID,
+    replacingCandidateID: PageID,
+    deletion: BookmarkIdentityDeletionEnvelope
+  ) throws -> (document: Data, heads: AutomergeHeads, projection: PageDocumentProjection) {
+    guard id != replacingCandidateID else {
+      throw PageDocumentError.bookmarkIdentityDeletionCarrierRequiresDistinctPageID
+    }
+    let created = try create(id: id, kind: .free, title: bookmarkIdentityDeletionCarrierTitle, createdAt: deletion.deletedAt)
+    let appended = try appendBookmarkIdentityDeletion(deletion, in: created.document)
+    return try setDeleted(deletion.deletedAt, in: appended.document)
+  }
+
+  public static func bookmarkIdentityDeletionCarrierInspection(
+    in snapshot: Data
+  ) throws -> BookmarkIdentityDeletionCarrierInspection {
+    guard snapshot.count <= maximumDocumentBytes else { throw PageDocumentError.documentTooLarge }
+    let document = try Document(snapshot)
+    try validate(document)
+    let inspection = try bookmarkIdentityDeletionInspection(document)
+    let ordered = inspection.deletions.map(\.envelope).sorted {
+      if $0.deletedAt != $1.deletedAt { return $0.deletedAt < $1.deletedAt }
+      return $0.deletionID.uuidString < $1.deletionID.uuidString
+    }
+    let canonical = ordered.first
+    let digests = Set(ordered.map(\.urlKeyDigest))
+    let rootKeys = Set(try document.mapEntries(obj: .ROOT).map(\.0))
+    let allowedRoots = Set([
+      "format", "schemaVersion", "pageID", "kind", "createdAt", "deletedAt", "isPinned",
+      "objectMetadata", "edges", "title", "body"
+    ]).union(inspection.deletions.map(\.rootKey))
+    let projection = try projection(document)
+    let projectionDeletionMilliseconds = projection.deletedAt.map {
+      Int64(($0.timeIntervalSince1970 * 1_000).rounded())
+    }
+    let canonicalDeletionMilliseconds = canonical.map {
+      Int64(($0.deletedAt.timeIntervalSince1970 * 1_000).rounded())
+    }
+    let canonicalCarrier = canonical.map { _ in
+      inspection.issues.isEmpty
+        && digests.count == 1
+        && rootKeys == allowedRoots
+        && projection.title == bookmarkIdentityDeletionCarrierTitle
+        && projection.plainText.isEmpty
+        && projectionDeletionMilliseconds == canonicalDeletionMilliseconds
+        && !projection.isPinned
+        && projection.objectMetadata.supertagIDs.isEmpty
+        && projection.objectMetadata.properties.isEmpty
+        && projection.references.isEmpty
+        && projection.graphEdges.isEmpty
+        && (try? bookmarkCaptureEventInspection(document).rootKeyCount) == 0
+    } ?? false
+    return .init(deletionInspection: inspection, canonicalDeletion: canonical, isCanonicalCarrier: canonicalCarrier)
+  }
+
+  private static func bookmarkCaptureEventInspection(
+    _ document: Document
+  ) throws -> BookmarkCaptureEventInspection {
+    var events: [BookmarkCaptureEventProvenance] = []
+    var issues: [BookmarkCaptureEventIssue] = []
+    let rootKeys = try document.mapEntries(obj: .ROOT).map(\.0)
+      .filter { $0.hasPrefix(bookmarkCaptureEventRootPrefix) }
+      .sorted()
+    for rootKey in rootKeys {
+      let expectedID = String(rootKey.dropFirst(bookmarkCaptureEventRootPrefix.count))
+      let candidates = try document.getAll(obj: .ROOT, key: rootKey)
+      var validEncoded: [String] = []
+      for candidate in candidates {
+        let rawHash = eventRawHash(candidate)
+        guard case .Scalar(.String(let encoded)) = candidate else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .nonScalar)); continue
+        }
+        guard let data = encoded.data(using: .utf8), data.count <= BookmarkSyncedCaptureEvent.maximumEncodedBytes,
+          let event = try? JSONDecoder.enchiridion.decode(BookmarkSyncedCaptureEvent.self, from: data)
+        else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .invalidEnvelope)); continue
+        }
+        guard (try? event.canonicalData()) == data else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .nonCanonicalEnvelope)); continue
+        }
+        guard event.captureID.uuidString.lowercased() == expectedID else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .mismatchedKey)); continue
+        }
+        validEncoded.append(encoded)
+        events.append(.init(rootKey: rootKey, encodedEnvelope: encoded, rawHash: rawHash, event: event))
+      }
+      if Set(validEncoded).count > 1 {
+        issues.append(.init(
+          rootKey: rootKey,
+          rawHash: eventRawHash(validEncoded.sorted().joined(separator: "\n")),
+          kind: .conflictingValues
+        ))
+      }
+    }
+    if rootKeys.count > maximumBookmarkCaptureEvents {
+      issues.append(.init(
+        rootKey: bookmarkCaptureEventRootPrefix,
+        rawHash: eventRawHash(rootKeys.joined(separator: "\n")),
+        kind: .limitExceeded
+      ))
+    }
+    return .init(
+      events: events.sorted { lhs, rhs in
+        if lhs.rootKey != rhs.rootKey { return lhs.rootKey < rhs.rootKey }
+        return lhs.encodedEnvelope < rhs.encodedEnvelope
+      },
+      issues: stableBookmarkCaptureIssues(issues),
+      rootKeyCount: rootKeys.count
+    )
+  }
+
+  private static func bookmarkIdentityDeletionInspection(
+    _ document: Document
+  ) throws -> BookmarkIdentityDeletionInspection {
+    var deletions: [BookmarkIdentityDeletionProvenance] = []
+    var issues: [BookmarkCaptureEventIssue] = []
+    let rootKeys = try document.mapEntries(obj: .ROOT).map(\.0)
+      .filter { $0.hasPrefix(bookmarkIdentityDeletionRootPrefix) }
+      .sorted()
+    for rootKey in rootKeys {
+      let expectedID = String(rootKey.dropFirst(bookmarkIdentityDeletionRootPrefix.count))
+      var validEncoded: [String] = []
+      for candidate in try document.getAll(obj: .ROOT, key: rootKey) {
+        let rawHash = eventRawHash(candidate)
+        guard case .Scalar(.String(let encoded)) = candidate else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .nonScalar)); continue
+        }
+        guard let data = encoded.data(using: .utf8), data.count <= BookmarkIdentityDeletionEnvelope.maximumEncodedBytes,
+          let deletion = try? JSONDecoder.enchiridion.decode(BookmarkIdentityDeletionEnvelope.self, from: data)
+        else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .invalidEnvelope)); continue
+        }
+        guard (try? deletion.canonicalData()) == data else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .nonCanonicalEnvelope)); continue
+        }
+        guard deletion.deletionID.uuidString.lowercased() == expectedID else {
+          issues.append(.init(rootKey: rootKey, rawHash: rawHash, kind: .mismatchedKey)); continue
+        }
+        validEncoded.append(encoded)
+        deletions.append(.init(rootKey: rootKey, encodedEnvelope: encoded, rawHash: rawHash, envelope: deletion))
+      }
+      if Set(validEncoded).count > 1 {
+        issues.append(.init(
+          rootKey: rootKey,
+          rawHash: eventRawHash(validEncoded.sorted().joined(separator: "\n")),
+          kind: .conflictingValues
+        ))
+      }
+    }
+    if rootKeys.count > maximumBookmarkIdentityDeletions {
+      issues.append(.init(
+        rootKey: bookmarkIdentityDeletionRootPrefix,
+        rawHash: eventRawHash(rootKeys.joined(separator: "\n")),
+        kind: .limitExceeded
+      ))
+    }
+    return .init(
+      deletions: deletions.sorted { lhs, rhs in
+        if lhs.rootKey != rhs.rootKey { return lhs.rootKey < rhs.rootKey }
+        return lhs.encodedEnvelope < rhs.encodedEnvelope
+      },
+      issues: stableBookmarkCaptureIssues(issues),
+      rootKeyCount: rootKeys.count
+    )
+  }
+
+  private static func stableBookmarkCaptureIssues(
+    _ issues: [BookmarkCaptureEventIssue]
+  ) -> [BookmarkCaptureEventIssue] {
+    let ordered = issues.sorted { lhs, rhs in
+        if lhs.rootKey != rhs.rootKey { return lhs.rootKey < rhs.rootKey }
+        if lhs.kind.rawValue != rhs.kind.rawValue { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.rawHash < rhs.rawHash
+      }
+    var counts: [String: Int] = [:]
+    return ordered.map { issue in
+      let key = "\(issue.rootKey)\u{0}\(issue.kind.rawValue)\u{0}\(issue.rawHash)"
+      let occurrence = counts[key, default: 0]
+      counts[key] = occurrence + 1
+      return .init(rootKey: issue.rootKey, rawHash: issue.rawHash, kind: issue.kind, occurrence: occurrence)
+    }
+  }
+
+  private static func eventRawHash(_ value: Any) -> String {
+    SHA256.hash(data: Data(String(describing: value).utf8)).map { String(format: "%02x", $0) }.joined()
   }
 
   private static func validate(_ document: Document) throws {

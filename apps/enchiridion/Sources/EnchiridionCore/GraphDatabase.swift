@@ -171,7 +171,7 @@ enum GraphDatabaseSchema {
              name,
              sort_order,
              deleted,
-             CASE WHEN id IN ('person','organization','company','event','place','area','project','task')
+             CASE WHEN id IN ('person','organization','company','event','place','area','project','task','bookmark')
                THEN 1 ELSE 0 END AS is_base
       FROM supertag_schemas
       WHERE id IS NOT NULL
