@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00B4DAD3FA65EDD91C9519A6 /* CarPlayVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720D8EC0696839AE553FF6EC /* CarPlayVoiceCoordinator.swift */; };
 		0172EB8F97E41038CBACBD70 /* TodayWorkspaceTransitionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */; };
+		03C4A86C85CAE2ED2E2C1F2E /* NativeWebRTCCompileTimeSpikeRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ECCF34164F8DFDBE6FF5E13 /* NativeWebRTCCompileTimeSpikeRuntime.swift */; };
 		06D06CF4F648479F628A9CD4 /* MobileTabSelectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9576AD2DFDBAEDAFFC6FA680 /* MobileTabSelectionCoordinator.swift */; };
 		087A39046047331DDD0CB62F /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		08A14D45EB877E80A0EC7D7F /* AssistantAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B733C4213FDE73200B6D4C68 /* AssistantAppIntents.swift */; };
@@ -61,6 +62,7 @@
 		47928D7124ABA0AD79FE4662 /* EntryListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC90FB14B5A3C2AA7919203 /* EntryListScreen.swift */; };
 		480093EC2D69E369EB3393B3 /* CalendarEventFilterSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9F0C6987E84528E37D2F15 /* CalendarEventFilterSettingsSection.swift */; };
 		48BBBFAEA62D217A23B33E34 /* SemanticBrowseText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1F534D560EDABDE261D97A /* SemanticBrowseText.swift */; };
+		48E5C30BF5B54350329D5035 /* RealtimeVoiceRuntimeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1832313E218DCC00813500AD /* RealtimeVoiceRuntimeFactory.swift */; };
 		4D30CAB0FFC6C0FA2DEF9FB7 /* DeviceContactPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */; };
 		4D9ECB3247D1E94F2F5BCE1E /* TaskManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4CB8A66447640BDA42FD86 /* TaskManagementViews.swift */; };
 		4F05577CE475E8DA8F5A0CA2 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 78C7650B87945ED46D4D5D34 /* WatchConnectivity.framework */; };
@@ -85,6 +87,7 @@
 		6BC305269E27FBECE3FE4BFC /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1922885EA354367E18999189 /* AppIntents.framework */; };
 		6EEF6D120873B1E0D15C5108 /* DayPlanProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B053F88B63A7775B3280FA9 /* DayPlanProjectionTests.swift */; };
 		6F28F6618A3DF4B038E3FB76 /* CalendarEventRelationshipPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F4E107623099F49D6232CC /* CalendarEventRelationshipPresentationTests.swift */; };
+		708C56147F8C7594742BFE72 /* RealtimeVoiceRuntimeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1832313E218DCC00813500AD /* RealtimeVoiceRuntimeFactory.swift */; };
 		70EDA511A0A5FCA605AF2EEF /* EntityRelationshipCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FE84945BB34E50E63FC70B /* EntityRelationshipCreationView.swift */; };
 		740AD887A9DC7195BAC9ACBB /* MobileTabSelectionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED9073AC19FA3C584B2B0870 /* MobileTabSelectionCoordinatorTests.swift */; };
 		747272B6E0C229992703309D /* AppleSystemSpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948819CF0F0B84D1C2B60423 /* AppleSystemSpeechOutput.swift */; };
@@ -186,6 +189,7 @@
 		DA9B78C2B47B01C1496F6DE6 /* CalendarAgendaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96595A2BB06A38AC6E917736 /* CalendarAgendaModels.swift */; };
 		DAAA51321537920D9734ED1A /* LibrarySection+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402E534CF31302196BB5DAB /* LibrarySection+Presentation.swift */; };
 		DB148207B85C8D5D24C5BC91 /* EmptyLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9A9C5EAB3A0E418591E48D /* EmptyLibraryView.swift */; };
+		DBFEE53BEA40360746A635D9 /* NativeWebRTCCompileTimeSpikeRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ECCF34164F8DFDBE6FF5E13 /* NativeWebRTCCompileTimeSpikeRuntime.swift */; };
 		DC85120843B68760FF8E15B5 /* WhiteboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E74F1D6BD05A71A70720A8 /* WhiteboardChrome.swift */; };
 		DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */; };
 		DEA5685EE7AD3986FB231BA2 /* GraphRelationDefinitionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C78A2A912D114CC56B0E63 /* GraphRelationDefinitionsView.swift */; };
@@ -287,6 +291,7 @@
 		104662C94B10782309E1EB9B /* EditorPersistenceSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPersistenceSessionTests.swift; sourceTree = "<group>"; };
 		147AA2076A7386AF15C27C8A /* TaskWorkbench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskWorkbench.swift; sourceTree = "<group>"; };
 		15C78A2A912D114CC56B0E63 /* GraphRelationDefinitionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRelationDefinitionsView.swift; sourceTree = "<group>"; };
+		1832313E218DCC00813500AD /* RealtimeVoiceRuntimeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeVoiceRuntimeFactory.swift; sourceTree = "<group>"; };
 		1922885EA354367E18999189 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		1A92D6D7C62EFE1A235AB1F2 /* DeviceContactPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceContactPicker.swift; sourceTree = "<group>"; };
 		1CB44DD178640603EEBE0FC0 /* DailyTaskContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyTaskContext.swift; sourceTree = "<group>"; };
@@ -300,6 +305,7 @@
 		319DB59EC4B5896727EC6CE5 /* RealtimeWebRTCVoiceTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeWebRTCVoiceTransportTests.swift; sourceTree = "<group>"; };
 		31DFF3CD751EC0680E7E70C1 /* GraphRelationshipViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRelationshipViews.swift; sourceTree = "<group>"; };
 		3C1488B22758C1F8843D3CF5 /* WatchWorkoutServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchWorkoutServices.swift; sourceTree = "<group>"; };
+		3ECCF34164F8DFDBE6FF5E13 /* NativeWebRTCCompileTimeSpikeRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebRTCCompileTimeSpikeRuntime.swift; sourceTree = "<group>"; };
 		41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarChrome.swift; sourceTree = "<group>"; };
 		43B5F7FE8066B45C8D015097 /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		447992772B2CCFAE1CF16509 /* WorkoutPhoneReceiverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPhoneReceiverTests.swift; sourceTree = "<group>"; };
@@ -586,6 +592,7 @@
 				8F822D8E1C45AAD940DB28D1 /* LiveViewScreen.swift */,
 				DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */,
 				F73ED1233D7276EDB0A7956C /* NativeWebRTCCompatibilityProbe.swift */,
+				3ECCF34164F8DFDBE6FF5E13 /* NativeWebRTCCompileTimeSpikeRuntime.swift */,
 				D76762F81B512A918E1CBD2B /* OnDeviceSpeechTranscriber.swift */,
 				E28583E8668DBB7F8CFDFED7 /* OtherPeopleView.swift */,
 				BC76D5BECEE55599DC2D317D /* PageLifecycleActions.swift */,
@@ -596,6 +603,7 @@
 				0682E6D3339512E31330A48C /* PersonNameEditor.swift */,
 				C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */,
 				8A683189FA8C24FF8B2427AD /* RealtimeVoiceRuntime.swift */,
+				1832313E218DCC00813500AD /* RealtimeVoiceRuntimeFactory.swift */,
 				85DD01C8D897207512D9AB0A /* RealtimeVoiceSurface.swift */,
 				45B725496A6A5E2F4B3488A3 /* RealtimeWebRTCBridge.swift */,
 				96D7C82B575E0783990D5543 /* RealtimeWebRTCVoiceTransport.swift */,
@@ -1017,6 +1025,7 @@
 				2D19D64D3D92844E4330C645 /* MacSettingsView.swift in Sources */,
 				CCC1E0718BD75FF9B103D146 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
 				552F2945D319CB8815ADE5B7 /* NativeWebRTCCompatibilityProbe.swift in Sources */,
+				DBFEE53BEA40360746A635D9 /* NativeWebRTCCompileTimeSpikeRuntime.swift in Sources */,
 				2524093D4DC22F45EE5517F3 /* NewEntryFocusedValue.swift in Sources */,
 				51E2FC5ED8A2A1ECB8A23760 /* OnDeviceSpeechTranscriber.swift in Sources */,
 				F1FC7441FEE16D1DA6289CB2 /* OtherPeopleView.swift in Sources */,
@@ -1028,6 +1037,7 @@
 				CFB68BE51FFC3002C0B2A439 /* PersonNameEditor.swift in Sources */,
 				E189EF6F3095B37FCA5EB886 /* PersonReferenceCreationForm.swift in Sources */,
 				ACA396FD49471D3339560A98 /* RealtimeVoiceRuntime.swift in Sources */,
+				708C56147F8C7594742BFE72 /* RealtimeVoiceRuntimeFactory.swift in Sources */,
 				11F1454C034DF4E2CC02B4FF /* RealtimeVoiceSurface.swift in Sources */,
 				22BEE60CB07405C9854BB9DA /* RealtimeWebRTCBridge.swift in Sources */,
 				103BE1E6FC4E3D33D2C218E0 /* RealtimeWebRTCVoiceTransport.swift in Sources */,
@@ -1102,6 +1112,7 @@
 				06D06CF4F648479F628A9CD4 /* MobileTabSelectionCoordinator.swift in Sources */,
 				165B631D8CAC87979D400EE1 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */,
 				B44F640F27DCCB34C1873B9D /* NativeWebRTCCompatibilityProbe.swift in Sources */,
+				03C4A86C85CAE2ED2E2C1F2E /* NativeWebRTCCompileTimeSpikeRuntime.swift in Sources */,
 				3F1BF0174D64D0FE39ED02BB /* OnDeviceSpeechTranscriber.swift in Sources */,
 				3FF4BF81269643201ECCB5E1 /* OtherPeopleView.swift in Sources */,
 				8A55C779BD86C9700B4BAB10 /* PageLifecycleActions.swift in Sources */,
@@ -1112,6 +1123,7 @@
 				CE4D5E7155EB0E73AA144F02 /* PersonNameEditor.swift in Sources */,
 				6266E583A7D2398FF29F5025 /* PersonReferenceCreationForm.swift in Sources */,
 				868CC2CD2F428C500B3566C2 /* RealtimeVoiceRuntime.swift in Sources */,
+				48E5C30BF5B54350329D5035 /* RealtimeVoiceRuntimeFactory.swift in Sources */,
 				D61EF7FD3F89FAF81090CE77 /* RealtimeVoiceSurface.swift in Sources */,
 				DCC56A91621F64E20BEDC771 /* RealtimeWebRTCBridge.swift in Sources */,
 				45038B2961636DD6EFE3A8FE /* RealtimeWebRTCVoiceTransport.swift in Sources */,

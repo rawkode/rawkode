@@ -116,6 +116,17 @@ struct RealtimeVoiceLobbyView: View {
   private var active: some View {
     if let session = coordinator?.session {
       VStack(spacing: 0) {
+        #if DEBUG
+        if coordinator?.usesExperimentalNativeWebRTC == true {
+          Label("Experimental native WebRTC", systemImage: "exclamationmark.triangle")
+            .font(.callout.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.yellow.opacity(0.2))
+            .accessibilityLabel("Experimental native WebRTC")
+        }
+        #endif
         RealtimeVoiceActiveView(
           state: RealtimeVoiceDisplayState(
             route: route,
