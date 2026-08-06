@@ -68,12 +68,12 @@ describe("v2 device service real Workerd P-256 integration", () => {
     }
   });
 
-  test("accepts the fixed SPKI/DER challenge proof and rejects a tampered DER signature", async () => {
+  test("accepts the committed low-S proof and rejects its committed high-S DER twin", async () => {
     const accepted = await fetch(baseURL);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ ok: true });
 
-    const rejected = await fetch(`${baseURL}/tampered`);
+    const rejected = await fetch(`${baseURL}/high-s`);
     expect(rejected.status).toBe(401);
     expect(await rejected.json()).toMatchObject({ ok: false });
   }, 15_000);

@@ -10,7 +10,7 @@ end
 
 local function scheme_for_appearance(appearance)
     if appearance:find 'Dark' then
-        return 'rose-pine'
+        return 'Catppuccin Mocha'
     end
 
     return 'rose-pine-dawn'
@@ -25,6 +25,7 @@ if wezterm.config_builder then
     config.automatically_reload_config = true
     config.detect_password_input = true
     config.hide_mouse_cursor_when_typing = true
+    config.default_cursor_style = 'BlinkingBlock'
     config.adjust_window_size_when_changing_font_size = false
 
     config.use_fancy_tab_bar = true
@@ -34,19 +35,19 @@ if wezterm.config_builder then
     config.enable_wayland = true
     config.webgpu_power_preference = "HighPerformance"
 
-		config.window_padding = {
-		  left = 64,
-		  right = 64,
-		  top = 64,
-		  bottom = 64,
-		}
+    config.window_padding = {
+        left = 16,
+        right = 16,
+        top = 16,
+        bottom = 16,
+    }
 
     config.window_close_confirmation = "NeverPrompt"
 
     config.pane_focus_follows_mouse = true
 
-		config.macos_window_background_blur = 20
-		config.window_background_opacity = 0.92
+    config.macos_window_background_blur = 32
+    config.window_background_opacity = 1.0
 
     config.window_frame = {
         font = wezterm.font({
@@ -61,7 +62,25 @@ if wezterm.config_builder then
 	    action = wezterm.action.ActivateCommandPalette,
 	  }}
 
-    config.font = wezterm.font_with_fallback {'Monaspace Neon', 'Symbols Nerd Font Mono'}
+    config.font = wezterm.font_with_fallback {
+        {
+            family = 'Monaspace Neon',
+            harfbuzz_features = {
+                'calt=1',
+                'liga=1',
+                'ss01=1',
+                'ss02=1',
+                'ss03=1',
+                'ss04=1',
+                'ss05=1',
+                'ss06=1',
+                'ss07=1',
+                'ss08=1',
+            },
+        },
+        'Symbols Nerd Font Mono',
+    }
+    config.line_height = 1.15
     config.font_size = 16.0
 
     -- Clickable Links

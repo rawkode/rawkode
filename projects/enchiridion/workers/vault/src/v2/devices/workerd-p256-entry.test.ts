@@ -22,13 +22,17 @@ const challengeProof = {
   signature:
     "MEUCIQCywtmh9SSgZUwin2KjSS40eSxyvXWbwDXARzD/MM483wIgGj0V0T2pF+1cMoltISCg3ZVK5pAzszFrkrbhqaaONTc=",
 } as const;
+// The mathematically valid high-S twin of challengeProof.signature. The
+// runtime canonical parser must reject it before WebCrypto verification.
+const committedHighSSignatureDERBase64 =
+  "MEYCIQCywtmh9SSgZUwin2KjSS40eSxyvXWbwDXARzD/MM483wIhAOXC6i3CVugTo812kt7fXyInnBQdc2RtGWEC6RlV1PAa";
 
 const unavailableRecovery = {
   rebindExistingDevice: () =>
     Effect.fail(new DeviceServiceError({ reason: "recovery_not_configured" })),
 };
 
-const registerFixedProof = (tampered: boolean) =>
+const registerFixedProof = (signature: string, idempotencyKey: string) =>
   Effect.gen(function* () {
     const repository = yield* makeInMemoryDeviceRegistryRepository;
     const service = yield* makeDeviceService.pipe(
@@ -56,11 +60,9 @@ const registerFixedProof = (tampered: boolean) =>
       {
         challengeProof: {
           ...challengeProof,
-          signature: tampered
-            ? "MEUCIQDywtmh9SSgZUwin2KjSS40eSxyvXWbwDXARzD/MM483wIgGj0V0T2pF+1cMoltISCg3ZVK5pAzszFrkrbhqaaONTc="
-            : challengeProof.signature,
+          signature,
         },
-        idempotencyKey: tampered ? "workerd-p256-tampered" : "workerd-p256-fixed",
+        idempotencyKey,
       },
       now,
     );
@@ -68,8 +70,13 @@ const registerFixedProof = (tampered: boolean) =>
 
 export default {
   async fetch(request: Request): Promise<Response> {
-    const tampered = new URL(request.url).pathname === "/tampered";
-    const result = await Effect.runPromiseExit(registerFixedProof(tampered));
+    const highS = new URL(request.url).pathname === "/high-s";
+    const result = await Effect.runPromiseExit(
+      registerFixedProof(
+        highS ? committedHighSSignatureDERBase64 : challengeProof.signature,
+        highS ? "workerd-p256-high-s" : "workerd-p256-fixed",
+      ),
+    );
     if (result._tag === "Success")
       return Response.json({ ok: true, deviceID: result.value.deviceID });
     return Response.json({ ok: false, reason: result.cause._tag }, { status: 401 });

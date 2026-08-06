@@ -40,6 +40,20 @@ export interface DeviceRegistrationResult {
   readonly replayed: boolean;
 }
 
+export interface DeviceNonceAuthorization {
+  readonly expectedBinding: OwnerVaultBinding;
+  readonly expectedCredentialEpoch: number;
+  readonly expectedGenerationEpoch: number;
+  readonly expectedDeviceID: string;
+  readonly expectedAuthEpoch: number;
+  readonly expectedSecurityFloor: number;
+  readonly nonce: string;
+  readonly expiresAt: number;
+  readonly now: number;
+  /** SHA-256 over the canonical signed request bytes, retained with the nonce claim. */
+  readonly requestFingerprint: string;
+}
+
 export class DeviceServiceError extends Data.TaggedError("DeviceServiceError")<{
   readonly reason:
     | "challenge_expired"
@@ -71,17 +85,20 @@ export interface DeviceRegistryRepository {
   readonly registerFromChallenge: (input: {
     readonly challengeID: string;
     readonly idempotencyKey: string;
+    readonly proofFingerprint: string;
     readonly device: DeviceRecord;
     readonly now: number;
   }) => Effect.Effect<DeviceRegistrationResult, DeviceServiceError>;
+  /** Resolves an immutable successful registration receipt before challenge expiry is considered. */
+  readonly getRegistrationReceipt: (input: {
+    readonly idempotencyKey: string;
+    readonly proofFingerprint: string;
+  }) => Effect.Effect<DeviceRegistrationResult | undefined, DeviceServiceError>;
   readonly getDevice: (deviceID: string) => Effect.Effect<DeviceRecord, DeviceServiceError>;
-  readonly consumeRequestNonce: (input: {
-    readonly binding: OwnerVaultBinding;
-    readonly actorDeviceID: string;
-    readonly nonce: string;
-    readonly expiresAt: number;
-    readonly now: number;
-  }) => Effect.Effect<void, DeviceServiceError>;
+  /** Atomically rechecks device authority and claims its nonce after signature verification. */
+  readonly authorizeAndClaimNonce: (
+    input: DeviceNonceAuthorization,
+  ) => Effect.Effect<DeviceRecord, DeviceServiceError>;
   readonly revokeDevice: (input: {
     readonly binding: OwnerVaultBinding;
     readonly targetDeviceID: string;

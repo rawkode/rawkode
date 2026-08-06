@@ -6,9 +6,12 @@ import {
   deviceRevokeCommandSHA256,
   protocolVersion,
 } from "@enchiridion/protocol";
-import { P256Crypto as RuntimeP256Crypto, makeP256Crypto } from "@enchiridion/runtime";
-import { Effect, Exit, Layer } from "effect";
-import { p256DerBase64ToP1363 } from "./p256";
+import {
+  P256Crypto as RuntimeP256Crypto,
+  makeP256Crypto,
+  p256DerSignatureToP1363,
+} from "@enchiridion/runtime";
+import { Deferred, Effect, Exit, Layer } from "effect";
 import { makeInMemoryDeviceRegistryRepository } from "./repository";
 import { makeDeviceService } from "./service";
 import {
@@ -19,9 +22,11 @@ import {
 
 const now = 1_760_000_000_000;
 const signatureDER =
-  "MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=";
+  "MEQCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiAdJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==";
 const signatureP1363 =
-  "CG5y3idBVD4QzwT9I7bvr5KGycsfojCW5hCZsWK3L07i27LLUKURSjw9jQG8DE9iMd0Xc3k/V39q7uBiNzpy1g==";
+  "CG5y3idBVD4QzwT9I7bvr5KGycsfojCW5hCZsWK3L04dJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==";
+const highSSignatureDER =
+  "MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=";
 const spki =
   "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeRo6IA5qHb0Clfwa7yCD4u0UOVCKLCcaGkWz1/94iIrBm/IjXooNCCb3LCnkD8iM899EHZ3CswgZ3zSXHHERUA==";
 const binding: OwnerVaultBinding = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1 };
@@ -152,64 +157,16 @@ const revokeEnvelope = (
   };
 };
 
-const derInteger = (source: Uint8Array): Uint8Array => {
-  let first = 0;
-  while (first < source.length - 1 && source[first] === 0) first += 1;
-  const value = source.slice(first);
-  const prefix = (value[0] ?? 0) & 0x80 ? 1 : 0;
-  const output = new Uint8Array(2 + prefix + value.length);
-  output[0] = 0x02;
-  output[1] = prefix + value.length;
-  output.set(value, 2 + prefix);
-  return output;
-};
-
-const p1363ToDER = (signature: Uint8Array): Uint8Array => {
-  const r = derInteger(signature.slice(0, 32));
-  const s = derInteger(signature.slice(32));
-  const output = new Uint8Array(2 + r.length + s.length);
-  output[0] = 0x30;
-  output[1] = r.length + s.length;
-  output.set(r, 2);
-  output.set(s, 2 + r.length);
-  return output;
-};
+const fromBase64 = (value: string): Uint8Array => Uint8Array.from(Buffer.from(value, "base64"));
 
 describe("v2 device service", () => {
-  test("converts the shared TS/Swift P-256 DER vector to 64-byte P1363", () => {
-    const bytes = p256DerBase64ToP1363(signatureDER);
+  test("uses the runtime canonical low-S DER parser for the shared TS/Swift vector", () => {
+    const bytes = p256DerSignatureToP1363(fromBase64(signatureDER));
     expect(bytes).toBeDefined();
     expect(btoa(String.fromCharCode(...(bytes ?? [])))).toBe(signatureP1363);
-    expect(
-      p256DerBase64ToP1363(
-        "MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=",
-      ),
-    ).toBeDefined();
-    expect(p256DerBase64ToP1363("MAYCAQECAQEA")).toBeUndefined();
-  });
-
-  test("Workerd-compatible WebCrypto P-256 spike verifies DER converted to P1363", async () => {
-    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
-      "sign",
-      "verify",
-    ]);
-    const payload = new TextEncoder().encode("enchiridion-device-p256-spike");
-    const p1363 = new Uint8Array(
-      await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, payload),
-    );
-    expect(p1363.length).toBe(64);
-    const converted = p256DerBase64ToP1363(btoa(String.fromCharCode(...p1363ToDER(p1363))));
-    expect(converted).toEqual(p1363);
-    const verificationSignature = new Uint8Array(converted?.length ?? 0);
-    if (converted !== undefined) verificationSignature.set(converted);
-    expect(
-      await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" },
-        keys.publicKey,
-        verificationSignature,
-        payload,
-      ),
-    ).toBe(true);
+    expect(p256DerSignatureToP1363(fromBase64("MAYCAQACAQE="))).toBeUndefined();
+    expect(p256DerSignatureToP1363(fromBase64("MAYCAQECAQA="))).toBeUndefined();
+    expect(p256DerSignatureToP1363(fromBase64(highSSignatureDER))).toBeUndefined();
   });
 
   test("wires the fixed challenge proof through the audited runtime P-256 service", async () => {
@@ -282,6 +239,37 @@ describe("v2 device service", () => {
       ),
     );
     expect(Exit.isFailure(conflict)).toBe(true);
+  });
+
+  test("returns the immutable registration receipt before expiry checks and conflicts on a changed proof", async () => {
+    const { repository, deviceService } = await service();
+    const registered = await register(deviceService, "receipt-idempotency");
+    const current = await Effect.runPromise(
+      repository.repository.revokeDevice({
+        binding,
+        targetDeviceID: registered.response.deviceID,
+        requestID: "receipt-revoke",
+        now,
+      }),
+    );
+    expect(current.authEpoch).toBe(2);
+    const retry = await Effect.runPromise(
+      deviceService.registerInitialOrAdditionalDevice(
+        { challengeProof: registered.proof, idempotencyKey: "receipt-idempotency" },
+        registered.challenge.expiresAt + 1,
+      ),
+    );
+    expect(retry).toEqual(registered.response);
+    const mismatched = await Effect.runPromiseExit(
+      deviceService.registerInitialOrAdditionalDevice(
+        {
+          challengeProof: { ...registered.proof, challengeAudience: "changed-audience" },
+          idempotencyKey: "receipt-idempotency",
+        },
+        registered.challenge.expiresAt + 1,
+      ),
+    );
+    expect(Exit.isFailure(mismatched)).toBe(true);
   });
 
   test("rejects challenge expiry, quota excess, and concurrent competing registrations", async () => {
@@ -393,5 +381,122 @@ describe("v2 device service", () => {
       }),
     );
     expect(Exit.isFailure(malformed)).toBe(true);
+  });
+
+  test("requires exact binding, credential, generation, device, auth, and security expectations to claim a nonce", async () => {
+    const { repository, deviceService } = await service();
+    const actor = await register(deviceService, "authorization-actor");
+    const expected = {
+      expectedBinding: binding,
+      expectedCredentialEpoch: 1,
+      expectedGenerationEpoch: binding.generationEpoch,
+      expectedDeviceID: actor.response.deviceID,
+      expectedAuthEpoch: 1,
+      expectedSecurityFloor: 0,
+      expiresAt: now + 60_000,
+      now,
+      requestFingerprint: "a".repeat(64),
+    };
+    const rejected = await Effect.runPromise(
+      Effect.all(
+        [
+          repository.repository
+            .authorizeAndClaimNonce({
+              ...expected,
+              expectedBinding: { ...binding, vaultID: "other-vault" },
+              nonce: frameIDs[0],
+            })
+            .pipe(Effect.exit),
+          repository.repository
+            .authorizeAndClaimNonce({
+              ...expected,
+              expectedCredentialEpoch: 2,
+              nonce: frameIDs[1],
+            })
+            .pipe(Effect.exit),
+          repository.repository
+            .authorizeAndClaimNonce({
+              ...expected,
+              expectedGenerationEpoch: 2,
+              nonce: frameIDs[2],
+            })
+            .pipe(Effect.exit),
+          repository.repository
+            .authorizeAndClaimNonce({
+              ...expected,
+              expectedDeviceID: "other-device",
+              nonce: frameIDs[3],
+            })
+            .pipe(Effect.exit),
+        ],
+        { concurrency: "unbounded" },
+      ),
+    );
+    expect(rejected.every(Exit.isFailure)).toBe(true);
+    const staleEpoch = await Effect.runPromiseExit(
+      repository.repository.authorizeAndClaimNonce({
+        ...expected,
+        expectedAuthEpoch: 2,
+        nonce: "BAQEBAQEBAQEBAQEBAQEBA",
+      }),
+    );
+    expect(Exit.isFailure(staleEpoch)).toBe(true);
+    const staleFloor = await Effect.runPromiseExit(
+      repository.repository.authorizeAndClaimNonce({
+        ...expected,
+        expectedSecurityFloor: 1,
+        nonce: "BQUFBQUFBQUFBQUFBQUFBQ",
+      }),
+    );
+    expect(Exit.isFailure(staleFloor)).toBe(true);
+  });
+
+  test("atomically denies a verified actor request when revocation wins before nonce authorization", async () => {
+    const { repository, deviceService } = await service();
+    const actor = await register(deviceService, "race-actor");
+    const verifyStarted = await Effect.runPromise(Deferred.make<void>());
+    const allowVerification = await Effect.runPromise(Deferred.make<void>());
+    const pausedP256 = {
+      random32: testP256Crypto().random32,
+      verify: () =>
+        Deferred.succeed(verifyStarted, undefined).pipe(
+          Effect.zipRight(Deferred.await(allowVerification)),
+        ),
+    };
+    const pausedService = await Effect.runPromise(
+      makeDeviceService.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            repository.layer,
+            Layer.succeed(RuntimeP256Crypto, pausedP256),
+            Layer.succeed(ExistingDeviceRecoveryRebinder, unavailableRecovery),
+          ),
+        ),
+      ),
+    );
+    const envelope = revokeEnvelope(actor.response.deviceID, actor.response.deviceID, frameIDs[3]);
+    const pending = Effect.runPromiseExit(
+      pausedService.verifySignedActorRequest({
+        envelope,
+        binding,
+        method: "POST",
+        canonicalPath: envelope.canonicalPath,
+        canonicalQuery: "",
+        bodySHA256: envelope.bodySHA256,
+        now,
+      }),
+    );
+    await Effect.runPromise(Deferred.await(verifyStarted));
+    await Effect.runPromise(
+      repository.repository.revokeDevice({
+        binding,
+        targetDeviceID: actor.response.deviceID,
+        requestID: "race-revoke",
+        now,
+      }),
+    );
+    await Effect.runPromise(Deferred.succeed(allowVerification, undefined));
+    const result = await pending;
+    expect(Exit.isFailure(result)).toBe(true);
   });
 });

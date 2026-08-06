@@ -3,6 +3,7 @@ import {
   deviceChallengeProofSigningPayload,
   deviceRevokeCommandSHA256,
   protocolVersion,
+  sha256Hex,
   signedDeviceRequestSigningPayload,
 } from "@enchiridion/protocol";
 import {
@@ -63,6 +64,23 @@ const validDevicePublicKey = (value: string): boolean => {
   const bytes = canonicalBase64Bytes(value);
   return bytes !== undefined && canonicalP256Spki(bytes) !== undefined;
 };
+
+const signedFingerprint = (payload: Uint8Array, signature: string): string => {
+  const signatureBytes = new TextEncoder().encode(signature);
+  const bytes = new Uint8Array(8 + payload.byteLength + signatureBytes.byteLength);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, payload.byteLength, false);
+  bytes.set(payload, 4);
+  view.setUint32(4 + payload.byteLength, signatureBytes.byteLength, false);
+  bytes.set(signatureBytes, 8 + payload.byteLength);
+  return sha256Hex(bytes);
+};
+
+const registrationProofFingerprint = (proof: DeviceChallengeProof): string =>
+  signedFingerprint(deviceChallengeProofSigningPayload(proof), proof.signature);
+
+const signedRequestFingerprint = (envelope: SignedDeviceRequestEnvelope): string =>
+  signedFingerprint(signedDeviceRequestSigningPayload(envelope), envelope.deviceSignature);
 
 const random32 = (
   crypto: RuntimeP256CryptoService,
@@ -179,6 +197,18 @@ export const makeDeviceService = Effect.gen(function* () {
     now: number,
   ): Effect.Effect<DeviceRegisterResponse, DeviceServiceError> =>
     Effect.gen(function* () {
+      const proofFingerprint = registrationProofFingerprint(request.challengeProof);
+      const prior = yield* repository.getRegistrationReceipt({
+        idempotencyKey: request.idempotencyKey,
+        proofFingerprint,
+      });
+      if (prior !== undefined)
+        return {
+          protocolVersion,
+          ownerID: prior.device.ownerID,
+          deviceID: prior.device.deviceID,
+          authEpoch: prior.device.authEpoch,
+        };
       const challenge = yield* repository.getChallenge(request.challengeProof.challengeID, now);
       if (!challengeMatchesProof(challenge, request.challengeProof))
         return yield* Effect.fail(new DeviceServiceError({ reason: "challenge_mismatch" }));
@@ -192,6 +222,7 @@ export const makeDeviceService = Effect.gen(function* () {
       const registration = yield* repository.registerFromChallenge({
         challengeID: challenge.challengeID,
         idempotencyKey: request.idempotencyKey,
+        proofFingerprint,
         now,
         device: {
           ownerID: challenge.ownerID,
@@ -254,14 +285,18 @@ export const makeDeviceService = Effect.gen(function* () {
         signedDeviceRequestSigningPayload(envelope),
         envelope.deviceSignature,
       );
-      yield* repository.consumeRequestNonce({
-        binding,
-        actorDeviceID: actor.deviceID,
+      return yield* repository.authorizeAndClaimNonce({
+        expectedBinding: binding,
+        expectedCredentialEpoch: actor.credentialEpoch,
+        expectedGenerationEpoch: actor.generationEpoch,
+        expectedDeviceID: actor.deviceID,
+        expectedAuthEpoch: actor.authEpoch,
+        expectedSecurityFloor: actor.securityFloor,
         nonce: envelope.nonce,
         expiresAt: envelope.expiresAt,
         now,
+        requestFingerprint: signedRequestFingerprint(envelope),
       });
-      return actor;
     });
   };
 

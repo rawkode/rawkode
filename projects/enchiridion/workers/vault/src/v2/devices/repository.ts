@@ -2,6 +2,7 @@
 import { Effect, Layer, Ref } from "effect";
 import {
   type DeviceChallengeRecord,
+  type DeviceNonceAuthorization,
   type DeviceRecord,
   type DeviceRegistrationResult,
   DeviceRegistryRepository,
@@ -10,15 +11,21 @@ import {
 } from "./types";
 
 interface RegistrationEntry {
-  readonly challengeID: string;
-  readonly deviceID: string;
+  readonly proofFingerprint: string;
+  /** Immutable success receipt; never reload mutable current-device state for a retry. */
+  readonly result: DeviceRegistrationResult;
+}
+
+interface NonceEntry {
+  readonly expiresAt: number;
+  readonly requestFingerprint: string;
 }
 
 interface RegistryState {
   readonly challenges: Readonly<Record<string, DeviceChallengeRecord>>;
   readonly devices: Readonly<Record<string, DeviceRecord>>;
   readonly registrations: Readonly<Record<string, RegistrationEntry>>;
-  readonly nonces: Readonly<Record<string, number>>;
+  readonly nonces: Readonly<Record<string, NonceEntry>>;
   readonly securityFloors: Readonly<Record<string, number>>;
   readonly revokeRequests: Readonly<Record<string, string>>;
 }
@@ -26,13 +33,20 @@ interface RegistryState {
 const challengeQuota = 8;
 const bindingKey = (binding: OwnerVaultBinding): string =>
   `${binding.ownerID}\u0000${binding.vaultID}\u0000${binding.generationEpoch}`;
-const registrationKey = (challengeID: string, idempotencyKey: string): string =>
-  `${challengeID}\u0000${idempotencyKey}`;
+const registrationKey = (idempotencyKey: string): string => idempotencyKey;
 
 const sameBinding = (left: OwnerVaultBinding, right: OwnerVaultBinding): boolean =>
   left.ownerID === right.ownerID &&
   left.vaultID === right.vaultID &&
   left.generationEpoch === right.generationEpoch;
+
+const sameAuthorization = (device: DeviceRecord, input: DeviceNonceAuthorization): boolean =>
+  sameBinding(device, input.expectedBinding) &&
+  device.generationEpoch === input.expectedGenerationEpoch &&
+  device.deviceID === input.expectedDeviceID &&
+  device.credentialEpoch === input.expectedCredentialEpoch &&
+  device.authEpoch === input.expectedAuthEpoch &&
+  device.securityFloor === input.expectedSecurityFloor;
 
 const initialState: RegistryState = {
   challenges: {},
@@ -77,13 +91,12 @@ export const makeInMemoryDeviceRegistryRepository = Effect.gen(function* () {
       }),
     registerFromChallenge: (input) =>
       Ref.modify(state, (current) => {
-        const key = registrationKey(input.challengeID, input.idempotencyKey);
+        const key = registrationKey(input.idempotencyKey);
         const prior = current.registrations[key];
         if (prior !== undefined) {
-          const device = current.devices[prior.deviceID];
-          return device === undefined
-            ? ([fail("state_conflict"), current] as const)
-            : ([succeed({ device, replayed: true }), current] as const);
+          return prior.proofFingerprint === input.proofFingerprint
+            ? ([succeed({ ...prior.result, replayed: true }), current] as const)
+            : ([fail("idempotency_conflict"), current] as const);
         }
         const challenge = current.challenges[input.challengeID];
         if (challenge === undefined) return [fail("challenge_not_found"), current] as const;
@@ -97,33 +110,52 @@ export const makeInMemoryDeviceRegistryRepository = Effect.gen(function* () {
         if (current.devices[input.device.deviceID] !== undefined)
           return [fail("state_conflict"), current] as const;
         const consumed = { ...challenge, consumed: true };
+        const result: DeviceRegistrationResult = { device: input.device, replayed: false };
         return [
-          succeed({ device: input.device, replayed: false }),
+          succeed(result),
           {
             ...current,
             challenges: { ...current.challenges, [challenge.challengeID]: consumed },
             devices: { ...current.devices, [input.device.deviceID]: input.device },
             registrations: {
               ...current.registrations,
-              [key]: { challengeID: challenge.challengeID, deviceID: input.device.deviceID },
+              [key]: { proofFingerprint: input.proofFingerprint, result },
             },
           },
         ] as const;
       }).pipe(Effect.flatten),
+    getRegistrationReceipt: (input) =>
+      Effect.flatMap(Ref.get(state), (current) => {
+        const prior = current.registrations[registrationKey(input.idempotencyKey)];
+        if (prior === undefined) return succeed(undefined);
+        return prior.proofFingerprint === input.proofFingerprint
+          ? succeed({ ...prior.result, replayed: true })
+          : fail("idempotency_conflict");
+      }),
     getDevice: (deviceID) =>
       Effect.flatMap(Ref.get(state), (current) => {
         const device = current.devices[deviceID];
         return device === undefined ? fail("device_not_found") : succeed(device);
       }),
-    consumeRequestNonce: (input) =>
+    authorizeAndClaimNonce: (input) =>
       Ref.modify(state, (current) => {
-        const key = `${bindingKey(input.binding)}\u0000${input.actorDeviceID}\u0000${input.nonce}`;
-        const consumedUntil = current.nonces[key];
-        if (consumedUntil !== undefined && consumedUntil > input.now)
+        const device = current.devices[input.expectedDeviceID];
+        if (device === undefined) return [fail("device_not_found"), current] as const;
+        if (device.revoked) return [fail("device_revoked"), current] as const;
+        if (!sameAuthorization(device, input)) return [fail("state_conflict"), current] as const;
+        const key = `${bindingKey(input.expectedBinding)}\u0000${device.deviceID}\u0000${input.nonce}`;
+        const prior = current.nonces[key];
+        if (prior !== undefined && prior.expiresAt > input.now)
           return [fail("nonce_replay"), current] as const;
         return [
-          succeed(undefined),
-          { ...current, nonces: { ...current.nonces, [key]: input.expiresAt } },
+          succeed(device),
+          {
+            ...current,
+            nonces: {
+              ...current.nonces,
+              [key]: { expiresAt: input.expiresAt, requestFingerprint: input.requestFingerprint },
+            },
+          },
         ] as const;
       }).pipe(Effect.flatten),
     revokeDevice: (input) =>
