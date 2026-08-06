@@ -299,6 +299,51 @@ export class DurableObjectInvocationError extends Data.TaggedError("DurableObjec
   }
 }
 
+/** Closed failures while claiming and reading one inbound Worker Request body. */
+export class RequestBodyError extends Data.TaggedError("RequestBodyError")<{
+  readonly reason:
+    | "invalid_configuration"
+    | "request_malformed"
+    | "content_length_required"
+    | "content_length_invalid"
+    | "content_length_mismatch"
+    | "content_type_invalid"
+    | "body_unavailable"
+    | "body_already_claimed"
+    | "body_too_large";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "invalid_configuration"
+      | "request_malformed"
+      | "content_length_required"
+      | "content_length_invalid"
+      | "content_length_mismatch"
+      | "content_type_invalid"
+      | "body_unavailable"
+      | "body_already_claimed"
+      | "body_too_large";
+  }) {
+    if (
+      !(
+        [
+          "invalid_configuration",
+          "request_malformed",
+          "content_length_required",
+          "content_length_invalid",
+          "content_length_mismatch",
+          "content_type_invalid",
+          "body_unavailable",
+          "body_already_claimed",
+          "body_too_large",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid RequestBodyError fields.");
+    super({ reason: input.reason });
+  }
+}
+
 /** Safe failure categories for Cloudflare Access JWT/JWKS verification.
  * Neither rejected platform causes nor JWT contents cross this boundary. */
 export class AccessJwtVerificationError extends Data.TaggedError("AccessJwtVerificationError")<{
@@ -528,6 +573,7 @@ export type RuntimeError =
   | WorkerBoundaryError
   | DurableObjectBoundaryError
   | DurableObjectInvocationError
+  | RequestBodyError
   | AccessJwtVerificationError
   | P256VerificationError
   | ImmutableR2Error
@@ -553,6 +599,7 @@ export const classifyRuntimeError = (error: unknown): RuntimeErrorClassification
   if (error instanceof WorkerBoundaryError) return "WorkerBoundaryError";
   if (error instanceof DurableObjectBoundaryError) return "DurableObjectBoundaryError";
   if (error instanceof DurableObjectInvocationError) return "DurableObjectInvocationError";
+  if (error instanceof RequestBodyError) return "RequestBodyError";
   if (error instanceof AccessJwtVerificationError) return "AccessJwtVerificationError";
   if (error instanceof P256VerificationError) return "P256VerificationError";
   if (error instanceof ImmutableR2Error) return "ImmutableR2Error";

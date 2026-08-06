@@ -10,5 +10,6 @@ export * from "./manifest";
 export * from "./operation";
 export * from "./p256";
 export * from "./p256-vectors";
+export * from "./request-body";
 export * from "./telemetry";
 export * from "./testing";

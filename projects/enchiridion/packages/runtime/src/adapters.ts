@@ -93,6 +93,13 @@ export const cloudflareAdapterLedger = [
     audit:
       "The client fixes the namespace name, method, path, headers, expected status and byte caps before invocation; rejected platform causes, response headers and response bodies never enter diagnostics.",
   },
+  {
+    id: "request-body-stream",
+    boundary: "Worker Request structural access and one bounded ReadableStream body claim",
+    owner: "@enchiridion/runtime",
+    audit:
+      "The adapter exact-decodes static limits before reading, claims a request body once, copies chunks before return, and discards stream, getter, and cleanup causes in favour of closed errors.",
+  },
 ] as const;
 
 export type CloudflareAdapterID = (typeof cloudflareAdapterLedger)[number]["id"];

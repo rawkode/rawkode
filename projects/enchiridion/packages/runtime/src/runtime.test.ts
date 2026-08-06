@@ -120,7 +120,7 @@ describe("runtime", () => {
       { name: "operation.start" },
       { name: "operation.success" },
     ]);
-    expect(cloudflareAdapterLedger).toHaveLength(10);
+    expect(cloudflareAdapterLedger).toHaveLength(11);
     expect(cloudflareAdapterLedger.some(({ id }) => id === "access-jose-jwks")).toBe(true);
     expect(cloudflareAdapterLedger.map((entry) => entry.id)).toEqual([
       "cloudflare-promise",
@@ -133,6 +133,7 @@ describe("runtime", () => {
       "access-jose-jwks",
       "durable-object-callback-storage",
       "durable-object-fixed-http",
+      "request-body-stream",
     ]);
   });
 

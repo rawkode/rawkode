@@ -279,7 +279,10 @@ export const makeFixedDurableObjectClient = (
                 Effect.try({
                   try: () => {
                     const headers = new Headers(
-                      fixedConfiguration.headers.map(([name, value]) => [name, value]),
+                      fixedConfiguration.headers.map(([name, value]): [string, string] => [
+                        name,
+                        value,
+                      ]),
                     );
                     return new Request(`https://durable-object.invalid${fixedConfiguration.path}`, {
                       method: fixedConfiguration.method,

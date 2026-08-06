@@ -18,6 +18,7 @@ const projectRoot = resolve(import.meta.dir, "..");
 const runtimeAdapterPaths = new Set([
   resolve(projectRoot, "packages/runtime/src/adapters.ts"),
   resolve(projectRoot, "packages/runtime/src/durable-object-client.ts"),
+  resolve(projectRoot, "packages/runtime/src/request-body.ts"),
 ]);
 const effectModuleMarker = "@enchiridion/effect-module";
 const sourceGlob = new Glob("**/*.{ts,mts,cts,tsx}");
