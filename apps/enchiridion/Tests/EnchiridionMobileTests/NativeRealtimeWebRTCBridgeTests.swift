@@ -74,7 +74,10 @@ import XCTest
       for index in 0..<255 { XCTAssertFalse(relay.enqueue(a, .serverEvent(generation: 1, json: "\(index)"))) }
       XCTAssertTrue(relay.enqueue(a, .serverEvent(generation: 1, json: "overflow")))
       XCTAssertFalse(relay.enqueue(b, .serverEvent(generation: 2, json: "stale-b")))
+      XCTAssertEqual(relay.claimOverflowDriver(a), .driver)
+      XCTAssertEqual(relay.claimOverflowDriver(a), .join)
       relay.completeTerminal(a, event: .failure(generation: 1, code: "event_overflow"))
+      await relay.joinOverflow(a)
       var iterator = relay.stream().makeAsyncIterator()
       let event = await iterator.next()
       let end = await iterator.next()
