@@ -29,6 +29,23 @@ export interface CapabilityKeyMaterial {
   readonly secret: Redacted.Redacted;
 }
 
+export const maximumPriorCapabilityKeys = 2;
+
+/** Long-lived opaque credential-binding HMAC material. Never accepted by the
+ * short-lived internal-capability signer or verifier. */
+export interface CredentialBindingKeyRing {
+  readonly purpose: "credential-binding";
+  readonly current: CapabilityKeyMaterial;
+  readonly prior: readonly CapabilityKeyMaterial[];
+}
+
+/** Short-lived Worker capability HMAC material. The signer always uses `current`. */
+export interface InternalCapabilityKeyRing {
+  readonly purpose: "internal-capability";
+  readonly current: CapabilityKeyMaterial;
+  readonly prior: readonly CapabilityKeyMaterial[];
+}
+
 /** Exact request data bound by the compact capability. OwnerVault requires both IDs. */
 export interface CapabilityRequestBinding {
   readonly method: CapabilityMethod;
@@ -302,13 +319,73 @@ export const makeCapabilityKeyMaterial = (
   return Effect.succeed({ keyID: input.keyID, secret: input.secret });
 };
 
+const validateKeyRing = (
+  current: CapabilityKeyMaterial,
+  prior: readonly CapabilityKeyMaterial[],
+): Effect.Effect<readonly CapabilityKeyMaterial[], CapabilityConfigurationError> => {
+  if (prior.length > maximumPriorCapabilityKeys)
+    return Effect.fail(new CapabilityConfigurationError({ reason: "too_many_prior_keys" }));
+  return Effect.flatMap(
+    Effect.all([current, ...prior].map((key) => makeCapabilityKeyMaterial(key))),
+    (keys) => {
+      if (new Set(keys.map((key) => key.keyID)).size !== keys.length)
+        return Effect.fail(new CapabilityConfigurationError({ reason: "duplicate_key_id" }));
+      if (new Set(keys.map((key) => Redacted.value(key.secret))).size !== keys.length)
+        return Effect.fail(new CapabilityConfigurationError({ reason: "duplicate_secret" }));
+      return Effect.succeed(keys);
+    },
+  );
+};
+
+export const makeCredentialBindingKeyRing = (input: {
+  readonly current: CapabilityKeyMaterial;
+  readonly prior?: readonly CapabilityKeyMaterial[];
+}): Effect.Effect<CredentialBindingKeyRing, CapabilityConfigurationError> =>
+  Effect.map(validateKeyRing(input.current, input.prior ?? []), () => ({
+    purpose: "credential-binding",
+    current: input.current,
+    prior: input.prior ?? [],
+  }));
+
+export const makeInternalCapabilityKeyRing = (input: {
+  readonly current: CapabilityKeyMaterial;
+  readonly prior?: readonly CapabilityKeyMaterial[];
+}): Effect.Effect<InternalCapabilityKeyRing, CapabilityConfigurationError> =>
+  Effect.map(validateKeyRing(input.current, input.prior ?? []), () => ({
+    purpose: "internal-capability",
+    current: input.current,
+    prior: input.prior ?? [],
+  }));
+
+/** Reject accidental key reuse between durable credential and internal-capability domains. */
+export const validateDistinctKeyRings = (
+  credentialBinding: CredentialBindingKeyRing,
+  internalCapability: InternalCapabilityKeyRing,
+): Effect.Effect<void, CapabilityConfigurationError> =>
+  Effect.gen(function* () {
+    const credential = yield* makeCredentialBindingKeyRing(credentialBinding);
+    const capability = yield* makeInternalCapabilityKeyRing(internalCapability);
+    const credentialKeys = [credential.current, ...credential.prior];
+    const capabilityKeys = [capability.current, ...capability.prior];
+    const collides = credentialKeys.some((credentialKey) =>
+      capabilityKeys.some(
+        (capabilityKey) =>
+          capabilityKey.keyID === credentialKey.keyID ||
+          Redacted.value(capabilityKey.secret) === Redacted.value(credentialKey.secret),
+      ),
+    );
+    if (collides)
+      return yield* Effect.fail(new CapabilityConfigurationError({ reason: "key_ring_overlap" }));
+  });
+
 export const signCapability = (
   input: CapabilityClaimsInput,
-  key: CapabilityKeyMaterial,
+  keyRing: InternalCapabilityKeyRing,
   nowSeconds: number,
 ): Effect.Effect<SignedCapability, CapabilityConfigurationError | CapabilitySigningError> =>
   Effect.gen(function* () {
-    const material = yield* makeCapabilityKeyMaterial(key);
+    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
+    const material = ring.current;
     if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
       return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
     const claims: CapabilityClaims = {
@@ -424,24 +501,16 @@ export const verifyCapability = (
   signed: SignedCapability,
   binding: CapabilityRequestBinding,
   expected: CapabilityExpectation,
-  key: CapabilityKeyMaterial,
+  keyRing: InternalCapabilityKeyRing,
   nowSeconds: number,
 ): Effect.Effect<CapabilityClaims, CapabilityConfigurationError | CapabilityVerificationError> =>
   Effect.gen(function* () {
-    const material = yield* makeCapabilityKeyMaterial(key);
+    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
     if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
     const parts = signed.value.split(".");
     if (parts.length !== 3 || parts[0] !== "v1" || parts[1] === undefined || parts[2] === undefined)
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
-    const signature = fromBase64url(parts[2]);
-    if (signature === undefined)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
-    const verified = yield* verifyCapabilityHmac(material.secret, parts[1], signature).pipe(
-      Effect.mapError(() => new CapabilityVerificationError({ reason: "signature_invalid" })),
-    );
-    if (!verified)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "signature_invalid" }));
     const payloadBytes = fromBase64url(parts[1]);
     if (payloadBytes === undefined)
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
@@ -455,8 +524,20 @@ export const verifyCapability = (
     const claims = yield* claimsFromUnknown(parsed);
     if (payload !== canonicalPayload(claims))
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const material = [ring.current, ...ring.prior].find((key) => key.keyID === claims.keyID);
+    if (material === undefined)
+      return yield* Effect.fail(
+        new CapabilityVerificationError({ reason: "unknown_or_stale_key" }),
+      );
+    const signature = fromBase64url(parts[2]);
+    if (signature === undefined)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+    const verified = yield* verifyCapabilityHmac(material.secret, parts[1], signature).pipe(
+      Effect.mapError(() => new CapabilityVerificationError({ reason: "signature_invalid" })),
+    );
+    if (!verified)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "signature_invalid" }));
     if (
-      claims.keyID !== material.keyID ||
       claims.audience !== expected.audience ||
       claims.authority !== expected.authority ||
       !validAuthorityScope(expected) ||
@@ -485,11 +566,11 @@ export const verifyCapability = (
     return claims;
   });
 
-export const makeCapabilitySigner = (key: CapabilityKeyMaterial): CapabilitySigner => ({
-  sign: (input, nowSeconds) => signCapability(input, key, nowSeconds),
+export const makeCapabilitySigner = (keyRing: InternalCapabilityKeyRing): CapabilitySigner => ({
+  sign: (input, nowSeconds) => signCapability(input, keyRing, nowSeconds),
 });
 
-export const makeCapabilityVerifier = (key: CapabilityKeyMaterial): CapabilityVerifier => ({
+export const makeCapabilityVerifier = (keyRing: InternalCapabilityKeyRing): CapabilityVerifier => ({
   verify: (signed, binding, expected, nowSeconds) =>
-    verifyCapability(signed, binding, expected, key, nowSeconds),
+    verifyCapability(signed, binding, expected, keyRing, nowSeconds),
 });

@@ -4,6 +4,7 @@ import { Data } from "effect";
 export enum RuntimeOperation {
   CloudflareBinding = "cloudflare.binding",
   CapabilityCrypto = "capability.crypto",
+  AccessJwks = "access.jwks",
   SharedEffect = "runtime.shared-effect",
 }
 
@@ -12,6 +13,7 @@ export type RuntimeOperationIdentifier = RuntimeOperation;
 const isRuntimeOperation = (value: unknown): value is RuntimeOperation =>
   value === RuntimeOperation.CloudflareBinding ||
   value === RuntimeOperation.CapabilityCrypto ||
+  value === RuntimeOperation.AccessJwks ||
   value === RuntimeOperation.SharedEffect;
 
 /** Safe diagnostics crossing the shared runtime boundary. These tagged values
@@ -106,10 +108,35 @@ export class TelemetryInputRejectedError extends Data.TaggedError("TelemetryInpu
 }
 
 export class CapabilityConfigurationError extends Data.TaggedError("CapabilityConfigurationError")<{
-  readonly reason: "invalid_key_id" | "invalid_secret";
+  readonly reason:
+    | "invalid_key_id"
+    | "invalid_secret"
+    | "duplicate_key_id"
+    | "duplicate_secret"
+    | "too_many_prior_keys"
+    | "key_ring_overlap";
 }> {
-  constructor(input: { readonly reason: "invalid_key_id" | "invalid_secret" }) {
-    if (!(["invalid_key_id", "invalid_secret"] as const).includes(input.reason))
+  constructor(input: {
+    readonly reason:
+      | "invalid_key_id"
+      | "invalid_secret"
+      | "duplicate_key_id"
+      | "duplicate_secret"
+      | "too_many_prior_keys"
+      | "key_ring_overlap";
+  }) {
+    if (
+      !(
+        [
+          "invalid_key_id",
+          "invalid_secret",
+          "duplicate_key_id",
+          "duplicate_secret",
+          "too_many_prior_keys",
+          "key_ring_overlap",
+        ] as const
+      ).includes(input.reason)
+    )
       throw new TypeError("Invalid CapabilityConfigurationError fields.");
     super({ reason: input.reason });
   }
@@ -129,6 +156,7 @@ export class CapabilityVerificationError extends Data.TaggedError("CapabilityVer
   readonly reason:
     | "malformed_token"
     | "signature_invalid"
+    | "unknown_or_stale_key"
     | "claims_invalid"
     | "binding_mismatch"
     | "expired"
@@ -138,6 +166,7 @@ export class CapabilityVerificationError extends Data.TaggedError("CapabilityVer
     readonly reason:
       | "malformed_token"
       | "signature_invalid"
+      | "unknown_or_stale_key"
       | "claims_invalid"
       | "binding_mismatch"
       | "expired"
@@ -148,6 +177,7 @@ export class CapabilityVerificationError extends Data.TaggedError("CapabilityVer
         [
           "malformed_token",
           "signature_invalid",
+          "unknown_or_stale_key",
           "claims_invalid",
           "binding_mismatch",
           "expired",
@@ -170,6 +200,49 @@ export class WorkerBoundaryError extends Data.TaggedError("WorkerBoundaryError")
   }
 }
 
+/** Safe failure categories for Cloudflare Access JWT/JWKS verification.
+ * Neither rejected platform causes nor JWT contents cross this boundary. */
+export class AccessJwtVerificationError extends Data.TaggedError("AccessJwtVerificationError")<{
+  readonly reason:
+    | "invalid_configuration"
+    | "invalid_time"
+    | "malformed_assertion"
+    | "claims_invalid"
+    | "signature_invalid"
+    | "unknown_key"
+    | "jwks_unavailable"
+    | "refresh_cooldown";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "invalid_configuration"
+      | "invalid_time"
+      | "malformed_assertion"
+      | "claims_invalid"
+      | "signature_invalid"
+      | "unknown_key"
+      | "jwks_unavailable"
+      | "refresh_cooldown";
+  }) {
+    if (
+      !(
+        [
+          "invalid_configuration",
+          "invalid_time",
+          "malformed_assertion",
+          "claims_invalid",
+          "signature_invalid",
+          "unknown_key",
+          "jwks_unavailable",
+          "refresh_cooldown",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid AccessJwtVerificationError fields.");
+    super(input);
+  }
+}
+
 export type RuntimeError =
   | RuntimeConfigError
   | ExternalServiceError
@@ -179,7 +252,8 @@ export type RuntimeError =
   | CapabilityConfigurationError
   | CapabilitySigningError
   | CapabilityVerificationError
-  | WorkerBoundaryError;
+  | WorkerBoundaryError
+  | AccessJwtVerificationError;
 
 export const isRetryableExternalServiceError = (error: unknown): error is ExternalServiceError =>
   error instanceof ExternalServiceError && error.retryable;
@@ -197,5 +271,6 @@ export const classifyRuntimeError = (error: unknown): RuntimeErrorClassification
   if (error instanceof CapabilitySigningError) return "CapabilitySigningError";
   if (error instanceof CapabilityVerificationError) return "CapabilityVerificationError";
   if (error instanceof WorkerBoundaryError) return "WorkerBoundaryError";
+  if (error instanceof AccessJwtVerificationError) return "AccessJwtVerificationError";
   return "unclassified";
 };

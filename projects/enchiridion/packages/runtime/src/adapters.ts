@@ -1,5 +1,13 @@
 import { Effect, Redacted } from "effect";
+import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from "jose";
+import type {
+  AccessJwksSession,
+  AccessJwksSessionConfiguration,
+  AccessJwtVerificationRequest,
+  VerifiedAccessJwt,
+} from "./access-jwt";
 import {
+  AccessJwtVerificationError,
   AdapterContractError,
   ExternalServiceError,
   RuntimeOperation,
@@ -40,9 +48,21 @@ export const cloudflareAdapterLedger = [
     audit:
       "Only a fixed safe 500 response crosses an untyped defect; no cause or request data is serialized.",
   },
+  {
+    id: "access-jose-jwks",
+    boundary: "JOSE RemoteJWKSet and jwtVerify native Promise API for Cloudflare Access",
+    owner: "@enchiridion/runtime",
+    audit:
+      "The adapter permits only RS256 verification against a configured HTTPS JWKS URL; all causes and token data are discarded in favour of closed safe errors.",
+  },
 ] as const;
 
 export type CloudflareAdapterID = (typeof cloudflareAdapterLedger)[number]["id"];
+
+/** Bound module-global keysets so a Worker request-level Layer cannot defeat
+ * JWKS caching. A forced kid-miss refresh replaces only its one issuer entry. */
+const joseJwksSessions = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+const maximumJoseJwksSessions = 16;
 
 export interface PromiseRejectionClassification {
   readonly retryable: boolean;
@@ -117,6 +137,122 @@ export const verifyCapabilityHmac = (
     );
     return crypto.subtle.verify("HMAC", key, signature, encodeText(payload));
   });
+
+const accessError = (reason: AccessJwtVerificationError["reason"]): AccessJwtVerificationError =>
+  new AccessJwtVerificationError({ reason });
+
+const safeAccessClaims = (value: {
+  readonly iss?: string;
+  readonly aud?: string | readonly string[];
+  readonly iat?: number;
+  readonly nbf?: number;
+  readonly exp?: number;
+  readonly sub?: string;
+}): VerifiedAccessJwt["claims"] | undefined => {
+  const { iss, aud, iat, nbf, exp, sub } = value;
+  if (
+    typeof iss !== "string" ||
+    (typeof aud !== "string" &&
+      (!Array.isArray(aud) || !aud.every((entry) => typeof entry === "string"))) ||
+    typeof iat !== "number" ||
+    typeof nbf !== "number" ||
+    typeof exp !== "number" ||
+    !Number.isSafeInteger(iat) ||
+    !Number.isSafeInteger(nbf) ||
+    !Number.isSafeInteger(exp) ||
+    typeof sub !== "string" ||
+    sub.length === 0 ||
+    sub.length > 512
+  )
+    return undefined;
+  return { iss, aud, iat, nbf, exp, sub };
+};
+
+const safeAccessHeader = (value: {
+  readonly alg?: string;
+  readonly typ?: string;
+  readonly kid?: string;
+}): VerifiedAccessJwt["protectedHeader"] | undefined => {
+  if (
+    value.alg !== "RS256" ||
+    value.typ !== "JWT" ||
+    typeof value.kid !== "string" ||
+    !/^[A-Za-z0-9._~-]{1,128}$/u.test(value.kid)
+  )
+    return undefined;
+  return { alg: "RS256", typ: "JWT", kid: value.kid };
+};
+
+const joseFailure = (cause: unknown): AccessJwtVerificationError => {
+  if (cause instanceof joseErrors.JWKSNoMatchingKey) return accessError("unknown_key");
+  if (cause instanceof joseErrors.JWKSInvalid) return accessError("jwks_unavailable");
+  if (cause instanceof joseErrors.JWSSignatureVerificationFailed)
+    return accessError("signature_invalid");
+  if (
+    cause instanceof joseErrors.JWTClaimValidationFailed ||
+    cause instanceof joseErrors.JWTExpired
+  )
+    return accessError("claims_invalid");
+  if (cause instanceof joseErrors.JWSInvalid || cause instanceof joseErrors.JWTInvalid)
+    return accessError("malformed_assertion");
+  return accessError("jwks_unavailable");
+};
+
+/**
+ * Sole production JOSE/JWKS seam. `jose` owns HTTP retrieval and cryptographic
+ * verification; this adapter discards causes and returns only closed errors.
+ */
+export const makeJoseAccessJwksSession = (
+  configuration: AccessJwksSessionConfiguration,
+  forceRefresh: boolean,
+): Effect.Effect<AccessJwksSession, AccessJwtVerificationError> =>
+  Effect.try({
+    try: () => {
+      const existing = joseJwksSessions.get(configuration.jwksURL);
+      if (forceRefresh) joseJwksSessions.delete(configuration.jwksURL);
+      else if (existing !== undefined) return existing;
+      if (joseJwksSessions.size >= maximumJoseJwksSessions) {
+        for (const oldestURL of joseJwksSessions.keys()) {
+          joseJwksSessions.delete(oldestURL);
+          break;
+        }
+      }
+      const jwks = createRemoteJWKSet(new URL(configuration.jwksURL), {
+        cacheMaxAge: configuration.cacheTTLSeconds * 1_000,
+        cooldownDuration: configuration.refreshCooldownSeconds * 1_000,
+      });
+      joseJwksSessions.set(configuration.jwksURL, jwks);
+      return jwks;
+    },
+    catch: () => accessError("invalid_configuration"),
+  }).pipe(
+    Effect.map((jwks) => ({
+      verify: (
+        request: AccessJwtVerificationRequest,
+      ): Effect.Effect<VerifiedAccessJwt, AccessJwtVerificationError> =>
+        Effect.tryPromise({
+          try: () =>
+            jwtVerify(request.assertion, jwks, {
+              algorithms: ["RS256"],
+              issuer: request.issuer,
+              audience: request.audience,
+              currentDate: new Date(request.nowSeconds * 1_000),
+            }),
+          catch: joseFailure,
+        }).pipe(
+          Effect.flatMap(({ protectedHeader, payload }) => {
+            const header = safeAccessHeader(protectedHeader);
+            const claims = safeAccessClaims(payload);
+            return header === undefined ||
+              claims === undefined ||
+              claims.iat > claims.nbf ||
+              claims.nbf > claims.exp
+              ? Effect.fail(accessError("claims_invalid"))
+              : Effect.succeed({ protectedHeader: header, claims });
+          }),
+        ),
+    })),
+  );
 
 export interface WorkerBoundaryContext {
   readonly waitUntil?: (work: Promise<unknown>) => void;

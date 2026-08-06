@@ -10,7 +10,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "effect": "3.22.1"
+    "effect": "3.22.1",
+    "jose": "6.2.8"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

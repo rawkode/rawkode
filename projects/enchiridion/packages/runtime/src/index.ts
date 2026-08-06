@@ -1,4 +1,5 @@
 export * from "./adapters";
+export * from "./access-jwt";
 export * from "./capability";
 export * from "./config";
 export * from "./errors";

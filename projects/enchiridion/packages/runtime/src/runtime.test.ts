@@ -120,12 +120,14 @@ describe("runtime", () => {
       { name: "operation.start" },
       { name: "operation.success" },
     ]);
-    expect(cloudflareAdapterLedger).toHaveLength(4);
+    expect(cloudflareAdapterLedger).toHaveLength(5);
+    expect(cloudflareAdapterLedger.some(({ id }) => id === "access-jose-jwks")).toBe(true);
     expect(cloudflareAdapterLedger.map((entry) => entry.id)).toEqual([
       "cloudflare-promise",
       "unknown-record",
       "capability-hmac",
       "worker-outer-boundary",
+      "access-jose-jwks",
     ]);
   });
 

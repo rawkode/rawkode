@@ -6,19 +6,31 @@ import {
   type CapabilityKeyMaterial,
   CapabilityMethod,
   CapabilityVerificationError,
+  type CredentialBindingKeyRing,
+  type InternalCapabilityKeyRing,
   makeCapabilityKeyMaterial,
   makeCapabilitySigner,
   makeCapabilityVerifier,
+  makeCredentialBindingKeyRing,
+  makeInternalCapabilityKeyRing,
   makeWorkerBoundary,
   maximumCapabilityTTLSeconds,
+  maximumPriorCapabilityKeys,
   signCapability,
   signCapabilityHmac,
+  validateDistinctKeyRings,
   verifyCapability,
 } from "./index";
 
 const key: CapabilityKeyMaterial = {
   keyID: "internal-key-1",
   secret: Redacted.make("capability-test-secret"),
+};
+
+const keyRing: InternalCapabilityKeyRing = {
+  purpose: "internal-capability",
+  current: key,
+  prior: [],
 };
 
 const binding = {
@@ -61,8 +73,8 @@ const signedRawPayload = async (payload: string): Promise<{ readonly value: stri
 
 describe("internal capabilities", () => {
   test("signs and verifies a request-bound OwnerVault capability", async () => {
-    const signer = makeCapabilitySigner(key);
-    const verifier = makeCapabilityVerifier(key);
+    const signer = makeCapabilitySigner(keyRing);
+    const verifier = makeCapabilityVerifier(keyRing);
     const signed = await Effect.runPromise(signer.sign(input, 1_000));
     const verified = await Effect.runPromise(verifier.verify(signed, binding, expectation, 1_030));
     expect(verified.credentialEpoch).toBe(4);
@@ -71,18 +83,90 @@ describe("internal capabilities", () => {
     expect(JSON.stringify(signed)).not.toContain("capability-test-secret");
   });
 
+  test("signs only with the current key and verifies an exact bounded prior key", async () => {
+    const prior: CapabilityKeyMaterial = {
+      keyID: "internal-key-0",
+      secret: Redacted.make("capability-prior-secret"),
+    };
+    const rotated = await Effect.runPromise(
+      makeInternalCapabilityKeyRing({ current: key, prior: [prior] }),
+    );
+    const currentSigned = await Effect.runPromise(signCapability(input, rotated, 1_000));
+    const currentClaims = await Effect.runPromise(
+      verifyCapability(currentSigned, binding, expectation, rotated, 1_030),
+    );
+    expect(currentClaims.keyID).toBe(key.keyID);
+
+    const staleSigned = await Effect.runPromise(
+      signCapability(input, { purpose: "internal-capability", current: prior, prior: [] }, 1_000),
+    );
+    const priorClaims = await Effect.runPromise(
+      verifyCapability(staleSigned, binding, expectation, rotated, 1_030),
+    );
+    expect(priorClaims.keyID).toBe(prior.keyID);
+
+    const noLongerTrusted = await Effect.runPromiseExit(
+      verifyCapability(staleSigned, binding, expectation, keyRing, 1_030),
+    );
+    expect(Exit.isFailure(noLongerTrusted)).toBe(true);
+    expect(JSON.stringify(noLongerTrusted)).toContain("unknown_or_stale_key");
+  });
+
+  test("validates bounded, distinct Redacted credential and internal key rings", async () => {
+    const credentialBinding: CredentialBindingKeyRing = await Effect.runPromise(
+      makeCredentialBindingKeyRing({
+        current: {
+          keyID: "credential-key-1",
+          secret: Redacted.make("credential-binding-secret"),
+        },
+      }),
+    );
+    const internalCapability = await Effect.runPromise(
+      makeInternalCapabilityKeyRing({ current: key }),
+    );
+    await Effect.runPromise(validateDistinctKeyRings(credentialBinding, internalCapability));
+    expect(JSON.stringify(credentialBinding)).not.toContain("credential-binding-secret");
+
+    const overlap = await Effect.runPromiseExit(
+      validateDistinctKeyRings(
+        credentialBinding,
+        await Effect.runPromise(
+          makeInternalCapabilityKeyRing({
+            current: {
+              keyID: "internal-key-other",
+              secret: Redacted.make("credential-binding-secret"),
+            },
+          }),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(overlap)).toBe(true);
+    expect(JSON.stringify(overlap)).not.toContain("credential-binding-secret");
+
+    const tooManyPrior = await Effect.runPromiseExit(
+      makeInternalCapabilityKeyRing({
+        current: key,
+        prior: Array.from({ length: maximumPriorCapabilityKeys + 1 }, (_, index) => ({
+          keyID: `prior-key-${index}`,
+          secret: Redacted.make(`prior-secret-${index}`),
+        })),
+      }),
+    );
+    expect(Exit.isFailure(tooManyPrior)).toBe(true);
+  });
+
   test("rejects tampering, request/identity mismatch, audience mismatch, and expiry", async () => {
-    const signed = await Effect.runPromise(signCapability(input, key, 1_000));
+    const signed = await Effect.runPromise(signCapability(input, keyRing, 1_000));
     const tampered = { value: `${signed.value.slice(0, -1)}x` };
     const tamperedExit = await Effect.runPromiseExit(
-      verifyCapability(tampered, binding, expectation, key, 1_030),
+      verifyCapability(tampered, binding, expectation, keyRing, 1_030),
     );
     const mismatchExit = await Effect.runPromiseExit(
       verifyCapability(
         signed,
         { ...binding, path: "/v1/owner-vault/other" },
         expectation,
-        key,
+        keyRing,
         1_030,
       ),
     );
@@ -91,27 +175,27 @@ describe("internal capabilities", () => {
         signed,
         { ...binding, canonicalQuery: "backup=incremental&region=eu" },
         expectation,
-        key,
+        keyRing,
         1_030,
       ),
     );
     const ownerExit = await Effect.runPromiseExit(
-      verifyCapability(signed, { ...binding, ownerID: "owner-2" }, expectation, key, 1_030),
+      verifyCapability(signed, { ...binding, ownerID: "owner-2" }, expectation, keyRing, 1_030),
     );
     const vaultExit = await Effect.runPromiseExit(
-      verifyCapability(signed, binding, { ...expectation, vaultID: "vault-2" }, key, 1_030),
+      verifyCapability(signed, binding, { ...expectation, vaultID: "vault-2" }, keyRing, 1_030),
     );
     const audienceExit = await Effect.runPromiseExit(
       verifyCapability(
         signed,
         binding,
         { audience: CapabilityAudience.Directory, authority: CapabilityAuthority.Directory },
-        key,
+        keyRing,
         1_030,
       ),
     );
     const expiredExit = await Effect.runPromiseExit(
-      verifyCapability(signed, binding, expectation, key, 1_060),
+      verifyCapability(signed, binding, expectation, keyRing, 1_060),
     );
     for (const exit of [
       tamperedExit,
@@ -129,7 +213,7 @@ describe("internal capabilities", () => {
 
   test("rejects TTLs above the approved 60-second capability limit", async () => {
     const exit = await Effect.runPromiseExit(
-      signCapability({ ...input, ttlSeconds: maximumCapabilityTTLSeconds + 1 }, key, 1_000),
+      signCapability({ ...input, ttlSeconds: maximumCapabilityTTLSeconds + 1 }, keyRing, 1_000),
     );
     expect(Exit.isFailure(exit)).toBe(true);
   });
@@ -153,19 +237,19 @@ describe("internal capabilities", () => {
       "region=eu&backup=full",
     ];
     for (const path of invalidPaths) {
-      const exit = await Effect.runPromiseExit(signCapability({ ...input, path }, key, 1_000));
+      const exit = await Effect.runPromiseExit(signCapability({ ...input, path }, keyRing, 1_000));
       expect(Exit.isFailure(exit)).toBe(true);
     }
     for (const canonicalQuery of invalidQueries) {
       const exit = await Effect.runPromiseExit(
-        signCapability({ ...input, canonicalQuery }, key, 1_000),
+        signCapability({ ...input, canonicalQuery }, keyRing, 1_000),
       );
       expect(Exit.isFailure(exit)).toBe(true);
     }
   });
 
   test("rejects non-safe verification timestamps before authorization", async () => {
-    const signed = await Effect.runPromise(signCapability(input, key, 1_000));
+    const signed = await Effect.runPromise(signCapability(input, keyRing, 1_000));
     for (const nowSeconds of [
       Number.NaN,
       Number.POSITIVE_INFINITY,
@@ -174,7 +258,7 @@ describe("internal capabilities", () => {
       Number.MAX_SAFE_INTEGER + 1,
     ]) {
       const exit = await Effect.runPromiseExit(
-        verifyCapability(signed, binding, expectation, key, nowSeconds),
+        verifyCapability(signed, binding, expectation, keyRing, nowSeconds),
       );
       expect(Exit.isFailure(exit)).toBe(true);
       expect(JSON.stringify(exit)).toContain(CapabilityVerificationError.name);
@@ -190,7 +274,7 @@ describe("internal capabilities", () => {
     );
     for (const signed of [noncanonical, extraClaim]) {
       const exit = await Effect.runPromiseExit(
-        verifyCapability(signed, binding, expectation, key, 1_030),
+        verifyCapability(signed, binding, expectation, keyRing, 1_030),
       );
       expect(Exit.isFailure(exit)).toBe(true);
       expect(JSON.stringify(exit)).toContain(CapabilityVerificationError.name);
