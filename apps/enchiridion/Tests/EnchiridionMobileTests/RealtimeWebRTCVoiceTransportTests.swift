@@ -155,6 +155,20 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
       return XCTFail("expected bounded native audio delta")
     }
     XCTAssertEqual(delta.pcm, pcm)
+    XCTAssertEqual(delta.contentIndex, 0)
+  }
+
+  func testNativeAudioPreflightAcceptsPositiveBoundedContentIndices() throws {
+    let pcm = Data([0, 0]).base64EncodedString()
+
+    for contentIndex in [1, 1_024] {
+      guard case let .valid(delta) = NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(delta: pcm, contentIndex: contentIndex)
+      ) else {
+        return XCTFail("expected bounded native audio delta for content index \(contentIndex)")
+      }
+      XCTAssertEqual(delta.contentIndex, contentIndex)
+    }
   }
 
   func testNativeAudioPreflightRejectsOversizedEnvelopeAndBase64() throws {
@@ -191,7 +205,7 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     )
   }
 
-  func testNativeAudioPreflightRejectsBooleanAndNonIntegralContentIndex() throws {
+  func testNativeAudioPreflightRejectsBooleanNonIntegralAndOutOfRangeContentIndex() throws {
     XCTAssertEqual(
       NativeRealtimeOutputAudioDeltaPreflight.parse(
         try nativeAudioEnvelope(delta: Data([0, 0]).base64EncodedString(), contentIndex: true)
@@ -200,7 +214,22 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     )
     XCTAssertEqual(
       NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(delta: Data([0, 0]).base64EncodedString(), contentIndex: false)
+      ),
+      .invalid
+    )
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(
         try nativeAudioEnvelope(delta: Data([0, 0]).base64EncodedString(), contentIndex: 1.5)
+      ),
+      .invalid
+    )
+    XCTAssertEqual(
+      NativeRealtimeOutputAudioDeltaPreflight.parse(
+        try nativeAudioEnvelope(
+          delta: Data([0, 0]).base64EncodedString(),
+          contentIndex: 1_025
+        )
       ),
       .invalid
     )

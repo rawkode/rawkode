@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreFoundation
 import EnchiridionCore
 import Foundation
 
@@ -62,8 +63,9 @@ enum NativeRealtimeOutputAudioDeltaPreflight {
   }
 
   private static func boundedContentIndex(in root: [String: Any]) -> Int? {
-    guard let value = root["content_index"], !(value is Bool),
-      let number = value as? NSNumber
+    guard let value = root["content_index"],
+      let number = value as? NSNumber,
+      CFGetTypeID(number) != CFBooleanGetTypeID()
     else { return nil }
     let double = number.doubleValue
     guard double.isFinite,
