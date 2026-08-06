@@ -1083,10 +1083,10 @@ public final class RealtimeVoiceSession {
     var synchronized = reducer.state
     if let pendingPause, receipt == nil, !isStopping {
       synchronized.phase = .pausing(pendingPause.reason)
-      if synchronized.failure?.provenance == .provider { synchronized.failure = nil }
+      synchronized.failure = nil
     } else if let activePause, receipt == nil, !isStopping {
       synchronized.phase = .paused(activePause.reason)
-      if synchronized.failure?.provenance == .provider { synchronized.failure = nil }
+      synchronized.failure = nil
     }
     state = synchronized
     refreshVoiceActivitySemantics()

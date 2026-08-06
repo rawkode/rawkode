@@ -445,6 +445,71 @@ final class RealtimeVoiceSessionTests: XCTestCase {
     XCTAssertEqual(fixture.session.receipt?.failureCode, "provider_error_other")
   }
 
+  func testSessionIdentityChangeDuringPendingPauseIsMaskedUntilDeactivationReleases() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    let gate = AsyncGate()
+    await fixture.gates.audioDeactivation.append(gate)
+    let pause = Task { await fixture.session.handleSafetyEvent(.appInactive) }
+    await gate.waitUntilEntered()
+
+    fixture.transport.emit(
+      event(
+        "identity-changed-pending-pause",
+        .sessionCreated(
+          RealtimeSessionCreated(sessionID: "session-2", modelID: "gpt-realtime-mini", voiceID: "marin")
+        )
+      )
+    )
+    fixture.transport.emit(
+      event("identity-change-pending-probe", .responseCreated(RealtimeResponseCreated(responseID: "probe")))
+    )
+    await waitUntil { fixture.session.state.activeResponseID == "probe" }
+    XCTAssertEqual(fixture.session.state.phase, .pausing(.appInactive))
+    XCTAssertNil(fixture.session.state.failure)
+    XCTAssertNil(fixture.session.receipt)
+
+    await gate.resume()
+    await pause.value
+
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "session_identity_changed")
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+  }
+
+  func testSessionIdentityChangeDuringActivePauseFailsOnlyAfterExplicitResume() async throws {
+    let fixture = try makeFixture()
+    await startConnected(fixture)
+    await fixture.session.handleSafetyEvent(.appInactive)
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+
+    fixture.transport.emit(
+      event(
+        "identity-changed-active-pause",
+        .sessionCreated(
+          RealtimeSessionCreated(sessionID: "session-2", modelID: "gpt-realtime-mini", voiceID: "marin")
+        )
+      )
+    )
+    fixture.transport.emit(
+      event("identity-change-active-probe", .responseCreated(RealtimeResponseCreated(responseID: "probe")))
+    )
+    await waitUntil { fixture.session.state.activeResponseID == "probe" }
+    XCTAssertEqual(fixture.session.state.phase, .paused(.appInactive))
+    XCTAssertNil(fixture.session.state.failure)
+    XCTAssertNil(fixture.session.receipt)
+
+    await fixture.session.resumeAfterSafetyPause()
+
+    let callsAfterResume = await fixture.calls.values()
+    XCTAssertEqual(fixture.session.state.phase, .failed)
+    XCTAssertEqual(fixture.session.receipt?.failureCode, "session_identity_changed")
+    XCTAssertEqual(fixture.session.receipt?.completion, .failed)
+    XCTAssertEqual(callsAfterResume.filter { $0 == "transport.start" }.count, 1)
+    XCTAssertEqual(callsAfterResume.filter { $0 == "audio.activate" }.count, 1)
+    XCTAssertEqual(callsAfterResume.filter { $0 == "input.on" }.count, 1)
+  }
+
   func testGatedSafetyResumeLogsInputEnableAndPublishesListeningOnlyAfterSuccess() async throws {
     let diagnostics = RecordingDiagnostics()
     let fixture = try makeFixture(diagnostics: diagnostics)
