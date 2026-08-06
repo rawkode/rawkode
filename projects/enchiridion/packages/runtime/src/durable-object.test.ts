@@ -23,17 +23,19 @@ const equivalentIdentity = (left: Identity, right: Identity): boolean =>
   left.ownerID === right.ownerID;
 
 const makeState = (
-  options: { readonly rejectGet?: boolean } = {},
+  options: { readonly rejectGet?: boolean; readonly rejectAlarm?: boolean } = {},
 ): {
   readonly state: DurableObjectStateNative;
   readonly entries: Map<string, unknown>;
   readonly transactionOperations: readonly boolean[];
+  readonly alarm: () => number | null;
 } => {
   const entries = new Map<string, unknown>();
   const transactionOperations: boolean[] = [];
   let activeTransactions = 0;
   let transactionTail = Promise.resolve();
   let concurrencyTail = Promise.resolve();
+  let scheduledAlarm: number | null = null;
   const transaction: DurableObjectTransactionNative = {
     get: (key) => {
       transactionOperations.push(activeTransactions === 1);
@@ -53,6 +55,22 @@ const makeState = (
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,
+    getAlarm: () =>
+      options.rejectAlarm
+        ? Promise.reject(new Error("alarm-secret"))
+        : Promise.resolve(scheduledAlarm),
+    setAlarm: (epochMilliseconds) =>
+      options.rejectAlarm
+        ? Promise.reject(new Error("alarm-secret"))
+        : Promise.resolve().then(() => {
+            scheduledAlarm = epochMilliseconds;
+          }),
+    deleteAlarm: () =>
+      options.rejectAlarm
+        ? Promise.reject(new Error("alarm-secret"))
+        : Promise.resolve().then(() => {
+            scheduledAlarm = null;
+          }),
     transaction: (callback) => {
       const next = transactionTail.then(() => {
         activeTransactions += 1;
@@ -88,6 +106,7 @@ const makeState = (
     },
     entries,
     transactionOperations,
+    alarm: () => scheduledAlarm,
   };
 };
 
@@ -110,6 +129,50 @@ describe("Durable Object runtime boundary", () => {
     expect(String(callbackError)).toContain(DurableObjectBoundaryError.name);
     expect(JSON.stringify(callbackError)).not.toContain("callback-secret");
     expect(JSON.stringify(callbackError)).toContain('"reason":"callback_failed"');
+
+    const alarmExit = await Effect.runPromiseExit(
+      makeDurableObjectBoundary(makeState({ rejectAlarm: true }).state).storage.getAlarm(),
+    );
+    expect(Exit.isFailure(alarmExit)).toBe(true);
+    expect(JSON.stringify(alarmExit)).not.toContain("alarm-secret");
+    expect(JSON.stringify(alarmExit)).toContain('"operation":"storage_get_alarm"');
+
+    const setAlarmExit = await Effect.runPromiseExit(
+      makeDurableObjectBoundary(makeState({ rejectAlarm: true }).state).storage.setAlarm(
+        1_760_000_000_000,
+      ),
+    );
+    expect(Exit.isFailure(setAlarmExit)).toBe(true);
+    expect(JSON.stringify(setAlarmExit)).not.toContain("alarm-secret");
+    expect(JSON.stringify(setAlarmExit)).toContain('"operation":"storage_set_alarm"');
+
+    const deleteAlarmExit = await Effect.runPromiseExit(
+      makeDurableObjectBoundary(makeState({ rejectAlarm: true }).state).storage.deleteAlarm(),
+    );
+    expect(Exit.isFailure(deleteAlarmExit)).toBe(true);
+    expect(JSON.stringify(deleteAlarmExit)).not.toContain("alarm-secret");
+    expect(JSON.stringify(deleteAlarmExit)).toContain('"operation":"storage_delete_alarm"');
+
+    let alarmCallbackError: unknown;
+    try {
+      await boundary.callbacks.alarm(Effect.die("alarm-callback-secret"));
+    } catch (error) {
+      alarmCallbackError = error;
+    }
+    expect(String(alarmCallbackError)).toContain(DurableObjectBoundaryError.name);
+    expect(JSON.stringify(alarmCallbackError)).not.toContain("alarm-callback-secret");
+    expect(JSON.stringify(alarmCallbackError)).toContain('"operation":"alarm_callback"');
+  });
+
+  test("adapts Cloudflare alarm storage structurally", async () => {
+    const native = makeState();
+    const boundary = makeDurableObjectBoundary(native.state);
+    expect(await Effect.runPromise(boundary.storage.getAlarm())).toBeNull();
+    await Effect.runPromise(boundary.storage.setAlarm(1_760_000_000_000));
+    expect(native.alarm()).toBe(1_760_000_000_000);
+    expect(await Effect.runPromise(boundary.storage.getAlarm())).toBe(1_760_000_000_000);
+    await Effect.runPromise(boundary.storage.deleteAlarm());
+    expect(native.alarm()).toBeNull();
   });
 
   test("serializes blockConcurrencyWhile Effects and uses atomic storage adoption", async () => {

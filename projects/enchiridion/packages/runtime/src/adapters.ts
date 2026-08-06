@@ -66,7 +66,7 @@ export const cloudflareAdapterLedger = [
   {
     id: "durable-object-callback-storage",
     boundary:
-      "Durable Object blockConcurrencyWhile, fetch/WebSocket callbacks, and state.storage Promises",
+      "Durable Object blockConcurrencyWhile, fetch/WebSocket/alarm callbacks, and state.storage Promises",
     owner: "@enchiridion/runtime",
     audit:
       "Callback defects and rejected native storage Promises become a closed operation/reason error; payloads, attachment data, and platform causes never cross the seam.",
@@ -306,6 +306,9 @@ export interface DurableObjectTransactionNative {
 
 /** Minimal structural view of the Cloudflare Durable Object storage API. */
 export interface DurableObjectStorageNative extends DurableObjectTransactionNative {
+  readonly getAlarm: () => Promise<number | null>;
+  readonly setAlarm: (epochMilliseconds: number) => Promise<void>;
+  readonly deleteAlarm: () => Promise<void>;
   readonly transaction: <A>(
     callback: (storage: DurableObjectTransactionNative) => Promise<A>,
   ) => Promise<A>;
@@ -324,6 +327,12 @@ export interface DurableObjectTransaction {
 }
 
 export interface DurableObjectStorage extends DurableObjectTransaction {
+  /** Reads the scheduled alarm epoch from Cloudflare storage, or null when absent. */
+  readonly getAlarm: () => Effect.Effect<number | null, DurableObjectBoundaryError>;
+  /** Schedules one Cloudflare Durable Object alarm at an epoch-millisecond deadline. */
+  readonly setAlarm: (epochMilliseconds: number) => Effect.Effect<void, DurableObjectBoundaryError>;
+  /** Deletes the currently scheduled Cloudflare Durable Object alarm. */
+  readonly deleteAlarm: () => Effect.Effect<void, DurableObjectBoundaryError>;
   /** The only storage read/modify/write primitive: the callback is native-transaction atomic. */
   readonly transaction: <A, E>(
     work: (storage: DurableObjectTransaction) => Effect.Effect<A, E>,
@@ -339,6 +348,8 @@ export interface DurableObjectCallbacks {
   readonly fetch: <A, E>(work: Effect.Effect<A, E>) => Promise<A>;
   /** The only Effect-to-Promise bridge for a Durable Object WebSocket message callback. */
   readonly webSocketMessage: <A, E>(work: Effect.Effect<A, E>) => Promise<A>;
+  /** The only Effect-to-Promise bridge for a Durable Object alarm callback. */
+  readonly alarm: <E>(work: Effect.Effect<void, E>) => Promise<void>;
 }
 
 export interface DurableObjectBoundary {
@@ -391,6 +402,10 @@ const makeDurableObjectTransaction = (
 
 const makeDurableObjectStorage = (native: DurableObjectStorageNative): DurableObjectStorage => ({
   ...makeDurableObjectTransaction(native),
+  getAlarm: () => fromDurableObjectPromise("storage_get_alarm", () => native.getAlarm()),
+  setAlarm: (epochMilliseconds) =>
+    fromDurableObjectPromise("storage_set_alarm", () => native.setAlarm(epochMilliseconds)),
+  deleteAlarm: () => fromDurableObjectPromise("storage_delete_alarm", () => native.deleteAlarm()),
   transaction: (work) =>
     fromDurableObjectPromise("storage_transaction", () =>
       native.transaction((transaction) =>
@@ -442,6 +457,7 @@ export const makeDurableObjectBoundary = (
       ),
     fetch: (work) => durableObjectCallbackPromise("fetch_callback", work),
     webSocketMessage: (work) => durableObjectCallbackPromise("websocket_message_callback", work),
+    alarm: (work) => durableObjectCallbackPromise("alarm_callback", work),
   },
 });
 

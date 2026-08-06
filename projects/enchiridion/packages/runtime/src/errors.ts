@@ -210,9 +210,13 @@ export class DurableObjectBoundaryError extends Data.TaggedError("DurableObjectB
     | "block_concurrency_while"
     | "fetch_callback"
     | "websocket_message_callback"
+    | "alarm_callback"
     | "storage_get"
     | "storage_put"
     | "storage_delete"
+    | "storage_get_alarm"
+    | "storage_set_alarm"
+    | "storage_delete_alarm"
     | "storage_transaction";
   readonly reason: "callback_failed" | "platform_failed";
 }> {
@@ -221,9 +225,13 @@ export class DurableObjectBoundaryError extends Data.TaggedError("DurableObjectB
       | "block_concurrency_while"
       | "fetch_callback"
       | "websocket_message_callback"
+      | "alarm_callback"
       | "storage_get"
       | "storage_put"
       | "storage_delete"
+      | "storage_get_alarm"
+      | "storage_set_alarm"
+      | "storage_delete_alarm"
       | "storage_transaction";
     readonly reason: "callback_failed" | "platform_failed";
   }) {
@@ -233,9 +241,13 @@ export class DurableObjectBoundaryError extends Data.TaggedError("DurableObjectB
           "block_concurrency_while",
           "fetch_callback",
           "websocket_message_callback",
+          "alarm_callback",
           "storage_get",
           "storage_put",
           "storage_delete",
+          "storage_get_alarm",
+          "storage_set_alarm",
+          "storage_delete_alarm",
           "storage_transaction",
         ] as const
       ).includes(input.operation) ||
