@@ -19,7 +19,9 @@ enum NativeWebRTCCompatibilityProbe {
 
     let dataChannelConfiguration = LKRTCDataChannelConfiguration()
     dataChannelConfiguration.isOrdered = true
-    _ = peerConnection.dataChannel(forLabel: "oai-events", configuration: dataChannelConfiguration)
+    let dataChannel = peerConnection.dataChannel(
+      forLabel: "oai-events", configuration: dataChannelConfiguration
+    )
 
     let transceiverConfiguration = LKRTCRtpTransceiverInit()
     transceiverConfiguration.direction = .sendRecv
@@ -30,23 +32,19 @@ enum NativeWebRTCCompatibilityProbe {
     let localSenderTrack: LKRTCMediaStreamTrack? = audioTransceiver?.sender.track
     _ = localSenderTrack
 
-    // Remote tracks expose only enable/disable control. This does not offer a
-    // provider-owned playout queue drain/flush callback.
-    audioTransceiver?.receiver.track?.isEnabled = false
-    if let audioTransceiver {
-      delegate.peerConnection?(peerConnection, didStartReceivingOn: audioTransceiver)
-      delegate.peerConnection?(peerConnection, didAdd: audioTransceiver.receiver, streams: [])
-    }
-
     peerConnection.offer(for: constraints) { localDescription, _ in
       guard let localDescription else { return }
       peerConnection.setLocalDescription(localDescription) { _ in }
     }
+    dataChannel?.close()
+    peerConnection.close()
   }
 
   #if os(iOS)
     static func compileOnlyIOSManualAudioControl() {
       let audioSession = LKRTCAudioSession.sharedInstance()
+      audioSession.lockForConfiguration()
+      defer { audioSession.unlockForConfiguration() }
       audioSession.useManualAudio = true
       audioSession.isAudioEnabled = false
     }
