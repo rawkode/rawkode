@@ -6,6 +6,27 @@ import Foundation
 
 @MainActor
 final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
+  func testInputLeaseFenceRejectsDelayedEnableAfterNewerDisable() {
+    var fence = RealtimeWebRTCInputLeaseFence()
+    let delayedEnable = RealtimeVoiceInputLease(transportGeneration: 7, inputEpoch: 11)
+    let newerDisable = RealtimeVoiceInputLease(transportGeneration: 7, inputEpoch: 12)
+
+    XCTAssertTrue(fence.install(delayedEnable, activeGeneration: 7, maximumEpoch: 9_007_199_254_740_991))
+    XCTAssertTrue(fence.install(newerDisable, activeGeneration: 7, maximumEpoch: 9_007_199_254_740_991))
+    XCTAssertFalse(fence.install(delayedEnable, activeGeneration: 7, maximumEpoch: 9_007_199_254_740_991))
+    XCTAssertEqual(fence.newestLease, newerDisable)
+  }
+
+  func testInputLeaseFenceRejectsDelayedEnableAfterTerminalClose() {
+    var fence = RealtimeWebRTCInputLeaseFence()
+    let delayedEnable = RealtimeVoiceInputLease(transportGeneration: 7, inputEpoch: 11)
+    XCTAssertTrue(fence.install(delayedEnable, activeGeneration: 7, maximumEpoch: 9_007_199_254_740_991))
+
+    let terminal = fence.installTerminal(generation: 7, epoch: 9_007_199_254_740_991)
+    XCTAssertFalse(fence.install(delayedEnable, activeGeneration: 7, maximumEpoch: 9_007_199_254_740_991))
+    XCTAssertEqual(fence.newestLease, terminal)
+  }
+
   func testOpenAIVoiceRetryEligibilityRequiresTerminalFailedSession() {
     let failedReceipt = RealtimeVoiceReceipt(
       requestedModelID: "gpt-realtime-mini",

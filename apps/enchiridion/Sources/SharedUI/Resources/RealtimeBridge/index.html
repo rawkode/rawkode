@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'sha256-0UaaoMviBxBcP+9FKX06ZHIrDME2Mre6OlPC6dAuqvs='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
+    content="default-src 'none'; script-src 'sha256-cYuwdruSo0h3LOJEOBlMzVoMxczCn8ARuILKqy/RMIg='; connect-src 'none'; img-src 'none'; style-src 'none'; font-src 'none'; media-src blob: mediastream:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'"
   >
   <meta name="referrer" content="no-referrer">
   <title>Enchiridion Realtime Audio</title>
@@ -75,11 +75,6 @@
       && peer === sessionPeer
       && channel === sessionChannel
       && microphone === sessionStream;
-  }
-
-  function invalidateInputOperations() {
-    inputEpoch += 1;
-    return inputEpoch;
   }
 
   function inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, sessionStream) {
@@ -174,7 +169,6 @@
 
   function invalidateCurrentTransport() {
     transportEpoch += 1;
-    invalidateInputOperations();
     const previousPeer = peer;
     const previousChannel = channel;
     const previousStream = microphone;
@@ -189,10 +183,15 @@
     if (!validGeneration(options.generation)) throw new Error("generation is invalid");
     invalidateCurrentTransport();
     generation = options.generation;
+    inputEpoch = 0;
   }
 
   function stop(options) {
     requireCurrentGeneration(options);
+    // A terminal native lease fences every queued enable before teardown.
+    inputEpoch = Number.MAX_SAFE_INTEGER;
+    const track = microphone && canonicalAudioTrack(microphone);
+    if (track) track.enabled = false;
     generation = 0;
     invalidateCurrentTransport();
   }
@@ -341,9 +340,26 @@
     return !!track && stream?.active === true && track.readyState === "live" && track.muted !== true;
   }
 
+  async function restoreInputSender(sender, oldTrack, replacementTrack, sessionPeer) {
+    if (!sender || sender.track !== replacementTrack || !sessionPeer || sessionPeer.connectionState === "closed") {
+      return sender?.track !== replacementTrack;
+    }
+    try {
+      // Do not race this compensating operation against a timeout: Promise
+      // cancellation would leave a late rollback able to mutate the sender
+      // after its caller had reconciled microphone state.
+      await sender.replaceTrack(oldTrack);
+      return sender.track === oldTrack;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function recoverInputTrack(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream, oldTrack) {
     post(sessionGeneration, "inputCaptureState", { state: "recovering" });
     let replacementStream = null;
+    let replacementTrack = null;
+    let replacementSender = null;
     try {
       if (audioContext && audioContext.state === "suspended") {
         await withInputDeadline(() => audioContext.resume());
@@ -351,15 +367,30 @@
       replacementStream = await withInputDeadline(() => navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false
       }));
-      const replacementTrack = canonicalAudioTrack(replacementStream);
+      replacementTrack = canonicalAudioTrack(replacementStream);
       replacementTrack.enabled = false;
       if (!inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream)
         || sessionPeer.connectionState === "closed") throw staleTransportError();
       const senders = sessionPeer.getSenders().filter((sender) => sender.track === oldTrack && sender.track?.kind === "audio");
       if (senders.length !== 1) throw new Error("microphone sender is invalid");
-      await withInputDeadline(() => senders[0].replaceTrack(replacementTrack));
+      replacementSender = senders[0];
+      // A raced timeout cannot cancel replaceTrack. Wait for its actual
+      // completion so a late sender mutation is always reconciled below.
+      await replacementSender.replaceTrack(replacementTrack);
       if (!inputOperationCurrent(sessionGeneration, sessionEpoch, operationEpoch, sessionPeer, sessionChannel, oldStream)
-        || sessionPeer.connectionState === "closed" || senders[0].track !== replacementTrack) throw staleTransportError();
+        || sessionPeer.connectionState === "closed" || replacementSender.track !== replacementTrack) {
+        const restored = await restoreInputSender(replacementSender, oldTrack, replacementTrack, sessionPeer);
+        // If teardown won the race, preserve the track that WebRTC actually
+        // owns so the queued newer disable can silence it. Do not stop an
+        // attached replacement and strand the sender on a dead track.
+        if (!restored && isTransportCurrent(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, oldStream)
+          && sessionPeer.connectionState !== "closed" && replacementSender.track === replacementTrack) {
+          microphone = replacementStream;
+          startMetering(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, replacementStream);
+          replacementStream = null;
+        }
+        throw staleTransportError();
+      }
       microphone = replacementStream;
       startMetering(sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, replacementStream);
       if (remoteAudio.srcObject) attachRemoteMeter(remoteAudio.srcObject, sessionGeneration, sessionEpoch, sessionPeer, sessionChannel, replacementStream);
@@ -377,7 +408,14 @@
   function setInputEnabled(message) {
     const messageGeneration = requireCurrentGeneration(message);
     if (typeof message.enabled !== "boolean") throw new Error("enabled is invalid");
-    const operationEpoch = ++inputEpoch;
+    if (!Number.isSafeInteger(message.inputEpoch) || message.inputEpoch <= 0 || message.inputEpoch <= inputEpoch) {
+      throw new Error("input epoch is invalid");
+    }
+    const operationEpoch = message.inputEpoch;
+    inputEpoch = operationEpoch;
+    // Disabling is intentionally synchronous: it immediately silences the
+    // attached microphone even while an older recovery is awaiting media.
+    if (!message.enabled && microphone) canonicalAudioTrack(microphone).enabled = false;
     const operation = inputQueue.then(async () => {
       const sessionEpoch = transportEpoch;
       const sessionPeer = peer;
