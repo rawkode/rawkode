@@ -86,6 +86,13 @@ export const cloudflareAdapterLedger = [
     audit:
       "Callback defects and rejected native storage Promises become a closed operation/reason error; payloads, attachment data, and platform causes never cross the seam. The transaction-outcome adapter uses a per-call private rollback sentinel so a schema-decoded domain failure can be returned without exposing a native Promise rejection.",
   },
+  {
+    id: "durable-object-fixed-http",
+    boundary: "Cloudflare DurableObjectNamespace fixed-name stub.fetch and bounded response stream",
+    owner: "@enchiridion/runtime",
+    audit:
+      "The client fixes the namespace name, method, path, headers, expected status and byte caps before invocation; rejected platform causes, response headers and response bodies never enter diagnostics.",
+  },
 ] as const;
 
 export type CloudflareAdapterID = (typeof cloudflareAdapterLedger)[number]["id"];

@@ -2,6 +2,7 @@ export * from "./adapters";
 export * from "./access-jwt";
 export * from "./capability";
 export * from "./config";
+export * from "./durable-object-client";
 export * from "./errors";
 export * from "./immutable-r2";
 export * from "./limiter";

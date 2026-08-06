@@ -14,7 +14,11 @@ import ts from "typescript";
 import { deployableTypeScriptRoots } from "./check-deployable-v2-roots";
 
 const projectRoot = resolve(import.meta.dir, "..");
-const runtimeAdapterPath = resolve(projectRoot, "packages/runtime/src/adapters.ts");
+/** These files are the audited runtime adapter ledger's native seams. */
+const runtimeAdapterPaths = new Set([
+  resolve(projectRoot, "packages/runtime/src/adapters.ts"),
+  resolve(projectRoot, "packages/runtime/src/durable-object-client.ts"),
+]);
 const effectModuleMarker = "@enchiridion/effect-module";
 const sourceGlob = new Glob("**/*.{ts,mts,cts,tsx}");
 const workerSourceGlob = new Glob("**/src/**/*.{ts,mts,cts,tsx}");
@@ -225,7 +229,7 @@ const sourcePaths = new Map<string, string>();
 for (const root of deployableRoots) {
   for await (const relativePath of sourceGlob.scan({ cwd: resolve(root.packagePath, root.sourcePath) })) {
     const path = resolve(root.packagePath, root.sourcePath, relativePath);
-    if (!testFile.test(path) && path !== runtimeAdapterPath) sourcePaths.set(path, relativePath);
+    if (!testFile.test(path) && !runtimeAdapterPaths.has(path)) sourcePaths.set(path, relativePath);
   }
 }
 for await (const relativePath of workerSourceGlob.scan({ cwd: resolve(projectRoot, "workers") })) {

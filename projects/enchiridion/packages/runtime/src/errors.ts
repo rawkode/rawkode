@@ -262,6 +262,43 @@ export class DurableObjectBoundaryError extends Data.TaggedError("DurableObjectB
   }
 }
 
+/** Closed failures at the only cross-Durable-Object HTTP invocation seam.
+ * Native causes, response headers, and response bodies never cross this error. */
+export class DurableObjectInvocationError extends Data.TaggedError("DurableObjectInvocationError")<{
+  readonly reason:
+    | "invalid_configuration"
+    | "namespace_failed"
+    | "stub_failed"
+    | "response_malformed"
+    | "response_too_large"
+    | "unexpected_status";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "invalid_configuration"
+      | "namespace_failed"
+      | "stub_failed"
+      | "response_malformed"
+      | "response_too_large"
+      | "unexpected_status";
+  }) {
+    if (
+      !(
+        [
+          "invalid_configuration",
+          "namespace_failed",
+          "stub_failed",
+          "response_malformed",
+          "response_too_large",
+          "unexpected_status",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid DurableObjectInvocationError fields.");
+    super({ reason: input.reason });
+  }
+}
+
 /** Safe failure categories for Cloudflare Access JWT/JWKS verification.
  * Neither rejected platform causes nor JWT contents cross this boundary. */
 export class AccessJwtVerificationError extends Data.TaggedError("AccessJwtVerificationError")<{
@@ -490,6 +527,7 @@ export type RuntimeError =
   | CapabilityVerificationError
   | WorkerBoundaryError
   | DurableObjectBoundaryError
+  | DurableObjectInvocationError
   | AccessJwtVerificationError
   | P256VerificationError
   | ImmutableR2Error
@@ -514,6 +552,7 @@ export const classifyRuntimeError = (error: unknown): RuntimeErrorClassification
   if (error instanceof CapabilityVerificationError) return "CapabilityVerificationError";
   if (error instanceof WorkerBoundaryError) return "WorkerBoundaryError";
   if (error instanceof DurableObjectBoundaryError) return "DurableObjectBoundaryError";
+  if (error instanceof DurableObjectInvocationError) return "DurableObjectInvocationError";
   if (error instanceof AccessJwtVerificationError) return "AccessJwtVerificationError";
   if (error instanceof P256VerificationError) return "P256VerificationError";
   if (error instanceof ImmutableR2Error) return "ImmutableR2Error";
