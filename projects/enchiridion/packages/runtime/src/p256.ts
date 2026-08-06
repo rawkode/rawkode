@@ -24,6 +24,16 @@ const p256SpkiPrefix = new Uint8Array([
   0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
   0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
 ]);
+/** secp256r1 group order, encoded as exactly 32 big-endian octets. */
+const p256Order = new Uint8Array([
+  0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+]);
+/** floor(n / 2); accepting only s <= this prevents ECDSA signature malleability. */
+const p256HalfOrder = new Uint8Array([
+  0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42, 0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa8,
+]);
 
 const copy = (source: Uint8Array): Uint8Array<ArrayBuffer> => {
   const output = new Uint8Array(source.byteLength);
@@ -73,6 +83,22 @@ const readPositiveInteger = (
   return [magnitude, start + length];
 };
 
+const compareBigEndian = (left: Uint8Array, right: Uint8Array): number => {
+  for (let index = 0; index < left.byteLength; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+};
+
+/** Produces a fixed scalar only when it is in [1, n - 1]. */
+const canonicalScalar = (magnitude: Uint8Array): Uint8Array<ArrayBuffer> | undefined => {
+  const scalar = new Uint8Array(32);
+  scalar.set(magnitude, 32 - magnitude.byteLength);
+  const nonZero = scalar.some((byte) => byte !== 0);
+  return nonZero && compareBigEndian(scalar, p256Order) < 0 ? scalar : undefined;
+};
+
 /** Strict canonical ASN.1 DER ECDSA `SEQUENCE(INTEGER r, INTEGER s)` to Web Crypto P1363. */
 export const p256DerSignatureToP1363 = (input: Uint8Array): Uint8Array<ArrayBuffer> | undefined => {
   if (input[0] !== 0x30) return undefined;
@@ -82,9 +108,17 @@ export const p256DerSignatureToP1363 = (input: Uint8Array): Uint8Array<ArrayBuff
   if (r === undefined) return undefined;
   const s = readPositiveInteger(input, r[1]);
   if (s === undefined || s[1] !== input.byteLength) return undefined;
+  const rScalar = canonicalScalar(r[0]);
+  const sScalar = canonicalScalar(s[0]);
+  if (
+    rScalar === undefined ||
+    sScalar === undefined ||
+    compareBigEndian(sScalar, p256HalfOrder) > 0
+  )
+    return undefined;
   const output = new Uint8Array(64);
-  output.set(r[0], 32 - r[0].byteLength);
-  output.set(s[0], 64 - s[0].byteLength);
+  output.set(rScalar);
+  output.set(sScalar, 32);
   return output;
 };
 

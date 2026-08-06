@@ -23,6 +23,36 @@ const request = {
   signatureDER: bytes(p256VerificationVector.signatureDERBase64),
 };
 
+const p256Order = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+const vectorR = BigInt("0x086e72de2741543e10cf04fd23b6efaf9286c9cb1fa23096e61099b162b72f4e");
+const vectorLowS = BigInt("0x1d244d33af5aeeb6c3c272fe43f3b09d8b09e33a2dd8470588caea60c528b27b");
+
+const unsignedIntegerDER = (value: bigint): Uint8Array => {
+  const hexadecimal = value.toString(16).padStart(64, "0");
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.byteLength; index += 1)
+    bytes[index] = Number.parseInt(hexadecimal.slice(index * 2, index * 2 + 2), 16);
+  const trimmed = bytes.findIndex((byte) => byte !== 0);
+  const magnitude = bytes.slice(trimmed === -1 ? 31 : trimmed);
+  const prependZero = (magnitude[0] ?? 0) >= 0x80;
+  const output = new Uint8Array(2 + magnitude.byteLength + (prependZero ? 1 : 0));
+  output[0] = 0x02;
+  output[1] = output.byteLength - 2;
+  output.set(magnitude, prependZero ? 3 : 2);
+  return output;
+};
+
+const signatureDER = (r: bigint, s: bigint): Uint8Array => {
+  const encodedR = unsignedIntegerDER(r);
+  const encodedS = unsignedIntegerDER(s);
+  const output = new Uint8Array(2 + encodedR.byteLength + encodedS.byteLength);
+  output[0] = 0x30;
+  output[1] = output.byteLength - 2;
+  output.set(encodedR, 2);
+  output.set(encodedS, 2 + encodedR.byteLength);
+  return output;
+};
+
 describe("P-256 runtime adapter", () => {
   test("accepts only canonical P-256 SPKI and canonical DER integer encodings", () => {
     expect(canonicalP256Spki(request.spkiDER)).toHaveLength(91);
@@ -36,6 +66,10 @@ describe("P-256 runtime adapter", () => {
       ),
     ).toBeUndefined();
     expect(p256DerSignatureToP1363(new Uint8Array([0x30, 0x81, 0x01]))).toBeUndefined();
+    expect(p256DerSignatureToP1363(signatureDER(0n, 1n))).toBeUndefined();
+    expect(p256DerSignatureToP1363(signatureDER(p256Order, 1n))).toBeUndefined();
+    // n - s is another valid ECDSA representative, but canonical verification rejects it.
+    expect(p256DerSignatureToP1363(signatureDER(vectorR, p256Order - vectorLowS))).toBeUndefined();
   });
 
   test("executes the published vector through Bun/Workerd-compatible Web Crypto", async () => {
