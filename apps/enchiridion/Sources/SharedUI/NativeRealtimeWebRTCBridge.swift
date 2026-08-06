@@ -95,6 +95,8 @@
     private var inputSource: LKRTCAudioSource?
     private var inputTrack: LKRTCAudioTrack?
     private var newestLease: RealtimeVoiceInputLease?
+    private var nextTerminalDriverID: UInt64 = 0
+    private var terminalDriverID: UInt64?
     private var terminalDriverTask: Task<Void, Never>?
     init(terminalDriverScheduler: NativeTerminalDriverScheduler = .init(), terminalCleanupOperation: NativeTerminalCleanupOperation = .init()) {
       self.terminalDriverScheduler = terminalDriverScheduler
@@ -113,7 +115,12 @@
       let token = NativeBridgeToken(generation: generation, epoch: epoch)
       authorization.revoke()
       do { try authorization.activate(capability, generation: generation) } catch { throw RealtimeVoiceTransportError.bridgeClosed }
-      guard relay.bind(token, nonce: nonce) else { authorization.revoke(); state = .terminal; throw RealtimeVoiceTransportError.bridgeClosed }
+      guard coordinator.bindUnstarted(token), relay.bind(token, nonce: nonce) else {
+        coordinator.cancelUnstarted(token)
+        authorization.revoke()
+        state = .terminal
+        throw RealtimeVoiceTransportError.bridgeClosed
+      }
       state = .active(token)
     }
 
@@ -203,7 +210,9 @@
     func stop() async {
       guard state != .stopped, lifecycle.stop() != nil else { return }
       let token = ownedToken ?? relay.activeTokenForStop
-      if let token { await awaitTerminalResult(ingress.submit(token, .terminal(nil))) }
+      if let token, coordinator.finishUnstarted(token) {
+        _ = relay.finishUnstarted(token)
+      } else if let token { await awaitTerminalResult(ingress.submit(token, .terminal(nil))) }
       else { relay.finish() }
       authorization.revoke()
       state = .stopped
@@ -217,9 +226,17 @@
       startTerminalDriver(ticket)
     }
     private func makeIngressRouter() -> @Sendable (NativeBridgeIngress.Result) -> Void {
-      { [weak self] result in Task { @MainActor [weak self] in self?.route(result) } }
+      { [self] result in Task { @MainActor [self] in route(result) } }
     }
-    private func startTerminalDriver(_ ticket: NativeBridgeLifecycleCoordinator.TerminalTicket) { guard terminalDriverTask == nil else { return }; terminalDriverTask = terminalDriverScheduler.submit { [weak self] in await self?.driveTerminal(ticket) } }
+    private func startTerminalDriver(_ ticket: NativeBridgeLifecycleCoordinator.TerminalTicket) {
+      guard terminalDriverTask == nil, terminalDriverID == nil, nextTerminalDriverID < .max else { return }
+      nextTerminalDriverID += 1
+      let driverID = nextTerminalDriverID
+      terminalDriverID = driverID
+      terminalDriverTask = terminalDriverScheduler.submit { @MainActor [self] in
+        await driveTerminal(ticket, driverID: driverID)
+      }
+    }
     private func awaitTerminalResult(_ result: NativeBridgeIngress.Result, didClaim: (() -> Void)? = nil) async {
       route(result)
       switch result {
@@ -227,19 +244,34 @@
       case .accepted, .rejected: break
       }
     }
-    private func driveTerminal(_ ticket: NativeBridgeLifecycleCoordinator.TerminalTicket) async {
+    private func driveTerminal(_ ticket: NativeBridgeLifecycleCoordinator.TerminalTicket, driverID: UInt64) async {
       let token = ticket.token
+      // The ticket is immutable and is the source of truth for every exit,
+      // including no-snapshot, failed-teardown, and cancelled-driver paths.
+      // Keep this defer before any state mutation so the retained driver can
+      // only release its owner after publication and every joiner completes.
+      defer {
+        publishTerminal(ticket)
+        coordinator.complete(ticket)
+        clearTerminalDriver(id: driverID)
+      }
       state = .terminal
       authorization.revoke()
       let snapshot = claimOwned(token)
       coordinator.invalidateGates()
-      guard coordinator.beginTeardown(token) else { coordinator.complete(ticket); return }
+      guard coordinator.beginTeardown(token) else { return }
       await coordinator.waitForAdmissionsToDrain()
       await terminalCleanupOperation.run()
       await finishTerminal(token, snapshot: snapshot)
-      if let failure = ticket.failure { relay.terminal(.failure(generation: token.generation, code: failure)) } else { relay.finish() }
-      coordinator.complete(ticket)
+    }
+    private func publishTerminal(_ ticket: NativeBridgeLifecycleCoordinator.TerminalTicket) {
+      if let failure = ticket.failure { relay.terminal(.failure(generation: ticket.token.generation, code: failure)) }
+      else { relay.finish() }
+    }
+    private func clearTerminalDriver(id: UInt64) {
+      guard terminalDriverID == id else { return }
       terminalDriverTask = nil
+      terminalDriverID = nil
     }
     private func finishTerminal(_ token: NativeBridgeToken, snapshot: ResourceSnapshot?) async {
       guard let snapshot else { return }
@@ -273,6 +305,7 @@
     func testStopTerminalIngress(_ token: NativeBridgeToken, didClaim: @escaping () -> Void = {}) async { await awaitTerminalResult(ingress.submit(token, .terminal(nil)), didClaim: didClaim) }
     func testBeginTeardown(_ token: NativeBridgeToken) -> Bool { coordinator.beginTeardown(token) }
     var testTerminalDriverTask: Task<Void, Never>? { terminalDriverTask }
+    var testTerminalDriverID: UInt64? { terminalDriverID }
     var testTerminalFailure: String? { coordinator.testTerminalFailure }
   }
 
@@ -282,7 +315,7 @@
   /// particular, terminal installation is synchronous: a callback wins the
   /// race before its MainActor cleanup task is even scheduled.
   final class NativeBridgeLifecycleCoordinator: @unchecked Sendable {
-    enum Phase: Equatable { case idle, preinstall, installed, tearingDown, terminal, finished }
+    enum Phase: Equatable { case idle, boundUnstarted, preinstall, installed, tearingDown, terminal, finished }
     final class TerminalTicket: @unchecked Sendable { let token: NativeBridgeToken; let failure: String?; let completion = NativeRelayCompletion(); init(token: NativeBridgeToken, failure: String?) { self.token = token; self.failure = failure } }
     enum TerminalClaim { case driver(TerminalTicket), join(TerminalTicket), none }
     enum ControlClaim { case accepted, driver(TerminalTicket), rejected }
@@ -296,7 +329,24 @@
     private var admissions = 0
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
 
-    func beginPreinstall(_ token: NativeBridgeToken) -> Bool { lock.withLock { guard phase == .idle else { return false }; phase = .preinstall; active = token; return true } }
+    /// Authorization owns this state before any peer, channel, snapshot, or
+    /// terminal ticket exists. It gives `stop()` an explicit publication-only
+    /// exit instead of inventing a teardown ticket without resources.
+    func bindUnstarted(_ token: NativeBridgeToken) -> Bool { lock.withLock { guard phase == .idle, active == nil, terminal == nil else { return false }; active = token; phase = .boundUnstarted; return true } }
+    func cancelUnstarted(_ token: NativeBridgeToken) { lock.withLock { guard phase == .boundUnstarted, active == token, terminal == nil else { return }; active = nil; phase = .finished } }
+    func finishUnstarted(_ token: NativeBridgeToken) -> Bool { lock.withLock { guard phase == .boundUnstarted, active == token, terminal == nil else { return false }; active = nil; snapshotID = nil; callbacksActive = false; phase = .finished; return true } }
+    func beginPreinstall(_ token: NativeBridgeToken) -> Bool {
+      lock.withLock {
+        guard terminal == nil else { return false }
+        switch phase {
+        case .boundUnstarted: guard active == token else { return false }
+        case .idle: active = token // deterministic ingress fixtures begin here.
+        case .preinstall, .installed, .tearingDown, .terminal, .finished: return false
+        }
+        phase = .preinstall
+        return true
+      }
+    }
     func install(_ token: NativeBridgeToken, snapshot: AnyObject) -> Bool { lock.withLock { guard phase == .preinstall, active == token, terminal == nil else { return false }; snapshotID = ObjectIdentifier(snapshot); phase = .installed; return true } }
     func activateCallbacks(_ token: NativeBridgeToken) { lock.withLock { guard phase == .installed, active == token, terminal == nil else { return }; callbacksActive = true } }
     func callbacksCurrent(_ token: NativeBridgeToken) -> Bool { lock.withLock { callbacksActive && phase == .installed && active == token && terminal == nil } }
@@ -358,6 +408,9 @@
     /// this method; `true` asks it to install that terminal ticket.
     func enqueue(_ token: NativeBridgeToken, _ event: RealtimeWebRTCBridgeEvent) -> Bool { lock.lock(); guard !finished, activeToken == token else { lock.unlock(); return false }; if case .audioActivity = event { activity = event } else if controls.count < 256 { controls.append(event) } else { lock.unlock(); return true }; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value); return false }
     func terminal(_ event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard terminal == nil else { lock.unlock(); return }; controls.removeAll(); activity = nil; terminal = event; finished = true; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value) }
+    /// The authorized-but-unstarted branch has no terminal ticket, driver, or
+    /// resources. Validate the bound token and publish its one EOF directly.
+    @discardableResult func finishUnstarted(_ token: NativeBridgeToken) -> Bool { lock.lock(); guard !finished, terminal == nil, activeToken == token else { lock.unlock(); return false }; activeToken = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil); return true }
     func finish() { lock.lock(); guard terminal == nil else { lock.unlock(); return }; activeToken = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil) }
     private func next() async -> RealtimeWebRTCBridgeEvent? { await withCheckedContinuation { continuation in lock.lock(); if let value = dequeue() { lock.unlock(); continuation.resume(returning: value) } else if finished { lock.unlock(); continuation.resume(returning: nil) } else { waiter = continuation; lock.unlock() } } }
     private func dequeue() -> RealtimeWebRTCBridgeEvent? { if let terminal { self.terminal = nil; return terminal }; if !controls.isEmpty { return controls.removeFirst() }; if let activity { self.activity = nil; return activity }; return nil }
