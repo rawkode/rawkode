@@ -65,7 +65,13 @@
       let channelProxy = NativeChannelProxy(token: token, fence: fence, relay: relay, terminal: terminal, armed: false)
       let snapshot = ResourceSnapshot(peer: peer, transceiver: transceiver, channel: channel, peerProxy: proxy, channelProxy: channelProxy)
       guard installOwned(token, snapshot) else { channel.close(); peer.close(); throw RealtimeVoiceTransportError.bridgeClosed }
-      proxy.arm(); channelProxy.arm(); channel.delegate = channelProxy
+      // A terminal observed while the SDK was constructing the peer wins over
+      // every later callback and over offer generation.
+      let preinstallTerminal = proxy.arm()
+      let channelTerminal = channelProxy.arm()
+      channel.delegate = channelProxy
+      if let reason = preinstallTerminal ?? channelTerminal { terminal(token, reason); throw RealtimeVoiceTransportError.bridgeClosed }
+      guard owns(token, snapshot) else { throw RealtimeVoiceTransportError.bridgeClosed }
       let clock = ContinuousClock(); let start = clock.now
       do {
         let offerGate = NativeRealtimeWebRTCOperationGate<NativeSessionDescription>()
@@ -160,7 +166,9 @@
     func completeTerminal(_ token: NativeBridgeToken, event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard !finished, (overflowPending && overflowToken == token || activeToken == token) else { lock.unlock(); return }; let completion = overflowCompletion; activeToken = nil; overflowPending = false; overflowToken = nil; overflowDriver = false; overflowCompletion = nil; controls.removeAll(); activity = nil; terminal = event; finished = true; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value); completion?.finish() }
     func push(_ event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard !finished else { lock.unlock(); return }; if case .audioActivity = event { activity = event } else if controls.count < 256 { controls.append(event) } else { controls.removeAll(); activity = nil; finished = true; terminal = .failure(generation: Self.generation(of: event), code: NativeBridgeReason.eventOverflow.rawValue) }; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value) }
     func terminal(_ event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard terminal == nil else { lock.unlock(); return }; controls.removeAll(); activity = nil; terminal = event; finished = true; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value) }
-    func finish() { lock.lock(); guard terminal == nil else { lock.unlock(); return }; activeToken = nil; overflowPending = false; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil) }
+    /// Never erase an in-flight ticket: stop joins an overflow driver rather
+    /// than converting its reserved failure into EOF.
+    func finish() { lock.lock(); guard terminal == nil, !overflowPending else { lock.unlock(); return }; activeToken = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil) }
     private func next() async -> RealtimeWebRTCBridgeEvent? { await withCheckedContinuation { continuation in lock.lock(); if let value = dequeue() { lock.unlock(); continuation.resume(returning: value) } else if finished { lock.unlock(); continuation.resume(returning: nil) } else { waiter = continuation; lock.unlock() } } }
     private func dequeue() -> RealtimeWebRTCBridgeEvent? { if let terminal { self.terminal = nil; return terminal }; if !controls.isEmpty { return controls.removeFirst() }; if let activity { self.activity = nil; return activity }; return nil }
     private static func generation(of event: RealtimeWebRTCBridgeEvent) -> UInt64 { switch event { case let .offer(generation, _), let .connectionState(generation, _), let .dataChannelState(generation, _), let .serverEvent(generation, _), let .audioActivity(generation, _, _), let .inputCaptureState(generation, _), let .answerApplied(generation), let .failure(generation, _): return generation; case .ready: return 0 } }
@@ -171,9 +179,21 @@
     private final class Attachment: @unchecked Sendable { let track: LKRTCAudioTrack; let renderer: NativeRemoteAudioRenderer; let output: NativeOutputActivityPublisher; let barrier = Barrier(); var added = false; var started = false; init(track: LKRTCAudioTrack, renderer: NativeRemoteAudioRenderer, output: NativeOutputActivityPublisher) { self.track = track; self.renderer = renderer; self.output = output } }
     private enum OutputState { case empty; case attaching(Attachment); case attached(Attachment); case invalidated(Attachment?) }
     let token: NativeBridgeToken; let fence: NativeCallbackFence; let relay: NativeRealtimeWebRTCEventRelay; let terminal: @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void
-    private let lock = NSLock(); private let output = NativeOutputActivityPublisher(); private let outputLane = DispatchQueue(label: "dev.rawkode.enchiridion.native-webrtc-output"); private var armed = false; private var outputState: OutputState = .empty; private var iceGate: NativeRealtimeWebRTCOperationGate<Void>?; private var iceComplete = false; private var terminalLatched = false
+    private let lock = NSLock(); private let output = NativeOutputActivityPublisher(); private let outputLane = DispatchQueue(label: "dev.rawkode.enchiridion.native-webrtc-output"); private var armed = false; private var pendingTerminal: NativeBridgeReason?; private var pendingRemoteTrack: LKRTCAudioTrack?; private var outputState: OutputState = .empty; private var iceGate: NativeRealtimeWebRTCOperationGate<Void>?; private var iceComplete = false; private var terminalLatched = false
     init(token: NativeBridgeToken, fence: NativeCallbackFence, relay: NativeRealtimeWebRTCEventRelay, terminal: @escaping @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void, armed: Bool) { self.token = token; self.fence = fence; self.relay = relay; self.terminal = terminal; self.armed = armed }
-    func arm() { lock.lock(); armed = true; lock.unlock() }
+    /// Installs the callback snapshot synchronously. A latched terminal is
+    /// returned rather than dispatched so the MainActor can claim teardown
+    /// before ICE/output/offer work has a chance to run.
+    func arm() -> NativeBridgeReason? {
+      lock.lock(); armed = true
+      let terminal = pendingTerminal
+      if terminal != nil { terminalLatched = true; pendingRemoteTrack = nil }
+      let track = terminal == nil ? pendingRemoteTrack : nil
+      pendingRemoteTrack = nil
+      lock.unlock()
+      if let track { beginOutputAttachment(track) }
+      return terminal
+    }
     private func isArmed() -> Bool { lock.lock(); defer { lock.unlock() }; return armed }
     func installICE(_ gate: NativeRealtimeWebRTCOperationGate<Void>) { lock.lock(); iceGate = gate; let complete = iceComplete; lock.unlock(); if complete { gate.succeed(()) } }
     func detachOutput() async {
@@ -194,13 +214,21 @@
       switch outputState { case .empty, .invalidated: lock.unlock(); return nil; case let .attaching(value), let .attached(value): attachment = value; outputState = .invalidated(value); lock.unlock() }
       return attachment
     }
-    func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) { guard isArmed() else { return }; switch state { case .failed, .closed: scheduleTerminal(.peerTerminal); case .new, .checking, .connected, .completed, .count: break; default: scheduleTerminal(.peerUnknown) } }
-    func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceGatheringState) { guard isArmed(), state == .complete else { return }; lock.lock(); iceComplete = true; let gate = iceGate; lock.unlock(); gate?.succeed(()) }
+    func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) { switch state { case .failed, .closed: latchTerminal(.peerTerminal); case .new, .checking, .connected, .completed, .count: break; default: latchTerminal(.peerUnknown) } }
+    func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceGatheringState) { guard state == .complete else { return }; lock.lock(); iceComplete = true; let gate = armed ? iceGate : nil; lock.unlock(); gate?.succeed(()) }
     func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
-      guard isArmed(), let track = transceiver.receiver.track as? LKRTCAudioTrack, fence.isCurrent(token) else { return }
+      guard let track = transceiver.receiver.track as? LKRTCAudioTrack, fence.isCurrent(token) else { return }
+      lock.lock()
+      guard fence.isCurrent(token) else { lock.unlock(); return }
+      guard armed else { if pendingTerminal == nil { pendingRemoteTrack = track }; lock.unlock(); return }
+      guard pendingTerminal == nil else { lock.unlock(); return }
+      lock.unlock()
+      beginOutputAttachment(track)
+    }
+    private func beginOutputAttachment(_ track: LKRTCAudioTrack) {
       let attachment = Attachment(track: track, renderer: NativeRemoteAudioRenderer(slot: output.slot), output: output)
       lock.lock()
-      guard case .empty = outputState, fence.isCurrent(token) else { lock.unlock(); return }
+      guard armed, pendingTerminal == nil, case .empty = outputState, fence.isCurrent(token) else { lock.unlock(); return }
       outputState = .attaching(attachment)
       outputLane.async { [weak self, attachment] in self?.finishAttach(attachment) }
       lock.unlock()
@@ -216,18 +244,18 @@
       if case let .attaching(current) = outputState, current === attachment { outputState = .attached(attachment) }
       lock.unlock()
     }
-    private func scheduleTerminal(_ reason: NativeBridgeReason) { lock.lock(); guard !terminalLatched else { lock.unlock(); return }; terminalLatched = true; lock.unlock(); let token = token; let terminal = terminal; Task { @MainActor in terminal(token, reason) } }
+    private func latchTerminal(_ reason: NativeBridgeReason) { lock.lock(); guard !terminalLatched, pendingTerminal == nil else { lock.unlock(); return }; if !armed { pendingTerminal = reason; lock.unlock(); return }; terminalLatched = true; lock.unlock(); let token = token; let terminal = terminal; Task { @MainActor in terminal(token, reason) } }
     func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}; func peerConnection(_: LKRTCPeerConnection, didAdd _: LKRTCMediaStream) {}; func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}; func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}; func peerConnection(_: LKRTCPeerConnection, didGenerate _: LKRTCIceCandidate) {}; func peerConnection(_: LKRTCPeerConnection, didRemove _: [LKRTCIceCandidate]) {}; func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
   }
   private final class NativeChannelProxy: NSObject, LKRTCDataChannelDelegate, @unchecked Sendable {
-    let token: NativeBridgeToken; let fence: NativeCallbackFence; let relay: NativeRealtimeWebRTCEventRelay; let terminal: @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void; private let lock = NSLock(); private var armed = false
+    let token: NativeBridgeToken; let fence: NativeCallbackFence; let relay: NativeRealtimeWebRTCEventRelay; let terminal: @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void; private let lock = NSLock(); private var armed = false; private var pendingTerminal: NativeBridgeReason?
     init(token: NativeBridgeToken, fence: NativeCallbackFence, relay: NativeRealtimeWebRTCEventRelay, terminal: @escaping @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void, armed: Bool) { self.token = token; self.fence = fence; self.relay = relay; self.terminal = terminal; self.armed = armed }
-    func arm() { lock.lock(); armed = true; lock.unlock() }
+    func arm() -> NativeBridgeReason? { lock.lock(); armed = true; let terminal = pendingTerminal; pendingTerminal = nil; lock.unlock(); return terminal }
     private func isArmed() -> Bool { lock.lock(); defer { lock.unlock() }; return armed }
     func dataChannelDidChangeState(_ channel: LKRTCDataChannel) { guard isArmed() else { return }; switch channel.readyState { case .connecting: enqueue(.dataChannelState(generation: token.generation, state: "connecting")); case .open: enqueue(.dataChannelState(generation: token.generation, state: "open")); case .closing, .closed: scheduleTerminal(.channelTerminal); default: scheduleTerminal(.channelUnknown) } }
     func dataChannel(_: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer) { guard isArmed(), !buffer.isBinary, buffer.data.count <= RealtimeProtocolCodec.maximumEventBytes, let json = String(data: buffer.data, encoding: .utf8), fence.isCurrent(token) else { return }; enqueue(.serverEvent(generation: token.generation, json: json)) }
     private func enqueue(_ event: RealtimeWebRTCBridgeEvent) { if relay.enqueue(token, event) { scheduleTerminal(.eventOverflow) } }
-    private func scheduleTerminal(_ reason: NativeBridgeReason) { let token = token; let terminal = terminal; Task { @MainActor in terminal(token, reason) } }
+    private func scheduleTerminal(_ reason: NativeBridgeReason) { lock.lock(); guard !armed else { lock.unlock(); let token = token; let terminal = terminal; Task { @MainActor in terminal(token, reason) }; return }; if pendingTerminal == nil { pendingTerminal = reason }; lock.unlock() }
   }
   private final class NativeAudioLevelSlot: @unchecked Sendable { private let lock = NSLock(); private var level: Double = 0; func write(_ value: Double) { guard lock.try() else { return }; level = value; lock.unlock() }; func take() -> Double? { guard lock.try() else { return nil }; defer { lock.unlock() }; return level } }
   private final class NativeOutputActivityPublisher: @unchecked Sendable { let slot = NativeAudioLevelSlot(); private var timer: DispatchSourceTimer?; func start(token: NativeBridgeToken, fence: NativeCallbackFence, relay: NativeRealtimeWebRTCEventRelay, terminal: @escaping @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void) { guard timer == nil else { return }; let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "dev.rawkode.enchiridion.native-webrtc-meter")); timer.schedule(deadline: .now() + .milliseconds(50), repeating: .milliseconds(50)); timer.setEventHandler { [slot, token, fence, relay] in guard fence.isCurrent(token), let value = slot.take() else { return }; if relay.enqueue(token, .audioActivity(generation: token.generation, inputLevel: 0, outputLevel: value)) { Task { @MainActor in terminal(token, .eventOverflow) } } }; self.timer = timer; timer.resume() }; func stop() { timer?.cancel(); timer = nil } }

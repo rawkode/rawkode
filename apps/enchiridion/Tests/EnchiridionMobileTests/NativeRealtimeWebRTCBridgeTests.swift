@@ -74,6 +74,9 @@ import XCTest
       for index in 0..<255 { XCTAssertFalse(relay.enqueue(a, .serverEvent(generation: 1, json: "\(index)"))) }
       XCTAssertTrue(relay.enqueue(a, .serverEvent(generation: 1, json: "overflow")))
       XCTAssertFalse(relay.enqueue(b, .serverEvent(generation: 2, json: "stale-b")))
+      // Overflow-first stop must join/preserve the ticket, never turn it into
+      // an EOF before the only cleanup driver has committed its failure.
+      relay.finish()
       XCTAssertEqual(relay.claimOverflowDriver(a), .driver)
       XCTAssertEqual(relay.claimOverflowDriver(a), .join)
       relay.completeTerminal(a, event: .failure(generation: 1, code: "event_overflow"))
