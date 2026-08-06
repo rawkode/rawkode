@@ -166,8 +166,9 @@
         let offerGate = NativeRealtimeWebRTCOperationGate<NativeSessionDescription>()
         coordinator.register(offerGate, token: token, snapshot: snapshot)
         guard coordinator.admit(token, snapshot: snapshot) else { throw RealtimeVoiceTransportError.bridgeClosed }
-        peer.offer(for: constraints) { description, _ in
-          guard let description, description.sdp.utf8.count <= Self.maximumSDPBytes else { offerGate.fail(); return }
+        let maximumSDPBytes = Self.maximumSDPBytes
+        peer.offer(for: constraints) { [offerGate, maximumSDPBytes] description, _ in
+          guard let description, description.sdp.utf8.count <= maximumSDPBytes else { offerGate.fail(); return }
           offerGate.succeed(.init(kind: .offer, sdp: description.sdp))
         }
         coordinator.release()
