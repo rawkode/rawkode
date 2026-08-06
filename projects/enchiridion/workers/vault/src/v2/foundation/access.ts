@@ -34,7 +34,19 @@ export const maximumAccessAssertionLength = 8_192;
 
 export interface AccessAssertionHeaderValues {
   readonly values: (name: typeof cfAccessJwtAssertionHeaderName) => readonly string[];
+  /** Checked inside verification so hostile Request/Headers access is contained by Effect. */
+  readonly hasForbiddenCredential: () => boolean;
 }
+
+/** No browser/session, service-token, or legacy authorization mechanism reaches this origin. */
+export const forbiddenCredentialHeaderNames = [
+  "authorization",
+  "cookie",
+  "cf-access-client-id",
+  "cf-access-client-secret",
+  "x-api-key",
+  "x-auth-token",
+] as const;
 
 /** Route adapter bridge: a comma-combined value is never a valid singular JWT header. */
 export const accessAssertionHeadersFromWorkerHeaders = (
@@ -44,6 +56,7 @@ export const accessAssertionHeadersFromWorkerHeaders = (
     const value = headers.get(cfAccessJwtAssertionHeaderName);
     return value === null || value.includes(",") ? [] : [value];
   },
+  hasForbiddenCredential: () => forbiddenCredentialHeaderNames.some((name) => headers.has(name)),
 });
 
 export interface VerifiedAccessAssertion {
@@ -168,18 +181,27 @@ export const makeAccessAssertionVerifier = Effect.gen(function* () {
 
   const verifier: AccessAssertionVerifier = {
     verify: (headers, nowSeconds) => {
-      const values = headers.values(cfAccessJwtAssertionHeaderName);
-      const assertion = values[0];
-      if (
-        assertion === undefined ||
-        values.length !== 1 ||
-        assertion.length === 0 ||
-        assertion.length > maximumAccessAssertionLength
-      )
-        return failure("missing_assertion");
-      if (accessProtectedHeader(headerJSON(assertion)) === undefined)
-        return failure("protected_header_invalid");
-      return verifyWith(assertion, nowSeconds).pipe(
+      return Effect.try({
+        try: () => {
+          if (headers.hasForbiddenCredential()) return undefined;
+          const values = headers.values(cfAccessJwtAssertionHeaderName);
+          const assertion = values[0];
+          return assertion === undefined ||
+            values.length !== 1 ||
+            assertion.length === 0 ||
+            assertion.length > maximumAccessAssertionLength
+            ? undefined
+            : assertion;
+        },
+        catch: () => new AccessAssertionError({ reason: "missing_assertion" }),
+      }).pipe(
+        Effect.flatMap((assertion) =>
+          assertion === undefined
+            ? failure<VerifiedAccessAssertion>("missing_assertion")
+            : accessProtectedHeader(headerJSON(assertion)) === undefined
+              ? failure<VerifiedAccessAssertion>("protected_header_invalid")
+              : verifyWith(assertion, nowSeconds),
+        ),
         Effect.tap(() => metrics.increment("access.accepted")),
         Effect.tapError(() => metrics.increment("access.rejected")),
       );

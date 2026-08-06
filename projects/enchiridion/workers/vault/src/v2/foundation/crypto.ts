@@ -78,6 +78,23 @@ export interface VersionedIssuerHasher {
     identity: VerifiedAccessIdentity,
     digest: CredentialBindingDigest,
   ) => Effect.Effect<boolean, IssuerHashError | ExternalServiceError>;
+  /** Clone-safe, transient aliases for a verified identity. These strings are
+   * authenticated by the Directory capability before any RPC persistence. */
+  readonly aliases: (
+    identity: VerifiedAccessIdentity,
+  ) => Effect.Effect<CredentialBindingAliases, IssuerHashError | ExternalServiceError>;
+}
+
+export interface CredentialBindingAlias {
+  readonly version: "v2";
+  readonly keyID: string;
+  readonly digest: string;
+  readonly current: boolean;
+}
+
+export interface CredentialBindingAliases {
+  readonly current: CredentialBindingAlias;
+  readonly ordered: readonly CredentialBindingAlias[];
 }
 
 const base64url = (bytes: Uint8Array): string => {
@@ -146,6 +163,27 @@ export const makeVersionedIssuerHasher = (
       Effect.mapError(() => new IssuerHashError({ reason: "crypto_failed" })),
     );
   },
+  aliases: (identity) =>
+    Effect.forEach([keyRing.current, ...keyRing.prior], (key, index) =>
+      signCapabilityHmac(key.secret, issuerPayload("v2", identity)).pipe(
+        Effect.map(
+          (signature): CredentialBindingAlias => ({
+            version: "v2",
+            keyID: key.keyID,
+            digest: `v2.${key.keyID}.${base64url(signature)}`,
+            current: index === 0,
+          }),
+        ),
+      ),
+    ).pipe(
+      Effect.flatMap((ordered) => {
+        const current = ordered[0];
+        return current === undefined
+          ? Effect.fail(new IssuerHashError({ reason: "crypto_failed" }))
+          : Effect.succeed({ current, ordered });
+      }),
+      Effect.mapError(() => new IssuerHashError({ reason: "crypto_failed" })),
+    ),
 });
 
 export interface InternalCapabilityFactory {

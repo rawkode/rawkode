@@ -13,6 +13,7 @@ import {
   type AccessAssertionHeaderValues,
   accessAssertionHeadersFromWorkerHeaders,
   cfAccessJwtAssertionHeaderName,
+  forbiddenCredentialHeaderNames,
   makeAccessAssertionVerifier,
 } from "./access";
 import {
@@ -93,7 +94,10 @@ const jwt = (header = { alg: "RS256", typ: "JWT", kid: "key-1" }): string => {
     .replace(/=+$/u, "");
   return `${text}.claims.signature`;
 };
-const headers = (value: string): AccessAssertionHeaderValues => ({ values: () => [value] });
+const headers = (value: string): AccessAssertionHeaderValues => ({
+  values: () => [value],
+  hasForbiddenCredential: () => false,
+});
 
 const validClaims = {
   iss: "https://team.cloudflareaccess.com",
@@ -155,6 +159,129 @@ describe("v2 foundation access assertions", () => {
       );
       expect(Exit.isFailure(exit)).toBe(true);
       expect(JSON.stringify(exit)).toContain("missing_assertion");
+    }
+  });
+
+  test("fails closed before JWT verification when a valid assertion is mixed with any legacy credential", async () => {
+    const rawSecret = "raw-legacy-secret-must-never-be-observed";
+    for (const forbidden of forbiddenCredentialHeaderNames) {
+      let verified = 0;
+      const workerHeaders = new Headers({ "Cf-Access-Jwt-Assertion": jwt() });
+      workerHeaders.set(forbidden.toUpperCase(), "");
+      const exit = await Effect.runPromiseExit(
+        makeAccessAssertionVerifier.pipe(
+          Effect.flatMap((verifier) =>
+            verifier.verify(accessAssertionHeadersFromWorkerHeaders(workerHeaders), now),
+          ),
+          Effect.provide(
+            Layer.mergeAll(
+              layerVaultV2Config(configInput),
+              noopVaultV2MetricsLayer,
+              Layer.succeed(RuntimeAccessJwtVerifier, {
+                verify: () =>
+                  Effect.sync(() => {
+                    verified += 1;
+                    return verifiedAccess();
+                  }),
+              }),
+            ),
+          ),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(verified).toBe(0);
+      expect(JSON.stringify(exit)).not.toContain(rawSecret);
+    }
+    let combinedVerifications = 0;
+    const combined = new Headers({ "Cf-Access-Jwt-Assertion": jwt() });
+    combined.append("authorization", "");
+    combined.append("authorization", " ");
+    const combinedExit = await Effect.runPromiseExit(
+      makeAccessAssertionVerifier.pipe(
+        Effect.flatMap((verifier) =>
+          verifier.verify(accessAssertionHeadersFromWorkerHeaders(combined), now),
+        ),
+        Effect.provide(
+          Layer.mergeAll(
+            layerVaultV2Config(configInput),
+            noopVaultV2MetricsLayer,
+            Layer.succeed(RuntimeAccessJwtVerifier, {
+              verify: () =>
+                Effect.sync(() => {
+                  combinedVerifications += 1;
+                  return verifiedAccess();
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+    expect(Exit.isFailure(combinedExit)).toBe(true);
+    expect(combinedVerifications).toBe(0);
+    for (const cookie of [
+      "CF_Authorization=secret",
+      "session=secret; CF_Authorization=also-secret",
+    ]) {
+      const workerHeaders = new Headers({
+        "Cf-Access-Jwt-Assertion": jwt(),
+        cOoKiE: cookie,
+      });
+      const exit = await Effect.runPromiseExit(
+        makeAccessAssertionVerifier.pipe(
+          Effect.flatMap((verifier) =>
+            verifier.verify(accessAssertionHeadersFromWorkerHeaders(workerHeaders), now),
+          ),
+          Effect.provide(accessLayer()),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).not.toContain(cookie);
+    }
+  });
+
+  test("contains hostile native Header getters without calling JWT verification or exposing values", async () => {
+    const secret = "hostile-header-secret";
+    for (const hostile of [
+      {
+        has: () => {
+          throw new Error(secret);
+        },
+        get: () => jwt(),
+      },
+      {
+        has: () => false,
+        get: () => {
+          throw new Error(secret);
+        },
+      },
+    ]) {
+      let verified = 0;
+      const exit = await Effect.runPromiseExit(
+        makeAccessAssertionVerifier.pipe(
+          Effect.flatMap((verifier) =>
+            verifier.verify(
+              accessAssertionHeadersFromWorkerHeaders(hostile as unknown as Headers),
+              now,
+            ),
+          ),
+          Effect.provide(
+            Layer.mergeAll(
+              layerVaultV2Config(configInput),
+              noopVaultV2MetricsLayer,
+              Layer.succeed(RuntimeAccessJwtVerifier, {
+                verify: () =>
+                  Effect.sync(() => {
+                    verified += 1;
+                    return verifiedAccess();
+                  }),
+              }),
+            ),
+          ),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(verified).toBe(0);
+      expect(JSON.stringify(exit)).not.toContain(secret);
     }
   });
 
