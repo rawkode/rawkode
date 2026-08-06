@@ -85,6 +85,7 @@ mkApp {
         ];
         casks = [
           "chatgpt"
+          "claude-code"
           "codex"
           "codex-app"
           "openusage"
