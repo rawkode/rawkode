@@ -1,6 +1,8 @@
 import * as AST from "effect/SchemaAST";
 import {
   DeviceIDSchema,
+  SHA256DigestSchema,
+  SignedRequestHeaderValueSchema,
   httpOperations,
   protocolSchemaDefinitions,
   protocolVersion,
@@ -95,72 +97,109 @@ export const openAPISchemas = Object.fromEntries(
 export const openAPIV2 = {
   openapi: "3.1.0",
   info: { title: "Enchiridion Protocol", version: `v${protocolVersion}` },
-  paths: Object.fromEntries(
-    httpOperations.map((operation) => [
-      operation.path,
-      {
-        post: {
-          operationId: operation.operationID,
-          ...(operation.operationID === "revokeDevice"
-            ? {
-                parameters: [
-                  {
-                    name: "deviceId",
-                    in: "path",
-                    required: true,
-                    description:
-                      "RFC 3986 URI-component encoded exactly once; only ASCII unreserved characters remain literal.",
-                    schema: openAPISchema(DeviceIDSchema),
-                  },
-                ],
-              }
-            : {}),
-          responses: {
-            "200": {
-              description: "Success",
-              content: {
-                "application/json": {
-                  schema: { $ref: `#/components/schemas/${operation.successSchema}` },
-                },
-              },
+  paths: httpOperations.reduce<Record<string, Record<string, object>>>((paths, operation) => {
+    const parameterSchema = operation.path.includes("{deviceId}")
+      ? DeviceIDSchema
+      : operation.path.includes("{sha256}")
+        ? SHA256DigestSchema
+        : undefined;
+    const parameterName = operation.path.includes("{deviceId}") ? "deviceId" : "sha256";
+    const pathParameter =
+      parameterSchema === undefined
+        ? []
+        : [
+            {
+              name: parameterName,
+              in: "path",
+              required: true,
+              description:
+                "RFC 3986 URI-component encoded exactly once; only ASCII unreserved characters remain literal.",
+              schema: openAPISchema(parameterSchema),
             },
-            "400": {
-              description: "Stable protocol error",
-              content: {
-                "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
-              },
+          ];
+    const signedRequestHeaderParameter =
+      operation.signedRequestHeader === true
+        ? [
+            {
+              name: "Enchiridion-Signed-Request",
+              in: "header",
+              required: true,
+              description:
+                "Exactly one case-insensitive canonical base64url signed-device envelope, bounded to 8192 encoded characters.",
+              schema: openAPISchema(SignedRequestHeaderValueSchema),
             },
-            "401": {
-              description: "Stable protocol error",
-              content: {
-                "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
-              },
-            },
-            "409": {
-              description: "Stable protocol error",
-              content: {
-                "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
-              },
-            },
-            "426": {
-              description: "Version negotiation failed",
-              content: {
-                "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
-              },
-            },
-          },
-          requestBody: {
-            required: true,
-            content: {
+          ]
+        : [];
+    const requestContent =
+      operation.body === "binary"
+        ? { "application/octet-stream": { schema: { type: "string", format: "binary" } } }
+        : operation.body === "none"
+          ? undefined
+          : {
               "application/json": {
                 schema: { $ref: `#/components/schemas/${operation.requestSchema}` },
               },
+            };
+    const operationDefinition = {
+      operationId: operation.operationID,
+      ...(pathParameter.length === 0 && signedRequestHeaderParameter.length === 0
+        ? {}
+        : { parameters: [...pathParameter, ...signedRequestHeaderParameter] }),
+      responses: {
+        "200": {
+          description: "Success",
+          content: {
+            "application/json": {
+              schema: { $ref: `#/components/schemas/${operation.successSchema}` },
             },
           },
         },
+        "400": {
+          description: "Stable protocol error",
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
+          },
+        },
+        "401": {
+          description: "Stable protocol error",
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
+          },
+        },
+        "409": {
+          description: "Stable protocol error",
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
+          },
+        },
+        "426": {
+          description: "Version negotiation failed",
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
+          },
+        },
       },
-    ]),
-  ),
+      ...(requestContent === undefined
+        ? {}
+        : {
+            requestBody: {
+              required: true,
+              content: requestContent,
+            },
+          }),
+      ...(operation.body === "binary"
+        ? {
+            "x-enchiridion-signed-envelope":
+              "SignedDeviceRequestEnvelope; bodySHA256 is SHA-256 of exact octets and equals path {sha256}.",
+          }
+        : {}),
+    };
+    paths[operation.path] = {
+      ...paths[operation.path],
+      [operation.method.toLowerCase()]: operationDefinition,
+    };
+    return paths;
+  }, {}),
   components: { schemas: openAPISchemas },
 } as const;
 

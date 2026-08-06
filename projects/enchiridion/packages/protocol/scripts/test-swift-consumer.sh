@@ -13,3 +13,7 @@ swiftc -parse-as-library -I "$temporary_directory" -L "$temporary_directory" -lE
   "$package_root/tests/ProtocolConsumer.swift" \
   -o "$temporary_directory/ProtocolConsumer"
 DYLD_LIBRARY_PATH="$temporary_directory" "$temporary_directory/ProtocolConsumer"
+swiftc -parse-as-library -I "$temporary_directory" -L "$temporary_directory" -lEnchiridionProtocol \
+  "$package_root/tests/ProtocolGolden.swift" \
+  -o "$temporary_directory/ProtocolGolden"
+DYLD_LIBRARY_PATH="$temporary_directory" "$temporary_directory/ProtocolGolden"

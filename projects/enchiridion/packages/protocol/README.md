@@ -19,6 +19,35 @@ returns the envelope at `426`; a WebSocket negotiation failure closes at
 `4426` with the same semantic error before application frames are accepted.
 Every public object decoder rejects unknown members, matching the emitted
 OpenAPI `additionalProperties: false` projection.
+
+Every non-bootstrap HTTP request carries `SignedDeviceRequestEnvelope`. Its
+P-256 proof covers v2 method, canonical absolute path, an explicitly empty or
+sorted RFC 3986 query, raw/canonical JSON body SHA-256, request and idempotency
+IDs, owner/vault/generation, actor and optional target device, auth and
+credential epochs, bounded epoch-millisecond issue/expiry values, and a
+canonical 128-bit nonce. `POST /v2/devices/challenge` and initial registration
+are the bootstrap exceptions; revoke is actor/target signed, mutations use
+`POST /v2/mutations`, and blobs use `PUT` or `DELETE /v2/blobs/{sha256}`. A
+blob PUT signs the exact octets: `bodySHA256` must equal the path digest, never
+a JSON metadata command. `canonicalJSONStringify`, `canonicalJSONBytes`,
+`canonicalJSONSHA256`, `canonicalizePath`, `canonicalizeQuery`, and
+`signedDeviceRequestSigningPayload` are the reference public helpers. The
+Swift output contains matching canonical JSON, SHA-256, and signing-byte
+helpers. WebSocket hello and sync frames carry signed/session-bound
+`credentialEpoch`, `generationEpoch`, `sessionNonce`, and
+`assertionExpiresAt`; all four are included in sync signing bytes.
+
+Initial registration contains a full `DeviceChallengeProof` rather than a
+standalone signature; its versioned `ENCHCHAL` bytes bind challenge ID,
+audience, challenge bytes, expiry, nonce, and device SPKI. Signed revoke and
+mutation envelopes hash the canonical command only, never their enclosing
+envelope. Raw blob PUT uses exactly one case-insensitive
+`Enchiridion-Signed-Request` header (canonical base64url, maximum 8 KiB) and
+signs the raw bytes/path. Blob DELETE uses that same required header but sends
+no HTTP body: its envelope hashes the canonical `BlobDeleteCommand`, binding
+the `DELETE` method and `/v2/blobs/{sha256}` path without turning the command
+into wire bytes. Signed JSON entry points use a structural parser
+that rejects duplicate member names before Effect Schema validation.
 Every Base64 (and the 128-bit base64url `frameID`) value is decoded and then
 canonical re-encoded before acceptance. This rejects nonzero unused padding
 bits and alternate text that would otherwise decode to the same replay key or
@@ -26,7 +55,7 @@ signed bytes; replay keys are constructed only after that validation.
 
 `artifacts/openapi.v2.json`, `artifacts/protocol.v2.json`, and
 `generated/swift/EnchiridionProtocol.swift` are deterministic derivatives of
-that contract. The generated Swift file is Foundation-only and provides
+that contract. The generated Swift file uses Foundation and CryptoKit and provides
 `Codable` wire types, typed HTTP transport/client primitives, and WebSocket
 frame types/protocols. It intentionally lives here until a later integration
 

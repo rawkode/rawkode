@@ -14,8 +14,10 @@ import {
 import {
   DeviceRegisterRequestSchema,
   DeviceRegisterRequestShapeSchema,
+  SignedRequestHeaderValueSchema,
   errorCodes,
   protocolSchemaDefinitions,
+  signedRequestHeaderName,
 } from "./contracts";
 import { generatedSwiftAPI, generatedSwiftModel } from "./swift";
 
@@ -40,9 +42,23 @@ describe("generated protocol artifacts", () => {
     expect(JSON.stringify(openAPISchemas.ErrorEnvelope)).toContain(JSON.stringify(errorCodes));
   });
 
+  test("OpenAPI requires the bounded canonical signed-envelope header for raw blobs", () => {
+    const openAPI = JSON.parse(openAPIArtifact());
+    const expected = {
+      name: signedRequestHeaderName,
+      in: "header",
+      required: true,
+      description:
+        "Exactly one case-insensitive canonical base64url signed-device envelope, bounded to 8192 encoded characters.",
+      schema: openAPISchema(SignedRequestHeaderValueSchema),
+    };
+    for (const method of ["put", "delete"])
+      expect(openAPI.paths["/v2/blobs/{sha256}"][method].parameters).toContainEqual(expected);
+  });
+
   test("a canonical registry schema mutation changes every generated boundary", () => {
     expect(protocolSchemaDefinitions.DeviceRegisterRequest).toBe(DeviceRegisterRequestSchema);
-    const changed = DeviceRegisterRequestShapeSchema.pipe(Schema.omit("challengeAudience"));
+    const changed = DeviceRegisterRequestShapeSchema.pipe(Schema.omit("idempotencyKey"));
     const originalOpenAPI = openAPISchemas.DeviceRegisterRequest;
     const changedOpenAPI = openAPISchema(changed);
     const changedManifest = protocolManifestWithSchemaOverride("DeviceRegisterRequest", changed);

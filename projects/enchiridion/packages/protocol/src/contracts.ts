@@ -9,10 +9,20 @@ export const syncFrameSigningPayloadVersion = 1 as const;
 const MAX_IDENTIFIER_LENGTH = 128;
 const MAX_TEXT_LENGTH = 512;
 const MAX_PAYLOAD_BASE64_LENGTH = 1_398_104; // 1 MiB decoded payload.
+const MAX_CANONICAL_PATH_LENGTH = 512;
+const MAX_CANONICAL_QUERY_LENGTH = 1_024;
+export const signedRequestHeaderName = "Enchiridion-Signed-Request";
+export const maximumSignedRequestHeaderLength = 8_192;
+const SIGNED_TIMESTAMP_MINIMUM = 1_700_000_000_000;
+const SIGNED_TIMESTAMP_MAXIMUM = 4_102_444_800_000;
+const SIGNED_REQUEST_MINIMUM_TTL = 1_000;
+const SIGNED_REQUEST_MAXIMUM_TTL = 300_000;
 const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const p256DerBase64 = /^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const opaqueIdentifier = /^[A-Za-z0-9._~-]+$/;
 const frameID = /^[A-Za-z0-9_-]{22}$/;
+const base64urlText = /^[A-Za-z0-9_-]+$/;
+const sha256Digest = /^[0-9a-f]{64}$/;
 const p256SPKIPrefix = Uint8Array.from([
   0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
   0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
@@ -51,6 +61,222 @@ function isCanonicalFrameID(value: string): boolean {
   const bytes = canonicalBase64Bytes(standardBase64);
   if (bytes === undefined || bytes.length !== 16) return false;
   return encodedBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === value;
+}
+
+/** RFC 3986 component encoding with uppercase escapes and no `+` shorthand. */
+export function percentEncodeRFC3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+export type CanonicalQueryEntry = readonly [key: string, value: string];
+
+/** Empty query is represented by the empty string; pairs sort by encoded key then value. */
+export function canonicalizeQuery(entries: readonly CanonicalQueryEntry[]): string {
+  const names = new Set<string>();
+  for (const [name] of entries) {
+    if (names.has(name))
+      throw new TypeError("Canonical query names must be unique after decoding.");
+    names.add(name);
+  }
+  return entries
+    .map(([key, value]) => [percentEncodeRFC3986(key), percentEncodeRFC3986(value)] as const)
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+      leftKey === rightKey
+        ? leftValue < rightValue
+          ? -1
+          : leftValue > rightValue
+            ? 1
+            : 0
+        : leftKey < rightKey
+          ? -1
+          : 1,
+    )
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+/** Rejects query aliases such as `+`, omitted values, malformed escapes, or unsorted pairs. */
+export function canonicalizeQueryString(value: string): string | undefined {
+  if (value === "") return "";
+  if (value.startsWith("?") || value.includes("+")) return undefined;
+  try {
+    const entries: CanonicalQueryEntry[] = [];
+    for (const part of value.split("&")) {
+      const equals = part.indexOf("=");
+      if (equals < 1 || part.indexOf("=", equals + 1) >= 0) return undefined;
+      entries.push([
+        decodeURIComponent(part.slice(0, equals)),
+        decodeURIComponent(part.slice(equals + 1)),
+      ]);
+    }
+    return canonicalizeQuery(entries) === value ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const isUnreserved = (value: string): boolean =>
+  (value >= "A" && value <= "Z") ||
+  (value >= "a" && value <= "z") ||
+  (value >= "0" && value <= "9") ||
+  "-._~".includes(value);
+
+const isUpperHex = (value: string): boolean =>
+  (value >= "0" && value <= "9") || (value >= "A" && value <= "F");
+
+/** Matches runtime: literal unreserved characters plus uppercase escapes only. */
+export function canonicalizePath(value: string): string | undefined {
+  if (!value.startsWith("/") || value.length > MAX_CANONICAL_PATH_LENGTH) return undefined;
+  if (value === "/") return value;
+  if (value.endsWith("/")) return undefined;
+  for (const segment of value.slice(1).split("/")) {
+    if (segment === "" || segment === "." || segment === "..") return undefined;
+    for (let index = 0; index < segment.length; index += 1) {
+      const character = segment[index] ?? "";
+      if (isUnreserved(character)) continue;
+      if (
+        character !== "%" ||
+        !isUpperHex(segment[index + 1] ?? "") ||
+        !isUpperHex(segment[index + 2] ?? "")
+      )
+        return undefined;
+      const decoded = String.fromCharCode(Number.parseInt(segment.slice(index + 1, index + 3), 16));
+      if (isUnreserved(decoded) || decoded === "/") return undefined;
+      index += 2;
+    }
+  }
+  return value;
+}
+
+export type CanonicalJSON =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly CanonicalJSON[]
+  | { readonly [key: string]: CanonicalJSON };
+
+/**
+ * Canonical JSON profile: UTF-8, recursively UTF-16-code-unit sorted keys,
+ * ECMAScript JSON string escaping, no whitespace, and finite JSON numbers.
+ * Timestamps on the wire are integer epoch milliseconds, never JSON dates.
+ */
+export function canonicalJSONStringify(value: CanonicalJSON): string {
+  if (value === null || typeof value === "boolean" || typeof value === "string")
+    return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("Canonical JSON numbers must be finite.");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJSONStringify).join(",")}]`;
+  if (Object.getPrototypeOf(value) !== Object.prototype)
+    throw new TypeError("Canonical JSON objects must be plain objects.");
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJSONStringify(child)}`)
+    .join(",")}}`;
+}
+
+export function canonicalJSONBytes(value: CanonicalJSON): Uint8Array {
+  return new TextEncoder().encode(canonicalJSONStringify(value));
+}
+
+/** Dependency-free SHA-256 keeps canonical body verification synchronous at every boundary. */
+export function sha256Hex(bytes: Uint8Array): string {
+  const constants = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+  const words = new Uint32Array(64);
+  const byteAt = (values: Uint8Array, index: number): number => values[index] ?? 0;
+  const wordAt = (index: number): number => words[index] ?? 0;
+  const bits = bytes.length * 8;
+  const padded = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  let bitLength = bits;
+  for (let index = 7; index >= 0; index -= 1) {
+    padded[padded.length - 8 + index] = bitLength & 0xff;
+    bitLength = Math.floor(bitLength / 256);
+  }
+  let h0 = 0x6a09e667;
+  let h1 = 0xbb67ae85;
+  let h2 = 0x3c6ef372;
+  let h3 = 0xa54ff53a;
+  let h4 = 0x510e527f;
+  let h5 = 0x9b05688c;
+  let h6 = 0x1f83d9ab;
+  let h7 = 0x5be0cd19;
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let index = 0; index < 16; index += 1)
+      words[index] =
+        ((byteAt(padded, offset + index * 4) << 24) |
+          (byteAt(padded, offset + index * 4 + 1) << 16) |
+          (byteAt(padded, offset + index * 4 + 2) << 8) |
+          byteAt(padded, offset + index * 4 + 3)) >>>
+        0;
+    for (let index = 16; index < 64; index += 1) {
+      const a = wordAt(index - 15);
+      const b = wordAt(index - 2);
+      words[index] =
+        (wordAt(index - 16) +
+          ((a >>> 7) | (a << 25)) +
+          ((a >>> 18) | (a << 14)) +
+          (a >>> 3) +
+          wordAt(index - 7) +
+          ((b >>> 17) | (b << 15)) +
+          ((b >>> 19) | (b << 13)) +
+          (b >>> 10)) >>>
+        0;
+    }
+    let a = h0;
+    let b = h1;
+    let c = h2;
+    let d = h3;
+    let e = h4;
+    let f = h5;
+    let g = h6;
+    let h = h7;
+    for (let index = 0; index < 64; index += 1) {
+      const s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+      const choice = (e & f) ^ (~e & g);
+      const temporary1 = (h + s1 + choice + (constants[index] ?? 0) + wordAt(index)) >>> 0;
+      const s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temporary1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temporary1 + s0 + majority) >>> 0;
+    }
+    h0 = (h0 + a) >>> 0;
+    h1 = (h1 + b) >>> 0;
+    h2 = (h2 + c) >>> 0;
+    h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0;
+    h5 = (h5 + f) >>> 0;
+    h6 = (h6 + g) >>> 0;
+    h7 = (h7 + h) >>> 0;
+  }
+  return [h0, h1, h2, h3, h4, h5, h6, h7]
+    .map((word) => word.toString(16).padStart(8, "0"))
+    .join("");
+}
+
+export function canonicalJSONSHA256(value: CanonicalJSON): string {
+  return sha256Hex(canonicalJSONBytes(value));
 }
 
 function derLength(bytes: Uint8Array, offset: number): readonly [number, number] | undefined {
@@ -145,6 +371,65 @@ export const FrameIDSchema = Schema.String.pipe(
   named("FrameID"),
 );
 export const ProtocolVersionSchema = Schema.Literal(protocolVersion).pipe(named("ProtocolVersion"));
+export const SHA256DigestSchema = Schema.String.pipe(
+  Schema.pattern(sha256Digest),
+  Schema.annotations({ jsonSchema: { format: "sha256-hex", minLength: 64, maxLength: 64 } }),
+  named("SHA256Digest"),
+);
+/** Canonical base64url wire value used by the fixed signed-request header. */
+export const SignedRequestHeaderValueSchema = Schema.String.pipe(
+  Schema.pattern(base64urlText),
+  Schema.minLength(1),
+  Schema.maxLength(maximumSignedRequestHeaderLength),
+  Schema.filter((value) => fromBase64url(value) !== undefined),
+  Schema.annotations({
+    jsonSchema: {
+      format: "base64url-canonical",
+      minLength: 1,
+      maxLength: maximumSignedRequestHeaderLength,
+    },
+  }),
+  named("SignedRequestHeaderValue"),
+);
+export const CanonicalPathSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(MAX_CANONICAL_PATH_LENGTH),
+  Schema.filter((value) => canonicalizePath(value) === value),
+  Schema.annotations({
+    jsonSchema: { format: "canonical-path", maxLength: MAX_CANONICAL_PATH_LENGTH },
+  }),
+  named("CanonicalPath"),
+);
+export const CanonicalQuerySchema = Schema.String.pipe(
+  Schema.maxLength(MAX_CANONICAL_QUERY_LENGTH),
+  Schema.filter((value) => canonicalizeQueryString(value) === value),
+  Schema.annotations({
+    jsonSchema: { format: "canonical-query", maxLength: MAX_CANONICAL_QUERY_LENGTH },
+  }),
+  named("CanonicalQuery"),
+);
+export const SignedTimestampSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(SIGNED_TIMESTAMP_MINIMUM),
+  Schema.lessThanOrEqualTo(SIGNED_TIMESTAMP_MAXIMUM),
+  named("SignedTimestamp"),
+);
+export const HTTPMethodSchema = Schema.Literal("POST", "PUT", "DELETE").pipe(named("HTTPMethod"));
+export const AuthEpochSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.nonNegative(),
+  named("AuthEpoch"),
+);
+export const CredentialEpochSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.nonNegative(),
+  named("CredentialEpoch"),
+);
+export const GenerationEpochSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.nonNegative(),
+  named("GenerationEpoch"),
+);
 export const Base64PayloadSchema = canonicalBase64(4, MAX_PAYLOAD_BASE64_LENGTH, "Base64Payload");
 /** Canonical uncompressed P-256 SubjectPublicKeyInfo DER, base64 encoded (91 bytes). */
 export const P256SPKIBase64Schema = Schema.String.pipe(
@@ -205,12 +490,34 @@ export const ErrorEnvelopeSchema = Schema.Struct({
   error: ErrorBodySchema,
 }).pipe(named("ErrorEnvelope"));
 
-export const DeviceRegisterRequestShapeSchema = Schema.Struct({
+/** Unauthenticated bootstrap request. It is the only device endpoint without a signed envelope. */
+export const DeviceChallengeRequestSchema = Schema.Struct({
+  protocolVersion: ProtocolVersionSchema,
+  devicePublicKey: P256SPKIBase64Schema,
+  challengeAudience: text(256),
+}).pipe(named("DeviceChallengeRequest"));
+
+export const DeviceChallengeResponseSchema = Schema.Struct({
+  protocolVersion: ProtocolVersionSchema,
+  challengeID: identifier("Identifier"),
+  challengeBase64: Base64PayloadSchema,
+  expiresAt: SignedTimestampSchema,
+}).pipe(named("DeviceChallengeResponse"));
+
+/** Full challenge binding signed by the new device during initial registration. */
+export const DeviceChallengeProofSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
   challengeID: identifier("Identifier"),
   challengeAudience: text(256),
-  challengeProof: P256SignatureBase64Schema,
+  challengeBase64: Base64PayloadSchema,
+  expiresAt: SignedTimestampSchema,
+  nonce: FrameIDSchema,
   devicePublicKey: P256SPKIBase64Schema,
+  signature: P256SignatureBase64Schema,
+}).pipe(named("DeviceChallengeProof"));
+
+export const DeviceRegisterRequestShapeSchema = Schema.Struct({
+  challengeProof: DeviceChallengeProofSchema,
   idempotencyKey: identifier("Identifier"),
 });
 export const DeviceRegisterRequestSchema = DeviceRegisterRequestShapeSchema.pipe(
@@ -221,21 +528,97 @@ export const DeviceRegisterResponseSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
   ownerID: OwnerIDSchema,
   deviceID: DeviceIDSchema,
-  authEpoch: nonNegativeInt,
+  authEpoch: AuthEpochSchema,
 }).pipe(named("DeviceRegisterResponse"));
 
-export const DeviceRevokeRequestSchema = Schema.Struct({
+/**
+ * Signature proof for every non-bootstrap request. The signature covers
+ * `signedDeviceRequestSigningPayload(envelope)`, not a JSON serialization.
+ * `canonicalQuery` is exactly `""` when the URL has no query string.
+ */
+export const SignedDeviceRequestEnvelopeSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
+  method: HTTPMethodSchema,
+  canonicalPath: CanonicalPathSchema,
+  canonicalQuery: CanonicalQuerySchema,
+  bodySHA256: SHA256DigestSchema,
+  requestID: identifier("Identifier"),
   idempotencyKey: identifier("Identifier"),
+  ownerID: OwnerIDSchema,
+  vaultID: VaultIDSchema,
+  generationEpoch: GenerationEpochSchema,
+  actorDeviceID: DeviceIDSchema,
+  targetDeviceID: Schema.optional(DeviceIDSchema),
+  authEpoch: AuthEpochSchema,
+  credentialEpoch: CredentialEpochSchema,
+  issuedAt: SignedTimestampSchema,
+  expiresAt: SignedTimestampSchema,
+  nonce: FrameIDSchema,
+  deviceSignature: P256SignatureBase64Schema,
+}).pipe(named("SignedDeviceRequestEnvelope"));
+
+export const DeviceRevokeCommandSchema = Schema.Struct({
+  type: Schema.Literal("deviceRevoke"),
+  actorDeviceID: DeviceIDSchema,
+  targetDeviceID: DeviceIDSchema,
+}).pipe(named("DeviceRevokeCommand"));
+
+export const DeviceRevokeRequestSchema = Schema.Struct({
+  envelope: SignedDeviceRequestEnvelopeSchema,
+  command: DeviceRevokeCommandSchema,
 }).pipe(named("DeviceRevokeRequest"));
 
 export const DeviceRevokeResponseSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
   ownerID: OwnerIDSchema,
   deviceID: DeviceIDSchema,
-  authEpoch: nonNegativeInt,
-  revokedAt: text(64),
+  authEpoch: AuthEpochSchema,
+  revokedAt: SignedTimestampSchema,
 }).pipe(named("DeviceRevokeResponse"));
+
+/** Canonical JSON body for POST /v2/mutations. */
+export const MutationCommandSchema = Schema.Struct({
+  type: Schema.Literal("mutation"),
+  mutationID: identifier("Identifier"),
+  contentSHA256: SHA256DigestSchema,
+  payloadBase64: Base64PayloadSchema,
+}).pipe(named("MutationCommand"));
+
+export const MutationRequestSchema = Schema.Struct({
+  envelope: SignedDeviceRequestEnvelopeSchema,
+  command: MutationCommandSchema,
+}).pipe(named("MutationRequest"));
+
+export const MutationResponseSchema = Schema.Struct({
+  protocolVersion: ProtocolVersionSchema,
+  mutationID: identifier("Identifier"),
+  acceptedAt: SignedTimestampSchema,
+}).pipe(named("MutationResponse"));
+
+export const BlobOperationTypeSchema = Schema.Literal("blobPut", "blobDelete").pipe(
+  named("BlobOperationType"),
+);
+
+/**
+ * Content-addressed binary operation metadata. It is not a JSON request body:
+ * for PUT, the envelope body hash is SHA-256 of the exact octets sent and must
+ * equal both this path digest and `blobSHA256`. DELETE has the empty-body hash.
+ */
+export const ContentAddressedBlobOperationSchema = Schema.Struct({
+  type: BlobOperationTypeSchema,
+  blobSHA256: SHA256DigestSchema,
+  contentLength: Schema.optional(nonNegativeInt),
+}).pipe(named("ContentAddressedBlobOperation"));
+
+/** Canonical JSON no-body semantic command for DELETE /v2/blobs/{sha256}. */
+export const BlobDeleteCommandSchema = Schema.Struct({
+  type: Schema.Literal("blobDelete"),
+  blobSHA256: SHA256DigestSchema,
+}).pipe(named("BlobDeleteCommand"));
+export const BlobDeleteRequestSchema = Schema.Struct({
+  envelope: SignedDeviceRequestEnvelopeSchema,
+  command: BlobDeleteCommandSchema,
+}).pipe(named("BlobDeleteRequest"));
 
 /** First client frame. No application message is valid before a hello. */
 export const HelloFrameSchema = Schema.Struct({
@@ -245,15 +628,21 @@ export const HelloFrameSchema = Schema.Struct({
     Schema.maxItems(1),
   ),
   deviceID: DeviceIDSchema,
-  authEpoch: nonNegativeInt,
+  /** P-256 DER signature of `helloSigningPayload(frame)`. */
+  deviceSignature: P256SignatureBase64Schema,
 }).pipe(named("HelloFrame"));
 
 export const HelloAcceptedFrameSchema = Schema.Struct({
   type: Schema.Literal("helloAccepted"),
   protocolVersion: ProtocolVersionSchema,
   ownerID: OwnerIDSchema,
+  vaultID: VaultIDSchema,
   deviceID: DeviceIDSchema,
-  authEpoch: nonNegativeInt,
+  authEpoch: AuthEpochSchema,
+  credentialEpoch: CredentialEpochSchema,
+  generationEpoch: GenerationEpochSchema,
+  sessionNonce: FrameIDSchema,
+  assertionExpiresAt: SignedTimestampSchema,
 }).pipe(named("HelloAcceptedFrame"));
 
 export const SyncChangeFrameSchema = Schema.Struct({
@@ -261,7 +650,11 @@ export const SyncChangeFrameSchema = Schema.Struct({
   protocolVersion: ProtocolVersionSchema,
   vaultID: VaultIDSchema,
   deviceID: DeviceIDSchema,
-  authEpoch: nonNegativeInt,
+  authEpoch: AuthEpochSchema,
+  credentialEpoch: CredentialEpochSchema,
+  generationEpoch: GenerationEpochSchema,
+  sessionNonce: FrameIDSchema,
+  assertionExpiresAt: SignedTimestampSchema,
   changeID: identifier("Identifier"),
   causalVersion: nonNegativeInt,
   /** Immutable 128-bit base64url nonce. Servers claim it before applying a change. */
@@ -299,10 +692,21 @@ export const ServerWebSocketFrameSchema = Schema.Union(
 export const protocolSchemaDefinitions = {
   ErrorBody: ErrorBodySchema,
   ErrorEnvelope: ErrorEnvelopeSchema,
+  DeviceChallengeRequest: DeviceChallengeRequestSchema,
+  DeviceChallengeResponse: DeviceChallengeResponseSchema,
+  DeviceChallengeProof: DeviceChallengeProofSchema,
   DeviceRegisterRequest: DeviceRegisterRequestSchema,
   DeviceRegisterResponse: DeviceRegisterResponseSchema,
+  SignedDeviceRequestEnvelope: SignedDeviceRequestEnvelopeSchema,
+  DeviceRevokeCommand: DeviceRevokeCommandSchema,
   DeviceRevokeRequest: DeviceRevokeRequestSchema,
   DeviceRevokeResponse: DeviceRevokeResponseSchema,
+  MutationCommand: MutationCommandSchema,
+  MutationRequest: MutationRequestSchema,
+  MutationResponse: MutationResponseSchema,
+  ContentAddressedBlobOperation: ContentAddressedBlobOperationSchema,
+  BlobDeleteCommand: BlobDeleteCommandSchema,
+  BlobDeleteRequest: BlobDeleteRequestSchema,
   HelloFrame: HelloFrameSchema,
   HelloAcceptedFrame: HelloAcceptedFrameSchema,
   SyncChangeFrame: SyncChangeFrameSchema,
@@ -314,43 +718,109 @@ export const protocolSchemaDefinitions = {
 
 export type ErrorEnvelope = Schema.Schema.Type<typeof ErrorEnvelopeSchema>;
 export type ErrorCode = Schema.Schema.Type<typeof ErrorCodeSchema>;
+export type DeviceChallengeRequest = Schema.Schema.Type<typeof DeviceChallengeRequestSchema>;
+export type DeviceChallengeResponse = Schema.Schema.Type<typeof DeviceChallengeResponseSchema>;
 export type DeviceRegisterRequest = Schema.Schema.Type<typeof DeviceRegisterRequestSchema>;
 export type DeviceRegisterResponse = Schema.Schema.Type<typeof DeviceRegisterResponseSchema>;
 export type DeviceRevokeRequest = Schema.Schema.Type<typeof DeviceRevokeRequestSchema>;
 export type DeviceRevokeResponse = Schema.Schema.Type<typeof DeviceRevokeResponseSchema>;
+export type SignedDeviceRequestEnvelope = Schema.Schema.Type<
+  typeof SignedDeviceRequestEnvelopeSchema
+>;
+export type DeviceRevokeCommand = Schema.Schema.Type<typeof DeviceRevokeCommandSchema>;
+export type MutationCommand = Schema.Schema.Type<typeof MutationCommandSchema>;
+export type MutationRequest = Schema.Schema.Type<typeof MutationRequestSchema>;
+export type ContentAddressedBlobOperation = Schema.Schema.Type<
+  typeof ContentAddressedBlobOperationSchema
+>;
+export type BlobDeleteCommand = Schema.Schema.Type<typeof BlobDeleteCommandSchema>;
+export type BlobDeleteRequest = Schema.Schema.Type<typeof BlobDeleteRequestSchema>;
 export type ClientWebSocketFrame = Schema.Schema.Type<typeof ClientWebSocketFrameSchema>;
 export type ServerWebSocketFrame = Schema.Schema.Type<typeof ServerWebSocketFrameSchema>;
 export type SyncChangeFrame = Schema.Schema.Type<typeof SyncChangeFrameSchema>;
 
 const decodeErrorEnvelopeSchema = Schema.decodeUnknownSync(ErrorEnvelopeSchema);
+const decodeDeviceChallengeRequestSchema = Schema.decodeUnknownSync(DeviceChallengeRequestSchema);
+const decodeDeviceChallengeResponseSchema = Schema.decodeUnknownSync(DeviceChallengeResponseSchema);
 const decodeDeviceRegisterRequestSchema = Schema.decodeUnknownSync(DeviceRegisterRequestSchema);
 const decodeDeviceRegisterResponseSchema = Schema.decodeUnknownSync(DeviceRegisterResponseSchema);
 const decodeDeviceRevokeRequestSchema = Schema.decodeUnknownSync(DeviceRevokeRequestSchema);
 const decodeDeviceRevokeResponseSchema = Schema.decodeUnknownSync(DeviceRevokeResponseSchema);
+const decodeMutationRequestSchema = Schema.decodeUnknownSync(MutationRequestSchema);
+const decodeContentAddressedBlobOperationSchema = Schema.decodeUnknownSync(
+  ContentAddressedBlobOperationSchema,
+);
+const decodeBlobDeleteRequestSchema = Schema.decodeUnknownSync(BlobDeleteRequestSchema);
 const decodeClientWebSocketFrameSchema = Schema.decodeUnknownSync(ClientWebSocketFrameSchema);
 const decodeServerWebSocketFrameSchema = Schema.decodeUnknownSync(ServerWebSocketFrameSchema);
 
 const errorBodyKeys = ["code", "message", "retryable", "requestID", "supportedProtocolVersions"];
 const errorEnvelopeKeys = ["protocolVersion", "error"];
-const registerRequestKeys = [
+const challengeRequestKeys = ["protocolVersion", "devicePublicKey", "challengeAudience"];
+const challengeResponseKeys = ["protocolVersion", "challengeID", "challengeBase64", "expiresAt"];
+const registerRequestKeys = ["challengeProof", "idempotencyKey"];
+const challengeProofKeys = [
   "protocolVersion",
   "challengeID",
   "challengeAudience",
-  "challengeProof",
+  "challengeBase64",
+  "expiresAt",
+  "nonce",
   "devicePublicKey",
-  "idempotencyKey",
+  "signature",
 ];
 const registerResponseKeys = ["protocolVersion", "ownerID", "deviceID", "authEpoch"];
-const revokeRequestKeys = ["protocolVersion", "idempotencyKey"];
+const signedEnvelopeKeys = [
+  "protocolVersion",
+  "method",
+  "canonicalPath",
+  "canonicalQuery",
+  "bodySHA256",
+  "requestID",
+  "idempotencyKey",
+  "ownerID",
+  "vaultID",
+  "generationEpoch",
+  "actorDeviceID",
+  "targetDeviceID",
+  "authEpoch",
+  "credentialEpoch",
+  "issuedAt",
+  "expiresAt",
+  "nonce",
+  "deviceSignature",
+];
+const revokeCommandKeys = ["type", "actorDeviceID", "targetDeviceID"];
+const revokeRequestKeys = ["envelope", "command"];
 const revokeResponseKeys = ["protocolVersion", "ownerID", "deviceID", "authEpoch", "revokedAt"];
-const helloKeys = ["type", "supportedProtocolVersions", "deviceID", "authEpoch"];
-const helloAcceptedKeys = ["type", "protocolVersion", "ownerID", "deviceID", "authEpoch"];
+const mutationCommandKeys = ["type", "mutationID", "contentSHA256", "payloadBase64"];
+const mutationRequestKeys = ["envelope", "command"];
+const blobOperationKeys = ["type", "blobSHA256", "contentLength"];
+const blobDeleteCommandKeys = ["type", "blobSHA256"];
+const blobDeleteRequestKeys = ["envelope", "command"];
+const helloKeys = ["type", "supportedProtocolVersions", "deviceID", "deviceSignature"];
+const helloAcceptedKeys = [
+  "type",
+  "protocolVersion",
+  "ownerID",
+  "vaultID",
+  "deviceID",
+  "authEpoch",
+  "credentialEpoch",
+  "generationEpoch",
+  "sessionNonce",
+  "assertionExpiresAt",
+];
 const syncChangeKeys = [
   "type",
   "protocolVersion",
   "vaultID",
   "deviceID",
   "authEpoch",
+  "credentialEpoch",
+  "generationEpoch",
+  "sessionNonce",
+  "assertionExpiresAt",
   "changeID",
   "causalVersion",
   "frameID",
@@ -396,6 +866,170 @@ function requireCanonicalP256SPKI(value: unknown, name: string): void {
     throw new TypeError(`${name} must be canonical P-256 SPKI DER base64.`);
 }
 
+function strictSignedEnvelope(value: unknown): Record<string, unknown> {
+  const envelope = rejectUnknownKeys(value, signedEnvelopeKeys, "signed device request envelope");
+  requireCanonicalP256Signature(envelope.deviceSignature, "deviceSignature");
+  const issuedAt = envelope.issuedAt;
+  const expiresAt = envelope.expiresAt;
+  if (
+    typeof issuedAt !== "number" ||
+    typeof expiresAt !== "number" ||
+    expiresAt - issuedAt < SIGNED_REQUEST_MINIMUM_TTL ||
+    expiresAt - issuedAt > SIGNED_REQUEST_MAXIMUM_TTL
+  )
+    throw new TypeError(
+      "Signed request expiry must be between 1 second and 5 minutes after issuance.",
+    );
+  return envelope;
+}
+
+export function validateSignedDeviceRequestEnvelope(input: unknown): SignedDeviceRequestEnvelope {
+  return Schema.decodeUnknownSync(SignedDeviceRequestEnvelopeSchema)(strictSignedEnvelope(input));
+}
+
+/**
+ * Parses JSON structurally before schema decoding and rejects duplicate object
+ * members at every nesting depth. JSON.parse alone loses that information.
+ */
+export function parseJSONWithoutDuplicateMembers(source: string): unknown {
+  let offset = 0;
+  const whitespace = (): void => {
+    while (" \n\r\t".includes(source[offset] ?? "")) offset += 1;
+  };
+  const string = (): string => {
+    const start = offset;
+    if (source[offset] !== '"') throw new TypeError("Expected JSON string.");
+    offset += 1;
+    while (offset < source.length) {
+      const character = source[offset] ?? "";
+      if (character === '"') {
+        offset += 1;
+        return JSON.parse(source.slice(start, offset));
+      }
+      if (character === "\\") {
+        offset += 1;
+        const escapeCode = source[offset] ?? "";
+        if (!'"\\/bfnrtu'.includes(escapeCode)) throw new TypeError("Invalid JSON escape.");
+        if (escapeCode === "u") offset += 4;
+      } else if (character.charCodeAt(0) < 0x20)
+        throw new TypeError("Invalid JSON control character.");
+      offset += 1;
+    }
+    throw new TypeError("Unterminated JSON string.");
+  };
+  const value = (): void => {
+    whitespace();
+    const character = source[offset] ?? "";
+    if (character === '"') {
+      string();
+      return;
+    }
+    if (character === "{") {
+      offset += 1;
+      whitespace();
+      const names = new Set<string>();
+      if (source[offset] === "}") {
+        offset += 1;
+        return;
+      }
+      while (true) {
+        whitespace();
+        const name = string();
+        if (names.has(name)) throw new TypeError(`Duplicate JSON member ${name}.`);
+        names.add(name);
+        whitespace();
+        if (source[offset] !== ":") throw new TypeError("Expected JSON colon.");
+        offset += 1;
+        value();
+        whitespace();
+        if (source[offset] === "}") {
+          offset += 1;
+          return;
+        }
+        if (source[offset] !== ",") throw new TypeError("Expected JSON object separator.");
+        offset += 1;
+      }
+    }
+    if (character === "[") {
+      offset += 1;
+      whitespace();
+      if (source[offset] === "]") {
+        offset += 1;
+        return;
+      }
+      while (true) {
+        value();
+        whitespace();
+        if (source[offset] === "]") {
+          offset += 1;
+          return;
+        }
+        if (source[offset] !== ",") throw new TypeError("Expected JSON array separator.");
+        offset += 1;
+      }
+    }
+    const numberStart = offset;
+    if (source[offset] === "-") offset += 1;
+    const firstDigit = source[offset] ?? "";
+    if (firstDigit === "0") offset += 1;
+    else if (firstDigit >= "1" && firstDigit <= "9") {
+      offset += 1;
+      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
+    }
+    if (offset > numberStart && source[offset] === ".") {
+      offset += 1;
+      const decimalStart = offset;
+      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
+      if (offset === decimalStart) throw new TypeError("Invalid JSON number.");
+    }
+    if (offset > numberStart && (source[offset] === "e" || source[offset] === "E")) {
+      offset += 1;
+      if (source[offset] === "+" || source[offset] === "-") offset += 1;
+      const exponentStart = offset;
+      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
+      if (offset === exponentStart) throw new TypeError("Invalid JSON exponent.");
+    }
+    if (offset > numberStart) return;
+    for (const literal of ["true", "false", "null"])
+      if (source.startsWith(literal, offset)) {
+        offset += literal.length;
+        return;
+      }
+    throw new TypeError("Invalid JSON value.");
+  };
+  value();
+  whitespace();
+  if (offset !== source.length) throw new TypeError("Unexpected JSON trailing data.");
+  return JSON.parse(source);
+}
+
+/** Worker-facing raw HTTP JSON ingress for signed revoke requests. */
+export function decodeDeviceRevokeRequestJSON(source: string): DeviceRevokeRequest {
+  return decodeDeviceRevokeRequest(parseJSONWithoutDuplicateMembers(source));
+}
+/** Worker-facing raw HTTP JSON ingress for `POST /v2/devices/challenge`. */
+export function decodeDeviceChallengeRequestJSON(source: string): DeviceChallengeRequest {
+  return decodeDeviceChallengeRequest(parseJSONWithoutDuplicateMembers(source));
+}
+/** Worker-facing raw HTTP JSON ingress for `POST /v2/devices/register`. */
+export function decodeDeviceRegisterRequestJSON(source: string): DeviceRegisterRequest {
+  return decodeDeviceRegisterRequest(parseJSONWithoutDuplicateMembers(source));
+}
+/** Worker-facing raw HTTP JSON ingress for signed mutation requests. */
+export function decodeMutationRequestJSON(source: string): MutationRequest {
+  return decodeMutationRequest(parseJSONWithoutDuplicateMembers(source));
+}
+/** Worker-facing raw HTTP JSON ingress for canonical no-body blob DELETE commands. */
+export function decodeBlobDeleteRequestJSON(source: string): BlobDeleteRequest {
+  return decodeBlobDeleteRequest(parseJSONWithoutDuplicateMembers(source));
+}
+export function decodeClientWebSocketFrameJSON(source: string): ClientWebSocketFrame {
+  return decodeClientWebSocketFrame(parseJSONWithoutDuplicateMembers(source));
+}
+export function decodeServerWebSocketFrameJSON(source: string): ServerWebSocketFrame {
+  return decodeServerWebSocketFrame(parseJSONWithoutDuplicateMembers(source));
+}
+
 export function decodeErrorEnvelope(input: unknown): ErrorEnvelope {
   const envelope = rejectUnknownKeys(input, errorEnvelopeKeys, "error envelope");
   strictErrorBody(envelope.error);
@@ -403,9 +1037,24 @@ export function decodeErrorEnvelope(input: unknown): ErrorEnvelope {
 }
 export function decodeDeviceRegisterRequest(input: unknown): DeviceRegisterRequest {
   const request = rejectUnknownKeys(input, registerRequestKeys, "device register request");
-  requireCanonicalP256Signature(request.challengeProof, "challengeProof");
-  requireCanonicalP256SPKI(request.devicePublicKey, "devicePublicKey");
+  const proof = rejectUnknownKeys(
+    request.challengeProof,
+    challengeProofKeys,
+    "device challenge proof",
+  );
+  requireCanonicalP256Signature(proof.signature, "challengeProof.signature");
+  requireCanonicalP256SPKI(proof.devicePublicKey, "challengeProof.devicePublicKey");
   return decodeDeviceRegisterRequestSchema(request);
+}
+export function decodeDeviceChallengeRequest(input: unknown): DeviceChallengeRequest {
+  const request = rejectUnknownKeys(input, challengeRequestKeys, "device challenge request");
+  requireCanonicalP256SPKI(request.devicePublicKey, "devicePublicKey");
+  return decodeDeviceChallengeRequestSchema(request);
+}
+export function decodeDeviceChallengeResponse(input: unknown): DeviceChallengeResponse {
+  return decodeDeviceChallengeResponseSchema(
+    rejectUnknownKeys(input, challengeResponseKeys, "device challenge response"),
+  );
 }
 export function decodeDeviceRegisterResponse(input: unknown): DeviceRegisterResponse {
   return decodeDeviceRegisterResponseSchema(
@@ -413,19 +1062,59 @@ export function decodeDeviceRegisterResponse(input: unknown): DeviceRegisterResp
   );
 }
 export function decodeDeviceRevokeRequest(input: unknown): DeviceRevokeRequest {
-  return decodeDeviceRevokeRequestSchema(
-    rejectUnknownKeys(input, revokeRequestKeys, "device revoke request"),
-  );
+  const request = rejectUnknownKeys(input, revokeRequestKeys, "device revoke request");
+  const envelope = strictSignedEnvelope(request.envelope);
+  const command = rejectUnknownKeys(request.command, revokeCommandKeys, "device revoke command");
+  if (
+    envelope.actorDeviceID !== command.actorDeviceID ||
+    envelope.targetDeviceID !== command.targetDeviceID
+  )
+    throw new TypeError("Signed revoke actor and target must match its envelope.");
+  const decoded = decodeDeviceRevokeRequestSchema({ envelope, command });
+  if (decoded.envelope.bodySHA256 !== deviceRevokeCommandSHA256(decoded.command))
+    throw new TypeError("Signed revoke envelope body hash must match its canonical command only.");
+  return decoded;
 }
 export function decodeDeviceRevokeResponse(input: unknown): DeviceRevokeResponse {
   return decodeDeviceRevokeResponseSchema(
     rejectUnknownKeys(input, revokeResponseKeys, "device revoke response"),
   );
 }
+export function decodeMutationRequest(input: unknown): MutationRequest {
+  const request = rejectUnknownKeys(input, mutationRequestKeys, "mutation request");
+  const envelope = strictSignedEnvelope(request.envelope);
+  const command = rejectUnknownKeys(request.command, mutationCommandKeys, "mutation command");
+  if (envelope.method !== "POST" || envelope.canonicalPath !== "/v2/mutations")
+    throw new TypeError("Mutation envelope must bind POST /v2/mutations.");
+  const decoded = decodeMutationRequestSchema({ envelope, command });
+  if (decoded.envelope.bodySHA256 !== mutationCommandSHA256(decoded.command))
+    throw new TypeError("Mutation envelope body hash must match its canonical command only.");
+  return decoded;
+}
+export function decodeContentAddressedBlobOperation(input: unknown): ContentAddressedBlobOperation {
+  return decodeContentAddressedBlobOperationSchema(
+    rejectUnknownKeys(input, blobOperationKeys, "content-addressed blob operation"),
+  );
+}
+export function decodeBlobDeleteRequest(input: unknown): BlobDeleteRequest {
+  const request = rejectUnknownKeys(input, blobDeleteRequestKeys, "blob delete request");
+  const envelope = strictSignedEnvelope(request.envelope);
+  const command = rejectUnknownKeys(request.command, blobDeleteCommandKeys, "blob delete command");
+  const decoded = decodeBlobDeleteRequestSchema({ envelope, command });
+  if (
+    decoded.envelope.method !== "DELETE" ||
+    decoded.envelope.canonicalPath !== `/v2/blobs/${decoded.command.blobSHA256}` ||
+    decoded.envelope.bodySHA256 !== blobDeleteCommandSHA256(decoded.command)
+  )
+    throw new TypeError("Blob delete envelope must bind its canonical delete command.");
+  return decoded;
+}
 export function decodeClientWebSocketFrame(input: unknown): ClientWebSocketFrame {
   const frame = record(input, "client websocket frame");
-  if (frame.type === "hello") rejectUnknownKeys(frame, helloKeys, "hello frame");
-  else if (frame.type === "syncChange") {
+  if (frame.type === "hello") {
+    rejectUnknownKeys(frame, helloKeys, "hello frame");
+    requireCanonicalP256Signature(frame.deviceSignature, "deviceSignature");
+  } else if (frame.type === "syncChange") {
     rejectUnknownKeys(frame, syncChangeKeys, "sync change frame");
     requireCanonicalP256Signature(frame.deviceSignature, "deviceSignature");
   }
@@ -455,6 +1144,10 @@ export function syncChangeSigningPayload(frame: SyncChangeFrame): Uint8Array {
     frame.vaultID,
     frame.deviceID,
     String(frame.authEpoch),
+    String(frame.credentialEpoch),
+    String(frame.generationEpoch),
+    frame.sessionNonce,
+    String(frame.assertionExpiresAt),
     frame.changeID,
     String(frame.causalVersion),
     frame.frameID,
@@ -483,22 +1176,215 @@ function lengthPrefixedUTF8(magic: string, version: number, fields: readonly str
   return output;
 }
 
+export type DeviceChallengeProof = Schema.Schema.Type<typeof DeviceChallengeProofSchema>;
+
+/** Versioned, length-prefixed proof that binds the issued challenge to its SPKI. */
+export function deviceChallengeProofSigningPayload(proof: DeviceChallengeProof): Uint8Array {
+  return lengthPrefixedUTF8("ENCHCHAL", 1, [
+    String(proof.protocolVersion),
+    proof.challengeID,
+    proof.challengeAudience,
+    proof.challengeBase64,
+    String(proof.expiresAt),
+    proof.nonce,
+    proof.devicePublicKey,
+  ]);
+}
+
+export function helloSigningPayload(
+  frame: Schema.Schema.Type<typeof HelloFrameSchema>,
+): Uint8Array {
+  return lengthPrefixedUTF8("ENCHHELLO", 1, [
+    frame.type,
+    frame.supportedProtocolVersions.join(","),
+    frame.deviceID,
+  ]);
+}
+
+function revokeCommandJSON(command: DeviceRevokeCommand): CanonicalJSON {
+  return {
+    type: command.type,
+    actorDeviceID: command.actorDeviceID,
+    targetDeviceID: command.targetDeviceID,
+  };
+}
+
+function mutationCommandJSON(command: MutationCommand): CanonicalJSON {
+  return {
+    type: command.type,
+    mutationID: command.mutationID,
+    contentSHA256: command.contentSHA256,
+    payloadBase64: command.payloadBase64,
+  };
+}
+
+/** Body hashes bind only commands, never their enclosing signature envelope. */
+export function deviceRevokeCommandSHA256(command: DeviceRevokeCommand): string {
+  return canonicalJSONSHA256(revokeCommandJSON(command));
+}
+
+export function mutationCommandSHA256(command: MutationCommand): string {
+  return canonicalJSONSHA256(mutationCommandJSON(command));
+}
+export function blobDeleteCommandSHA256(command: BlobDeleteCommand): string {
+  return canonicalJSONSHA256({ type: command.type, blobSHA256: command.blobSHA256 });
+}
+
+/** Vector-backed canonical bytes for `SignedDeviceRequestEnvelope.deviceSignature`. */
+export function signedDeviceRequestSigningPayload(
+  envelope: SignedDeviceRequestEnvelope,
+): Uint8Array {
+  return lengthPrefixedUTF8("ENCHHTTP", protocolVersion, [
+    String(envelope.protocolVersion),
+    envelope.method,
+    envelope.canonicalPath,
+    envelope.canonicalQuery,
+    envelope.bodySHA256,
+    envelope.requestID,
+    envelope.idempotencyKey,
+    envelope.ownerID,
+    envelope.vaultID,
+    String(envelope.generationEpoch),
+    envelope.actorDeviceID,
+    envelope.targetDeviceID ?? "",
+    String(envelope.authEpoch),
+    String(envelope.credentialEpoch),
+    String(envelope.issuedAt),
+    String(envelope.expiresAt),
+    envelope.nonce,
+  ]);
+}
+
+export function envelopeMatchesCanonicalJSON(
+  envelope: SignedDeviceRequestEnvelope,
+  body: CanonicalJSON,
+): boolean {
+  return canonicalJSONSHA256(body) === envelope.bodySHA256;
+}
+
+/** The raw PUT bytes, rather than JSON operation metadata, are signature-bound. */
+export function envelopeMatchesBlobBytes(
+  envelope: SignedDeviceRequestEnvelope,
+  blobSHA256: string,
+  bytes: Uint8Array,
+): boolean {
+  const digest = sha256Hex(bytes);
+  return (
+    envelope.method === "PUT" &&
+    envelope.canonicalPath === `/v2/blobs/${blobSHA256}` &&
+    digest === blobSHA256 &&
+    envelope.bodySHA256 === digest
+  );
+}
+
+export interface ProtocolHeader {
+  readonly name: string;
+  readonly value: string;
+}
+
+function base64url(bytes: Uint8Array): string {
+  return encodedBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64url(value: string): Uint8Array | undefined {
+  if (!base64urlText.test(value)) return undefined;
+  const padded = `${value.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat((4 - (value.length % 4)) % 4)}`;
+  const bytes = canonicalBase64Bytes(padded);
+  return bytes !== undefined && base64url(bytes) === value ? bytes : undefined;
+}
+
+function signedEnvelopeJSON(envelope: SignedDeviceRequestEnvelope): CanonicalJSON {
+  return {
+    protocolVersion: envelope.protocolVersion,
+    method: envelope.method,
+    canonicalPath: envelope.canonicalPath,
+    canonicalQuery: envelope.canonicalQuery,
+    bodySHA256: envelope.bodySHA256,
+    requestID: envelope.requestID,
+    idempotencyKey: envelope.idempotencyKey,
+    ownerID: envelope.ownerID,
+    vaultID: envelope.vaultID,
+    generationEpoch: envelope.generationEpoch,
+    actorDeviceID: envelope.actorDeviceID,
+    targetDeviceID: envelope.targetDeviceID ?? null,
+    authEpoch: envelope.authEpoch,
+    credentialEpoch: envelope.credentialEpoch,
+    issuedAt: envelope.issuedAt,
+    expiresAt: envelope.expiresAt,
+    nonce: envelope.nonce,
+    deviceSignature: envelope.deviceSignature,
+  };
+}
+
+/** Fixed case-insensitive name, exactly one canonical base64url value, <=8 KiB encoded. */
+export function signedRequestHeader(envelope: SignedDeviceRequestEnvelope): ProtocolHeader {
+  return {
+    name: signedRequestHeaderName,
+    value: base64url(canonicalJSONBytes(signedEnvelopeJSON(envelope))),
+  };
+}
+
+export function decodeSignedRequestHeader(
+  headers: readonly ProtocolHeader[],
+): SignedDeviceRequestEnvelope {
+  const values = headers
+    .filter((header) => header.name.toLowerCase() === signedRequestHeaderName.toLowerCase())
+    .map((header) => header.value);
+  const value = values[0];
+  if (values.length !== 1 || value === undefined || value.length > maximumSignedRequestHeaderLength)
+    throw new TypeError("Exactly one bounded Enchiridion-Signed-Request header is required.");
+  const bytes = fromBase64url(value);
+  if (bytes === undefined)
+    throw new TypeError("Signed request header must be canonical base64url.");
+  return validateSignedDeviceRequestEnvelope(
+    parseJSONWithoutDuplicateMembers(new TextDecoder().decode(bytes)),
+  );
+}
+
 export interface HttpOperation {
-  readonly operationID: "registerDevice" | "revokeDevice";
-  readonly method: "POST";
+  readonly operationID:
+    | "createDeviceChallenge"
+    | "registerDevice"
+    | "revokeDevice"
+    | "submitMutation"
+    | "putBlob"
+    | "deleteBlob";
+  readonly method: "POST" | "PUT" | "DELETE";
   readonly path: string;
-  readonly requestSchema: "DeviceRegisterRequest" | "DeviceRevokeRequest";
-  readonly successSchema: "DeviceRegisterResponse" | "DeviceRevokeResponse";
+  readonly requestSchema:
+    | "DeviceChallengeRequest"
+    | "DeviceRegisterRequest"
+    | "DeviceRevokeRequest"
+    | "MutationRequest"
+    | "ContentAddressedBlobOperation"
+    | "BlobDeleteRequest";
+  readonly successSchema:
+    | "DeviceChallengeResponse"
+    | "DeviceRegisterResponse"
+    | "DeviceRevokeResponse"
+    | "MutationResponse";
+  readonly body: "canonical-json" | "binary" | "none";
+  /** Raw blob operations carry their envelope in the fixed bounded header. */
+  readonly signedRequestHeader?: true;
 }
 
 /** Language-neutral operation table; workers may bind routes later. */
 export const httpOperations: readonly HttpOperation[] = [
+  {
+    operationID: "createDeviceChallenge",
+    method: "POST",
+    path: "/v2/devices/challenge",
+    requestSchema: "DeviceChallengeRequest",
+    successSchema: "DeviceChallengeResponse",
+    body: "canonical-json",
+  },
   {
     operationID: "registerDevice",
     method: "POST",
     path: "/v2/devices/register",
     requestSchema: "DeviceRegisterRequest",
     successSchema: "DeviceRegisterResponse",
+    body: "canonical-json",
   },
   {
     operationID: "revokeDevice",
@@ -506,6 +1392,33 @@ export const httpOperations: readonly HttpOperation[] = [
     path: "/v2/devices/{deviceId}/revoke",
     requestSchema: "DeviceRevokeRequest",
     successSchema: "DeviceRevokeResponse",
+    body: "canonical-json",
+  },
+  {
+    operationID: "submitMutation",
+    method: "POST",
+    path: "/v2/mutations",
+    requestSchema: "MutationRequest",
+    successSchema: "MutationResponse",
+    body: "canonical-json",
+  },
+  {
+    operationID: "putBlob",
+    method: "PUT",
+    path: "/v2/blobs/{sha256}",
+    requestSchema: "ContentAddressedBlobOperation",
+    successSchema: "MutationResponse",
+    body: "binary",
+    signedRequestHeader: true,
+  },
+  {
+    operationID: "deleteBlob",
+    method: "DELETE",
+    path: "/v2/blobs/{sha256}",
+    requestSchema: "BlobDeleteRequest",
+    successSchema: "MutationResponse",
+    body: "none",
+    signedRequestHeader: true,
   },
 ];
 
@@ -518,8 +1431,8 @@ export const websocketContract = {
   syncChangeProof: {
     signingPayloadVersion: syncFrameSigningPayloadVersion,
     algorithm: "p256-sha256-der",
-    replayKey: "deviceID:frameID",
+    replayKey: "deviceID:frameID:credentialEpoch:generationEpoch",
     canonicalBytes:
-      "ASCII magic ENCHSYNC, u8 signingPayloadVersion, then u32-big-endian UTF-8 byte length and bytes for: protocolVersion, vaultID, deviceID, authEpoch, changeID, causalVersion, frameID, payloadBase64",
+      "ASCII magic ENCHSYNC, u8 signingPayloadVersion, then u32-big-endian UTF-8 byte length and bytes for: protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, changeID, causalVersion, frameID, payloadBase64.",
   },
 } as const;

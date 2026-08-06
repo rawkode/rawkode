@@ -1,12 +1,22 @@
 {
   "version": 2,
   "http": {
+    "canonicalJSON": {
+      "input": { "z": "\\n", "a": [2, "<"] },
+      "canonical": "{\"a\":[2,\"<\"],\"z\":\"\\\\n\"}",
+      "sha256": "b39b3b85bf2219f277d237b681f3a72c02390b0cf0a16adc7371480e820e63db"
+    },
     "registerDeviceRequest": {
-      "protocolVersion": 2,
-      "challengeID": "challenge-1",
-      "challengeAudience": "enchiridion",
-      "challengeProof": "MAYCAQECAQE=",
-      "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "challengeProof": {
+        "protocolVersion": 2,
+        "challengeID": "challenge-1",
+        "challengeAudience": "enchiridion",
+        "challengeBase64": "AQI=",
+        "expiresAt": 1760000120000,
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+        "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        "signature": "MAYCAQECAQE="
+      },
       "idempotencyKey": "request-1"
     },
     "unsupportedVersionError": {
@@ -24,14 +34,19 @@
       "type": "hello",
       "supportedProtocolVersions": [2],
       "deviceID": "device-1",
-      "authEpoch": 3
+      "deviceSignature": "MAYCAQECAQE="
     },
     "helloAccepted": {
       "type": "helloAccepted",
       "protocolVersion": 2,
       "ownerID": "owner-1",
+      "vaultID": "vault-1",
       "deviceID": "device-1",
-      "authEpoch": 3
+      "authEpoch": 3,
+      "credentialEpoch": 4,
+      "generationEpoch": 5,
+      "sessionNonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "assertionExpiresAt": 1760000120000
     },
     "signedSyncChange": {
       "type": "syncChange",
@@ -39,6 +54,10 @@
       "vaultID": "vault-1",
       "deviceID": "device-1",
       "authEpoch": 3,
+      "credentialEpoch": 4,
+      "generationEpoch": 5,
+      "sessionNonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "assertionExpiresAt": 1760000120000,
       "changeID": "change-1",
       "causalVersion": 9,
       "frameID": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -46,6 +65,6 @@
       "payloadBase64": "AQI=",
       "deviceSignature": "MAYCAQECAQE="
     },
-    "signedSyncChangePayloadBase64": "RU5DSFNZTkMBAAAAATIAAAAHdmF1bHQtMQAAAAhkZXZpY2UtMQAAAAEzAAAACGNoYW5nZS0xAAAAATkAAAAWQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQAAAARBUUk9"
+    "signedSyncChangePayloadBase64": "RU5DSFNZTkMBAAAAATIAAAAHdmF1bHQtMQAAAAhkZXZpY2UtMQAAAAEzAAAAATQAAAABNQAAABZBQUFBQUFBQUFBQUFBQUFBQUFBQUFBAAAADTE3NjAwMDAxMjAwMDAAAAAIY2hhbmdlLTEAAAABOQAAABZBQUFBQUFBQUFBQUFBQUFBQUFBQUFBAAAABEFRST0="
   }
 }
