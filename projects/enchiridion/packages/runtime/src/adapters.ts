@@ -1,4 +1,4 @@
-import { Effect, Redacted } from "effect";
+import { Effect, Either, Redacted, Schema } from "effect";
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from "jose";
 import type {
   AccessJwksSession,
@@ -84,7 +84,7 @@ export const cloudflareAdapterLedger = [
       "Durable Object blockConcurrencyWhile, fetch/WebSocket/alarm callbacks, and state.storage Promises",
     owner: "@enchiridion/runtime",
     audit:
-      "Callback defects and rejected native storage Promises become a closed operation/reason error; payloads, attachment data, and platform causes never cross the seam.",
+      "Callback defects and rejected native storage Promises become a closed operation/reason error; payloads, attachment data, and platform causes never cross the seam. The transaction-outcome adapter uses a per-call private rollback sentinel so a schema-decoded domain failure can be returned without exposing a native Promise rejection.",
   },
 ] as const;
 
@@ -582,6 +582,51 @@ export interface DurableObjectTransaction {
   readonly delete: (key: string) => Effect.Effect<boolean, DurableObjectBoundaryError>;
 }
 
+/** A closed, serializable result from an atomic Durable Object transaction. */
+export type DurableObjectTransactionOutcome<A, E> =
+  | { readonly _tag: "success"; readonly value: A }
+  | { readonly _tag: "failure"; readonly error: E };
+
+export const durableObjectTransactionSuccess = <A>(
+  value: A,
+): DurableObjectTransactionOutcome<A, never> => ({ _tag: "success", value });
+
+export const durableObjectTransactionFailure = <E>(
+  error: E,
+): DurableObjectTransactionOutcome<never, E> => ({ _tag: "failure", error });
+
+/**
+ * Produces the exact discriminated schema used at Durable Object transaction
+ * boundaries. Callers supply their serializable success and domain-failure
+ * schemas; malformed values are never promoted to an outcome.
+ */
+export const durableObjectTransactionOutcomeSchema = <A, AI, AR, E, EI, ER>(
+  value: Schema.Schema<A, AI, AR>,
+  error: Schema.Schema<E, EI, ER>,
+) =>
+  Schema.Union(
+    Schema.Struct({ _tag: Schema.Literal("success"), value }),
+    Schema.Struct({ _tag: Schema.Literal("failure"), error }),
+  );
+
+/** A total, non-throwing decoder for the closed domain failure channel. */
+export interface DurableObjectTransactionDomainCodec<E> {
+  readonly decode: (value: unknown) => E | undefined;
+}
+
+/** Adapts an Effect Schema into the transaction domain-failure codec. */
+export const durableObjectTransactionDomainCodec = <E, EI>(
+  schema: Schema.Schema<E, EI>,
+): DurableObjectTransactionDomainCodec<E> => {
+  const decode = Schema.decodeUnknownEither(schema);
+  return {
+    decode: (value) => {
+      const decoded = decode(value);
+      return Either.isRight(decoded) ? decoded.right : undefined;
+    },
+  };
+};
+
 export interface DurableObjectStorage extends DurableObjectTransaction {
   /** Reads the scheduled alarm epoch from Cloudflare storage, or null when absent. */
   readonly getAlarm: () => Effect.Effect<number | null, DurableObjectBoundaryError>;
@@ -593,6 +638,15 @@ export interface DurableObjectStorage extends DurableObjectTransaction {
   readonly transaction: <A, E>(
     work: (storage: DurableObjectTransaction) => Effect.Effect<A, E>,
   ) => Effect.Effect<A, DurableObjectBoundaryError>;
+  /**
+   * Atomically commits a success or rolls back a schema-decoded domain failure.
+   * Native storage failures remain DurableObjectBoundaryError and never enter
+   * the domain failure channel.
+   */
+  readonly transactionOutcome: <A, E>(
+    domainFailure: DurableObjectTransactionDomainCodec<E>,
+    work: (storage: DurableObjectTransaction) => Effect.Effect<A, E | DurableObjectBoundaryError>,
+  ) => Effect.Effect<DurableObjectTransactionOutcome<A, E>, DurableObjectBoundaryError>;
 }
 
 export interface DurableObjectCallbacks {
@@ -656,6 +710,66 @@ const makeDurableObjectTransaction = (
   delete: (key) => fromDurableObjectPromise("storage_delete", () => native.delete(key)),
 });
 
+/**
+ * This value is private to one transaction invocation. Cloudflare rolls back
+ * a transaction only when its native callback rejects, so it deliberately
+ * crosses that callback as a rejection and is recovered by object identity in
+ * the same closure. It is not exported, contains only schema-accepted domain
+ * data, and cannot be confused across concurrent calls because each call owns
+ * a fresh instance.
+ */
+class DurableObjectTransactionRollback<E> {
+  constructor(readonly outcome: DurableObjectTransactionOutcome<never, E>) {}
+}
+
+/** Executes the sole native rollback bridge for a serializable domain failure. */
+const durableObjectTransactionOutcome = <A, E>(
+  native: DurableObjectStorageNative,
+  domainFailure: DurableObjectTransactionDomainCodec<E>,
+  work: (storage: DurableObjectTransaction) => Effect.Effect<A, E | DurableObjectBoundaryError>,
+): Effect.Effect<DurableObjectTransactionOutcome<A, E>, DurableObjectBoundaryError> => {
+  /**
+   * A reusable Effect may be run concurrently. `suspend` allocates the
+   * rollback side channel for each execution rather than for the one Effect
+   * value, so a later execution cannot overwrite another execution's sentinel.
+   */
+  return Effect.suspend(() => {
+    let rollback: DurableObjectTransactionRollback<E> | undefined;
+    return Effect.tryPromise({
+      try: () =>
+        native.transaction(async (transaction) => {
+          const result = await Effect.runPromise(
+            Effect.either(work(makeDurableObjectTransaction(transaction))),
+          );
+          if (Either.isRight(result)) return durableObjectTransactionSuccess(result.right);
+          if (result.left instanceof DurableObjectBoundaryError) throw result.left;
+          let decoded: E | undefined;
+          try {
+            decoded = domainFailure.decode(result.left);
+          } catch {
+            throw durableObjectFailure("storage_transaction", "callback_failed");
+          }
+          if (decoded === undefined)
+            throw durableObjectFailure("storage_transaction", "callback_failed");
+          rollback = new DurableObjectTransactionRollback(durableObjectTransactionFailure(decoded));
+          throw rollback;
+        }),
+      catch: (cause) => {
+        if (cause === rollback && rollback !== undefined) return rollback;
+        return cause instanceof DurableObjectBoundaryError
+          ? cause
+          : durableObjectFailure("storage_transaction", "platform_failed");
+      },
+    }).pipe(
+      Effect.catchAll((failure) =>
+        failure instanceof DurableObjectTransactionRollback
+          ? Effect.succeed(failure.outcome)
+          : Effect.fail(failure),
+      ),
+    );
+  });
+};
+
 const makeDurableObjectStorage = (native: DurableObjectStorageNative): DurableObjectStorage => ({
   ...makeDurableObjectTransaction(native),
   getAlarm: () => fromDurableObjectPromise("storage_get_alarm", () => native.getAlarm()),
@@ -671,6 +785,8 @@ const makeDurableObjectStorage = (native: DurableObjectStorageNative): DurableOb
         ),
       ),
     ),
+  transactionOutcome: (domainFailure, work) =>
+    durableObjectTransactionOutcome(native, domainFailure, work),
 });
 
 /**

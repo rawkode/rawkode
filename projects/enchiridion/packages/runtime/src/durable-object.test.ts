@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, Exit, Fiber, Ref } from "effect";
+import { Deferred, Effect, Exit, Fiber, Ref, Schema } from "effect";
 import {
   DurableObjectBoundaryError,
   type DurableObjectStateNative,
   type DurableObjectStorageNative,
   type DurableObjectTransactionNative,
   adoptDurableObjectValue,
+  durableObjectTransactionDomainCodec,
+  durableObjectTransactionOutcomeSchema,
   makeDurableObjectBoundary,
 } from "./index";
 
@@ -23,7 +25,11 @@ const equivalentIdentity = (left: Identity, right: Identity): boolean =>
   left.ownerID === right.ownerID;
 
 const makeState = (
-  options: { readonly rejectGet?: boolean; readonly rejectAlarm?: boolean } = {},
+  options: {
+    readonly rejectGet?: boolean;
+    readonly rejectPut?: boolean;
+    readonly rejectAlarm?: boolean;
+  } = {},
 ): {
   readonly state: DurableObjectStateNative;
   readonly entries: Map<string, unknown>;
@@ -45,6 +51,7 @@ const makeState = (
     },
     put: (key, value) => {
       transactionOperations.push(activeTransactions === 1);
+      if (options.rejectPut) return Promise.reject(new Error("storage-secret"));
       entries.set(key, value);
       return Promise.resolve();
     },
@@ -74,6 +81,7 @@ const makeState = (
     transaction: (callback) => {
       const next = transactionTail.then(() => {
         activeTransactions += 1;
+        const snapshot = new Map(entries);
         return Promise.resolve(callback(transaction)).then(
           (value) => {
             activeTransactions -= 1;
@@ -81,6 +89,8 @@ const makeState = (
           },
           (error: unknown) => {
             activeTransactions -= 1;
+            entries.clear();
+            for (const [key, value] of snapshot) entries.set(key, value);
             throw error;
           },
         );
@@ -243,5 +253,127 @@ describe("Durable Object runtime boundary", () => {
     expect([first, same, conflict]).toEqual([true, true, false]);
     expect(native.entries).toEqual(new Map([["identity", { ownerID: "owner-1" }]]));
     expect(native.transactionOperations.every(Boolean)).toBe(true);
+  });
+
+  test("returns a closed domain failure and rolls back every write byte-for-byte", async () => {
+    const conflictSchema = Schema.Struct({
+      _tag: Schema.Literal("replayConflict"),
+      receiptID: Schema.String,
+    });
+    const codec = durableObjectTransactionDomainCodec(conflictSchema);
+    const native = makeState();
+    native.entries.set("receipt", { id: "existing", version: 1 });
+    const before = JSON.stringify([...native.entries.entries()]);
+    const outcome = await Effect.runPromise(
+      makeDurableObjectBoundary(native.state).storage.transactionOutcome(codec, (storage) =>
+        storage
+          .put("receipt", { id: "replacement", version: 2 })
+          .pipe(
+            Effect.zipRight(
+              Effect.fail({ _tag: "replayConflict" as const, receiptID: "receipt-1" }),
+            ),
+          ),
+      ),
+    );
+    expect(outcome).toEqual({
+      _tag: "failure",
+      error: { _tag: "replayConflict", receiptID: "receipt-1" },
+    });
+    expect(JSON.stringify([...native.entries.entries()])).toBe(before);
+  });
+
+  test("commits success and exposes an exact serializable outcome schema", async () => {
+    const valueSchema = Schema.Struct({ committed: Schema.Boolean });
+    const conflictSchema = Schema.Struct({ _tag: Schema.Literal("conflict"), key: Schema.String });
+    const native = makeState();
+    const outcome = await Effect.runPromise(
+      makeDurableObjectBoundary(native.state).storage.transactionOutcome(
+        durableObjectTransactionDomainCodec(conflictSchema),
+        (storage) => storage.put("committed", true).pipe(Effect.as({ committed: true })),
+      ),
+    );
+    expect(outcome).toEqual({ _tag: "success", value: { committed: true } });
+    expect(native.entries).toEqual(new Map([["committed", true]]));
+    expect(
+      Schema.decodeUnknownSync(durableObjectTransactionOutcomeSchema(valueSchema, conflictSchema))(
+        outcome,
+      ),
+    ).toEqual(outcome);
+  });
+
+  test("keeps rejected storage distinct, fails closed for malformed failures, and redacts native causes", async () => {
+    const conflictSchema = Schema.Struct({ _tag: Schema.Literal("conflict"), key: Schema.String });
+    const codec = durableObjectTransactionDomainCodec(conflictSchema);
+    const rejected = makeDurableObjectBoundary(makeState({ rejectPut: true }).state);
+    const storageExit = await Effect.runPromiseExit(
+      rejected.storage.transactionOutcome(codec, (storage) =>
+        storage.put("secret", true).pipe(Effect.as({ committed: true })),
+      ),
+    );
+    expect(Exit.isFailure(storageExit)).toBe(true);
+    expect(JSON.stringify(storageExit)).toContain('"operation":"storage_put"');
+    expect(JSON.stringify(storageExit)).not.toContain("storage-secret");
+
+    const malformed = await Effect.runPromiseExit(
+      makeDurableObjectBoundary(makeState().state).storage.transactionOutcome(
+        { decode: () => undefined },
+        () => Effect.fail({ arbitrary: "input" }),
+      ),
+    );
+    expect(Exit.isFailure(malformed)).toBe(true);
+    expect(JSON.stringify(malformed)).toContain('"operation":"storage_transaction"');
+    expect(JSON.stringify(malformed)).not.toContain("input");
+  });
+
+  test("isolates concurrent rollback sentinels and commits", async () => {
+    const conflictSchema = Schema.Struct({ _tag: Schema.Literal("conflict"), key: Schema.String });
+    const native = makeState();
+    const storage = makeDurableObjectBoundary(native.state).storage;
+    const codec = durableObjectTransactionDomainCodec(conflictSchema);
+    const outcomes = await Effect.runPromise(
+      Effect.all(
+        [
+          storage.transactionOutcome(codec, (transaction) =>
+            transaction
+              .put("rolled-back", true)
+              .pipe(
+                Effect.zipRight(Effect.fail({ _tag: "conflict" as const, key: "rolled-back" })),
+              ),
+          ),
+          storage.transactionOutcome(codec, (transaction) =>
+            transaction.put("committed", true).pipe(Effect.as({ committed: true })),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      ),
+    );
+    expect(outcomes[0]).toEqual({
+      _tag: "failure",
+      error: { _tag: "conflict", key: "rolled-back" },
+    });
+    expect(outcomes[1]).toEqual({ _tag: "success", value: { committed: true } });
+    expect(native.entries).toEqual(new Map([["committed", true]]));
+  });
+
+  test("allocates rollback state per execution when one failing Effect is reused concurrently", async () => {
+    const conflictSchema = Schema.Struct({ _tag: Schema.Literal("conflict"), key: Schema.String });
+    const native = makeState();
+    native.entries.set("stable", { sequence: 1 });
+    const before = JSON.stringify([...native.entries.entries()]);
+    const effect = makeDurableObjectBoundary(native.state).storage.transactionOutcome(
+      durableObjectTransactionDomainCodec(conflictSchema),
+      (transaction) =>
+        transaction
+          .put("transient", true)
+          .pipe(Effect.zipRight(Effect.fail({ _tag: "conflict" as const, key: "transient" }))),
+    );
+    const outcomes = await Effect.runPromise(
+      Effect.all([effect, effect], { concurrency: "unbounded" }),
+    );
+    expect(outcomes).toEqual([
+      { _tag: "failure", error: { _tag: "conflict", key: "transient" } },
+      { _tag: "failure", error: { _tag: "conflict", key: "transient" } },
+    ]);
+    expect(JSON.stringify([...native.entries.entries()])).toBe(before);
   });
 });
