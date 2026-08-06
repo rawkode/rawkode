@@ -336,19 +336,21 @@ struct RealtimeVoiceActiveView: View {
       Divider()
 
       HStack(spacing: 20) {
-        Button(action: microphoneAction) {
-          Label(
-            microphoneAccessibilityLabel,
-            systemImage: isPausedForResume ? "mic.fill" : (state.isMuted ? "mic.slash.fill" : "mic.fill")
-          )
-            .labelStyle(.iconOnly)
-            .frame(width: 56, height: 56)
+        if !isPausing {
+          Button(action: microphoneAction) {
+            Label(
+              microphoneAccessibilityLabel,
+              systemImage: isPausedForResume ? "mic.fill" : (state.isMuted ? "mic.slash.fill" : "mic.fill")
+            )
+              .labelStyle(.iconOnly)
+              .frame(width: 56, height: 56)
+          }
+          .buttonStyle(.bordered)
+          .buttonBorderShape(.circle)
+          .keyboardShortcut("m", modifiers: [.command, .shift])
+          .accessibilityLabel(microphoneAccessibilityLabel)
+          .disabled(state.failureMessage != nil)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
-        .keyboardShortcut("m", modifiers: [.command, .shift])
-        .accessibilityLabel(microphoneAccessibilityLabel)
-        .disabled(state.failureMessage != nil)
 
         if case .paused = state.phase, state.failureMessage == nil {
           Button("Resume", action: onResume)
@@ -388,6 +390,7 @@ struct RealtimeVoiceActiveView: View {
     case .responding: "Responding"
     case .assistantSpeaking: "Assistant speaking"
     case .muted: "Muted"
+    case .pausing(let reason): "Pausing audio: \(reason.message)"
     case .paused(let reason): reason.message
     case .ending: "Ending"
     case .ended: "Ended"
@@ -402,6 +405,13 @@ struct RealtimeVoiceActiveView: View {
   private var isPausedForResume: Bool {
     if case .paused = state.phase {
       return state.failureMessage == nil
+    }
+    return false
+  }
+
+  private var isPausing: Bool {
+    if case .pausing = state.phase {
+      return true
     }
     return false
   }

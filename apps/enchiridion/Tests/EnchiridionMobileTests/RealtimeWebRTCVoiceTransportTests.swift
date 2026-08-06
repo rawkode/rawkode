@@ -47,6 +47,13 @@ final class RealtimeWebRTCVoiceTransportTests: XCTestCase {
     XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .ended, receipt: cancelledReceipt))
     XCTAssertFalse(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: cancelledReceipt))
     XCTAssertTrue(RealtimeVoiceCoordinator.canRetry(phase: .failed, receipt: failedReceipt))
+    XCTAssertFalse(
+      RealtimeVoiceCoordinator.canRetry(
+        phase: .pausing(.interruption),
+        receipt: nil,
+        failure: RealtimeVoiceFailure(code: "server_error", message: "failed")
+      )
+    )
     XCTAssertTrue(
       RealtimeVoiceCoordinator.canRetry(
         phase: .paused(.interruption),

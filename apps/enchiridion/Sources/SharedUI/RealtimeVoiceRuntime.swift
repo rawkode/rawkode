@@ -131,9 +131,16 @@ final class RealtimeVoiceCoordinator {
     receipt: RealtimeVoiceReceipt?,
     failure: RealtimeVoiceFailure? = nil
   ) -> Bool {
-    if phase == .failed && receipt?.completion == .failed { return true }
-    if case .paused = phase, receipt == nil, failure != nil { return true }
-    return false
+    switch phase {
+    case .failed:
+      return receipt?.completion == .failed
+    case .paused:
+      return receipt == nil && failure != nil
+    case .idle, .requestingMicrophone, .readingCredential, .connecting,
+      .listening, .userSpeaking, .responding, .assistantSpeaking, .muted,
+      .pausing, .ending, .ended:
+      return false
+    }
   }
 
   func stop() {
