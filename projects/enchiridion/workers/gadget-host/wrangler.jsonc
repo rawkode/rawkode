@@ -1,0 +1,160 @@
+// GadgetSupervisorDO (src/gadget-supervisor-do.ts) is a real implementation
+// as of "P4: Gadgets — supervisor + facets, capability system, one
+// headless automation, one UI gadget" (this pass covers the supervisor +
+// capability system + tests; the headless automation gadget's own code and
+// the WKWebView UI-gadget host are explicitly separate, later tasks — see
+// src/gadget-supervisor-do.ts's file header and the task report for what
+// they need to know about this capability API).
+//
+// See /Users/rawkode/.claude/plans/cheeky-greeting-lampson.md, plan
+// §Gadgets (P4) and Risk #2 ("DO facets are beta").
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-gadget-host",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // `ctx.exports`/`this.ctx.exports` (the loopback-binding mechanism
+  // `gadget-supervisor-do.ts`'s `invokeGadget` uses to hand a gadget's
+  // facet a real, structured-clone-safe capability surface — see
+  // `gadget-capabilities-entrypoint.ts`'s header for the full capability-
+  // transport-fix writeup) needs NO explicit compatibility flag here:
+  // Cloudflare's changelog (developers.cloudflare.com/changelog/
+  // 2025-09-26-ctx-exports/) originally gated it behind
+  // `enable_ctx_exports`, but CONFIRMED LIVE against this worker's actual
+  // `wrangler dev` (`workerd`'s own startup error when the flag WAS listed
+  // explicitly): "The compatibility flag enable_ctx_exports became the
+  // default as of 2025-11-17 so does not need to be specified anymore." —
+  // this worker's `compatibility_date` above (2026-08-01) is well past
+  // that date, so `ctx.exports` is already on by default and listing the
+  // flag is a hard error, not a no-op.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GADGET_SUPERVISOR_DO",
+        "class_name": "GadgetSupervisorDO"
+      },
+      // CROSS-SCRIPT DO binding to VaultDO (same shape/rationale as
+      // workers/gatekeeper-google/wrangler.jsonc's identical `VAULT`
+      // binding — see that file's comment for the full "DO binding, not a
+      // Service Binding, because vault's write-model is VaultDO's own RPC
+      // methods" writeup, not repeated here). `graph.query`/`graph.propose`
+      // call VaultDO's EXISTING typed accessor + write-model RPC methods
+      // through this binding — see
+      // @enchiridion/gadget-vault-rpc-contract's file header for why NO
+      // VaultDO-side change was needed for this. No `migrations` entry is
+      // needed for VAULT here, same reasoning as gatekeeper-google's file.
+      {
+        "name": "VAULT",
+        "class_name": "VaultDO",
+        "script_name": "enchiridion-vault"
+      }
+    ]
+  },
+
+  // `new_sqlite_classes` — GadgetSupervisorDO's OWN SQLite (capability
+  // grants/requests, graph-proposal approvals, schedules, gadget
+  // definitions — src/schema.ts). Each FACET loaded under it gets its OWN,
+  // separate, runtime-managed isolated SQLite — not declared here (facets
+  // aren't independently-deployed DO classes with their own migration
+  // entries; they're loaded dynamically via GADGET_LOADER at runtime, per
+  // the Dynamic Workers model — see src/gadget-supervisor-do.ts's header).
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GadgetSupervisorDO"]
+    }
+  ],
+
+  // Dynamic Workers / DO Facets (plan Risk #2: "DO facets are beta") — REAL
+  // as of this pass, not a placeholder. Verified against this repo's own
+  // installed `wrangler@4.119.0`'s `config-schema.json` (accepts
+  // `worker_loaders` at the top level) and
+  // `@cloudflare/workers-types@4.20260702.1` (`WorkerLoader`/
+  // `WorkerLoaderWorkerCode`/`DurableObjectFacets` — grepped directly out
+  // of node_modules, not assumed from memory), and against
+  // developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/
+  // + .../dynamic-workers/ (Worker Loader binding page). CONFIRMED CAVEAT
+  // (Cloudflare's own docs, verbatim): "The Worker Loader API is available
+  // in local development with Wrangler and workerd. But to run dynamic
+  // Workers on Cloudflare, you must sign up for the closed beta." That is
+  // an ACCOUNT/DEPLOY-time gate — `wrangler dev` and this worker's own
+  // `tsc --build`/`bun test` are unaffected by it; a real `wrangler deploy`
+  // to a production Cloudflare account will need that closed-beta signup
+  // completed first (manual prerequisite, same category as the R2
+  // bucket-creation / Access-Application-setup prerequisites
+  // workers/vault's and workers/gatekeeper-google's wrangler.jsonc files
+  // already document).
+  "worker_loaders": [
+    {
+      "binding": "GADGET_LOADER"
+    }
+  ],
+
+  // GADGET CODE STORAGE (Part 1 of the gadgets-productivity pass) — its own
+  // dedicated R2 bucket, `enchiridion-gadget-code`, holding the bundled JS
+  // source for gadgets registered via the PRODUCTION path
+  // (`GadgetSupervisorDO.registerGadgetCode`, `gadget-definition-store.ts`'s
+  // "shape (b)" rows) — see `gadget-code-loader.ts`'s header for how a
+  // row's `r2Key` is resolved to real bytes at facet-load time. Mirrors
+  // `workers/gatekeeper-google/wrangler.jsonc`'s `GMAIL_ATTACHMENTS` bucket
+  // EXACTLY (own bucket, own binding name, same bucket-ownership
+  // reasoning): different lifecycle (gadget code has no live-page-
+  // reference GC contract the way vault's `enchiridion-blobs` blobs do —
+  // it's just "latest registered version per gadget id", `gadget-
+  // definition-store.ts`'s `code_version`), independent deploy/ownership
+  // (only this worker's own admin/deploy tooling ever writes into it), and
+  // blast-radius isolation (a bug in gadget-code deploy tooling can only
+  // ever affect THIS bucket).
+  //
+  // MANUAL PREREQUISITE before first real deploy (mirrors workers/vault's
+  // and workers/gatekeeper-google's identical R2-bucket-creation
+  // comments): the bucket must actually exist — `wrangler r2 bucket create
+  // enchiridion-gadget-code` — this config only declares the binding. Local
+  // `wrangler dev` simulates the bucket automatically (Miniflare-local R2),
+  // no prerequisite needed there — this is how `scripts/deploy-morning-
+  // brief.ts` and the morning-brief live-drill exercise this binding
+  // without a real Cloudflare account.
+  "r2_buckets": [
+    {
+      "binding": "GADGET_CODE",
+      "bucket_name": "enchiridion-gadget-code"
+    }
+  ],
+
+  // Named-entrypoint Service Binding to gatekeeper-google's
+  // `CalendarReadModel` — same "real Workers RPC, not `.fetch()`" shape as
+  // workers/vault/wrangler.jsonc's `GATEKEEPER_GOOGLE` binding (entrypoint:
+  // "GmailReadModel"). See
+  // workers/gatekeeper-google/src/calendar-read-model.ts's file header and
+  // @enchiridion/gadget-gatekeeper-google-rpc-contract's file header for
+  // why `CalendarReadModel` is a new, minimal, additive export there (the
+  // one exception to this task's "work within workers/gadget-host/"
+  // constraint, flagged in the task report).
+  "services": [
+    {
+      "binding": "GATEKEEPER_GOOGLE",
+      "service": "enchiridion-gatekeeper-google",
+      "entrypoint": "CalendarReadModel"
+    }
+  ],
+
+  // `schedule.cron`'s ENTIRE fan-out mechanism (plan §Gadgets' design note;
+  // see src/schedule-fanout.ts's file header for the full "why not a real
+  // per-gadget Cron Trigger" writeup) — ONE static cron expression, firing
+  // src/index.ts's `scheduled()`, which sweeps every due
+  // `gadget_schedules` row regardless of which gadget owns it or when it
+  // was registered. 5 minutes chosen to match gatekeeper-google's own
+  // polling cadence (`workers/gatekeeper-google/wrangler.jsonc`) — no
+  // gadget schedule can fire more often than this tick does, which is the
+  // documented trade-off (a registered `intervalMinutes` is a FLOOR on
+  // frequency, not a guarantee).
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

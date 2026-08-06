@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	P6 "Widgets" task (plan §Platform parity). WidgetKit extensions run in
+	their own sandboxed process, separate from `Enchiridion2Mac` — this
+	entitlement is what lets `Enchiridion2MacWidget` resolve the SAME App
+	Group container as the host app via
+	`FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`, and
+	therefore open the same on-disk `LocalGraphStore` SQLite file
+	read-only (`EnchiridionWidgetKit`'s `WidgetLocalStore`). Identifier
+	must match `EnchiridionMac.entitlements`/`EnchiridionIOS.entitlements`
+	exactly — see that file's comment for the full rationale.
+	App extensions are sandboxed by default on macOS (Apple requires
+	`APPLICATION_EXTENSION_API_ONLY`, already set in project.yml), so the
+	sandbox + network-client keys are intentionally omitted here — this
+	extension is read-only against local disk and needs no network access
+	of its own.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.rawkode.enchiridion2</string>
+	</array>
+</dict>
+</plist>

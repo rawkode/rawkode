@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	P1 scope: no CloudKit, no push, no CarPlay. iOS apps have no App
+	Sandbox concept (`com.apple.security.*` sandbox keys are macOS-only —
+	iOS network access needs no entitlement at all), so there was nothing
+	to declare at P1; this file is the wiring point for whatever P2+
+	actually needs (push for gatekeeper approvals, etc.).
+
+	P6 "Widgets" task (plan §Platform parity): added the App Group
+	capability — see EnchiridionMac.entitlements' comment for the full
+	rationale (same identifier, same shared `LocalGraphStore` file, shared
+	with the new `Enchiridion2iOSWidget` extension target). The
+	`com.apple.security.application-groups` key works identically on iOS
+	despite iOS having no sandbox-key concept otherwise — App Groups is its
+	own capability, not part of `com.apple.security.app-sandbox`.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.rawkode.enchiridion2</string>
+	</array>
+</dict>
+</plist>

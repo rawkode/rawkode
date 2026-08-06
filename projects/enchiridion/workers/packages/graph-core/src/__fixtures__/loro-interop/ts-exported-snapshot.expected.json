@@ -1,0 +1,31 @@
+{
+  "generatedBy": "typescript",
+  "bodyContainer": "body",
+  "objectMetadataContainer": "objectMetadata",
+  "bodyText": "Hi from TypeScript, meet Swift",
+  "bodyDelta": [
+    {
+      "insert": "Hi from "
+    },
+    {
+      "insert": "TypeScript",
+      "attributes": {
+        "bold": true
+      }
+    },
+    {
+      "insert": ", meet "
+    },
+    {
+      "insert": "Swift",
+      "attributes": {
+        "pageReference": "person_ts_generator_fixture"
+      }
+    }
+  ],
+  "objectMetadata": {
+    "kind": "interop-fixture",
+    "version": 1,
+    "verified": true
+  }
+}

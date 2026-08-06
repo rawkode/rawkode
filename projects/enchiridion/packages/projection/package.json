@@ -1,0 +1,22 @@
+{
+  "name": "@enchiridion/projection",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --build",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@enchiridion/graph-core": "workspace:*",
+    "@enchiridion/schema": "workspace:*",
+    "loro-crdt": "1.13.7"
+  },
+  "devDependencies": {
+    "@enchiridion/supertags-core": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}

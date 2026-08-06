@@ -1,0 +1,28 @@
+// Root build orchestrator for `tsc --build` — not a compile target itself.
+// Composite project references let `bun run typecheck` build every workspace
+// package incrementally in dependency order. Each referenced package's own
+// tsconfig.json extends ./tsconfig.base.json for shared strict compiler
+// options. Add new packages/workers/supertags here as they're scaffolded.
+{
+  "files": [],
+  "references": [
+    { "path": "packages/schema" },
+    { "path": "packages/graph-core" },
+    { "path": "packages/access-auth" },
+    { "path": "packages/projection" },
+    { "path": "packages/graphql-composer" },
+    { "path": "packages/codegen" },
+    { "path": "packages/vault-rpc-contract" },
+    { "path": "packages/gatekeeper-google-rpc-contract" },
+    { "path": "packages/gadget-vault-rpc-contract" },
+    { "path": "packages/gadget-gatekeeper-google-rpc-contract" },
+    { "path": "supertags/core" },
+    { "path": "supertags/email" },
+    { "path": "supertags/imported" },
+    { "path": "supertags/workouts" },
+    { "path": "supertags/canvas" },
+    { "path": "workers/vault" },
+    { "path": "workers/gatekeeper-google" },
+    { "path": "workers/gadget-host" }
+  ]
+}

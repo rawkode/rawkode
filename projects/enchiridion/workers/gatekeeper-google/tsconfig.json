@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["@cloudflare/workers-types", "@types/bun"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/access-auth" },
+    { "path": "../../packages/gadget-gatekeeper-google-rpc-contract" },
+    { "path": "../../packages/gatekeeper-google-rpc-contract" },
+    { "path": "../../packages/graph-core" },
+    { "path": "../../packages/projection" },
+    { "path": "../../packages/schema" },
+    { "path": "../../packages/vault-rpc-contract" },
+    { "path": "../../supertags/core" },
+    { "path": "../../supertags/email" }
+  ]
+}

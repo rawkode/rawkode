@@ -1,0 +1,22 @@
+{
+  "name": "@enchiridion/graphql-composer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --build",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@enchiridion/schema": "workspace:*",
+    "@pothos/core": "^4.12.0",
+    "graphql": "^16.13.2"
+  },
+  "devDependencies": {
+    "@enchiridion/supertags-core": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.7.0"
+  }
+}

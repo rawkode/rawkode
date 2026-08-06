@@ -1,0 +1,25 @@
+// TEST-ONLY wrangler config — NOT the real deploy config (that's
+// `wrangler.jsonc`, untouched by this file). Exists solely so
+// `vault-do.hibernation.test.ts` can launch a real `wrangler dev --local`
+// process (real workerd, real Hibernation-API-backed DO SQLite storage)
+// against a minimal bundle (`src/vault-do-test-entry.ts`) — no Access
+// verification, no GraphQL/Pothos/Yoga, no gatekeeper-google Service
+// Bindings, none of which Risk #13 (WebSocket Hibernation correctness) has
+// anything to do with. `VAULT_DO`'s binding/migration shape below is
+// copied byte-for-byte from `wrangler.jsonc`'s own (same DO class, same
+// `new_sqlite_classes` migration) so the DO storage behavior under test is
+// identical to production; `BLOBS` is declared (unused by any hibernation
+// test) only because `VaultDO`'s constructor/`env` type requires the
+// binding to exist for the class to construct at all.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-vault-do-test",
+  "main": "src/vault-do-test-entry.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "VAULT_DO", "class_name": "VaultDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VaultDO"] }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "enchiridion-blobs" }]
+}

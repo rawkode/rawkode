@@ -1,0 +1,218 @@
+// VaultDO (src/vault-do.ts) is a real implementation as of "P0: VaultDO
+// skeleton — Loro doc storage + sync protocol" — doc storage, the
+// vault-meta catalog, the WebSocket sync protocol, debounced reprojection,
+// resumable rebuild-projections, and the bounded query + write-model RPC
+// surface are all real (see that file and its sibling modules for what's
+// real vs. still TODO-flagged).
+//
+// R2 blob routes + nightly backup export/restore ("P0: R2 blob routes +
+// nightly backup export + restore drill") are also real as of this pass —
+// src/blob-routes.ts, src/blob-store.ts, src/backup.ts. The `BLOBS` binding
+// below still requires a REAL prerequisite before `wrangler deploy` can
+// succeed end-to-end: the bucket must actually exist
+// (`wrangler r2 bucket create enchiridion-blobs`) — this config only
+// declares the binding, it doesn't create the bucket. See
+// RESTORE_RUNBOOK.md for that and the other manual prerequisites (notably
+// R2 bucket versioning, which is NOT configurable from this file — see that
+// doc for why and what to run instead).
+//
+// `EmailThread.messages`/`Query.emailSearch` (Gmail message-bodies/
+// attachments follow-up task) are real as of this pass too —
+// src/graphql/composed-schema.ts, src/graphql/yoga.ts. The `services`
+// binding below (`GATEKEEPER_GOOGLE`) is what makes those resolvers able to
+// reach `workers/gatekeeper-google` at all — see that binding's comment.
+// FIX (adversarial-review BLOCKER): this binding used to be a plain
+// Service Binding calling gatekeeper-google's public `fetch()` handler
+// (`/gmail/messages`/`/gmail/search`), which had zero application-layer
+// authentication. It is now a NAMED-ENTRYPOINT Service Binding
+// (`entrypoint: "GmailReadModel"`, below) — real Workers RPC, with no
+// `fetch()`-routed path at all. See the binding's own comment below and
+// `workers/gatekeeper-google/src/gmail-read-model.ts`'s file header for
+// the full writeup.
+//
+// See /Users/rawkode/.claude/plans/cheeky-greeting-lampson.md, plan §Phasing P0.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-vault",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // VaultDO's DO SQLite storage (schema.ts's `initializeSchema`) requires
+  // the `new_sqlite_classes` migration below, not the legacy KV storage
+  // backend — this binding + migration pair is deploy-ready.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VAULT_DO",
+        "class_name": "VaultDO"
+      }
+    ]
+  },
+
+  // `new_sqlite_classes` (not `new_classes`) so the DO gets SQLite storage.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VaultDO"]
+    }
+  ],
+
+  // Blob storage (plan §Backend architecture, "Blobs (R2)") — routes are
+  // real (src/blob-routes.ts, forwarded here via /blobs/* in src/index.ts).
+  // MANUAL PREREQUISITE before first deploy: the bucket itself must be
+  // created — `wrangler r2 bucket create enchiridion-blobs` — this config
+  // block only declares the Worker-side binding to it.
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "enchiridion-blobs"
+    }
+  ],
+
+  // CROSS-WORKER BINDING DIRECTION (vault -> gatekeeper-google) — the
+  // REVERSE direction from `workers/gatekeeper-google/wrangler.jsonc`'s
+  // existing `VAULT` cross-script DO binding (gatekeeper-google -> vault).
+  //
+  // FIX (adversarial-review BLOCKER, plan §Google gatekeeper): this binding
+  // was originally a PLAIN Cloudflare Service Binding with `entrypoint`
+  // omitted, so `env.GATEKEEPER_GOOGLE.fetch(request)` dispatched straight
+  // to gatekeeper-google's PUBLIC `fetch()` handler and its two HTTP routes
+  // (`/gmail/messages`, `/gmail/search`). Those routes had ZERO
+  // application-layer authentication — the original reasoning ("Service
+  // Bindings never traverse the public edge, so there's no edge boundary to
+  // gate") was wrong: a Service Binding's `.fetch()` reaches the exact same
+  // `fetch()` handler any other caller of that worker would, so "only
+  // reachable over a Service Binding" was never actually true isolation,
+  // just an unenforced assumption about who held the binding. See
+  // `workers/gatekeeper-google/src/gmail-read-model.ts`'s file header for
+  // the full writeup.
+  //
+  // THE FIX: `entrypoint: "GmailReadModel"` below makes this a
+  // NAMED-ENTRYPOINT Service Binding — `env.GATEKEEPER_GOOGLE` now resolves
+  // to a real Workers-RPC stub for `GmailReadModel` (a `WorkerEntrypoint`
+  // subclass exported from `workers/gatekeeper-google/src/index.ts`), and
+  // `src/graphql/yoga.ts` calls its `getMessagesForThreads`/
+  // `searchEmailMessages` methods directly (Workers RPC dispatch — no
+  // `.fetch()`, no HTTP verb/URL/JSON-body shape at all). Workers RPC
+  // entrypoint methods have NO `fetch()`-routed path: gatekeeper-google's
+  // own `fetch()` handler no longer routes `/gmail/messages`/`/gmail/search`
+  // to anything (both 404 unconditionally — see that worker's `index.ts`
+  // and `gmail-read-model.test.ts`), so there is no HTTP surface left for
+  // this fix to have missed.
+  //
+  // MANUAL/VERIFICATION NOTE: the `entrypoint` field itself is a real,
+  // documented `wrangler.jsonc` field — confirmed against this repo's own
+  // installed `wrangler`'s `config-schema.json` ("Optionally, the
+  // entrypoint (named export) of the service to bind to"), not just
+  // inferred from docs. What is NOT independently verified in this pass
+  // (no live Cloudflare account/deploy access in this sandbox): that a
+  // named-entrypoint Service Binding to a `WorkerEntrypoint` actually
+  // round-trips complex return types (nested objects/arrays, as
+  // `GetMessagesForThreadsResult`/`SearchEmailMessagesResult` are) correctly
+  // end-to-end via `wrangler dev`/a real deploy — Workers RPC's structured-
+  // clone-like serialization is documented to support this, and
+  // `CalendarWriteModel`/`GmailWriteModel` already prove the SAME binding
+  // shape works for this codebase's write-model methods, but this
+  // read-shaped direction (vault calling INTO gatekeeper-google) hasn't
+  // been smoke-tested against a live pair of workers. Do that before this
+  // carries real Gmail data (`wrangler dev` for both workers together, or a
+  // real deploy) — the same "smoke-test before this carries real traffic"
+  // caveat `google-account-do.ts`'s file header already states for
+  // DurableObject RPC in this same worker pairing.
+  //
+  // GATEKEEPER_GOOGLE_CALENDAR_WRITE / GATEKEEPER_GOOGLE_GMAIL_WRITE (added
+  // for "P8: vault -> gatekeeper-google HTTP proxy route(s) for the write
+  // RPCs" — plan §Live Backend Connectivity, scope item 1): the WRITE-
+  // direction siblings of `GATEKEEPER_GOOGLE` above, same reasoning, same
+  // "NAMED-ENTRYPOINT Service Binding, real Workers RPC, never `.fetch()`"
+  // discipline — see ./src/gatekeeper-google-write-routes.ts's file header.
+  // Cloudflare Service Bindings bind to exactly ONE `entrypoint` per
+  // binding entry, so gatekeeper-google's two write-model
+  // `WorkerEntrypoint`s (`CalendarWriteModel`/`GmailWriteModel`,
+  // `workers/gatekeeper-google/src/index.ts`) each need their own binding
+  // — they cannot share `GATEKEEPER_GOOGLE`'s existing entry (which is
+  // pinned to `entrypoint: "GmailReadModel"`).
+  "services": [
+    {
+      "binding": "GATEKEEPER_GOOGLE",
+      "service": "enchiridion-gatekeeper-google",
+      "entrypoint": "GmailReadModel"
+    },
+    {
+      "binding": "GATEKEEPER_GOOGLE_CALENDAR_WRITE",
+      "service": "enchiridion-gatekeeper-google",
+      "entrypoint": "CalendarWriteModel"
+    },
+    {
+      "binding": "GATEKEEPER_GOOGLE_GMAIL_WRITE",
+      "service": "enchiridion-gatekeeper-google",
+      "entrypoint": "GmailWriteModel"
+    }
+  ],
+
+  // Nightly backup export (plan §Backend architecture, "Backup / disaster
+  // recovery") — `src/index.ts`'s `scheduled()` handler is real as of this
+  // pass, starting a resumable VaultDO-alarm-driven export
+  // (src/backup.ts). 03:00 UTC chosen as a quiet hour for a single-user
+  // vault; not tied to any other cadence in this system. See
+  // RESTORE_RUNBOOK.md for the restore side and its own manual
+  // prerequisites (R2 bucket versioning, notably, is NOT configurable from
+  // this file).
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Cloudflare Access verification (src/access-auth.ts) — plan pinned Auth
+  // decision + Risks #7/#10. Both are non-secret identifiers (a team
+  // domain and an Access Application's AUD tag, not credentials — see
+  // ACCESS_SETUP.md), so plain `vars` is fine; `wrangler secret put` also
+  // works if you'd rather not have them in this file. MANUAL PREREQUISITE
+  // before first deploy: create the Access Application in the Zero Trust
+  // dashboard and fill in the real values below — see ACCESS_SETUP.md for
+  // the full walkthrough. Placeholder values here will make every request
+  // fail closed (401/500), not silently allow anything through.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "REPLACE_ME.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_ME_ACCESS_APPLICATION_AUD_TAG",
+    // Device enrollment (plan §Live Backend Connectivity (P8), "Device
+    // auth" paragraph; src/enroll-routes.ts, src/cloudflare-access-api.ts)
+    // — `POST /enroll/provision` lets an already-enrolled device mint a
+    // fresh Cloudflare Access Service Token for a new device via
+    // Cloudflare's real Access Service Token API
+    // (`POST /accounts/{account_id}/access/service_tokens`, see
+    // src/cloudflare-access-api.ts's header for the full citation).
+    // `CLOUDFLARE_ACCOUNT_ID` is NOT a credential (an account ID alone
+    // authenticates nothing — same non-secret reasoning as
+    // ACCESS_TEAM_DOMAIN/ACCESS_AUD above), so plain `vars` is fine.
+    "CLOUDFLARE_ACCOUNT_ID": "REPLACE_ME_CLOUDFLARE_ACCOUNT_ID"
+  }
+
+  // `CLOUDFLARE_API_TOKEN` (read by src/cloudflare-access-api.ts) IS a
+  // real, highly-privileged credential — an Account-level Cloudflare API
+  // token scoped to ONLY the Access service-token management permission
+  // (labeled "Access: Service Tokens Edit"/"Write" depending on
+  // dashboard/docs revision) — and MUST NEVER go in this file. Set it via:
+  //
+  //   wrangler secret put CLOUDFLARE_API_TOKEN
+  //
+  // matching workers/gatekeeper-google/wrangler.jsonc's identical
+  // `GOOGLE_CLIENT_SECRET` convention. This is a NEW, MORE privileged
+  // credential than ACCESS_TEAM_DOMAIN/ACCESS_AUD above (those only
+  // identify a team/application; this one can mint working device
+  // credentials) — scope it deliberately narrow when creating it in the
+  // Cloudflare dashboard, not a broader "Edit Workers"-style token.
+  //
+  // MANUAL PREREQUISITE before first deploy of this feature (separate
+  // from, and in addition to, ACCESS_SETUP.md's existing prerequisites):
+  // the real Cloudflare account ID in `vars` above, and a real, narrowly-
+  // scoped API token via `wrangler secret put` above. Until both are set,
+  // every `/enroll/provision` request fails closed with a 500 from
+  // `createCloudflareAccessServiceToken` (src/cloudflare-access-api.ts),
+  // not a silent bypass — same fail-closed convention
+  // ACCESS_TEAM_DOMAIN/ACCESS_AUD already established.
+}
