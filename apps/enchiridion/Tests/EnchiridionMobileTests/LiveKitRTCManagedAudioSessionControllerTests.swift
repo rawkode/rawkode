@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import EnchiridionCore
 
 @testable import Enchiridion
 
@@ -58,8 +59,10 @@ import AVFoundation
       )
       try await subject.activate()
 
-      XCTAssertEqual(await subject.deactivateWithResult(), .timedOut)
-      XCTAssertEqual(await subject.deactivateWithResult(), .completed)
+      let firstResult = await subject.deactivateWithResult()
+      let secondResult = await subject.deactivateWithResult()
+      XCTAssertEqual(firstResult, .timedOut)
+      XCTAssertEqual(secondResult, .completed)
 
       XCTAssertEqual(
         Array(events.values.suffix(2)), ["rtc.enabled.false", "controller.deactivateWithResult"]
@@ -121,14 +124,14 @@ import AVFoundation
     }
   }
 
-  @MainActor
-  private final class EventLog {
-    var values: [String] = []
-    func append(_ event: String) { values.append(event) }
+  private final class EventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+    var values: [String] { lock.lock(); defer { lock.unlock() }; return storage }
+    func append(_ event: String) { lock.lock(); storage.append(event); lock.unlock() }
   }
 
-  @MainActor
-  private final class FakeRTCAudio: LiveKitRTCAudioSessionBacking {
+  private final class FakeRTCAudio: LiveKitRTCAudioSessionBacking, @unchecked Sendable {
     private let events: EventLog
     init(events: EventLog) { self.events = events }
     func configureManualAudioDisabled() { events.append("rtc.configure") }
@@ -142,34 +145,48 @@ import AVFoundation
     func deactivateConfigured() async throws { events.append("rtc.deactivateConfigured") }
   }
 
-  @MainActor
-  private final class FakeController: RealtimeAudioSessionControlling {
+  private final class FakeController: RealtimeAudioSessionControlling, @unchecked Sendable {
     private let events: EventLog
-    var activateCalls = 0
-    var deactivateCalls = 0
-    var deactivateWithResultCalls = 0
-    var resetCalls = 0
-    var deactivationResult: RealtimeAudioSessionDeactivationResult = .completed
-    var suspendActivation = false
+    private let lock = NSLock()
+    private var storedActivateCalls = 0
+    private var storedDeactivateCalls = 0
+    private var storedDeactivateWithResultCalls = 0
+    private var storedResetCalls = 0
+    private var storedDeactivationResult: RealtimeAudioSessionDeactivationResult = .completed
+    private var storedSuspendActivation = false
     private var activationEntered = false
+    private var activationResumeRequested = false
     private var activationContinuation: CheckedContinuation<Void, Never>?
+
+    var activateCalls: Int { lock.lock(); defer { lock.unlock() }; return storedActivateCalls }
+    var deactivateCalls: Int { lock.lock(); defer { lock.unlock() }; return storedDeactivateCalls }
+    var deactivateWithResultCalls: Int { lock.lock(); defer { lock.unlock() }; return storedDeactivateWithResultCalls }
+    var resetCalls: Int { lock.lock(); defer { lock.unlock() }; return storedResetCalls }
+    var deactivationResult: RealtimeAudioSessionDeactivationResult { get { lock.lock(); defer { lock.unlock() }; return storedDeactivationResult } set { lock.lock(); storedDeactivationResult = newValue; lock.unlock() } }
+    var suspendActivation: Bool { get { lock.lock(); defer { lock.unlock() }; return storedSuspendActivation } set { lock.lock(); storedSuspendActivation = newValue; lock.unlock() } }
+
+    private func beginActivation() -> Bool { lock.lock(); storedActivateCalls += 1; let suspended = storedSuspendActivation; if suspended { activationEntered = true }; lock.unlock(); return suspended }
+    private func installActivationContinuation(_ continuation: CheckedContinuation<Void, Never>) { lock.lock(); if activationResumeRequested { lock.unlock(); continuation.resume() } else { activationContinuation = continuation; lock.unlock() } }
+    private func recordDeactivation() { lock.lock(); storedDeactivateCalls += 1; lock.unlock() }
+    private func recordResultDeactivation() -> RealtimeAudioSessionDeactivationResult { lock.lock(); storedDeactivateWithResultCalls += 1; let result = storedDeactivationResult; lock.unlock(); return result }
+    private func recordReset() { lock.lock(); storedResetCalls += 1; lock.unlock() }
+    private func hasEnteredActivation() -> Bool { lock.lock(); defer { lock.unlock() }; return activationEntered }
 
     init(events: EventLog) { self.events = events }
     func activate() async throws {
-      activateCalls += 1
+      let suspended = beginActivation()
       events.append("controller.activate")
-      guard suspendActivation else { return }
-      activationEntered = true
-      await withCheckedContinuation { activationContinuation = $0 }
+      guard suspended else { return }
+      await withCheckedContinuation { installActivationContinuation($0) }
     }
-    func deactivate() async { deactivateCalls += 1; events.append("controller.deactivate") }
+    func deactivate() async { recordDeactivation(); events.append("controller.deactivate") }
     func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult {
-      deactivateWithResultCalls += 1
+      let result = recordResultDeactivation()
       events.append("controller.deactivateWithResult")
-      return deactivationResult
+      return result
     }
-    func resetAfterMediaServicesReset() async { resetCalls += 1; events.append("controller.reset") }
-    func waitForActivation() async { while !activationEntered { await Task.yield() } }
-    func resumeActivation() { activationContinuation?.resume(); activationContinuation = nil }
+    func resetAfterMediaServicesReset() async { recordReset(); events.append("controller.reset") }
+    func waitForActivation() async { while !hasEnteredActivation() { await Task.yield() } }
+    func resumeActivation() { lock.lock(); activationResumeRequested = true; let continuation = activationContinuation; activationContinuation = nil; lock.unlock(); continuation?.resume() }
   }
 #endif

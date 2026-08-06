@@ -51,9 +51,13 @@
 
       let offer = try await peer.offer(constraints: constraints)
       try await peer.setLocal(description: offer)
-      guard validates(offer.sdp) else { throw NativeWebRTCOfferPreflightError.invalidOffer }
+      // Candidate gathering may update localDescription.  The preflight proves
+      // the exact final SDP handed to the transport, never the provisional offer.
+      guard let finalSDP = peer.localDescription?.sdp, validates(finalSDP) else {
+        throw NativeWebRTCOfferPreflightError.invalidOffer
+      }
       return .init(
-        sdp: offer.sdp,
+        sdp: finalSDP,
         dataChannelLabel: channel.label,
         isDataChannelOrdered: channel.isOrdered,
         hasLocalAudioSource: hasLocalAudioSource

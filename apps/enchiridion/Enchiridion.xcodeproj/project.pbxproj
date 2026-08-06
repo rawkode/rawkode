@@ -22,6 +22,7 @@
 		1263D55420125552136C04BE /* AssistantConversationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE80ADD38DF8DAD479B64FC4 /* AssistantConversationRuntime.swift */; };
 		14F2C690C167A84C2CDB743B /* EnchiridionWorkoutTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 2D60C058D98E394FDE86DA5F /* EnchiridionWorkoutTransport */; };
 		15005D97FD9406924A56E3BA /* TaskAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF61DE3720A191D2E477BDB7 /* TaskAppIntents.swift */; };
+		1529A6D80B6835B40BD744C4 /* NativeRealtimeWebRTCBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD2C17F3E619BF9FA89ED1F /* NativeRealtimeWebRTCBridgeTests.swift */; };
 		165B631D8CAC87979D400EE1 /* NativeOpenAIRealtimeAudioRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD983519834ECF1505309837 /* NativeOpenAIRealtimeAudioRuntime.swift */; };
 		1B2A6A3232EB1383DBF2F958 /* WhiteboardCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83C5CD6502254CF1A8FD2CE /* WhiteboardCanvasView.swift */; };
 		1D7D44FED0008DA93CE6631A /* CalendarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B1758C51CCC9F6FDAD3169 /* CalendarChrome.swift */; };
@@ -393,6 +394,7 @@
 		C6BB8893E481629E6D72E463 /* PersonReferenceCreationForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonReferenceCreationForm.swift; sourceTree = "<group>"; };
 		C97F53E8FEB2418049339279 /* DayPlanProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPlanProjection.swift; sourceTree = "<group>"; };
 		C9C26C40A2B6E76F10AB83EC /* TodayWorkspaceTransitionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWorkspaceTransitionCoordinatorTests.swift; sourceTree = "<group>"; };
+		CAD2C17F3E619BF9FA89ED1F /* NativeRealtimeWebRTCBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRealtimeWebRTCBridgeTests.swift; sourceTree = "<group>"; };
 		CBA7E703EC81C57573102899 /* CalendarDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDayStrip.swift; sourceTree = "<group>"; };
 		CECEEBCB6F45BBED097C77B4 /* VaultManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManagementView.swift; sourceTree = "<group>"; };
 		CF427C7237CA6F8FBE76A631 /* Enchiridion Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Enchiridion Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -690,6 +692,7 @@
 				89A512F9549E3E06E15C7350 /* LiveViewBoardSupportTests.swift */,
 				ED9073AC19FA3C584B2B0870 /* MobileTabSelectionCoordinatorTests.swift */,
 				80575DDB370C15295187C380 /* NativeRealtimeInputLeaseGateTests.swift */,
+				CAD2C17F3E619BF9FA89ED1F /* NativeRealtimeWebRTCBridgeTests.swift */,
 				93D1E532B5858E18A73DBFAB /* NativeWebRTCOfferPreflightTests.swift */,
 				ED10E6E5139BA44D18411D19 /* PageEditorTransitionAuthorityTests.swift */,
 				BA74ED56BC8B515110CE321F /* PageReferenceSelectionResolverTests.swift */,
@@ -1216,6 +1219,7 @@
 				A53AF4F316E6B2FE328584A5 /* LiveViewBoardSupportTests.swift in Sources */,
 				740AD887A9DC7195BAC9ACBB /* MobileTabSelectionCoordinatorTests.swift in Sources */,
 				7D93F3A80295477F5C953DFD /* NativeRealtimeInputLeaseGateTests.swift in Sources */,
+				1529A6D80B6835B40BD744C4 /* NativeRealtimeWebRTCBridgeTests.swift in Sources */,
 				ACA30A020DB5010F6DF8323C /* NativeWebRTCOfferPreflightTests.swift in Sources */,
 				6027565DFABF57B175B87A5E /* PageEditorTransitionAuthorityTests.swift in Sources */,
 				583CE1A9B4F570675365853B /* PageReferenceSelectionResolverTests.swift in Sources */,
