@@ -3,8 +3,10 @@ import { Data } from "effect";
 /** Closed operation categories. A string enum prevents callers passing a raw string. */
 export enum RuntimeOperation {
   CloudflareBinding = "cloudflare.binding",
+  ImmutableR2 = "immutable-r2",
   CapabilityCrypto = "capability.crypto",
   P256Crypto = "p256.crypto",
+  ManifestCrypto = "manifest.crypto",
   AccessJwks = "access.jwks",
   DurableObject = "durable-object",
   SharedEffect = "runtime.shared-effect",
@@ -14,8 +16,10 @@ export type RuntimeOperationIdentifier = RuntimeOperation;
 
 const isRuntimeOperation = (value: unknown): value is RuntimeOperation =>
   value === RuntimeOperation.CloudflareBinding ||
+  value === RuntimeOperation.ImmutableR2 ||
   value === RuntimeOperation.CapabilityCrypto ||
   value === RuntimeOperation.P256Crypto ||
+  value === RuntimeOperation.ManifestCrypto ||
   value === RuntimeOperation.AccessJwks ||
   value === RuntimeOperation.DurableObject ||
   value === RuntimeOperation.SharedEffect;
@@ -334,6 +338,147 @@ export class P256VerificationError extends Data.TaggedError("P256VerificationErr
   }
 }
 
+/** Safe failures at the immutable R2 boundary. Object names, ETags and platform
+ * causes deliberately never cross this error boundary. */
+export class ImmutableR2Error extends Data.TaggedError("ImmutableR2Error")<{
+  readonly operation: "put_if_absent" | "head" | "read" | "list" | "delete";
+  readonly reason:
+    | "invalid_key"
+    | "invalid_prefix"
+    | "invalid_cursor"
+    | "invalid_limit"
+    | "invalid_body"
+    | "not_found"
+    | "already_exists"
+    | "too_large"
+    | "metadata_mismatch"
+    | "platform_failed";
+}> {
+  constructor(input: {
+    readonly operation: "put_if_absent" | "head" | "read" | "list" | "delete";
+    readonly reason:
+      | "invalid_key"
+      | "invalid_prefix"
+      | "invalid_cursor"
+      | "invalid_limit"
+      | "invalid_body"
+      | "not_found"
+      | "already_exists"
+      | "too_large"
+      | "metadata_mismatch"
+      | "platform_failed";
+  }) {
+    if (
+      !(["put_if_absent", "head", "read", "list", "delete"] as const).includes(input.operation) ||
+      !(
+        [
+          "invalid_key",
+          "invalid_prefix",
+          "invalid_cursor",
+          "invalid_limit",
+          "invalid_body",
+          "not_found",
+          "already_exists",
+          "too_large",
+          "metadata_mismatch",
+          "platform_failed",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid ImmutableR2Error fields.");
+    super({ operation: input.operation, reason: input.reason });
+  }
+}
+
+/** Manifest signing configuration is independent of all HMAC capability rings. */
+export class ManifestKeyRingConfigurationError extends Data.TaggedError(
+  "ManifestKeyRingConfigurationError",
+)<{
+  readonly reason:
+    | "invalid_key_id"
+    | "invalid_public_key"
+    | "invalid_private_key"
+    | "key_pair_mismatch"
+    | "duplicate_key_id"
+    | "too_many_prior_keys"
+    | "revoked_key_active";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "invalid_key_id"
+      | "invalid_public_key"
+      | "invalid_private_key"
+      | "key_pair_mismatch"
+      | "duplicate_key_id"
+      | "too_many_prior_keys"
+      | "revoked_key_active";
+  }) {
+    if (
+      !(
+        [
+          "invalid_key_id",
+          "invalid_public_key",
+          "invalid_private_key",
+          "key_pair_mismatch",
+          "duplicate_key_id",
+          "too_many_prior_keys",
+          "revoked_key_active",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid ManifestKeyRingConfigurationError fields.");
+    super({ reason: input.reason });
+  }
+}
+
+export class ManifestSigningError extends Data.TaggedError("ManifestSigningError")<{
+  readonly reason: "invalid_bytes" | "invalid_key_configuration" | "crypto_unavailable";
+}> {
+  constructor(input: {
+    readonly reason: "invalid_bytes" | "invalid_key_configuration" | "crypto_unavailable";
+  }) {
+    if (
+      !(["invalid_bytes", "invalid_key_configuration", "crypto_unavailable"] as const).includes(
+        input.reason,
+      )
+    )
+      throw new TypeError("Invalid ManifestSigningError fields.");
+    super({ reason: input.reason });
+  }
+}
+
+export class ManifestVerificationError extends Data.TaggedError("ManifestVerificationError")<{
+  readonly reason:
+    | "invalid_bytes"
+    | "malformed_signature"
+    | "unknown_or_revoked_key"
+    | "signature_invalid"
+    | "crypto_unavailable";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "invalid_bytes"
+      | "malformed_signature"
+      | "unknown_or_revoked_key"
+      | "signature_invalid"
+      | "crypto_unavailable";
+  }) {
+    if (
+      !(
+        [
+          "invalid_bytes",
+          "malformed_signature",
+          "unknown_or_revoked_key",
+          "signature_invalid",
+          "crypto_unavailable",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid ManifestVerificationError fields.");
+    super({ reason: input.reason });
+  }
+}
+
 export type RuntimeError =
   | RuntimeConfigError
   | ExternalServiceError
@@ -346,7 +491,11 @@ export type RuntimeError =
   | WorkerBoundaryError
   | DurableObjectBoundaryError
   | AccessJwtVerificationError
-  | P256VerificationError;
+  | P256VerificationError
+  | ImmutableR2Error
+  | ManifestKeyRingConfigurationError
+  | ManifestSigningError
+  | ManifestVerificationError;
 
 export const isRetryableExternalServiceError = (error: unknown): error is ExternalServiceError =>
   error instanceof ExternalServiceError && error.retryable;
@@ -366,5 +515,11 @@ export const classifyRuntimeError = (error: unknown): RuntimeErrorClassification
   if (error instanceof WorkerBoundaryError) return "WorkerBoundaryError";
   if (error instanceof DurableObjectBoundaryError) return "DurableObjectBoundaryError";
   if (error instanceof AccessJwtVerificationError) return "AccessJwtVerificationError";
+  if (error instanceof P256VerificationError) return "P256VerificationError";
+  if (error instanceof ImmutableR2Error) return "ImmutableR2Error";
+  if (error instanceof ManifestKeyRingConfigurationError)
+    return "ManifestKeyRingConfigurationError";
+  if (error instanceof ManifestSigningError) return "ManifestSigningError";
+  if (error instanceof ManifestVerificationError) return "ManifestVerificationError";
   return "unclassified";
 };

@@ -35,6 +35,11 @@ const safeTags: ReadonlySet<string> = new Set([
   "OperationTimeoutError",
   "AdapterContractError",
   "TelemetryInputRejectedError",
+  "P256VerificationError",
+  "ImmutableR2Error",
+  "ManifestKeyRingConfigurationError",
+  "ManifestSigningError",
+  "ManifestVerificationError",
   "unclassified",
 ]);
 

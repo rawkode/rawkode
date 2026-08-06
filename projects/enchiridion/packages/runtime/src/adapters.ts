@@ -11,6 +11,7 @@ import {
   AdapterContractError,
   DurableObjectBoundaryError,
   ExternalServiceError,
+  ImmutableR2Error,
   RuntimeOperation,
   type RuntimeOperationIdentifier,
 } from "./errors";
@@ -48,6 +49,20 @@ export const cloudflareAdapterLedger = [
     owner: "@enchiridion/runtime",
     audit:
       "Only canonical validated SPKI and fixed-width P1363 signatures reach subtle.verify; platform causes and cryptographic bytes never enter diagnostics.",
+  },
+  {
+    id: "immutable-r2",
+    boundary: "Cloudflare R2 conditional object, read, list and exact delete Promises",
+    owner: "@enchiridion/runtime",
+    audit:
+      "Only put with etagDoesNotMatch '*' is exposed publicly; keys, byte counts and list results are structurally bounded before workers receive them.",
+  },
+  {
+    id: "manifest-p256-webcrypto",
+    boundary: "Web Crypto PKCS#8 import and P-256 manifest ECDSA signing",
+    owner: "@enchiridion/runtime",
+    audit:
+      "Redacted PKCS#8 bytes enter Web Crypto only; signing results are normalized to canonical low-S DER before serialization and no key or platform cause enters diagnostics.",
   },
   {
     id: "worker-outer-boundary",
@@ -180,6 +195,247 @@ export const randomP256Bytes32 = (): Effect.Effect<Uint8Array<ArrayBuffer>, Exte
     output.set(generated);
     return output;
   });
+
+/** Minimal structural R2 view. It deliberately accepts only the one
+ * immutable conditional-write form required for signed backup objects. */
+export interface ImmutableR2NativeObject {
+  readonly key: string;
+  readonly etag: string;
+  readonly httpEtag?: string;
+  readonly size: number;
+  readonly checksums?: { readonly sha256?: ArrayBuffer };
+  readonly customMetadata?: Readonly<Record<string, string>>;
+}
+
+export interface ImmutableR2NativeObjectBody extends ImmutableR2NativeObject {
+  readonly arrayBuffer: () => Promise<ArrayBuffer>;
+}
+
+export interface ImmutableR2NativeBinding {
+  readonly head: (key: string) => Promise<ImmutableR2NativeObject | null>;
+  readonly get: (
+    key: string,
+    options: { readonly range: { readonly offset: 0; readonly length: number } },
+  ) => Promise<ImmutableR2NativeObjectBody | null>;
+  readonly put: (
+    key: string,
+    value: Uint8Array<ArrayBuffer>,
+    options: {
+      readonly onlyIf: { readonly etagDoesNotMatch: "*" };
+      /** Cloudflare R2's native SHA-256 checksum option. */
+      readonly sha256: ArrayBuffer;
+    },
+  ) => Promise<ImmutableR2NativeObject | null>;
+  readonly list: (options: {
+    readonly prefix: string;
+    readonly cursor?: string;
+    readonly limit: number;
+  }) => Promise<{
+    readonly objects: readonly ImmutableR2NativeObject[];
+    readonly truncated: boolean;
+    readonly cursor?: string;
+  }>;
+  readonly delete: (key: string) => Promise<void>;
+}
+
+type ImmutableR2Operation = ImmutableR2Error["operation"];
+
+const immutableR2Failure = (
+  operation: ImmutableR2Operation,
+  reason: ImmutableR2Error["reason"],
+): ImmutableR2Error => new ImmutableR2Error({ operation, reason });
+
+/** The sole R2 Promise seam. Public helpers below never expose `put` without
+ * the no-overwrite conditional. */
+const fromImmutableR2Promise = <A>(
+  operation: ImmutableR2Operation,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, ImmutableR2Error> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: () => immutableR2Failure(operation, "platform_failed"),
+  });
+
+export const immutableR2Head = (
+  binding: ImmutableR2NativeBinding,
+  key: string,
+): Effect.Effect<ImmutableR2NativeObject | null, ImmutableR2Error> =>
+  fromImmutableR2Promise("head", () => binding.head(key));
+
+export const immutableR2Get = (
+  binding: ImmutableR2NativeBinding,
+  key: string,
+  maximumBytes: number,
+): Effect.Effect<ImmutableR2NativeObjectBody | null, ImmutableR2Error> =>
+  fromImmutableR2Promise("read", () =>
+    binding.get(key, { range: { offset: 0, length: maximumBytes } }),
+  );
+
+export const immutableR2ReadBytes = (
+  object: ImmutableR2NativeObjectBody,
+): Effect.Effect<Uint8Array<ArrayBuffer>, ImmutableR2Error> =>
+  fromImmutableR2Promise("read", () => object.arrayBuffer()).pipe(
+    Effect.map((buffer) => {
+      const bytes = new Uint8Array(buffer.byteLength);
+      bytes.set(new Uint8Array(buffer));
+      return bytes;
+    }),
+  );
+
+export const immutableR2PutIfAbsent = (
+  binding: ImmutableR2NativeBinding,
+  key: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  sha256: Uint8Array<ArrayBuffer>,
+): Effect.Effect<ImmutableR2NativeObject | null, ImmutableR2Error> =>
+  // The native binding owns an async boundary. Do not lend it caller-owned
+  // buffers: snapshot both the body and checksum before its Promise starts.
+  // The copies also prevent a binding retaining and later mutating either
+  // buffer from changing anything we validate after the await.
+  (() => {
+    const bodySnapshot = new Uint8Array(bytes.byteLength);
+    bodySnapshot.set(bytes);
+    const checksumSnapshot = new Uint8Array(sha256.byteLength);
+    checksumSnapshot.set(sha256);
+    return fromImmutableR2Promise("put_if_absent", () =>
+      binding.put(key, bodySnapshot, {
+        onlyIf: { etagDoesNotMatch: "*" },
+        sha256: checksumSnapshot.buffer,
+      }),
+    );
+  })();
+
+export const immutableR2List = (
+  binding: ImmutableR2NativeBinding,
+  prefix: string,
+  cursor: string | undefined,
+  limit: number,
+): Effect.Effect<
+  {
+    readonly objects: readonly ImmutableR2NativeObject[];
+    readonly truncated: boolean;
+    readonly cursor?: string;
+  },
+  ImmutableR2Error
+> => fromImmutableR2Promise("list", () => binding.list({ prefix, cursor, limit }));
+
+export const immutableR2Delete = (
+  binding: ImmutableR2NativeBinding,
+  key: string,
+): Effect.Effect<void, ImmutableR2Error> =>
+  fromImmutableR2Promise("delete", () => binding.delete(key));
+
+/** Audited Web Crypto PKCS#8 signing seam for backup manifests. The caller
+ * supplies only Redacted material and canonical bytes. */
+export const signManifestP256 = (
+  privateKeyPKCS8: Redacted.Redacted,
+  message: Uint8Array<ArrayBuffer>,
+): Effect.Effect<Uint8Array<ArrayBuffer>, ExternalServiceError> =>
+  fromCloudflarePromise(RuntimeOperation.ManifestCrypto, async () => {
+    const binary = atob(Redacted.value(privateKeyPKCS8));
+    const pkcs8 = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const signed = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, message);
+    const output = new Uint8Array(signed.byteLength);
+    output.set(new Uint8Array(signed));
+    return output;
+  });
+
+const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
+  left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+
+const p256Algorithm = (algorithm: {
+  readonly name: string;
+  readonly namedCurve?: string;
+}): boolean => algorithm.name === "ECDSA" && algorithm.namedCurve === "P-256";
+
+const manifestChallenge = new TextEncoder().encode("enchiridion-backup-manifest-key-pair-v1");
+
+/** Imports then re-exports an exact P-256 SPKI. This prevents accepting a
+ * merely DER-shaped key whose Web Crypto algorithm/curve differs at runtime. */
+export const validateManifestP256PublicKey = (
+  canonicalSpki: Uint8Array<ArrayBuffer>,
+): Effect.Effect<void, ExternalServiceError> =>
+  fromCloudflarePromise(RuntimeOperation.ManifestCrypto, async () => {
+    const key = await crypto.subtle.importKey(
+      "spki",
+      canonicalSpki,
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["verify"],
+    );
+    const exported = new Uint8Array(await crypto.subtle.exportKey("spki", key));
+    if (!p256Algorithm(key.algorithm) || !sameBytes(exported, canonicalSpki))
+      throw new Error("manifest public key validation failed");
+  });
+
+/** Imports the current Redacted PKCS#8 and exact SPKI, confirms canonical
+ * exports and proves the pair by a fixed sign/verify challenge before any
+ * runtime signer can be constructed. */
+export const validateManifestP256KeyPair = (
+  privateKeyPKCS8: Redacted.Redacted,
+  canonicalSpki: Uint8Array<ArrayBuffer>,
+): Effect.Effect<void, ExternalServiceError> =>
+  fromCloudflarePromise(RuntimeOperation.ManifestCrypto, async () => {
+    const binary = atob(Redacted.value(privateKeyPKCS8));
+    const pkcs8 = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8,
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign"],
+    );
+    const publicKey = await crypto.subtle.importKey(
+      "spki",
+      canonicalSpki,
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["verify"],
+    );
+    const exportedPrivate = new Uint8Array(await crypto.subtle.exportKey("pkcs8", privateKey));
+    const exportedPublic = new Uint8Array(await crypto.subtle.exportKey("spki", publicKey));
+    if (
+      !p256Algorithm(privateKey.algorithm) ||
+      !p256Algorithm(publicKey.algorithm) ||
+      !sameBytes(exportedPrivate, pkcs8) ||
+      !sameBytes(exportedPublic, canonicalSpki)
+    )
+      throw new Error("manifest key export validation failed");
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      manifestChallenge,
+    );
+    if (
+      !(await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        publicKey,
+        signature,
+        manifestChallenge,
+      ))
+    )
+      throw new Error("manifest key pair mismatch");
+  });
+
+/** SHA-256 remains inside the R2 adapter seam so streamed R2 bytes are never
+ * trusted solely from platform metadata. */
+export const immutableR2SHA256 = (
+  bytes: Uint8Array<ArrayBuffer>,
+): Effect.Effect<Uint8Array<ArrayBuffer>, ImmutableR2Error> =>
+  fromImmutableR2Promise("read", () => crypto.subtle.digest("SHA-256", bytes)).pipe(
+    Effect.map((digest) => {
+      const output = new Uint8Array(digest.byteLength);
+      output.set(new Uint8Array(digest));
+      return output;
+    }),
+  );
 
 const accessError = (reason: AccessJwtVerificationError["reason"]): AccessJwtVerificationError =>
   new AccessJwtVerificationError({ reason });

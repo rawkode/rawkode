@@ -91,6 +91,17 @@ const compareBigEndian = (left: Uint8Array, right: Uint8Array): number => {
   return 0;
 };
 
+const subtractBigEndian = (left: Uint8Array, right: Uint8Array): Uint8Array<ArrayBuffer> => {
+  const output = new Uint8Array(left.byteLength);
+  let borrow = 0;
+  for (let index = left.byteLength - 1; index >= 0; index -= 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0) - borrow;
+    output[index] = difference < 0 ? difference + 256 : difference;
+    borrow = difference < 0 ? 1 : 0;
+  }
+  return output;
+};
+
 /** Produces a fixed scalar only when it is in [1, n - 1]. */
 const canonicalScalar = (magnitude: Uint8Array): Uint8Array<ArrayBuffer> | undefined => {
   const scalar = new Uint8Array(32);
@@ -119,6 +130,40 @@ export const p256DerSignatureToP1363 = (input: Uint8Array): Uint8Array<ArrayBuff
   const output = new Uint8Array(64);
   output.set(rScalar);
   output.set(sScalar, 32);
+  return output;
+};
+
+const canonicalDerInteger = (scalar: Uint8Array): Uint8Array<ArrayBuffer> => {
+  let first = 0;
+  while (first < scalar.byteLength - 1 && scalar[first] === 0) first += 1;
+  const magnitude = scalar.slice(first);
+  const leadingZero = (magnitude[0] ?? 0) >= 0x80;
+  const output = new Uint8Array(2 + magnitude.byteLength + (leadingZero ? 1 : 0));
+  output[0] = 0x02;
+  output[1] = magnitude.byteLength + (leadingZero ? 1 : 0);
+  output.set(magnitude, leadingZero ? 3 : 2);
+  return output;
+};
+
+/** Converts Web Crypto's P1363 output to the one canonical, low-S DER spelling.
+ * Signers use this before serializing a manifest signature; verifiers can then
+ * reuse `p256DerSignatureToP1363` without admitting a malleable alternate. */
+export const p256P1363ToCanonicalLowSDer = (
+  input: Uint8Array,
+): Uint8Array<ArrayBuffer> | undefined => {
+  if (input.byteLength !== 64) return undefined;
+  const r = canonicalScalar(input.slice(0, 32));
+  const sourceS = canonicalScalar(input.slice(32));
+  if (r === undefined || sourceS === undefined) return undefined;
+  const s =
+    compareBigEndian(sourceS, p256HalfOrder) > 0 ? subtractBigEndian(p256Order, sourceS) : sourceS;
+  const encodedR = canonicalDerInteger(r);
+  const encodedS = canonicalDerInteger(s);
+  const output = new Uint8Array(2 + encodedR.byteLength + encodedS.byteLength);
+  output[0] = 0x30;
+  output[1] = encodedR.byteLength + encodedS.byteLength;
+  output.set(encodedR, 2);
+  output.set(encodedS, 2 + encodedR.byteLength);
   return output;
 };
 
