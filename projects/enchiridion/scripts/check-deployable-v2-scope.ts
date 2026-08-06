@@ -16,6 +16,9 @@ const requiredRuntimeRoot = "packages/runtime";
 const requiredRuntimePackageName = "@enchiridion/runtime";
 const requiredProtocolRoot = "packages/protocol";
 const requiredProtocolPackageName = "@enchiridion/protocol";
+const requiredVaultV2Root = "workers/vault";
+const requiredVaultV2SourcePath = "src/v2";
+const requiredVaultV2PackageName = "@enchiridion/worker-vault";
 const transitionalWorkerRoots = {
   "workers/vault": "E2-03 Vault",
   "workers/gatekeeper-google": "E2-04 Gatekeeper",
@@ -36,6 +39,13 @@ if (!deployableTypeScriptRoots.some(({ path }) => path === requiredRuntimeRoot))
 }
 if (!deployableTypeScriptRoots.some(({ path }) => path === requiredProtocolRoot)) {
   failures.push(`${requiredProtocolRoot} is an immutable required deployable-v2 lint root.`);
+}
+if (
+  !deployableTypeScriptRoots.some(
+    ({ path, sourcePath }) => path === requiredVaultV2Root && sourcePath === requiredVaultV2SourcePath,
+  )
+) {
+  failures.push("workers/vault/src/v2 is an immutable required deployable-v2 source root.");
 }
 
 if (typeof lintCommand !== "string") {
@@ -61,6 +71,12 @@ for (const deployableRoot of deployableTypeScriptRoots) {
     packageDefinition.name !== requiredRuntimePackageName
   ) {
     failures.push(`${requiredRuntimeRoot} must remain ${requiredRuntimePackageName}.`);
+  }
+  if (
+    deployableRoot.path === requiredVaultV2Root &&
+    deployableRoot.packageName !== requiredVaultV2PackageName
+  ) {
+    failures.push(`${requiredVaultV2Root} must remain ${requiredVaultV2PackageName}.`);
   }
   if (
     deployableRoot.path === requiredProtocolRoot &&
@@ -102,7 +118,11 @@ if (failures.length > 0) {
 
 /** The scope checker, not a mutable package-script substring, owns this target. */
 for (const deployableRoot of deployableTypeScriptRoots) {
-  const biome = Bun.spawn(["bunx", "biome", "check", deployableRoot.path], {
+  const biomePath =
+    deployableRoot.sourcePath === undefined
+      ? deployableRoot.path
+      : `${deployableRoot.path}/${deployableRoot.sourcePath}`;
+  const biome = Bun.spawn(["bunx", "biome", "check", biomePath], {
     cwd: projectRoot,
     stdout: "inherit",
     stderr: "inherit",

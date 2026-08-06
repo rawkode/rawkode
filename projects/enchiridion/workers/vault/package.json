@@ -10,6 +10,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@enchiridion/protocol": "workspace:*",
+    "@enchiridion/runtime": "workspace:*",
     "@enchiridion/gatekeeper-google-rpc-contract": "workspace:*",
     "@enchiridion/graph-core": "workspace:*",
     "@enchiridion/graphql-composer": "workspace:*",
@@ -21,6 +23,7 @@
     "@pothos/core": "^4.12.0",
     "graphql": "^16.13.2",
     "graphql-yoga": "^5.18.1",
+    "effect": "3.22.1",
     "jose": "6.2.8",
     "loro-crdt": "1.13.7"
   },

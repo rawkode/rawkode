@@ -16,7 +16,7 @@ import { deployableTypeScriptRoots } from "./check-deployable-v2-roots";
 const projectRoot = resolve(import.meta.dir, "..");
 const runtimeAdapterPath = resolve(projectRoot, "packages/runtime/src/adapters.ts");
 const effectModuleMarker = "@enchiridion/effect-module";
-const sourceGlob = new Glob("src/**/*.{ts,mts,cts,tsx}");
+const sourceGlob = new Glob("**/*.{ts,mts,cts,tsx}");
 const workerSourceGlob = new Glob("**/src/**/*.{ts,mts,cts,tsx}");
 const testFile = /\.test\.(?:ts|mts|cts|tsx)$/u;
 
@@ -215,12 +215,16 @@ for (const fixture of regressionFixtures) {
   }
 }
 
-const deployableRoots = deployableTypeScriptRoots.map(({ path }) => resolve(projectRoot, path));
+const deployableRoots = deployableTypeScriptRoots.map((root) => ({
+  ...root,
+  packagePath: resolve(projectRoot, root.path),
+  sourcePath: root.sourcePath ?? "src",
+}));
 const sourcePaths = new Map<string, string>();
 
 for (const root of deployableRoots) {
-  for await (const relativePath of sourceGlob.scan({ cwd: root })) {
-    const path = resolve(root, relativePath);
+  for await (const relativePath of sourceGlob.scan({ cwd: resolve(root.packagePath, root.sourcePath) })) {
+    const path = resolve(root.packagePath, root.sourcePath, relativePath);
     if (!testFile.test(path) && path !== runtimeAdapterPath) sourcePaths.set(path, relativePath);
   }
 }
@@ -233,7 +237,7 @@ for await (const relativePath of workerSourceGlob.scan({ cwd: resolve(projectRoo
 
 const violations: string[] = [];
 for (const root of deployableRoots) {
-  const program = programForConfig(resolve(root, "tsconfig.json"));
+  const program = programForConfig(resolve(root.packagePath, "tsconfig.json"));
   const checker = program.getTypeChecker();
   for (const sourceFile of program.getSourceFiles()) {
     const path = resolve(sourceFile.fileName);
