@@ -1,9 +1,16 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "vcsIgnored": false,
+  "vcs": { "useIgnoreFile": false },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**/src/**/*.ts", "**/*.json", "**/*.jsonc", "!**/node_modules", "!**/dist"]
+    "include": ["**/src/**/*.ts", "**/*.json", "**/*.jsonc"],
+    "ignore": [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.build/**",
+      "**/.swiftpm/**",
+      "**/*.xcodeproj/**"
+    ]
   },
   "formatter": {
     "enabled": true,

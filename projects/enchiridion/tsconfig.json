@@ -6,6 +6,8 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/runtime" },
+    { "path": "packages/protocol" },
     { "path": "packages/schema" },
     { "path": "packages/graph-core" },
     { "path": "packages/access-auth" },
