@@ -16,6 +16,7 @@ import {
   decodeErrorEnvelope,
   decodeServerWebSocketFrame,
   deviceChallengeProofSigningPayload,
+  isCanonicalP256LowSSignature,
   parseJSONWithoutDuplicateMembers,
   protocolVersion,
   signedDeviceRequestSigningPayload,
@@ -25,6 +26,10 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const p256SignatureBase64 = "MAYCAQECAQE=";
+const p256LowSSignatureBase64 =
+  "MEQCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiAdJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==";
+const p256HighSSignatureBase64 =
+  "MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=";
 const p256SPKIBase64 =
   "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
 const validFrameID = "AAAAAAAAAAAAAAAAAAAAAA";
@@ -120,6 +125,24 @@ describe("v2 protocol schemas", () => {
     expect(decodeDeviceRegisterRequest(registration())).toMatchObject({
       idempotencyKey: "request-1",
     });
+  });
+
+  test("accepts only the canonical low-S P-256 DER wire profile", () => {
+    expect(isCanonicalP256LowSSignature(p256LowSSignatureBase64)).toBe(true);
+    expect(isCanonicalP256LowSSignature(p256HighSSignatureBase64)).toBe(false);
+    expect(isCanonicalP256LowSSignature("MAYCAQACAQE=")).toBe(false);
+    expect(
+      decodeDeviceRegisterRequest(
+        registration({ challengeProof: registrationProof({ signature: p256LowSSignatureBase64 }) }),
+      ).challengeProof.signature,
+    ).toBe(p256LowSSignatureBase64);
+    expect(() =>
+      decodeDeviceRegisterRequest(
+        registration({
+          challengeProof: registrationProof({ signature: p256HighSSignatureBase64 }),
+        }),
+      ),
+    ).toThrow();
   });
 
   test("reject unknown and invalid public values at the boundary", () => {
@@ -383,6 +406,13 @@ describe("v2 protocol schemas", () => {
     const http = record(record(vector).http);
     const websocket = record(record(vector).websocket);
     const canonicalJSON = record(http.canonicalJSON);
+    const p256SignatureProfile = record(http.p256SignatureProfile);
+    expect(isCanonicalP256LowSSignature(string(p256SignatureProfile.lowSSignatureDERBase64))).toBe(
+      true,
+    );
+    expect(
+      isCanonicalP256LowSSignature(string(p256SignatureProfile.highSSignatureDERBase64Rejected)),
+    ).toBe(false);
     expect(canonicalJSONStringify(canonicalJSON.input as never)).toBe(
       string(canonicalJSON.canonical),
     );

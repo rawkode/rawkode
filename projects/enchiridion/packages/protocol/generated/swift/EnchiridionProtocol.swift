@@ -80,17 +80,28 @@ private enum EnchiridionValidation {
     for index in 1...count { length = (length << 8) | Int(bytes[offset + index]) }
     return length >= 0x80 ? (length, offset + count + 1) : nil
   }
-  static func positiveIntegerEnd(_ bytes: [UInt8], at offset: Int) -> Int? {
+  static let p256Order: [UInt8] = [0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51]
+  static let p256HalfOrder: [UInt8] = [0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42, 0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa8]
+  static func compareBigEndian(_ left: [UInt8], _ right: [UInt8]) -> Int {
+    for index in 0..<left.count { if left[index] != right[index] { return left[index] < right[index] ? -1 : 1 } }
+    return 0
+  }
+  static func positiveP256Scalar(_ bytes: [UInt8], at offset: Int) -> ([UInt8], Int)? {
     guard offset < bytes.count, bytes[offset] == 0x02, let (size, content) = derLength(bytes, at: offset + 1), size >= 1, size <= 33, content + size <= bytes.count else { return nil }
     let first = bytes[content]
     guard (first & 0x80) == 0 else { return nil }
     if size > 1, first == 0, (bytes[content + 1] & 0x80) == 0 { return nil }
-    return content + size
+    let end = content + size
+    let magnitude = first == 0 ? Array(bytes[(content + 1)..<end]) : Array(bytes[content..<end])
+    guard !magnitude.isEmpty, magnitude.count <= 32 else { return nil }
+    let scalar = Array(repeating: UInt8(0), count: 32 - magnitude.count) + magnitude
+    guard scalar.contains(where: { $0 != 0 }), compareBigEndian(scalar, p256Order) < 0 else { return nil }
+    return (scalar, end)
   }
   static func p256Signature(_ value: String) -> Bool {
     guard let bytes = canonicalBase64(value), bytes.count >= 8 else { return false }
-    guard bytes[0] == 0x30, let (size, content) = derLength(bytes, at: 1), content + size == bytes.count, let rEnd = positiveIntegerEnd(bytes, at: content), let sEnd = positiveIntegerEnd(bytes, at: rEnd) else { return false }
-    return sEnd == bytes.count
+    guard bytes[0] == 0x30, let (size, content) = derLength(bytes, at: 1), content + size == bytes.count, let r = positiveP256Scalar(bytes, at: content), let s = positiveP256Scalar(bytes, at: r.1) else { return false }
+    return s.1 == bytes.count && compareBigEndian(s.0, p256HalfOrder) <= 0
   }
   static func p256SPKI(_ value: String) -> Bool {
     let prefix: [UInt8] = [0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04]

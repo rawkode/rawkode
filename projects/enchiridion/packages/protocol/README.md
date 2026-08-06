@@ -53,6 +53,12 @@ canonical re-encoded before acceptance. This rejects nonzero unused padding
 bits and alternate text that would otherwise decode to the same replay key or
 signed bytes; replay keys are constructed only after that validation.
 
+All P-256 ECDSA signatures use the explicit `p256-ecdsa-der-low-s` profile:
+canonical base64 DER, minimal positive `R`/`S` scalars in `[1,n-1]`, and
+`S <= floor(n/2)` for secp256r1. High-S twins are rejected, never normalized,
+so a valid signature has one accepted wire representation across TypeScript,
+Swift, OpenAPI, and the manifest.
+
 `artifacts/openapi.v2.json`, `artifacts/protocol.v2.json`, and
 `generated/swift/EnchiridionProtocol.swift` are deterministic derivatives of
 that contract. The generated Swift file uses Foundation and CryptoKit and provides

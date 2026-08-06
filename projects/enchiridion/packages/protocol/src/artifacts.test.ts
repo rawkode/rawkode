@@ -42,6 +42,14 @@ describe("generated protocol artifacts", () => {
     expect(JSON.stringify(openAPISchemas.ErrorEnvelope)).toContain(JSON.stringify(errorCodes));
   });
 
+  test("OpenAPI and manifest expose the explicit low-S P-256 signature profile", () => {
+    expect(JSON.stringify(openAPISchemas.DeviceChallengeProof)).toContain("p256-ecdsa-der-low-s");
+    expect(JSON.stringify(protocolManifestV2.schemas.DeviceChallengeProof)).toContain(
+      "p256-ecdsa-der-low-s",
+    );
+    expect(generatedSwiftAPI()).toContain("p256HalfOrder");
+  });
+
   test("OpenAPI requires the bounded canonical signed-envelope header for raw blobs", () => {
     const openAPI = JSON.parse(openAPIArtifact());
     const expected = {

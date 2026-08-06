@@ -7,6 +7,8 @@ enum ProtocolGolden {
     let version = try EnchiridionProtocolVersion()
     let deviceID = try EnchiridionDeviceID("device-1")
     let signature = try EnchiridionP256Signature("MAYCAQECAQE=")
+    _ = try EnchiridionP256Signature("MEQCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiAdJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==")
+    guard (try? EnchiridionP256Signature("MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=")) == nil else { throw GoldenFailure.mismatch("high-S signature accepted") }
     let challengeProof = DeviceChallengeProof(protocolVersion: version, challengeID: try EnchiridionIdentifier("challenge-1"), challengeAudience: try EnchiridionText256("enchiridion"), challengeBase64: try EnchiridionBase64Payload("AQI="), expiresAt: try EnchiridionSignedTimestamp(1760000120000), nonce: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), devicePublicKey: try EnchiridionP256SPKI("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="), signature: signature)
     guard !EnchiridionDeviceChallengeProofSigningPayload.canonicalBytes(challengeProof).isEmpty else { throw GoldenFailure.mismatch("challenge proof bytes") }
     guard EnchiridionDeviceChallengeProofSigningPayload.canonicalBytes(challengeProof).base64EncodedString() == "RU5DSENIQUwBAAAAATIAAAALY2hhbGxlbmdlLTEAAAALZW5jaGlyaWRpb24AAAAEQVFJPQAAAA0xNzYwMDAwMTIwMDAwAAAAFkFBQUFBQUFBQUFBQUFBQUFBQUFBQUEAAAB8TUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9PQ==" else { throw GoldenFailure.mismatch("challenge proof vector") }

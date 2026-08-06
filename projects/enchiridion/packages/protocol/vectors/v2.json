@@ -1,6 +1,11 @@
 {
   "version": 2,
   "http": {
+    "p256SignatureProfile": {
+      "profile": "p256-ecdsa-der-low-s",
+      "lowSSignatureDERBase64": "MEQCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiAdJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==",
+      "highSSignatureDERBase64Rejected": "MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY="
+    },
     "canonicalJSON": {
       "input": { "z": "\\n", "a": [2, "<"] },
       "canonical": "{\"a\":[2,\"<\"],\"z\":\"\\\\n\"}",

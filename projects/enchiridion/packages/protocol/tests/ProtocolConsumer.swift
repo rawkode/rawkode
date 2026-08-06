@@ -17,6 +17,8 @@ enum ProtocolConsumer {
     guard EnchiridionErrorCode.replayDetected.rawValue == "replay_detected" else { throw ConsumerFailure.errorCode }
     guard (try? EnchiridionFrameID("frame-1")) == nil else { throw ConsumerFailure.validation }
     _ = try EnchiridionP256Signature("MAYCAQECAQE=")
+    _ = try EnchiridionP256Signature("MEQCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiAdJE0zr1rutsPCcv5D87CdiwnjOi3YRwWIyupgxSiyew==")
+    guard (try? EnchiridionP256Signature("MEUCIAhuct4nQVQ+EM8E/SO276+ShsnLH6IwluYQmbFity9OAiEA4tuyy1ClEUo8PY0BvAxPYjHdF3N5P1d/au7gYjc6ctY=")) == nil else { throw ConsumerFailure.validation }
     _ = try EnchiridionP256SPKI("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")
     guard (try? EnchiridionP256Signature("MAYCAQECAQEA")) == nil else { throw ConsumerFailure.validation }
     _ = try EnchiridionBase64Payload("AA==")

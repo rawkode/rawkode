@@ -27,6 +27,15 @@ const p256SPKIPrefix = Uint8Array.from([
   0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
   0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
 ]);
+/** secp256r1 group order and floor(n / 2), fixed-width big-endian scalars. */
+const p256Order = Uint8Array.from([
+  0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+]);
+const p256HalfOrder = Uint8Array.from([
+  0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0xde, 0x73, 0x7d, 0x56, 0xd3, 0x8b, 0xcf, 0x42, 0x79, 0xdc, 0xe5, 0x61, 0x7e, 0x31, 0x92, 0xa8,
+]);
 
 function decodedBase64(value: string): Uint8Array {
   const decoded = atob(value);
@@ -295,7 +304,10 @@ function derLength(bytes: Uint8Array, offset: number): readonly [number, number]
   return [length, offset + byteCount + 1];
 }
 
-function derPositiveIntegerEnd(bytes: Uint8Array, offset: number): number | undefined {
+function derPositiveInteger(
+  bytes: Uint8Array,
+  offset: number,
+): readonly [Uint8Array, number] | undefined {
   if (bytes[offset] !== 0x02) return undefined;
   const length = derLength(bytes, offset + 1);
   if (length === undefined) return undefined;
@@ -307,10 +319,31 @@ function derPositiveIntegerEnd(bytes: Uint8Array, offset: number): number | unde
   if (first === undefined) return undefined;
   if ((first & 0x80) !== 0) return undefined;
   if (size > 1 && first === 0 && second !== undefined && (second & 0x80) === 0) return undefined;
-  return end;
+  const magnitude =
+    first === 0 ? bytes.slice(contentOffset + 1, end) : bytes.slice(contentOffset, end);
+  if (magnitude.length < 1 || magnitude.length > 32) return undefined;
+  const scalar = new Uint8Array(32);
+  scalar.set(magnitude, 32 - magnitude.length);
+  return [scalar, end];
 }
 
-function isCanonicalP256Signature(value: string): boolean {
+function compareBigEndian(left: Uint8Array, right: Uint8Array): number {
+  for (let index = 0; index < left.length; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+const isValidP256Scalar = (value: Uint8Array): boolean =>
+  value.some((byte) => byte !== 0) && compareBigEndian(value, p256Order) < 0;
+
+/**
+ * Canonical P-256 ECDSA DER profile: positive, minimal R/S scalars in [1,n-1]
+ * and `S <= floor(n/2)`. High-S twins are rejected rather than normalized so a
+ * wire signature has exactly one accepted representation.
+ */
+export function isCanonicalP256LowSSignature(value: string): boolean {
   const bytes = canonicalBase64Bytes(value);
   if (bytes === undefined) return false;
   if (bytes[0] !== 0x30) return false;
@@ -318,10 +351,15 @@ function isCanonicalP256Signature(value: string): boolean {
   if (sequence === undefined) return false;
   const [size, contentOffset] = sequence;
   if (contentOffset + size !== bytes.length) return false;
-  const rEnd = derPositiveIntegerEnd(bytes, contentOffset);
-  if (rEnd === undefined) return false;
-  const sEnd = derPositiveIntegerEnd(bytes, rEnd);
-  return sEnd === bytes.length;
+  const r = derPositiveInteger(bytes, contentOffset);
+  if (r === undefined || !isValidP256Scalar(r[0])) return false;
+  const s = derPositiveInteger(bytes, r[1]);
+  return (
+    s !== undefined &&
+    s[1] === bytes.length &&
+    isValidP256Scalar(s[0]) &&
+    compareBigEndian(s[0], p256HalfOrder) <= 0
+  );
 }
 
 function isCanonicalP256SPKI(value: string): boolean {
@@ -440,13 +478,15 @@ export const P256SPKIBase64Schema = Schema.String.pipe(
   Schema.annotations({ jsonSchema: { format: "p256-spki-der", maxLength: 124 } }),
   named("P256SPKI"),
 );
-/** Canonical P-256 ECDSA DER sequence with positive R/S integers, base64 encoded. */
+/** Canonical low-S P-256 ECDSA DER: unique positive R/S scalars, base64 encoded. */
 export const P256SignatureBase64Schema = Schema.String.pipe(
   Schema.pattern(p256DerBase64),
   Schema.minLength(12),
   Schema.maxLength(96),
-  Schema.filter(isCanonicalP256Signature),
-  Schema.annotations({ jsonSchema: { format: "p256-ecdsa-der", maxLength: 96 } }),
+  Schema.filter(isCanonicalP256LowSSignature),
+  Schema.annotations({
+    jsonSchema: { format: "p256-ecdsa-der-low-s", maxLength: 96 },
+  }),
   named("P256Signature"),
 );
 
@@ -857,8 +897,8 @@ function strictErrorBody(value: unknown): void {
 }
 
 function requireCanonicalP256Signature(value: unknown, name: string): void {
-  if (typeof value !== "string" || !isCanonicalP256Signature(value))
-    throw new TypeError(`${name} must be canonical P-256 ECDSA DER base64.`);
+  if (typeof value !== "string" || !isCanonicalP256LowSSignature(value))
+    throw new TypeError(`${name} must be canonical low-S P-256 ECDSA DER base64.`);
 }
 
 function requireCanonicalP256SPKI(value: unknown, name: string): void {
