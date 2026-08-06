@@ -7,19 +7,26 @@ import {
   CapabilityMethod,
   CapabilityVerificationError,
   type CredentialBindingKeyRing,
+  DirectoryControlCapabilityAudience,
+  DirectoryControlCapabilityAuthority,
+  DirectoryControlResource,
   type InternalCapabilityKeyRing,
   makeCapabilityKeyMaterial,
   makeCapabilitySigner,
   makeCapabilityVerifier,
   makeCredentialBindingKeyRing,
+  makeDirectoryControlCapabilitySigner,
+  makeDirectoryControlCapabilityVerifier,
   makeInternalCapabilityKeyRing,
   makeWorkerBoundary,
   maximumCapabilityTTLSeconds,
   maximumPriorCapabilityKeys,
   signCapability,
   signCapabilityHmac,
+  signDirectoryControlCapability,
   validateDistinctKeyRings,
   verifyCapability,
+  verifyDirectoryControlCapability,
 } from "./index";
 
 const key: CapabilityKeyMaterial = {
@@ -59,6 +66,40 @@ const expectation = {
   vaultID: binding.vaultID,
 } as const;
 
+const directoryControlBinding = {
+  method: CapabilityMethod.POST,
+  path: "/v2/directory/credential-transition",
+  canonicalQuery: "resume=false",
+  bodySHA256: "b".repeat(64),
+  ownerID: "owner-1",
+  vaultID: "vault-1",
+  resource: DirectoryControlResource.CredentialTransition,
+} as const;
+
+const directoryControlInput = {
+  ...directoryControlBinding,
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  jti: "directory-control-jti-0001",
+  operationID: "credential-transition-0001",
+  ttlSeconds: 60,
+} as const;
+
+const directoryControlExpectation = {
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  ownerID: directoryControlBinding.ownerID,
+  vaultID: directoryControlBinding.vaultID,
+  resource: DirectoryControlResource.CredentialTransition,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  operationID: "credential-transition-0001",
+} as const;
+
 const base64url = (bytes: Uint8Array): string => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -67,6 +108,12 @@ const base64url = (bytes: Uint8Array): string => {
 
 const signedRawPayload = async (payload: string): Promise<{ readonly value: string }> => {
   const encodedPayload = base64url(new TextEncoder().encode(payload));
+  const signature = await Effect.runPromise(signCapabilityHmac(key.secret, encodedPayload));
+  return { value: `v1.${encodedPayload}.${base64url(signature)}` };
+};
+
+const signedRawBytes = async (payload: Uint8Array): Promise<{ readonly value: string }> => {
+  const encodedPayload = base64url(payload);
   const signature = await Effect.runPromise(signCapabilityHmac(key.secret, encodedPayload));
   return { value: `v1.${encodedPayload}.${base64url(signature)}` };
 };
@@ -290,6 +337,267 @@ describe("internal capabilities", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     expect(JSON.stringify(exit)).not.toContain("sensitive-invalid-secret");
+  });
+
+  test("signs and verifies an exact DirectoryControl capability without exposing its key", async () => {
+    const signer = makeDirectoryControlCapabilitySigner(keyRing);
+    const verifier = makeDirectoryControlCapabilityVerifier(keyRing);
+    const signed = await Effect.runPromise(signer.sign(directoryControlInput, 1_000));
+    const claims = await Effect.runPromise(
+      verifier.verify(signed, directoryControlBinding, directoryControlExpectation, 1_030),
+    );
+    expect(claims.operationID).toBe(directoryControlInput.operationID);
+    expect(claims.jti).toBe(directoryControlInput.jti);
+    expect(claims.routingEpoch).toBe(12);
+    expect(JSON.stringify(signed)).not.toContain("capability-test-secret");
+  });
+
+  test("binds every DirectoryControl identity, epoch, operation, and request field", async () => {
+    const signed = await Effect.runPromise(
+      signDirectoryControlCapability(directoryControlInput, keyRing, 1_000),
+    );
+    const substitutions = [
+      verifyDirectoryControlCapability(
+        signed,
+        { ...directoryControlBinding, ownerID: "owner-2" },
+        directoryControlExpectation,
+        keyRing,
+        1_030,
+      ),
+      verifyDirectoryControlCapability(
+        signed,
+        { ...directoryControlBinding, vaultID: "vault-2" },
+        directoryControlExpectation,
+        keyRing,
+        1_030,
+      ),
+      verifyDirectoryControlCapability(
+        signed,
+        { ...directoryControlBinding, bodySHA256: "c".repeat(64) },
+        directoryControlExpectation,
+        keyRing,
+        1_030,
+      ),
+      verifyDirectoryControlCapability(
+        signed,
+        { ...directoryControlBinding, path: "/v2/directory/other" },
+        directoryControlExpectation,
+        keyRing,
+        1_030,
+      ),
+      verifyDirectoryControlCapability(
+        signed,
+        directoryControlBinding,
+        { ...directoryControlExpectation, ownerID: "owner-2" },
+        keyRing,
+        1_030,
+      ),
+    ];
+    for (const result of substitutions) {
+      expect(Exit.isFailure(await Effect.runPromiseExit(result))).toBe(true);
+    }
+
+    for (const input of [
+      { ...directoryControlInput, credentialEpoch: 5 },
+      { ...directoryControlInput, generationEpoch: 10 },
+      { ...directoryControlInput, routingEpoch: 13 },
+      { ...directoryControlInput, operationID: "credential-transition-0002" },
+    ]) {
+      const substituted = await Effect.runPromise(
+        signDirectoryControlCapability(input, keyRing, 1_000),
+      );
+      expect(
+        Exit.isFailure(
+          await Effect.runPromiseExit(
+            verifyDirectoryControlCapability(
+              substituted,
+              directoryControlBinding,
+              directoryControlExpectation,
+              keyRing,
+              1_030,
+            ),
+          ),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects other capability purposes as DirectoryControl authority", async () => {
+    const directory = await Effect.runPromise(
+      signCapability(
+        {
+          method: directoryControlBinding.method,
+          path: directoryControlBinding.path,
+          canonicalQuery: directoryControlBinding.canonicalQuery,
+          bodySHA256: directoryControlBinding.bodySHA256,
+          audience: CapabilityAudience.Directory,
+          authority: CapabilityAuthority.Directory,
+          credentialEpoch: 4,
+          generationEpoch: 9,
+          jti: directoryControlInput.jti,
+          ttlSeconds: 60,
+        },
+        keyRing,
+        1_000,
+      ),
+    );
+    const ownerVault = await Effect.runPromise(signCapability(input, keyRing, 1_000));
+    const substitutedAudience = await signedRawPayload(
+      '{"aud":"Directory","authority":"DirectoryControl","bodySHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","canonicalQuery":"resume=false","credentialEpoch":4,"expiresAt":1060,"generationEpoch":9,"issuedAt":1000,"jti":"directory-control-jti-0001","keyID":"internal-key-1","method":"POST","operationID":"credential-transition-0001","ownerID":"owner-1","path":"/v2/directory/credential-transition","resource":"credential-transition","routingEpoch":12,"vaultID":"vault-1","version":1}',
+    );
+    const substitutedAuthority = await signedRawPayload(
+      '{"aud":"DirectoryControl","authority":"Directory","bodySHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","canonicalQuery":"resume=false","credentialEpoch":4,"expiresAt":1060,"generationEpoch":9,"issuedAt":1000,"jti":"directory-control-jti-0001","keyID":"internal-key-1","method":"POST","operationID":"credential-transition-0001","ownerID":"owner-1","path":"/v2/directory/credential-transition","resource":"credential-transition","routingEpoch":12,"vaultID":"vault-1","version":1}',
+    );
+    for (const signed of [directory, ownerVault, substitutedAudience, substitutedAuthority]) {
+      const result = await Effect.runPromiseExit(
+        verifyDirectoryControlCapability(
+          signed,
+          directoryControlBinding,
+          directoryControlExpectation,
+          keyRing,
+          1_030,
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }
+  });
+
+  test("does not allow DirectoryControl capability tokens into legacy Directory or OwnerVault verifiers", async () => {
+    const signed = await Effect.runPromise(
+      signDirectoryControlCapability(directoryControlInput, keyRing, 1_000),
+    );
+    const directory = await Effect.runPromiseExit(
+      verifyCapability(
+        signed,
+        {
+          method: directoryControlBinding.method,
+          path: directoryControlBinding.path,
+          canonicalQuery: directoryControlBinding.canonicalQuery,
+          bodySHA256: directoryControlBinding.bodySHA256,
+        },
+        { audience: CapabilityAudience.Directory, authority: CapabilityAuthority.Directory },
+        keyRing,
+        1_030,
+      ),
+    );
+    const ownerVault = await Effect.runPromiseExit(
+      verifyCapability(signed, directoryControlBinding, expectation, keyRing, 1_030),
+    );
+    expect(Exit.isFailure(directory)).toBe(true);
+    expect(Exit.isFailure(ownerVault)).toBe(true);
+  });
+
+  test("rejects DirectoryControl zero or unsafe epochs, expiry, and stale keys", async () => {
+    for (const input of [
+      { ...directoryControlInput, credentialEpoch: 0 },
+      { ...directoryControlInput, generationEpoch: 0 },
+      { ...directoryControlInput, routingEpoch: 0 },
+      { ...directoryControlInput, routingEpoch: Number.MAX_SAFE_INTEGER + 1 },
+      { ...directoryControlInput, ttlSeconds: maximumCapabilityTTLSeconds + 1 },
+    ]) {
+      expect(
+        Exit.isFailure(
+          await Effect.runPromiseExit(signDirectoryControlCapability(input, keyRing, 1_000)),
+        ),
+      ).toBe(true);
+    }
+    const expired = await Effect.runPromise(
+      signDirectoryControlCapability({ ...directoryControlInput, ttlSeconds: 1 }, keyRing, 1_000),
+    );
+    expect(
+      Exit.isFailure(
+        await Effect.runPromiseExit(
+          verifyDirectoryControlCapability(
+            expired,
+            directoryControlBinding,
+            directoryControlExpectation,
+            keyRing,
+            1_001,
+          ),
+        ),
+      ),
+    ).toBe(true);
+
+    const prior: CapabilityKeyMaterial = {
+      keyID: "directory-control-prior",
+      secret: Redacted.make("directory-control-prior-secret"),
+    };
+    const priorSigned = await Effect.runPromise(
+      signDirectoryControlCapability(
+        directoryControlInput,
+        { purpose: "internal-capability", current: prior, prior: [] },
+        1_000,
+      ),
+    );
+    const accepting = await Effect.runPromise(
+      makeInternalCapabilityKeyRing({ current: key, prior: [prior] }),
+    );
+    expect(
+      (
+        await Effect.runPromise(
+          verifyDirectoryControlCapability(
+            priorSigned,
+            directoryControlBinding,
+            directoryControlExpectation,
+            accepting,
+            1_030,
+          ),
+        )
+      ).keyID,
+    ).toBe(prior.keyID);
+    expect(
+      Exit.isFailure(
+        await Effect.runPromiseExit(
+          verifyDirectoryControlCapability(
+            priorSigned,
+            directoryControlBinding,
+            directoryControlExpectation,
+            keyRing,
+            1_030,
+          ),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects noncanonical and extra DirectoryControl claims before authorization", async () => {
+    const noncanonical = await signedRawPayload(
+      '{"version":1,"aud":"DirectoryControl","authority":"DirectoryControl","bodySHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","canonicalQuery":"resume=false","credentialEpoch":4,"expiresAt":1060,"generationEpoch":9,"issuedAt":1000,"jti":"directory-control-jti-0001","keyID":"internal-key-1","method":"POST","operationID":"credential-transition-0001","ownerID":"owner-1","path":"/v2/directory/credential-transition","resource":"credential-transition","routingEpoch":12,"vaultID":"vault-1"}',
+    );
+    const extra = await signedRawPayload(
+      '{"aud":"DirectoryControl","authority":"DirectoryControl","bodySHA256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","canonicalQuery":"resume=false","credentialEpoch":4,"expiresAt":1060,"generationEpoch":9,"issuedAt":1000,"jti":"directory-control-jti-0001","keyID":"internal-key-1","method":"POST","operationID":"credential-transition-0001","ownerID":"owner-1","path":"/v2/directory/credential-transition","resource":"credential-transition","routingEpoch":12,"vaultID":"vault-1","version":1,"extra":true}',
+    );
+    for (const signed of [noncanonical, extra]) {
+      expect(
+        Exit.isFailure(
+          await Effect.runPromiseExit(
+            verifyDirectoryControlCapability(
+              signed,
+              directoryControlBinding,
+              directoryControlExpectation,
+              keyRing,
+              1_030,
+            ),
+          ),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects a signed non-UTF8 DirectoryControl payload with a closed error", async () => {
+    const signed = await signedRawBytes(Uint8Array.of(0xff, 0xfe, 0xfd));
+    const result = await Effect.runPromiseExit(
+      verifyDirectoryControlCapability(
+        signed,
+        directoryControlBinding,
+        directoryControlExpectation,
+        keyRing,
+        1_030,
+      ),
+    );
+    expect(Exit.isFailure(result)).toBe(true);
+    expect(JSON.stringify(result)).toContain(CapabilityVerificationError.name);
+    expect(JSON.stringify(result)).not.toContain("fffe");
   });
 
   test("converts the one Effect worker handler into a safe Promise Response boundary", async () => {

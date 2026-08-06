@@ -574,3 +574,368 @@ export const makeCapabilityVerifier = (keyRing: InternalCapabilityKeyRing): Capa
   verify: (signed, binding, expected, nowSeconds) =>
     verifyCapability(signed, binding, expected, keyRing, nowSeconds),
 });
+
+/**
+ * A deliberately separate authority for Directory-to-Directory control calls.
+ *
+ * These tokens carry the routing and operation identity that ordinary Directory
+ * tokens predate. Keeping them out of `CapabilityClaims` prevents a caller from
+ * accidentally treating a less-specific Directory token as control authority.
+ */
+export enum DirectoryControlCapabilityAuthority {
+  DirectoryControl = "DirectoryControl",
+}
+
+export enum DirectoryControlCapabilityAudience {
+  DirectoryControl = "DirectoryControl",
+}
+
+/** The stable control journal currently supported by the runtime contract. */
+export enum DirectoryControlResource {
+  CredentialTransition = "credential-transition",
+}
+
+export interface DirectoryControlCapabilityRequestBinding {
+  readonly resource: DirectoryControlResource;
+  readonly method: CapabilityMethod;
+  readonly path: string;
+  readonly canonicalQuery: string;
+  readonly bodySHA256: string;
+  readonly ownerID: string;
+  readonly vaultID: string;
+}
+
+export interface DirectoryControlCapabilityExpectation {
+  readonly audience: DirectoryControlCapabilityAudience;
+  readonly authority: DirectoryControlCapabilityAuthority;
+  readonly resource: DirectoryControlResource;
+  readonly ownerID: string;
+  readonly vaultID: string;
+  /** Current durable security floors, reloaded by the receiving Directory. */
+  readonly credentialEpoch: number;
+  readonly generationEpoch: number;
+  readonly routingEpoch: number;
+  /** The exact durable control journal the receiver is resuming or advancing. */
+  readonly operationID: string;
+}
+
+export interface DirectoryControlCapabilityClaims extends DirectoryControlCapabilityRequestBinding {
+  readonly audience: DirectoryControlCapabilityAudience;
+  readonly authority: DirectoryControlCapabilityAuthority;
+  readonly keyID: string;
+  /** Unique capability receipt identity. The durable Directory owns replay storage. */
+  readonly jti: string;
+  /** Semantic durable control-journal identity; it is distinct from the JTI. */
+  readonly operationID: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly credentialEpoch: number;
+  readonly generationEpoch: number;
+  readonly routingEpoch: number;
+}
+
+export type DirectoryControlCapabilityClaimsInput = Omit<
+  DirectoryControlCapabilityClaims,
+  "keyID" | "issuedAt" | "expiresAt"
+> & {
+  readonly ttlSeconds: number;
+};
+
+export interface DirectoryControlCapabilitySigner {
+  readonly sign: (
+    input: DirectoryControlCapabilityClaimsInput,
+    nowSeconds: number,
+  ) => Effect.Effect<SignedCapability, CapabilityConfigurationError | CapabilitySigningError>;
+}
+
+export interface DirectoryControlCapabilityVerifier {
+  readonly verify: (
+    signed: SignedCapability,
+    binding: DirectoryControlCapabilityRequestBinding,
+    expected: DirectoryControlCapabilityExpectation,
+    nowSeconds: number,
+  ) => Effect.Effect<
+    DirectoryControlCapabilityClaims,
+    CapabilityConfigurationError | CapabilityVerificationError
+  >;
+}
+
+const DIRECTORY_CONTROL_OPERATION_ID = /^[A-Za-z0-9_-]{16,128}$/u;
+
+const isDirectoryControlAuthority = (
+  value: unknown,
+): value is DirectoryControlCapabilityAuthority =>
+  value === DirectoryControlCapabilityAuthority.DirectoryControl;
+
+const isDirectoryControlAudience = (value: unknown): value is DirectoryControlCapabilityAudience =>
+  value === DirectoryControlCapabilityAudience.DirectoryControl;
+
+const isDirectoryControlResource = (value: unknown): value is DirectoryControlResource =>
+  value === DirectoryControlResource.CredentialTransition;
+
+const validDirectoryControlBinding = (value: DirectoryControlCapabilityRequestBinding): boolean =>
+  isDirectoryControlResource(value.resource) &&
+  validRequestBinding(value) &&
+  IDENTITY.test(value.ownerID) &&
+  IDENTITY.test(value.vaultID);
+
+const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpectation): boolean =>
+  value.audience === DirectoryControlCapabilityAudience.DirectoryControl &&
+  value.authority === DirectoryControlCapabilityAuthority.DirectoryControl &&
+  isDirectoryControlResource(value.resource) &&
+  IDENTITY.test(value.ownerID) &&
+  IDENTITY.test(value.vaultID) &&
+  Number.isSafeInteger(value.credentialEpoch) &&
+  value.credentialEpoch > 0 &&
+  Number.isSafeInteger(value.generationEpoch) &&
+  value.generationEpoch > 0 &&
+  Number.isSafeInteger(value.routingEpoch) &&
+  value.routingEpoch > 0 &&
+  DIRECTORY_CONTROL_OPERATION_ID.test(value.operationID);
+
+const validDirectoryControlClaims = (value: DirectoryControlCapabilityClaims): boolean =>
+  validDirectoryControlBinding(value) &&
+  value.audience === DirectoryControlCapabilityAudience.DirectoryControl &&
+  value.authority === DirectoryControlCapabilityAuthority.DirectoryControl &&
+  KEY_ID.test(value.keyID) &&
+  JTI.test(value.jti) &&
+  DIRECTORY_CONTROL_OPERATION_ID.test(value.operationID) &&
+  Number.isSafeInteger(value.issuedAt) &&
+  value.issuedAt >= 0 &&
+  Number.isSafeInteger(value.expiresAt) &&
+  value.expiresAt > value.issuedAt &&
+  value.expiresAt - value.issuedAt <= maximumCapabilityTTLSeconds &&
+  Number.isSafeInteger(value.credentialEpoch) &&
+  value.credentialEpoch > 0 &&
+  Number.isSafeInteger(value.generationEpoch) &&
+  value.generationEpoch > 0 &&
+  Number.isSafeInteger(value.routingEpoch) &&
+  value.routingEpoch > 0;
+
+/** Exact byte serialization is a signed protocol boundary. */
+const canonicalDirectoryControlPayload = (claims: DirectoryControlCapabilityClaims): string =>
+  JSON.stringify({
+    aud: claims.audience,
+    authority: claims.authority,
+    bodySHA256: claims.bodySHA256,
+    canonicalQuery: claims.canonicalQuery,
+    credentialEpoch: claims.credentialEpoch,
+    expiresAt: claims.expiresAt,
+    generationEpoch: claims.generationEpoch,
+    issuedAt: claims.issuedAt,
+    jti: claims.jti,
+    keyID: claims.keyID,
+    method: claims.method,
+    operationID: claims.operationID,
+    ownerID: claims.ownerID,
+    path: claims.path,
+    resource: claims.resource,
+    routingEpoch: claims.routingEpoch,
+    vaultID: claims.vaultID,
+    version: 1,
+  });
+
+const directoryControlClaimKeys = [
+  "aud",
+  "authority",
+  "bodySHA256",
+  "canonicalQuery",
+  "credentialEpoch",
+  "expiresAt",
+  "generationEpoch",
+  "issuedAt",
+  "jti",
+  "keyID",
+  "method",
+  "operationID",
+  "ownerID",
+  "path",
+  "resource",
+  "routingEpoch",
+  "vaultID",
+  "version",
+] as const;
+
+const directoryControlClaimsFromUnknown = (
+  value: unknown,
+): Effect.Effect<DirectoryControlCapabilityClaims, CapabilityVerificationError> =>
+  Effect.gen(function* () {
+    const record = yield* unknownRecord("unknown-record", value).pipe(
+      Effect.mapError(() => new CapabilityVerificationError({ reason: "claims_invalid" })),
+    );
+    if (
+      Object.keys(record).length !== directoryControlClaimKeys.length ||
+      directoryControlClaimKeys.some((key) => !Object.hasOwn(record, key))
+    )
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const {
+      aud,
+      authority,
+      bodySHA256,
+      canonicalQuery,
+      credentialEpoch,
+      expiresAt,
+      generationEpoch,
+      issuedAt,
+      jti,
+      keyID,
+      method,
+      operationID,
+      ownerID,
+      path,
+      resource,
+      routingEpoch,
+      vaultID,
+      version,
+    } = record;
+    if (
+      !isDirectoryControlAudience(aud) ||
+      !isDirectoryControlAuthority(authority) ||
+      !isMethod(method) ||
+      typeof bodySHA256 !== "string" ||
+      typeof canonicalQuery !== "string" ||
+      typeof credentialEpoch !== "number" ||
+      typeof expiresAt !== "number" ||
+      typeof generationEpoch !== "number" ||
+      typeof issuedAt !== "number" ||
+      typeof jti !== "string" ||
+      typeof keyID !== "string" ||
+      typeof operationID !== "string" ||
+      typeof ownerID !== "string" ||
+      typeof path !== "string" ||
+      !isDirectoryControlResource(resource) ||
+      typeof routingEpoch !== "number" ||
+      typeof vaultID !== "string" ||
+      version !== 1
+    )
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const claims: DirectoryControlCapabilityClaims = {
+      audience: aud,
+      authority,
+      bodySHA256,
+      canonicalQuery,
+      credentialEpoch,
+      expiresAt,
+      generationEpoch,
+      issuedAt,
+      jti,
+      keyID,
+      method,
+      operationID,
+      ownerID,
+      path,
+      resource,
+      routingEpoch,
+      vaultID,
+    };
+    if (!validDirectoryControlClaims(claims))
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    return claims;
+  });
+
+export const signDirectoryControlCapability = (
+  input: DirectoryControlCapabilityClaimsInput,
+  keyRing: InternalCapabilityKeyRing,
+  nowSeconds: number,
+): Effect.Effect<SignedCapability, CapabilityConfigurationError | CapabilitySigningError> =>
+  Effect.gen(function* () {
+    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
+    if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
+      return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
+    const claims: DirectoryControlCapabilityClaims = {
+      ...input,
+      expiresAt: nowSeconds + input.ttlSeconds,
+      issuedAt: nowSeconds,
+      keyID: ring.current.keyID,
+    };
+    if (!Number.isInteger(input.ttlSeconds) || !validDirectoryControlClaims(claims))
+      return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
+    const payload = base64url(new TextEncoder().encode(canonicalDirectoryControlPayload(claims)));
+    const signature = yield* signCapabilityHmac(ring.current.secret, payload).pipe(
+      Effect.mapError(() => new CapabilitySigningError({ reason: "crypto_failed" })),
+    );
+    return { value: `v1.${payload}.${base64url(signature)}` };
+  });
+
+export const verifyDirectoryControlCapability = (
+  signed: SignedCapability,
+  binding: DirectoryControlCapabilityRequestBinding,
+  expected: DirectoryControlCapabilityExpectation,
+  keyRing: InternalCapabilityKeyRing,
+  nowSeconds: number,
+): Effect.Effect<
+  DirectoryControlCapabilityClaims,
+  CapabilityConfigurationError | CapabilityVerificationError
+> =>
+  Effect.gen(function* () {
+    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
+    if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const parts = signed.value.split(".");
+    if (parts.length !== 3 || parts[0] !== "v1" || parts[1] === undefined || parts[2] === undefined)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+    const payloadBytes = fromBase64url(parts[1]);
+    if (payloadBytes === undefined)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+    let payload: string;
+    let parsed: unknown;
+    try {
+      payload = new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes);
+      parsed = JSON.parse(payload);
+    } catch {
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+    }
+    const claims = yield* directoryControlClaimsFromUnknown(parsed);
+    if (payload !== canonicalDirectoryControlPayload(claims))
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const material = [ring.current, ...ring.prior].find((key) => key.keyID === claims.keyID);
+    if (material === undefined)
+      return yield* Effect.fail(
+        new CapabilityVerificationError({ reason: "unknown_or_stale_key" }),
+      );
+    const signature = fromBase64url(parts[2]);
+    if (signature === undefined)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+    const verified = yield* verifyCapabilityHmac(material.secret, parts[1], signature).pipe(
+      Effect.mapError(() => new CapabilityVerificationError({ reason: "signature_invalid" })),
+    );
+    if (!verified)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "signature_invalid" }));
+    if (!validDirectoryControlBinding(binding) || !validDirectoryControlExpectation(expected))
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));
+    if (
+      claims.resource !== binding.resource ||
+      claims.method !== binding.method ||
+      claims.path !== binding.path ||
+      claims.canonicalQuery !== binding.canonicalQuery ||
+      claims.bodySHA256 !== binding.bodySHA256 ||
+      claims.ownerID !== binding.ownerID ||
+      claims.vaultID !== binding.vaultID ||
+      claims.resource !== expected.resource ||
+      claims.ownerID !== expected.ownerID ||
+      claims.vaultID !== expected.vaultID ||
+      claims.credentialEpoch !== expected.credentialEpoch ||
+      claims.generationEpoch !== expected.generationEpoch ||
+      claims.routingEpoch !== expected.routingEpoch ||
+      claims.operationID !== expected.operationID
+    )
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));
+    if (claims.expiresAt <= nowSeconds)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "expired" }));
+    if (claims.issuedAt > nowSeconds)
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "not_yet_valid" }));
+    return claims;
+  });
+
+export const makeDirectoryControlCapabilitySigner = (
+  keyRing: InternalCapabilityKeyRing,
+): DirectoryControlCapabilitySigner => ({
+  sign: (input, nowSeconds) => signDirectoryControlCapability(input, keyRing, nowSeconds),
+});
+
+export const makeDirectoryControlCapabilityVerifier = (
+  keyRing: InternalCapabilityKeyRing,
+): DirectoryControlCapabilityVerifier => ({
+  verify: (signed, binding, expected, nowSeconds) =>
+    verifyDirectoryControlCapability(signed, binding, expected, keyRing, nowSeconds),
+});
