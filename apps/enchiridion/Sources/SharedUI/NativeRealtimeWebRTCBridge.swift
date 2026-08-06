@@ -49,7 +49,7 @@
 
     func start(generation: UInt64) async throws {
       guard case let .active(token) = state, token.generation == generation, authorization.authorizes(generation: generation) else { throw RealtimeVoiceTransportError.bridgeClosed }
-      teardownIfOwned(token)
+      await teardownIfOwned(token)
       let configuration = LKRTCConfiguration(); configuration.sdpSemantics = .unifiedPlan
       let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
       let terminal: @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void = { [weak self] token, reason in self?.terminal(token, reason) }
@@ -98,18 +98,19 @@
     func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws {
       guard case let .active(token) = state, token.generation == lease.transportGeneration, newestLease.map({ lease.inputEpoch > $0.inputEpoch }) ?? true, let sender = transceiver?.sender else { throw RealtimeVoiceTransportError.bridgeClosed }
       newestLease = lease
-      if !enabled { sender.track = nil; inputTrack = nil; inputSource = nil; guard newestLease == lease else { throw RealtimeVoiceTransportError.bridgeClosed }; return }
+      if !enabled { sender.track = nil; guard sender.track == nil, newestLease == lease, isCurrent(token) else { terminal(token, .bridgeFailed); throw RealtimeVoiceTransportError.bridgeClosed }; inputTrack = nil; inputSource = nil; return }
       let source = factory.audioSource(with: nil); let track = factory.audioTrack(with: source, trackId: "enchiridion-input")
       guard newestLease == lease, isCurrent(token) else { throw RealtimeVoiceTransportError.bridgeClosed }
       sender.track = track; guard sender.track === track, isCurrent(token), newestLease == lease else { sender.track = nil; throw RealtimeVoiceTransportError.bridgeClosed }; inputSource = source; inputTrack = track
     }
 
-    func stop() async { guard state != .stopped, lifecycle.stop() != nil else { return }; if let resourceOwner { teardownIfOwned(resourceOwner) }; authorization.revoke(); state = .stopped; relay.finish() }
+    func stop() async { guard state != .stopped, lifecycle.stop() != nil else { return }; if let resourceOwner { await teardownIfOwned(resourceOwner) }; authorization.revoke(); state = .stopped; relay.finish() }
     private static func remaining(from start: ContinuousClock.Instant, clock: ContinuousClock) -> Duration { let elapsed = start.duration(to: clock.now); return elapsed < deadline ? deadline - elapsed : .zero }
     private func isCurrent(_ token: NativeBridgeToken) -> Bool { state == .active(token) && lifecycle.isCurrent(token.epoch) && authorization.authorizes(generation: token.generation) }
     private func enqueue(_ token: NativeBridgeToken, _ event: RealtimeWebRTCBridgeEvent) { if relay.enqueue(token, event) { state = .overflowPending(token); Task { @MainActor [weak self, token] in self?.terminal(token, .eventOverflow) } } }
-    private func terminal(_ token: NativeBridgeToken, _ reason: NativeBridgeReason) { guard state == .active(token) || state == .overflowPending(token) else { return }; state = .terminal; authorization.revoke(); teardownIfOwned(token); relay.completeTerminal(token, event: .failure(generation: token.generation, code: reason.rawValue)) }
-    private func teardownIfOwned(_ token: NativeBridgeToken) { guard resourceOwner == token else { return }; fence.invalidate(token.epoch); peerProxy?.detachOutput(); inputTrack = nil; inputSource = nil; transceiver?.sender.track = nil; channel?.delegate = nil; channel?.close(); channel = nil; channelProxy = nil; peer?.close(); peer = nil; peerProxy = nil; transceiver = nil; newestLease = nil; resourceOwner = nil }
+    private func terminal(_ token: NativeBridgeToken, _ reason: NativeBridgeReason) { guard state == .active(token) || state == .overflowPending(token) else { return }; state = .terminal; authorization.revoke(); Task { @MainActor [weak self, token] in await self?.finishTerminal(token, reason) } }
+    private func finishTerminal(_ token: NativeBridgeToken, _ reason: NativeBridgeReason) async { await teardownIfOwned(token); relay.completeTerminal(token, event: .failure(generation: token.generation, code: reason.rawValue)) }
+    private func teardownIfOwned(_ token: NativeBridgeToken) async { guard resourceOwner == token else { return }; fence.invalidate(token.epoch); if let peerProxy { await peerProxy.detachOutput() }; inputTrack = nil; inputSource = nil; transceiver?.sender.track = nil; channel?.delegate = nil; channel?.close(); channel = nil; channelProxy = nil; peer?.close(); peer = nil; peerProxy = nil; transceiver = nil; newestLease = nil; resourceOwner = nil }
   }
 
   private final class NativeCallbackFence: @unchecked Sendable {
@@ -146,14 +147,53 @@
   }
 
   private final class NativePeerProxy: NSObject, LKRTCPeerConnectionDelegate, @unchecked Sendable {
+    private final class Barrier: @unchecked Sendable { private let lock = NSLock(); private var resolved = false; private var continuation: CheckedContinuation<Void, Never>?; func resolve() { lock.lock(); guard !resolved else { lock.unlock(); return }; resolved = true; let c = continuation; continuation = nil; lock.unlock(); c?.resume() }; func wait() async { await withCheckedContinuation { c in lock.lock(); if resolved { lock.unlock(); c.resume() } else { continuation = c; lock.unlock() } } } }
+    private final class Attachment: @unchecked Sendable { let track: LKRTCAudioTrack; let renderer: NativeRemoteAudioRenderer; let output: NativeOutputActivityPublisher; let barrier = Barrier(); var added = false; var started = false; init(track: LKRTCAudioTrack, renderer: NativeRemoteAudioRenderer, output: NativeOutputActivityPublisher) { self.track = track; self.renderer = renderer; self.output = output } }
+    private enum OutputState { case empty; case attaching(Attachment); case attached(Attachment); case invalidated(Attachment?) }
     let token: NativeBridgeToken; let fence: NativeCallbackFence; let relay: NativeRealtimeWebRTCEventRelay; let terminal: @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void
-    private let lock = NSLock(); private let output = NativeOutputActivityPublisher(); private var iceGate: NativeRealtimeWebRTCOperationGate<Void>?; private var iceComplete = false; private var terminalLatched = false; private var track: LKRTCAudioTrack?; private var renderer: NativeRemoteAudioRenderer?
+    private let lock = NSLock(); private let output = NativeOutputActivityPublisher(); private let outputLane = DispatchQueue(label: "dev.rawkode.enchiridion.native-webrtc-output"); private var outputState: OutputState = .empty; private var iceGate: NativeRealtimeWebRTCOperationGate<Void>?; private var iceComplete = false; private var terminalLatched = false
     init(token: NativeBridgeToken, fence: NativeCallbackFence, relay: NativeRealtimeWebRTCEventRelay, terminal: @escaping @MainActor @Sendable (NativeBridgeToken, NativeBridgeReason) -> Void) { self.token = token; self.fence = fence; self.relay = relay; self.terminal = terminal }
     func installICE(_ gate: NativeRealtimeWebRTCOperationGate<Void>) { lock.lock(); iceGate = gate; let complete = iceComplete; lock.unlock(); if complete { gate.succeed(()) } }
-    func detachOutput() { output.stop(); if let track, let renderer { track.remove(renderer) }; track = nil; renderer = nil }
+    func detachOutput() async {
+      guard let attachment = beginDetach() else { return }
+      await attachment.barrier.wait()
+      await withCheckedContinuation { continuation in
+        outputLane.async { [weak self, attachment] in
+          if attachment.started { attachment.output.stop() }
+          if attachment.added { attachment.track.remove(attachment.renderer) }
+          continuation.resume()
+          _ = self
+        }
+      }
+    }
+    private func beginDetach() -> Attachment? {
+      lock.lock()
+      let attachment: Attachment?
+      switch outputState { case .empty, .invalidated: lock.unlock(); return nil; case let .attaching(value), let .attached(value): attachment = value; outputState = .invalidated(value); lock.unlock() }
+      return attachment
+    }
     func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) { switch state { case .failed, .closed: scheduleTerminal(.peerTerminal); case .new, .checking, .connected, .completed, .count: break; default: scheduleTerminal(.peerUnknown) } }
     func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceGatheringState) { guard state == .complete else { return }; lock.lock(); iceComplete = true; let gate = iceGate; lock.unlock(); gate?.succeed(()) }
-    func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) { guard track == nil, let track = transceiver.receiver.track as? LKRTCAudioTrack, fence.isCurrent(token) else { return }; let renderer = NativeRemoteAudioRenderer(slot: output.slot); self.track = track; self.renderer = renderer; track.add(renderer); output.start(token: token, fence: fence, relay: relay, terminal: terminal) }
+    func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
+      guard let track = transceiver.receiver.track as? LKRTCAudioTrack, fence.isCurrent(token) else { return }
+      let attachment = Attachment(track: track, renderer: NativeRemoteAudioRenderer(slot: output.slot), output: output)
+      lock.lock()
+      guard case .empty = outputState, fence.isCurrent(token) else { lock.unlock(); return }
+      outputState = .attaching(attachment)
+      outputLane.async { [weak self, attachment] in self?.finishAttach(attachment) }
+      lock.unlock()
+    }
+    private func finishAttach(_ attachment: Attachment) {
+      lock.lock()
+      guard case let .attaching(current) = outputState, current === attachment, fence.isCurrent(token) else { lock.unlock(); attachment.barrier.resolve(); return }
+      lock.unlock()
+      defer { attachment.barrier.resolve() }
+      attachment.track.add(attachment.renderer); attachment.added = true
+      attachment.output.start(token: token, fence: fence, relay: relay, terminal: terminal); attachment.started = true
+      lock.lock()
+      if case let .attaching(current) = outputState, current === attachment { outputState = .attached(attachment) }
+      lock.unlock()
+    }
     private func scheduleTerminal(_ reason: NativeBridgeReason) { lock.lock(); guard !terminalLatched else { lock.unlock(); return }; terminalLatched = true; lock.unlock(); let token = token; let terminal = terminal; Task { @MainActor in terminal(token, reason) } }
     func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}; func peerConnection(_: LKRTCPeerConnection, didAdd _: LKRTCMediaStream) {}; func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}; func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}; func peerConnection(_: LKRTCPeerConnection, didGenerate _: LKRTCIceCandidate) {}; func peerConnection(_: LKRTCPeerConnection, didRemove _: [LKRTCIceCandidate]) {}; func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
   }
