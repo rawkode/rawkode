@@ -85,6 +85,40 @@ describe("Access JWT runtime service", () => {
     expect(await Effect.runPromise(Ref.get(creations))).toBe(2);
   });
 
+  test("concurrent peers of one stale session share its kid-miss replacement", async () => {
+    const creations = await Effect.runPromise(Ref.make(0));
+    const staleVerifications = await Effect.runPromise(Ref.make(0));
+    const bothStale = await Effect.runPromise(Deferred.make<void>());
+    const releaseStale = await Effect.runPromise(Deferred.make<void>());
+    const staleSession: AccessJwksSession = {
+      verify: () =>
+        Effect.gen(function* () {
+          const count = yield* Ref.updateAndGet(staleVerifications, (value) => value + 1);
+          if (count === 2) yield* Deferred.succeed(bothStale, undefined);
+          yield* Deferred.await(releaseStale);
+          return yield* Effect.fail(new AccessJwtVerificationError({ reason: "unknown_key" }));
+        }),
+    };
+    const factory: AccessJwksSessionFactory = () =>
+      Effect.flatMap(
+        Ref.updateAndGet(creations, (value) => value + 1),
+        (count) => Effect.succeed(count === 1 ? staleSession : session(Effect.succeed(verified))),
+      );
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const verifier = yield* makeAccessJwtVerifier(configuration, factory);
+        const peers = yield* Effect.all([verifier.verify(request), verifier.verify(request)], {
+          concurrency: "unbounded",
+        }).pipe(Effect.fork);
+        yield* Deferred.await(bothStale);
+        yield* Deferred.succeed(releaseStale, undefined);
+        return yield* Fiber.join(peers);
+      }),
+    );
+    expect(result).toEqual([verified, verified]);
+    expect(await Effect.runPromise(Ref.get(creations))).toBe(2);
+  });
+
   test("does not repeatedly refresh a rotating unknown kid during cooldown", async () => {
     const creations = await Effect.runPromise(Ref.make(0));
     const factory: AccessJwksSessionFactory = () =>

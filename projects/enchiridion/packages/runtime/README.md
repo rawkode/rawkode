@@ -34,9 +34,9 @@ bun test packages/runtime/src
 ```
 
 `bun run lint` is the strict deployable-v2 gate. Its fail-closed manifest
-currently includes `packages/runtime` and `packages/protocol`: no Worker is
-deployable until its owner adds it to the gate. The temporary exclusions are audited by
-`scripts/check-deployable-v2-scope.ts`: `workers/vault` is E2-03 Vault debt,
+currently includes `packages/runtime`, `packages/protocol`, and
+`workers/vault/src/v2`. The temporary exclusions are audited by
+`scripts/check-deployable-v2-scope.ts`: legacy Vault source outside `src/v2` is E2-03 Vault debt,
 `workers/gatekeeper-google` is E2-04 Gatekeeper debt, and
 `workers/gadget-host` is E2-06 Gadget debt. Generated Swift is E2-05 debt and
 is not TypeScript input. E2-07 must replace this registry with its Alchemy

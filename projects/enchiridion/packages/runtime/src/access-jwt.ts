@@ -101,7 +101,8 @@ const failure = <A>(
 /**
  * A single bounded issuer/JWKS cache. The semaphore is a singleflight: all
  * concurrent cache misses wait for one session construction. A verified kid
- * miss is permitted one replacement session per configured cooldown.
+ * miss is permitted one replacement session per configured cooldown; peers
+ * that observed the same stale session consume that replacement.
  */
 export const makeAccessJwtVerifier = (
   configuration: AccessJwksSessionConfiguration,
@@ -114,11 +115,23 @@ export const makeAccessJwtVerifier = (
     const load = (
       nowSeconds: number,
       force: boolean,
+      observedSession?: AccessJwksSession,
     ): Effect.Effect<AccessJwksSession, AccessJwtVerificationError> =>
       singleflight.withPermits(1)(
         Effect.flatMap(Ref.get(cache), (cached) => {
           const usable = cached !== undefined && cached.expiresAtSeconds > nowSeconds;
           if (!force && usable) return Effect.succeed(cached.session);
+          // A peer may have completed the one permitted rotation while this
+          // caller was waiting for the singleflight semaphore. Reuse that
+          // replacement when this caller actually observed the prior session;
+          // only a miss against the current session consumes cooldown.
+          if (
+            force &&
+            usable &&
+            observedSession !== undefined &&
+            cached.session !== observedSession
+          )
+            return Effect.succeed(cached.session);
           if (
             force &&
             cached !== undefined &&
@@ -149,7 +162,7 @@ export const makeAccessJwtVerifier = (
             .pipe(
               Effect.catchTag("AccessJwtVerificationError", (error) =>
                 error.reason === "unknown_key"
-                  ? Effect.flatMap(load(request.nowSeconds, true), (rotated) =>
+                  ? Effect.flatMap(load(request.nowSeconds, true, session), (rotated) =>
                       rotated.verify(request),
                     )
                   : Effect.fail(error),
