@@ -832,9 +832,8 @@ export const adoptDurableObjectValue = <A>(
  */
 export const makeDurableObjectBoundary = (
   state: DurableObjectStateNative,
-): DurableObjectBoundary => ({
-  storage: makeDurableObjectStorage(state.storage),
-  callbacks: {
+): DurableObjectBoundary => {
+  const callbacks: DurableObjectBoundary["callbacks"] = {
     blockConcurrencyWhile: (work) =>
       fromDurableObjectPromise("block_concurrency_while", () =>
         state.blockConcurrencyWhile(() =>
@@ -844,8 +843,13 @@ export const makeDurableObjectBoundary = (
     fetch: (work) => durableObjectCallbackPromise("fetch_callback", work),
     webSocketMessage: (work) => durableObjectCallbackPromise("websocket_message_callback", work),
     alarm: (work) => durableObjectCallbackPromise("alarm_callback", work),
-  },
-});
+  };
+  const boundary: DurableObjectBoundary = {
+    storage: makeDurableObjectStorage(state.storage),
+    callbacks: Object.freeze(callbacks),
+  };
+  return Object.freeze(boundary);
+};
 
 export interface WorkerBoundaryContext {
   readonly waitUntil?: (work: Promise<unknown>) => void;
@@ -862,13 +866,18 @@ export interface WorkerBoundary {
 /** The one audited Worker outer boundary. Keep all request handling in Effect. */
 export const makeWorkerBoundary = (
   handler: (request: Request, environment: unknown) => Effect.Effect<Response>,
-): WorkerBoundary => ({
-  handle: (request, environment, _context) =>
-    Effect.runPromise(
-      handler(request, environment).pipe(
-        Effect.catchAllCause(() =>
-          Effect.succeed(new Response(null, { status: 500, statusText: "Internal Server Error" })),
+): WorkerBoundary => {
+  const boundary: WorkerBoundary = {
+    handle: (request, environment, _context) =>
+      Effect.runPromise(
+        handler(request, environment).pipe(
+          Effect.catchAllCause(() =>
+            Effect.succeed(
+              new Response(null, { status: 500, statusText: "Internal Server Error" }),
+            ),
+          ),
         ),
       ),
-    ),
-});
+  };
+  return Object.freeze(boundary);
+};

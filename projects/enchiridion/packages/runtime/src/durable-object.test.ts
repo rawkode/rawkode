@@ -130,6 +130,8 @@ describe("Durable Object runtime boundary", () => {
     expect(JSON.stringify(storageExit)).toContain('"operation":"storage_get"');
 
     const boundary = makeDurableObjectBoundary(makeState().state);
+    expect(Object.isFrozen(boundary)).toBe(true);
+    expect(Object.isFrozen(boundary.callbacks)).toBe(true);
     let callbackError: unknown;
     try {
       await boundary.callbacks.fetch(Effect.die("callback-secret"));

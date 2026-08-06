@@ -49,7 +49,6 @@ describe("fixed Durable Object HTTP client", () => {
     expect(names).toEqual(["directory-v1"]);
     expect(request?.url).toBe("https://durable-object.invalid/internal/directory");
     expect(request?.method).toBe("POST");
-    expect(request?.redirect).toBe("error");
     expect(request?.headers.get("content-type")).toBe("application/octet-stream");
     if (request === undefined) throw new Error("expected Durable Object request");
     expect(Array.from(new Uint8Array(await request.arrayBuffer()))).toEqual([1, 2, 3]);
@@ -151,7 +150,7 @@ describe("fixed Durable Object HTTP client", () => {
 
     const status = await Effect.runPromiseExit(
       makeFixedDurableObjectClient(
-        namespaceFor(() => Promise.resolve(new Response("secret-body", { status: 409 }))),
+        namespaceFor(() => Promise.resolve(new Response("secret-body", { status: 302 }))),
         configuration,
       ).invoke(bytes()),
     );

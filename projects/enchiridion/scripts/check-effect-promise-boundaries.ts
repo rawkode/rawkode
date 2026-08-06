@@ -14,9 +14,10 @@ import ts from "typescript";
 import { deployableTypeScriptRoots } from "./check-deployable-v2-roots";
 
 const projectRoot = resolve(import.meta.dir, "..");
+const runtimeAdaptersPath = resolve(projectRoot, "packages/runtime/src/adapters.ts");
 /** These files are the audited runtime adapter ledger's native seams. */
 const runtimeAdapterPaths = new Set([
-  resolve(projectRoot, "packages/runtime/src/adapters.ts"),
+  runtimeAdaptersPath,
   resolve(projectRoot, "packages/runtime/src/durable-object-client.ts"),
   resolve(projectRoot, "packages/runtime/src/request-body.ts"),
 ]);
@@ -73,8 +74,156 @@ const calleeName = (expression: ts.Expression): string | undefined => {
   return undefined;
 };
 
+/**
+ * The only worker-side Effect-to-Promise exits. They must remain direct calls
+ * to runtime's already-audited boundaries; wrappers, aliases, and any other
+ * Promise source still pass through normal rejection below.
+ */
+const isRuntimeBoundaryType = (
+  checker: ts.TypeChecker,
+  node: ts.Expression,
+  expectedName: "DurableObjectBoundary" | "WorkerBoundary",
+): boolean => {
+  const type = checker.getTypeAtLocation(node);
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  return (
+    symbol?.name === expectedName &&
+    symbol.declarations?.some(
+      (declaration) => resolve(declaration.getSourceFile().fileName) === runtimeAdaptersPath,
+    ) === true
+  );
+};
+
+const resolvedRuntimeSymbol = (
+  checker: ts.TypeChecker,
+  node: ts.Identifier,
+  expectedName: "makeDurableObjectBoundary" | "makeWorkerBoundary",
+): boolean => {
+  const symbol = checker.getSymbolAtLocation(node);
+  if (symbol === undefined) return false;
+  const resolved = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  return (
+    resolved.name === expectedName &&
+    resolved.declarations?.some(
+      (declaration) => resolve(declaration.getSourceFile().fileName) === runtimeAdaptersPath,
+    ) === true
+  );
+};
+
+const isDirectRuntimeFactory = (
+  checker: ts.TypeChecker,
+  node: ts.Expression,
+  expectedName: "makeDurableObjectBoundary" | "makeWorkerBoundary",
+): boolean =>
+  ts.isCallExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  resolvedRuntimeSymbol(checker, node.expression, expectedName);
+
+const hasReadonlyModifier = (node: ts.PropertyDeclaration): boolean =>
+  node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword) === true;
+
+const isDirectWorkerBoundaryBinding = (checker: ts.TypeChecker, node: ts.Identifier): boolean => {
+  const symbol = checker.getSymbolAtLocation(node);
+  const declaration = symbol?.valueDeclaration;
+  return (
+    declaration !== undefined &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer !== undefined &&
+    ts.isVariableDeclarationList(declaration.parent) &&
+    (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
+    isDirectRuntimeFactory(checker, declaration.initializer, "makeWorkerBoundary")
+  );
+};
+
+const isDirectDurableObjectBoundaryProperty = (
+  checker: ts.TypeChecker,
+  node: ts.PropertyAccessExpression,
+): boolean => {
+  const symbol = checker.getSymbolAtLocation(node.name);
+  const declaration = symbol?.valueDeclaration;
+  return (
+    declaration !== undefined &&
+    ts.isPropertyDeclaration(declaration) &&
+    hasReadonlyModifier(declaration) &&
+    declaration.initializer !== undefined &&
+    isDirectRuntimeFactory(checker, declaration.initializer, "makeDurableObjectBoundary")
+  );
+};
+
+const isAuditedDurableObjectFetch = (checker: ts.TypeChecker, node: ts.CallExpression): boolean => {
+  const fetch = node.expression;
+  if (!ts.isPropertyAccessExpression(fetch) || fetch.name.text !== "fetch") return false;
+  const callbacks = fetch.expression;
+  if (!ts.isPropertyAccessExpression(callbacks) || callbacks.name.text !== "callbacks") return false;
+  const boundary = callbacks.expression;
+  return (
+    ts.isPropertyAccessExpression(boundary) &&
+    boundary.name.text === "boundary" &&
+    boundary.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    isRuntimeBoundaryType(checker, boundary, "DurableObjectBoundary") &&
+    isDirectDurableObjectBoundaryProperty(checker, boundary) &&
+    node.arguments.length === 1
+  );
+};
+
+const isAuditedWorkerHandle = (checker: ts.TypeChecker, node: ts.CallExpression): boolean => {
+  const handle = node.expression;
+  return (
+    ts.isPropertyAccessExpression(handle) &&
+    handle.name.text === "handle" &&
+    ts.isIdentifier(handle.expression) &&
+    handle.expression.text === "boundary" &&
+    isRuntimeBoundaryType(checker, handle.expression, "WorkerBoundary") &&
+    isDirectWorkerBoundaryBinding(checker, handle.expression) &&
+    node.arguments.length === 3
+  );
+};
+
+const isAuditedBoundaryExit = (checker: ts.TypeChecker, node: ts.CallExpression): boolean =>
+  isAuditedDurableObjectFetch(checker, node) || isAuditedWorkerHandle(checker, node);
+
+const isAuditedWorkerFetchProperty = (checker: ts.TypeChecker, node: ts.PropertyAssignment): boolean =>
+  ts.isIdentifier(node.name) &&
+  node.name.text === "fetch" &&
+  ts.isArrowFunction(node.initializer) &&
+  ts.isCallExpression(node.initializer.body) &&
+  isAuditedWorkerHandle(checker, node.initializer.body);
+
+/**
+ * In deployable Effect modules, a callback-shaped boundary exit is privileged
+ * even when TypeScript has erased it to `any`.  Reject it unless the exact AST
+ * and runtime-adapter provenance above prove it is our audited conversion.
+ */
+const resemblesBoundaryExit = (node: ts.CallExpression): boolean => {
+  const expression = node.expression;
+  if (!ts.isPropertyAccessExpression(expression)) return false;
+  if (expression.name.text === "handle") return true;
+  return (
+    expression.name.text === "fetch" &&
+    ts.isPropertyAccessExpression(expression.expression) &&
+    expression.expression.name.text === "callbacks"
+  );
+};
+
+const isProvenBoundaryTarget = (checker: ts.TypeChecker, node: ts.Expression): boolean =>
+  (ts.isIdentifier(node) &&
+    isRuntimeBoundaryType(checker, node, "WorkerBoundary") &&
+    isDirectWorkerBoundaryBinding(checker, node)) ||
+  (ts.isPropertyAccessExpression(node) &&
+    node.name.text === "boundary" &&
+    node.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    isRuntimeBoundaryType(checker, node, "DurableObjectBoundary") &&
+    isDirectDurableObjectBoundaryProperty(checker, node));
+
+const isProvenBoundaryOrCallbacksTarget = (checker: ts.TypeChecker, node: ts.Expression): boolean =>
+  isProvenBoundaryTarget(checker, node) ||
+  (ts.isPropertyAccessExpression(node) &&
+    node.name.text === "callbacks" &&
+    isProvenBoundaryTarget(checker, node.expression));
+
 const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): readonly Violation[] => {
   const found: Violation[] = [];
+  const deployableEffectModule = sourceFile.getFullText().includes(effectModuleMarker);
   const add = (kind: string, node: ts.Node): void => {
     found.push({ kind, position: node.getStart(sourceFile) });
   };
@@ -84,6 +233,8 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
     }
   };
   const visit = (node: ts.Node): void => {
+    if (deployableEffectModule && node.kind === ts.SyntaxKind.AnyKeyword)
+      add("explicit any", node);
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       if (!isConstAssertion(node)) add("type assertion", node);
     }
@@ -94,6 +245,22 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
       add("async function", node);
     }
     if (ts.isCallExpression(node)) {
+      if (isAuditedBoundaryExit(checker, node)) {
+        /** The Promise result is boundary-owned, but the Effect argument is not. */
+        for (const argument of node.arguments) visit(argument);
+        return;
+      }
+      if (deployableEffectModule && resemblesBoundaryExit(node))
+        add("unapproved boundary exit", node);
+      if (
+        deployableEffectModule &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.expression.getText(sourceFile) === "Object" &&
+        ["assign", "defineProperty", "defineProperties"].includes(node.expression.name.text) &&
+        node.arguments[0] !== undefined &&
+        isProvenBoundaryOrCallbacksTarget(checker, node.arguments[0])
+      )
+        add("audited boundary mutation", node);
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) add("dynamic import", node);
       const called = calleeName(node.expression);
       if (called === "fetch" || called === "request") add(`native ${called} call`, node);
@@ -107,9 +274,24 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-    )
+    ) {
+      if (
+        deployableEffectModule &&
+        ts.isPropertyAccessExpression(node.left) &&
+        isProvenBoundaryOrCallbacksTarget(checker, node.left.expression)
+      )
+        add("audited boundary mutation", node);
       inspectCallableEscape(node.right);
-    if (ts.isPropertyAssignment(node)) inspectCallableEscape(node.initializer);
+    }
+    if (
+      deployableEffectModule &&
+      ts.isDeleteExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      isProvenBoundaryOrCallbacksTarget(checker, node.expression.expression)
+    )
+      add("audited boundary mutation", node);
+    if (ts.isPropertyAssignment(node) && !isAuditedWorkerFetchProperty(checker, node))
+      inspectCallableEscape(node.initializer);
     if (ts.isShorthandPropertyAssignment(node)) inspectCallableEscape(node.name);
     if (ts.isExportAssignment(node)) inspectCallableEscape(node.expression);
     if (ts.isReturnStatement(node) && node.expression !== undefined)
@@ -218,6 +400,141 @@ for (const fixture of regressionFixtures) {
   if (fixture.expected === undefined && fixture.clean === true && kinds.length > 0) {
     throw new Error(`boundary checker clean fixture produced: ${kinds.join(", ")}`);
   }
+}
+
+const runtimeBoundaryFixture = (source: string): { readonly sourceFile: ts.SourceFile; readonly checker: ts.TypeChecker } => {
+  const fixturePath = resolve(projectRoot, "__effect-boundary-runtime-fixture__.ts");
+  const options = { strict: true, target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
+  const defaultHost = ts.createCompilerHost(options);
+  const host: ts.CompilerHost = {
+    ...defaultHost,
+    fileExists: (path) => path === fixturePath || defaultHost.fileExists(path),
+    getSourceFile: (path, languageVersion) =>
+      path === fixturePath
+        ? ts.createSourceFile(path, source, languageVersion, true, ts.ScriptKind.TS)
+        : defaultHost.getSourceFile(path, languageVersion),
+    readFile: (path) => (path === fixturePath ? source : defaultHost.readFile(path)),
+  };
+  const program = ts.createProgram({ rootNames: [fixturePath], options, host });
+  const sourceFile = program.getSourceFiles().find((file) => file.fileName === fixturePath);
+  if (sourceFile === undefined) throw new Error("boundary checker runtime fixture source missing");
+  return { sourceFile, checker: program.getTypeChecker() };
+};
+
+const boundaryCallNamed = (
+  sourceFile: ts.SourceFile,
+  name: "fetch" | "handle",
+): ts.CallExpression | undefined => {
+  let found: ts.CallExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      found === undefined &&
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === name
+    )
+      found = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+};
+
+const boundaryCalls = (sourceFile: ts.SourceFile): readonly ts.CallExpression[] => {
+  const found: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) found.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+};
+
+const runtimeAdapterImport = JSON.stringify(runtimeAdaptersPath);
+const runtimeFixturePrefix = `import { makeWorkerBoundary, makeDurableObjectBoundary } from ${runtimeAdapterImport};\ndeclare const workerHandler: Parameters<typeof makeWorkerBoundary>[0]; declare const state: Parameters<typeof makeDurableObjectBoundary>[0];\nconst boundary = makeWorkerBoundary(workerHandler);\ndeclare const request: unknown; declare const env: unknown; declare const ctx: unknown; declare const effect: never;\n`;
+const runtimeWorkerFixture = runtimeBoundaryFixture(
+  `${runtimeFixturePrefix}export const worker = { fetch: () => boundary.handle(request, env, ctx) };`,
+);
+const runtimeDurableObjectFixture = runtimeBoundaryFixture(
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); fetch = () => this.boundary.callbacks.fetch(effect); }`,
+);
+const workerCall = boundaryCallNamed(runtimeWorkerFixture.sourceFile, "handle");
+const durableObjectCall = boundaryCallNamed(runtimeDurableObjectFixture.sourceFile, "fetch");
+const workerFixtureAccepted =
+  workerCall !== undefined && isAuditedWorkerHandle(runtimeWorkerFixture.checker, workerCall);
+const durableObjectFixtureAccepted =
+  durableObjectCall !== undefined &&
+  isAuditedDurableObjectFetch(runtimeDurableObjectFixture.checker, durableObjectCall);
+const workerFixtureViolations = uniqueKinds(
+  findViolations(runtimeWorkerFixture.sourceFile, runtimeWorkerFixture.checker),
+);
+const durableObjectFixtureViolations = uniqueKinds(
+  findViolations(runtimeDurableObjectFixture.sourceFile, runtimeDurableObjectFixture.checker),
+);
+const fixtureTypeDescription = (checker: ts.TypeChecker, node: ts.Expression): string => {
+  const type = checker.getTypeAtLocation(node);
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  return `${checker.typeToString(type)}:${symbol?.name ?? "none"}:${symbol?.declarations?.map((declaration) => resolve(declaration.getSourceFile().fileName)).join(",") ?? "none"}`;
+};
+if (
+  !workerFixtureAccepted ||
+  !durableObjectFixtureAccepted ||
+  workerFixtureViolations.length !== 0 ||
+  durableObjectFixtureViolations.length !== 0
+)
+  throw new Error(
+    `boundary checker audited callback fixture bypassed: worker=${workerFixtureAccepted}/${workerFixtureViolations.join(",")}/${workerCall === undefined ? "missing" : fixtureTypeDescription(runtimeWorkerFixture.checker, (workerCall.expression as ts.PropertyAccessExpression).expression)}; durable=${durableObjectFixtureAccepted}/${durableObjectFixtureViolations.join(",")}/${durableObjectCall === undefined ? "missing" : fixtureTypeDescription(runtimeDurableObjectFixture.checker, ((durableObjectCall.expression as ts.PropertyAccessExpression).expression as ts.PropertyAccessExpression).expression)}`,
+  );
+
+const rejectedBoundaryFixtures = [
+  "const boundary = { handle: (..._args: unknown[]): Promise<unknown> => Promise.resolve(undefined) }; boundary.handle(request, env, ctx);",
+  "const boundary: any = {}; boundary.handle(request, env, ctx);",
+  "declare const injected: unknown; const fake: { handle: any } = injected as { handle: any }; const { handle } = fake; export const worker = { fetch: () => handle(request, env, ctx) };",
+  "const boundary: unknown = {}; (boundary as { handle: (...args: unknown[]) => Promise<unknown> }).handle(request, env, ctx);",
+  `${runtimeFixturePrefix}const handle = boundary.handle; handle(request, env, ctx);`,
+  `${runtimeFixturePrefix}const fetch = boundary.handle; fetch(request, env, ctx);`,
+  `${runtimeFixturePrefix}const other = boundary; other.handle(request, env, ctx);`,
+  `${runtimeFixturePrefix}boundary.fetch(request, env, ctx);`,
+  `import { makeWorkerBoundary } from ${runtimeAdapterImport}; declare const workerHandler: Parameters<typeof makeWorkerBoundary>[0]; declare const request: unknown; declare const env: unknown; declare const ctx: unknown; let boundary = makeWorkerBoundary(workerHandler); boundary.handle(request, env, ctx);`,
+  `import { makeDurableObjectBoundary } from ${runtimeAdapterImport}; declare const state: Parameters<typeof makeDurableObjectBoundary>[0]; declare const effect: never; class Holder { private readonly boundary; constructor() { this.boundary = makeDurableObjectBoundary(state); } fetch = () => this.boundary.callbacks.fetch(effect); }`,
+] as const;
+for (const source of rejectedBoundaryFixtures) {
+  const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
+  if (boundaryCalls(fixture.sourceFile).some((call) => isAuditedBoundaryExit(fixture.checker, call)))
+    throw new Error("boundary checker rejected callback fixture bypassed");
+  if (uniqueKinds(findViolations(fixture.sourceFile, fixture.checker)).length === 0)
+    throw new Error("boundary checker rejected callback fixture produced no violation");
+}
+
+const extraWrapperFixture = runtimeBoundaryFixture(
+  `${runtimeFixturePrefix}const wrapped = () => boundary.handle(request, env, ctx); wrapped();`,
+);
+if (uniqueKinds(findViolations(extraWrapperFixture.sourceFile, extraWrapperFixture.checker)).length === 0)
+  throw new Error("boundary checker extra wrapper fixture bypassed");
+
+const nestedArgumentFixtures = [
+  `${runtimeFixturePrefix}boundary.handle(fetch(url).then(value => value).catch(error => error), env, ctx);`,
+  `${runtimeFixturePrefix}boundary.handle(import("./dynamic"), env, ctx);`,
+  `${runtimeFixturePrefix}boundary.handle(value as unknown, env, ctx);`,
+] as const;
+for (const source of nestedArgumentFixtures) {
+  const fixture = runtimeBoundaryFixture(source);
+  if (uniqueKinds(findViolations(fixture.sourceFile, fixture.checker)).length === 0)
+    throw new Error("boundary checker nested argument fixture bypassed");
+}
+
+const mutationFixtures = [
+  `${runtimeFixturePrefix}boundary.handle = boundary.handle;`,
+  `${runtimeFixturePrefix}Object.assign(boundary, {});`,
+  `${runtimeFixturePrefix}Object.defineProperty(boundary, "handle", { value: boundary.handle });`,
+  `${runtimeFixturePrefix}delete boundary.handle;`,
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); mutate() { this.boundary.callbacks.fetch = this.boundary.callbacks.fetch; } }`,
+  `${runtimeFixturePrefix}class Holder { private readonly boundary = makeDurableObjectBoundary(state); mutate() { Object.assign(this.boundary.callbacks, {}); } }`,
+] as const;
+for (const source of mutationFixtures) {
+  const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
+  if (!uniqueKinds(findViolations(fixture.sourceFile, fixture.checker)).includes("audited boundary mutation"))
+    throw new Error("boundary checker mutation fixture bypassed");
 }
 
 const deployableRoots = deployableTypeScriptRoots.map((root) => ({

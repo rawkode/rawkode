@@ -294,6 +294,7 @@ describe("internal capabilities", () => {
 
   test("converts the one Effect worker handler into a safe Promise Response boundary", async () => {
     const boundary = makeWorkerBoundary(() => Effect.succeed(new Response("ok", { status: 200 })));
+    expect(Object.isFrozen(boundary)).toBe(true);
     const response = await boundary.handle(new Request("https://worker.test/v1"), {}, {});
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");

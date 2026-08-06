@@ -292,7 +292,9 @@ export const makeFixedDurableObjectClient = (
                         fixedConfiguration.method === "DELETE"
                           ? undefined
                           : boundedBody,
-                      redirect: "error",
+                      // Workerd rejects Request.redirect for a DO stub. This is still closed:
+                      // the namespace, name, and origin-relative path are fixed above, and any
+                      // 3xx response fails `expectedStatus` before its body is consumed.
                     });
                   },
                   catch: () => failure("invalid_configuration"),
