@@ -12,6 +12,9 @@ options:
 packages:
   EnchiridionCore:
     path: .
+  LiveKitWebRTC:
+    url: https://github.com/livekit/webrtc-xcframework.git
+    exactVersion: 144.7559.11
 
 settings:
   base:
@@ -71,6 +74,8 @@ targets:
       - sdk: WebKit.framework
       - package: EnchiridionCore
         product: EnchiridionCore
+      - package: LiveKitWebRTC
+        product: LiveKitWebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion
@@ -187,6 +192,8 @@ targets:
         product: EnchiridionCore
       - package: EnchiridionCore
         product: EnchiridionWorkoutTransport
+      - package: LiveKitWebRTC
+        product: LiveKitWebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion

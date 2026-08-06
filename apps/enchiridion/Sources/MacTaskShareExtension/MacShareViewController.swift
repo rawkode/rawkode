@@ -53,7 +53,7 @@ final class MacShareViewController: SLComposeServiceViewController {
   override func didSelectPost() {
     let urls = sharedURLs
     guard !urls.isEmpty else {
-      Self.logger.error("bookmark_no_urls text_representation_count=\(sharedText.count, privacy: .public)")
+      Self.logger.error("bookmark_no_urls text_representation_count=\(self.sharedText.count, privacy: .public)")
       validationAlert("Sharing plain text is not supported yet. Share one or more web links instead.")
       return
     }

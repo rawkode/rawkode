@@ -43,6 +43,7 @@ public final class RealtimeVoiceSession {
   @ObservationIgnored private var reducer: RealtimeVoiceReducer
   @ObservationIgnored private var generation: UInt64 = 0
   @ObservationIgnored private var operationEpoch: UInt64 = 0
+  @ObservationIgnored private var inputEpoch: UInt64 = 0
   @ObservationIgnored private var pauseEpoch: UInt64 = 0
   @ObservationIgnored private var activePause: ActivePause?
   @ObservationIgnored private var pendingPause: ActivePause?
@@ -112,7 +113,7 @@ public final class RealtimeVoiceSession {
     }
   }
 
-  deinit {
+  isolated deinit {
     eventTask?.cancel()
     activityTask?.cancel()
     limitTask?.cancel()
@@ -121,10 +122,11 @@ public final class RealtimeVoiceSession {
     let transport = transport
     let audioSession = audioSession
     let shouldDeactivateAudio = audioOwnerGeneration != nil
+    let lease = mintInputLease(for: transportAttemptGeneration ?? generation)
     Task { @MainActor in
       // Do not serialize these from deinit: a suspended bridge command must
       // not prevent close or audio deactivation from being initiated.
-      Task { @MainActor in try? await transport.setInputEnabled(false) }
+      Task { @MainActor in try? await transport.setInputEnabled(false, lease: lease) }
       Task { @MainActor in await transport.close() }
       if shouldDeactivateAudio {
         Task { await audioSession.deactivate() }
@@ -135,7 +137,7 @@ public final class RealtimeVoiceSession {
   public var isActive: Bool {
     switch state.phase {
     case .requestingMicrophone, .readingCredential, .connecting, .listening,
-      .userSpeaking, .responding, .assistantSpeaking, .muted, .paused, .ending:
+      .userSpeaking, .responding, .assistantSpeaking, .muted, .pausing, .paused, .ending:
       true
     case .idle, .ended, .failed:
       false
@@ -315,7 +317,7 @@ public final class RealtimeVoiceSession {
         generation: currentGeneration,
         operation: currentOperation
       ) else {
-        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
         await performBoundedTeardown { await self.audioSession.deactivate() }
         if !isSessionCurrent(currentGeneration) {
           await performBoundedTeardown { await self.transport.close() }
@@ -341,7 +343,7 @@ public final class RealtimeVoiceSession {
         generation: currentGeneration,
         operation: currentOperation
       ) else {
-        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
         await performBoundedTeardown { await self.audioSession.deactivate() }
         if !isSessionCurrent(currentGeneration) {
           await performBoundedTeardown { await self.transport.close() }
@@ -349,7 +351,7 @@ public final class RealtimeVoiceSession {
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
         await performBoundedTeardown { await self.audioSession.deactivate() }
         if !isSessionCurrent(currentGeneration) {
           await performBoundedTeardown { await self.transport.close() }
@@ -466,7 +468,7 @@ public final class RealtimeVoiceSession {
         return
       }
       guard isOperationCurrent(currentGeneration, operation: currentOperation) else {
-        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
         return
       }
       setPhase(.listening)
@@ -612,7 +614,7 @@ public final class RealtimeVoiceSession {
           pauseEpoch: pause.epoch,
           resumeEpoch: claimedResumeEpoch
         ) else {
-          await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+          await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
           await releaseAudioLeaseIfOwned(generation: currentGeneration)
           return
         }
@@ -632,7 +634,7 @@ public final class RealtimeVoiceSession {
         pauseEpoch: pause.epoch,
         resumeEpoch: claimedResumeEpoch
       ) else {
-        await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+        await performBoundedTeardown { try? await self.disableInput(for: currentGeneration) }
         await releaseAudioLeaseIfOwned(generation: currentGeneration)
         return
       }
@@ -662,13 +664,13 @@ public final class RealtimeVoiceSession {
     for await event in stream {
       guard isSessionCurrent(currentGeneration), !Task.isCancelled else { return }
       let effects = reducer.reduce(event)
+      synchronizeReducerState()
       if pendingPauseEpoch != nil || pendingPause != nil || activePause != nil {
         if case .terminate(let failure) = effects.first {
           if pendingPausedFailure == nil { pendingPausedFailure = failure }
         }
         continue
       }
-      synchronizeReducerState()
       for effect in effects {
         guard isSessionCurrent(currentGeneration) else { return }
         switch effect {
@@ -741,10 +743,10 @@ public final class RealtimeVoiceSession {
     let currentOperation = operationEpoch
     pauseEpoch &+= 1
     let pause = ActivePause(epoch: pauseEpoch, reason: reason)
-    let responseID = state.activeResponseID
-    let wasAudible = responseID.map { respondingResponseID == $0 } ?? false
+    let audibleResponseID = respondingResponseID
     pendingPauseEpoch = pause.epoch
     pendingPause = pause
+    synchronizeReducerState()
     defer {
       if pendingPauseEpoch == pause.epoch { pendingPauseEpoch = nil }
       if pendingPause?.epoch == pause.epoch { pendingPause = nil }
@@ -776,6 +778,8 @@ public final class RealtimeVoiceSession {
       // cannot create a resumable state before input disable confirmation.
       return
     }
+    let responseID = state.activeResponseID
+    let wasAudible = responseID.map { audibleResponseID == $0 } ?? false
     if let responseID {
       // The response can complete while the bridge confirms input disable.
       // Never cancel or finalize a stale response snapshot.
@@ -888,7 +892,8 @@ public final class RealtimeVoiceSession {
                              attemptToken: diagnosticAttemptToken,
                              inputDirection: enabled ? .enable : .disable))
     do {
-      try await transport.setInputEnabled(enabled)
+      let lease = mintInputLease(for: expectedGeneration)
+      try await transport.setInputEnabled(enabled, lease: lease)
       guard isCurrent() else { return .cancelled }
       diagnostics.record(.init(stage: .input, outcome: .succeeded, generation: expectedGeneration,
                                attemptToken: diagnosticAttemptToken,
@@ -965,10 +970,13 @@ public final class RealtimeVoiceSession {
     let finishingGeneration = generation
     let responseID = state.activeResponseID
     let wasAudible = responseID.map { respondingResponseID == $0 } ?? false
+    // Mint the terminal fence against the final transport attempt before
+    // invalidating the session generation or entering any teardown await.
+    let attemptedTransport = transportAttemptGeneration == finishingGeneration
+    let terminalInputLease = attemptedTransport ? mintInputLease(for: finishingGeneration) : nil
     isStopping = true
     generation &+= 1
     operationEpoch &+= 1
-    let attemptedTransport = transportAttemptGeneration == finishingGeneration
     let startedTransport = transportStartedGeneration == finishingGeneration
     let ownedAudio = audioOwnerGeneration == finishingGeneration
     transportAttemptGeneration = nil
@@ -992,7 +1000,9 @@ public final class RealtimeVoiceSession {
     setPhase(.ending)
 
     if attemptedTransport {
-      await performBoundedTeardown { try? await self.transport.setInputEnabled(false) }
+      await performBoundedTeardown {
+        try? await self.transport.setInputEnabled(false, lease: terminalInputLease!)
+      }
     }
     if startedTransport {
       if let responseID {
@@ -1053,10 +1063,30 @@ public final class RealtimeVoiceSession {
     synchronizeReducerState()
   }
 
+  /// This is the only source of microphone-input ordering tokens. It is kept
+  /// separate from lifecycle and pause counters because input transitions may
+  /// race even while the enclosing operation is no longer current.
+  private func mintInputLease(for transportGeneration: UInt64) -> RealtimeVoiceInputLease {
+    inputEpoch &+= 1
+    return RealtimeVoiceInputLease(
+      transportGeneration: transportGeneration,
+      inputEpoch: inputEpoch
+    )
+  }
+
+  private func disableInput(for transportGeneration: UInt64) async throws {
+    let lease = mintInputLease(for: transportGeneration)
+    try await transport.setInputEnabled(false, lease: lease)
+  }
+
   private func synchronizeReducerState() {
     var synchronized = reducer.state
-    if let activePause, receipt == nil, !isStopping {
+    if let pendingPause, receipt == nil, !isStopping {
+      synchronized.phase = .pausing(pendingPause.reason)
+      synchronized.failure = nil
+    } else if let activePause, receipt == nil, !isStopping {
       synchronized.phase = .paused(activePause.reason)
+      synchronized.failure = nil
     }
     state = synchronized
     refreshVoiceActivitySemantics()
@@ -1091,7 +1121,7 @@ public final class RealtimeVoiceSession {
   }
 
   private var isVoiceActivityAvailable: Bool {
-    guard receipt == nil, !isStopping, activePause == nil else { return false }
+    guard receipt == nil, !isStopping, activePause == nil, pendingPause == nil else { return false }
     return switch state.phase {
     case .listening, .userSpeaking, .responding, .assistantSpeaking:
       true

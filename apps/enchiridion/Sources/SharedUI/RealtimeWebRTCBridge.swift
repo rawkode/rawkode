@@ -18,6 +18,7 @@ protocol RealtimeWebRTCBridgeDelegate: AnyObject {
 @MainActor
 final class RealtimeWebRTCBridge: NSObject {
   static let ownedOrigin = RealtimeWebRTCBridgeSecurityPolicy.ownedOrigin
+  private static let maximumInputEpoch: UInt64 = 9_007_199_254_740_991
 
   enum Message: Equatable, Sendable {
     case offer(generation: UInt64, sdp: String)
@@ -126,6 +127,9 @@ final class RealtimeWebRTCBridge: NSObject {
   #endif
   private var isReady = false
   private var stopped = false
+  /// Native-issued monotonic lease. It is set before any JavaScript await so a
+  /// late control completion can never regain microphone authority.
+  private var newestInputLease: RealtimeVoiceInputLease?
   private var eventContinuations: [UUID: AsyncStream<RealtimeWebRTCBridgeEvent>.Continuation] = [:]
 
   override init() {
@@ -188,6 +192,7 @@ final class RealtimeWebRTCBridge: NSObject {
     else { throw BridgeError.unavailable }
     let oldGeneration = authorizationState.activeGeneration
     authorizationState.revoke()
+    newestInputLease = nil
     #if DEBUG
       resolveDebugProbeDelivery(throwing: BridgeError.unavailable)
       debugProbeGeneration = nil
@@ -426,22 +431,32 @@ final class RealtimeWebRTCBridge: NSObject {
     }
   }
 
-  func setInputEnabled(_ enabled: Bool, generation: UInt64) async throws {
+  func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws {
+    let isTerminalLease = !enabled && lease.inputEpoch == Self.maximumInputEpoch
     guard
       !stopped,
-      authorizationState.authorizes(generation: generation),
+      lease.transportGeneration > 0,
+      lease.inputEpoch > 0,
+      (lease.inputEpoch < Self.maximumInputEpoch || isTerminalLease),
+      authorizationState.authorizes(generation: lease.transportGeneration),
+      newestInputLease.map({ lease.inputEpoch > $0.inputEpoch }) ?? true,
       let operationEpoch = lifecycle.currentEpoch,
       let webView
     else {
       throw BridgeError.invalidCommand
     }
+    newestInputLease = lease
     try await call(
       function: "setInputEnabled",
-      argument: ["generation": generation, "enabled": enabled],
+      argument: [
+        "generation": lease.transportGeneration,
+        "inputEpoch": lease.inputEpoch,
+        "enabled": enabled,
+      ],
       epoch: operationEpoch,
       webView: webView
     )
-    guard lifecycle.isCurrent(operationEpoch), self.webView === webView else {
+    guard lifecycle.isCurrent(operationEpoch), self.webView === webView, newestInputLease == lease else {
       throw BridgeError.unavailable
     }
   }
@@ -450,6 +465,12 @@ final class RealtimeWebRTCBridge: NSObject {
     guard !stopped, lifecycle.stop() != nil else { return }
     stopped = true
     let activeGeneration = authorizationState.activeGeneration
+    if let activeGeneration {
+      newestInputLease = RealtimeVoiceInputLease(
+        transportGeneration: activeGeneration,
+        inputEpoch: Self.maximumInputEpoch
+      )
+    }
     authorizationState.revoke()
     #if DEBUG
       resolveDebugProbeDelivery(throwing: BridgeError.unavailable)

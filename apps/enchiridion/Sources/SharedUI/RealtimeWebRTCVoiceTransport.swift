@@ -1,12 +1,40 @@
 import EnchiridionCore
 import Foundation
 
+/// Local, native-side ordering for input transitions. This is deliberately
+/// independent of the broader transport lifecycle because enable can suspend.
+struct RealtimeWebRTCInputLeaseFence: Equatable {
+  private(set) var newestLease: RealtimeVoiceInputLease?
+
+  mutating func install(
+    _ lease: RealtimeVoiceInputLease,
+    activeGeneration: UInt64,
+    maximumEpoch: UInt64
+  ) -> Bool {
+    guard
+      lease.transportGeneration == activeGeneration,
+      lease.inputEpoch > 0,
+      lease.inputEpoch <= maximumEpoch,
+      newestLease.map({ lease.inputEpoch > $0.inputEpoch }) ?? true
+    else { return false }
+    newestLease = lease
+    return true
+  }
+
+  mutating func installTerminal(generation: UInt64, epoch: UInt64) -> RealtimeVoiceInputLease {
+    let lease = RealtimeVoiceInputLease(transportGeneration: generation, inputEpoch: epoch)
+    newestLease = lease
+    return lease
+  }
+}
+
 /// Native orchestration for the intentionally narrow WebRTC bridge. WebKit owns
 /// media plumbing only: the API credential is consumed by `bootstrap` on the
 /// native side and is never serialised into JavaScript.
 @MainActor
 final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   private typealias TransportError = RealtimeVoiceTransportError
+  private static let terminalInputEpoch: UInt64 = 9_007_199_254_740_991
 
   private struct ActiveAttempt: Equatable {
     let identifier: UUID
@@ -183,6 +211,9 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
   private var eventQueue: BridgeEventQueue?
   private var lastTerminalFailure: RealtimeVoiceFailure?
   private var diagnosticContext: OpenAIRealtimeVoiceDiagnosticContext?
+  /// Installed before crossing into WebKit. A stale completion must never
+  /// become permission to re-enable capture after a newer intent or teardown.
+  private var inputLeaseFence = RealtimeWebRTCInputLeaseFence()
 
   init(
     bridge: any RealtimeWebRTCBridging = RealtimeWebRTCBridge(),
@@ -287,14 +318,28 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     }
   }
 
-  func setInputEnabled(_ enabled: Bool) async throws {
+  func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws {
     let active = try requireActive()
+    guard
+      lease.transportGeneration == active.generation,
+      lease.inputEpoch > 0,
+      lease.inputEpoch < Self.terminalInputEpoch,
+      inputLeaseFence.install(
+        lease, activeGeneration: active.generation, maximumEpoch: Self.terminalInputEpoch
+      )
+    else {
+      throw TransportError.bridgeClosed
+    }
     do {
       try await bridgeControl {
-        try await self.bridge.setInputEnabled(enabled, generation: active.generation)
+        try await self.bridge.setInputEnabled(enabled, lease: lease)
       }
       try requireActive(active)
+      guard inputLeaseFence.newestLease == lease else { throw TransportError.bridgeClosed }
     } catch {
+      // A newer lease owns the microphone state. Its predecessor must not
+      // tear down the live transport merely because it completed late.
+      if inputLeaseFence.newestLease != lease { throw TransportError.bridgeClosed }
       await terminate()
       throw error
     }
@@ -616,6 +661,12 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
     } else {
       nil
     }
+    // Install a terminal lease before any bridge await. This invalidates an
+    // in-flight enable, then asks WebKit to silence an attached track before
+    // its peer connection is destroyed.
+    let terminalLease = activeGeneration.map {
+      inputLeaseFence.installTerminal(generation: $0, epoch: Self.terminalInputEpoch)
+    }
     lifecycle = .closed
     diagnosticContext = nil
     bridgeConsumptionTask?.cancel()
@@ -632,6 +683,14 @@ final class RealtimeWebRTCVoiceTransport: RealtimeVoiceTransport {
       )
     }
     audioActivityContinuation.finish()
+    if let terminalLease {
+      _ = try? await withDeadline(
+        Self.teardownDeadline,
+        timeoutError: .controlTimedOut
+      ) {
+        try await self.bridge.setInputEnabled(false, lease: terminalLease)
+      }
+    }
     _ = try? await withDeadline(
       Self.teardownDeadline,
       timeoutError: .controlTimedOut

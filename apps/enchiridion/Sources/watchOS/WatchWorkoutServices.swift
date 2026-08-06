@@ -355,6 +355,10 @@ final class WatchConnectivityTransfer: NSObject, WatchWorkoutTransferring, WCSes
   nonisolated func session(
     _: WCSession, activationDidCompleteWith: WCSessionActivationState, error: Error?
   ) {}
+#if os(iOS)
+  nonisolated func sessionDidBecomeInactive(_: WCSession) {}
+  nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
+#endif
   nonisolated func session(_: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
     guard let data = userInfo[WorkoutWatchConnectivityWire.responseKey] as? Data,
       let response = try? JSONDecoder().decode(WorkoutDeliveryResponse.self, from: data)

@@ -32,6 +32,22 @@ struct RealtimeVoiceUIInvariantTests {
   }
 
   @Test
+  func pausingAudioIsExposedWithoutLiveInputControls() throws {
+    let surface = try read("Sources/SharedUI/RealtimeVoiceSurface.swift")
+    let runtime = try read("Sources/SharedUI/RealtimeVoiceRuntime.swift")
+
+    #expect(surface.contains("case .pausing(let reason): \"Pausing audio: \\(reason.message)\""))
+    #expect(surface.contains("if !isPausing {"))
+    #expect(surface.contains("private var isPausing: Bool"))
+    #expect(
+      runtime.range(
+        of: #"case\s+\.idle,[\s\S]*?\.pausing,[\s\S]*?:\s*return\s+false"#,
+        options: .regularExpression
+      ) != nil
+    )
+  }
+
+  @Test
   func nativeBootstrapHasNoConfigurationGateOrAlternateCredentialRoute() throws {
     let bootstrap = try read("Sources/EnchiridionCore/RealtimeSessionBootstrap.swift")
     let transport = try read("Sources/SharedUI/RealtimeWebRTCVoiceTransport.swift")

@@ -95,7 +95,7 @@ final class RealtimeSessionBootstrapTests: XCTestCase {
       diagnostics.events.last,
       .init(
         stage: .bootstrapResponse, outcome: .failed,
-        httpStatus: 200, requestID: "req_invalid_answer"
+        httpStatus: 201, requestID: "req_invalid_answer"
       )
     )
   }

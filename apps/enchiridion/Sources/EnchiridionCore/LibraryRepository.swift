@@ -159,6 +159,29 @@ public struct MeetingTranscriptPersistenceResult: Hashable, Sendable {
   }
 }
 
+/// The page selected for a calendar occurrence. Canonical Event pages are
+/// preferred when the local materialization feature can safely provide one;
+/// the legacy occurrence-note route remains available for older projections.
+public enum CalendarEventPageResolutionKind: Sendable, Equatable {
+  case materializedEvent
+  case legacyOccurrence
+}
+
+public struct CalendarEventPageResolution: Sendable {
+  public var pageID: PageID
+  public var changedPageIDs: [PageID]
+  public var resolutionKind: CalendarEventPageResolutionKind
+
+  public init(
+    pageID: PageID,
+    changedPageIDs: [PageID] = [],
+    resolutionKind: CalendarEventPageResolutionKind
+  ) {
+    self.pageID = pageID
+    self.changedPageIDs = changedPageIDs
+    self.resolutionKind = resolutionKind
+  }
+}
 /// Describes the durable pair created when an editor creates a tagged page and
 /// inserts its reference into an existing page.
 public struct TaggedPageReferenceInsertionRequest: Sendable {
@@ -1168,45 +1191,65 @@ public actor LibraryRepository {
     now: Date = Date()
   ) throws -> CalendarEventPages {
     try database.write { db in
-      var resolvedEvent = event
-      if let series = event.identity.series {
-        resolvedEvent.identity.series = try Self.canonicalSeries(db, series: series)
+      try Self.calendarEventPages(db, for: event, now: now)
+    }
+  }
+
+  /// Resolves the primary page for a calendar tap in one transaction. This is
+  /// intentionally distinct from `calendarEventPages`, whose occurrence-note
+  /// and series-note compatibility behaviour must remain stable.
+  public func resolveCalendarEventPage(
+    for event: CalendarEventSnapshot,
+    now: Date = Date()
+  ) throws -> CalendarEventPageResolution {
+    try database.write { db in
+      if let identity = CalendarEventMaterialization.identity(for: event) {
+        let pageID = PageID.materializedCalendarEvent(identity)
+        if let existing = try Self.fetchPage(db, id: pageID) {
+          // A deterministic ID can still name a tombstone (or a conflicting
+          // imported page). Neither is safe to select or overwrite. Preserve
+          // it and use the explicit legacy occurrence-note route instead.
+          if existing.deletedAt == nil, existing.hasSupertag(BuiltInSupertags.event) {
+            return .init(pageID: pageID, resolutionKind: .materializedEvent)
+          }
+          let legacy = try Self.calendarEventPages(db, for: event, now: now)
+          return .init(
+            pageID: legacy.occurrence.id,
+            changedPageIDs: legacy.createdPageIDs,
+            resolutionKind: .legacyOccurrence
+          )
+        }
+
+        let enabled: Bool
+        if let data = try Data.fetchOne(
+          db,
+          sql: "SELECT value FROM settings WHERE key = ?",
+          arguments: [CalendarEventMaterialization.settingKey]
+        ) {
+          enabled = (try? JSONDecoder.enchiridion.decode(Bool.self, from: data)) ?? false
+        } else {
+          enabled = false
+        }
+        if enabled {
+          let receipt = try Self.materializeCalendarEvents(
+            db, [event], provider: nil, authoritativeInterval: nil, now: now
+          )
+          guard try Self.fetchPage(db, id: pageID) != nil else {
+            throw LibraryRepositoryError.invalidRecord
+          }
+          return .init(
+            pageID: pageID,
+            changedPageIDs: receipt.changedPageIDs,
+            resolutionKind: .materializedEvent
+          )
+        }
       }
 
-      var createdPageIDs: [PageID] = []
-      var seriesPage: PageSnapshot?
-      if let series = resolvedEvent.identity.series {
-        let result = try Self.ensureSeriesPage(db, series: series, title: event.title, now: now)
-        seriesPage = result.page
-        if result.created { createdPageIDs.append(result.page.id) }
-      }
-
-      let occurrenceKey = resolvedEvent.identity.canonicalOccurrenceKey
-      let mappedID = try Self.mappedPageID(
-        db,
-        eventKeys: [resolvedEvent.identity.stableKey, occurrenceKey]
-      )
-      let occurrenceID = mappedID ?? PageID.calendarOccurrence(resolvedEvent.identity)
-      let existed = try Self.fetchPage(db, id: occurrenceID) != nil
-      let occurrence = try Self.createPage(
-        db,
-        id: occurrenceID,
-        kind: .calendarEvent(resolvedEvent.identity),
-        title: event.title,
-        now: now
-      )
-      if !existed { createdPageIDs.append(occurrence.id) }
-      try Self.mapOccurrencePage(
-        db,
-        pageID: occurrence.id,
-        sourceEventKey: resolvedEvent.identity.stableKey,
-        occurrenceKey: occurrenceKey,
-        seriesKey: resolvedEvent.identity.series?.canonicalKey
-      )
-      return CalendarEventPages(
-        occurrence: occurrence,
-        series: seriesPage,
-        createdPageIDs: createdPageIDs
+      let legacy = try Self.calendarEventPages(db, for: event, now: now)
+      return .init(
+        pageID: legacy.occurrence.id,
+        changedPageIDs: legacy.createdPageIDs,
+        resolutionKind: .legacyOccurrence
       )
     }
   }
@@ -1517,6 +1560,53 @@ public actor LibraryRepository {
       let resolved = try Self.canonicalSeries(db, series: series)
       return try Self.ensureSeriesPage(db, series: resolved, title: event.title, now: now).page
     }
+  }
+
+  private static func calendarEventPages(
+    _ db: Database,
+    for event: CalendarEventSnapshot,
+    now: Date
+  ) throws -> CalendarEventPages {
+    var resolvedEvent = event
+    if let series = event.identity.series {
+      resolvedEvent.identity.series = try Self.canonicalSeries(db, series: series)
+    }
+
+    var createdPageIDs: [PageID] = []
+    var seriesPage: PageSnapshot?
+    if let series = resolvedEvent.identity.series {
+      let result = try Self.ensureSeriesPage(db, series: series, title: event.title, now: now)
+      seriesPage = result.page
+      if result.created { createdPageIDs.append(result.page.id) }
+    }
+
+    let occurrenceKey = resolvedEvent.identity.canonicalOccurrenceKey
+    let mappedID = try Self.mappedPageID(
+      db,
+      eventKeys: [resolvedEvent.identity.stableKey, occurrenceKey]
+    )
+    let occurrenceID = mappedID ?? PageID.calendarOccurrence(resolvedEvent.identity)
+    let existed = try Self.fetchPage(db, id: occurrenceID) != nil
+    let occurrence = try Self.createPage(
+      db,
+      id: occurrenceID,
+      kind: .calendarEvent(resolvedEvent.identity),
+      title: event.title,
+      now: now
+    )
+    if !existed { createdPageIDs.append(occurrence.id) }
+    try Self.mapOccurrencePage(
+      db,
+      pageID: occurrence.id,
+      sourceEventKey: resolvedEvent.identity.stableKey,
+      occurrenceKey: occurrenceKey,
+      seriesKey: resolvedEvent.identity.series?.canonicalKey
+    )
+    return CalendarEventPages(
+      occurrence: occurrence,
+      series: seriesPage,
+      createdPageIDs: createdPageIDs
+    )
   }
 
   public func persistEditorCommit(_ commit: EditorCommit, now: Date = Date()) throws -> EditorCommitReceipt {

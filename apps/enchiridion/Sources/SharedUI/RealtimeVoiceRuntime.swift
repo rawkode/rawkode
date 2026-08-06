@@ -35,8 +35,13 @@ final class RealtimeVoiceCoordinator {
   private var lifecycleState: RealtimeVoiceLifecycleState = .active
   private var coordinatorLifecycle = RealtimeVoiceCoordinatorLifecycleState()
 
+  /// Presentation deliberately learns only that an experimental transport was
+  /// selected. It never receives its credential, offer, answer, or events.
+  let usesExperimentalNativeWebRTC: Bool
+
   init(route: RealtimeVoiceRouteSnapshot) {
     self.route = route
+    usesExperimentalNativeWebRTC = RealtimeVoiceRuntimeFactory.usesExperimentalNativeWebRTC
   }
 
   func start(initialLifecycleState: RealtimeVoiceLifecycleState) {
@@ -48,13 +53,13 @@ final class RealtimeVoiceCoordinator {
     lifecycleState = initialLifecycleState
 
     do {
-      let nativeRuntime = NativeOpenAIRealtimeAudioRuntime()
+      let components = RealtimeVoiceRuntimeFactory.makeComponents()
       let voiceSession = try RealtimeVoiceSession(
         route: route,
         microphone: SystemRealtimeMicrophoneAuthorizer(),
         credentialReader: OpenAICredentialStore(),
-        transport: nativeRuntime,
-        audioSession: nativeRuntime,
+        transport: components.transport,
+        audioSession: components.audioSession,
         safetyEvents: realtimeSafetyEventSource(),
         initialLifecycleState: initialLifecycleState
       )
@@ -126,9 +131,16 @@ final class RealtimeVoiceCoordinator {
     receipt: RealtimeVoiceReceipt?,
     failure: RealtimeVoiceFailure? = nil
   ) -> Bool {
-    if phase == .failed && receipt?.completion == .failed { return true }
-    if case .paused = phase, receipt == nil, failure != nil { return true }
-    return false
+    switch phase {
+    case .failed:
+      return receipt?.completion == .failed
+    case .paused:
+      return receipt == nil && failure != nil
+    case .idle, .requestingMicrophone, .readingCredential, .connecting,
+      .listening, .userSpeaking, .responding, .assistantSpeaking, .muted,
+      .pausing, .ending, .ended:
+      return false
+    }
   }
 
   func stop() {

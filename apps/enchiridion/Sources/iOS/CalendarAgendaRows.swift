@@ -98,7 +98,7 @@ private struct CalendarAgendaEventRow: View {
         .contentShape(.rect)
       }
       .buttonStyle(.plain)
-      .accessibilityHint("Open linked event note")
+      .accessibilityHint("Open calendar event")
       Spacer(minLength: 0)
       VStack(alignment: .trailing, spacing: 8) {
         if let url = event.url {
@@ -119,7 +119,7 @@ private struct CalendarAgendaEventRow: View {
           }
           .buttonStyle(.borderless)
           .foregroundStyle(.secondary)
-          .accessibilityLabel("Open series notes")
+          .accessibilityLabel("Open series note")
         }
       }
     }

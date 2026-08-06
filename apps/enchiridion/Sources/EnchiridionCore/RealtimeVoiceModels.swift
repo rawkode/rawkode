@@ -241,7 +241,7 @@ public protocol RealtimeVoiceTransport: Sendable {
   func send(_ command: RealtimeClientCommand) async throws
   /// Resolves only once the transport has confirmed the microphone track
   /// transition. Callers must treat a failure as unsafe and tear down.
-  func setInputEnabled(_ enabled: Bool) async throws
+  func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws
   func close() async
   /// A bounded, sanitised terminal transport reason. This is deliberately
   /// separate from server events: bridge/ICE/data-channel failures are local
@@ -251,6 +251,19 @@ public protocol RealtimeVoiceTransport: Sendable {
 
 public extension RealtimeVoiceTransport {
   func terminalFailure() -> RealtimeVoiceFailure? { nil }
+}
+
+/// Orders microphone-track transitions independently of the session's broader
+/// lifecycle operations. A late completion may only affect the transport when
+/// its lease is still the newest input intent for this transport attempt.
+public struct RealtimeVoiceInputLease: Equatable, Sendable {
+  public let transportGeneration: UInt64
+  public let inputEpoch: UInt64
+
+  public init(transportGeneration: UInt64, inputEpoch: UInt64) {
+    self.transportGeneration = transportGeneration
+    self.inputEpoch = inputEpoch
+  }
 }
 
 /// The deliberately narrow native/WebKit boundary. Implementations are
@@ -266,7 +279,7 @@ public protocol RealtimeWebRTCBridging: AnyObject {
   func start(generation: UInt64) async throws
   func applyAnswer(_ sdp: String, generation: UInt64) async throws
   func sendEvent(_ json: String, generation: UInt64) async throws
-  func setInputEnabled(_ enabled: Bool, generation: UInt64) async throws
+  func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws
   func stop() async
   func events() -> AsyncStream<RealtimeWebRTCBridgeEvent>
 }
@@ -562,6 +575,7 @@ public enum RealtimeVoicePhase: Equatable, Sendable {
   case responding
   case assistantSpeaking
   case muted
+  case pausing(AssistantVoicePauseReason)
   case paused(AssistantVoicePauseReason)
   case ending
   case ended
