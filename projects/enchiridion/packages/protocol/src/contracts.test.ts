@@ -6,6 +6,7 @@ import {
   canonicalJSONSHA256,
   canonicalJSONStringify,
   canonicalizeQuery,
+  decodeBlobDeleteRequestJSON,
   decodeClientWebSocketFrame,
   decodeClientWebSocketFrameJSON,
   decodeDeviceChallengeRequestJSON,
@@ -14,12 +15,18 @@ import {
   decodeDeviceRevokeRequest,
   decodeDeviceRevokeRequestJSON,
   decodeErrorEnvelope,
+  decodeMutationRequestJSON,
   decodeServerWebSocketFrame,
+  decodeServerWebSocketFrameJSON,
+  decodeSignedRequestHeader,
   deviceChallengeProofSigningPayload,
   isCanonicalP256LowSSignature,
   parseJSONWithoutDuplicateMembers,
   protocolVersion,
+  rawJSONStructuralLimits,
   signedDeviceRequestSigningPayload,
+  signedRequestHeader,
+  signedRequestHeaderName,
   syncChangeSigningPayload,
   websocketContract,
 } from "./contracts";
@@ -104,6 +111,40 @@ function registration(overrides: Readonly<Record<string, unknown>> = {}): Record
     idempotencyKey: "request-1",
     ...overrides,
   };
+}
+
+function mutationRequest(): Record<string, unknown> {
+  const command = {
+    type: "mutation",
+    mutationID: "mutation-1",
+    contentSHA256: "a".repeat(64),
+    payloadBase64: "AQI=",
+  };
+  return {
+    envelope: signedEnvelope({
+      canonicalPath: "/v2/mutations",
+      targetDeviceID: undefined,
+      bodySHA256: canonicalJSONSHA256(command),
+    }),
+    command,
+  };
+}
+
+function blobDeleteRequest(): Record<string, unknown> {
+  const command = { type: "blobDelete", blobSHA256: "b".repeat(64) };
+  return {
+    envelope: signedEnvelope({
+      method: "DELETE",
+      canonicalPath: `/v2/blobs/${command.blobSHA256}`,
+      targetDeviceID: undefined,
+      bodySHA256: canonicalJSONSHA256(command),
+    }),
+    command,
+  };
+}
+
+function withDuplicateRootMember(source: string): string {
+  return source.replace("{", '{"duplicate":null,"duplicate":null,');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -397,6 +438,112 @@ describe("v2 protocol schemas", () => {
         ),
       ),
     ).toThrow();
+  });
+
+  test("uses a bounded linear raw JSON pass before HTTP and WebSocket decoding", () => {
+    expect(decodeDeviceRegisterRequestJSON(JSON.stringify(registration())).idempotencyKey).toBe(
+      "request-1",
+    );
+    expect(decodeClientWebSocketFrameJSON(JSON.stringify(signedSyncChange())).type).toBe(
+      "syncChange",
+    );
+
+    expect(parseJSONWithoutDuplicateMembers('{"escaped":"\\\\u0061"}')).toEqual({
+      escaped: "\\u0061",
+    });
+    expect(parseJSONWithoutDuplicateMembers('{"escaped":"\\uD83D\\uDE00"}')).toEqual({
+      escaped: "😀",
+    });
+    for (const loneSurrogate of ['"\\uD800"', '"\\uDC00"', `"${String.fromCharCode(0xd800)}"`])
+      expect(() => parseJSONWithoutDuplicateMembers(loneSurrogate)).toThrow(
+        "lone UTF-16 surrogates",
+      );
+    expect(() => parseJSONWithoutDuplicateMembers('{"\\u0064uplicate":1,"duplicate":2}')).toThrow(
+      "Duplicate JSON member",
+    );
+    expect(() =>
+      parseJSONWithoutDuplicateMembers(
+        `[${"[".repeat(rawJSONStructuralLimits.nestingDepth + 1)}0${"]".repeat(
+          rawJSONStructuralLimits.nestingDepth + 1,
+        )}]`,
+      ),
+    ).toThrow("JSON nesting exceeds");
+    expect(() =>
+      parseJSONWithoutDuplicateMembers(
+        JSON.stringify(
+          Object.fromEntries(
+            Array.from({ length: rawJSONStructuralLimits.membersPerContainer + 1 }, (_, index) => [
+              `member${index}`,
+              index,
+            ]),
+          ),
+        ),
+      ),
+    ).toThrow("JSON object members exceed");
+    expect(() =>
+      parseJSONWithoutDuplicateMembers(
+        `"${"x".repeat(rawJSONStructuralLimits.stringCodeUnits + 1)}"`,
+      ),
+    ).toThrow("JSON string exceeds");
+    expect(() =>
+      parseJSONWithoutDuplicateMembers("1".repeat(rawJSONStructuralLimits.numberCodeUnits + 1)),
+    ).toThrow("JSON number exceeds");
+    expect(() =>
+      parseJSONWithoutDuplicateMembers(" ".repeat(rawJSONStructuralLimits.inputCodeUnits + 1)),
+    ).toThrow("JSON input exceeds");
+  });
+
+  test("keeps every raw ingress wrapper duplicate-free before schema decoding", () => {
+    const rawMutation = JSON.stringify(mutationRequest());
+    const rawBlobDelete = JSON.stringify(blobDeleteRequest());
+    const rawServerFrame = JSON.stringify({
+      type: "error",
+      protocolVersion,
+      error: { code: "invalid_request", message: "invalid", retryable: false },
+    });
+    expect(decodeMutationRequestJSON(rawMutation).command.type).toBe("mutation");
+    expect(decodeBlobDeleteRequestJSON(rawBlobDelete).command.type).toBe("blobDelete");
+    expect(decodeServerWebSocketFrameJSON(rawServerFrame).type).toBe("error");
+    expect(() => decodeMutationRequestJSON(withDuplicateRootMember(rawMutation))).toThrow(
+      "Duplicate JSON member",
+    );
+    expect(() => decodeBlobDeleteRequestJSON(withDuplicateRootMember(rawBlobDelete))).toThrow(
+      "Duplicate JSON member",
+    );
+    expect(() => decodeServerWebSocketFrameJSON(withDuplicateRootMember(rawServerFrame))).toThrow(
+      "Duplicate JSON member",
+    );
+
+    const envelope = decodeDeviceRevokeRequest({
+      envelope: signedEnvelope(),
+      command: { type: "deviceRevoke", actorDeviceID: "device-1", targetDeviceID: "device-2" },
+    }).envelope;
+    const header = signedRequestHeader(envelope);
+    expect(decodeSignedRequestHeader([header])).toEqual(envelope);
+    expect(() =>
+      decodeSignedRequestHeader([
+        {
+          name: signedRequestHeaderName,
+          value: Buffer.from(withDuplicateRootMember(JSON.stringify(signedEnvelope()))).toString(
+            "base64url",
+          ),
+        },
+      ]),
+    ).toThrow("Duplicate JSON member");
+    expect(() =>
+      decodeSignedRequestHeader([{ name: signedRequestHeaderName, value: "_w" }]),
+    ).toThrow("valid UTF-8");
+    expect(() =>
+      decodeSignedRequestHeader([
+        {
+          name: signedRequestHeaderName,
+          value: Buffer.concat([
+            Buffer.from([0xef, 0xbb, 0xbf]),
+            Buffer.from(header.value, "base64url"),
+          ]).toString("base64url"),
+        },
+      ]),
+    ).toThrow("Invalid JSON value");
   });
 
   test("keeps checked-in cross-language golden vectors decodable", async () => {

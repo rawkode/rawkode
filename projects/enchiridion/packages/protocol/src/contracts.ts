@@ -11,6 +11,18 @@ const MAX_TEXT_LENGTH = 512;
 const MAX_PAYLOAD_BASE64_LENGTH = 1_398_104; // 1 MiB decoded payload.
 const MAX_CANONICAL_PATH_LENGTH = 512;
 const MAX_CANONICAL_QUERY_LENGTH = 1_024;
+/**
+ * Raw JSON enters the worker before schema validation, so bound the structural
+ * pass independently of any individual protocol payload limit. The largest
+ * current JSON field is the 1 MiB decoded/base64 payload.
+ */
+export const rawJSONStructuralLimits = {
+  inputCodeUnits: 2 * 1024 * 1024,
+  nestingDepth: 64,
+  membersPerContainer: 128,
+  stringCodeUnits: 1_500_000,
+  numberCodeUnits: 64,
+} as const;
 export const signedRequestHeaderName = "Enchiridion-Signed-Request";
 export const maximumSignedRequestHeaderLength = 8_192;
 const SIGNED_TIMESTAMP_MINIMUM = 1_700_000_000_000;
@@ -929,12 +941,34 @@ export function validateSignedDeviceRequestEnvelope(input: unknown): SignedDevic
 
 /**
  * Parses JSON structurally before schema decoding and rejects duplicate object
- * members at every nesting depth. JSON.parse alone loses that information.
+ * members at every nesting depth. This is a single forward lexical pass: its
+ * limits make hostile deeply-nested, huge-string, or huge-number input fail
+ * before `JSON.parse` builds a value. JSON.parse alone loses duplicate members.
  */
 export function parseJSONWithoutDuplicateMembers(source: string): unknown {
+  if (source.length > rawJSONStructuralLimits.inputCodeUnits)
+    throw new TypeError("JSON input exceeds the structural limit.");
+
   let offset = 0;
   const whitespace = (): void => {
-    while (" \n\r\t".includes(source[offset] ?? "")) offset += 1;
+    while (true) {
+      const character = source[offset];
+      if (character !== " " && character !== "\n" && character !== "\r" && character !== "\t")
+        return;
+      offset += 1;
+    }
+  };
+  const rejectLoneUTF16Surrogates = (value: string): void => {
+    for (let index = 0; index < value.length; index += 1) {
+      const codeUnit = value.charCodeAt(index);
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+        const next = value.charCodeAt(index + 1);
+        if (!(next >= 0xdc00 && next <= 0xdfff))
+          throw new TypeError("JSON strings must not contain lone UTF-16 surrogates.");
+        index += 1;
+      } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff)
+        throw new TypeError("JSON strings must not contain lone UTF-16 surrogates.");
+    }
   };
   const string = (): string => {
     const start = offset;
@@ -944,20 +978,82 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
       const character = source[offset] ?? "";
       if (character === '"') {
         offset += 1;
-        return JSON.parse(source.slice(start, offset));
+        const decoded: unknown = JSON.parse(source.slice(start, offset));
+        if (typeof decoded !== "string") throw new TypeError("Expected JSON string.");
+        rejectLoneUTF16Surrogates(decoded);
+        return decoded;
       }
       if (character === "\\") {
         offset += 1;
         const escapeCode = source[offset] ?? "";
-        if (!'"\\/bfnrtu'.includes(escapeCode)) throw new TypeError("Invalid JSON escape.");
-        if (escapeCode === "u") offset += 4;
+        if (
+          escapeCode !== '"' &&
+          escapeCode !== "\\" &&
+          escapeCode !== "/" &&
+          escapeCode !== "b" &&
+          escapeCode !== "f" &&
+          escapeCode !== "n" &&
+          escapeCode !== "r" &&
+          escapeCode !== "t" &&
+          escapeCode !== "u"
+        )
+          throw new TypeError("Invalid JSON escape.");
+        if (escapeCode === "u") {
+          for (let index = 1; index <= 4; index += 1) {
+            const codeUnit = source[offset + index] ?? "";
+            if (
+              !(
+                (codeUnit >= "0" && codeUnit <= "9") ||
+                (codeUnit >= "a" && codeUnit <= "f") ||
+                (codeUnit >= "A" && codeUnit <= "F")
+              )
+            )
+              throw new TypeError("Invalid JSON unicode escape.");
+          }
+          offset += 4;
+        }
       } else if (character.charCodeAt(0) < 0x20)
         throw new TypeError("Invalid JSON control character.");
       offset += 1;
+      if (offset - start > rawJSONStructuralLimits.stringCodeUnits)
+        throw new TypeError("JSON string exceeds the structural limit.");
     }
     throw new TypeError("Unterminated JSON string.");
   };
-  const value = (): void => {
+  const number = (): void => {
+    const numberStart = offset;
+    const advance = (): void => {
+      offset += 1;
+      if (offset - numberStart > rawJSONStructuralLimits.numberCodeUnits)
+        throw new TypeError("JSON number exceeds the structural limit.");
+    };
+    const digit = (): boolean => {
+      const character = source[offset] ?? "";
+      return character >= "0" && character <= "9";
+    };
+    if (source[offset] === "-") advance();
+    const firstDigit = source[offset] ?? "";
+    if (firstDigit === "0") advance();
+    else if (firstDigit >= "1" && firstDigit <= "9") {
+      advance();
+      while (digit()) advance();
+    }
+    if (offset > numberStart && source[offset] === ".") {
+      advance();
+      const decimalStart = offset;
+      while (digit()) advance();
+      if (offset === decimalStart) throw new TypeError("Invalid JSON number.");
+    }
+    if (offset > numberStart && (source[offset] === "e" || source[offset] === "E")) {
+      advance();
+      if (source[offset] === "+" || source[offset] === "-") advance();
+      const exponentStart = offset;
+      while (digit()) advance();
+      if (offset === exponentStart) throw new TypeError("Invalid JSON exponent.");
+    }
+    if (offset === numberStart) throw new TypeError("Invalid JSON number.");
+  };
+  const value = (depth: number): void => {
     whitespace();
     const character = source[offset] ?? "";
     if (character === '"') {
@@ -965,6 +1061,8 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
       return;
     }
     if (character === "{") {
+      if (depth >= rawJSONStructuralLimits.nestingDepth)
+        throw new TypeError("JSON nesting exceeds the structural limit.");
       offset += 1;
       whitespace();
       const names = new Set<string>();
@@ -973,6 +1071,8 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
         return;
       }
       while (true) {
+        if (names.size >= rawJSONStructuralLimits.membersPerContainer)
+          throw new TypeError("JSON object members exceed the structural limit.");
         whitespace();
         const name = string();
         if (names.has(name)) throw new TypeError(`Duplicate JSON member ${name}.`);
@@ -980,7 +1080,7 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
         whitespace();
         if (source[offset] !== ":") throw new TypeError("Expected JSON colon.");
         offset += 1;
-        value();
+        value(depth + 1);
         whitespace();
         if (source[offset] === "}") {
           offset += 1;
@@ -991,14 +1091,20 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
       }
     }
     if (character === "[") {
+      if (depth >= rawJSONStructuralLimits.nestingDepth)
+        throw new TypeError("JSON nesting exceeds the structural limit.");
       offset += 1;
       whitespace();
       if (source[offset] === "]") {
         offset += 1;
         return;
       }
+      let members = 0;
       while (true) {
-        value();
+        if (members >= rawJSONStructuralLimits.membersPerContainer)
+          throw new TypeError("JSON array members exceed the structural limit.");
+        members += 1;
+        value(depth + 1);
         whitespace();
         if (source[offset] === "]") {
           offset += 1;
@@ -1008,28 +1114,10 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
         offset += 1;
       }
     }
-    const numberStart = offset;
-    if (source[offset] === "-") offset += 1;
-    const firstDigit = source[offset] ?? "";
-    if (firstDigit === "0") offset += 1;
-    else if (firstDigit >= "1" && firstDigit <= "9") {
-      offset += 1;
-      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
+    if (character === "-" || (character >= "0" && character <= "9")) {
+      number();
+      return;
     }
-    if (offset > numberStart && source[offset] === ".") {
-      offset += 1;
-      const decimalStart = offset;
-      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
-      if (offset === decimalStart) throw new TypeError("Invalid JSON number.");
-    }
-    if (offset > numberStart && (source[offset] === "e" || source[offset] === "E")) {
-      offset += 1;
-      if (source[offset] === "+" || source[offset] === "-") offset += 1;
-      const exponentStart = offset;
-      while ((source[offset] ?? "") >= "0" && (source[offset] ?? "") <= "9") offset += 1;
-      if (offset === exponentStart) throw new TypeError("Invalid JSON exponent.");
-    }
-    if (offset > numberStart) return;
     for (const literal of ["true", "false", "null"])
       if (source.startsWith(literal, offset)) {
         offset += literal.length;
@@ -1037,7 +1125,7 @@ export function parseJSONWithoutDuplicateMembers(source: string): unknown {
       }
     throw new TypeError("Invalid JSON value.");
   };
-  value();
+  value(0);
   whitespace();
   if (offset !== source.length) throw new TypeError("Unexpected JSON trailing data.");
   return JSON.parse(source);
@@ -1376,9 +1464,14 @@ export function decodeSignedRequestHeader(
   const bytes = fromBase64url(value);
   if (bytes === undefined)
     throw new TypeError("Signed request header must be canonical base64url.");
-  return validateSignedDeviceRequestEnvelope(
-    parseJSONWithoutDuplicateMembers(new TextDecoder().decode(bytes)),
-  );
+  let source: string;
+  try {
+    // Keep a leading UTF-8 BOM visible so strict JSON rejects it too.
+    source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new TypeError("Signed request header must decode as valid UTF-8.");
+  }
+  return validateSignedDeviceRequestEnvelope(parseJSONWithoutDuplicateMembers(source));
 }
 
 export interface HttpOperation {
