@@ -7,7 +7,7 @@ final class RealtimeVoiceReducerTests: XCTestCase {
   func testConfigurationIsExactBoundedNoToolContract() throws {
     let configuration = try RealtimeVoiceConfiguration(route: route())
 
-    XCTAssertEqual(configuration.modelID, "gpt-realtime-mini")
+    XCTAssertEqual(configuration.modelID, "gpt-realtime-2.1")
     XCTAssertEqual(configuration.voiceID, "marin")
     XCTAssertEqual(configuration.outputModalities, ["audio"])
     XCTAssertEqual(configuration.turnDetection.type, "semantic_vad")
@@ -296,7 +296,7 @@ final class RealtimeVoiceReducerTests: XCTestCase {
             eventID: "request-2",
             responseID: "response-1",
             code: "rate_limit_exceeded",
-            message: "Slow down"
+            message: "raw provider diagnostic that must not reach local state"
           )
         )
       )
@@ -305,12 +305,16 @@ final class RealtimeVoiceReducerTests: XCTestCase {
     XCTAssertEqual(reducer.state.phase, .failed)
     XCTAssertEqual(reducer.state.turnReceipts.first?.completion, .failed)
     XCTAssertEqual(reducer.state.requestIDs, ["request-2"])
+    XCTAssertEqual(reducer.state.failure?.code, "provider_error_other")
+    XCTAssertEqual(reducer.state.failure?.message, "OpenAI Voice reported an error.")
+    XCTAssertEqual(reducer.state.failure?.provenance, .provider)
     XCTAssertEqual(
       effects,
       [.terminate(RealtimeVoiceFailure(
-        code: "rate_limit_exceeded",
-        message: "Slow down",
-        responseID: "response-1"
+        code: "provider_error_other",
+        message: "OpenAI Voice reported an error.",
+        responseID: "response-1",
+        provenance: .provider
       ))]
     )
   }

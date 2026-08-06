@@ -121,7 +121,8 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     store.markVerified(
       capabilities(realtime: ["gpt-realtime-2.1-mini", "gpt-realtime-2.1"]),
       binding: firstBinding,
-      selectPreferredTextModel: true
+      selectPreferredTextModel: true,
+      activateOpenAIVoice: true
     )
     store.selectRealtimeVoice(id: "marin")
     XCTAssertEqual(store.selectedRealtimeModelID, "gpt-realtime-2.1")
@@ -147,7 +148,8 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     store.markVerified(
       capabilities(realtime: ["gpt-realtime-mini"]),
       binding: binding,
-      selectPreferredTextModel: true
+      selectPreferredTextModel: true,
+      activateOpenAIVoice: true
     )
 
     let route = store.voiceRouteSnapshot()
@@ -301,7 +303,9 @@ final class RealtimeVoiceSettingsTests: XCTestCase {
     let store = AssistantProviderPreferencesStore(defaults: makeDefaults())
     let initialBinding = OpenAICredentialBinding(revision: "old", fingerprint: "old-fp")
     store.markVerified(
-      capabilities(realtime: ["gpt-realtime-2.1"]), binding: initialBinding
+      capabilities(realtime: ["gpt-realtime-2.1"]),
+      binding: initialBinding,
+      activateOpenAIVoice: true
     )
     XCTAssertEqual(store.selectedVoiceProvider, .openAIRealtime)
 
