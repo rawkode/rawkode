@@ -120,7 +120,7 @@ describe("runtime", () => {
       { name: "operation.start" },
       { name: "operation.success" },
     ]);
-    expect(cloudflareAdapterLedger).toHaveLength(6);
+    expect(cloudflareAdapterLedger).toHaveLength(7);
     expect(cloudflareAdapterLedger.some(({ id }) => id === "access-jose-jwks")).toBe(true);
     expect(cloudflareAdapterLedger.map((entry) => entry.id)).toEqual([
       "cloudflare-promise",
@@ -129,6 +129,7 @@ describe("runtime", () => {
       "p256-webcrypto",
       "worker-outer-boundary",
       "access-jose-jwks",
+      "durable-object-callback-storage",
     ]);
   });
 

@@ -6,6 +6,7 @@ export enum RuntimeOperation {
   CapabilityCrypto = "capability.crypto",
   P256Crypto = "p256.crypto",
   AccessJwks = "access.jwks",
+  DurableObject = "durable-object",
   SharedEffect = "runtime.shared-effect",
 }
 
@@ -16,6 +17,7 @@ const isRuntimeOperation = (value: unknown): value is RuntimeOperation =>
   value === RuntimeOperation.CapabilityCrypto ||
   value === RuntimeOperation.P256Crypto ||
   value === RuntimeOperation.AccessJwks ||
+  value === RuntimeOperation.DurableObject ||
   value === RuntimeOperation.SharedEffect;
 
 /** Safe diagnostics crossing the shared runtime boundary. These tagged values
@@ -202,6 +204,48 @@ export class WorkerBoundaryError extends Data.TaggedError("WorkerBoundaryError")
   }
 }
 
+/** Safe failures at the one Durable Object callback and storage Promise seam. */
+export class DurableObjectBoundaryError extends Data.TaggedError("DurableObjectBoundaryError")<{
+  readonly operation:
+    | "block_concurrency_while"
+    | "fetch_callback"
+    | "websocket_message_callback"
+    | "storage_get"
+    | "storage_put"
+    | "storage_delete"
+    | "storage_transaction";
+  readonly reason: "callback_failed" | "platform_failed";
+}> {
+  constructor(input: {
+    readonly operation:
+      | "block_concurrency_while"
+      | "fetch_callback"
+      | "websocket_message_callback"
+      | "storage_get"
+      | "storage_put"
+      | "storage_delete"
+      | "storage_transaction";
+    readonly reason: "callback_failed" | "platform_failed";
+  }) {
+    if (
+      !(
+        [
+          "block_concurrency_while",
+          "fetch_callback",
+          "websocket_message_callback",
+          "storage_get",
+          "storage_put",
+          "storage_delete",
+          "storage_transaction",
+        ] as const
+      ).includes(input.operation) ||
+      !(["callback_failed", "platform_failed"] as const).includes(input.reason)
+    )
+      throw new TypeError("Invalid DurableObjectBoundaryError fields.");
+    super({ operation: input.operation, reason: input.reason });
+  }
+}
+
 /** Safe failure categories for Cloudflare Access JWT/JWKS verification.
  * Neither rejected platform causes nor JWT contents cross this boundary. */
 export class AccessJwtVerificationError extends Data.TaggedError("AccessJwtVerificationError")<{
@@ -288,6 +332,7 @@ export type RuntimeError =
   | CapabilitySigningError
   | CapabilityVerificationError
   | WorkerBoundaryError
+  | DurableObjectBoundaryError
   | AccessJwtVerificationError
   | P256VerificationError;
 
@@ -307,6 +352,7 @@ export const classifyRuntimeError = (error: unknown): RuntimeErrorClassification
   if (error instanceof CapabilitySigningError) return "CapabilitySigningError";
   if (error instanceof CapabilityVerificationError) return "CapabilityVerificationError";
   if (error instanceof WorkerBoundaryError) return "WorkerBoundaryError";
+  if (error instanceof DurableObjectBoundaryError) return "DurableObjectBoundaryError";
   if (error instanceof AccessJwtVerificationError) return "AccessJwtVerificationError";
   return "unclassified";
 };

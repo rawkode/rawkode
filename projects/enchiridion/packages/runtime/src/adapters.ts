@@ -9,6 +9,7 @@ import type {
 import {
   AccessJwtVerificationError,
   AdapterContractError,
+  DurableObjectBoundaryError,
   ExternalServiceError,
   RuntimeOperation,
   type RuntimeOperationIdentifier,
@@ -61,6 +62,14 @@ export const cloudflareAdapterLedger = [
     owner: "@enchiridion/runtime",
     audit:
       "The adapter permits only RS256 verification against a configured HTTPS JWKS URL; all causes and token data are discarded in favour of closed safe errors.",
+  },
+  {
+    id: "durable-object-callback-storage",
+    boundary:
+      "Durable Object blockConcurrencyWhile, fetch/WebSocket callbacks, and state.storage Promises",
+    owner: "@enchiridion/runtime",
+    audit:
+      "Callback defects and rejected native storage Promises become a closed operation/reason error; payloads, attachment data, and platform causes never cross the seam.",
   },
 ] as const;
 
@@ -287,6 +296,154 @@ export const makeJoseAccessJwksSession = (
         ),
     })),
   );
+
+/** Minimal structural view of a Cloudflare Durable Object transaction. */
+export interface DurableObjectTransactionNative {
+  readonly get: (key: string) => Promise<unknown | undefined>;
+  readonly put: (key: string, value: unknown) => Promise<void>;
+  readonly delete: (key: string) => Promise<boolean>;
+}
+
+/** Minimal structural view of the Cloudflare Durable Object storage API. */
+export interface DurableObjectStorageNative extends DurableObjectTransactionNative {
+  readonly transaction: <A>(
+    callback: (storage: DurableObjectTransactionNative) => Promise<A>,
+  ) => Promise<A>;
+}
+
+/** Minimal structural view of the state APIs used by an OwnerVault Durable Object. */
+export interface DurableObjectStateNative {
+  readonly storage: DurableObjectStorageNative;
+  readonly blockConcurrencyWhile: <A>(callback: () => Promise<A>) => Promise<A>;
+}
+
+export interface DurableObjectTransaction {
+  readonly get: (key: string) => Effect.Effect<unknown | undefined, DurableObjectBoundaryError>;
+  readonly put: (key: string, value: unknown) => Effect.Effect<void, DurableObjectBoundaryError>;
+  readonly delete: (key: string) => Effect.Effect<boolean, DurableObjectBoundaryError>;
+}
+
+export interface DurableObjectStorage extends DurableObjectTransaction {
+  /** The only storage read/modify/write primitive: the callback is native-transaction atomic. */
+  readonly transaction: <A, E>(
+    work: (storage: DurableObjectTransaction) => Effect.Effect<A, E>,
+  ) => Effect.Effect<A, DurableObjectBoundaryError>;
+}
+
+export interface DurableObjectCallbacks {
+  /** Constructor-only durable initialization; serializes startup before requests. */
+  readonly blockConcurrencyWhile: <E>(
+    work: Effect.Effect<void, E>,
+  ) => Effect.Effect<void, DurableObjectBoundaryError>;
+  /** The only Effect-to-Promise bridge for a Durable Object fetch callback. */
+  readonly fetch: <A, E>(work: Effect.Effect<A, E>) => Promise<A>;
+  /** The only Effect-to-Promise bridge for a Durable Object WebSocket message callback. */
+  readonly webSocketMessage: <A, E>(work: Effect.Effect<A, E>) => Promise<A>;
+}
+
+export interface DurableObjectBoundary {
+  readonly storage: DurableObjectStorage;
+  readonly callbacks: DurableObjectCallbacks;
+}
+
+type DurableObjectOperation = DurableObjectBoundaryError["operation"];
+
+const durableObjectFailure = (
+  operation: DurableObjectOperation,
+  reason: DurableObjectBoundaryError["reason"],
+): DurableObjectBoundaryError => new DurableObjectBoundaryError({ operation, reason });
+
+/**
+ * Converts an already-provided Effect to the Cloudflare callback Promise shape.
+ * Errors and defects are replaced by a closed error so callers can apply their
+ * fixed HTTP/WebSocket response or close-code policy without seeing a cause.
+ */
+const durableObjectCallbackPromise = <A, E>(
+  operation: DurableObjectOperation,
+  work: Effect.Effect<A, E>,
+): Promise<A> =>
+  Effect.runPromise(
+    work.pipe(
+      Effect.catchAllCause(() => Effect.fail(durableObjectFailure(operation, "callback_failed"))),
+    ),
+  );
+
+/** The audited native Durable Object Promise-to-Effect conversion. */
+const fromDurableObjectPromise = <A>(
+  operation: DurableObjectOperation,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, DurableObjectBoundaryError> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) =>
+      cause instanceof DurableObjectBoundaryError
+        ? cause
+        : durableObjectFailure(operation, "platform_failed"),
+  });
+
+const makeDurableObjectTransaction = (
+  native: DurableObjectTransactionNative,
+): DurableObjectTransaction => ({
+  get: (key) => fromDurableObjectPromise("storage_get", () => native.get(key)),
+  put: (key, value) => fromDurableObjectPromise("storage_put", () => native.put(key, value)),
+  delete: (key) => fromDurableObjectPromise("storage_delete", () => native.delete(key)),
+});
+
+const makeDurableObjectStorage = (native: DurableObjectStorageNative): DurableObjectStorage => ({
+  ...makeDurableObjectTransaction(native),
+  transaction: (work) =>
+    fromDurableObjectPromise("storage_transaction", () =>
+      native.transaction((transaction) =>
+        durableObjectCallbackPromise(
+          "storage_transaction",
+          work(makeDurableObjectTransaction(transaction)),
+        ),
+      ),
+    ),
+});
+
+/**
+ * Atomically adopts a value only if the storage key is empty, otherwise checks
+ * equivalence against a caller-owned structural decoder. This prevents a
+ * Durable Object identity get/put race outside a transaction.
+ */
+export const adoptDurableObjectValue = <A>(
+  storage: DurableObjectStorage,
+  key: string,
+  candidate: A,
+  decode: (value: unknown) => A | undefined,
+  equivalent: (left: A, right: A) => boolean,
+): Effect.Effect<boolean, DurableObjectBoundaryError> =>
+  storage.transaction((transaction) =>
+    transaction.get(key).pipe(
+      Effect.flatMap((stored) => {
+        if (stored === undefined) return transaction.put(key, candidate).pipe(Effect.as(true));
+        const decoded = decode(stored);
+        return Effect.succeed(decoded !== undefined && equivalent(decoded, candidate));
+      }),
+    ),
+  );
+
+/**
+ * The sole Durable Object native callback/storage boundary. Worker code keeps
+ * all business logic in Effect, pre-provides dependencies, and maps this
+ * closed error to its fixed response/close behavior at the outer caller.
+ */
+export const makeDurableObjectBoundary = (
+  state: DurableObjectStateNative,
+): DurableObjectBoundary => ({
+  storage: makeDurableObjectStorage(state.storage),
+  callbacks: {
+    blockConcurrencyWhile: (work) =>
+      fromDurableObjectPromise("block_concurrency_while", () =>
+        state.blockConcurrencyWhile(() =>
+          durableObjectCallbackPromise("block_concurrency_while", work),
+        ),
+      ),
+    fetch: (work) => durableObjectCallbackPromise("fetch_callback", work),
+    webSocketMessage: (work) => durableObjectCallbackPromise("websocket_message_callback", work),
+  },
+});
 
 export interface WorkerBoundaryContext {
   readonly waitUntil?: (work: Promise<unknown>) => void;
