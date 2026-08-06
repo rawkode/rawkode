@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "http": {
+    "registerDeviceRequest": {
+      "protocolVersion": 2,
+      "challengeID": "challenge-1",
+      "challengeAudience": "enchiridion",
+      "challengeProof": "MAYCAQECAQE=",
+      "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+      "idempotencyKey": "request-1"
+    },
+    "unsupportedVersionError": {
+      "protocolVersion": 2,
+      "error": {
+        "code": "protocol_version_unsupported",
+        "message": "No supported protocol version overlaps.",
+        "retryable": false,
+        "supportedProtocolVersions": [2]
+      }
+    }
+  },
+  "websocket": {
+    "hello": {
+      "type": "hello",
+      "supportedProtocolVersions": [2],
+      "deviceID": "device-1",
+      "authEpoch": 3
+    },
+    "helloAccepted": {
+      "type": "helloAccepted",
+      "protocolVersion": 2,
+      "ownerID": "owner-1",
+      "deviceID": "device-1",
+      "authEpoch": 3
+    },
+    "signedSyncChange": {
+      "type": "syncChange",
+      "protocolVersion": 2,
+      "vaultID": "vault-1",
+      "deviceID": "device-1",
+      "authEpoch": 3,
+      "changeID": "change-1",
+      "causalVersion": 9,
+      "frameID": "AAAAAAAAAAAAAAAAAAAAAA",
+      "signingPayloadVersion": 1,
+      "payloadBase64": "AQI=",
+      "deviceSignature": "MAYCAQECAQE="
+    },
+    "signedSyncChangePayloadBase64": "RU5DSFNZTkMBAAAAATIAAAAHdmF1bHQtMQAAAAhkZXZpY2UtMQAAAAEzAAAACGNoYW5nZS0xAAAAATkAAAAWQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQAAAARBUUk9"
+  }
+}

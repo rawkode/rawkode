@@ -1,0 +1,816 @@
+{
+  "components": {
+    "schemas": {
+      "ClientWebSocketFrame": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "authEpoch": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "deviceID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "supportedProtocolVersions": {
+                "items": {
+                  "const": 2
+                },
+                "maxItems": 1,
+                "minItems": 1,
+                "type": "array"
+              },
+              "type": {
+                "const": "hello"
+              }
+            },
+            "required": ["type", "supportedProtocolVersions", "deviceID", "authEpoch"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "authEpoch": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "causalVersion": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "changeID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "deviceID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "deviceSignature": {
+                "format": "p256-ecdsa-der",
+                "maxLength": 96,
+                "minLength": 12,
+                "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                "type": "string"
+              },
+              "frameID": {
+                "format": "base64url-128",
+                "pattern": "^[A-Za-z0-9_-]{22}$",
+                "type": "string"
+              },
+              "payloadBase64": {
+                "format": "base64-canonical",
+                "maxLength": 1398104,
+                "minLength": 4,
+                "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                "type": "string"
+              },
+              "protocolVersion": {
+                "const": 2
+              },
+              "signingPayloadVersion": {
+                "const": 1
+              },
+              "type": {
+                "const": "syncChange"
+              },
+              "vaultID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "protocolVersion",
+              "vaultID",
+              "deviceID",
+              "authEpoch",
+              "changeID",
+              "causalVersion",
+              "frameID",
+              "signingPayloadVersion",
+              "payloadBase64",
+              "deviceSignature"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "DeviceRegisterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challengeAudience": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "challengeID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "challengeProof": {
+            "format": "p256-ecdsa-der",
+            "maxLength": 96,
+            "minLength": 12,
+            "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type": "string"
+          },
+          "devicePublicKey": {
+            "format": "p256-spki-der",
+            "maxLength": 124,
+            "minLength": 124,
+            "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "challengeID",
+          "challengeAudience",
+          "challengeProof",
+          "devicePublicKey",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "DeviceRegisterResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authEpoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "ownerID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          }
+        },
+        "required": ["protocolVersion", "ownerID", "deviceID", "authEpoch"],
+        "type": "object"
+      },
+      "DeviceRevokeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          }
+        },
+        "required": ["protocolVersion", "idempotencyKey"],
+        "type": "object"
+      },
+      "DeviceRevokeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authEpoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "ownerID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "revokedAt": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["protocolVersion", "ownerID", "deviceID", "authEpoch", "revokedAt"],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "access_token_invalid",
+              "authorization_failed",
+              "device_revoked",
+              "invalid_request",
+              "not_found",
+              "protocol_version_unsupported",
+              "replay_detected",
+              "request_conflict",
+              "temporarily_unavailable",
+              "unauthorized"
+            ]
+          },
+          "message": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requestID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "supportedProtocolVersions": {
+            "items": {
+              "const": 2
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": ["code", "message", "retryable"],
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "access_token_invalid",
+                  "authorization_failed",
+                  "device_revoked",
+                  "invalid_request",
+                  "not_found",
+                  "protocol_version_unsupported",
+                  "replay_detected",
+                  "request_conflict",
+                  "temporarily_unavailable",
+                  "unauthorized"
+                ]
+              },
+              "message": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "requestID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "supportedProtocolVersions": {
+                "items": {
+                  "const": 2
+                },
+                "maxItems": 1,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": ["code", "message", "retryable"],
+            "type": "object"
+          },
+          "protocolVersion": {
+            "const": 2
+          }
+        },
+        "required": ["protocolVersion", "error"],
+        "type": "object"
+      },
+      "HelloAcceptedFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "authEpoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "ownerID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "type": {
+            "const": "helloAccepted"
+          }
+        },
+        "required": ["type", "protocolVersion", "ownerID", "deviceID", "authEpoch"],
+        "type": "object"
+      },
+      "HelloFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "authEpoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "supportedProtocolVersions": {
+            "items": {
+              "const": 2
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          },
+          "type": {
+            "const": "hello"
+          }
+        },
+        "required": ["type", "supportedProtocolVersions", "deviceID", "authEpoch"],
+        "type": "object"
+      },
+      "ProtocolErrorFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "access_token_invalid",
+                  "authorization_failed",
+                  "device_revoked",
+                  "invalid_request",
+                  "not_found",
+                  "protocol_version_unsupported",
+                  "replay_detected",
+                  "request_conflict",
+                  "temporarily_unavailable",
+                  "unauthorized"
+                ]
+              },
+              "message": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "requestID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "supportedProtocolVersions": {
+                "items": {
+                  "const": 2
+                },
+                "maxItems": 1,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": ["code", "message", "retryable"],
+            "type": "object"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "type": {
+            "const": "error"
+          }
+        },
+        "required": ["type", "protocolVersion", "error"],
+        "type": "object"
+      },
+      "ServerWebSocketFrame": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "authEpoch": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "deviceID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "ownerID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "protocolVersion": {
+                "const": 2
+              },
+              "type": {
+                "const": "helloAccepted"
+              }
+            },
+            "required": ["type", "protocolVersion", "ownerID", "deviceID", "authEpoch"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "causalVersion": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "changeID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              },
+              "protocolVersion": {
+                "const": 2
+              },
+              "type": {
+                "const": "syncAcknowledged"
+              },
+              "vaultID": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._~-]+$",
+                "type": "string"
+              }
+            },
+            "required": ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "access_token_invalid",
+                      "authorization_failed",
+                      "device_revoked",
+                      "invalid_request",
+                      "not_found",
+                      "protocol_version_unsupported",
+                      "replay_detected",
+                      "request_conflict",
+                      "temporarily_unavailable",
+                      "unauthorized"
+                    ]
+                  },
+                  "message": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "requestID": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9._~-]+$",
+                    "type": "string"
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  },
+                  "supportedProtocolVersions": {
+                    "items": {
+                      "const": 2
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": ["code", "message", "retryable"],
+                "type": "object"
+              },
+              "protocolVersion": {
+                "const": 2
+              },
+              "type": {
+                "const": "error"
+              }
+            },
+            "required": ["type", "protocolVersion", "error"],
+            "type": "object"
+          }
+        ]
+      },
+      "SyncAcknowledgedFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "causalVersion": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "changeID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "type": {
+            "const": "syncAcknowledged"
+          },
+          "vaultID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          }
+        },
+        "required": ["type", "protocolVersion", "vaultID", "changeID", "causalVersion"],
+        "type": "object"
+      },
+      "SyncChangeFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "authEpoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "causalVersion": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "changeID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "deviceID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "deviceSignature": {
+            "format": "p256-ecdsa-der",
+            "maxLength": 96,
+            "minLength": 12,
+            "pattern": "^(?=M)(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type": "string"
+          },
+          "frameID": {
+            "format": "base64url-128",
+            "pattern": "^[A-Za-z0-9_-]{22}$",
+            "type": "string"
+          },
+          "payloadBase64": {
+            "format": "base64-canonical",
+            "maxLength": 1398104,
+            "minLength": 4,
+            "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "signingPayloadVersion": {
+            "const": 1
+          },
+          "type": {
+            "const": "syncChange"
+          },
+          "vaultID": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "protocolVersion",
+          "vaultID",
+          "deviceID",
+          "authEpoch",
+          "changeID",
+          "causalVersion",
+          "frameID",
+          "signingPayloadVersion",
+          "payloadBase64",
+          "deviceSignature"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Enchiridion Protocol",
+    "version": "v2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v2/devices/{deviceId}/revoke": {
+      "post": {
+        "operationId": "revokeDevice",
+        "parameters": [
+          {
+            "description": "RFC 3986 URI-component encoded exactly once; only ASCII unreserved characters remain literal.",
+            "in": "path",
+            "name": "deviceId",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRevokeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRevokeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Version negotiation failed"
+          }
+        }
+      }
+    },
+    "/v2/devices/register": {
+      "post": {
+        "operationId": "registerDevice",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegisterResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable protocol error"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Version negotiation failed"
+          }
+        }
+      }
+    }
+  }
+}
