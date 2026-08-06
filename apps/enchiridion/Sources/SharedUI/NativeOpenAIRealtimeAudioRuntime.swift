@@ -84,6 +84,57 @@ struct NativeRealtimeRenderedBuffer: Sendable, Equatable {
   let renderedFrames: Int
 }
 
+/// The native capture path may receive an old Core transition after a newer
+/// pause or terminal close.  Keep that ordering decision in a tiny Swift-only
+/// value so capture ingress, writer work, and the runtime all use the exact
+/// same attempt and input-epoch predicate.
+///
+/// This is intentionally internal rather than private: the mobile test target
+/// exercises stale completion behaviour without needing a microphone, socket,
+/// or `AVAudioEngine`.
+struct NativeRealtimeInputLeaseGate: Equatable {
+  private(set) var transportGeneration: UInt64?
+  private(set) var newestLease: RealtimeVoiceInputLease?
+  private(set) var inputDesired = false
+  private(set) var isTerminal = false
+
+  mutating func begin(transportGeneration: UInt64) {
+    self.transportGeneration = transportGeneration
+    newestLease = nil
+    inputDesired = false
+    isTerminal = false
+  }
+
+  /// Records an input transition before any capture or asynchronous writer
+  /// work begins. Equal and lower epochs are deliberately rejected: Core mints
+  /// a fresh lease for every transition.
+  mutating func accept(_ enabled: Bool, lease: RealtimeVoiceInputLease) -> Bool {
+    guard !isTerminal, transportGeneration == lease.transportGeneration else { return false }
+    guard newestLease == nil || lease.inputEpoch > newestLease!.inputEpoch else { return false }
+    newestLease = lease
+    inputDesired = enabled
+    return true
+  }
+
+  /// Stops effective input without pretending it is a Core transition. A later
+  /// Core enable must carry a newer lease to reopen the gate.
+  mutating func stopInput() {
+    inputDesired = false
+  }
+
+  mutating func close() {
+    isTerminal = true
+    inputDesired = false
+  }
+
+  func allowsCapture(for lease: RealtimeVoiceInputLease) -> Bool {
+    !isTerminal
+      && inputDesired
+      && transportGeneration == lease.transportGeneration
+      && newestLease == lease
+  }
+}
+
 /// Main-actor-owned bookkeeping for scheduled output. The opaque playback ID
 /// makes callbacks from canceled audio unobservable, even if OpenAI reuses a
 /// response identifier for a later response.
@@ -146,7 +197,7 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
   private var writer = NativeRealtimeWriter()
   private var activeGeneration: UInt64?
   private var failure: RealtimeVoiceFailure?
-  private var microphoneEnabled = false
+  private var inputLeaseGate = NativeRealtimeInputLeaseGate()
   private var audio: NativeRealtimeAudioPipeline?
   /// The only data used for a truncate is locally rendered audio from this
   /// response. It is reset before a new response can reuse an item id.
@@ -179,7 +230,12 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
     let task = urlSession.webSocketTask(with: request)
     renderedOutput = nil
     playbackLedger.cancelAll()
-    session = urlSession; socket = task; activeGeneration = generation; task.resume()
+    session = urlSession
+    socket = task
+    activeGeneration = generation
+    inputLeaseGate.begin(transportGeneration: generation)
+    writer = NativeRealtimeWriter()
+    task.resume()
     do {
       let created = try await receiveSessionCreated()
       try configuration.validateActual(modelID: created.modelID, voiceID: created.voiceID)
@@ -199,45 +255,99 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
   func activity() -> AsyncStream<RealtimeAudioActivitySample> { activityStream }
   func terminalFailure() -> RealtimeVoiceFailure? { failure }
   func activate() async throws { try await audioSession.activate() }
-  func deactivate() async { microphoneEnabled = false; audio?.stopCapture(); await audioSession.deactivate() }
+  func deactivate() async {
+    inputLeaseGate.stopInput()
+    audio?.stopCapture()
+    await writer.clearCapture()
+    await audioSession.deactivate()
+  }
   func deactivateWithResult() async -> RealtimeAudioSessionDeactivationResult {
-    microphoneEnabled = false; audio?.stopCapture()
+    inputLeaseGate.stopInput()
+    audio?.stopCapture()
+    await writer.clearCapture()
     return await audioSession.deactivateWithResult()
   }
   func resetAfterMediaServicesReset() async { await audioSession.resetAfterMediaServicesReset() }
-  func setInputEnabled(_ enabled: Bool) async throws {
-    guard let generation = activeGeneration, socket != nil else { throw RealtimeVoiceTransportError.bridgeClosed }
-    microphoneEnabled = enabled
-    if enabled {
-      if audio == nil {
-        audio = NativeRealtimeAudioPipeline(
-          generation: generation,
-          append: { [weak self] frame in
-            await self?.appendCapturedAudioIfEnabled(frame, generation: generation)
-          },
-          activity: { [weak self] input, output in
-            Task { @MainActor [weak self] in
-              self?.activityContinuation.yield(.init(generation: generation, inputLevel: input, outputLevel: output))
-            }
-          }, rendered: { [weak self] buffer in
-            Task { @MainActor [weak self] in
-              self?.finishRenderedBuffer(buffer)
-            }
+  func setInputEnabled(_ enabled: Bool, lease: RealtimeVoiceInputLease) async throws {
+    guard activeGeneration == lease.transportGeneration, socket != nil,
+      inputLeaseGate.accept(enabled, lease: lease)
+    else { throw RealtimeVoiceTransportError.bridgeClosed }
+
+    // A newer disable closes the software gate and removes the tap before the
+    // writer has a chance to await a socket operation. It then fences queued
+    // frames from this and every older input epoch.
+    guard enabled else {
+      audio?.stopCapture()
+      await writer.fenceCapture(through: lease)
+      return
+    }
+
+    let generation = lease.transportGeneration
+    if audio == nil {
+      audio = NativeRealtimeAudioPipeline(
+        generation: generation,
+        activity: { [weak self] input, output in
+          Task { @MainActor [weak self] in
+            self?.activityContinuation.yield(
+              .init(generation: generation, inputLevel: input, outputLevel: output)
+            )
           }
-        )
+        }, rendered: { [weak self] buffer in
+          Task { @MainActor [weak self] in
+            self?.finishRenderedBuffer(buffer)
+          }
+        }
+      )
+    }
+
+    do {
+      try audio?.startCapture(
+        append: { [weak self] frame in
+          await self?.appendCapturedAudioIfEnabled(frame, lease: lease)
+        },
+        inputActivity: { [weak self] level in
+          Task { @MainActor [weak self] in
+            guard let self, self.inputLeaseGate.allowsCapture(for: lease) else { return }
+            self.activityContinuation.yield(.init(generation: generation, inputLevel: level, outputLevel: 0))
+          }
+        }
+      )
+      // `startCapture` is currently synchronous, but retain this recheck at
+      // the ownership boundary so a future asynchronous implementation cannot
+      // revive a stale enable after a newer false or close.
+      guard inputLeaseGate.allowsCapture(for: lease) else {
+        audio?.stopCapture()
+        await writer.fenceCapture(through: lease)
+        throw RealtimeVoiceTransportError.bridgeClosed
       }
-      try audio?.startCapture()
-    } else { audio?.stopCapture() }
+    } catch {
+      if inputLeaseGate.allowsCapture(for: lease) { inputLeaseGate.stopInput() }
+      audio?.stopCapture()
+      await writer.fenceCapture(through: lease)
+      throw error
+    }
   }
   func close() async {
-    microphoneEnabled = false
-    audio?.stop(); audio = nil
+    // Install the terminal gate and remove the input tap before touching the
+    // live output/socket path. A writer can be suspended in URLSession send,
+    // so it must never delay player interruption or cancellation.
+    inputLeaseGate.close()
+    audio?.stopCapture()
+
+    let closingWriter = writer
+    audio?.interruptOutput()
+    audio?.stop()
+    audio = nil
     receiver?.cancel(); receiver = nil
     socket?.cancel(with: .goingAway, reason: nil); socket = nil
     session?.invalidateAndCancel(); session = nil
     activeGeneration = nil
     renderedOutput = nil
     playbackLedger.cancelAll()
+
+    // `closeCapture` only installs the writer's terminal fence and drops its
+    // queue. It intentionally does not wait for a now-cancelled socket send.
+    await closingWriter.closeCapture()
   }
 
   func send(_ command: RealtimeClientCommand) async throws {
@@ -260,7 +370,9 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
           guard let self else { return }
           try await self.sendInterruption(command: command, truncate: truncate)
         },
-        sendAppend: { [weak self] frame in try await self?.sendCapturedAudio(frame, generation: self?.activeGeneration ?? 0) }
+        sendAppend: { [weak self] frame, lease in
+          try await self?.sendCapturedAudio(frame, lease: lease)
+        }
       )
       continuation.yield(.init(payload: .playbackInterrupted(responseID: responseID)))
       return
@@ -270,14 +382,16 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
       playbackLedger.cancelAll()
       try await writer.interrupt(
         control: { [weak self] in try await self?.sendCommand(command) },
-        sendAppend: { [weak self] frame in try await self?.sendCapturedAudio(frame, generation: self?.activeGeneration ?? 0) }
+        sendAppend: { [weak self] frame, lease in
+          try await self?.sendCapturedAudio(frame, lease: lease)
+        }
       )
       return
     case .inputAudioBufferClear:
       try await writer.interrupt(
         control: { [weak self] in try await self?.sendCommand(command) },
-        sendAppend: { [weak self] frame in
-          try await self?.sendCapturedAudio(frame, generation: self?.activeGeneration ?? 0)
+        sendAppend: { [weak self] frame, lease in
+          try await self?.sendCapturedAudio(frame, lease: lease)
         }
       )
       return
@@ -345,20 +459,22 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
     try await socket.send(.string(text))
   }
 
-  private func appendAudio(_ pcm: Data, generation: UInt64) async {
-    guard activeGeneration == generation, pcm.count <= 16_384 else { return }
-    await writer.enqueue(pcm) { [weak self] frame in
-      try await self?.sendCapturedAudio(frame, generation: generation)
+  private func appendAudio(_ pcm: Data, lease: RealtimeVoiceInputLease) async {
+    guard inputLeaseGate.allowsCapture(for: lease), pcm.count <= 16_384 else { return }
+    await writer.enqueue(pcm, lease: lease) { [weak self] frame, frameLease in
+      try await self?.sendCapturedAudio(frame, lease: frameLease)
     }
   }
 
-  private func appendCapturedAudioIfEnabled(_ pcm: Data, generation: UInt64) async {
-    guard microphoneEnabled else { return }
-    await appendAudio(pcm, generation: generation)
+  private func appendCapturedAudioIfEnabled(_ pcm: Data, lease: RealtimeVoiceInputLease) async {
+    guard inputLeaseGate.allowsCapture(for: lease) else { return }
+    await appendAudio(pcm, lease: lease)
   }
 
-  private func sendCapturedAudio(_ frame: Data, generation: UInt64) async throws {
-    guard activeGeneration == generation, microphoneEnabled else { return }
+  private func sendCapturedAudio(_ frame: Data, lease: RealtimeVoiceInputLease) async throws {
+    guard activeGeneration == lease.transportGeneration,
+      inputLeaseGate.allowsCapture(for: lease)
+    else { return }
     try await sendJSON([
       "type": "input_audio_buffer.append",
       "audio": frame.base64EncodedString(),
@@ -441,22 +557,64 @@ final class NativeOpenAIRealtimeAudioRuntime: NSObject, RealtimeVoiceTransport, 
   }
 }
 
-private actor NativeRealtimeWriter {
-  private struct Entry { let epoch: UInt64; let frame: Data }
+/// The serial capture writer has a deliberately tiny internal test seam: its
+/// caller supplies the actual network send closure, so tests can model a
+/// suspended send without a microphone, URLSession, or audio engine.
+actor NativeRealtimeWriter {
+  private struct Entry {
+    let epoch: UInt64
+    let lease: RealtimeVoiceInputLease
+    let frame: Data
+  }
+
   private var frames: [Entry] = []
   private var draining = false
   private var epoch: UInt64 = 0
   private var barrierActive = false
   private var settlementWaiters: [CheckedContinuation<Void, Never>] = []
-  func enqueue(_ frame: Data, send: @escaping @Sendable (Data) async throws -> Void) async {
-    frames.append(.init(epoch: epoch, frame: frame))
+  private var captureSettlementWaiters: [CheckedContinuation<Void, Never>] = []
+  private var sending: Entry?
+  private var captureFence: RealtimeVoiceInputLease?
+  private var terminalCaptureFence = false
+
+  func enqueue(
+    _ frame: Data,
+    lease: RealtimeVoiceInputLease,
+    send: @escaping @Sendable (Data, RealtimeVoiceInputLease) async throws -> Void
+  ) async {
+    guard acceptsCapture(lease) else { return }
+    frames.append(.init(epoch: epoch, lease: lease, frame: frame))
     if frames.count > 4 { frames.removeFirst(frames.count - 4) }
     guard !draining, !barrierActive else { return }
     await drain(send)
   }
+
+  /// Removes queued PCM for this and older input epochs. If a frame already
+  /// crossed into the socket writer, wait for that attempt to settle before
+  /// reporting the transition as complete; later epochs remain queued.
+  func fenceCapture(through lease: RealtimeVoiceInputLease) async {
+    installCaptureFence(through: lease)
+    frames.removeAll { !acceptsCapture($0.lease) }
+    guard let sending, !acceptsCapture(sending.lease) else { return }
+    await withCheckedContinuation { captureSettlementWaiters.append($0) }
+  }
+
+  /// A close is stronger than a pause: it makes every pre-existing callback
+  /// and every queued frame permanently ineligible. This must be nonblocking:
+  /// URLSession cancellation owns release of an already-started send.
+  func closeCapture() {
+    terminalCaptureFence = true
+    frames.removeAll()
+    resumeCaptureWaiters()
+  }
+
+  /// Narrow deterministic test seam for observing that a requested capture
+  /// fence was installed before a deliberately blocked send is released.
+  func captureFenceForTesting() -> RealtimeVoiceInputLease? { captureFence }
+
   func interrupt(
     control: @escaping @Sendable () async throws -> Void,
-    sendAppend: @escaping @Sendable (Data) async throws -> Void
+    sendAppend: @escaping @Sendable (Data, RealtimeVoiceInputLease) async throws -> Void
   ) async throws {
     barrierActive = true; epoch &+= 1
     if draining { await withCheckedContinuation { settlementWaiters.append($0) } }
@@ -466,17 +624,68 @@ private actor NativeRealtimeWriter {
     barrierActive = false
     await drain(sendAppend)
   }
-  private func drain(_ send: @escaping @Sendable (Data) async throws -> Void) async {
+
+  private func drain(
+    _ send: @escaping @Sendable (Data, RealtimeVoiceInputLease) async throws -> Void
+  ) async {
     guard !draining, !barrierActive else { return }
     draining = true
     while !barrierActive, let next = frames.first {
-      guard next.epoch == epoch else { frames.removeFirst(); continue }
+      guard next.epoch == epoch, acceptsCapture(next.lease) else {
+        frames.removeFirst()
+        continue
+      }
       frames.removeFirst()
-      do { try await send(next.frame) } catch { frames.removeAll(); break }
+      sending = next
+      do {
+        try await send(next.frame, next.lease)
+      } catch {
+        frames.removeAll()
+        sending = nil
+        settleCaptureWaiters()
+        break
+      }
+      sending = nil
+      settleCaptureWaiters()
     }
     draining = false
     let waiters = settlementWaiters; settlementWaiters.removeAll(); waiters.forEach { $0.resume() }
   }
+
+  private func installCaptureFence(through lease: RealtimeVoiceInputLease) {
+    guard let current = captureFence else {
+      captureFence = lease
+      return
+    }
+    guard current.transportGeneration == lease.transportGeneration else {
+      // A runtime owns one active transport attempt, but retain the newest
+      // observed fence if a late callback carries a different generation.
+      if lease.transportGeneration > current.transportGeneration { captureFence = lease }
+      return
+    }
+    if lease.inputEpoch > current.inputEpoch { captureFence = lease }
+  }
+
+  private func acceptsCapture(_ lease: RealtimeVoiceInputLease) -> Bool {
+    guard !terminalCaptureFence else { return false }
+    guard let captureFence else { return true }
+    guard captureFence.transportGeneration == lease.transportGeneration else {
+      return lease.transportGeneration > captureFence.transportGeneration
+    }
+    return lease.inputEpoch > captureFence.inputEpoch
+  }
+
+  private func settleCaptureWaiters() {
+    guard sending == nil else { return }
+    resumeCaptureWaiters()
+  }
+
+  private func resumeCaptureWaiters() {
+    let waiters = captureSettlementWaiters
+    captureSettlementWaiters.removeAll()
+    waiters.forEach { $0.resume() }
+  }
+
   func barrier() { epoch &+= 1; frames.removeAll() }
   func clearCapture() { frames.removeAll() }
 }
@@ -484,7 +693,6 @@ private actor NativeRealtimeWriter {
 @MainActor
 private final class NativeRealtimeAudioPipeline {
   private let generation: UInt64
-  private let append: @Sendable (Data) async -> Void
   private let activity: @Sendable (Double, Double) -> Void
   private let rendered: @Sendable (NativeRealtimeRenderedBuffer) -> Void
   private let engine = AVAudioEngine()
@@ -492,17 +700,24 @@ private final class NativeRealtimeAudioPipeline {
   private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000, channels: 1, interleaved: true)!
   private var running = false
   private var ingress: NativeRealtimeCaptureIngress?
-  init(generation: UInt64, append: @escaping @Sendable (Data) async -> Void, activity: @escaping @Sendable (Double, Double) -> Void, rendered: @escaping @Sendable (NativeRealtimeRenderedBuffer) -> Void) {
-    self.generation = generation; self.append = append; self.activity = activity; self.rendered = rendered
+  init(
+    generation: UInt64,
+    activity: @escaping @Sendable (Double, Double) -> Void,
+    rendered: @escaping @Sendable (NativeRealtimeRenderedBuffer) -> Void
+  ) {
+    self.generation = generation; self.activity = activity; self.rendered = rendered
     engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: captureFormat)
   }
-  func startCapture() throws {
+  func startCapture(
+    append: @escaping @Sendable (Data) async -> Void,
+    inputActivity: @escaping @Sendable (Double) -> Void
+  ) throws {
     guard !running else { return }
     let input = engine.inputNode; let source = input.outputFormat(forBus: 0)
     guard let converter = AVAudioConverter(from: source, to: captureFormat) else { throw RealtimeVoiceTransportError.bridgeFailure }
     let ingress = NativeRealtimeCaptureIngress(
       sourceFormat: source, outputFormat: captureFormat, converter: converter,
-      consume: append, activity: activity
+      consume: append, activity: inputActivity
     )
     self.ingress = ingress
     input.installTap(onBus: 0, bufferSize: 480, format: source, block: NativeRealtimeCaptureTap.make(ingress: ingress))
@@ -590,9 +805,15 @@ private final class NativeRealtimeCaptureIngress: @unchecked Sendable {
   private let converter: AVAudioConverter
   private let deliveryContinuation: AsyncStream<Data>.Continuation
   private var deliveryTask: Task<Void, Never>?
-  private let activity: @Sendable (Double, Double) -> Void
+  private let activity: @Sendable (Double) -> Void
 
-  init(sourceFormat: AVAudioFormat, outputFormat: AVAudioFormat, converter: AVAudioConverter, consume: @escaping @Sendable (Data) async -> Void, activity: @escaping @Sendable (Double, Double) -> Void) {
+  init(
+    sourceFormat: AVAudioFormat,
+    outputFormat: AVAudioFormat,
+    converter: AVAudioConverter,
+    consume: @escaping @Sendable (Data) async -> Void,
+    activity: @escaping @Sendable (Double) -> Void
+  ) {
     self.sourceFormat = sourceFormat; self.outputFormat = outputFormat; self.converter = converter; self.activity = activity
     let delivery = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(4))
     deliveryContinuation = delivery.continuation
@@ -651,7 +872,7 @@ private final class NativeRealtimeCaptureIngress: @unchecked Sendable {
       }
       guard error == nil, output.frameLength > 0, let samples = output.int16ChannelData?[0] else { continue }
       let bytes = Data(bytes: samples, count: Int(output.frameLength) * 2)
-      activity(NativeRealtimeAudioPipeline.level(bytes), 0)
+      activity(NativeRealtimeAudioPipeline.level(bytes))
       deliveryContinuation.yield(bytes)
     }
   }
