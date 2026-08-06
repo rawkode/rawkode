@@ -85,7 +85,7 @@ import XCTest
       let relay = NativeRealtimeWebRTCEventRelay()
       let stream = relay.stream()
       let token = NativeBridgeToken(generation: 1, epoch: 1)
-      relay.storeReady(1); XCTAssertTrue(relay.bind(token, nonce: 1))
+      XCTAssertTrue(relay.storeReady(1)); XCTAssertTrue(relay.publishReady(1)); XCTAssertTrue(relay.bind(token, nonce: 1))
       var iterator = stream.makeAsyncIterator()
       let ready = await iterator.next()
       XCTAssertEqual(ready, .ready)
@@ -110,7 +110,7 @@ import XCTest
       let secondEnd = await secondIterator.next()
       XCTAssertNil(secondEnd)
       let token = NativeBridgeToken(generation: 7, epoch: 7)
-      relay.storeReady(1); XCTAssertTrue(relay.bind(token, nonce: 1))
+      XCTAssertTrue(relay.storeReady(1)); XCTAssertTrue(relay.publishReady(1)); XCTAssertTrue(relay.bind(token, nonce: 1))
       for index in 0..<255 { XCTAssertFalse(relay.enqueue(token, .serverEvent(generation: 7, json: "\(index)"))) }
       XCTAssertTrue(relay.enqueue(token, .serverEvent(generation: 7, json: "overflow")))
       relay.terminal(.failure(generation: 7, code: "event_overflow"))
@@ -124,8 +124,11 @@ import XCTest
     func testStaleReadinessNonceCannotBindOrEmitReady() async {
       let relay = NativeRealtimeWebRTCEventRelay()
       let token = NativeBridgeToken(generation: 2, epoch: 2)
-      relay.storeReady(11)
-      relay.storeReady(12)
+      XCTAssertTrue(relay.storeReady(12))
+      XCTAssertFalse(relay.storeReady(13))
+      XCTAssertFalse(relay.publishReady(11))
+      XCTAssertTrue(relay.publishReady(12))
+      XCTAssertFalse(relay.publishReady(12))
       XCTAssertFalse(relay.bind(token, nonce: 11))
       XCTAssertTrue(relay.bind(token, nonce: 12))
       var iterator = relay.stream().makeAsyncIterator()
@@ -133,11 +136,35 @@ import XCTest
       XCTAssertEqual(ready, .ready)
     }
 
+    func testStaleLoadingNonceCannotRepublishOrFinishFreshRelay() async {
+      let stale = NativeRealtimeWebRTCEventRelay()
+      XCTAssertTrue(stale.storeReady(11))
+      XCTAssertTrue(stale.publishReady(11))
+      XCTAssertTrue(stale.finishLoading(11))
+
+      let fresh = NativeRealtimeWebRTCEventRelay()
+      XCTAssertTrue(fresh.storeReady(12))
+      XCTAssertFalse(fresh.publishReady(11))
+      XCTAssertFalse(fresh.finishLoading(11))
+      XCTAssertTrue(fresh.publishReady(12))
+      var iterator = fresh.stream().makeAsyncIterator()
+      let ready = await iterator.next()
+      XCTAssertEqual(ready, .ready)
+
+      let token = NativeBridgeToken(generation: 12, epoch: 12)
+      XCTAssertTrue(fresh.bind(token, nonce: 12))
+      XCTAssertFalse(fresh.publishReady(12))
+      XCTAssertTrue(fresh.finishUnstarted(token))
+      let eof = await iterator.next()
+      XCTAssertNil(eof)
+    }
+
     func testUnstartedRelayRequiresItsBoundTokenAndOnlyPublishesOneEOF() async {
       let relay = NativeRealtimeWebRTCEventRelay()
       let active = NativeBridgeToken(generation: 41, epoch: 1)
       let stale = NativeBridgeToken(generation: 41, epoch: 2)
-      relay.storeReady(1)
+      XCTAssertTrue(relay.storeReady(1))
+      XCTAssertTrue(relay.publishReady(1))
       XCTAssertTrue(relay.bind(active, nonce: 1))
       var iterator = relay.stream().makeAsyncIterator()
       let ready = await iterator.next()
@@ -153,7 +180,9 @@ import XCTest
       let coordinator = NativeBridgeLifecycleCoordinator()
       let active = NativeBridgeToken(generation: 42, epoch: 1)
       let stale = NativeBridgeToken(generation: 42, epoch: 2)
-      XCTAssertTrue(coordinator.bindUnstarted(active))
+      XCTAssertTrue(coordinator.beginLoading(1))
+      XCTAssertFalse(coordinator.bindUnstarted(active, nonce: 2))
+      XCTAssertTrue(coordinator.bindUnstarted(active, nonce: 1))
       XCTAssertEqual(coordinator.testPhase, .boundUnstarted)
       XCTAssertFalse(coordinator.finishUnstarted(stale))
       XCTAssertTrue(coordinator.finishUnstarted(active))
@@ -164,11 +193,27 @@ import XCTest
       XCTAssertFalse(coordinator.beginPreinstall(active))
     }
 
+    func testCoordinatorLoadingStopRejectsLateBindPreinstallAndCallback() {
+      let coordinator = NativeBridgeLifecycleCoordinator()
+      let token = NativeBridgeToken(generation: 43, epoch: 1)
+      XCTAssertTrue(coordinator.beginLoading(43))
+      XCTAssertEqual(coordinator.testPhase, .loading(43))
+      XCTAssertFalse(coordinator.bindUnstarted(token, nonce: 42))
+      XCTAssertTrue(coordinator.finishLoading(43))
+      XCTAssertEqual(coordinator.testPhase, .finished)
+      XCTAssertFalse(coordinator.bindUnstarted(token, nonce: 43))
+      XCTAssertFalse(coordinator.beginPreinstall(token))
+      guard case .none = coordinator.reserveAndClaimTerminal(token, failure: "peer_terminal") else {
+        return XCTFail("a loading stop must reject late callback ingress")
+      }
+    }
+
     func testOverflowFirstThenStopJoinsAndDeliversFailureBeforeEOF() async {
       let relay = NativeRealtimeWebRTCEventRelay()
       let a = NativeBridgeToken(generation: 1, epoch: 1)
       let b = NativeBridgeToken(generation: 2, epoch: 2)
-      relay.storeReady(1)
+      XCTAssertTrue(relay.storeReady(1))
+      XCTAssertTrue(relay.publishReady(1))
       XCTAssertTrue(relay.bind(a, nonce: 1))
       // The bound readiness control occupies one of the 256 FIFO positions.
       for index in 0..<255 { XCTAssertFalse(relay.enqueue(a, .serverEvent(generation: 1, json: "\(index)"))) }
@@ -190,7 +235,8 @@ import XCTest
     func testStopFirstMakesDelayedTerminalCallbackHarmlessEOF() async {
       let relay = NativeRealtimeWebRTCEventRelay()
       let token = NativeBridgeToken(generation: 3, epoch: 3)
-      relay.storeReady(1)
+      XCTAssertTrue(relay.storeReady(1))
+      XCTAssertTrue(relay.publishReady(1))
       XCTAssertTrue(relay.bind(token, nonce: 1))
       let coordinator = NativeBridgeLifecycleCoordinator(); XCTAssertTrue(coordinator.beginPreinstall(token))
       guard case let .driver(completion) = coordinator.installTerminal(token, failure: nil) else { return XCTFail("stop should drive EOF") }
@@ -207,7 +253,8 @@ import XCTest
     func testDriverCancellationStillLeavesTicketCompletable() async {
       let relay = NativeRealtimeWebRTCEventRelay()
       let token = NativeBridgeToken(generation: 4, epoch: 4)
-      relay.storeReady(1)
+      XCTAssertTrue(relay.storeReady(1))
+      XCTAssertTrue(relay.publishReady(1))
       XCTAssertTrue(relay.bind(token, nonce: 1))
       let coordinator = NativeBridgeLifecycleCoordinator(); XCTAssertTrue(coordinator.beginPreinstall(token))
       guard case let .driver(completion) = coordinator.installTerminal(token, failure: "channel_terminal") else { return XCTFail("terminal should claim") }
@@ -290,7 +337,7 @@ import XCTest
       final class Snapshot {}
       let relay = NativeRealtimeWebRTCEventRelay(); let coordinator = NativeBridgeLifecycleCoordinator()
       let token = NativeBridgeToken(generation: 12, epoch: 12); let snapshot = Snapshot()
-      relay.storeReady(1); XCTAssertTrue(relay.bind(token, nonce: 1))
+      XCTAssertTrue(relay.storeReady(1)); XCTAssertTrue(relay.publishReady(1)); XCTAssertTrue(relay.bind(token, nonce: 1))
       XCTAssertTrue(coordinator.beginPreinstall(token)); XCTAssertTrue(coordinator.install(token, snapshot: snapshot)); coordinator.activateCallbacks(token)
       // ready is the first FIFO control, so this next ingress is the 257th.
       for index in 0..<255 { guard case .accepted = coordinator.ingestControl(token, .serverEvent(generation: 12, json: "\(index)"), relay: relay) else { return XCTFail("unexpected terminal") } }
@@ -472,15 +519,82 @@ import XCTest
       XCTAssertNil(eof)
     }
 
+    @MainActor func testLoadPublishesReadyToAStreamWaitingBeforeLoad() async throws {
+      let bridge = NativeRealtimeWebRTCBridge()
+      let stream = bridge.events()
+      let waiting = NativeRelayCompletion()
+      let readyTask = Task { @MainActor in
+        var iterator = stream.makeAsyncIterator()
+        waiting.finish()
+        return await iterator.next()
+      }
+      await waiting.wait()
+      await Task.yield()
+
+      try bridge.load()
+      let ready = await readyTask.value
+      XCTAssertEqual(ready, .ready)
+
+      try await bridge.authorize(try makeBridgeAuthorization(generation: 30), generation: 30)
+      await bridge.stop()
+    }
+
+    @MainActor func testTransportOrderingFixtureLoadsReadyThenAuthorizesWithoutDuplicate() async throws {
+      let bridge = NativeRealtimeWebRTCBridge()
+      try bridge.load()
+      var iterator = bridge.events().makeAsyncIterator()
+      let ready = await iterator.next()
+      XCTAssertEqual(ready, .ready)
+
+      try await bridge.authorize(try makeBridgeAuthorization(generation: 31), generation: 31)
+      await bridge.stop()
+      let eof = await iterator.next()
+      XCTAssertNil(eof, "bind must consume readiness without publishing a second ready")
+      let repeatedEOF = await iterator.next()
+      XCTAssertNil(repeatedEOF)
+    }
+
+    @MainActor func testLoadingStopPublishesEOFAndRejectsLateAuthorizationStartAndCallback() async throws {
+      let generation: UInt64 = 32
+      let heldDriver = HeldTerminalDriverScheduler()
+      let bridge = NativeRealtimeWebRTCBridge(terminalDriverScheduler: heldDriver.makeScheduler())
+      try bridge.load()
+      var iterator = bridge.events().makeAsyncIterator()
+      let ready = await iterator.next()
+      XCTAssertEqual(ready, .ready)
+
+      await bridge.stop()
+      let eof = await iterator.next()
+      XCTAssertNil(eof)
+      let repeatedEOF = await iterator.next()
+      XCTAssertNil(repeatedEOF)
+
+      do {
+        try await bridge.authorize(try makeBridgeAuthorization(generation: generation), generation: generation)
+        XCTFail("a loading stop must reject late authorization")
+      } catch {}
+      do {
+        try await bridge.start(generation: generation)
+        XCTFail("a loading stop must reject start")
+      } catch {}
+      let stoppedToken = NativeBridgeToken(generation: generation, epoch: 1)
+      bridge.testMakePeerProxy(stoppedToken).testTerminalIngress(.peerTerminal)
+      bridge.testMakeChannelProxy(stoppedToken).testTerminalIngress(.channelTerminal)
+      await Task.yield()
+      XCTAssertEqual(heldDriver.count, 0)
+      XCTAssertNil(bridge.testTerminalFailure)
+      XCTAssertNil(bridge.testTerminalDriverTask)
+    }
+
     @MainActor func testAuthorizedUnstartedStopPublishesEOFWithoutDriverAndRejectsLateIngress() async throws {
       let generation: UInt64 = 30
       let heldDriver = HeldTerminalDriverScheduler()
       let bridge = NativeRealtimeWebRTCBridge(terminalDriverScheduler: heldDriver.makeScheduler())
       try bridge.load()
-      try await bridge.authorize(try makeBridgeAuthorization(generation: generation), generation: generation)
       var iterator = bridge.events().makeAsyncIterator()
       let ready = await iterator.next()
       XCTAssertEqual(ready, .ready)
+      try await bridge.authorize(try makeBridgeAuthorization(generation: generation), generation: generation)
 
       await bridge.stop()
       let eof = await iterator.next()
@@ -505,10 +619,10 @@ import XCTest
       let retryDriver = HeldTerminalDriverScheduler()
       let retry = NativeRealtimeWebRTCBridge(terminalDriverScheduler: retryDriver.makeScheduler())
       try retry.load()
-      try await retry.authorize(try makeBridgeAuthorization(generation: retryGeneration), generation: retryGeneration)
       var retryIterator = retry.events().makeAsyncIterator()
       let retryReady = await retryIterator.next()
       XCTAssertEqual(retryReady, .ready)
+      try await retry.authorize(try makeBridgeAuthorization(generation: retryGeneration), generation: retryGeneration)
       await retry.stop()
       let retryEOF = await retryIterator.next()
       XCTAssertNil(retryEOF)

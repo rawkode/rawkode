@@ -106,8 +106,14 @@
     func load() throws {
       guard case .idle = state, lifecycle.currentEpoch != nil, nextLoadNonce < .max else { throw RealtimeVoiceTransportError.bridgeClosed }
       nextLoadNonce += 1
-      state = .loading(nextLoadNonce)
-      relay.storeReady(nextLoadNonce)
+      let nonce = nextLoadNonce
+      guard coordinator.beginLoading(nonce), relay.storeReady(nonce), relay.publishReady(nonce) else {
+        _ = coordinator.finishLoading(nonce)
+        relay.finish()
+        state = .terminal
+        throw RealtimeVoiceTransportError.bridgeClosed
+      }
+      state = .loading(nonce)
     }
 
     func authorize(_ capability: RealtimeWebRTCBridgeAuthorization, generation: UInt64) async throws {
@@ -115,8 +121,9 @@
       let token = NativeBridgeToken(generation: generation, epoch: epoch)
       authorization.revoke()
       do { try authorization.activate(capability, generation: generation) } catch { throw RealtimeVoiceTransportError.bridgeClosed }
-      guard coordinator.bindUnstarted(token), relay.bind(token, nonce: nonce) else {
+      guard coordinator.bindUnstarted(token, nonce: nonce), relay.bind(token, nonce: nonce) else {
         coordinator.cancelUnstarted(token)
+        _ = relay.finishLoading(nonce)
         authorization.revoke()
         state = .terminal
         throw RealtimeVoiceTransportError.bridgeClosed
@@ -209,11 +216,16 @@
 
     func stop() async {
       guard state != .stopped, lifecycle.stop() != nil else { return }
-      let token = ownedToken ?? relay.activeTokenForStop
-      if let token, coordinator.finishUnstarted(token) {
-        _ = relay.finishUnstarted(token)
-      } else if let token { await awaitTerminalResult(ingress.submit(token, .terminal(nil))) }
-      else { relay.finish() }
+      if case let .loading(nonce) = state {
+        if coordinator.finishLoading(nonce) { _ = relay.finishLoading(nonce) }
+        else { relay.finish() }
+      } else {
+        let token = ownedToken ?? relay.activeTokenForStop
+        if let token, coordinator.finishUnstarted(token) {
+          _ = relay.finishUnstarted(token)
+        } else if let token { await awaitTerminalResult(ingress.submit(token, .terminal(nil))) }
+        else { relay.finish() }
+      }
       authorization.revoke()
       state = .stopped
     }
@@ -293,7 +305,7 @@
     func testPrepareTerminalIngress(_ token: NativeBridgeToken) -> Bool {
       state = .active(token)
       relay.storeReady(token.epoch)
-      guard relay.bind(token, nonce: token.epoch), coordinator.beginPreinstall(token) else { return false }
+      guard relay.publishReady(token.epoch), relay.bind(token, nonce: token.epoch), coordinator.beginPreinstall(token) else { return false }
       final class TestSnapshot {}
       let snapshot = TestSnapshot()
       guard coordinator.install(token, snapshot: snapshot) else { return false }
@@ -315,7 +327,7 @@
   /// particular, terminal installation is synchronous: a callback wins the
   /// race before its MainActor cleanup task is even scheduled.
   final class NativeBridgeLifecycleCoordinator: @unchecked Sendable {
-    enum Phase: Equatable { case idle, boundUnstarted, preinstall, installed, tearingDown, terminal, finished }
+    enum Phase: Equatable { case idle, loading(UInt64), boundUnstarted, preinstall, installed, tearingDown, terminal, finished }
     final class TerminalTicket: @unchecked Sendable { let token: NativeBridgeToken; let failure: String?; let completion = NativeRelayCompletion(); init(token: NativeBridgeToken, failure: String?) { self.token = token; self.failure = failure } }
     enum TerminalClaim { case driver(TerminalTicket), join(TerminalTicket), none }
     enum ControlClaim { case accepted, driver(TerminalTicket), rejected }
@@ -329,10 +341,15 @@
     private var admissions = 0
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
 
-    /// Authorization owns this state before any peer, channel, snapshot, or
-    /// terminal ticket exists. It gives `stop()` an explicit publication-only
-    /// exit instead of inventing a teardown ticket without resources.
-    func bindUnstarted(_ token: NativeBridgeToken) -> Bool { lock.withLock { guard phase == .idle, active == nil, terminal == nil else { return false }; active = token; phase = .boundUnstarted; return true } }
+    /// Loading owns its one ready nonce before authorization, peer, channel,
+    /// snapshot, or terminal ticket exists. Both binding and stop consume this
+    /// exact state so a stopped readiness can never be revived.
+    func beginLoading(_ nonce: UInt64) -> Bool { lock.withLock { guard phase == .idle, active == nil, terminal == nil else { return false }; phase = .loading(nonce); return true } }
+    func finishLoading(_ nonce: UInt64) -> Bool { lock.withLock { guard phase == .loading(nonce), active == nil, terminal == nil else { return false }; phase = .finished; return true } }
+    /// Authorization consumes the ready nonce before any peer, channel,
+    /// snapshot, or terminal ticket exists. It gives `stop()` an explicit
+    /// publication-only exit instead of inventing a teardown ticket.
+    func bindUnstarted(_ token: NativeBridgeToken, nonce: UInt64) -> Bool { lock.withLock { guard phase == .loading(nonce), active == nil, terminal == nil else { return false }; active = token; phase = .boundUnstarted; return true } }
     func cancelUnstarted(_ token: NativeBridgeToken) { lock.withLock { guard phase == .boundUnstarted, active == token, terminal == nil else { return }; active = nil; phase = .finished } }
     func finishUnstarted(_ token: NativeBridgeToken) -> Bool { lock.withLock { guard phase == .boundUnstarted, active == token, terminal == nil else { return false }; active = nil; snapshotID = nil; callbacksActive = false; phase = .finished; return true } }
     func beginPreinstall(_ token: NativeBridgeToken) -> Bool {
@@ -341,7 +358,7 @@
         switch phase {
         case .boundUnstarted: guard active == token else { return false }
         case .idle: active = token // deterministic ingress fixtures begin here.
-        case .preinstall, .installed, .tearingDown, .terminal, .finished: return false
+        case .loading, .preinstall, .installed, .tearingDown, .terminal, .finished: return false
         }
         phase = .preinstall
         return true
@@ -399,19 +416,29 @@
   private extension Duration { var timeInterval: DispatchTimeInterval { .nanoseconds(Int(components.seconds * 1_000_000_000) + Int(components.attoseconds / 1_000_000_000)) } }
 
   final class NativeRealtimeWebRTCEventRelay: @unchecked Sendable {
-    private let lock = NSLock(); private var activeToken: NativeBridgeToken?; private var pendingReady: UInt64?; private var controls: [RealtimeWebRTCBridgeEvent] = []; private var terminal: RealtimeWebRTCBridgeEvent?; private var activity: RealtimeWebRTCBridgeEvent?; private var waiter: CheckedContinuation<RealtimeWebRTCBridgeEvent?, Never>?; private var consumer = false; private var finished = false
+    private let lock = NSLock(); private var activeToken: NativeBridgeToken?; private var pendingReady: UInt64?; private var publishedReady: UInt64?; private var controls: [RealtimeWebRTCBridgeEvent] = []; private var terminal: RealtimeWebRTCBridgeEvent?; private var activity: RealtimeWebRTCBridgeEvent?; private var waiter: CheckedContinuation<RealtimeWebRTCBridgeEvent?, Never>?; private var consumer = false; private var finished = false
     var activeTokenForStop: NativeBridgeToken? { lock.withLock { activeToken } }
     func stream() -> AsyncStream<RealtimeWebRTCBridgeEvent> { lock.lock(); guard !consumer else { lock.unlock(); return AsyncStream(unfolding: { nil }) }; consumer = true; lock.unlock(); return AsyncStream(unfolding: { await self.next() }) }
-    func storeReady(_ nonce: UInt64) { lock.lock(); guard !finished else { lock.unlock(); return }; pendingReady = nonce; lock.unlock() }
-    func bind(_ token: NativeBridgeToken, nonce: UInt64) -> Bool { lock.lock(); guard !finished, activeToken == nil, pendingReady == nonce else { lock.unlock(); return false }; activeToken = token; pendingReady = nil; controls.append(.ready); let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value); return true }
+    /// Records the sole readiness nonce before `load()` publishes it. A bridge
+    /// cannot replace or reuse a readiness once publication has begun.
+    @discardableResult func storeReady(_ nonce: UInt64) -> Bool { lock.lock(); guard !finished, activeToken == nil, pendingReady == nil, publishedReady == nil else { lock.unlock(); return false }; pendingReady = nonce; lock.unlock(); return true }
+    /// `load()` is the one producer of `.ready`. It works whether an iterator
+    /// is already suspended or will be created after load returns.
+    @discardableResult func publishReady(_ nonce: UInt64) -> Bool { lock.lock(); guard !finished, activeToken == nil, pendingReady == nonce, publishedReady == nil else { lock.unlock(); return false }; publishedReady = nonce; controls.append(.ready); let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value); return true }
+    /// Binding consumes the exact published readiness and deliberately does
+    /// not emit another `.ready`.
+    func bind(_ token: NativeBridgeToken, nonce: UInt64) -> Bool { lock.lock(); guard !finished, activeToken == nil, pendingReady == nonce, publishedReady == nonce else { lock.unlock(); return false }; activeToken = token; pendingReady = nil; publishedReady = nil; lock.unlock(); return true }
     /// Publication only.  The coordinator reserves overflow before invoking
     /// this method; `true` asks it to install that terminal ticket.
     func enqueue(_ token: NativeBridgeToken, _ event: RealtimeWebRTCBridgeEvent) -> Bool { lock.lock(); guard !finished, activeToken == token else { lock.unlock(); return false }; if case .audioActivity = event { activity = event } else if controls.count < 256 { controls.append(event) } else { lock.unlock(); return true }; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value); return false }
-    func terminal(_ event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard terminal == nil else { lock.unlock(); return }; controls.removeAll(); activity = nil; terminal = event; finished = true; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value) }
+    func terminal(_ event: RealtimeWebRTCBridgeEvent) { lock.lock(); guard terminal == nil else { lock.unlock(); return }; activeToken = nil; pendingReady = nil; publishedReady = nil; controls.removeAll(); activity = nil; terminal = event; finished = true; let waiting = waiter; self.waiter = nil; let value = waiting == nil ? nil : dequeue(); lock.unlock(); waiting?.resume(returning: value) }
+    /// A ready-but-not-authorized bridge has no terminal ticket, driver, or
+    /// resources. Validate the published nonce and publish only its EOF.
+    @discardableResult func finishLoading(_ nonce: UInt64) -> Bool { lock.lock(); guard !finished, terminal == nil, activeToken == nil, pendingReady == nonce, publishedReady == nonce else { lock.unlock(); return false }; pendingReady = nil; publishedReady = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil); return true }
     /// The authorized-but-unstarted branch has no terminal ticket, driver, or
     /// resources. Validate the bound token and publish its one EOF directly.
-    @discardableResult func finishUnstarted(_ token: NativeBridgeToken) -> Bool { lock.lock(); guard !finished, terminal == nil, activeToken == token else { lock.unlock(); return false }; activeToken = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil); return true }
-    func finish() { lock.lock(); guard terminal == nil else { lock.unlock(); return }; activeToken = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil) }
+    @discardableResult func finishUnstarted(_ token: NativeBridgeToken) -> Bool { lock.lock(); guard !finished, terminal == nil, activeToken == token else { lock.unlock(); return false }; activeToken = nil; pendingReady = nil; publishedReady = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil); return true }
+    func finish() { lock.lock(); guard terminal == nil else { lock.unlock(); return }; activeToken = nil; pendingReady = nil; publishedReady = nil; controls.removeAll(); activity = nil; finished = true; let waiting = waiter; self.waiter = nil; lock.unlock(); waiting?.resume(returning: nil) }
     private func next() async -> RealtimeWebRTCBridgeEvent? { await withCheckedContinuation { continuation in lock.lock(); if let value = dequeue() { lock.unlock(); continuation.resume(returning: value) } else if finished { lock.unlock(); continuation.resume(returning: nil) } else { waiter = continuation; lock.unlock() } } }
     private func dequeue() -> RealtimeWebRTCBridgeEvent? { if let terminal { self.terminal = nil; return terminal }; if !controls.isEmpty { return controls.removeFirst() }; if let activity { self.activity = nil; return activity }; return nil }
   }
