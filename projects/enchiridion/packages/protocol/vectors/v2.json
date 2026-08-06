@@ -35,12 +35,28 @@
     }
   },
   "websocket": {
+    "serverHelloChallenge": {
+      "type": "serverHelloChallenge",
+      "protocolVersion": 2,
+      "connectionNonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "issuedAt": 1760000000000,
+      "expiresAt": 1760000120000,
+      "ownerID": "owner-1",
+      "vaultID": "vault-1",
+      "authEpoch": 3,
+      "credentialEpoch": 4,
+      "generationEpoch": 5
+    },
     "hello": {
       "type": "hello",
-      "supportedProtocolVersions": [2],
+      "protocolVersion": 2,
+      "connectionNonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "resumeToken": "AAAAAAAAAAAAAAAAAAAAAA",
       "deviceID": "device-1",
+      "authEpoch": 3,
       "deviceSignature": "MAYCAQECAQE="
     },
+    "helloSigningPayloadBase64": "RU5DSFdTSEVMTE8BAAAABWhlbGxvAAAAATIAAAAWQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQAAAA0xNzYwMDAwMDAwMDAwAAAADTE3NjAwMDAxMjAwMDAAAAAHb3duZXItMQAAAAd2YXVsdC0xAAAAATMAAAABNAAAAAE1AAAAATIAAAAWQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQAAABZBQUFBQUFBQUFBQUFBQUFBQUFBQUFBAAAACGRldmljZS0xAAAAATM=",
     "helloAccepted": {
       "type": "helloAccepted",
       "protocolVersion": 2,
@@ -51,6 +67,7 @@
       "credentialEpoch": 4,
       "generationEpoch": 5,
       "sessionNonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "resumeToken": "AAAAAAAAAAAAAAAAAAAAAA",
       "assertionExpiresAt": 1760000120000
     },
     "signedSyncChange": {

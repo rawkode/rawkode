@@ -11,6 +11,8 @@ const MAX_TEXT_LENGTH = 512;
 const MAX_PAYLOAD_BASE64_LENGTH = 1_398_104; // 1 MiB decoded payload.
 const MAX_CANONICAL_PATH_LENGTH = 512;
 const MAX_CANONICAL_QUERY_LENGTH = 1_024;
+/** Opaque, server-issued resumptions are bounded before the raw frame reaches a DO. */
+export const maximumResumeTokenLength = 512;
 /**
  * Raw JSON enters the worker before schema validation, so bound the structural
  * pass independently of any individual protocol payload limit. The largest
@@ -420,6 +422,21 @@ export const FrameIDSchema = Schema.String.pipe(
   Schema.annotations({ jsonSchema: { format: "base64url-128" } }),
   named("FrameID"),
 );
+/** Canonical base64url opaque session continuation, never a bearer header value. */
+export const ResumeTokenSchema = Schema.String.pipe(
+  Schema.pattern(base64urlText),
+  Schema.minLength(22),
+  Schema.maxLength(maximumResumeTokenLength),
+  Schema.filter((value) => fromBase64url(value) !== undefined),
+  Schema.annotations({
+    jsonSchema: {
+      format: "base64url-canonical",
+      minLength: 22,
+      maxLength: maximumResumeTokenLength,
+    },
+  }),
+  named("ResumeToken"),
+);
 export const ProtocolVersionSchema = Schema.Literal(protocolVersion).pipe(named("ProtocolVersion"));
 export const SHA256DigestSchema = Schema.String.pipe(
   Schema.pattern(sha256Digest),
@@ -672,15 +689,33 @@ export const BlobDeleteRequestSchema = Schema.Struct({
   command: BlobDeleteCommandSchema,
 }).pipe(named("BlobDeleteRequest"));
 
-/** First client frame. No application message is valid before a hello. */
+/**
+ * The first server frame immediately after a successful WebSocket upgrade.
+ * The connection nonce is CSPRNG-issued by the Worker; this schema preserves
+ * its canonical 128-bit wire representation and binds all server selection.
+ */
+export const ServerHelloChallengeFrameSchema = Schema.Struct({
+  type: Schema.Literal("serverHelloChallenge"),
+  protocolVersion: ProtocolVersionSchema,
+  connectionNonce: FrameIDSchema,
+  issuedAt: SignedTimestampSchema,
+  expiresAt: SignedTimestampSchema,
+  ownerID: OwnerIDSchema,
+  vaultID: VaultIDSchema,
+  authEpoch: AuthEpochSchema,
+  credentialEpoch: CredentialEpochSchema,
+  generationEpoch: GenerationEpochSchema,
+}).pipe(named("ServerHelloChallengeFrame"));
+
+/** First client frame, signed against the immediately preceding server challenge. */
 export const HelloFrameSchema = Schema.Struct({
   type: Schema.Literal("hello"),
-  supportedProtocolVersions: Schema.Array(ProtocolVersionSchema).pipe(
-    Schema.minItems(1),
-    Schema.maxItems(1),
-  ),
+  protocolVersion: ProtocolVersionSchema,
+  connectionNonce: FrameIDSchema,
+  resumeToken: Schema.optional(ResumeTokenSchema),
   deviceID: DeviceIDSchema,
-  /** P-256 DER signature of `helloSigningPayload(frame)`. */
+  authEpoch: AuthEpochSchema,
+  /** Low-S P-256 DER signature of `helloSigningPayload(frame, challenge)`. */
   deviceSignature: P256SignatureBase64Schema,
 }).pipe(named("HelloFrame"));
 
@@ -694,6 +729,8 @@ export const HelloAcceptedFrameSchema = Schema.Struct({
   credentialEpoch: CredentialEpochSchema,
   generationEpoch: GenerationEpochSchema,
   sessionNonce: FrameIDSchema,
+  /** Rotated, opaque continuation token. It is never supplied in an HTTP header. */
+  resumeToken: ResumeTokenSchema,
   assertionExpiresAt: SignedTimestampSchema,
 }).pipe(named("HelloAcceptedFrame"));
 
@@ -735,6 +772,7 @@ export const ProtocolErrorFrameSchema = Schema.Struct({
 
 export const ClientWebSocketFrameSchema = Schema.Union(HelloFrameSchema, SyncChangeFrameSchema);
 export const ServerWebSocketFrameSchema = Schema.Union(
+  ServerHelloChallengeFrameSchema,
   HelloAcceptedFrameSchema,
   SyncAcknowledgedFrameSchema,
   ProtocolErrorFrameSchema,
@@ -759,6 +797,7 @@ export const protocolSchemaDefinitions = {
   ContentAddressedBlobOperation: ContentAddressedBlobOperationSchema,
   BlobDeleteCommand: BlobDeleteCommandSchema,
   BlobDeleteRequest: BlobDeleteRequestSchema,
+  ServerHelloChallengeFrame: ServerHelloChallengeFrameSchema,
   HelloFrame: HelloFrameSchema,
   HelloAcceptedFrame: HelloAcceptedFrameSchema,
   SyncChangeFrame: SyncChangeFrameSchema,
@@ -787,6 +826,7 @@ export type ContentAddressedBlobOperation = Schema.Schema.Type<
 >;
 export type BlobDeleteCommand = Schema.Schema.Type<typeof BlobDeleteCommandSchema>;
 export type BlobDeleteRequest = Schema.Schema.Type<typeof BlobDeleteRequestSchema>;
+export type ServerHelloChallengeFrame = Schema.Schema.Type<typeof ServerHelloChallengeFrameSchema>;
 export type ClientWebSocketFrame = Schema.Schema.Type<typeof ClientWebSocketFrameSchema>;
 export type ServerWebSocketFrame = Schema.Schema.Type<typeof ServerWebSocketFrameSchema>;
 export type SyncChangeFrame = Schema.Schema.Type<typeof SyncChangeFrameSchema>;
@@ -850,7 +890,27 @@ const mutationRequestKeys = ["envelope", "command"];
 const blobOperationKeys = ["type", "blobSHA256", "contentLength"];
 const blobDeleteCommandKeys = ["type", "blobSHA256"];
 const blobDeleteRequestKeys = ["envelope", "command"];
-const helloKeys = ["type", "supportedProtocolVersions", "deviceID", "deviceSignature"];
+const serverHelloChallengeKeys = [
+  "type",
+  "protocolVersion",
+  "connectionNonce",
+  "issuedAt",
+  "expiresAt",
+  "ownerID",
+  "vaultID",
+  "authEpoch",
+  "credentialEpoch",
+  "generationEpoch",
+];
+const helloKeys = [
+  "type",
+  "protocolVersion",
+  "connectionNonce",
+  "resumeToken",
+  "deviceID",
+  "authEpoch",
+  "deviceSignature",
+];
 const helloAcceptedKeys = [
   "type",
   "protocolVersion",
@@ -861,6 +921,7 @@ const helloAcceptedKeys = [
   "credentialEpoch",
   "generationEpoch",
   "sessionNonce",
+  "resumeToken",
   "assertionExpiresAt",
 ];
 const syncChangeKeys = [
@@ -1248,9 +1309,32 @@ export function decodeClientWebSocketFrame(input: unknown): ClientWebSocketFrame
   }
   return decodeClientWebSocketFrameSchema(frame);
 }
+
+/**
+ * Shared server-challenge policy. Raw decoding validates the bounded issuance
+ * window; a signing caller must additionally supply its deterministic clock so
+ * an already-expired challenge cannot be signed.
+ */
+export function validateServerHelloChallenge(
+  challenge: ServerHelloChallengeFrame,
+  nowMilliseconds?: number,
+): void {
+  const lifetime = challenge.expiresAt - challenge.issuedAt;
+  if (lifetime < SIGNED_REQUEST_MINIMUM_TTL || lifetime > SIGNED_REQUEST_MAXIMUM_TTL)
+    throw new TypeError("Server hello challenge expiry must be between 1,000 and 300,000ms.");
+  if (nowMilliseconds !== undefined) {
+    if (!Number.isSafeInteger(nowMilliseconds))
+      throw new TypeError("Hello challenge clock must be a finite safe integer.");
+    if (challenge.expiresAt <= nowMilliseconds)
+      throw new TypeError("Server hello challenge has expired.");
+  }
+}
+
 export function decodeServerWebSocketFrame(input: unknown): ServerWebSocketFrame {
   const frame = record(input, "server websocket frame");
-  if (frame.type === "helloAccepted")
+  if (frame.type === "serverHelloChallenge")
+    rejectUnknownKeys(frame, serverHelloChallengeKeys, "server hello challenge frame");
+  else if (frame.type === "helloAccepted")
     rejectUnknownKeys(frame, helloAcceptedKeys, "hello accepted frame");
   else if (frame.type === "syncAcknowledged")
     rejectUnknownKeys(frame, syncAcknowledgedKeys, "sync acknowledged frame");
@@ -1258,7 +1342,9 @@ export function decodeServerWebSocketFrame(input: unknown): ServerWebSocketFrame
     rejectUnknownKeys(frame, protocolErrorKeys, "protocol error frame");
     strictErrorBody(frame.error);
   }
-  return decodeServerWebSocketFrameSchema(frame);
+  const decoded = decodeServerWebSocketFrameSchema(frame);
+  if (decoded.type === "serverHelloChallenge") validateServerHelloChallenge(decoded);
+  return decoded;
 }
 
 /**
@@ -1321,11 +1407,31 @@ export function deviceChallengeProofSigningPayload(proof: DeviceChallengeProof):
 
 export function helloSigningPayload(
   frame: Schema.Schema.Type<typeof HelloFrameSchema>,
+  challenge: ServerHelloChallengeFrame,
+  nowMilliseconds: number,
 ): Uint8Array {
-  return lengthPrefixedUTF8("ENCHHELLO", 1, [
+  if (
+    frame.protocolVersion !== challenge.protocolVersion ||
+    frame.connectionNonce !== challenge.connectionNonce
+  )
+    throw new TypeError("Hello must echo the exact server challenge version and nonce.");
+  validateServerHelloChallenge(challenge, nowMilliseconds);
+  return lengthPrefixedUTF8("ENCHWSHELLO", 1, [
     frame.type,
-    frame.supportedProtocolVersions.join(","),
+    String(challenge.protocolVersion),
+    challenge.connectionNonce,
+    String(challenge.issuedAt),
+    String(challenge.expiresAt),
+    challenge.ownerID,
+    challenge.vaultID,
+    String(challenge.authEpoch),
+    String(challenge.credentialEpoch),
+    String(challenge.generationEpoch),
+    String(frame.protocolVersion),
+    frame.connectionNonce,
+    frame.resumeToken ?? "null",
     frame.deviceID,
+    String(frame.authEpoch),
   ]);
 }
 
@@ -1561,6 +1667,21 @@ export const websocketContract = {
   httpNegotiationFailureStatus: 426,
   clientSchema: "ClientWebSocketFrame",
   serverSchema: "ServerWebSocketFrame",
+  handshake: {
+    serverFirstFrame: "ServerHelloChallengeFrame",
+    clientHelloFrame: "HelloFrame",
+    acceptedFrame: "HelloAcceptedFrame",
+    connectionNonce: "canonical 128-bit base64url CSPRNG value",
+    resumeToken:
+      "optional canonical base64url in Hello; required rotated canonical base64url in HelloAccepted",
+    signingPayload: {
+      magic: "ENCHWSHELLO",
+      version: 1,
+      algorithm: "p256-sha256-der-low-s",
+      canonicalBytes:
+        "After rejecting challenge lifetimes outside 1,000..300,000ms and expiresAt <= caller nowMilliseconds, ASCII magic ENCHWSHELLO, u8 1, then u32-big-endian UTF-8 byte length and bytes for: hello type, challenge protocolVersion, connectionNonce, issuedAt, expiresAt, ownerID, vaultID, authEpoch, credentialEpoch, generationEpoch, hello protocolVersion, hello connectionNonce, resumeToken or literal null, deviceID, hello authEpoch.",
+    },
+  },
   syncChangeProof: {
     signingPayloadVersion: syncFrameSigningPayloadVersion,
     algorithm: "p256-sha256-der",

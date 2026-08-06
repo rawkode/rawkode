@@ -20,6 +20,7 @@ import {
   decodeServerWebSocketFrameJSON,
   decodeSignedRequestHeader,
   deviceChallengeProofSigningPayload,
+  helloSigningPayload,
   isCanonicalP256LowSSignature,
   parseJSONWithoutDuplicateMembers,
   protocolVersion,
@@ -59,6 +60,37 @@ function signedSyncChange(
     frameID: validFrameID,
     signingPayloadVersion: 1,
     payloadBase64: "AQI=",
+    deviceSignature: p256SignatureBase64,
+    ...overrides,
+  };
+}
+
+function serverHelloChallenge(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    type: "serverHelloChallenge",
+    protocolVersion,
+    connectionNonce: validFrameID,
+    issuedAt: 1_760_000_000_000,
+    expiresAt: 1_760_000_120_000,
+    ownerID: "owner-1",
+    vaultID: "vault-1",
+    authEpoch: 3,
+    credentialEpoch: 4,
+    generationEpoch: 5,
+    ...overrides,
+  };
+}
+
+function signedHello(overrides: Readonly<Record<string, unknown>> = {}): Record<string, unknown> {
+  return {
+    type: "hello",
+    protocolVersion,
+    connectionNonce: validFrameID,
+    resumeToken: "AAAAAAAAAAAAAAAAAAAAAA",
+    deviceID: "device-1",
+    authEpoch: 3,
     deviceSignature: p256SignatureBase64,
     ...overrides,
   };
@@ -274,20 +306,15 @@ describe("v2 protocol schemas", () => {
     }
   });
 
-  test("decodes the client hello and stable server error vectors", () => {
-    expect(
-      decodeClientWebSocketFrame({
-        type: "hello",
-        supportedProtocolVersions: [2],
-        deviceID: "device-1",
-        deviceSignature: p256SignatureBase64,
-      }),
-    ).toEqual({
-      type: "hello",
-      supportedProtocolVersions: [2],
-      deviceID: "device-1",
-      deviceSignature: p256SignatureBase64,
-    });
+  test("decodes the challenged client hello and stable server error vectors", () => {
+    expect(decodeClientWebSocketFrame(signedHello()).type).toBe("hello");
+    expect(decodeServerWebSocketFrame(serverHelloChallenge()).type).toBe("serverHelloChallenge");
+    expect(() =>
+      decodeServerWebSocketFrame(serverHelloChallenge({ expiresAt: 1_760_000_000_500 })),
+    ).toThrow("expiry");
+    expect(() =>
+      decodeServerWebSocketFrame(serverHelloChallenge({ expiresAt: 1_760_000_400_001 })),
+    ).toThrow("expiry");
     expect(
       decodeServerWebSocketFrame({
         type: "error",
@@ -425,6 +452,22 @@ describe("v2 protocol schemas", () => {
     ).toThrow();
     expect(() => decodeClientWebSocketFrameJSON('{"type":"hello","type":"hello"}')).toThrow();
     expect(() =>
+      decodeServerWebSocketFrameJSON(
+        JSON.stringify(serverHelloChallenge()).replace(
+          `"connectionNonce":"${validFrameID}",`,
+          `"connectionNonce":"${validFrameID}","connectionNonce":"${validFrameID}",`,
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      decodeClientWebSocketFrameJSON(
+        JSON.stringify(signedHello()).replace(
+          `"connectionNonce":"${validFrameID}",`,
+          `"connectionNonce":"${validFrameID}","connectionNonce":"${validFrameID}",`,
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
       decodeDeviceChallengeRequestJSON(
         `{"protocolVersion":2,"protocolVersion":2,"devicePublicKey":"${p256SPKIBase64}","challengeAudience":"enchiridion"}`,
       ),
@@ -437,6 +480,62 @@ describe("v2 protocol schemas", () => {
           `"nonce":"${validFrameID}","nonce":"${validFrameID}",`,
         ),
       ),
+    ).toThrow();
+  });
+
+  test("binds the server challenge and nullable resume token in ENCHWSHELLO v1", () => {
+    const challenge = decodeServerWebSocketFrame(serverHelloChallenge());
+    if (challenge.type !== "serverHelloChallenge") throw new Error("Expected server challenge");
+    const hello = decodeClientWebSocketFrame(signedHello());
+    if (hello.type !== "hello") throw new Error("Expected hello");
+    const baseline = Buffer.from(helloSigningPayload(hello, challenge, 1_760_000_000_001)).toString(
+      "base64",
+    );
+    for (const changedChallenge of [
+      serverHelloChallenge({ ownerID: "owner-2" }),
+      serverHelloChallenge({ vaultID: "vault-2" }),
+      serverHelloChallenge({ authEpoch: 4 }),
+      serverHelloChallenge({ credentialEpoch: 5 }),
+      serverHelloChallenge({ generationEpoch: 6 }),
+      serverHelloChallenge({ issuedAt: 1_760_000_001_000, expiresAt: 1_760_000_121_000 }),
+    ]) {
+      const decoded = decodeServerWebSocketFrame(changedChallenge);
+      if (decoded.type !== "serverHelloChallenge") throw new Error("Expected server challenge");
+      expect(
+        Buffer.from(helloSigningPayload(hello, decoded, 1_760_000_000_001)).toString("base64"),
+      ).not.toBe(baseline);
+    }
+    const changedNonceChallenge = decodeServerWebSocketFrame(
+      serverHelloChallenge({ connectionNonce: "AAAAAAAAAAAAAAAAAAAAAQ" }),
+    );
+    const changedNonceHello = decodeClientWebSocketFrame(
+      signedHello({ connectionNonce: "AAAAAAAAAAAAAAAAAAAAAQ" }),
+    );
+    if (changedNonceChallenge.type !== "serverHelloChallenge" || changedNonceHello.type !== "hello")
+      throw new Error("Expected challenged hello");
+    expect(
+      Buffer.from(
+        helloSigningPayload(changedNonceHello, changedNonceChallenge, 1_760_000_000_001),
+      ).toString("base64"),
+    ).not.toBe(baseline);
+    const resumed = decodeClientWebSocketFrame(signedHello({ resumeToken: undefined }));
+    if (resumed.type !== "hello") throw new Error("Expected hello");
+    expect(
+      Buffer.from(helloSigningPayload(resumed, challenge, 1_760_000_000_001)).toString("base64"),
+    ).not.toBe(baseline);
+    expect(() =>
+      helloSigningPayload(
+        hello,
+        decodeServerWebSocketFrame(
+          serverHelloChallenge({ connectionNonce: "AAAAAAAAAAAAAAAAAAAAAQ" }),
+        ) as never,
+        1_760_000_000_001,
+      ),
+    ).toThrow("echo");
+    expect(() => helloSigningPayload(hello, challenge, 1_760_000_120_000)).toThrow("expired");
+    expect(() => helloSigningPayload(hello, challenge, Number.NaN)).toThrow("safe integer");
+    expect(() =>
+      decodeClientWebSocketFrame(signedHello({ resumeToken: "A".repeat(513) })),
     ).toThrow();
   });
 
@@ -570,7 +669,17 @@ describe("v2 protocol schemas", () => {
     expect(decodeErrorEnvelope(http.unsupportedVersionError).error.code).toBe(
       "protocol_version_unsupported",
     );
-    expect(decodeClientWebSocketFrame(websocket.hello).type).toBe("hello");
+    const serverHelloChallenge = decodeServerWebSocketFrame(websocket.serverHelloChallenge);
+    expect(serverHelloChallenge.type).toBe("serverHelloChallenge");
+    const hello = decodeClientWebSocketFrame(websocket.hello);
+    expect(hello.type).toBe("hello");
+    if (serverHelloChallenge.type !== "serverHelloChallenge" || hello.type !== "hello")
+      throw new Error("Expected challenged hello vector");
+    expect(
+      Buffer.from(helloSigningPayload(hello, serverHelloChallenge, 1_760_000_000_001)).toString(
+        "base64",
+      ),
+    ).toBe(string(websocket.helloSigningPayloadBase64));
     expect(decodeServerWebSocketFrame(websocket.helloAccepted).type).toBe("helloAccepted");
     const signedSyncChange = decodeClientWebSocketFrame(websocket.signedSyncChange);
     expect(signedSyncChange.type).toBe("syncChange");

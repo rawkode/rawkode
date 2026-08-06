@@ -410,9 +410,14 @@ public enum EnchiridionDeviceChallengeProofSigningPayload {
 }
 
 public enum EnchiridionHelloSigningPayload {
-  public static func canonicalBytes(_ frame: HelloFrame) -> Data {
-    let fields = [frame.type, frame.supportedProtocolVersions.map { String($0.value) }.joined(separator: ","), frame.deviceID.value]
-    var bytes = Data("ENCHHELLO".utf8); bytes.append(1)
+  public static let version = 1
+  /// ENCHWSHELLO v1 binds the exact server challenge before the device signs.
+  public static func canonicalBytes(_ frame: HelloFrame, challenge: ServerHelloChallengeFrame, nowMilliseconds: Int) throws -> Data {
+    guard frame.protocolVersion == challenge.protocolVersion, frame.connectionNonce == challenge.connectionNonce else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge echo") }
+    guard challenge.expiresAt.value - challenge.issuedAt.value >= 1_000, challenge.expiresAt.value - challenge.issuedAt.value <= 300_000 else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge expiry") }
+    guard challenge.expiresAt.value > nowMilliseconds else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge expired") }
+    let fields = [frame.type, String(challenge.protocolVersion.value), challenge.connectionNonce.value, String(challenge.issuedAt.value), String(challenge.expiresAt.value), challenge.ownerID.value, challenge.vaultID.value, String(challenge.authEpoch.value), String(challenge.credentialEpoch.value), String(challenge.generationEpoch.value), String(frame.protocolVersion.value), frame.connectionNonce.value, frame.resumeToken?.value ?? "null", frame.deviceID.value, String(frame.authEpoch.value)]
+    var bytes = Data("ENCHWSHELLO".utf8); bytes.append(UInt8(version))
     for field in fields { let fieldBytes = Data(field.utf8); var length = UInt32(fieldBytes.count).bigEndian; withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }; bytes.append(fieldBytes) }
     return bytes
   }
@@ -525,12 +530,13 @@ public enum EnchiridionClientWebSocketFrame: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey { case type }
 }
 public enum EnchiridionServerWebSocketFrame: Codable, Equatable, Sendable {
+  case serverHelloChallenge(ServerHelloChallengeFrame)
   case helloAccepted(HelloAcceptedFrame)
   case syncAcknowledged(SyncAcknowledgedFrame)
   case error(ProtocolErrorFrame)
-  private enum Kind: String, Codable { case helloAccepted, syncAcknowledged, error }
-  public init(from decoder: Decoder) throws { let kind = try decoder.container(keyedBy: CodingKeys.self).decode(Kind.self, forKey: .type); switch kind { case .helloAccepted: self = .helloAccepted(try HelloAcceptedFrame(from: decoder)); case .syncAcknowledged: self = .syncAcknowledged(try SyncAcknowledgedFrame(from: decoder)); case .error: self = .error(try ProtocolErrorFrame(from: decoder)) } }
-  public func encode(to encoder: Encoder) throws { switch self { case let .helloAccepted(frame): guard frame.type == "helloAccepted" else { throw EnchiridionProtocolValidationError.invalidValue("helloAccepted type") }; try frame.encode(to: encoder); case let .syncAcknowledged(frame): guard frame.type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("syncAcknowledged type") }; try frame.encode(to: encoder); case let .error(frame): guard frame.type == "error" else { throw EnchiridionProtocolValidationError.invalidValue("error type") }; try frame.encode(to: encoder) } }
+  private enum Kind: String, Codable { case serverHelloChallenge, helloAccepted, syncAcknowledged, error }
+  public init(from decoder: Decoder) throws { let kind = try decoder.container(keyedBy: CodingKeys.self).decode(Kind.self, forKey: .type); switch kind { case .serverHelloChallenge: self = .serverHelloChallenge(try ServerHelloChallengeFrame(from: decoder)); case .helloAccepted: self = .helloAccepted(try HelloAcceptedFrame(from: decoder)); case .syncAcknowledged: self = .syncAcknowledged(try SyncAcknowledgedFrame(from: decoder)); case .error: self = .error(try ProtocolErrorFrame(from: decoder)) } }
+  public func encode(to encoder: Encoder) throws { switch self { case let .serverHelloChallenge(frame): guard frame.type == "serverHelloChallenge" else { throw EnchiridionProtocolValidationError.invalidValue("serverHelloChallenge type") }; try frame.encode(to: encoder); case let .helloAccepted(frame): guard frame.type == "helloAccepted" else { throw EnchiridionProtocolValidationError.invalidValue("helloAccepted type") }; try frame.encode(to: encoder); case let .syncAcknowledged(frame): guard frame.type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("syncAcknowledged type") }; try frame.encode(to: encoder); case let .error(frame): guard frame.type == "error" else { throw EnchiridionProtocolValidationError.invalidValue("error type") }; try frame.encode(to: encoder) } }
   private enum CodingKeys: String, CodingKey { case type }
 }
 public protocol EnchiridionWebSocketTransport: Sendable {

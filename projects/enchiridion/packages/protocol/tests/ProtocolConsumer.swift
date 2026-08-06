@@ -31,6 +31,11 @@ enum ProtocolConsumer {
     guard (try? JSONDecoder().decode(DeviceRevokeRequest.self, from: unknownMember)) == nil else { throw ConsumerFailure.validation }
     let wrongDiscriminator = Data(#"{"type":"other","supportedProtocolVersions":[2],"ownerID":"owner-1","vaultID":"vault-1","deviceID":"device-1","authEpoch":1,"credentialEpoch":1,"generationEpoch":1,"sessionNonce":"AAAAAAAAAAAAAAAAAAAAAA","assertionExpiresAt":1760000120000}"#.utf8)
     guard (try? JSONDecoder().decode(HelloFrame.self, from: wrongDiscriminator)) == nil else { throw ConsumerFailure.validation }
+    let challenge = ServerHelloChallengeFrame(type: "serverHelloChallenge", protocolVersion: try EnchiridionProtocolVersion(), connectionNonce: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), issuedAt: try EnchiridionSignedTimestamp(1760000000000), expiresAt: try EnchiridionSignedTimestamp(1760000120000), ownerID: try EnchiridionOwnerID("owner-1"), vaultID: try EnchiridionVaultID("vault-1"), authEpoch: try EnchiridionAuthEpoch(3), credentialEpoch: try EnchiridionCredentialEpoch(4), generationEpoch: try EnchiridionGenerationEpoch(5))
+    let hello = HelloFrame(type: "hello", protocolVersion: try EnchiridionProtocolVersion(), connectionNonce: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), resumeToken: try EnchiridionResumeToken("AAAAAAAAAAAAAAAAAAAAAA"), deviceID: try EnchiridionDeviceID("device-1"), authEpoch: try EnchiridionAuthEpoch(3), deviceSignature: try EnchiridionP256Signature("MAYCAQECAQE="))
+    guard !(try EnchiridionHelloSigningPayload.canonicalBytes(hello, challenge: challenge, nowMilliseconds: 1760000000001)).isEmpty else { throw ConsumerFailure.validation }
+    let serverFrame = EnchiridionServerWebSocketFrame.serverHelloChallenge(challenge)
+    guard try JSONDecoder().decode(EnchiridionServerWebSocketFrame.self, from: JSONEncoder().encode(serverFrame)) == serverFrame else { throw ConsumerFailure.validation }
     let digest = try EnchiridionSHA256Digest(String(repeating: "a", count: 64))
     let deleteCommand = BlobDeleteCommand(type: "blobDelete", blobSHA256: digest)
     let deleteHash = try EnchiridionCanonicalJSON.sha256Hex(deleteCommand)

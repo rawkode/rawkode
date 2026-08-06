@@ -254,6 +254,13 @@ public struct EnchiridionNonNegativeInt: Codable, Equatable, Hashable, Sendable 
   public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(value) }
 }
 
+public struct EnchiridionResumeToken: Codable, Equatable, Hashable, Sendable {
+  public let value: String
+  public init(_ value: String) throws { guard true && value.count >= 22 && value.count <= 512 && EnchiridionValidation.matches(value, pattern: "^[A-Za-z0-9_-]+$") else { throw EnchiridionProtocolValidationError.invalidValue("ResumeToken") }; self.value = value }
+  public init(from decoder: Decoder) throws { try self.init(try decoder.singleValueContainer().decode(String.self)) }
+  public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(value) }
+}
+
 public struct EnchiridionSigningPayloadVersion: Codable, Equatable, Hashable, Sendable {
   public let value: Int
   public init(_ value: Int = 1) throws { guard value == 1 else { throw EnchiridionProtocolValidationError.invalidValue("SigningPayloadVersion") }; self.value = value }
@@ -892,16 +899,88 @@ public struct BlobDeleteRequest: Codable, Equatable, Sendable {
   }
 }
 
+public struct ServerHelloChallengeFrame: Codable, Equatable, Sendable {
+  public let type: String
+  public let protocolVersion: EnchiridionProtocolVersion
+  public let connectionNonce: EnchiridionFrameID
+  public let issuedAt: EnchiridionSignedTimestamp
+  public let expiresAt: EnchiridionSignedTimestamp
+  public let ownerID: EnchiridionOwnerID
+  public let vaultID: EnchiridionVaultID
+  public let authEpoch: EnchiridionAuthEpoch
+  public let credentialEpoch: EnchiridionCredentialEpoch
+  public let generationEpoch: EnchiridionGenerationEpoch
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, connectionNonce, issuedAt, expiresAt, ownerID, vaultID, authEpoch, credentialEpoch, generationEpoch }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, connectionNonce: EnchiridionFrameID, issuedAt: EnchiridionSignedTimestamp, expiresAt: EnchiridionSignedTimestamp, ownerID: EnchiridionOwnerID, vaultID: EnchiridionVaultID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch) {
+    self.type = type
+    self.protocolVersion = protocolVersion
+    self.connectionNonce = connectionNonce
+    self.issuedAt = issuedAt
+    self.expiresAt = expiresAt
+    self.ownerID = ownerID
+    self.vaultID = vaultID
+    self.authEpoch = authEpoch
+    self.credentialEpoch = credentialEpoch
+    self.generationEpoch = generationEpoch
+  }
+  public init(from decoder: Decoder) throws {
+    let all = try decoder.container(keyedBy: EnchiridionAnyCodingKey.self)
+    guard all.allKeys.allSatisfy({ CodingKeys(stringValue: $0.stringValue) != nil }) else { throw EnchiridionProtocolValidationError.invalidValue("ServerHelloChallengeFrame unknown key") }
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    let type = try c.decode(String.self, forKey: .type)
+    guard type == "serverHelloChallenge" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
+    let protocolVersion = try c.decode(EnchiridionProtocolVersion.self, forKey: .protocolVersion)
+    let connectionNonce = try c.decode(EnchiridionFrameID.self, forKey: .connectionNonce)
+    let issuedAt = try c.decode(EnchiridionSignedTimestamp.self, forKey: .issuedAt)
+    let expiresAt = try c.decode(EnchiridionSignedTimestamp.self, forKey: .expiresAt)
+    let ownerID = try c.decode(EnchiridionOwnerID.self, forKey: .ownerID)
+    let vaultID = try c.decode(EnchiridionVaultID.self, forKey: .vaultID)
+    let authEpoch = try c.decode(EnchiridionAuthEpoch.self, forKey: .authEpoch)
+    let credentialEpoch = try c.decode(EnchiridionCredentialEpoch.self, forKey: .credentialEpoch)
+    let generationEpoch = try c.decode(EnchiridionGenerationEpoch.self, forKey: .generationEpoch)
+    self.type = type
+    self.protocolVersion = protocolVersion
+    self.connectionNonce = connectionNonce
+    self.issuedAt = issuedAt
+    self.expiresAt = expiresAt
+    self.ownerID = ownerID
+    self.vaultID = vaultID
+    self.authEpoch = authEpoch
+    self.credentialEpoch = credentialEpoch
+    self.generationEpoch = generationEpoch
+  }
+  public func encode(to encoder: Encoder) throws {
+    guard type == "serverHelloChallenge" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(type, forKey: .type)
+    try c.encode(protocolVersion, forKey: .protocolVersion)
+    try c.encode(connectionNonce, forKey: .connectionNonce)
+    try c.encode(issuedAt, forKey: .issuedAt)
+    try c.encode(expiresAt, forKey: .expiresAt)
+    try c.encode(ownerID, forKey: .ownerID)
+    try c.encode(vaultID, forKey: .vaultID)
+    try c.encode(authEpoch, forKey: .authEpoch)
+    try c.encode(credentialEpoch, forKey: .credentialEpoch)
+    try c.encode(generationEpoch, forKey: .generationEpoch)
+  }
+}
+
 public struct HelloFrame: Codable, Equatable, Sendable {
   public let type: String
-  public let supportedProtocolVersions: [EnchiridionProtocolVersion]
+  public let protocolVersion: EnchiridionProtocolVersion
+  public let connectionNonce: EnchiridionFrameID
+  public let resumeToken: EnchiridionResumeToken?
   public let deviceID: EnchiridionDeviceID
+  public let authEpoch: EnchiridionAuthEpoch
   public let deviceSignature: EnchiridionP256Signature
-  private enum CodingKeys: String, CodingKey { case type, supportedProtocolVersions, deviceID, deviceSignature }
-  public init(type: String, supportedProtocolVersions: [EnchiridionProtocolVersion], deviceID: EnchiridionDeviceID, deviceSignature: EnchiridionP256Signature) {
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, connectionNonce, resumeToken, deviceID, authEpoch, deviceSignature }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, connectionNonce: EnchiridionFrameID, resumeToken: EnchiridionResumeToken? = nil, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, deviceSignature: EnchiridionP256Signature) {
     self.type = type
-    self.supportedProtocolVersions = supportedProtocolVersions
+    self.protocolVersion = protocolVersion
+    self.connectionNonce = connectionNonce
+    self.resumeToken = resumeToken
     self.deviceID = deviceID
+    self.authEpoch = authEpoch
     self.deviceSignature = deviceSignature
   }
   public init(from decoder: Decoder) throws {
@@ -910,20 +989,29 @@ public struct HelloFrame: Codable, Equatable, Sendable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let type = try c.decode(String.self, forKey: .type)
     guard type == "hello" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
-    let supportedProtocolVersions = try c.decode([EnchiridionProtocolVersion].self, forKey: .supportedProtocolVersions)
+    let protocolVersion = try c.decode(EnchiridionProtocolVersion.self, forKey: .protocolVersion)
+    let connectionNonce = try c.decode(EnchiridionFrameID.self, forKey: .connectionNonce)
+    let resumeToken = try c.decodeIfPresent(EnchiridionResumeToken.self, forKey: .resumeToken)
     let deviceID = try c.decode(EnchiridionDeviceID.self, forKey: .deviceID)
+    let authEpoch = try c.decode(EnchiridionAuthEpoch.self, forKey: .authEpoch)
     let deviceSignature = try c.decode(EnchiridionP256Signature.self, forKey: .deviceSignature)
     self.type = type
-    self.supportedProtocolVersions = supportedProtocolVersions
+    self.protocolVersion = protocolVersion
+    self.connectionNonce = connectionNonce
+    self.resumeToken = resumeToken
     self.deviceID = deviceID
+    self.authEpoch = authEpoch
     self.deviceSignature = deviceSignature
   }
   public func encode(to encoder: Encoder) throws {
     guard type == "hello" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(type, forKey: .type)
-    try c.encode(supportedProtocolVersions, forKey: .supportedProtocolVersions)
+    try c.encode(protocolVersion, forKey: .protocolVersion)
+    try c.encode(connectionNonce, forKey: .connectionNonce)
+    try c.encodeIfPresent(resumeToken, forKey: .resumeToken)
     try c.encode(deviceID, forKey: .deviceID)
+    try c.encode(authEpoch, forKey: .authEpoch)
     try c.encode(deviceSignature, forKey: .deviceSignature)
   }
 }
@@ -938,9 +1026,10 @@ public struct HelloAcceptedFrame: Codable, Equatable, Sendable {
   public let credentialEpoch: EnchiridionCredentialEpoch
   public let generationEpoch: EnchiridionGenerationEpoch
   public let sessionNonce: EnchiridionFrameID
+  public let resumeToken: EnchiridionResumeToken
   public let assertionExpiresAt: EnchiridionSignedTimestamp
-  private enum CodingKeys: String, CodingKey { case type, protocolVersion, ownerID, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt }
-  public init(type: String, protocolVersion: EnchiridionProtocolVersion, ownerID: EnchiridionOwnerID, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, assertionExpiresAt: EnchiridionSignedTimestamp) {
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, ownerID, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, resumeToken, assertionExpiresAt }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, ownerID: EnchiridionOwnerID, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, resumeToken: EnchiridionResumeToken, assertionExpiresAt: EnchiridionSignedTimestamp) {
     self.type = type
     self.protocolVersion = protocolVersion
     self.ownerID = ownerID
@@ -950,6 +1039,7 @@ public struct HelloAcceptedFrame: Codable, Equatable, Sendable {
     self.credentialEpoch = credentialEpoch
     self.generationEpoch = generationEpoch
     self.sessionNonce = sessionNonce
+    self.resumeToken = resumeToken
     self.assertionExpiresAt = assertionExpiresAt
   }
   public init(from decoder: Decoder) throws {
@@ -966,6 +1056,7 @@ public struct HelloAcceptedFrame: Codable, Equatable, Sendable {
     let credentialEpoch = try c.decode(EnchiridionCredentialEpoch.self, forKey: .credentialEpoch)
     let generationEpoch = try c.decode(EnchiridionGenerationEpoch.self, forKey: .generationEpoch)
     let sessionNonce = try c.decode(EnchiridionFrameID.self, forKey: .sessionNonce)
+    let resumeToken = try c.decode(EnchiridionResumeToken.self, forKey: .resumeToken)
     let assertionExpiresAt = try c.decode(EnchiridionSignedTimestamp.self, forKey: .assertionExpiresAt)
     self.type = type
     self.protocolVersion = protocolVersion
@@ -976,6 +1067,7 @@ public struct HelloAcceptedFrame: Codable, Equatable, Sendable {
     self.credentialEpoch = credentialEpoch
     self.generationEpoch = generationEpoch
     self.sessionNonce = sessionNonce
+    self.resumeToken = resumeToken
     self.assertionExpiresAt = assertionExpiresAt
   }
   public func encode(to encoder: Encoder) throws {
@@ -990,6 +1082,7 @@ public struct HelloAcceptedFrame: Codable, Equatable, Sendable {
     try c.encode(credentialEpoch, forKey: .credentialEpoch)
     try c.encode(generationEpoch, forKey: .generationEpoch)
     try c.encode(sessionNonce, forKey: .sessionNonce)
+    try c.encode(resumeToken, forKey: .resumeToken)
     try c.encode(assertionExpiresAt, forKey: .assertionExpiresAt)
   }
 }
@@ -1204,9 +1297,14 @@ public enum EnchiridionDeviceChallengeProofSigningPayload {
 }
 
 public enum EnchiridionHelloSigningPayload {
-  public static func canonicalBytes(_ frame: HelloFrame) -> Data {
-    let fields = [frame.type, frame.supportedProtocolVersions.map { String($0.value) }.joined(separator: ","), frame.deviceID.value]
-    var bytes = Data("ENCHHELLO".utf8); bytes.append(1)
+  public static let version = 1
+  /// ENCHWSHELLO v1 binds the exact server challenge before the device signs.
+  public static func canonicalBytes(_ frame: HelloFrame, challenge: ServerHelloChallengeFrame, nowMilliseconds: Int) throws -> Data {
+    guard frame.protocolVersion == challenge.protocolVersion, frame.connectionNonce == challenge.connectionNonce else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge echo") }
+    guard challenge.expiresAt.value - challenge.issuedAt.value >= 1_000, challenge.expiresAt.value - challenge.issuedAt.value <= 300_000 else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge expiry") }
+    guard challenge.expiresAt.value > nowMilliseconds else { throw EnchiridionProtocolValidationError.invalidValue("hello challenge expired") }
+    let fields = [frame.type, String(challenge.protocolVersion.value), challenge.connectionNonce.value, String(challenge.issuedAt.value), String(challenge.expiresAt.value), challenge.ownerID.value, challenge.vaultID.value, String(challenge.authEpoch.value), String(challenge.credentialEpoch.value), String(challenge.generationEpoch.value), String(frame.protocolVersion.value), frame.connectionNonce.value, frame.resumeToken?.value ?? "null", frame.deviceID.value, String(frame.authEpoch.value)]
+    var bytes = Data("ENCHWSHELLO".utf8); bytes.append(UInt8(version))
     for field in fields { let fieldBytes = Data(field.utf8); var length = UInt32(fieldBytes.count).bigEndian; withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }; bytes.append(fieldBytes) }
     return bytes
   }
@@ -1319,12 +1417,13 @@ public enum EnchiridionClientWebSocketFrame: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey { case type }
 }
 public enum EnchiridionServerWebSocketFrame: Codable, Equatable, Sendable {
+  case serverHelloChallenge(ServerHelloChallengeFrame)
   case helloAccepted(HelloAcceptedFrame)
   case syncAcknowledged(SyncAcknowledgedFrame)
   case error(ProtocolErrorFrame)
-  private enum Kind: String, Codable { case helloAccepted, syncAcknowledged, error }
-  public init(from decoder: Decoder) throws { let kind = try decoder.container(keyedBy: CodingKeys.self).decode(Kind.self, forKey: .type); switch kind { case .helloAccepted: self = .helloAccepted(try HelloAcceptedFrame(from: decoder)); case .syncAcknowledged: self = .syncAcknowledged(try SyncAcknowledgedFrame(from: decoder)); case .error: self = .error(try ProtocolErrorFrame(from: decoder)) } }
-  public func encode(to encoder: Encoder) throws { switch self { case let .helloAccepted(frame): guard frame.type == "helloAccepted" else { throw EnchiridionProtocolValidationError.invalidValue("helloAccepted type") }; try frame.encode(to: encoder); case let .syncAcknowledged(frame): guard frame.type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("syncAcknowledged type") }; try frame.encode(to: encoder); case let .error(frame): guard frame.type == "error" else { throw EnchiridionProtocolValidationError.invalidValue("error type") }; try frame.encode(to: encoder) } }
+  private enum Kind: String, Codable { case serverHelloChallenge, helloAccepted, syncAcknowledged, error }
+  public init(from decoder: Decoder) throws { let kind = try decoder.container(keyedBy: CodingKeys.self).decode(Kind.self, forKey: .type); switch kind { case .serverHelloChallenge: self = .serverHelloChallenge(try ServerHelloChallengeFrame(from: decoder)); case .helloAccepted: self = .helloAccepted(try HelloAcceptedFrame(from: decoder)); case .syncAcknowledged: self = .syncAcknowledged(try SyncAcknowledgedFrame(from: decoder)); case .error: self = .error(try ProtocolErrorFrame(from: decoder)) } }
+  public func encode(to encoder: Encoder) throws { switch self { case let .serverHelloChallenge(frame): guard frame.type == "serverHelloChallenge" else { throw EnchiridionProtocolValidationError.invalidValue("serverHelloChallenge type") }; try frame.encode(to: encoder); case let .helloAccepted(frame): guard frame.type == "helloAccepted" else { throw EnchiridionProtocolValidationError.invalidValue("helloAccepted type") }; try frame.encode(to: encoder); case let .syncAcknowledged(frame): guard frame.type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("syncAcknowledged type") }; try frame.encode(to: encoder); case let .error(frame): guard frame.type == "error" else { throw EnchiridionProtocolValidationError.invalidValue("error type") }; try frame.encode(to: encoder) } }
   private enum CodingKeys: String, CodingKey { case type }
 }
 public protocol EnchiridionWebSocketTransport: Sendable {
