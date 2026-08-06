@@ -4,6 +4,7 @@ import { Data } from "effect";
 export enum RuntimeOperation {
   CloudflareBinding = "cloudflare.binding",
   CapabilityCrypto = "capability.crypto",
+  P256Crypto = "p256.crypto",
   AccessJwks = "access.jwks",
   SharedEffect = "runtime.shared-effect",
 }
@@ -13,6 +14,7 @@ export type RuntimeOperationIdentifier = RuntimeOperation;
 const isRuntimeOperation = (value: unknown): value is RuntimeOperation =>
   value === RuntimeOperation.CloudflareBinding ||
   value === RuntimeOperation.CapabilityCrypto ||
+  value === RuntimeOperation.P256Crypto ||
   value === RuntimeOperation.AccessJwks ||
   value === RuntimeOperation.SharedEffect;
 
@@ -243,6 +245,39 @@ export class AccessJwtVerificationError extends Data.TaggedError("AccessJwtVerif
   }
 }
 
+/** Safe P-256 boundary failures. DER/SPKI bytes and platform causes never cross this boundary. */
+export class P256VerificationError extends Data.TaggedError("P256VerificationError")<{
+  readonly reason:
+    | "crypto_unavailable"
+    | "invalid_input"
+    | "invalid_spki"
+    | "malformed_signature"
+    | "signature_invalid";
+}> {
+  constructor(input: {
+    readonly reason:
+      | "crypto_unavailable"
+      | "invalid_input"
+      | "invalid_spki"
+      | "malformed_signature"
+      | "signature_invalid";
+  }) {
+    if (
+      !(
+        [
+          "crypto_unavailable",
+          "invalid_input",
+          "invalid_spki",
+          "malformed_signature",
+          "signature_invalid",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid P256VerificationError fields.");
+    super(input);
+  }
+}
+
 export type RuntimeError =
   | RuntimeConfigError
   | ExternalServiceError
@@ -253,7 +288,8 @@ export type RuntimeError =
   | CapabilitySigningError
   | CapabilityVerificationError
   | WorkerBoundaryError
-  | AccessJwtVerificationError;
+  | AccessJwtVerificationError
+  | P256VerificationError;
 
 export const isRetryableExternalServiceError = (error: unknown): error is ExternalServiceError =>
   error instanceof ExternalServiceError && error.retryable;

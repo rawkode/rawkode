@@ -42,6 +42,13 @@ export const cloudflareAdapterLedger = [
       "Redacted key material enters Web Crypto only; failures become a closed typed error upstream.",
   },
   {
+    id: "p256-webcrypto",
+    boundary: "Web Crypto P-256 SPKI import, ECDSA P1363 verification, and random bytes",
+    owner: "@enchiridion/runtime",
+    audit:
+      "Only canonical validated SPKI and fixed-width P1363 signatures reach subtle.verify; platform causes and cryptographic bytes never enter diagnostics.",
+  },
+  {
     id: "worker-outer-boundary",
     boundary: "Effect worker handler completion to the Cloudflare Promise fetch contract",
     owner: "@enchiridion/runtime",
@@ -136,6 +143,33 @@ export const verifyCapabilityHmac = (
       ["verify"],
     );
     return crypto.subtle.verify("HMAC", key, signature, encodeText(payload));
+  });
+
+/** Audited P-256 Web Crypto seam. Callers must provide already canonical SPKI and P1363 bytes. */
+export const verifyP256Ecdsa = (
+  canonicalSpki: Uint8Array<ArrayBuffer>,
+  message: Uint8Array<ArrayBuffer>,
+  p1363Signature: Uint8Array<ArrayBuffer>,
+): Effect.Effect<boolean, ExternalServiceError> =>
+  fromCloudflarePromise(RuntimeOperation.P256Crypto, async () => {
+    const key = await crypto.subtle.importKey(
+      "spki",
+      canonicalSpki,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, p1363Signature, message);
+  });
+
+/** Audited random boundary. The fixed-size copy prevents callers retaining a mutable platform buffer. */
+export const randomP256Bytes32 = (): Effect.Effect<Uint8Array<ArrayBuffer>, ExternalServiceError> =>
+  fromCloudflarePromise(RuntimeOperation.P256Crypto, async () => {
+    const generated = new Uint8Array(32);
+    crypto.getRandomValues(generated);
+    const output = new Uint8Array(generated.byteLength);
+    output.set(generated);
+    return output;
   });
 
 const accessError = (reason: AccessJwtVerificationError["reason"]): AccessJwtVerificationError =>

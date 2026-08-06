@@ -5,5 +5,7 @@ export * from "./config";
 export * from "./errors";
 export * from "./limiter";
 export * from "./operation";
+export * from "./p256";
+export * from "./p256-vectors";
 export * from "./telemetry";
 export * from "./testing";
