@@ -36,11 +36,7 @@ final class NativeWebRTCCompileTimeSpikeRuntime: NSObject,
   ) async throws -> RealtimeSessionCreated {
     guard !closed else { throw RealtimeVoiceTransportError.bridgeClosed }
     let factory = LKRTCPeerConnectionFactory()
-    #if os(iOS)
-      let audioSession = LKRTCAudioSession.sharedInstance()
-      audioSession.useManualAudio = true
-      audioSession.isAudioEnabled = false
-    #elseif os(macOS)
+    #if os(macOS)
       let audioDeviceModule: LKRTCAudioDeviceModule = factory.audioDeviceModule
       _ = audioDeviceModule
     #endif
@@ -51,7 +47,7 @@ final class NativeWebRTCCompileTimeSpikeRuntime: NSObject,
   func events() -> AsyncStream<RealtimeServerEvent> { eventsStorage }
   func activity() -> AsyncStream<RealtimeAudioActivitySample> { activityStorage }
   func send(_ command: RealtimeClientCommand) async throws { throw RealtimeVoiceTransportError.bridgeClosed }
-  func setInputEnabled(_ enabled: Bool) async throws { throw RealtimeVoiceTransportError.bridgeClosed }
+  func setInputEnabled(_ enabled: Bool, lease _: RealtimeVoiceInputLease) async throws { throw RealtimeVoiceTransportError.bridgeClosed }
   func activate() async throws {}
   func deactivate() async {}
   func close() async {
