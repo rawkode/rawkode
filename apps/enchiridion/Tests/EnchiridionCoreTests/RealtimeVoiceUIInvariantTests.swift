@@ -39,7 +39,12 @@ struct RealtimeVoiceUIInvariantTests {
     #expect(surface.contains("case .pausing(let reason): \"Pausing audio: \\(reason.message)\""))
     #expect(surface.contains("if !isPausing {"))
     #expect(surface.contains("private var isPausing: Bool"))
-    #expect(runtime.contains("case .pausing, .ending, .ended:"))
+    #expect(
+      runtime.range(
+        of: #"case\s+\.idle,[\s\S]*?\.pausing,[\s\S]*?:\s*return\s+false"#,
+        options: .regularExpression
+      ) != nil
+    )
   }
 
   @Test
