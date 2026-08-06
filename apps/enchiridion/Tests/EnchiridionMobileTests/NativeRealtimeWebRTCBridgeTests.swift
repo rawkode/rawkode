@@ -51,5 +51,35 @@ import XCTest
       XCTAssertEqual(overflow, .failure(generation: 7, code: "event_overflow"))
       XCTAssertNil(end)
     }
+
+    func testStaleReadinessNonceCannotBindOrEmitReady() async {
+      let relay = NativeRealtimeWebRTCEventRelay()
+      let token = NativeBridgeToken(generation: 2, epoch: 2)
+      relay.storeReady(11)
+      relay.storeReady(12)
+      XCTAssertFalse(relay.bind(token, nonce: 11))
+      XCTAssertTrue(relay.bind(token, nonce: 12))
+      var iterator = relay.stream().makeAsyncIterator()
+      let ready = await iterator.next()
+      XCTAssertEqual(ready, .ready)
+    }
+
+    func testOverflowForARejectsBAndDeliversFailureOnlyAfterCompletion() async {
+      let relay = NativeRealtimeWebRTCEventRelay()
+      let a = NativeBridgeToken(generation: 1, epoch: 1)
+      let b = NativeBridgeToken(generation: 2, epoch: 2)
+      relay.storeReady(1)
+      XCTAssertTrue(relay.bind(a, nonce: 1))
+      // The bound readiness control occupies one of the 256 FIFO positions.
+      for index in 0..<255 { XCTAssertFalse(relay.enqueue(a, .serverEvent(generation: 1, json: "\(index)"))) }
+      XCTAssertTrue(relay.enqueue(a, .serverEvent(generation: 1, json: "overflow")))
+      XCTAssertFalse(relay.enqueue(b, .serverEvent(generation: 2, json: "stale-b")))
+      relay.completeTerminal(a, event: .failure(generation: 1, code: "event_overflow"))
+      var iterator = relay.stream().makeAsyncIterator()
+      let event = await iterator.next()
+      let end = await iterator.next()
+      XCTAssertEqual(event, .failure(generation: 1, code: "event_overflow"))
+      XCTAssertNil(end)
+    }
   }
 #endif
