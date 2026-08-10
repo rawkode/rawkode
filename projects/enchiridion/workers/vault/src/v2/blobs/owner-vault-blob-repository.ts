@@ -85,7 +85,7 @@ const blobAccountingAddress = storageAddress("blob.accounting");
 interface Floors {
   readonly securityFloor: number;
 }
-interface BlobAccounting {
+export interface OwnerVaultBlobAccounting {
   readonly referencedBytes: number;
   readonly reservedStageBytes: number;
   readonly prospectiveFinalBytes: number;
@@ -106,18 +106,18 @@ interface Lease {
   readonly securityFloor: number;
   readonly expiresAtSeconds: number;
 }
-interface Reference {
+export interface OwnerVaultBlobReference {
   readonly objectKey: string;
   readonly size: number;
   readonly referenceCount: number;
   readonly activeLeaseCount: number;
 }
-interface Tombstone {
+export interface OwnerVaultBlobTombstone {
   readonly objectKey: string;
   readonly deletedAtSeconds: number;
   readonly purgeAfterSeconds: number;
 }
-interface Purge {
+export interface OwnerVaultBlobPurge {
   readonly objectKey: string;
   readonly leaseID: string;
   readonly startedAtSeconds: number;
@@ -134,17 +134,44 @@ const decodeFloors = (record: OwnerVaultStorageRecord | undefined): Floors | und
     ? { securityFloor: source.securityFloor }
     : undefined;
 };
+type BlobAccounting = OwnerVaultBlobAccounting;
+type Reference = OwnerVaultBlobReference;
+type Tombstone = OwnerVaultBlobTombstone;
+type Purge = OwnerVaultBlobPurge;
+
+/** Shared canonical P03 shape check used by durable decoding and restore reconstruction. */
+export const isOwnerVaultBlobAccounting = (value: OwnerVaultBlobAccounting): boolean =>
+  integer(value.referencedBytes) && integer(value.reservedStageBytes) && integer(value.prospectiveFinalBytes) &&
+  value.leaseIDs.length <= maximumTrackedLeases &&
+  value.leaseIDs.every((entry) => safeID.test(entry)) && new Set(value.leaseIDs).size === value.leaseIDs.length &&
+  value.purgeSHA256s.length <= maximumTrackedLeases &&
+  value.purgeSHA256s.every((entry) => hash.test(entry)) && new Set(value.purgeSHA256s).size === value.purgeSHA256s.length;
+
+/** Shared canonical P03 shape check used by durable decoding and restore reconstruction. */
+export const isOwnerVaultBlobReference = (value: OwnerVaultBlobReference): boolean =>
+  typeof value.objectKey === "string" && value.objectKey.length > 0 && value.objectKey.length <= 1024 &&
+  integer(value.size) && integer(value.referenceCount) && integer(value.activeLeaseCount);
+
+/** Shared canonical P03 shape check used by durable decoding and restore reconstruction. */
+export const isOwnerVaultBlobTombstone = (value: OwnerVaultBlobTombstone): boolean =>
+  typeof value.objectKey === "string" && value.objectKey.length > 0 &&
+  integer(value.deletedAtSeconds) && integer(value.purgeAfterSeconds) && value.purgeAfterSeconds >= value.deletedAtSeconds;
+
 const decodeBlobAccounting = (record: OwnerVaultStorageRecord | undefined): BlobAccounting | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
   if (source === undefined || !exact(source, ["leaseIDs", "prospectiveFinalBytes", "purgeSHA256s", "referencedBytes", "reservedStageBytes"])) return undefined;
   const leaseIDs = source.leaseIDs;
   const purgeSHA256s = source.purgeSHA256s;
-  return integer(source.referencedBytes) && integer(source.reservedStageBytes) && integer(source.prospectiveFinalBytes) &&
-    Array.isArray(leaseIDs) && leaseIDs.length <= maximumTrackedLeases &&
-    leaseIDs.every((value) => typeof value === "string" && safeID.test(value)) && new Set(leaseIDs).size === leaseIDs.length
-    && Array.isArray(purgeSHA256s) && purgeSHA256s.length <= maximumTrackedLeases && purgeSHA256s.every((value) => typeof value === "string" && hash.test(value)) && new Set(purgeSHA256s).size === purgeSHA256s.length
-    ? { referencedBytes: source.referencedBytes, reservedStageBytes: source.reservedStageBytes, prospectiveFinalBytes: source.prospectiveFinalBytes, leaseIDs: [...leaseIDs], purgeSHA256s: [...purgeSHA256s] }
-    : undefined;
+  if (!Array.isArray(leaseIDs) || !leaseIDs.every((value): value is string => typeof value === "string") ||
+    !Array.isArray(purgeSHA256s) || !purgeSHA256s.every((value): value is string => typeof value === "string")) return undefined;
+  const candidate: BlobAccounting = {
+    referencedBytes: source.referencedBytes as number,
+    reservedStageBytes: source.reservedStageBytes as number,
+    prospectiveFinalBytes: source.prospectiveFinalBytes as number,
+    leaseIDs,
+    purgeSHA256s,
+  };
+  return isOwnerVaultBlobAccounting(candidate) ? candidate : undefined;
 };
 const decodeLease = (record: OwnerVaultStorageRecord | undefined): Lease | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
@@ -158,18 +185,18 @@ const decodeLease = (record: OwnerVaultStorageRecord | undefined): Lease | undef
 };
 const decodeReference = (record: OwnerVaultStorageRecord | undefined): Reference | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
-  return source !== undefined && exact(source, ["activeLeaseCount", "objectKey", "referenceCount", "size"]) &&
-    typeof source.objectKey === "string" && source.objectKey.length > 0 && source.objectKey.length <= 1024 &&
-    integer(source.size) && integer(source.referenceCount) && integer(source.activeLeaseCount)
-    ? { objectKey: source.objectKey, size: source.size, referenceCount: source.referenceCount, activeLeaseCount: source.activeLeaseCount }
-    : undefined;
+  if (source === undefined || !exact(source, ["activeLeaseCount", "objectKey", "referenceCount", "size"]) ||
+    typeof source.objectKey !== "string" || typeof source.size !== "number" ||
+    typeof source.referenceCount !== "number" || typeof source.activeLeaseCount !== "number") return undefined;
+  const candidate: Reference = { objectKey: source.objectKey, size: source.size, referenceCount: source.referenceCount, activeLeaseCount: source.activeLeaseCount };
+  return isOwnerVaultBlobReference(candidate) ? candidate : undefined;
 };
 const decodeTombstone = (record: OwnerVaultStorageRecord | undefined): Tombstone | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
-  return source !== undefined && exact(source, ["deletedAtSeconds", "objectKey", "purgeAfterSeconds"]) &&
-    typeof source.objectKey === "string" && source.objectKey.length > 0 && integer(source.deletedAtSeconds) && integer(source.purgeAfterSeconds) && source.purgeAfterSeconds >= source.deletedAtSeconds
-    ? { objectKey: source.objectKey, deletedAtSeconds: source.deletedAtSeconds, purgeAfterSeconds: source.purgeAfterSeconds }
-    : undefined;
+  if (source === undefined || !exact(source, ["deletedAtSeconds", "objectKey", "purgeAfterSeconds"]) ||
+    typeof source.objectKey !== "string" || typeof source.deletedAtSeconds !== "number" || typeof source.purgeAfterSeconds !== "number") return undefined;
+  const candidate: Tombstone = { objectKey: source.objectKey, deletedAtSeconds: source.deletedAtSeconds, purgeAfterSeconds: source.purgeAfterSeconds };
+  return isOwnerVaultBlobTombstone(candidate) ? candidate : undefined;
 };
 const decodePurge = (record: OwnerVaultStorageRecord | undefined): Purge | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
