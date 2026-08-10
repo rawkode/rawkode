@@ -5,8 +5,10 @@ import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository } from "./re
 import type { BlobLimits, BlobScope } from "../blobs/blobs";
 import type {
   OwnerVaultBlobRestoreReconstructionResult,
+  OwnerVaultRestoredBlobMetadata,
   OwnerVaultRestoredBlobInventory,
 } from "../blobs/restore-reconstruction";
+import type { OwnerVaultAppendLogEntry } from "./domains";
 import type { OwnerVaultStorageCategory, OwnerVaultStorageRecord, OwnerVaultTargetRoot } from "./storage-registry";
 
 export const ownerVaultBackupMaximumPageBytes = 512 * 1024;
@@ -58,7 +60,11 @@ export interface OwnerVaultSnapshotPage {
 export interface OwnerVaultBackupSnapshotSource {
   readonly beginSnapshot: (scope: OwnerVaultBackupScope, backupID: string) => Effect.Effect<OwnerVaultSnapshotPin, OwnerVaultBackupError>;
   readonly readSnapshotPage: (pin: OwnerVaultSnapshotPin, cursor: string | undefined) => Effect.Effect<OwnerVaultSnapshotPage, OwnerVaultBackupError>;
+  /** Marks the exact immutable signed manifest as complete before retention is released. */
+  readonly completeSnapshot: (pin: OwnerVaultSnapshotPin, manifestDigest: string) => Effect.Effect<void, OwnerVaultBackupError>;
   readonly releaseSnapshot: (pin: OwnerVaultSnapshotPin) => Effect.Effect<void, OwnerVaultBackupError>;
+  /** Explicit operator abort only; normal archive failures intentionally remain OPEN for retry. */
+  readonly abortSnapshot: (pin: OwnerVaultSnapshotPin) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultBackupPageEntry {
@@ -135,8 +141,16 @@ export interface OwnerVaultRestoreImportPlan {
 export interface OwnerVaultRestoreImportFinalization {
   readonly blobScope: BlobScope;
   readonly blobLimits: BlobLimits;
-  readonly targetScopedBlobInventory: OwnerVaultRestoredBlobInventory;
+  /** Verified outside the transaction after R2 copy/rekey; C1 binds it to restored metadata. */
+  readonly targetBlobEvidence: readonly OwnerVaultRestoredBlobMetadata[];
 }
+
+/** Pure P02 seam: C1 supplies exact restored rows, never caller-selected subsets. */
+export type OwnerVaultRestoreAppendLogValidator = (input: {
+  readonly entries: readonly OwnerVaultAppendLogEntry[];
+  readonly highWaterMark: string;
+  readonly logHead: number;
+}) => boolean;
 
 export type OwnerVaultRestoreReconstruction = (
   scope: BlobScope,

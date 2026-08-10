@@ -134,11 +134,15 @@ export const createOwnerVaultBackup = (
       const signedBytes = canonicalSignedManifestBytes(signed);
       if (signedBytes === undefined || signedBytes.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
       yield* writeImmutable(runtime, manifestKey(scope, backupID), signedBytes);
-      return signed;
+      return { signed, manifestDigest: ownerVaultBackupDigest(signedBytes) };
     });
-    // A pin release failure is not safe to mask: crash the invocation rather
-    // than claim success while retaining a source freeze indefinitely.
-    return yield* archive.pipe(Effect.ensuring(Effect.orDie(release)));
+    // Failures before completion deliberately leave the durable pin OPEN: a
+    // retry reuses its exact archive namespace and immutable objects. Only an
+    // explicit abort may close that namespace without a manifest.
+    const completed = yield* archive;
+    yield* source.completeSnapshot(pin, completed.manifestDigest);
+    yield* source.releaseSnapshot(pin);
+    return completed.signed;
   });
 
 const validJournal = (journal: import("./backup-types").OwnerVaultRestoreJournal, backupID: string, manifestDigest: string): boolean =>

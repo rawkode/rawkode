@@ -78,7 +78,9 @@ const source = (items = records()): OwnerVaultBackupSnapshotSource => {
     readSnapshotPage: (_pin, cursor) => cursor === undefined
       ? Effect.succeed({ entries: items, digest: ownerVaultBackupDigest(pageBytes) })
       : Effect.fail(new OwnerVaultBackupError({ reason: "catalog_invalid" })),
+    completeSnapshot: () => Effect.void,
     releaseSnapshot: () => Effect.void,
+    abortSnapshot: () => Effect.void,
   };
 };
 
