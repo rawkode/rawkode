@@ -12,9 +12,12 @@ export enum OwnerVaultSocketAdmissionAuthority {
   OwnerVaultSocketAdmission = "OwnerVaultSocketAdmission",
 }
 
-export const ownerVaultSocketAdmissionPath = "/internal/owner-vault/socket";
+export const ownerVaultSocketAdmissionPath = "/__v2/internal/owner-vault/socket";
 /** Fixed internal transport header. The value is an ovsa1 capability, never an Access bearer. */
-export const ownerVaultSocketAdmissionHeader = "Enchiridion-OwnerVault-Socket-Admission";
+export const ownerVaultSocketAdmissionHeader = "X-Enchiridion-OwnerVault-Socket-Admission";
+export const maximumOwnerVaultSocketAdmissionSerializedHeaderBytes = 4_096;
+const ownerVaultSocketAdmissionEmptyBodySHA256 =
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 export const maximumOwnerVaultSocketAdmissionTTLSeconds = 60;
 export const maximumPriorOwnerVaultSocketAdmissionKeys = 2;
 
@@ -30,16 +33,22 @@ export interface OwnerVaultSocketAdmissionKeyRing {
   readonly revokedKeyIDs: readonly string[];
 }
 
-export interface OwnerVaultSocketAdmissionRequestBinding {
+interface OwnerVaultSocketAdmissionRequestClaims {
   readonly method: "GET";
-  readonly canonicalQuery: string;
-  readonly bodySHA256: string;
+  readonly path: typeof ownerVaultSocketAdmissionPath;
+  readonly canonicalQuery: "";
+  readonly bodySHA256: typeof ownerVaultSocketAdmissionEmptyBodySHA256;
   readonly ownerID: string;
   readonly vaultID: string;
   readonly deviceID: string;
   readonly sessionID: string;
   readonly operationID: string;
   readonly upgradeNonce: string;
+}
+export interface OwnerVaultSocketAdmissionRequestBinding
+  extends OwnerVaultSocketAdmissionRequestClaims {
+  readonly headerName: typeof ownerVaultSocketAdmissionHeader;
+  readonly headerValue: string;
 }
 
 /** Current durable authority values. All are exact checks, so epoch advances
@@ -57,7 +66,7 @@ export interface OwnerVaultSocketAdmissionExpectation {
   readonly operationID: string;
 }
 
-export interface OwnerVaultSocketAdmissionClaims extends OwnerVaultSocketAdmissionRequestBinding {
+export interface OwnerVaultSocketAdmissionClaims extends OwnerVaultSocketAdmissionRequestClaims {
   readonly generationEpoch: number;
   readonly routingEpoch: number;
   readonly credentialEpoch: number;
@@ -104,8 +113,6 @@ export interface OwnerVaultSocketAdmissionVerifier {
 const KEY_ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const ID = /^[A-Za-z0-9._~-]{1,128}$/u;
 const JTI = /^[A-Za-z0-9_-]{16,128}$/u;
-const SHA256 = /^[a-f0-9]{64}$/u;
-const MAXIMUM_QUERY_BYTES = 1_024;
 const textEncoder = new TextEncoder();
 
 const base64url = (bytes: Uint8Array): string => {
@@ -123,65 +130,27 @@ const fromBase64url = (value: string): Uint8Array<ArrayBuffer> | undefined => {
     return undefined;
   }
 };
-const percentEncode = (value: string): string =>
-  encodeURIComponent(value).replace(
-    /[!'()*]/gu,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-const canonicalComponent = (value: string): string | undefined => {
-  try {
-    const decoded = decodeURIComponent(value);
-    return percentEncode(decoded) === value ? decoded : undefined;
-  } catch {
-    return undefined;
-  }
-};
-const canonicalQuery = (value: string): boolean => {
-  if (value === "") return true;
-  if (
-    textEncoder.encode(value).byteLength > MAXIMUM_QUERY_BYTES ||
-    value.startsWith("?") ||
-    value.includes("+")
-  )
-    return false;
-  try {
-    const names = new Set<string>();
-    const entries = value.split("&").map((part) => {
-      const equals = part.indexOf("=");
-      if (equals < 1 || part.indexOf("=", equals + 1) >= 0) throw new TypeError("query");
-      const name = canonicalComponent(part.slice(0, equals));
-      const entry = canonicalComponent(part.slice(equals + 1));
-      if (name === undefined || entry === undefined || names.has(name))
-        throw new TypeError("query");
-      names.add(name);
-      return [percentEncode(name), percentEncode(entry)] as const;
-    });
-    return (
-      entries
-        .sort(([leftName, leftValue], [rightName, rightValue]) =>
-          leftName === rightName
-            ? leftValue.localeCompare(rightValue)
-            : leftName.localeCompare(rightName),
-        )
-        .map(([name, entry]) => `${name}=${entry}`)
-        .join("&") === value
-    );
-  } catch {
-    return false;
-  }
-};
 const safeEpoch = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-const validBinding = (value: OwnerVaultSocketAdmissionRequestBinding): boolean =>
+const validRequestClaims = (value: OwnerVaultSocketAdmissionRequestClaims): boolean =>
   value.method === "GET" &&
-  canonicalQuery(value.canonicalQuery) &&
-  SHA256.test(value.bodySHA256) &&
+  value.path === ownerVaultSocketAdmissionPath &&
+  value.canonicalQuery === "" &&
+  value.bodySHA256 === ownerVaultSocketAdmissionEmptyBodySHA256 &&
   ID.test(value.ownerID) &&
   ID.test(value.vaultID) &&
   ID.test(value.deviceID) &&
   ID.test(value.sessionID) &&
   ID.test(value.operationID) &&
   ID.test(value.upgradeNonce);
+const validBinding = (value: OwnerVaultSocketAdmissionRequestBinding): boolean =>
+  validRequestClaims(value) &&
+  value.headerName === ownerVaultSocketAdmissionHeader &&
+  validSerializedHeader(value.headerValue);
+const validSerializedHeader = (value: string): boolean =>
+  ownerVaultSocketAdmissionHeader.length + value.length + 4 <=
+    maximumOwnerVaultSocketAdmissionSerializedHeaderBytes &&
+  /^ovsa1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(value);
 const validExpectation = (value: OwnerVaultSocketAdmissionExpectation): boolean =>
   ID.test(value.ownerID) &&
   ID.test(value.vaultID) &&
@@ -194,7 +163,7 @@ const validExpectation = (value: OwnerVaultSocketAdmissionExpectation): boolean 
   safeEpoch(value.controlEpoch) &&
   safeEpoch(value.securityFloor);
 const validClaims = (value: OwnerVaultSocketAdmissionClaims): boolean =>
-  validBinding(value) &&
+  validRequestClaims(value) &&
   value.path === ownerVaultSocketAdmissionPath &&
   KEY_ID.test(value.keyID) &&
   JTI.test(value.jti) &&
@@ -277,9 +246,9 @@ const claimsFromUnknown = (
       typeof record.jti !== "string" ||
       record.method !== "GET" ||
       record.path !== ownerVaultSocketAdmissionPath ||
-      typeof record.canonicalQuery !== "string" ||
+      record.canonicalQuery !== "" ||
       typeof record.upgradeNonce !== "string" ||
-      typeof record.bodySHA256 !== "string" ||
+      record.bodySHA256 !== ownerVaultSocketAdmissionEmptyBodySHA256 ||
       typeof record.keyID !== "string" ||
       typeof record.issuedAt !== "number" ||
       typeof record.expiresAt !== "number"
@@ -299,9 +268,9 @@ const claimsFromUnknown = (
       jti: record.jti,
       method: record.method,
       path: record.path,
-      canonicalQuery: record.canonicalQuery,
+      canonicalQuery: "",
       upgradeNonce: record.upgradeNonce,
-      bodySHA256: record.bodySHA256,
+      bodySHA256: ownerVaultSocketAdmissionEmptyBodySHA256,
       keyID: record.keyID,
       issuedAt: record.issuedAt,
       expiresAt: record.expiresAt,
@@ -372,7 +341,10 @@ export const signOwnerVaultSocketAdmission = (
     const signature = yield* signCapabilityHmac(ring.current.secret, payload).pipe(
       Effect.mapError(() => new CapabilitySigningError({ reason: "crypto_failed" })),
     );
-    return { value: `ovsa1.${payload}.${base64url(signature)}` };
+    const value = `ovsa1.${payload}.${base64url(signature)}`;
+    if (!validSerializedHeader(value))
+      return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
+    return { value };
   });
 
 export const verifyOwnerVaultSocketAdmission = (
@@ -389,6 +361,12 @@ export const verifyOwnerVaultSocketAdmission = (
     const ring = yield* makeOwnerVaultSocketAdmissionKeyRing(keyRing);
     if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    if (
+      binding.headerName !== ownerVaultSocketAdmissionHeader ||
+      binding.headerValue !== signed.value ||
+      !validSerializedHeader(signed.value)
+    )
+      return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));
     const parts = signed.value.split(".");
     if (
       parts.length !== 3 ||
@@ -428,7 +406,7 @@ export const verifyOwnerVaultSocketAdmission = (
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));
     if (
       claims.method !== binding.method ||
-      claims.path !== ownerVaultSocketAdmissionPath ||
+      claims.path !== binding.path ||
       claims.canonicalQuery !== binding.canonicalQuery ||
       claims.bodySHA256 !== binding.bodySHA256 ||
       claims.ownerID !== binding.ownerID ||
@@ -437,6 +415,7 @@ export const verifyOwnerVaultSocketAdmission = (
       claims.sessionID !== binding.sessionID ||
       claims.operationID !== binding.operationID ||
       claims.upgradeNonce !== binding.upgradeNonce ||
+      binding.headerValue !== signed.value ||
       claims.ownerID !== expected.ownerID ||
       claims.vaultID !== expected.vaultID ||
       claims.deviceID !== expected.deviceID ||
