@@ -11,6 +11,7 @@ import {
   type OwnerVaultStorageRecord,
   type OwnerVaultTargetRoot,
   assertOwnerVaultStorageRecord,
+  isRestorableOwnerVaultStorageCategory,
   ownerVaultStoragePrefix,
   ownerVaultStorageRegistry,
 } from "./storage-registry";
@@ -327,6 +328,19 @@ export interface OwnerVaultTx {
     address: OwnerVaultStorageAddress,
     payload: Readonly<Record<string, unknown>>,
   ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
+  /**
+   * Writes one verified restore row without making it visible to the live
+   * catalog or accounting yet.  Restore import publishes all such rows only
+   * after its complete-inventory proof succeeds in the same transaction.
+   */
+  readonly putRestoreImport: (
+    address: OwnerVaultStorageAddress,
+    payload: Readonly<Record<string, unknown>>,
+  ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
+  /** Atomically admits the exact suppressed restore rows into the next catalog. */
+  readonly publishRestoreImport: (
+    addresses: readonly OwnerVaultStorageAddress[],
+  ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
   readonly delete: (
     address: OwnerVaultStorageAddress,
   ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
@@ -465,6 +479,8 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
 
           let catalog: CatalogState | undefined;
           const catalogChanges = new Map<string, CatalogDelta>();
+          /** Counted only when a later import-publish transaction admits staged rows. */
+          let restoreImportPublicationBytes = 0;
 
           const loadCatalog = (): Effect.Effect<CatalogState, OwnerVaultStorageTransactionFailure> => {
             if (catalog !== undefined) return Effect.succeed(catalog);
@@ -687,6 +703,54 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
             ));
           };
 
+          const putRestoreImport = (
+            address: OwnerVaultStorageAddress,
+            payload: Readonly<Record<string, unknown>>,
+          ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
+            const definition = ownerVaultStorageRegistry.get(address.category);
+            if (definition === undefined || !isRestorableOwnerVaultStorageCategory(definition))
+              return storageError("invalid_address");
+            const next = serializeRecord(address, payload);
+            if (next === undefined) return storageError("invalid_record");
+            return Effect.flatMap(ready(), () =>
+              Effect.flatMap(raw(address), ([key, previous]) => {
+                if (key !== next.key) return storageError("invalid_address");
+                if (previous !== undefined) return storageError("identity_conflict");
+                return native.put(next.key, next.value).pipe(
+                  Effect.mapError((error): OwnerVaultStorageTransactionFailure => error),
+                );
+              }),
+            );
+          };
+
+          const publishRestoreImport = (
+            addresses: readonly OwnerVaultStorageAddress[],
+          ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
+            if (addresses.length === 0 || addresses.length > ownerVaultCatalogMaximumObjects)
+              return storageError("invalid_address");
+            const keys = new Set<string>();
+            return Effect.forEach(addresses, (address) => {
+              const definition = ownerVaultStorageRegistry.get(address.category);
+              const key = keyFor(address);
+              if (definition === undefined || key === undefined || !isRestorableOwnerVaultStorageCategory(definition) || keys.has(key))
+                return storageError<void>("invalid_address");
+              keys.add(key);
+              return raw(address).pipe(
+                Effect.flatMap(([actualKey, value]) => {
+                  const stored = value === undefined ? undefined : decodeStored(actualKey, value);
+                  if (stored === undefined) return storageError<void>("state_corrupt");
+                  const entry = catalogEntryFor(actualKey, stored.record.category, value, stored.bytes);
+                  if (entry === undefined) return storageError<void>("invalid_record");
+                  const total = restoreImportPublicationBytes + stored.bytes;
+                  if (!nonNegativeInteger(total)) return storageError<void>("state_corrupt");
+                  restoreImportPublicationBytes = total;
+                  catalogChanges.set(actualKey, { _tag: "put", entry });
+                  return Effect.void;
+                }),
+              );
+            }).pipe(Effect.zipRight(loadCatalog()), Effect.asVoid);
+          };
+
           const remove = (
             address: OwnerVaultStorageAddress,
           ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
@@ -799,7 +863,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                           .reduce((total, item) => total + (stableBytes(envelope(item.category, item.payload))?.bytes ?? Number.NaN), 0);
                         const writtenPages = nextPages as readonly NonNullable<typeof nextRoot>[];
                         const newBytes = nextCurrent.bytes + nextRoot.bytes + writtenPages.reduce((total, page) => total + page.bytes, 0);
-                        const usedBytes = accounting.usedBytes - oldBytes + newBytes;
+                        const usedBytes = accounting.usedBytes + restoreImportPublicationBytes - oldBytes + newBytes;
                         if (!nonNegativeInteger(usedBytes) || usedBytes > ownerVaultMaximumAccountedBytes)
                           return storageError("quota_exceeded");
                         return Effect.forEach(writtenPages, (page) => native.put(page.key, page.value)).pipe(
@@ -826,6 +890,8 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
             initialize,
             get: read,
             put,
+            putRestoreImport,
+            publishRestoreImport,
             delete: remove,
           };
           return operation(Object.freeze(tx)).pipe(

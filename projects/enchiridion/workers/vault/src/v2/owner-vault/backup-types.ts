@@ -2,6 +2,11 @@
 import type { ImmutableR2Boundary, ManifestSigner, ManifestVerifier } from "@enchiridion/runtime";
 import { Data, Effect } from "effect";
 import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository } from "./repository";
+import type { BlobLimits, BlobScope } from "../blobs/blobs";
+import type {
+  OwnerVaultBlobRestoreReconstructionResult,
+  OwnerVaultRestoredBlobInventory,
+} from "../blobs/restore-reconstruction";
 import type { OwnerVaultStorageCategory, OwnerVaultStorageRecord, OwnerVaultTargetRoot } from "./storage-registry";
 
 export const ownerVaultBackupMaximumPageBytes = 512 * 1024;
@@ -96,6 +101,48 @@ export interface OwnerVaultRestoreJournal {
   readonly lastAppliedOrdinal: number;
   readonly state: "APPLYING" | "COMPLETED";
 }
+
+/**
+ * Fully typed C1 import contract.  R2 reads/copies and signature verification
+ * happen before this boundary; it accepts only an already-decoded inventory.
+ */
+export interface OwnerVaultRestoreImportRecord {
+  readonly ordinal: number;
+  readonly address: OwnerVaultStorageAddress;
+  readonly version: 1;
+  readonly category: OwnerVaultStorageCategory;
+  readonly codec: "owner-vault-storage-record-v1";
+  readonly sha256Base64: string;
+  readonly size: number;
+}
+
+export interface OwnerVaultRestoreImportPlan {
+  readonly backupID: string;
+  readonly manifestDigest: string;
+  readonly highWaterMark: string;
+  readonly logHead: number;
+  readonly totalBytes: number;
+  readonly objectCount: number;
+  /** Deterministic hash chain over the exact ordinal/address/version/hash inventory. */
+  readonly hashChain: string;
+  readonly records: readonly OwnerVaultRestoreImportRecord[];
+}
+
+/**
+ * Target R2 evidence is represented only by the already-decoded target-keyed
+ * P03 inventory. Its pure callback rejects a source object key fail-closed.
+ */
+export interface OwnerVaultRestoreImportFinalization {
+  readonly blobScope: BlobScope;
+  readonly blobLimits: BlobLimits;
+  readonly targetScopedBlobInventory: OwnerVaultRestoredBlobInventory;
+}
+
+export type OwnerVaultRestoreReconstruction = (
+  scope: BlobScope,
+  limits: BlobLimits,
+  inventory: OwnerVaultRestoredBlobInventory,
+) => OwnerVaultBlobRestoreReconstructionResult;
 
 /** The target root and all security state are created independently of a source backup. */
 export interface OwnerVaultPrivateRestoreTarget {
