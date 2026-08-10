@@ -11,7 +11,7 @@ import {
 import { Effect } from "effect";
 import { directoryDOPath } from "../directory/directory-do";
 import { parseVaultV2EntryEnv } from "./composition";
-import { makeVaultV2Entry } from "./index";
+import { makeVaultV2Entry, OwnerVaultV2 } from "./index";
 
 const fixtureAssertion =
   "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImZpeHR1cmUifQ.eyJmaXh0dXJlIjp0cnVlfQ.fixture";
@@ -91,6 +91,7 @@ const handler = (request: Request, raw: unknown): Effect.Effect<Response> =>
   );
 const boundary = makeWorkerBoundary(handler);
 export const CredentialDirectoryDO = entry.CredentialDirectoryDO;
+export { OwnerVaultV2 };
 
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>

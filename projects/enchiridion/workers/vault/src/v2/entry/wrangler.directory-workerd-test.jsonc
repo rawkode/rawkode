@@ -4,9 +4,15 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" }]
+    "bindings": [
+      { "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" },
+      { "name": "OWNER_VAULT_V2_DO", "class_name": "OwnerVaultV2" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CredentialDirectoryDO"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CredentialDirectoryDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["OwnerVaultV2"] }
+  ],
   "vars": {
     "ENCHIRIDION_V2_ACCESS_TEAM_DOMAIN": "team.cloudflareaccess.com",
     "ENCHIRIDION_V2_ACCESS_AUDIENCE": "fixture-audience",

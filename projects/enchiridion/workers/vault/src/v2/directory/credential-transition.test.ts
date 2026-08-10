@@ -40,6 +40,7 @@ import {
   makeDurableObjectDirectoryRepository,
   makeInMemoryDirectoryRepository,
 } from "./repository";
+import { initializationDigest } from "./lifecycle";
 import type {
   DirectoryOwnerFenceAck,
   DirectoryResolution,
@@ -116,6 +117,18 @@ const initial = (): DirectoryState => ({
   transitions: {},
   frozenBindings: {},
   retiredAliases: {},
+  initializations: (() => {
+    const resolved = resolution();
+    const command = {
+      ownerID: resolved.ownerID.value,
+      vaultID: resolved.vaultID.value,
+      generationEpoch: resolved.activeGeneration,
+      operationID: "directory-initialization-0001",
+      credentialEpoch: resolved.credentialEpoch,
+      routingEpoch: resolved.routingEpoch,
+    };
+    return { [binding]: { ...command, initDigest: initializationDigest(command), activated: true } };
+  })(),
 });
 const otherResolution = (): DirectoryResolution => ({
   ownerID: required(ownerID("owner-transition-00000002")),
@@ -930,6 +943,7 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         ...initial(),
         aliases: {},
         bindings: {},
+        initializations: {},
         transitions: saturated,
         retiredAliases,
       }),

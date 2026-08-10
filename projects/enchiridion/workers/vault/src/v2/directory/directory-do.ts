@@ -6,10 +6,16 @@ import { Effect } from "effect";
 import {
   type InternalCapabilityFactory as CapabilityFactory,
   InternalCapabilityFactory,
+  type DirectoryControlCapabilityFactory as DirectoryControlFactory,
+  DirectoryControlCapabilityFactory,
 } from "../foundation/crypto";
 import { isCanonicalDirectoryAlias } from "./invariants";
 import { DirectoryRepository, makeDurableObjectDirectoryRepository } from "./repository";
-import { type DirectoryService, makeDirectoryService } from "./service";
+import {
+  DirectoryOwnerVaultInitializer,
+  type DirectoryService,
+  makeDirectoryService,
+} from "./service";
 import type {
   DirectoryInvocation,
   DirectoryResolution,
@@ -110,7 +116,9 @@ const requestRoute = (request: Request): Effect.Effect<RequestRoute | undefined>
 
 export interface CredentialDirectoryDODependencies {
   readonly capabilities: CapabilityFactory;
+  readonly controls: DirectoryControlFactory;
   readonly random: DirectorySecureRandom;
+  readonly ownerVault: DirectoryOwnerVaultInitializer;
 }
 export type CredentialDirectoryDependencyProvider = (
   env: unknown,
@@ -140,6 +148,8 @@ export const makeCredentialDirectoryDO = (
                   makeDurableObjectDirectoryRepository(this.boundary.storage),
                 ),
                 Effect.provideService(InternalCapabilityFactory, resolved.capabilities),
+                Effect.provideService(DirectoryControlCapabilityFactory, resolved.controls),
+                Effect.provideService(DirectoryOwnerVaultInitializer, resolved.ownerVault),
               ),
             );
     }

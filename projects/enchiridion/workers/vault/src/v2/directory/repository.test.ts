@@ -20,6 +20,7 @@ const emptyState = (): DirectoryState => ({
   transitions: {},
   frozenBindings: {},
   retiredAliases: {},
+  initializations: {},
 });
 const canonicalAlias = (keyID = "current", final = "A"): string =>
   `v2.${keyID}.${"A".repeat(42)}${final}`;

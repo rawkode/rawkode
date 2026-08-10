@@ -5,7 +5,13 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" }]
+    "bindings": [
+      { "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" },
+      { "name": "OWNER_VAULT_V2_DO", "class_name": "OwnerVaultV2" }
+    ]
   },
-  "migrations": [{ "tag": "v2-directory", "new_sqlite_classes": ["CredentialDirectoryDO"] }]
+  "migrations": [
+    { "tag": "v2-directory", "new_sqlite_classes": ["CredentialDirectoryDO"] },
+    { "tag": "v2-owner-vault", "new_sqlite_classes": ["OwnerVaultV2"] }
+  ]
 }

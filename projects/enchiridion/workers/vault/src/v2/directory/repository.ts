@@ -4,6 +4,7 @@ import {
   type DurableObjectStorage,
   durableObjectTransactionDomainCodec,
 } from "@enchiridion/runtime";
+import { sha256Hex } from "@enchiridion/protocol";
 import { Context, Data, Effect, Layer, Ref, Schema } from "effect";
 import { isOwnerID, isVaultID, ownerID, vaultID } from "../foundation/schemas";
 import {
@@ -20,6 +21,7 @@ import type {
   DirectoryCredentialTransition,
   DirectoryCredentialTransitionResult,
   DirectoryFreeze,
+  DirectoryOwnerVaultInitialization,
   DirectoryOwnerFenceAck,
   DirectoryReplay,
   DirectoryResolution,
@@ -98,15 +100,72 @@ const empty = (): DirectoryState => ({
   transitions: {},
   frozenBindings: {},
   retiredAliases: {},
+  initializations: {},
 });
 const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
-  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  Object.keys(value).length === keys.length &&
+  keys.every((key) => Object.hasOwn(value, key));
 const epoch = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+
+const initializationDigest = (value: Omit<DirectoryOwnerVaultInitialization, "initDigest" | "activated">): string =>
+  sha256Hex(
+    new TextEncoder().encode(
+      JSON.stringify({
+        credentialEpoch: value.credentialEpoch,
+        generationEpoch: value.generationEpoch,
+        operationID: value.operationID,
+        ownerID: value.ownerID,
+        routingEpoch: value.routingEpoch,
+        vaultID: value.vaultID,
+      }),
+    ),
+  );
+
+const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization | undefined => {
+  const source = record(value);
+  if (
+    source === undefined ||
+    !exact(source, [
+      "ownerID",
+      "vaultID",
+      "generationEpoch",
+      "operationID",
+      "credentialEpoch",
+      "routingEpoch",
+      "initDigest",
+      "activated",
+    ]) ||
+    typeof source.ownerID !== "string" ||
+    ownerID(source.ownerID) === undefined ||
+    typeof source.vaultID !== "string" ||
+    vaultID(source.vaultID) === undefined ||
+    !epoch(source.generationEpoch) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch) ||
+    typeof source.initDigest !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(source.initDigest) ||
+    typeof source.activated !== "boolean"
+  )
+    return undefined;
+  const candidate = {
+    ownerID: source.ownerID,
+    vaultID: source.vaultID,
+    generationEpoch: source.generationEpoch,
+    operationID: source.operationID,
+    credentialEpoch: source.credentialEpoch,
+    routingEpoch: source.routingEpoch,
+    initDigest: source.initDigest,
+    activated: source.activated,
+  } satisfies DirectoryOwnerVaultInitialization;
+  return initializationDigest(candidate) === candidate.initDigest ? candidate : undefined;
+};
 
 const decodeResolution = (binding: string, value: unknown): DirectoryResolution | undefined => {
   const source = record(value);
@@ -722,6 +781,7 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
       "transitions",
       "frozenBindings",
       "retiredAliases",
+      "initializations",
     ])
   )
     return undefined;
@@ -732,6 +792,7 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   const rawTransitions = record(source.transitions);
   const rawFrozenBindings = record(source.frozenBindings);
   const rawRetiredAliases = record(source.retiredAliases);
+  const rawInitializations = record(source.initializations);
   if (
     rawAliases === undefined ||
     rawBindings === undefined ||
@@ -739,7 +800,8 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
     rawControlReplays === undefined ||
     rawTransitions === undefined ||
     rawFrozenBindings === undefined ||
-    rawRetiredAliases === undefined
+    rawRetiredAliases === undefined ||
+    rawInitializations === undefined
   )
     return undefined;
   if (Object.keys(rawControlReplays).length > maximumDirectoryControlReplays) return undefined;
@@ -765,6 +827,23 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   }
   if (!uniqueBindingIdentities(bindings)) return undefined;
   if (Object.values(aliases).some((binding) => bindings[binding] === undefined)) return undefined;
+  if (Object.keys(rawInitializations).length !== Object.keys(bindings).length) return undefined;
+  const initializations: Record<string, DirectoryOwnerVaultInitialization> = {};
+  for (const [binding, rawInitialization] of Object.entries(rawInitializations)) {
+    const decoded = isCanonicalDirectoryAlias(binding)
+      ? decodeInitialization(rawInitialization)
+      : undefined;
+    const bound = bindings[binding];
+    if (
+      decoded === undefined ||
+      bound === undefined ||
+      decoded.ownerID !== bound.ownerID.value ||
+      decoded.vaultID !== bound.vaultID.value ||
+      decoded.generationEpoch !== bound.activeGeneration
+    )
+      return undefined;
+    initializations[binding] = decoded;
+  }
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, rawRetired] of Object.entries(rawRetiredAliases)) {
     const decoded = decodeRetiredAlias(alias, rawRetired);
@@ -814,6 +893,7 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
     transitions,
     frozenBindings,
     retiredAliases,
+    initializations,
   };
 };
 
@@ -822,6 +902,8 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
   if (Object.keys(value.transitions).length > maximumDirectoryTransitions) return undefined;
   if (Object.keys(value.retiredAliases).length > maximumDirectoryRetiredAliases) return undefined;
   if (!uniqueBindingIdentities(value.bindings)) return undefined;
+  if (Object.keys(value.initializations).length !== Object.keys(value.bindings).length)
+    return undefined;
   const aliases: Record<string, string> = {};
   for (const [alias, binding] of Object.entries(value.aliases)) {
     if (
@@ -839,6 +921,22 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
       : undefined;
     if (encoded === undefined) return undefined;
     bindings[binding] = encoded;
+  }
+  const initializations: Record<string, DirectoryOwnerVaultInitialization> = {};
+  for (const [binding, initialization] of Object.entries(value.initializations)) {
+    const decoded = isCanonicalDirectoryAlias(binding)
+      ? decodeInitialization(initialization)
+      : undefined;
+    const bound = value.bindings[binding];
+    if (
+      decoded === undefined ||
+      bound === undefined ||
+      decoded.ownerID !== bound.ownerID.value ||
+      decoded.vaultID !== bound.vaultID.value ||
+      decoded.generationEpoch !== bound.activeGeneration
+    )
+      return undefined;
+    initializations[binding] = decoded;
   }
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, retired] of Object.entries(value.retiredAliases)) {
@@ -911,6 +1009,7 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
     transitions,
     frozenBindings,
     retiredAliases,
+    initializations,
   };
 };
 

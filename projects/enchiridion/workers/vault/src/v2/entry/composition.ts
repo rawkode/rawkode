@@ -10,11 +10,17 @@ import {
 import { Effect, Redacted } from "effect";
 import { makeDirectorySecureRandom } from "../directory/service";
 import type { DirectorySecureRandom } from "../directory/types";
+import {
+  type OwnerVaultInitializationClient,
+  makeOwnerVaultInitializationClient,
+} from "../directory/lifecycle";
 import { type AccessAssertionVerifier, makeAccessAssertionVerifier } from "../foundation/access";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
+  type DirectoryControlCapabilityFactory,
   type InternalCapabilityFactory,
   type VersionedIssuerHasher,
+  makeDirectoryControlCapabilityFactory,
   makeInternalCapabilityFactory,
   makeVersionedIssuerHasher,
 } from "../foundation/crypto";
@@ -37,6 +43,8 @@ export interface VaultV2EntryEnv {
   readonly ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON: string;
   readonly ENCHIRIDION_V2_CREDENTIAL_QUOTA: string;
   readonly CREDENTIAL_DIRECTORY_DO: DurableObjectNamespaceNative;
+  /** Target-only binding; P06-05 supplies the OwnerVaultV2 implementation. */
+  readonly OWNER_VAULT_V2_DO: DurableObjectNamespaceNative;
 }
 
 interface RawKey {
@@ -101,6 +109,7 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
     );
     const quota = stringField(source, "ENCHIRIDION_V2_CREDENTIAL_QUOTA");
     const directory = source.CREDENTIAL_DIRECTORY_DO;
+    const ownerVault = source.OWNER_VAULT_V2_DO;
     if (
       teamDomain === undefined ||
       audience === undefined ||
@@ -114,7 +123,8 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       capabilitySecret === undefined ||
       capabilityPriors === undefined ||
       quota === undefined ||
-      !isDirectoryNamespace(directory)
+      !isDirectoryNamespace(directory) ||
+      !isDirectoryNamespace(ownerVault)
     )
       return undefined;
     return {
@@ -131,6 +141,7 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON: capabilityPriors,
       ENCHIRIDION_V2_CREDENTIAL_QUOTA: quota,
       CREDENTIAL_DIRECTORY_DO: directory,
+      OWNER_VAULT_V2_DO: ownerVault,
     };
   } catch {
     return undefined;
@@ -211,7 +222,9 @@ export interface VaultV2EntryComposition {
   readonly assertionVerifier: AccessAssertionVerifier;
   readonly issuerHasher: VersionedIssuerHasher;
   readonly capabilities: InternalCapabilityFactory;
+  readonly directoryControls: DirectoryControlCapabilityFactory;
   readonly random: DirectorySecureRandom;
+  readonly ownerVaultInitialization: OwnerVaultInitializationClient;
 }
 
 /**
@@ -259,6 +272,9 @@ export const makeVaultV2EntryComposition = (
     const capabilities = Effect.runSync(
       makeInternalCapabilityFactory.pipe(Effect.provideService(VaultV2Config, config)),
     );
+    const directoryControls = Effect.runSync(
+      makeDirectoryControlCapabilityFactory.pipe(Effect.provideService(VaultV2Config, config)),
+    );
     const random = Effect.runSync(
       makeDirectorySecureRandom.pipe(Effect.provideService(P256Crypto, makeP256Crypto())),
     );
@@ -266,7 +282,9 @@ export const makeVaultV2EntryComposition = (
       assertionVerifier,
       issuerHasher: makeVersionedIssuerHasher(config.credentialBindingKeys),
       capabilities,
+      directoryControls,
       random,
+      ownerVaultInitialization: makeOwnerVaultInitializationClient(env.OWNER_VAULT_V2_DO),
     };
   } catch {
     return undefined;

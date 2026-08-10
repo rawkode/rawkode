@@ -29,6 +29,7 @@ const environment = (directory: unknown): Readonly<Record<string, unknown>> => (
   ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON: "[]",
   ENCHIRIDION_V2_CREDENTIAL_QUOTA: "1",
   CREDENTIAL_DIRECTORY_DO: directory,
+  OWNER_VAULT_V2_DO: directory,
 });
 
 test("entry binding parser accepts non-enumerable Durable Object namespace methods", () => {

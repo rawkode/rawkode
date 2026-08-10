@@ -593,6 +593,7 @@ export enum DirectoryControlCapabilityAudience {
 /** The stable control journal currently supported by the runtime contract. */
 export enum DirectoryControlResource {
   CredentialTransition = "credential-transition",
+  OwnerVaultInitialization = "owner-vault-initialization",
 }
 
 export interface DirectoryControlCapabilityRequestBinding {
@@ -603,6 +604,8 @@ export interface DirectoryControlCapabilityRequestBinding {
   readonly bodySHA256: string;
   readonly ownerID: string;
   readonly vaultID: string;
+  /** Present only for the immutable OwnerVault initialization command. */
+  readonly initDigest?: string;
 }
 
 export interface DirectoryControlCapabilityExpectation {
@@ -671,13 +674,20 @@ const isDirectoryControlAudience = (value: unknown): value is DirectoryControlCa
   value === DirectoryControlCapabilityAudience.DirectoryControl;
 
 const isDirectoryControlResource = (value: unknown): value is DirectoryControlResource =>
-  value === DirectoryControlResource.CredentialTransition;
+  value === DirectoryControlResource.CredentialTransition ||
+  value === DirectoryControlResource.OwnerVaultInitialization;
+
+const validInitDigest = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 
 const validDirectoryControlBinding = (value: DirectoryControlCapabilityRequestBinding): boolean =>
   isDirectoryControlResource(value.resource) &&
   validRequestBinding(value) &&
   IDENTITY.test(value.ownerID) &&
-  IDENTITY.test(value.vaultID);
+  IDENTITY.test(value.vaultID) &&
+  (value.resource === DirectoryControlResource.OwnerVaultInitialization
+    ? validInitDigest(value.initDigest)
+    : value.initDigest === undefined);
 
 const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpectation): boolean =>
   value.audience === DirectoryControlCapabilityAudience.DirectoryControl &&
@@ -722,6 +732,9 @@ const canonicalDirectoryControlPayload = (claims: DirectoryControlCapabilityClai
     credentialEpoch: claims.credentialEpoch,
     expiresAt: claims.expiresAt,
     generationEpoch: claims.generationEpoch,
+    ...(claims.resource === DirectoryControlResource.OwnerVaultInitialization
+      ? { initDigest: claims.initDigest }
+      : {}),
     issuedAt: claims.issuedAt,
     jti: claims.jti,
     keyID: claims.keyID,
@@ -764,8 +777,14 @@ const directoryControlClaimsFromUnknown = (
       Effect.mapError(() => new CapabilityVerificationError({ reason: "claims_invalid" })),
     );
     if (
-      Object.keys(record).length !== directoryControlClaimKeys.length ||
-      directoryControlClaimKeys.some((key) => !Object.hasOwn(record, key))
+      !isDirectoryControlResource(record.resource) ||
+      Object.keys(record).length !==
+        directoryControlClaimKeys.length +
+          (record.resource === DirectoryControlResource.OwnerVaultInitialization ? 1 : 0) ||
+      directoryControlClaimKeys.some((key) => !Object.hasOwn(record, key)) ||
+      (record.resource === DirectoryControlResource.OwnerVaultInitialization
+        ? !Object.hasOwn(record, "initDigest")
+        : Object.hasOwn(record, "initDigest"))
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
     const {
@@ -776,6 +795,7 @@ const directoryControlClaimsFromUnknown = (
       credentialEpoch,
       expiresAt,
       generationEpoch,
+      initDigest,
       issuedAt,
       jti,
       keyID,
@@ -817,6 +837,9 @@ const directoryControlClaimsFromUnknown = (
       credentialEpoch,
       expiresAt,
       generationEpoch,
+      ...(resource === DirectoryControlResource.OwnerVaultInitialization && typeof initDigest === "string"
+        ? { initDigest }
+        : {}),
       issuedAt,
       jti,
       keyID,
@@ -911,6 +934,7 @@ export const verifyDirectoryControlCapability = (
       claims.bodySHA256 !== binding.bodySHA256 ||
       claims.ownerID !== binding.ownerID ||
       claims.vaultID !== binding.vaultID ||
+      claims.initDigest !== binding.initDigest ||
       claims.resource !== expected.resource ||
       claims.ownerID !== expected.ownerID ||
       claims.vaultID !== expected.vaultID ||

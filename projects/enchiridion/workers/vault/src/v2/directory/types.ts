@@ -50,6 +50,8 @@ export interface DirectoryState {
    * owner again. The evidence deliberately contains no Access identity.
    */
   readonly retiredAliases: Readonly<Record<string, DirectoryRetiredAlias>>;
+  /** Every binding has one durable initialization command before it can route. */
+  readonly initializations: Readonly<Record<string, DirectoryOwnerVaultInitialization>>;
 }
 
 export interface DirectoryControlReplay {
@@ -57,6 +59,19 @@ export interface DirectoryControlReplay {
   readonly fingerprint: string;
   readonly expiresAt: number;
   readonly retainUntil: number;
+}
+
+/** Directory-owned, random operation evidence for a fresh OwnerVault generation. */
+export interface DirectoryOwnerVaultInitialization {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+  readonly operationID: string;
+  readonly credentialEpoch: number;
+  readonly routingEpoch: number;
+  readonly initDigest: string;
+  /** Only an exact durable OwnerVault acknowledgement may set this true. */
+  readonly activated: boolean;
 }
 
 export type DirectoryCredentialTransitionPhase =
@@ -158,7 +173,9 @@ export interface DirectoryCredentialTransitionResult {
 
 export interface DirectorySecureRandom {
   /** Returns one opaque identifier for a single domain-separated purpose. */
-  readonly identifier: (purpose: "owner" | "vault") => Effect.Effect<string, DirectoryRandomError>;
+  readonly identifier: (
+    purpose: "owner" | "vault" | "owner-vault-initialization",
+  ) => Effect.Effect<string, DirectoryRandomError>;
 }
 
 export interface DirectoryRandomError {

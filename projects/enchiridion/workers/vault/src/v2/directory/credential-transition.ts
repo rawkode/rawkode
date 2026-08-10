@@ -489,6 +489,7 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
           let bindings: Record<string, DirectoryResolution> = { ...state.bindings };
           let aliases: Record<string, string> = { ...state.aliases };
           let replacementBindingID: string | undefined;
+          let initializations = { ...state.initializations };
           const retiredAliases: Record<string, DirectoryRetiredAlias> = {
             ...state.retiredAliases,
           };
@@ -498,6 +499,9 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
             );
             aliases = Object.fromEntries(
               Object.entries(aliases).filter(([, value]) => value !== current.bindingID),
+            );
+            initializations = Object.fromEntries(
+              Object.entries(initializations).filter(([key]) => key !== current.bindingID),
             );
           } else {
             replacementBindingID = current.replacementAliases[0];
@@ -520,6 +524,15 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
                 Object.entries(bindings).filter(([key]) => key !== current.bindingID),
               ),
               [replacementBindingID]: rebound,
+            };
+            const initialization = initializations[current.bindingID];
+            if (initialization === undefined)
+              return Effect.fail(transactionError("repository_unavailable"));
+            initializations = {
+              ...Object.fromEntries(
+                Object.entries(initializations).filter(([key]) => key !== current.bindingID),
+              ),
+              [replacementBindingID]: initialization,
             };
             aliases = Object.fromEntries(
               Object.entries(aliases).filter(([, value]) => value !== current.bindingID),
@@ -562,6 +575,7 @@ export const makeDirectoryCredentialTransitionService = Effect.gen(function* () 
               aliases,
               transitions: { ...state.transitions, [next.operationID]: next },
               retiredAliases,
+              initializations,
             },
           ] as const);
         }),

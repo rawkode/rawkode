@@ -9,6 +9,7 @@ import {
   makeP256Crypto,
   makeWorkerBoundary,
 } from "@enchiridion/runtime";
+import { DurableObject } from "cloudflare:workers";
 import { Effect } from "effect";
 import { directoryDOPath, makeCredentialDirectoryDO } from "../directory/directory-do";
 import { makeDirectoryInvocation } from "../directory/gateway";
@@ -235,7 +236,12 @@ export const makeVaultV2Entry = (
     const resolvedComposition = env === undefined ? undefined : resolveComposition(env);
     return resolvedComposition === undefined
       ? undefined
-      : { capabilities: resolvedComposition.capabilities, random: resolvedComposition.random };
+      : {
+          capabilities: resolvedComposition.capabilities,
+          controls: resolvedComposition.directoryControls,
+          random: resolvedComposition.random,
+          ownerVault: { client: resolvedComposition.ownerVaultInitialization },
+        };
   });
   return {
     CredentialDirectoryDO,
@@ -246,6 +252,16 @@ export const makeVaultV2Entry = (
 const productionEntry = makeVaultV2Entry();
 const boundary = makeWorkerBoundary(productionEntry.handler);
 export const CredentialDirectoryDO = productionEntry.CredentialDirectoryDO;
+/**
+ * Binding placeholder only. The real OwnerVault lifecycle implementation is
+ * deliberately owned by P06-05; this prevents a Directory deployment from
+ * silently targeting an unbound namespace in the meantime.
+ */
+export class OwnerVaultV2 extends DurableObject<Readonly<Record<never, never>>> {
+  override fetch(): Response {
+    return new Response("not implemented", { status: 501 });
+  }
+}
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
     boundary.handle(request, env, ctx),
