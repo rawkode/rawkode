@@ -13,6 +13,7 @@ import {
   type OwnerVaultSessionRecord,
 } from "./domains";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
+import { makeOwnerVaultSnapshotPinController } from "./snapshot-pin";
 
 const root = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1, namespaceState: "PRIVATE" } as const;
 const device: OwnerVaultDevice = {
@@ -127,6 +128,46 @@ const enrolledProvider = async () => {
 };
 
 describe("v2 OwnerVault durable domain provider", () => {
+  test("registers domain snapshot rows transparently and retains an OPEN pinned preimage", async () => {
+    const fixture = await enrolledProvider();
+    const controller = makeOwnerVaultSnapshotPinController(fixture.repository, {
+      makePinProof: () => "domain-catalog-pin-proof-which-is-long-enough",
+    });
+    const pin = await Effect.runPromise(
+      controller.beginSnapshot(
+        { ownerID: root.ownerID, vaultID: root.vaultID, generationEpoch: root.generationEpoch },
+        "domain-catalog-snapshot-0001",
+      ),
+    );
+    const opened = await Effect.runPromise(controller.readSnapshotPage(pin, undefined));
+    const categories = opened.entries.map((entry) => entry.address.category);
+    expect(categories).toContain("device");
+    expect(categories).toContain("operation-receipt");
+    expect(categories).not.toContain("device-challenge");
+    expect(categories).not.toContain("root.admission");
+
+    await Effect.runPromise(
+      fixture.provider.revokeDevice({
+        requestID: "domain-revoke-catalog-0001",
+        fingerprint: "f".repeat(64),
+        actor: { deviceID: device.deviceID, authEpoch: 1, credentialEpoch: 1, securityFloor: 0 },
+        targetDeviceID: device.deviceID,
+        nowSeconds: 1_000,
+        receiptExpiresAtSeconds: 1_200,
+      }),
+    );
+    const retained = await Effect.runPromise(controller.readSnapshotPage(pin, undefined));
+    expect(retained.entries.find((entry) => entry.address.category === "device")?.record.payload).toMatchObject({
+      revoked: false,
+      authEpoch: 1,
+    });
+    expect([...fixture.native.entries.keys()].some((key) => key.startsWith("v2.ov/backup/preimage/"))).toBe(true);
+
+    await Effect.runPromise(controller.abortSnapshot(pin));
+    expect(await Effect.runPromise(controller.collectGarbage(pin.backupID))).toBe(true);
+    expect([...fixture.native.entries.keys()].some((key) => key.startsWith("v2.ov/backup/preimage/"))).toBe(false);
+  });
+
   test("shares one opaque append namespace across HTTP, WebSocket retry, and restart", async () => {
     const fixture = await enrolledProvider();
     const first = await Effect.runPromise(fixture.provider.append(append()));

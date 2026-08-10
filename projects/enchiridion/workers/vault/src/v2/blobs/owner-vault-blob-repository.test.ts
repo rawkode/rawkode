@@ -10,6 +10,7 @@ import {
 import { Effect } from "effect";
 import { ownerID, requestID, vaultID } from "../foundation/schemas";
 import { makeDurableObjectOwnerVaultStorageRepository } from "../owner-vault/repository";
+import { makeOwnerVaultSnapshotPinController } from "../owner-vault/snapshot-pin";
 import { blobObjectKey, blobStageKey, type BlobAuthorization, type BlobScope, type BlobStageCommand } from "./blobs";
 import { makeOwnerVaultBlobStagingRepository } from "./owner-vault-blob-repository";
 
@@ -108,6 +109,44 @@ const stage = async (repository: ReturnType<typeof makeOwnerVaultBlobStagingRepo
 };
 
 describe("durable OwnerVault blob saga", () => {
+  test("registers blob rows through the transparent catalog and retains delete preimages for an OPEN pin", async () => {
+    const built = await build();
+    const first = await stage(built.repository);
+    const controller = makeOwnerVaultSnapshotPinController(built.storage, {
+      makePinProof: () => "blob-catalog-pin-proof-which-is-long-enough",
+    });
+    const pin = await Effect.runPromise(
+      controller.beginSnapshot(
+        { ownerID: scope.ownerID.value, vaultID: scope.vaultID.value, generationEpoch: scope.generationEpoch },
+        "blob-catalog-snapshot-0001",
+      ),
+    );
+    const opened = await Effect.runPromise(controller.readSnapshotPage(pin, undefined));
+    expect(opened.entries.map((entry) => entry.address.category)).toEqual(
+      expect.arrayContaining(["blob.metadata", "blob.reference"]),
+    );
+
+    await Effect.runPromise(
+      built.repository.deleteBySHA256({
+        authorization,
+        requestID: "blob-catalog-delete-0001",
+        sha256,
+        nowSeconds: 100,
+      }),
+    );
+    const retained = await Effect.runPromise(controller.readSnapshotPage(pin, undefined));
+    expect(retained.entries.find((entry) => entry.address.category === "blob.metadata")?.record.payload).toMatchObject({
+      objectKey: first.finalKey,
+      sha256,
+    });
+    expect(retained.entries.find((entry) => entry.address.category === "blob.tombstone")).toBeUndefined();
+    expect([...built.native.entries.keys()].some((key) => key.startsWith("v2.ov/backup/preimage/"))).toBe(true);
+
+    await Effect.runPromise(controller.abortSnapshot(pin));
+    expect(await Effect.runPromise(controller.collectGarbage(pin.backupID))).toBe(true);
+    expect([...built.native.entries.keys()].some((key) => key.startsWith("v2.ov/backup/preimage/"))).toBe(false);
+  });
+
   test("persists reserve to stage to publish to finalize, and returns exact retry only", async () => {
     const built = await build();
     const input = command();
