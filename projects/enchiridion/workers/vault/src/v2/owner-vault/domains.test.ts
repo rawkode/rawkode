@@ -227,6 +227,34 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { appendLogSequence: 2 } });
   });
 
+  test("pins every catalogued opaque append after the log advances", async () => {
+    const fixture = await enrolledProvider();
+    await Effect.runPromise(fixture.provider.append(append()));
+    await Effect.runPromise(
+      fixture.provider.append(
+        append({
+          operationID: "operation-2",
+          fingerprint: "1".repeat(64),
+          payloadHash: "2".repeat(64),
+          observedHighWater: 1,
+          nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
+          capability: { jti: "jti-222222222222", expiresAtSeconds: 1_200 },
+        }),
+      ),
+    );
+    const controller = makeOwnerVaultSnapshotPinController(fixture.repository, {
+      makePinProof: () => "two-append-catalog-pin-proof-which-is-long-enough",
+    });
+    const pin = await Effect.runPromise(
+      controller.beginSnapshot(
+        { ownerID: root.ownerID, vaultID: root.vaultID, generationEpoch: root.generationEpoch },
+        "domain-catalog-snapshot-0002",
+      ),
+    );
+    const page = await Effect.runPromise(controller.readSnapshotPage(pin, undefined));
+    expect(page.entries.filter((entry) => entry.address.category === "append-log.entry")).toHaveLength(2);
+  });
+
   test("owns session close cleanup and durable rate state", async () => {
     const fixture = await enrolledProvider();
     await Effect.runPromise(fixture.provider.establishSession(session));

@@ -116,6 +116,22 @@ describe("OwnerVault durable snapshot pins", () => {
     await Effect.runPromise(controller.releaseSnapshot(pin));
   });
 
+  test("recovers only the terminal manifest digest after response loss and restart", async () => {
+    const { native, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+    expect(await Effect.runPromise(controller.completedManifestDigest(scope, backupID))).toBeUndefined();
+
+    const manifest = ownerVaultBackupDigest(new TextEncoder().encode("response was lost after completion"));
+    await Effect.runPromise(controller.completeSnapshot(pin, manifest));
+    await Effect.runPromise(controller.releaseSnapshot(pin));
+
+    const restarted = makeOwnerVaultSnapshotPinController(native.repository());
+    expect(await Effect.runPromise(restarted.completedManifestDigest(scope, backupID))).toBe(manifest);
+    expect(Exit.isFailure(await Effect.runPromiseExit(
+      restarted.completedManifestDigest({ ...scope, generationEpoch: 2 }, backupID),
+    ))).toBe(true);
+  });
+
   test("garbage collects retained preimages and historical catalog rows in bounded transactions", async () => {
     const { native, repository, controller } = await setup();
     const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));

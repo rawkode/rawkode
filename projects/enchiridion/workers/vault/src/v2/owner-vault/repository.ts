@@ -19,7 +19,6 @@ import {
   ownerVaultCatalogCanonicalBytes,
   ownerVaultCatalogWithinQuota,
   ownerVaultCatalogDigest,
-  ownerVaultCatalogEntryDigest,
   ownerVaultCatalogMaximumObjectBytes,
   ownerVaultCatalogMaximumObjects,
   ownerVaultCatalogMaximumPageEntries,
@@ -31,6 +30,7 @@ import {
   type OwnerVaultCatalogRootPayload,
 } from "./catalog";
 import { ownerVaultAppendProofD0 } from "./append-proof";
+import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
 
 const kibibyte = 1024;
 const mebibyte = 1024 * kibibyte;
@@ -384,15 +384,29 @@ type CatalogDelta =
   | { readonly _tag: "put"; readonly entry: Omit<OwnerVaultCatalogEntry, "ordinal"> }
   | { readonly _tag: "delete" };
 
+interface CatalogSerializedRecord {
+  readonly key: string;
+  readonly record: OwnerVaultStorageRecord;
+}
+
+/**
+ * C1's metadata must authenticate the same immutable object representation
+ * C2/C4 archive.  Hashing the raw storage envelope here would make a pin
+ * prove a different byte stream from the backup it is later asked to sign.
+ */
 const catalogEntryFor = (
-  key: string,
-  category: OwnerVaultStorageCategory,
-  value: unknown,
-  bytes: number,
+  address: OwnerVaultStorageAddress,
+  serialized: CatalogSerializedRecord,
 ): Omit<OwnerVaultCatalogEntry, "ordinal"> | undefined => {
-  if (bytes > ownerVaultCatalogMaximumObjectBytes) return undefined;
-  const digest = ownerVaultCatalogEntryDigest(value);
-  return digest === undefined ? undefined : { key, category, bytes, digest };
+  const snapshot = canonicalSnapshotRecordBytes(address, serialized.record);
+  if (snapshot === undefined || snapshot.byteLength > ownerVaultCatalogMaximumObjectBytes)
+    return undefined;
+  return {
+    key: serialized.key,
+    category: address.category,
+    bytes: snapshot.byteLength,
+    digest: ownerVaultBackupDigest(snapshot),
+  };
 };
 
 const catalogScopeMatches = (root: OwnerVaultCatalogRootPayload, identity: OwnerVaultTargetRoot): boolean =>
@@ -650,7 +664,9 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                         const copy = serializeRecord(address, {
                           key: prior.key,
                           category: prior.record.category,
-                          bytes: prior.bytes,
+                          // Catalog bytes describe the canonical snapshot
+                          // object, not the physical storage envelope.
+                          bytes: entry.bytes,
                           digest: entry.digest,
                           payload: prior.record.payload,
                         });
@@ -677,7 +693,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
             const included = ownerVaultStorageRegistry.get(address.category)?.snapshot === "include";
             const stage = (): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
               if (!included) return Effect.void;
-              const entry = catalogEntryFor(next.key, address.category, next.value, next.bytes);
+              const entry = catalogEntryFor(address, next);
               return entry === undefined
                 ? storageError("invalid_record")
                 : loadCatalog().pipe(Effect.zipRight(Effect.sync(() => { catalogChanges.set(next.key, { _tag: "put", entry }); })));
@@ -743,7 +759,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 Effect.flatMap(([actualKey, value]) => {
                   const stored = value === undefined ? undefined : decodeStored(actualKey, value);
                   if (stored === undefined) return storageError<void>("state_corrupt");
-                  const entry = catalogEntryFor(actualKey, stored.record.category, value, stored.bytes);
+                  const entry = catalogEntryFor(address, { key: actualKey, record: stored.record });
                   if (entry === undefined) return storageError<void>("invalid_record");
                   const total = restoreImportPublicationBytes + stored.bytes;
                   if (!nonNegativeInteger(total)) return storageError<void>("state_corrupt");
@@ -982,7 +998,20 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
       for (const entry of selected.slice(0, limit)) {
         const value = yield* storage.get(entry.key);
         const decoded = value === undefined ? undefined : decodeStored(entry.key, value);
-        if (decoded === undefined || decoded.record.category !== address.category || decoded.bytes !== entry.bytes || ownerVaultCatalogEntryDigest(value) !== entry.digest)
+        // Catalog metadata authenticates the immutable C2 record representation,
+        // not the mutable Durable Object storage envelope. Reconstruct the exact
+        // family address from its already-authenticated key before proving it.
+        const identifier = address.identifier ?? entry.key.slice(entry.key.lastIndexOf("/") + 1);
+        const entryAddress = { category: address.category, identifier } as const;
+        const snapshot = decoded === undefined ? undefined : canonicalSnapshotRecordBytes(entryAddress, decoded.record);
+        if (
+          decoded === undefined ||
+          decoded.record.category !== address.category ||
+          keyFor(entryAddress) !== entry.key ||
+          snapshot === undefined ||
+          snapshot.byteLength !== entry.bytes ||
+          ownerVaultBackupDigest(snapshot) !== entry.digest
+        )
           return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
         results.push([entry.key, decoded.record]);
       }

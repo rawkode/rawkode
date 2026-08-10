@@ -9,6 +9,7 @@
  */
 import { Effect } from "effect";
 import {
+  canonicalPageBytes,
   canonicalSnapshotRecordBytes,
   ownerVaultBackupDigest,
 } from "./backup-canonical";
@@ -44,7 +45,7 @@ import type { OwnerVaultStorageRecord } from "./storage-registry";
 const backupIDPattern = /^[A-Za-z0-9_-]{16,120}$/u;
 const digestPattern = /^[A-Za-z0-9+/]{43}=$/u;
 const appendDigestPattern = /^[a-f0-9]{64}$/u;
-const cursorPattern = /^[0-9]{20}$/u;
+const cursorPattern = /^([0-9]{20}):([0-9]{4})$/u;
 const maxPins = 1_024;
 const gcChunk = 128;
 
@@ -72,6 +73,12 @@ interface StoredGCJournal {
 }
 
 export interface OwnerVaultSnapshotPinController extends OwnerVaultBackupSnapshotSource {
+  /** Recovers the terminal manifest receipt after a response/isolate loss.
+   * It exposes no pin proof or archive material and never reopens a pin. */
+  readonly completedManifestDigest: (
+    scope: OwnerVaultBackupScope,
+    backupID: string,
+  ) => Effect.Effect<string | undefined, OwnerVaultBackupError>;
   readonly completeSnapshot: (
     pin: OwnerVaultSnapshotPin,
     manifestDigest: string,
@@ -121,11 +128,55 @@ const preimageIdentifier = (revision: number, ordinal: number): string | undefin
     ? `${root}-${String(ordinal).padStart(4, "0")}`
     : undefined;
 };
-const cursorFor = (ordinal: number): string => String(ordinal).padStart(20, "0");
-const cursorOrdinal = (cursor: string | undefined): number | undefined =>
-  cursor === undefined ? 0 : cursorPattern.test(cursor) ? Number(cursor) : undefined;
+const cursorFor = (ordinal: number, pageOrdinal: number): string | undefined =>
+  nonNegative(ordinal) && nonNegative(pageOrdinal) && pageOrdinal <= 9_999
+    ? `${String(ordinal).padStart(20, "0")}:${String(pageOrdinal).padStart(4, "0")}`
+    : undefined;
+const cursorState = (
+  cursor: string | undefined,
+): { readonly start: number; readonly pageOrdinal: number } | undefined => {
+  if (cursor === undefined) return { start: 0, pageOrdinal: 0 };
+  const match = cursorPattern.exec(cursor);
+  if (match?.[1] === undefined || match[2] === undefined) return undefined;
+  const start = Number(match[1]);
+  const pageOrdinal = Number(match[2]);
+  return nonNegative(start) && nonNegative(pageOrdinal) ? { start, pageOrdinal } : undefined;
+};
 const backupObjectKey = (scope: OwnerVaultBackupScope, backupID: string, ordinal: number): string =>
   `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}/objects/${String(ordinal).padStart(8, "0")}.json`;
+/** C1 authenticates source records; C2 signs this independent archive
+ * inventory. It uses archive keys and canonical snapshot bytes, rather than
+ * treating the C1 root digest as a backup-manifest inventory digest. */
+const archiveCatalogDigest = (
+  scope: OwnerVaultBackupScope,
+  backupID: string,
+  entries: readonly OwnerVaultCatalogEntry[],
+): string | undefined => {
+  const inventory = entries.map((entry) => {
+    const identifier = entry.key.split("/").at(-1);
+    if (identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)) return undefined;
+    return {
+      ordinal: entry.ordinal,
+      key: backupObjectKey(scope, backupID, entry.ordinal),
+      sha256Base64: entry.digest,
+      size: entry.bytes,
+      category: entry.category,
+      identifier,
+    };
+  });
+  if (inventory.some((entry) => entry === undefined)) return undefined;
+  const complete = inventory as readonly {
+    readonly ordinal: number;
+    readonly key: string;
+    readonly sha256Base64: string;
+    readonly size: number;
+    readonly category: string;
+    readonly identifier: string;
+  }[];
+  return ownerVaultBackupDigest(
+    new TextEncoder().encode(JSON.stringify(complete.map(({ key: _key, ...entry }) => entry))),
+  );
+};
 
 const decodePin = (value: unknown): StoredPin | undefined => {
   const source = plain(value);
@@ -226,7 +277,7 @@ const pinnedRoot = (
     Effect.flatMap((stored) => {
       const root = stored?.payload;
       if (stored === undefined || !isOwnerVaultCatalogRootPayload(root) || root.catalogRevision !== pin.catalogRevision ||
-        ownerVaultCatalogDigest(root) !== pin.rootDigest || root.catalogDigest !== pin.catalogDigest ||
+        ownerVaultCatalogDigest(root) !== pin.rootDigest || root.catalogDigest !== pin.highWaterMark ||
         root.highWaterMark !== pin.highWaterMark || root.appendLogSequence !== pin.appendLogSequence || root.appendLogDigest !== pin.appendLogDigest || !sameScope(root.scope, pin.scope))
         return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
       return catalogEntries(tx, root).pipe(Effect.map((entries) => ({ root, entries })));
@@ -234,14 +285,22 @@ const pinnedRoot = (
   );
 };
 
-const recordBytes = (record: OwnerVaultStorageRecord): number | undefined => {
-  try { return new TextEncoder().encode(JSON.stringify({ category: record.category, version: record.version, payload: record.payload })).byteLength; }
-  catch { return undefined; }
+const entryAddress = (entry: OwnerVaultCatalogEntry): OwnerVaultStorageAddress | undefined => {
+  const identifier = entry.key.split("/").at(-1);
+  return identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)
+    ? undefined
+    : { category: entry.category as OwnerVaultStorageAddress["category"], identifier };
 };
 
-const matchesEntry = (entry: OwnerVaultCatalogEntry, record: OwnerVaultStorageRecord): boolean =>
-  record.category === entry.category && record.version === 1 && recordBytes(record) === entry.bytes &&
-  ownerVaultCatalogEntryDigest({ category: record.category, version: record.version, payload: record.payload }) === entry.digest;
+const matchesEntry = (entry: OwnerVaultCatalogEntry, record: OwnerVaultStorageRecord): boolean => {
+  const address = entryAddress(entry);
+  const bytes = address === undefined ? undefined : canonicalSnapshotRecordBytes(address, record);
+  return record.category === entry.category &&
+    record.version === 1 &&
+    bytes !== undefined &&
+    bytes.byteLength === entry.bytes &&
+    ownerVaultBackupDigest(bytes) === entry.digest;
+};
 
 const preimageRecord = (value: OwnerVaultStorageRecord | undefined, entry: OwnerVaultCatalogEntry): OwnerVaultStorageRecord | undefined => {
   const source = value === undefined ? undefined : plain(value.payload);
@@ -293,13 +352,16 @@ export const makeOwnerVaultSnapshotPinController = (
                     ownerVaultCatalogDigest(root) !== rootDigest || !sameScope(root.scope, scope))
                     return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
                   return catalogEntries(tx, root).pipe(
-                    Effect.flatMap(() => tx.get(address("catalog.retention", identifier)).pipe(
+                    Effect.flatMap((entries) => tx.get(address("catalog.retention", identifier)).pipe(
                       Effect.flatMap((retention) => {
                         const count = retention === undefined ? 0 : plain(retention.payload)?.pinCount;
                         if (!nonNegative(count) || count >= maxPins) return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "quota_exceeded" } as const);
+                        const archiveDigest = archiveCatalogDigest(scope, backupID, entries);
+                        if (archiveDigest === undefined)
+                          return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
                         const pin: StoredPin = {
                           backupID, scope, catalogRevision: root.catalogRevision, rootDigest,
-                          catalogDigest: root.catalogDigest, highWaterMark: root.highWaterMark,
+                          catalogDigest: archiveDigest, highWaterMark: root.highWaterMark,
                           appendLogSequence: root.appendLogSequence, appendLogDigest: root.appendLogDigest,
                           pinProof: proof, state: OwnerVaultSnapshotPinState.Open, retained: true,
                         };
@@ -320,8 +382,9 @@ export const makeOwnerVaultSnapshotPinController = (
   };
 
   const readSnapshotPage = (pin: OwnerVaultSnapshotPin, cursor: string | undefined): Effect.Effect<OwnerVaultSnapshotPage, OwnerVaultBackupError> => {
-    const start = cursorOrdinal(cursor);
-    if (start === undefined) return ownerVaultBackupFailure("catalog_invalid");
+    const state = cursorState(cursor);
+    if (state === undefined) return ownerVaultBackupFailure("catalog_invalid");
+    const { start, pageOrdinal } = state;
     return mapError(repository.transact((tx) => tx.get(address("backup.pin", pin.backupID)).pipe(
       Effect.flatMap((stored) => {
         const durable = stored === undefined ? undefined : decodePin(stored.payload);
@@ -380,9 +443,33 @@ export const makeOwnerVaultSnapshotPinController = (
                   bounded.push(object);
                 }
                 if (bounded.length === 0) return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
-                const digest = ownerVaultBackupDigest(new TextEncoder().encode(JSON.stringify(bounded.map((object) => ({ ordinal: object.ordinal, key: backupObjectKey(durable.scope, durable.backupID, object.ordinal), sha256Base64: object.sha256Base64, size: object.size, category: object.address.category, ...(object.address.identifier === undefined ? {} : { identifier: object.address.identifier }) })))));
+                const archiveEntries = bounded.map((object) => ({
+                  ordinal: object.ordinal,
+                  key: backupObjectKey(durable.scope, durable.backupID, object.ordinal),
+                  sha256Base64: object.sha256Base64,
+                  size: object.size,
+                  category: object.address.category,
+                  ...(object.address.identifier === undefined
+                    ? {}
+                    : { identifier: object.address.identifier }),
+                }));
+                const unsigned = canonicalPageBytes({
+                  ordinal: pageOrdinal,
+                  entries: archiveEntries,
+                  digest: "",
+                });
+                if (unsigned === undefined)
+                  return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
+                const digest = ownerVaultBackupDigest(unsigned);
                 const next = start + bounded.length;
-                return Effect.succeed({ entries: bounded, digest, ...(next < entries.length ? { nextCursor: cursorFor(next) } : {}) });
+                const nextCursor = next < entries.length ? cursorFor(next, pageOrdinal + 1) : undefined;
+                if (next < entries.length && nextCursor === undefined)
+                  return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
+                return Effect.succeed({
+                  entries: bounded,
+                  digest,
+                  ...(nextCursor === undefined ? {} : { nextCursor }),
+                });
               }),
             );
           }),
@@ -447,6 +534,29 @@ export const makeOwnerVaultSnapshotPinController = (
       }),
     )));
 
+  const completedManifestDigest = (
+    scope: OwnerVaultBackupScope,
+    backupID: string,
+  ): Effect.Effect<string | undefined, OwnerVaultBackupError> => {
+    if (!validScope(scope) || !backupIDPattern.test(backupID)) return ownerVaultBackupFailure("invalid_backup");
+    return mapError(repository.transact((tx) =>
+      tx.get(address("backup.pin", backupID)).pipe(
+        Effect.flatMap((stored): Effect.Effect<string | undefined, import("./repository").OwnerVaultStorageTransactionFailure> => {
+          const pin = stored === undefined ? undefined : decodePin(stored.payload);
+          // Absence is the normal fresh-snapshot case. A durable pin of a
+          // different scope is the only identity conflict here.
+          if (stored === undefined) return Effect.succeed(undefined);
+          if (pin === undefined || !sameScope(pin.scope, scope))
+            return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "identity_conflict" } as const);
+          if (pin.state !== OwnerVaultSnapshotPinState.Completed) return Effect.succeed(undefined);
+          return pin.manifestDigest === undefined
+            ? Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const)
+            : Effect.succeed(pin.manifestDigest);
+        }),
+      ),
+    ));
+  };
+
   const collectGarbage = (backupID: string, limit = gcChunk): Effect.Effect<boolean, OwnerVaultBackupError> => {
     if (!backupIDPattern.test(backupID) || !Number.isSafeInteger(limit) || limit < 1 || limit > gcChunk)
       return ownerVaultBackupFailure("invalid_backup");
@@ -506,6 +616,7 @@ export const makeOwnerVaultSnapshotPinController = (
     beginSnapshot,
     readSnapshotPage,
     releaseSnapshot,
+    completedManifestDigest,
     completeSnapshot: (pin: OwnerVaultSnapshotPin, manifestDigest: string) => transition(pin, OwnerVaultSnapshotPinState.Completed, manifestDigest),
     abortSnapshot: (pin: OwnerVaultSnapshotPin) => transition(pin, OwnerVaultSnapshotPinState.Aborted),
     expireSnapshot: (pin: OwnerVaultSnapshotPin) => transition(pin, OwnerVaultSnapshotPinState.Expired),
