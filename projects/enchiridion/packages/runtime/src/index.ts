@@ -10,6 +10,7 @@ export * from "./limiter";
 export * from "./manifest";
 export * from "./operation";
 export * from "./owner-vault-socket-admission";
+export * from "./owner-vault-directory-control";
 export * from "./p256";
 export * from "./p256-vectors";
 export * from "./request-body";
