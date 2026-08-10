@@ -591,14 +591,22 @@ const claimsFor = (
 ): OwnerVaultDirectoryControlClaims => {
   const signed = { keyID, issuedAt: nowSeconds, expiresAt: nowSeconds + input.ttlSeconds };
   switch (input.resource) {
-    case OwnerVaultDirectoryControlResource.PrivateInitialize:
-      return { ...input, ...signed };
-    case OwnerVaultDirectoryControlResource.CredentialFence:
-      return { ...input, ...signed };
-    case OwnerVaultDirectoryControlResource.Snapshot:
-      return { ...input, ...signed };
-    case OwnerVaultDirectoryControlResource.Restore:
-      return { ...input, ...signed };
+    case OwnerVaultDirectoryControlResource.PrivateInitialize: {
+      const { ttlSeconds: _, ...binding } = input;
+      return { ...binding, ...signed };
+    }
+    case OwnerVaultDirectoryControlResource.CredentialFence: {
+      const { ttlSeconds: _, ...binding } = input;
+      return { ...binding, ...signed };
+    }
+    case OwnerVaultDirectoryControlResource.Snapshot: {
+      const { ttlSeconds: _, ...binding } = input;
+      return { ...binding, ...signed };
+    }
+    case OwnerVaultDirectoryControlResource.Restore: {
+      const { ttlSeconds: _, ...binding } = input;
+      return { ...binding, ...signed };
+    }
   }
 };
 
