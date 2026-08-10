@@ -670,8 +670,10 @@ export const verifyOwnerVaultDirectoryControl = (
     const claims = yield* decode(parsed);
     if (payload !== canonical(claims))
       return yield* Effect.fail(new VerificationError({ reason: "claims_invalid" }));
+    if (ring.revokedKeyIDs.includes(claims.keyID))
+      return yield* Effect.fail(new VerificationError({ reason: "unknown_or_stale_key" }));
     const key = [ring.current, ...ring.prior].find((entry) => entry.keyID === claims.keyID);
-    if (key === undefined || ring.revokedKeyIDs.includes(claims.keyID))
+    if (key === undefined)
       return yield* Effect.fail(new VerificationError({ reason: "unknown_or_stale_key" }));
     const signature = fromB64url(parts[2]);
     if (signature === undefined)

@@ -5,6 +5,9 @@ import {
   CapabilityAuthority,
   type CapabilityKeyMaterial,
   CapabilityMethod,
+  DirectoryControlCapabilityAudience,
+  DirectoryControlCapabilityAuthority,
+  DirectoryControlResource,
   type InternalCapabilityKeyRing,
   OwnerVaultDirectoryControlResource,
   makeOwnerVaultDirectoryControlKeyRing,
@@ -14,8 +17,10 @@ import {
   ownerVaultSnapshotPath,
   signCapability,
   signCapabilityHmac,
+  signDirectoryControlCapability,
   signOwnerVaultDirectoryControl,
   verifyCapability,
+  verifyDirectoryControlCapability,
   verifyOwnerVaultDirectoryControl,
 } from "./index";
 import type {
@@ -192,6 +197,7 @@ describe("OwnerVault DirectoryControl capability", () => {
     }
     const snapshotToken = await Effect.runPromise(signed(snapshot, keys));
     for (const expected of [
+      { ...snapshot, backupID: "backup-control-000002" },
       { ...snapshot, sourceGeneration: 6 },
       { ...snapshot, sourceRoutingEpoch: 10 },
       { ...snapshot, sourceCredentialEpoch: 9 },
@@ -203,8 +209,43 @@ describe("OwnerVault DirectoryControl capability", () => {
       );
       expect(Exit.isFailure(exit)).toBe(true);
     }
+    const fenceToken = await Effect.runPromise(signed(fence, keys));
+    for (const expected of [
+      {
+        ...fence,
+        expectedCredentialEpoch: 13,
+        raisedCredentialEpoch: 14,
+        credentialEpoch: 14,
+      },
+      {
+        ...fence,
+        expectedRoutingEpoch: 11,
+        raisedRoutingEpoch: 12,
+        routingEpoch: 12,
+      },
+      { ...fence, expectedControlEpoch: 18, controlEpoch: 18 },
+      { ...fence, expectedSecurityFloor: 20, securityFloor: 20 },
+      {
+        ...fence,
+        raisedCredentialEpoch: 14,
+        expectedCredentialEpoch: 13,
+        credentialEpoch: 14,
+      },
+      {
+        ...fence,
+        raisedRoutingEpoch: 12,
+        expectedRoutingEpoch: 11,
+        routingEpoch: 12,
+      },
+    ]) {
+      const exit = await Effect.runPromiseExit(
+        verifyOwnerVaultDirectoryControl(fenceToken, fence, expected, keys, 110),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }
     const restoreToken = await Effect.runPromise(signed(restore, keys));
     for (const expected of [
+      { ...restore, generationEpoch: 8, targetGeneration: 8 },
       { ...restore, sourceGeneration: 6 },
       { ...restore, allocationID: "allocation-control-002" },
       { ...restore, initID: "init-control-00000002" },
@@ -218,7 +259,7 @@ describe("OwnerVault DirectoryControl capability", () => {
     }
   });
 
-  test("rejects unknown, duplicate, noncanonical, non-UTF8, wrong-path and expired claims", async () => {
+  test("rejects malformed, incomplete, noncanonical, and unsafe-time claims", async () => {
     const keys = await ring();
     const token = await Effect.runPromise(signed(privateInitialize, keys));
     const payload = token.value.split(".")[1];
@@ -232,6 +273,7 @@ describe("OwnerVault DirectoryControl capability", () => {
         (character) => character.charCodeAt(0),
       ),
     );
+    const { manifestDigest: _, ...incomplete } = JSON.parse(text) as Record<string, unknown>;
     const extra = await signedRaw(`${text.slice(0, -1)},"extra":true}`);
     const duplicate = await signedRaw(`${text.slice(0, -1)},"resource":"private-initialize"}`);
     const reordered = await signedRaw(
@@ -244,6 +286,11 @@ describe("OwnerVault DirectoryControl capability", () => {
     const wrongQuery = await signedRaw(
       text.replace('"canonicalQuery":""', '"canonicalQuery":"x=y"'),
     );
+    const unknownResource = await signedRaw(
+      text.replace('"resource":"private-initialize"', '"resource":"unknown-resource"'),
+    );
+    const missing = await signedRaw(JSON.stringify(incomplete));
+    const malformedBase64 = { value: token.value.replace("ovdc1.", "ovdc1.!.") };
     const nonUTF8 = await signedRaw(new Uint8Array([0xff, 0xfe, 0xfd]));
     for (const candidate of [
       extra,
@@ -252,6 +299,9 @@ describe("OwnerVault DirectoryControl capability", () => {
       wrongPath,
       wrongMethod,
       wrongQuery,
+      unknownResource,
+      missing,
+      malformedBase64,
       nonUTF8,
     ]) {
       const exit = await Effect.runPromiseExit(
@@ -269,10 +319,32 @@ describe("OwnerVault DirectoryControl capability", () => {
       verifyOwnerVaultDirectoryControl(token, privateInitialize, privateInitialize, keys, 130),
     );
     expect(Exit.isFailure(expired)).toBe(true);
+    const notYetValid = await Effect.runPromiseExit(
+      verifyOwnerVaultDirectoryControl(token, privateInitialize, privateInitialize, keys, 99),
+    );
+    expect(Exit.isFailure(notYetValid)).toBe(true);
     const ttl = await Effect.runPromiseExit(
       signOwnerVaultDirectoryControl({ ...privateInitialize, ttlSeconds: 61 }, keys, 100),
     );
     expect(Exit.isFailure(ttl)).toBe(true);
+    const unsafeSign = await Effect.runPromiseExit(
+      signOwnerVaultDirectoryControl(
+        { ...privateInitialize, ttlSeconds: 1 },
+        keys,
+        Number.MAX_SAFE_INTEGER + 1,
+      ),
+    );
+    const unsafeVerify = await Effect.runPromiseExit(
+      verifyOwnerVaultDirectoryControl(
+        token,
+        privateInitialize,
+        privateInitialize,
+        keys,
+        Number.MAX_SAFE_INTEGER + 1,
+      ),
+    );
+    expect(Exit.isFailure(unsafeSign)).toBe(true);
+    expect(Exit.isFailure(unsafeVerify)).toBe(true);
   });
 
   test("uses a dedicated current/prior/revoked ring and never accepts generic v1 framing", async () => {
@@ -293,7 +365,10 @@ describe("OwnerVault DirectoryControl capability", () => {
       ),
     );
     const revoked = await Effect.runPromise(
-      makeOwnerVaultDirectoryControlKeyRing({ current: rotated, revokedKeyIDs: [previous.keyID] }),
+      makeOwnerVaultDirectoryControlKeyRing({
+        current: rotated,
+        revokedKeyIDs: [previous.keyID],
+      }),
     );
     const revokedExit = await Effect.runPromiseExit(
       verifyOwnerVaultDirectoryControl(
@@ -365,11 +440,57 @@ describe("OwnerVault DirectoryControl capability", () => {
         110,
       ),
     );
+    const legacyBinding = {
+      resource: DirectoryControlResource.CredentialTransition,
+      method: CapabilityMethod.POST,
+      path: "/v2/directory/credential-transition",
+      canonicalQuery: "",
+      bodySHA256: sha,
+      ownerID: privateInitialize.ownerID,
+      vaultID: privateInitialize.vaultID,
+    } as const;
+    const legacyExpectation = {
+      audience: DirectoryControlCapabilityAudience.DirectoryControl,
+      authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+      resource: DirectoryControlResource.CredentialTransition,
+      ownerID: privateInitialize.ownerID,
+      vaultID: privateInitialize.vaultID,
+      credentialEpoch: privateInitialize.credentialEpoch,
+      generationEpoch: privateInitialize.generationEpoch,
+      routingEpoch: privateInitialize.routingEpoch,
+      operationID: privateInitialize.operationID,
+    } as const;
+    const legacy = await Effect.runPromise(
+      signDirectoryControlCapability(
+        {
+          ...legacyBinding,
+          ...legacyExpectation,
+          jti: privateInitialize.jti,
+          ttlSeconds: 30,
+        },
+        genericRing,
+        100,
+      ),
+    );
+    const legacyToOvd = await Effect.runPromiseExit(
+      verifyOwnerVaultDirectoryControl(legacy, privateInitialize, privateInitialize, active, 110),
+    );
+    const ovdcToLegacy = await Effect.runPromiseExit(
+      verifyDirectoryControlCapability(
+        priorToken,
+        legacyBinding,
+        legacyExpectation,
+        genericRing,
+        110,
+      ),
+    );
     expect(Exit.isFailure(revokedExit)).toBe(true);
     expect(Exit.isFailure(legacyExit)).toBe(true);
     expect(Exit.isFailure(overlap)).toBe(true);
     expect(Exit.isFailure(genericToOvd)).toBe(true);
     expect(Exit.isFailure(ovdcToGeneric)).toBe(true);
+    expect(Exit.isFailure(legacyToOvd)).toBe(true);
+    expect(Exit.isFailure(ovdcToLegacy)).toBe(true);
     expect(JSON.stringify(active)).not.toContain("owner-vault-control-current-secret");
   });
 });
