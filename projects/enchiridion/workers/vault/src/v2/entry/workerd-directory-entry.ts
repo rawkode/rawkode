@@ -10,8 +10,9 @@ import {
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
 import { directoryDOPath } from "../directory/directory-do";
+import { ownerVaultObjectName } from "../directory/lifecycle";
 import { parseVaultV2EntryEnv } from "./composition";
-import { makeVaultV2Entry, OwnerVaultV2 } from "./index";
+import { OwnerVaultV2, makeVaultV2Entry } from "./index";
 
 const fixtureAssertion =
   "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImZpeHR1cmUifQ.eyJmaXh0dXJlIjp0cnVlfQ.fixture";
@@ -52,6 +53,26 @@ const testDirectoryTarget = {
   maximumResponseBytes: 4_096,
 };
 const testInvocationPath = "/__test/directory-invocation";
+const testOwnerVaultControlPrefix = "/__test/owner-vault-control/";
+const testOwnerVault = {
+  ownerID: "owner-workerd-fixture",
+  vaultID: "vault-workerd-fixture",
+  generationEpoch: 2,
+} as const;
+const ownerVaultControlPath = (pathname: string): string | undefined => {
+  switch (pathname.slice(testOwnerVaultControlPrefix.length)) {
+    case "private-initialize":
+      return "/__v2/internal/owner-vault/private-initialize";
+    case "credential-fence":
+      return "/__v2/internal/owner-vault/credential-fence";
+    case "snapshot":
+      return "/__v2/internal/owner-vault/snapshot";
+    case "restore":
+      return "/__v2/internal/owner-vault/restore";
+    default:
+      return undefined;
+  }
+};
 
 /**
  * Workerd-only relay: test code supplies a previously signed, byte-identical
@@ -64,6 +85,19 @@ const handler = (request: Request, raw: unknown): Effect.Effect<Response> =>
     catch: () => undefined,
   }).pipe(
     Effect.flatMap((route) => {
+      if (route?.method === "POST" && route.pathname.startsWith(testOwnerVaultControlPrefix)) {
+        const env = parseVaultV2EntryEnv(raw);
+        const targetPath = ownerVaultControlPath(route.pathname);
+        if (env === undefined || targetPath === undefined)
+          return Effect.succeed(new Response("not found", { status: 404 }));
+        const stub = env.OWNER_VAULT_V2_DO.get(
+          env.OWNER_VAULT_V2_DO.idFromName(ownerVaultObjectName(testOwnerVault)),
+        );
+        return Effect.tryPromise({
+          try: () => stub.fetch(new Request(`https://owner-vault.invalid${targetPath}`, request)),
+          catch: () => new Response("unavailable", { status: 503 }),
+        });
+      }
       if (route?.method !== "POST" || route.pathname !== testInvocationPath)
         return entry.handler(request, raw);
       const env = parseVaultV2EntryEnv(raw);

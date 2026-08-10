@@ -3,7 +3,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CanonicalJSON, canonicalJSONStringify } from "@enchiridion/protocol";
+import { type CanonicalJSON, canonicalJSONStringify, sha256Hex } from "@enchiridion/protocol";
+import {
+  type OwnerVaultCredentialFenceClaimsInput,
+  type OwnerVaultDirectoryControlClaimsInput,
+  OwnerVaultDirectoryControlResource,
+  type OwnerVaultPrivateInitializeClaimsInput,
+  type OwnerVaultSnapshotClaimsInput,
+  makeOwnerVaultDirectoryControlKeyRing,
+  signOwnerVaultDirectoryControl,
+} from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
 import { makeDirectoryInvocation } from "../directory/gateway";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
@@ -42,6 +51,15 @@ const bootstrap = () =>
     headers: { "Cf-Access-Jwt-Assertion": fixtureAssertion },
   });
 const get = (path: string) => fetch(`${baseURL}/${path}`);
+const ownerVaultControl = (route: string, body: Uint8Array) => {
+  const copy = new Uint8Array(body.byteLength);
+  copy.set(body);
+  return fetch(`${baseURL}/__test/owner-vault-control/${route}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: copy.buffer,
+  });
+};
 const secret = (value: string): Redacted.Redacted => Redacted.make(value);
 const required = <A>(value: A | undefined): A => {
   if (value === undefined) throw new Error("test setup invalid");
@@ -128,6 +146,54 @@ const resolutionIdentity = (value: unknown): string | undefined => {
   return typeof source.ownerID === "string" && typeof source.vaultID === "string"
     ? `${source.ownerID}:${source.vaultID}`
     : undefined;
+};
+const ownerVaultControlRing = () =>
+  makeOwnerVaultDirectoryControlKeyRing({
+    current: {
+      keyID: "owner-control-current",
+      secret: secret("owner-control-current-secret-0123456789-abcdef"),
+    },
+    prior: [],
+    revokedKeyIDs: [],
+  });
+const owner = "owner-workerd-fixture";
+const vault = "vault-workerd-fixture";
+const digest = "a".repeat(64);
+const privateInit = {
+  ownerID: owner,
+  vaultID: vault,
+  generationEpoch: 2,
+  routingEpoch: 1,
+  credentialEpoch: 1,
+  controlEpoch: 1,
+  securityFloor: 1,
+  operationID: "private-initialize-op-0001",
+  jti: "private-initialize-jti-0001",
+  sourceGeneration: 1,
+  targetGeneration: 2,
+  allocationID: "allocation-workerd-0001",
+  initID: "init-workerd-target-0001",
+  backupID: "backup-workerd-source-0001",
+  manifestDigest: digest,
+} as const;
+const privateInitializeBinding = (command = privateInit) =>
+  ({
+    resource: OwnerVaultDirectoryControlResource.PrivateInitialize,
+    path: "/__v2/internal/owner-vault/private-initialize" as const,
+    method: "POST" as const,
+    canonicalQuery: "" as const,
+    bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(command))),
+    ...command,
+  }) satisfies Omit<OwnerVaultPrivateInitializeClaimsInput, "ttlSeconds">;
+const signedOwnerVaultControlBody = async <A extends Readonly<Record<string, unknown>>>(
+  command: A,
+  input: OwnerVaultDirectoryControlClaimsInput,
+): Promise<Uint8Array> => {
+  const ring = await Effect.runPromise(ownerVaultControlRing());
+  const signed = await Effect.runPromise(
+    signOwnerVaultDirectoryControl(input, ring, Math.floor(Date.now() / 1_000)),
+  );
+  return new TextEncoder().encode(JSON.stringify({ capability: signed.value, command }));
 };
 
 const start = async (): Promise<void> => {
@@ -224,5 +290,100 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     const after = await (await bootstrap()).json();
     expect(record(after)?.ok).toBe(true);
     expect(resolutionIdentity(after)).toBe(resolutionIdentity(before));
+  }, 45_000);
+
+  test("commits an exact private-init receipt across a restart and fences before returning", async () => {
+    const initBody = await signedOwnerVaultControlBody(privateInit, {
+      ...privateInitializeBinding(),
+      ttlSeconds: 60,
+    });
+    const first = await ownerVaultControl("private-initialize", initBody);
+    expect(first.status).toBe(200);
+    const acknowledgement = await first.json();
+    expect(record(acknowledgement)?.durableReceipt).toEqual(expect.any(String));
+
+    process?.kill();
+    if (process !== undefined) await process.exited;
+    process = undefined;
+    await start();
+    const replay = await ownerVaultControl("private-initialize", initBody);
+    expect(replay.status).toBe(200);
+    expect(JSON.stringify(await replay.json())).toBe(JSON.stringify(acknowledgement));
+
+    const snapshot = {
+      ownerID: owner,
+      vaultID: vault,
+      generationEpoch: 2,
+      routingEpoch: 1,
+      credentialEpoch: 1,
+      controlEpoch: 1,
+      securityFloor: 1,
+      operationID: "snapshot-operation-id-0001",
+      jti: "snapshot-control-jti-0001",
+      backupID: "backup-workerd-source-0001",
+      sourceGeneration: 2,
+      sourceRoutingEpoch: 1,
+      sourceCredentialEpoch: 1,
+      sourceControlEpoch: 1,
+      sourceSecurityFloor: 1,
+    } as const;
+    const snapshotBinding = {
+      resource: OwnerVaultDirectoryControlResource.Snapshot,
+      path: "/__v2/internal/owner-vault/snapshot" as const,
+      method: "POST" as const,
+      canonicalQuery: "" as const,
+      bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(snapshot))),
+      ...snapshot,
+    } satisfies Omit<OwnerVaultSnapshotClaimsInput, "ttlSeconds">;
+    const snapshotBody = await signedOwnerVaultControlBody(snapshot, {
+      ...snapshotBinding,
+      ttlSeconds: 60,
+    });
+    const firstPin = await ownerVaultControl("snapshot", snapshotBody);
+    expect(firstPin.status).toBe(200);
+    const secondPin = await ownerVaultControl("snapshot", snapshotBody);
+    expect(secondPin.status).toBe(200);
+    expect(JSON.stringify(await secondPin.json())).toBe(
+      JSON.stringify(await firstPin.clone().json()),
+    );
+
+    const fence = {
+      ownerID: owner,
+      vaultID: vault,
+      generationEpoch: 2,
+      routingEpoch: 2,
+      credentialEpoch: 2,
+      controlEpoch: 1,
+      securityFloor: 1,
+      operationID: "credential-fence-op-0001",
+      jti: "credential-fence-jti-0001",
+      expectedCredentialEpoch: 1,
+      expectedRoutingEpoch: 1,
+      expectedControlEpoch: 1,
+      expectedSecurityFloor: 1,
+      raisedCredentialEpoch: 2,
+      raisedRoutingEpoch: 2,
+    } as const;
+    const fenceBinding = {
+      resource: OwnerVaultDirectoryControlResource.CredentialFence,
+      path: "/__v2/internal/owner-vault/credential-fence" as const,
+      method: "POST" as const,
+      canonicalQuery: "" as const,
+      bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(fence))),
+      ...fence,
+    } satisfies Omit<OwnerVaultCredentialFenceClaimsInput, "ttlSeconds">;
+    const fenceResponse = await ownerVaultControl(
+      "credential-fence",
+      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
+    );
+    expect(fenceResponse.status).toBe(200);
+    const fenced = await fenceResponse.json();
+    expect(record(fenced)?.durableReceipt).toEqual(expect.any(String));
+    const fenceReplay = await ownerVaultControl(
+      "credential-fence",
+      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
+    );
+    expect(fenceReplay.status).toBe(200);
+    expect(JSON.stringify(await fenceReplay.json())).toBe(JSON.stringify(fenced));
   }, 45_000);
 });

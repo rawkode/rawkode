@@ -13,9 +13,9 @@ import { Effect } from "effect";
 import { directoryDOPath, makeCredentialDirectoryDO } from "../directory/directory-do";
 import { makeDirectoryInvocation } from "../directory/gateway";
 import { validDirectoryResolution } from "../directory/invariants";
-import { makeOwnerVaultDO } from "../owner-vault/owner-vault-do";
 import { accessAssertionHeadersFromWorkerHeaders } from "../foundation/access";
 import { InternalCapabilityFactory } from "../foundation/crypto";
+import { makeOwnerVaultDO } from "../owner-vault/owner-vault-do";
 import {
   type VaultV2EntryCompositionOptions,
   makeVaultV2EntryCompositionCache,
@@ -258,7 +258,13 @@ export const CredentialDirectoryDO = productionEntry.CredentialDirectoryDO;
 const ownerVaultComposition = makeVaultV2EntryCompositionCache();
 export const OwnerVaultV2 = makeOwnerVaultDO((raw) => {
   const resolved = ownerVaultComposition(raw);
-  return resolved === undefined ? undefined : { controls: resolved.directoryControls };
+  return resolved === undefined
+    ? undefined
+    : {
+        controls: resolved.directoryControls,
+        ownerVaultControls: resolved.ownerVaultDirectoryControls,
+        production: resolved.ownerVaultProduction,
+      };
 });
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
