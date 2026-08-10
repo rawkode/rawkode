@@ -67,8 +67,6 @@ export interface OwnerVaultSnapshotBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.Snapshot;
   readonly path: typeof ownerVaultSnapshotPath;
   readonly backupID: string;
-  /** SHA-256 of the exact signed backup manifest: canonical base64url without padding. */
-  readonly manifestDigest: string;
   readonly sourceGeneration: number;
   readonly sourceRoutingEpoch: number;
   readonly sourceCredentialEpoch: number;
@@ -223,7 +221,6 @@ const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean 
         commonValid(value) &&
         value.path === ownerVaultSnapshotPath &&
         opaque.test(value.backupID) &&
-        manifestDigestValid(value.manifestDigest) &&
         positive(value.sourceGeneration) &&
         positive(value.sourceRoutingEpoch) &&
         positive(value.sourceCredentialEpoch) &&
@@ -293,7 +290,6 @@ const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
       return JSON.stringify({
         ...common,
         backupID: claims.backupID,
-        manifestDigest: claims.manifestDigest,
         sourceGeneration: claims.sourceGeneration,
         sourceRoutingEpoch: claims.sourceRoutingEpoch,
         sourceCredentialEpoch: claims.sourceCredentialEpoch,
@@ -472,7 +468,6 @@ const decode = (
           !hasExact(record, [
             ...commonKeys,
             "backupID",
-            "manifestDigest",
             "sourceGeneration",
             "sourceRoutingEpoch",
             "sourceCredentialEpoch",
@@ -481,7 +476,6 @@ const decode = (
           ]) ||
           record.path !== ownerVaultSnapshotPath ||
           typeof record.backupID !== "string" ||
-          typeof record.manifestDigest !== "string" ||
           typeof record.sourceGeneration !== "number" ||
           typeof record.sourceRoutingEpoch !== "number" ||
           typeof record.sourceCredentialEpoch !== "number" ||
@@ -496,7 +490,6 @@ const decode = (
           canonicalQuery: "",
           ...common,
           backupID: record.backupID,
-          manifestDigest: record.manifestDigest,
           sourceGeneration: record.sourceGeneration,
           sourceRoutingEpoch: record.sourceRoutingEpoch,
           sourceCredentialEpoch: record.sourceCredentialEpoch,

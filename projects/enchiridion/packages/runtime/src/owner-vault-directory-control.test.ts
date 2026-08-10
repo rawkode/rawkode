@@ -86,7 +86,6 @@ const snapshot: OwnerVaultSnapshotBinding = {
   resource: OwnerVaultDirectoryControlResource.Snapshot,
   path: ownerVaultSnapshotPath,
   backupID: "backup-control-000001",
-  manifestDigest,
   sourceGeneration: 5,
   sourceRoutingEpoch: 9,
   sourceCredentialEpoch: 8,
@@ -185,7 +184,7 @@ describe("OwnerVault DirectoryControl capability", () => {
     expect(Exit.isFailure(staleControl)).toBe(true);
   });
 
-  test("requires one canonical base64url SHA-256 manifest digest in every manifest resource", async () => {
+  test("requires a canonical manifest digest only where the archive already exists", async () => {
     const keys = await ring();
     const nonCanonical = `${manifestDigest.slice(0, -1)}B`;
     const invalidDigests = [
@@ -194,7 +193,7 @@ describe("OwnerVault DirectoryControl capability", () => {
       manifestDigest.replace("-", "+"),
       nonCanonical,
     ];
-    for (const binding of [privateInitialize, snapshot, restore] as const) {
+    for (const binding of [privateInitialize, restore] as const) {
       const token = await Effect.runPromise(signed(binding, keys));
       for (const invalidDigest of invalidDigests) {
         const signExit = await Effect.runPromiseExit(
@@ -212,6 +211,14 @@ describe("OwnerVault DirectoryControl capability", () => {
         expect(Exit.isFailure(verifyExit)).toBe(true);
       }
     }
+    const snapshotToken = await Effect.runPromise(signed(snapshot, keys));
+    const prematureManifest = await signedRaw(
+      `${payloadText(snapshotToken).slice(0, -1)},"manifestDigest":"${manifestDigest}"}`,
+    );
+    const snapshotExit = await Effect.runPromiseExit(
+      verifyOwnerVaultDirectoryControl(prematureManifest, snapshot, snapshot, keys, 110),
+    );
+    expect(Exit.isFailure(snapshotExit)).toBe(true);
   });
 
   test("rejects substitutions across every common and resource-owned authority field", async () => {
@@ -243,7 +250,6 @@ describe("OwnerVault DirectoryControl capability", () => {
     const snapshotToken = await Effect.runPromise(signed(snapshot, keys));
     for (const expected of [
       { ...snapshot, backupID: "backup-control-000002" },
-      { ...snapshot, manifestDigest: otherManifestDigest },
       { ...snapshot, sourceGeneration: 6 },
       { ...snapshot, sourceRoutingEpoch: 10 },
       { ...snapshot, sourceCredentialEpoch: 9 },
