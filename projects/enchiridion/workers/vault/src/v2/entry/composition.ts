@@ -25,6 +25,10 @@ import {
   makeVersionedIssuerHasher,
 } from "../foundation/crypto";
 import { VaultV2Metrics } from "../foundation/metrics";
+import {
+  type OwnerVaultProductionAuthority,
+  makeOwnerVaultProductionAuthority,
+} from "./owner-vault-production";
 
 /** The only v2 production bindings. Values are validated before use and never logged. */
 export interface VaultV2EntryEnv {
@@ -42,9 +46,19 @@ export interface VaultV2EntryEnv {
   /** JSON array of `{ keyID, secret }`; retained prior capability keys only. */
   readonly ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON: string;
   readonly ENCHIRIDION_V2_CREDENTIAL_QUOTA: string;
+  /** Exact public production cap set; no per-provider fallback is permitted. */
+  readonly ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: string;
+  readonly ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID: string;
+  /** Secret-only binding: canonical P-256 PKCS#8, never a Wrangler var. */
+  readonly ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64: string;
+  readonly ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: string;
+  readonly ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON: string;
+  readonly ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: string;
   readonly CREDENTIAL_DIRECTORY_DO: DurableObjectNamespaceNative;
   /** Target-only binding; P06-05 supplies the OwnerVaultV2 implementation. */
   readonly OWNER_VAULT_V2_DO: DurableObjectNamespaceNative;
+  readonly BLOB_R2: unknown;
+  readonly BACKUP_R2: unknown;
 }
 
 interface RawKey {
@@ -108,6 +122,12 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       "ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON",
     );
     const quota = stringField(source, "ENCHIRIDION_V2_CREDENTIAL_QUOTA");
+    const limits = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON");
+    const manifestKeyID = stringField(source, "ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID");
+    const manifestPKCS8 = stringField(source, "ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64");
+    const manifestSPKI = stringField(source, "ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64");
+    const manifestPrior = stringField(source, "ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON");
+    const manifestRevoked = stringField(source, "ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON");
     const directory = source.CREDENTIAL_DIRECTORY_DO;
     const ownerVault = source.OWNER_VAULT_V2_DO;
     if (
@@ -123,6 +143,8 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       capabilitySecret === undefined ||
       capabilityPriors === undefined ||
       quota === undefined ||
+      limits === undefined || manifestKeyID === undefined || manifestPKCS8 === undefined ||
+      manifestSPKI === undefined || manifestPrior === undefined || manifestRevoked === undefined ||
       !isDirectoryNamespace(directory) ||
       !isDirectoryNamespace(ownerVault)
     )
@@ -140,8 +162,16 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET: capabilitySecret,
       ENCHIRIDION_V2_DIRECTORY_CAPABILITY_PRIOR_KEYS_JSON: capabilityPriors,
       ENCHIRIDION_V2_CREDENTIAL_QUOTA: quota,
+      ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits,
+      ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID: manifestKeyID,
+      ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64: manifestPKCS8,
+      ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: manifestSPKI,
+      ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON: manifestPrior,
+      ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: manifestRevoked,
       CREDENTIAL_DIRECTORY_DO: directory,
       OWNER_VAULT_V2_DO: ownerVault,
+      BLOB_R2: source.BLOB_R2,
+      BACKUP_R2: source.BACKUP_R2,
     };
   } catch {
     return undefined;
@@ -225,6 +255,8 @@ export interface VaultV2EntryComposition {
   readonly directoryControls: DirectoryControlCapabilityFactory;
   readonly random: DirectorySecureRandom;
   readonly ownerVaultInitialization: OwnerVaultInitializationClient;
+  /** The sole config authority handed to future OwnerVault provider wiring. */
+  readonly ownerVaultProduction: OwnerVaultProductionAuthority;
 }
 
 /**
@@ -251,6 +283,17 @@ export const makeVaultV2EntryComposition = (
   const input = configInput(env);
   if (input === undefined) return undefined;
   try {
+    const ownerVaultProduction = makeOwnerVaultProductionAuthority({
+      limitsJSON: env.ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON,
+      blobR2: env.BLOB_R2,
+      backupR2: env.BACKUP_R2,
+      manifestCurrentKeyID: env.ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID,
+      manifestCurrentPKCS8: env.ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64,
+      manifestCurrentSPKI: env.ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64,
+      manifestPriorKeysJSON: env.ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON,
+      manifestRevokedKeyIDsJSON: env.ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON,
+    });
+    if (ownerVaultProduction === undefined) return undefined;
     const config = Effect.runSync(makeVaultV2Config(input));
     const runtimeVerifier = Effect.runSync(
       makeAccessJwtVerifier(
@@ -285,6 +328,7 @@ export const makeVaultV2EntryComposition = (
       directoryControls,
       random,
       ownerVaultInitialization: makeOwnerVaultInitializationClient(env.OWNER_VAULT_V2_DO),
+      ownerVaultProduction,
     };
   } catch {
     return undefined;
