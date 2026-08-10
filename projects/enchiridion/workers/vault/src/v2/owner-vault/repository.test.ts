@@ -243,7 +243,7 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository } = repositoryFor();
     await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
     const excluded = await Effect.runPromiseExit(
-      repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "root.admission" }, undefined, 1),
+      repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "blob.accounting" }, undefined, 1),
     );
     const mismatched = await Effect.runPromiseExit(
       repository.inspectPage(OwnerVaultInspectionPurpose.RestoreAudit, { category: "device" }, undefined, 1),

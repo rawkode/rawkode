@@ -15,7 +15,7 @@ const registered = (category: Parameters<typeof ownerVaultStorageRegistry.get>[0
 
 describe("OwnerVault physical state registry", () => {
   test("is exhaustive and assigns the restore policy matrix", () => {
-    expect(ownerVaultStorageRegistry.size).toBe(31);
+    expect(ownerVaultStorageRegistry.size).toBe(32);
     const expected = {
       "root.identity": ["exclude", "never"],
       "root.admission": ["exclude", "never"],
@@ -37,6 +37,7 @@ describe("OwnerVault physical state registry", () => {
       "rate-window": ["exclude", "never"],
       "append-log.entry": ["include", "apply"],
       "append-log.head": ["exclude", "rebuild"],
+      "blob.accounting": ["exclude", "rebuild"],
       "blob.metadata": ["include", "apply"],
       "blob.reference": ["include", "apply"],
       "blob.tombstone": ["include", "apply"],
@@ -72,6 +73,26 @@ describe("OwnerVault physical state registry", () => {
     })).toThrow(OwnerVaultStorageRegistryError);
     expect(() => assertOwnerVaultStorageRecord(registered("device", "device_1"), {
       category: "device", version: 1, payload: { namespaceState: "ACTIVE" },
+    })).toThrow(OwnerVaultStorageRegistryError);
+    expect(assertOwnerVaultStorageRecord(registered("root.floors"), {
+      category: "root.floors", version: 1, payload: { securityFloor: 0 },
+    })).toMatchObject({ category: "root.floors" });
+    expect(() => assertOwnerVaultStorageRecord(registered("root.floors"), {
+      category: "root.floors", version: 1, payload: { generation: 1, securityFloor: 0 },
+    })).toThrow(OwnerVaultStorageRegistryError);
+  });
+
+  test("gives blob lifecycle accounting its own exact, rebuildable singleton", () => {
+    expect(registered("blob.accounting")).toBe("v2.ov/blob/accounting");
+    expect(assertOwnerVaultStorageRecord(registered("blob.accounting"), {
+      category: "blob.accounting",
+      version: 1,
+      payload: { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [] },
+    })).toMatchObject({ category: "blob.accounting" });
+    expect(() => assertOwnerVaultStorageRecord(registered("blob.accounting"), {
+      category: "blob.accounting",
+      version: 1,
+      payload: { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [], ownerID: "wrong" },
     })).toThrow(OwnerVaultStorageRegistryError);
   });
 

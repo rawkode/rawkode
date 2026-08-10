@@ -87,8 +87,8 @@ const build = async (faults: { readonly failDelete?: boolean; readonly failPut?:
   const native = nativeState();
   const storage = makeDurableObjectOwnerVaultStorageRepository(makeDurableObjectBoundary(native.state).storage);
   await Effect.runPromise(storage.transact((tx) => tx.initialize({ ownerID: scope.ownerID.value, vaultID: scope.vaultID.value, generationEpoch: scope.generationEpoch, namespaceState: "ACTIVE" }).pipe(
-    Effect.zipRight(tx.put({ category: "root.floors" }, { generation: 1, securityFloor: 0 })),
-    Effect.zipRight(tx.put({ category: "root.admission" }, { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [] })),
+    Effect.zipRight(tx.put({ category: "root.floors" }, { securityFloor: 0 })),
+    Effect.zipRight(tx.put({ category: "blob.accounting" }, { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [] })),
     Effect.zipRight(tx.put({ category: "device", identifier: "device-1" }, { deviceID: "device-1", authEpoch: 1, credentialEpoch: 1, revoked: false, securityFloor: 0 })),
   )));
   const bucket = r2(faults);
@@ -124,19 +124,33 @@ describe("durable OwnerVault blob saga", () => {
     expect(JSON.stringify(changed)).toContain("replay_conflict");
   });
 
-  test("fails closed on malformed admission state and a stale device fence", async () => {
+  test("fails closed on malformed blob accounting and a stale device fence", async () => {
     const built = await build();
-    const admissionKey = "v2.ov/root/admission";
-    built.native.entries.set(admissionKey, { category: "root.admission", version: 1, payload: { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [] } });
+    const accountingKey = "v2.ov/blob/accounting";
+    built.native.entries.set(accountingKey, { category: "blob.accounting", version: 1, payload: { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [] } });
     const input = command();
     const stageKey = required(blobStageKey(input.scope, input.sha256, input.operationID, input.stageRandom));
     const finalKey = required(blobObjectKey(input.scope, input.sha256));
     expect(JSON.stringify(await Effect.runPromiseExit(built.repository.reserveStage(input, stageKey, finalKey, 100)))).toContain("stage_conflict");
-    await Effect.runPromise(built.storage.transact((tx) => tx.put({ category: "root.admission" }, { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [] }).pipe(
-      Effect.zipRight(tx.put({ category: "device", identifier: "device-1" }, { deviceID: "device-1", authEpoch: 2, credentialEpoch: 1, revoked: false, securityFloor: 0 })),
-    )));
+    built.native.entries.set(accountingKey, { category: "blob.accounting", version: 1, payload: { referencedBytes: 0, reservedStageBytes: 0, prospectiveFinalBytes: 0, leaseIDs: [], purgeSHA256s: [] } });
+    await Effect.runPromise(built.storage.transact((tx) =>
+      tx.put({ category: "device", identifier: "device-1" }, { deviceID: "device-1", authEpoch: 2, credentialEpoch: 1, revoked: false, securityFloor: 0 }),
+    ));
     expect(JSON.stringify(await Effect.runPromiseExit(built.repository.reserveStage(input, stageKey, finalKey, 100)))).toContain("generation_stale");
     expect(built.objects.size).toBe(0);
+  });
+
+  test("derives generation authority from root identity, never root floors", async () => {
+    const built = await build();
+    built.native.entries.set("v2.ov/root/identity", {
+      category: "root.identity",
+      version: 1,
+      payload: { ownerID: scope.ownerID.value, vaultID: scope.vaultID.value, generationEpoch: 2, namespaceState: "ACTIVE" },
+    });
+    const input = command();
+    const stageKey = required(blobStageKey(input.scope, input.sha256, input.operationID, input.stageRandom));
+    const finalKey = required(blobObjectKey(input.scope, input.sha256));
+    expect(JSON.stringify(await Effect.runPromiseExit(built.repository.reserveStage(input, stageKey, finalKey, 100)))).toContain("generation_stale");
   });
 
   test("cleans a failed R2 stage durably and permits retry after a repository restart", async () => {

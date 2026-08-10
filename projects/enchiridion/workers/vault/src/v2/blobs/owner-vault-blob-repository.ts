@@ -78,14 +78,14 @@ const metadataAddress = (sha256: string) => storageAddress("blob.metadata", sha2
 const tombstoneAddress = (sha256: string) => storageAddress("blob.tombstone", sha256);
 const purgeAddress = (sha256: string) => storageAddress("blob.purge", sha256);
 const receiptAddress = (requestID: string) => storageAddress("operation-receipt", requestID);
+const identityAddress = storageAddress("root.identity");
 const floorsAddress = storageAddress("root.floors");
-const admissionAddress = storageAddress("root.admission");
+const blobAccountingAddress = storageAddress("blob.accounting");
 
 interface Floors {
-  readonly generation: number;
   readonly securityFloor: number;
 }
-interface Admission {
+interface BlobAccounting {
   readonly referencedBytes: number;
   readonly reservedStageBytes: number;
   readonly prospectiveFinalBytes: number;
@@ -130,12 +130,11 @@ interface StoredReceipt {
 
 const decodeFloors = (record: OwnerVaultStorageRecord | undefined): Floors | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
-  return source !== undefined && exact(source, ["generation", "securityFloor"]) &&
-    integer(source.generation, 1) && integer(source.securityFloor)
-    ? { generation: source.generation, securityFloor: source.securityFloor }
+  return source !== undefined && exact(source, ["securityFloor"]) && integer(source.securityFloor)
+    ? { securityFloor: source.securityFloor }
     : undefined;
 };
-const decodeAdmission = (record: OwnerVaultStorageRecord | undefined): Admission | undefined => {
+const decodeBlobAccounting = (record: OwnerVaultStorageRecord | undefined): BlobAccounting | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
   if (source === undefined || !exact(source, ["leaseIDs", "prospectiveFinalBytes", "purgeSHA256s", "referencedBytes", "reservedStageBytes"])) return undefined;
   const leaseIDs = source.leaseIDs;
@@ -228,8 +227,9 @@ export interface OwnerVaultBlobLifecycleRepository extends BlobStagingRepository
  * OwnerVault-backed implementation. Its root records must be initialized by
  * the OwnerVault initialization package before it accepts traffic:
  *
- * - root.floors: { generation, securityFloor } (the immutable generation identity is root.identity)
- * - root.admission: { referencedBytes, reservedStageBytes, prospectiveFinalBytes, leaseIDs, purgeSHA256s }
+ * - root.identity: immutable owner, vault, and generation authority
+ * - root.floors: { securityFloor }
+ * - blob.accounting: bounded blob lifecycle counters and pending work indexes
  * - device/<id>: a DeviceRecord-shaped authority row.
  */
 export const makeOwnerVaultBlobStagingRepository = (
@@ -242,12 +242,18 @@ export const makeOwnerVaultBlobStagingRepository = (
       ? config.storage.transact((tx) => operation(tx).pipe(Effect.mapError((error) => error instanceof BlobError ? domainFailure(error) : error))).pipe(Effect.mapError(blobFailureFromTransaction))
       : failed("invalid_blob");
   const currentAuthority = (tx: OwnerVaultTx, authorization: BlobAuthorization): Effect.Effect<Floors, BlobTransactionFailure> =>
-    Effect.all([tx.get(floorsAddress), tx.get(storageAddress("device", authorization.deviceID))]).pipe(
-      Effect.flatMap(([floorRecord, deviceRecord]) => {
+    Effect.all([tx.get(identityAddress), tx.get(floorsAddress), tx.get(storageAddress("device", authorization.deviceID))]).pipe(
+      Effect.flatMap(([identityRecord, floorRecord, deviceRecord]) => {
+        const identity = identityRecord === undefined ? undefined : object(identityRecord.payload);
         const floors = decodeFloors(floorRecord);
         const device = deviceRecord === undefined ? undefined : object(deviceRecord.payload);
-        return floors === undefined || device === undefined ||
-          floors.generation !== config.scope.generationEpoch ||
+        return identity === undefined ||
+          !exact(identity, ["generationEpoch", "namespaceState", "ownerID", "vaultID"]) ||
+          identity.ownerID !== config.scope.ownerID.value ||
+          identity.vaultID !== config.scope.vaultID.value ||
+          identity.generationEpoch !== config.scope.generationEpoch ||
+          (identity.namespaceState !== "PRIVATE" && identity.namespaceState !== "ACTIVE") ||
+          floors === undefined || device === undefined ||
           authorization.generationEpoch !== config.scope.generationEpoch ||
           !sameScope(authorization, config.scope) ||
           device.revoked !== false || device.deviceID !== authorization.deviceID ||
@@ -256,28 +262,28 @@ export const makeOwnerVaultBlobStagingRepository = (
           ? failed("generation_stale") : Effect.succeed(floors);
       }),
     );
-  const getAdmission = (tx: OwnerVaultTx): Effect.Effect<Admission, BlobTransactionFailure> =>
-    tx.get(admissionAddress).pipe(Effect.flatMap((row) => {
-      const value = decodeAdmission(row);
+  const getBlobAccounting = (tx: OwnerVaultTx): Effect.Effect<BlobAccounting, BlobTransactionFailure> =>
+    tx.get(blobAccountingAddress).pipe(Effect.flatMap((row) => {
+      const value = decodeBlobAccounting(row);
       return value === undefined ? storageFailed() : Effect.succeed(value);
     }));
-  const writeAdmission = (tx: OwnerVaultTx, value: Admission): Effect.Effect<void, BlobTransactionFailure> =>
-    tx.put(admissionAddress, { referencedBytes: value.referencedBytes, reservedStageBytes: value.reservedStageBytes, prospectiveFinalBytes: value.prospectiveFinalBytes, leaseIDs: [...value.leaseIDs], purgeSHA256s: [...value.purgeSHA256s] }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
+  const writeBlobAccounting = (tx: OwnerVaultTx, value: BlobAccounting): Effect.Effect<void, BlobTransactionFailure> =>
+    tx.put(blobAccountingAddress, { referencedBytes: value.referencedBytes, reservedStageBytes: value.reservedStageBytes, prospectiveFinalBytes: value.prospectiveFinalBytes, leaseIDs: [...value.leaseIDs], purgeSHA256s: [...value.purgeSHA256s] }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
   const readLease = (tx: OwnerVaultTx, operationID: string): Effect.Effect<Lease | undefined, BlobTransactionFailure> =>
     tx.get(leaseAddress(operationID)).pipe(Effect.flatMap((row) => row === undefined ? Effect.succeed(undefined) : decodeLease(row) === undefined ? storageFailed() : Effect.succeed(decodeLease(row))));
   const hydrateResponse = (response: BlobStageExecution): BlobStageExecution => ({
     ...response,
     metadata: { ...response.metadata, generationEpoch: config.scope.generationEpoch },
   });
-  const releaseLease = (tx: OwnerVaultTx, lease: Lease, admission: Admission): Effect.Effect<void, BlobTransactionFailure> => {
-    const nextIDs = admission.leaseIDs.filter((value) => value !== lease.operationID);
+  const releaseLease = (tx: OwnerVaultTx, lease: Lease, accounting: BlobAccounting): Effect.Effect<void, BlobTransactionFailure> => {
+    const nextIDs = accounting.leaseIDs.filter((value) => value !== lease.operationID);
     return tx.get(refAddress(lease.sha256)).pipe(Effect.flatMap((row) => {
       const reference = decodeReference(row);
       if (reference === undefined || reference.activeLeaseCount < 1) return storageFailed();
       const prospectiveDelta = reference.referenceCount === 0 && reference.activeLeaseCount === 1 ? reference.size : 0;
       return tx.put(refAddress(lease.sha256), { objectKey: reference.objectKey, size: reference.size, referenceCount: reference.referenceCount, activeLeaseCount: reference.activeLeaseCount - 1 }).pipe(
         Effect.zipRight(tx.delete(leaseAddress(lease.operationID))),
-        Effect.zipRight(writeAdmission(tx, { referencedBytes: admission.referencedBytes, reservedStageBytes: admission.reservedStageBytes - lease.size, prospectiveFinalBytes: admission.prospectiveFinalBytes - prospectiveDelta, leaseIDs: nextIDs, purgeSHA256s: admission.purgeSHA256s })),
+        Effect.zipRight(writeBlobAccounting(tx, { referencedBytes: accounting.referencedBytes, reservedStageBytes: accounting.reservedStageBytes - lease.size, prospectiveFinalBytes: accounting.prospectiveFinalBytes - prospectiveDelta, leaseIDs: nextIDs, purgeSHA256s: accounting.purgeSHA256s })),
         Effect.mapError(() => new BlobError({ reason: "stage_conflict" })),
       );
     }));
@@ -292,9 +298,9 @@ export const makeOwnerVaultBlobStagingRepository = (
   const reserveStage: BlobStagingRepository["reserveStage"] = (command, stageKey, finalKey, nowSeconds) =>
     transact((tx) => Effect.gen(function* () {
       const floors = yield* currentAuthority(tx, stageAuthorization(command));
-      const admission = yield* getAdmission(tx);
+      const accounting = yield* getBlobAccounting(tx);
       const tombstone = yield* tx.get(tombstoneAddress(command.sha256));
-      if (tombstone !== undefined || !integer(nowSeconds) || admission.leaseIDs.length >= config.limits.maximumActiveLeasesPerVault) return yield* failed("stage_conflict");
+      if (tombstone !== undefined || !integer(nowSeconds) || accounting.leaseIDs.length >= config.limits.maximumActiveLeasesPerVault) return yield* failed("stage_conflict");
       const existing = yield* readLease(tx, command.operationID.value);
       if (existing !== undefined) {
         return yield* (existing.requestID === command.requestID.value && existing.stageKey === stageKey && existing.finalKey === finalKey && existing.sha256 === command.sha256 && existing.size === command.size && existing.expiresAtSeconds > nowSeconds ? Effect.void : failed("stage_conflict"));
@@ -305,12 +311,12 @@ export const makeOwnerVaultBlobStagingRepository = (
       const nextReference: Reference = reference ?? { objectKey: finalKey, size: command.size, referenceCount: 0, activeLeaseCount: 0 };
       if (nextReference.objectKey !== finalKey || nextReference.size !== command.size || nextReference.activeLeaseCount >= config.limits.maximumActiveLeasesPerFinal) return yield* failed("stage_conflict");
       const prospective = nextReference.referenceCount === 0 && nextReference.activeLeaseCount === 0 ? command.size : 0;
-      const total = admission.referencedBytes + admission.reservedStageBytes + admission.prospectiveFinalBytes + command.size + prospective;
-      if (total > config.limits.maximumVaultBytes || admission.prospectiveFinalBytes + prospective > config.limits.maximumOrphanBytes) return yield* failed("quota_exceeded");
+      const total = accounting.referencedBytes + accounting.reservedStageBytes + accounting.prospectiveFinalBytes + command.size + prospective;
+      if (total > config.limits.maximumVaultBytes || accounting.prospectiveFinalBytes + prospective > config.limits.maximumOrphanBytes) return yield* failed("quota_exceeded");
       const lease: Lease = { phase: "RESERVED", requestID: command.requestID.value, operationID: command.operationID.value, stageKey, finalKey, sha256: command.sha256, size: command.size, deviceID: command.deviceID, authEpoch: command.authEpoch, credentialEpoch: command.credentialEpoch, securityFloor: floors.securityFloor, expiresAtSeconds: nowSeconds + config.limits.stageTTLSeconds };
       yield* tx.put(refAddress(command.sha256), { objectKey: finalKey, size: command.size, referenceCount: nextReference.referenceCount, activeLeaseCount: nextReference.activeLeaseCount + 1 }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* tx.put(leaseAddress(lease.operationID), payload(lease)).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
-      yield* writeAdmission(tx, { referencedBytes: admission.referencedBytes, reservedStageBytes: admission.reservedStageBytes + command.size, prospectiveFinalBytes: admission.prospectiveFinalBytes + prospective, leaseIDs: [...admission.leaseIDs, lease.operationID], purgeSHA256s: admission.purgeSHA256s });
+      yield* writeBlobAccounting(tx, { referencedBytes: accounting.referencedBytes, reservedStageBytes: accounting.reservedStageBytes + command.size, prospectiveFinalBytes: accounting.prospectiveFinalBytes + prospective, leaseIDs: [...accounting.leaseIDs, lease.operationID], purgeSHA256s: accounting.purgeSHA256s });
     }));
   const stageImmutable: BlobStagingRepository["stageImmutable"] = (stageKey, body, nowSeconds) =>
     // Snapshot lease state in a completed transaction, then touch R2 outside it.
@@ -353,8 +359,8 @@ export const makeOwnerVaultBlobStagingRepository = (
         return transact((tx) => {
           const operationID = stageKey.split("/").at(-2) ?? "";
           return readLease(tx, operationID).pipe(
-            Effect.flatMap((lease) => lease === undefined ? Effect.void : getAdmission(tx).pipe(
-              Effect.flatMap((admission) => releaseLease(tx, lease, admission)),
+            Effect.flatMap((lease) => lease === undefined ? Effect.void : getBlobAccounting(tx).pipe(
+              Effect.flatMap((accounting) => releaseLease(tx, lease, accounting)),
             )),
           );
         });
@@ -374,7 +380,7 @@ export const makeOwnerVaultBlobStagingRepository = (
         return yield* failed<BlobStageExecution>("replay_conflict");
       }
       const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
-      const admission = yield* getAdmission(tx);
+      const accounting = yield* getBlobAccounting(tx);
       if (reference === undefined || reference.activeLeaseCount < 1 || reference.objectKey !== objectKey || reference.size !== command.size) return yield* storageFailed<BlobStageExecution>();
       const metadata: BlobMetadata = { requestID: command.requestID.value, path: command.path, sha256: command.sha256, size: command.size, objectKey, generationEpoch: command.scope.generationEpoch };
       const response: BlobStageExecution = { metadata, status: "APPLIED" };
@@ -385,7 +391,7 @@ export const makeOwnerVaultBlobStagingRepository = (
       yield* tx.put(refAddress(command.sha256), { objectKey, size: command.size, referenceCount: reference.referenceCount + 1, activeLeaseCount: reference.activeLeaseCount - 1 }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* tx.put(receiptAddress(command.requestID.value), { kind: "blob-stage", fingerprint: stageFingerprint(command), response: storedResponse }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* tx.delete(leaseAddress(lease.operationID)).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
-      yield* writeAdmission(tx, { referencedBytes: admission.referencedBytes + (hadReference ? 0 : command.size), reservedStageBytes: admission.reservedStageBytes - command.size, prospectiveFinalBytes: admission.prospectiveFinalBytes - (hadReference ? 0 : command.size), leaseIDs: admission.leaseIDs.filter((id) => id !== lease.operationID), purgeSHA256s: admission.purgeSHA256s });
+      yield* writeBlobAccounting(tx, { referencedBytes: accounting.referencedBytes + (hadReference ? 0 : command.size), reservedStageBytes: accounting.reservedStageBytes - command.size, prospectiveFinalBytes: accounting.prospectiveFinalBytes - (hadReference ? 0 : command.size), leaseIDs: accounting.leaseIDs.filter((id) => id !== lease.operationID), purgeSHA256s: accounting.purgeSHA256s });
       return response;
     }));
   const reconcile = (nowSeconds: number): Effect.Effect<number, BlobOperationError> => {
@@ -407,7 +413,7 @@ export const makeOwnerVaultBlobStagingRepository = (
             Effect.mapError(() => new BlobError({ reason: "stage_conflict" })),
             Effect.zipRight(
               transact((tx) =>
-                getAdmission(tx).pipe(
+                getBlobAccounting(tx).pipe(
                   Effect.flatMap((current) =>
                     readLease(tx, operationID).pipe(
                       Effect.flatMap((latest) =>
@@ -423,11 +429,11 @@ export const makeOwnerVaultBlobStagingRepository = (
           );
         }),
       );
-    return transact((tx) => getAdmission(tx)).pipe(
-      Effect.flatMap((admission) =>
+    return transact((tx) => getBlobAccounting(tx)).pipe(
+      Effect.flatMap((accounting) =>
         Effect.all([
-          Effect.forEach(admission.leaseIDs, expireOne, { concurrency: 1 }),
-          Effect.forEach(admission.purgeSHA256s, (sha256) => reconcileDelete(sha256, nowSeconds), { concurrency: 1 }),
+          Effect.forEach(accounting.leaseIDs, expireOne, { concurrency: 1 }),
+          Effect.forEach(accounting.purgeSHA256s, (sha256) => reconcileDelete(sha256, nowSeconds), { concurrency: 1 }),
         ]).pipe(Effect.map(([leases, purges]) => [...leases, ...purges].reduce((total, value) => total + value, 0))),
       ),
     );
@@ -444,7 +450,7 @@ export const makeOwnerVaultBlobStagingRepository = (
       }
       const metadata = yield* tx.get(metadataAddress(command.sha256));
       const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
-      const admission = yield* getAdmission(tx);
+      const accounting = yield* getBlobAccounting(tx);
       if (metadata === undefined || reference === undefined || reference.referenceCount < 1 || reference.activeLeaseCount !== 0) return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>("stage_conflict");
       const response = { sha256: command.sha256, status: "APPLIED" } as const;
       // One transaction atomically removes logical visibility, fences a new PUT, records the receipt and schedules purge.
@@ -453,8 +459,8 @@ export const makeOwnerVaultBlobStagingRepository = (
       yield* tx.put(tombstoneAddress(command.sha256), { objectKey: reference.objectKey, deletedAtSeconds: command.nowSeconds, purgeAfterSeconds: command.nowSeconds + config.deleteGraceSeconds });
       yield* tx.put(purgeAddress(command.sha256), { objectKey: reference.objectKey, leaseID: command.requestID, startedAtSeconds: 0 });
       yield* tx.put(receiptAddress(command.requestID), { kind: "blob-delete", fingerprint, response });
-      if (admission.purgeSHA256s.length >= maximumTrackedLeases) return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>("quota_exceeded");
-      yield* writeAdmission(tx, { referencedBytes: admission.referencedBytes - reference.size, reservedStageBytes: admission.reservedStageBytes, prospectiveFinalBytes: admission.prospectiveFinalBytes, leaseIDs: admission.leaseIDs, purgeSHA256s: [...admission.purgeSHA256s, command.sha256] });
+      if (accounting.purgeSHA256s.length >= maximumTrackedLeases) return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>("quota_exceeded");
+      yield* writeBlobAccounting(tx, { referencedBytes: accounting.referencedBytes - reference.size, reservedStageBytes: accounting.reservedStageBytes, prospectiveFinalBytes: accounting.prospectiveFinalBytes, leaseIDs: accounting.leaseIDs, purgeSHA256s: [...accounting.purgeSHA256s, command.sha256] });
       return response;
     }) as Effect.Effect<{ readonly sha256: string; readonly status: "APPLIED" }, BlobTransactionFailure>).pipe(Effect.tap((response) => reconcileDelete(response.sha256, command.nowSeconds).pipe(Effect.catchAll(() => Effect.void))));
   const reconcileDelete = (sha256: string, nowSeconds: number): Effect.Effect<number, BlobOperationError> =>
@@ -478,18 +484,18 @@ export const makeOwnerVaultBlobStagingRepository = (
         return config.r2.deleteExact(claim.tombstone.objectKey).pipe(
           Effect.mapError(() => new BlobError({ reason: "stage_conflict" })),
           Effect.zipRight(transact((tx) =>
-            Effect.all([tx.get(tombstoneAddress(sha256)), tx.get(purgeAddress(sha256)), tx.get(refAddress(sha256)), tx.get(admissionAddress)]).pipe(
-              Effect.flatMap(([tombstoneRow, purgeRow, referenceRow, admissionRow]) => {
+            Effect.all([tx.get(tombstoneAddress(sha256)), tx.get(purgeAddress(sha256)), tx.get(refAddress(sha256)), tx.get(blobAccountingAddress)]).pipe(
+              Effect.flatMap(([tombstoneRow, purgeRow, referenceRow, accountingRow]) => {
                 const tombstone = decodeTombstone(tombstoneRow);
                 const purge = decodePurge(purgeRow);
                 const reference = decodeReference(referenceRow);
-                const admission = decodeAdmission(admissionRow);
-                if (tombstone === undefined || purge?.leaseID !== claim.leaseID || purge.startedAtSeconds !== nowSeconds || reference?.referenceCount !== 0 || reference.activeLeaseCount !== 0 || admission === undefined)
+                const accounting = decodeBlobAccounting(accountingRow);
+                if (tombstone === undefined || purge?.leaseID !== claim.leaseID || purge.startedAtSeconds !== nowSeconds || reference?.referenceCount !== 0 || reference.activeLeaseCount !== 0 || accounting === undefined)
                   return Effect.succeed(0);
                 return tx.delete(tombstoneAddress(sha256)).pipe(
                   Effect.zipRight(tx.delete(purgeAddress(sha256))),
                   Effect.zipRight(tx.delete(refAddress(sha256))),
-                  Effect.zipRight(writeAdmission(tx, { ...admission, purgeSHA256s: admission.purgeSHA256s.filter((value) => value !== sha256) })),
+                  Effect.zipRight(writeBlobAccounting(tx, { ...accounting, purgeSHA256s: accounting.purgeSHA256s.filter((value) => value !== sha256) })),
                   Effect.as(1),
                   Effect.mapError(() => new BlobError({ reason: "stage_conflict" })),
                 );
