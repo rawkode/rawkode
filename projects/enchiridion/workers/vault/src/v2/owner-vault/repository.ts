@@ -225,7 +225,11 @@ export interface OwnerVaultDomainTransactionError {
     | "observed_high_water_ahead"
     | "operation_capacity"
     | "rate_limited"
-    | "replay_conflict";
+    | "replay_conflict"
+    | "blob_generation_stale"
+    | "blob_stage_conflict"
+    | "blob_quota_exceeded"
+    | "blob_replay_conflict";
 }
 
 export class OwnerVaultStorageRepositoryError extends Data.TaggedError(
@@ -273,6 +277,10 @@ const domainTransactionErrorSchema = Schema.Struct({
     "operation_capacity",
     "rate_limited",
     "replay_conflict",
+    "blob_generation_stale",
+    "blob_stage_conflict",
+    "blob_quota_exceeded",
+    "blob_replay_conflict",
   ),
 });
 const transactionCodec: DurableObjectTransactionDomainCodec<

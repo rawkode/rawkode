@@ -157,7 +157,7 @@ describe("v2 OwnerVault per-record durable storage", () => {
     });
   });
 
-  test("rolls back staged rows and preserves a typed domain rejection", async () => {
+  test("rolls back staged rows and preserves a typed blob domain rejection", async () => {
     const { repository, native } = repositoryFor();
     const exit = await Effect.runPromiseExit(
       repository.transact((tx) =>
@@ -166,7 +166,7 @@ describe("v2 OwnerVault per-record durable storage", () => {
           Effect.zipRight(
             Effect.fail({
               _tag: "OwnerVaultDomainTransactionError" as const,
-              reason: "nonce_replayed" as const,
+              reason: "blob_stage_conflict" as const,
             }),
           ),
         ),
@@ -175,7 +175,7 @@ describe("v2 OwnerVault per-record durable storage", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(JSON.stringify(exit)).toContain("OwnerVaultDomainTransactionError");
-    expect(JSON.stringify(exit)).toContain("nonce_replayed");
+    expect(JSON.stringify(exit)).toContain("blob_stage_conflict");
     expect([...native.entries.keys()]).toEqual([]);
   });
 
