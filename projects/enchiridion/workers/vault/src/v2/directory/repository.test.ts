@@ -12,7 +12,15 @@ import type { DirectoryResolution, DirectoryState } from "./types";
 
 const directoryStateKey = "v2.directory.state";
 
-const emptyState = (): DirectoryState => ({ aliases: {}, bindings: {}, replays: {} });
+const emptyState = (): DirectoryState => ({
+  aliases: {},
+  bindings: {},
+  replays: {},
+  controlReplays: {},
+  transitions: {},
+  frozenBindings: {},
+  retiredAliases: {},
+});
 const canonicalAlias = (keyID = "current", final = "A"): string =>
   `v2.${keyID}.${"A".repeat(42)}${final}`;
 const resolutionFor = (
@@ -272,5 +280,52 @@ describe("v2 Directory durable repository", () => {
 
     await Effect.runPromise(repository.transact((state) => committed({ ...state, ...initial })));
     expect(native.entries.has(directoryStateKey)).toBe(true);
+  });
+
+  test("rejects forged control replay capacity, chronology, and fingerprints before any transaction callback", async () => {
+    const controlReplay = (operationID: string) => ({
+      operationID,
+      fingerprint: "a".repeat(64),
+      expiresAt: 100,
+      retainUntil: 400,
+    });
+    const overflowing = Object.fromEntries(
+      Array.from({ length: 1_025 }, (_, index) => {
+        const operationID = `control-replay-${index.toString().padStart(4, "0")}`;
+        return [operationID, controlReplay(operationID)];
+      }),
+    );
+    for (const controlReplays of [
+      overflowing,
+      { "control-replay-0000": { ...controlReplay("control-replay-0000"), retainUntil: 401 } },
+      {
+        "control-replay-0000": {
+          ...controlReplay("control-replay-0000"),
+          fingerprint: "not-a-digest",
+        },
+      },
+    ]) {
+      const native = nativeState();
+      native.entries.set(directoryStateKey, {
+        ...emptyState(),
+        controlReplays,
+      });
+      const before = JSON.stringify([...native.entries.entries()]);
+      let callbackInvoked = false;
+      const repository = makeDurableObjectDirectoryRepository(
+        makeDurableObjectBoundary(native.state).storage,
+      );
+      const exit = await Effect.runPromiseExit(
+        repository.transact((state) =>
+          Effect.sync(() => {
+            callbackInvoked = true;
+            return [undefined, state] as const;
+          }),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(callbackInvoked).toBe(false);
+      expect(JSON.stringify([...native.entries.entries()])).toBe(before);
+    }
   });
 });

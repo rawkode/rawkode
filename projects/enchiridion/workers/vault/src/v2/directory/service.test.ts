@@ -188,6 +188,52 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
     );
   });
 
+  test("permanently denies retired current and prior aliases before they can bootstrap", async () => {
+    const { aliases, factory, memory, service } = await Effect.runPromise(setup());
+    const retiredAliases = Object.fromEntries(
+      aliases.ordered.map((alias) => [
+        alias.digest,
+        {
+          bindingID: alias.digest,
+          operationID: "retire-alias-operation-0001",
+          ownerID: "owner-retired-alias-0001",
+          vaultID: "vault-retired-alias-0001",
+          reason: "revoke" as const,
+          retiredAt: now,
+          activeGeneration: 1,
+          credentialEpoch: 2,
+          routingEpoch: 2,
+        },
+      ]),
+    );
+    await Effect.runPromise(
+      Ref.set(memory.state, {
+        aliases: {},
+        bindings: {},
+        replays: {},
+        controlReplays: {},
+        transitions: {},
+        frozenBindings: {},
+        retiredAliases,
+      }),
+    );
+    for (const alias of aliases.ordered) {
+      const currentAlias = { ...alias, current: true as const };
+      const invocation = await Effect.runPromise(
+        makeDirectoryInvocation(
+          { current: currentAlias, ordered: [currentAlias] },
+          now + 90,
+          `retired-alias-request-${alias.digest.slice(-16)}`,
+          now,
+        ).pipe(Effect.provideService(InternalCapabilityFactory, factory)),
+      );
+      const denied = await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now));
+      expect(Exit.isFailure(denied)).toBe(true);
+      expect(JSON.stringify(denied)).toContain("capability_rejected");
+    }
+    expect((await Effect.runPromise(Ref.get(memory.state))).bindings).toEqual({});
+  });
+
   test("rolls back random-domain failure, converges concurrent aliases, and preserves no raw Access identity", async () => {
     let failRandom = true;
     let identifier = 0;
@@ -214,6 +260,10 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
       aliases: {},
       bindings: {},
       replays: {},
+      controlReplays: {},
+      transitions: {},
+      frozenBindings: {},
+      retiredAliases: {},
     });
     await Effect.runPromise(service.resolveOrBootstrap(retry, now));
 
@@ -255,6 +305,10 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
         },
       },
       replays: {},
+      controlReplays: {},
+      transitions: {},
+      frozenBindings: {},
+      retiredAliases: {},
     };
     await Effect.runPromise(Ref.set(memory.state, conflicting));
     const collision = await Effect.runPromise(

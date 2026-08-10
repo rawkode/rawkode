@@ -165,10 +165,20 @@ const toTransaction = (error: DirectoryServiceError): DirectoryTransactionError 
 
 const fromRepository = (
   error: DirectoryRepositoryError | DirectoryTransactionError,
-): DirectoryServiceError =>
-  new DirectoryServiceError({
-    reason: error.reason === "unavailable" ? "repository_unavailable" : error.reason,
-  });
+): DirectoryServiceError => {
+  switch (error.reason) {
+    case "invalid_invocation":
+    case "capability_rejected":
+    case "replay_conflict":
+    case "replay_capacity":
+    case "alias_conflict":
+    case "random_unavailable":
+    case "repository_unavailable":
+      return new DirectoryServiceError({ reason: error.reason });
+    default:
+      return new DirectoryServiceError({ reason: "repository_unavailable" });
+  }
+};
 
 const retainUntil = (expiresAt: number, seconds: number): number | undefined =>
   Number.isSafeInteger(expiresAt) &&
@@ -234,12 +244,22 @@ export const makeDirectoryService = (
                   if (Object.keys(retainedReplays).length >= maximumLiveReplays)
                     return Effect.fail(new DirectoryServiceError({ reason: "replay_capacity" }));
                   const aliases = invocation.request.aliases;
+                  // A retired alias is permanent authority evidence. Check the complete presented
+                  // rotation set before following either an alias or the current-alias fallback.
+                  if (aliases.some((alias) => state.retiredAliases[alias] !== undefined))
+                    return Effect.fail(
+                      new DirectoryServiceError({ reason: "capability_rejected" }),
+                    );
                   const targets = aliases
                     .map((value) => state.aliases[value])
                     .filter((value): value is string => value !== undefined);
                   if (new Set(targets).size > 1)
                     return Effect.fail(new DirectoryServiceError({ reason: "alias_conflict" }));
                   const bindingID = targets[0] ?? invocation.request.currentAlias;
+                  if (state.frozenBindings[bindingID] !== undefined)
+                    return Effect.fail(
+                      new DirectoryServiceError({ reason: "capability_rejected" }),
+                    );
                   const existing = state.bindings[bindingID];
                   if (existing !== undefined && !validDirectoryResolution(bindingID, existing))
                     return Effect.fail(
@@ -288,6 +308,10 @@ export const makeDirectoryService = (
                           resolution: created,
                         },
                       },
+                      controlReplays: state.controlReplays,
+                      transitions: state.transitions,
+                      frozenBindings: state.frozenBindings,
+                      retiredAliases: state.retiredAliases,
                     };
                     return Effect.succeed([created, next] as const);
                   });

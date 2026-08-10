@@ -3,9 +3,13 @@ import {
   type CapabilitySigner,
   type CapabilityVerifier,
   type CredentialBindingKeyRing,
+  type DirectoryControlCapabilitySigner,
+  type DirectoryControlCapabilityVerifier,
   type ExternalServiceError,
   makeCapabilitySigner,
   makeCapabilityVerifier,
+  makeDirectoryControlCapabilitySigner,
+  makeDirectoryControlCapabilityVerifier,
   signCapabilityHmac,
   verifyCapabilityHmac,
 } from "@enchiridion/runtime";
@@ -209,3 +213,25 @@ export const layerInternalCapabilityFactory: Layer.Layer<
   never,
   VaultV2Config
 > = Layer.effect(InternalCapabilityFactory, makeInternalCapabilityFactory);
+
+/** Separate typed surface over the same short-lived, rotated internal key ring. */
+export interface DirectoryControlCapabilityFactory {
+  readonly signer: DirectoryControlCapabilitySigner;
+  readonly verifier: DirectoryControlCapabilityVerifier;
+}
+export const DirectoryControlCapabilityFactory =
+  Context.GenericTag<DirectoryControlCapabilityFactory>(
+    "@enchiridion/worker-vault/v2/DirectoryControlCapabilityFactory",
+  );
+export const makeDirectoryControlCapabilityFactory = Effect.gen(function* () {
+  const config = yield* VaultV2Config;
+  return {
+    signer: makeDirectoryControlCapabilitySigner(config.internalCapabilityKeys),
+    verifier: makeDirectoryControlCapabilityVerifier(config.internalCapabilityKeys),
+  } satisfies DirectoryControlCapabilityFactory;
+});
+export const layerDirectoryControlCapabilityFactory: Layer.Layer<
+  DirectoryControlCapabilityFactory,
+  never,
+  VaultV2Config
+> = Layer.effect(DirectoryControlCapabilityFactory, makeDirectoryControlCapabilityFactory);

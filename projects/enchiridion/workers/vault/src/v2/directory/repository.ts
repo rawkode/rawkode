@@ -7,11 +7,25 @@ import {
 import { Context, Data, Effect, Layer, Ref, Schema } from "effect";
 import { isOwnerID, isVaultID, ownerID, vaultID } from "../foundation/schemas";
 import {
+  deriveDirectoryInitID,
   isCanonicalDirectoryAlias,
+  maximumDirectoryControlReplays,
   maximumDirectoryReplayRetentionSeconds,
+  maximumDirectoryRetiredAliases,
+  maximumDirectoryTransitions,
   validDirectoryResolution,
 } from "./invariants";
-import type { DirectoryReplay, DirectoryResolution, DirectoryState } from "./types";
+import type {
+  DirectoryControlReplay,
+  DirectoryCredentialTransition,
+  DirectoryCredentialTransitionResult,
+  DirectoryFreeze,
+  DirectoryOwnerFenceAck,
+  DirectoryReplay,
+  DirectoryResolution,
+  DirectoryRetiredAlias,
+  DirectoryState,
+} from "./types";
 
 const stateKey = "v2.directory.state";
 const identifier = /^[A-Za-z0-9._~-]{1,128}$/u;
@@ -32,7 +46,12 @@ export interface DirectoryTransactionError {
     | "replay_capacity"
     | "alias_conflict"
     | "random_unavailable"
-    | "repository_unavailable";
+    | "repository_unavailable"
+    | "operation_conflict"
+    | "operation_capacity"
+    | "binding_unavailable"
+    | "binding_frozen"
+    | "owner_ack_mismatch";
 }
 
 export const directoryTransactionError = (
@@ -49,6 +68,11 @@ const transactionErrorSchema = Schema.Struct({
     "alias_conflict",
     "random_unavailable",
     "repository_unavailable",
+    "operation_conflict",
+    "operation_capacity",
+    "binding_unavailable",
+    "binding_frozen",
+    "owner_ack_mismatch",
   ),
 });
 const transactionCodec = durableObjectTransactionDomainCodec(transactionErrorSchema);
@@ -66,7 +90,15 @@ export const DirectoryRepository = Context.GenericTag<DirectoryRepository>(
   "@enchiridion/worker-vault/v2/directory/DirectoryRepository",
 );
 
-const empty = (): DirectoryState => ({ aliases: {}, bindings: {}, replays: {} });
+const empty = (): DirectoryState => ({
+  aliases: {},
+  bindings: {},
+  replays: {},
+  controlReplays: {},
+  transitions: {},
+  frozenBindings: {},
+  retiredAliases: {},
+});
 const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -210,14 +242,509 @@ const decodeReplay = (
       : undefined;
 };
 
+const decodeControlReplay = (value: unknown): DirectoryControlReplay | undefined => {
+  const source = record(value);
+  return source === undefined ||
+    !exact(source, ["operationID", "fingerprint", "expiresAt", "retainUntil"]) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    typeof source.fingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(source.fingerprint) ||
+    !epoch(source.expiresAt) ||
+    !epoch(source.retainUntil) ||
+    !validReplayRetention(source.expiresAt, source.retainUntil)
+    ? undefined
+    : {
+        operationID: source.operationID,
+        fingerprint: source.fingerprint,
+        expiresAt: source.expiresAt,
+        retainUntil: source.retainUntil,
+      };
+};
+
+const operationID = /^[A-Za-z0-9_-]{16,128}$/u;
+const phase = new Set(["PREPARED", "FROZEN", "OWNER_ACKED", "DIRECTORY_CAS", "COMPLETED"]);
+const transitionKind = new Set(["revoke", "rebind"]);
+const maximumTransitionRetentionSeconds = 300;
+const transitionOperationLifetimeSeconds = 60;
+const resolutionWire = (binding: string, value: DirectoryResolution) =>
+  encodeResolution(binding, value);
+const exactNextEpoch = (value: number, next: number): boolean =>
+  Number.isSafeInteger(value) && value < Number.MAX_SAFE_INTEGER && next === value + 1;
+const decodeFreeze = (value: unknown): DirectoryFreeze | undefined => {
+  const source = record(value);
+  return source === undefined ||
+    !exact(source, ["operationID", "credentialEpochFloor", "routingEpochFloor"]) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    !epoch(source.credentialEpochFloor) ||
+    !epoch(source.routingEpochFloor)
+    ? undefined
+    : {
+        operationID: source.operationID,
+        credentialEpochFloor: source.credentialEpochFloor,
+        routingEpochFloor: source.routingEpochFloor,
+      };
+};
+const decodeRetiredAlias = (alias: string, value: unknown): DirectoryRetiredAlias | undefined => {
+  const source = record(value);
+  if (
+    source === undefined ||
+    !exact(source, [
+      "bindingID",
+      "operationID",
+      "ownerID",
+      "vaultID",
+      "reason",
+      "retiredAt",
+      "activeGeneration",
+      "credentialEpoch",
+      "routingEpoch",
+    ]) ||
+    !isCanonicalDirectoryAlias(alias) ||
+    typeof source.bindingID !== "string" ||
+    !isCanonicalDirectoryAlias(source.bindingID) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    typeof source.ownerID !== "string" ||
+    ownerID(source.ownerID) === undefined ||
+    typeof source.vaultID !== "string" ||
+    vaultID(source.vaultID) === undefined ||
+    typeof source.reason !== "string" ||
+    !transitionKind.has(source.reason) ||
+    !epoch(source.retiredAt) ||
+    !epoch(source.activeGeneration) ||
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch)
+  )
+    return undefined;
+  return {
+    bindingID: source.bindingID,
+    operationID: source.operationID,
+    ownerID: source.ownerID,
+    vaultID: source.vaultID,
+    reason: source.reason === "revoke" ? "revoke" : "rebind",
+    retiredAt: source.retiredAt,
+    activeGeneration: source.activeGeneration,
+    credentialEpoch: source.credentialEpoch,
+    routingEpoch: source.routingEpoch,
+  };
+};
+const decodeAck = (value: unknown): DirectoryOwnerFenceAck | undefined => {
+  const source = record(value);
+  if (
+    source === undefined ||
+    !exact(source, [
+      "ownerID",
+      "vaultID",
+      "generation",
+      "operationID",
+      "expectedCredentialEpoch",
+      "expectedRoutingEpoch",
+      "credentialEpoch",
+      "routingEpoch",
+      "admissionsStopped",
+      "socketsFenced",
+    ]) ||
+    typeof source.ownerID !== "string" ||
+    typeof source.vaultID !== "string" ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    !epoch(source.generation) ||
+    !epoch(source.expectedCredentialEpoch) ||
+    !epoch(source.expectedRoutingEpoch) ||
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch) ||
+    source.admissionsStopped !== true ||
+    source.socketsFenced !== true
+  )
+    return undefined;
+  return {
+    ownerID: source.ownerID,
+    vaultID: source.vaultID,
+    generation: source.generation,
+    operationID: source.operationID,
+    expectedCredentialEpoch: source.expectedCredentialEpoch,
+    expectedRoutingEpoch: source.expectedRoutingEpoch,
+    credentialEpoch: source.credentialEpoch,
+    routingEpoch: source.routingEpoch,
+    admissionsStopped: true,
+    socketsFenced: true,
+  };
+};
+const decodeResult = (value: unknown): DirectoryCredentialTransitionResult | undefined => {
+  const source = record(value);
+  if (
+    source === undefined ||
+    !Object.keys(source).every((key) =>
+      [
+        "operationID",
+        "kind",
+        "bindingID",
+        "credentialEpoch",
+        "routingEpoch",
+        "replacementBindingID",
+      ].includes(key),
+    ) ||
+    !["operationID", "kind", "bindingID", "credentialEpoch", "routingEpoch"].every((key) =>
+      Object.hasOwn(source, key),
+    ) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    typeof source.kind !== "string" ||
+    !transitionKind.has(source.kind) ||
+    typeof source.bindingID !== "string" ||
+    !isCanonicalDirectoryAlias(source.bindingID) ||
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch) ||
+    (source.replacementBindingID !== undefined &&
+      (typeof source.replacementBindingID !== "string" ||
+        !isCanonicalDirectoryAlias(source.replacementBindingID)))
+  )
+    return undefined;
+  return {
+    operationID: source.operationID,
+    kind: source.kind === "revoke" ? "revoke" : "rebind",
+    bindingID: source.bindingID,
+    credentialEpoch: source.credentialEpoch,
+    routingEpoch: source.routingEpoch,
+    ...(source.replacementBindingID === undefined
+      ? {}
+      : { replacementBindingID: source.replacementBindingID }),
+  };
+};
+const decodeTransition = (value: unknown): DirectoryCredentialTransition | undefined => {
+  const source = record(value);
+  if (
+    source === undefined ||
+    !Object.keys(source).every((key) =>
+      [
+        "operationID",
+        "fingerprint",
+        "kind",
+        "bindingID",
+        "expected",
+        "sourceAliases",
+        "replacementAliases",
+        "phase",
+        "freeze",
+        "ownerAck",
+        "result",
+        "createdAt",
+        "expiresAt",
+        "retainUntil",
+      ].includes(key),
+    ) ||
+    ![
+      "operationID",
+      "fingerprint",
+      "kind",
+      "bindingID",
+      "expected",
+      "sourceAliases",
+      "replacementAliases",
+      "phase",
+      "freeze",
+      "createdAt",
+      "expiresAt",
+      "retainUntil",
+    ].every((key) => Object.hasOwn(source, key)) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    typeof source.fingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(source.fingerprint) ||
+    typeof source.kind !== "string" ||
+    !transitionKind.has(source.kind) ||
+    typeof source.bindingID !== "string" ||
+    !isCanonicalDirectoryAlias(source.bindingID) ||
+    !Array.isArray(source.sourceAliases) ||
+    !source.sourceAliases.every(isCanonicalDirectoryAlias) ||
+    new Set(source.sourceAliases).size !== source.sourceAliases.length ||
+    !Array.isArray(source.replacementAliases) ||
+    !source.replacementAliases.every(isCanonicalDirectoryAlias) ||
+    new Set(source.replacementAliases).size !== source.replacementAliases.length ||
+    typeof source.phase !== "string" ||
+    !phase.has(source.phase) ||
+    !epoch(source.createdAt) ||
+    !epoch(source.expiresAt) ||
+    !epoch(source.retainUntil)
+  )
+    return undefined;
+  const expected = decodeResolution(source.bindingID, source.expected);
+  const freeze = decodeFreeze(source.freeze);
+  const ownerAck = source.ownerAck === undefined ? undefined : decodeAck(source.ownerAck);
+  const result = source.result === undefined ? undefined : decodeResult(source.result);
+  const evidenceLegal =
+    source.phase === "PREPARED" || source.phase === "FROZEN"
+      ? ownerAck === undefined && result === undefined
+      : source.phase === "OWNER_ACKED"
+        ? ownerAck !== undefined && result === undefined
+        : ownerAck !== undefined && result !== undefined;
+  const lifecycleEvidenceValid =
+    ownerAck === undefined
+      ? true
+      : expected !== undefined &&
+        freeze !== undefined &&
+        ownerAck.ownerID === expected.ownerID.value &&
+        ownerAck.vaultID === expected.vaultID.value &&
+        ownerAck.generation === expected.activeGeneration &&
+        ownerAck.expectedCredentialEpoch === expected.credentialEpoch &&
+        ownerAck.expectedRoutingEpoch === expected.routingEpoch &&
+        exactNextEpoch(expected.credentialEpoch, freeze?.credentialEpochFloor ?? 0) &&
+        exactNextEpoch(expected.routingEpoch, freeze?.routingEpochFloor ?? 0) &&
+        ownerAck.credentialEpoch === freeze?.credentialEpochFloor &&
+        ownerAck.routingEpoch === freeze?.routingEpochFloor;
+  const transitionKindValid =
+    source.kind === "revoke"
+      ? source.replacementAliases.length === 0 && result?.replacementBindingID === undefined
+      : source.replacementAliases.length >= 1 &&
+        !source.replacementAliases.includes(source.bindingID) &&
+        (result === undefined || result.replacementBindingID === source.replacementAliases[0]);
+  const resultEvidenceValid =
+    result === undefined
+      ? true
+      : ownerAck !== undefined &&
+        result.kind === source.kind &&
+        result.bindingID === source.bindingID &&
+        result.credentialEpoch === ownerAck.credentialEpoch &&
+        result.routingEpoch === ownerAck.routingEpoch;
+  if (
+    expected === undefined ||
+    freeze === undefined ||
+    !exactNextEpoch(expected.credentialEpoch, freeze.credentialEpochFloor) ||
+    !exactNextEpoch(expected.routingEpoch, freeze.routingEpochFloor) ||
+    (source.ownerAck !== undefined && ownerAck === undefined) ||
+    (source.result !== undefined && result === undefined) ||
+    !evidenceLegal ||
+    !lifecycleEvidenceValid ||
+    !transitionKindValid ||
+    !resultEvidenceValid ||
+    source.createdAt > Number.MAX_SAFE_INTEGER - transitionOperationLifetimeSeconds ||
+    source.createdAt > source.expiresAt ||
+    source.expiresAt !== source.createdAt + transitionOperationLifetimeSeconds ||
+    source.expiresAt >= source.retainUntil ||
+    source.retainUntil - source.expiresAt > maximumTransitionRetentionSeconds ||
+    freeze.operationID !== source.operationID ||
+    (ownerAck !== undefined && ownerAck.operationID !== source.operationID) ||
+    (result !== undefined && result.operationID !== source.operationID)
+  )
+    return undefined;
+  return {
+    operationID: source.operationID,
+    fingerprint: source.fingerprint,
+    kind: source.kind === "revoke" ? "revoke" : "rebind",
+    bindingID: source.bindingID,
+    expected,
+    sourceAliases: source.sourceAliases,
+    replacementAliases: source.replacementAliases,
+    phase:
+      source.phase === "PREPARED" ||
+      source.phase === "FROZEN" ||
+      source.phase === "OWNER_ACKED" ||
+      source.phase === "DIRECTORY_CAS" ||
+      source.phase === "COMPLETED"
+        ? source.phase
+        : "COMPLETED",
+    freeze,
+    ...(ownerAck === undefined ? {} : { ownerAck }),
+    ...(result === undefined ? {} : { result }),
+    createdAt: source.createdAt,
+    expiresAt: source.expiresAt,
+    retainUntil: source.retainUntil,
+  };
+};
+const encodeTransition = (
+  value: DirectoryCredentialTransition,
+): Readonly<Record<string, unknown>> | undefined => {
+  const expected = resolutionWire(value.bindingID, value.expected);
+  const decoded = decodeTransition({ ...value, expected });
+  return decoded === undefined ? undefined : { ...decoded, expected };
+};
+
+const sameStrings = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+const aliasesFor = (
+  aliases: Readonly<Record<string, string>>,
+  binding: string,
+): readonly string[] =>
+  Object.entries(aliases)
+    .filter(([, target]) => target === binding)
+    .map(([alias]) => alias)
+    .sort();
+const reboundResolution = (
+  transition: DirectoryCredentialTransition,
+): DirectoryResolution | undefined => {
+  const replacement = transition.result?.replacementBindingID;
+  if (replacement === undefined || transition.ownerAck === undefined) return undefined;
+  const initID = deriveDirectoryInitID(replacement);
+  if (initID === undefined) return undefined;
+  const rebound: DirectoryResolution = {
+    ...transition.expected,
+    initID,
+    credentialEpoch: transition.ownerAck.credentialEpoch,
+    routingEpoch: transition.ownerAck.routingEpoch,
+  };
+  return validDirectoryResolution(replacement, rebound) ? rebound : undefined;
+};
+const exactResult = (transition: DirectoryCredentialTransition): boolean =>
+  transition.ownerAck !== undefined &&
+  transition.result !== undefined &&
+  transition.result.credentialEpoch === transition.freeze.credentialEpochFloor &&
+  transition.result.routingEpoch === transition.freeze.routingEpochFloor &&
+  transition.ownerAck.credentialEpoch === transition.freeze.credentialEpochFloor &&
+  transition.ownerAck.routingEpoch === transition.freeze.routingEpochFloor;
+const transitionMapsValid = (
+  transition: DirectoryCredentialTransition,
+  state: Pick<
+    DirectoryState,
+    "aliases" | "bindings" | "transitions" | "frozenBindings" | "retiredAliases"
+  >,
+): boolean => {
+  const frozen = state.frozenBindings[transition.bindingID];
+  const freezeMatches =
+    frozen !== undefined &&
+    frozen.operationID === transition.operationID &&
+    frozen.credentialEpochFloor === transition.freeze.credentialEpochFloor &&
+    frozen.routingEpochFloor === transition.freeze.routingEpochFloor;
+  const source = state.bindings[transition.bindingID];
+  const sourceLive =
+    source !== undefined &&
+    sameResolution(source, transition.expected) &&
+    sameStrings(aliasesFor(state.aliases, transition.bindingID), transition.sourceAliases);
+  const replacementAvailable =
+    transition.kind === "revoke" ||
+    transition.replacementAliases.every(
+      (alias) =>
+        state.bindings[alias] === undefined &&
+        (state.aliases[alias] === undefined ||
+          (state.aliases[alias] === transition.bindingID &&
+            transition.sourceAliases.includes(alias))),
+    );
+  if (
+    transition.phase === "PREPARED" ||
+    transition.phase === "FROZEN" ||
+    transition.phase === "OWNER_ACKED"
+  )
+    return sourceLive && replacementAvailable && freezeMatches;
+  const resultApplied =
+    exactResult(transition) &&
+    (transition.kind === "revoke"
+      ? state.bindings[transition.bindingID] === undefined &&
+        aliasesFor(state.aliases, transition.bindingID).length === 0
+      : (() => {
+          const replacement = transition.result?.replacementBindingID;
+          const rebound = reboundResolution(transition);
+          return (
+            replacement !== undefined &&
+            rebound !== undefined &&
+            state.bindings[transition.bindingID] === undefined &&
+            aliasesFor(state.aliases, transition.bindingID).length === 0 &&
+            state.bindings[replacement] !== undefined &&
+            sameResolution(state.bindings[replacement], rebound) &&
+            sameStrings(aliasesFor(state.aliases, replacement), transition.replacementAliases)
+          );
+        })());
+  const expectedRetired = [...new Set([...transition.sourceAliases, transition.bindingID])].filter(
+    (alias) => !transition.replacementAliases.includes(alias),
+  );
+  const retirementApplied = expectedRetired.every((alias) => {
+    const retired = state.retiredAliases[alias];
+    return (
+      retired !== undefined &&
+      retired.bindingID === transition.bindingID &&
+      retired.operationID === transition.operationID &&
+      retired.ownerID === transition.expected.ownerID.value &&
+      retired.vaultID === transition.expected.vaultID.value &&
+      retired.reason === transition.kind &&
+      retired.retiredAt === transition.createdAt &&
+      retired.activeGeneration === transition.expected.activeGeneration &&
+      retired.credentialEpoch === transition.freeze.credentialEpochFloor &&
+      retired.routingEpoch === transition.freeze.routingEpochFloor
+    );
+  });
+  if (transition.phase === "DIRECTORY_CAS")
+    return resultApplied && freezeMatches && retirementApplied;
+  // Completion removes the fence. Its immutable result and exact owner acknowledgement prove
+  // the CAS that just happened; current maps are deliberately not pinned by history because a
+  // later, valid transition may immediately supersede this binding while the receipt is retained.
+  return !freezeMatches && exactResult(transition) && retirementApplied;
+};
+const transitionsCollectivelyValid = (
+  state: Pick<
+    DirectoryState,
+    "aliases" | "bindings" | "transitions" | "frozenBindings" | "retiredAliases"
+  >,
+): boolean => {
+  const activeBindings = new Set<string>();
+  const claimedReplacementAliases = new Set<string>();
+  for (const transition of Object.values(state.transitions)) {
+    if (!transitionMapsValid(transition, state)) return false;
+    if (transition.phase === "COMPLETED") continue;
+    if (activeBindings.has(transition.bindingID)) return false;
+    activeBindings.add(transition.bindingID);
+    if (transition.kind === "rebind") {
+      for (const alias of transition.replacementAliases) {
+        if (claimedReplacementAliases.has(alias)) return false;
+        claimedReplacementAliases.add(alias);
+      }
+    }
+  }
+  const expectedFrozen = new Map<string, DirectoryFreeze>();
+  for (const transition of Object.values(state.transitions)) {
+    if (transition.phase === "COMPLETED") continue;
+    if (expectedFrozen.has(transition.bindingID)) return false;
+    expectedFrozen.set(transition.bindingID, transition.freeze);
+  }
+  const actual = Object.entries(state.frozenBindings);
+  return (
+    actual.length === expectedFrozen.size &&
+    actual.every(([binding, freeze]) => {
+      const expected = expectedFrozen.get(binding);
+      return (
+        expected !== undefined &&
+        expected.operationID === freeze.operationID &&
+        expected.credentialEpochFloor === freeze.credentialEpochFloor &&
+        expected.routingEpochFloor === freeze.routingEpochFloor
+      );
+    })
+  );
+};
+
 const decodeState = (value: unknown): DirectoryState | undefined => {
   const source = record(value);
-  if (source === undefined || !exact(source, ["aliases", "bindings", "replays"])) return undefined;
+  if (
+    source === undefined ||
+    !exact(source, [
+      "aliases",
+      "bindings",
+      "replays",
+      "controlReplays",
+      "transitions",
+      "frozenBindings",
+      "retiredAliases",
+    ])
+  )
+    return undefined;
   const rawAliases = record(source.aliases);
   const rawBindings = record(source.bindings);
   const rawReplays = record(source.replays);
-  if (rawAliases === undefined || rawBindings === undefined || rawReplays === undefined)
+  const rawControlReplays = record(source.controlReplays);
+  const rawTransitions = record(source.transitions);
+  const rawFrozenBindings = record(source.frozenBindings);
+  const rawRetiredAliases = record(source.retiredAliases);
+  if (
+    rawAliases === undefined ||
+    rawBindings === undefined ||
+    rawReplays === undefined ||
+    rawControlReplays === undefined ||
+    rawTransitions === undefined ||
+    rawFrozenBindings === undefined ||
+    rawRetiredAliases === undefined
+  )
     return undefined;
+  if (Object.keys(rawControlReplays).length > maximumDirectoryControlReplays) return undefined;
+  if (Object.keys(rawTransitions).length > maximumDirectoryTransitions) return undefined;
+  if (Object.keys(rawRetiredAliases).length > maximumDirectoryRetiredAliases) return undefined;
   const aliases: Record<string, string> = {};
   for (const [alias, binding] of Object.entries(rawAliases)) {
     if (
@@ -238,16 +765,62 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   }
   if (!uniqueBindingIdentities(bindings)) return undefined;
   if (Object.values(aliases).some((binding) => bindings[binding] === undefined)) return undefined;
+  const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
+  for (const [alias, rawRetired] of Object.entries(rawRetiredAliases)) {
+    const decoded = decodeRetiredAlias(alias, rawRetired);
+    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
+      return undefined;
+    retiredAliases[alias] = decoded;
+  }
   const replays: Record<string, DirectoryReplay> = {};
   for (const [key, rawReplay] of Object.entries(rawReplays)) {
     const decoded = jti.test(key) ? decodeReplay(rawReplay, bindings) : undefined;
     if (decoded === undefined) return undefined;
     replays[key] = decoded;
   }
-  return { aliases, bindings, replays };
+  const transitions: Record<string, DirectoryCredentialTransition> = {};
+  for (const [key, rawTransition] of Object.entries(rawTransitions)) {
+    const decoded = operationID.test(key) ? decodeTransition(rawTransition) : undefined;
+    if (decoded === undefined || decoded.operationID !== key) return undefined;
+    transitions[key] = decoded;
+  }
+  const frozenBindings: Record<string, DirectoryFreeze> = {};
+  for (const [binding, rawFreeze] of Object.entries(rawFrozenBindings)) {
+    const decoded = isCanonicalDirectoryAlias(binding) ? decodeFreeze(rawFreeze) : undefined;
+    if (decoded === undefined || transitions[decoded.operationID] === undefined) return undefined;
+    frozenBindings[binding] = decoded;
+  }
+  if (
+    !transitionsCollectivelyValid({
+      aliases,
+      bindings,
+      transitions,
+      frozenBindings,
+      retiredAliases,
+    })
+  )
+    return undefined;
+  const controlReplays: Record<string, DirectoryControlReplay> = {};
+  for (const [tokenJTI, rawReplay] of Object.entries(rawControlReplays)) {
+    const decoded = jti.test(tokenJTI) ? decodeControlReplay(rawReplay) : undefined;
+    if (decoded === undefined) return undefined;
+    controlReplays[tokenJTI] = decoded;
+  }
+  return {
+    aliases,
+    bindings,
+    replays,
+    controlReplays,
+    transitions,
+    frozenBindings,
+    retiredAliases,
+  };
 };
 
 const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> | undefined => {
+  if (Object.keys(value.controlReplays).length > maximumDirectoryControlReplays) return undefined;
+  if (Object.keys(value.transitions).length > maximumDirectoryTransitions) return undefined;
+  if (Object.keys(value.retiredAliases).length > maximumDirectoryRetiredAliases) return undefined;
   if (!uniqueBindingIdentities(value.bindings)) return undefined;
   const aliases: Record<string, string> = {};
   for (const [alias, binding] of Object.entries(value.aliases)) {
@@ -266,6 +839,13 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
       : undefined;
     if (encoded === undefined) return undefined;
     bindings[binding] = encoded;
+  }
+  const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
+  for (const [alias, retired] of Object.entries(value.retiredAliases)) {
+    const decoded = decodeRetiredAlias(alias, retired);
+    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
+      return undefined;
+    retiredAliases[alias] = decoded;
   }
   const replays: Record<string, Readonly<Record<string, unknown>>> = {};
   for (const [key, replay] of Object.entries(value.replays)) {
@@ -289,7 +869,49 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
       resolution: encodedResolution,
     };
   }
-  return { aliases, bindings, replays };
+  const transitions: Record<string, Readonly<Record<string, unknown>>> = {};
+  for (const [key, transition] of Object.entries(value.transitions)) {
+    const encoded =
+      operationID.test(key) && transition.operationID === key
+        ? encodeTransition(transition)
+        : undefined;
+    if (encoded === undefined) return undefined;
+    transitions[key] = encoded;
+  }
+  const frozenBindings: Record<string, DirectoryFreeze> = {};
+  for (const [binding, freeze] of Object.entries(value.frozenBindings)) {
+    if (
+      !isCanonicalDirectoryAlias(binding) ||
+      transitions[freeze.operationID] === undefined ||
+      decodeFreeze(freeze) === undefined
+    )
+      return undefined;
+    frozenBindings[binding] = freeze;
+  }
+  if (
+    !transitionsCollectivelyValid({
+      aliases: value.aliases,
+      bindings: value.bindings,
+      transitions: value.transitions,
+      frozenBindings,
+      retiredAliases: value.retiredAliases,
+    })
+  )
+    return undefined;
+  const controlReplays: Record<string, DirectoryControlReplay> = {};
+  for (const [tokenJTI, replay] of Object.entries(value.controlReplays)) {
+    if (!jti.test(tokenJTI) || decodeControlReplay(replay) === undefined) return undefined;
+    controlReplays[tokenJTI] = replay;
+  }
+  return {
+    aliases,
+    bindings,
+    replays,
+    controlReplays,
+    transitions,
+    frozenBindings,
+    retiredAliases,
+  };
 };
 
 /**

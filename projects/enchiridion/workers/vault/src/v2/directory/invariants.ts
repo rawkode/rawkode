@@ -4,6 +4,12 @@ import type { DirectoryResolution } from "./types";
 const alias = /^v[12]\.[A-Za-z0-9_-]{1,64}\.([A-Za-z0-9_-]{43})$/u;
 
 export const maximumDirectoryReplayRetentionSeconds = 300;
+/** Independent bound for retained internal DirectoryControl capability receipts. */
+export const maximumDirectoryControlReplays = 1_024;
+/** Durable lifecycle journal admission cap, before storage decode or owner fencing. */
+export const maximumDirectoryTransitions = 1_024;
+/** Tombstones are permanent, so this is an explicit operational lifetime bound. */
+export const maximumDirectoryRetiredAliases = 4_096;
 
 const encodeBase64URL = (bytes: Uint8Array): string => {
   let binary = "";
@@ -37,14 +43,18 @@ export const deriveDirectoryInitID = (bindingID: string): string | undefined =>
     ? `init-${digestText(`v2.directory.init\u0000${bindingID}`)}`
     : undefined;
 
-/** P06 bootstrap state only. Future lifecycle work must introduce an explicit versioned transition. */
+/** A lifecycle transition may only raise these monotonic authority floors. */
 export const validDirectoryResolution = (bindingID: string, value: DirectoryResolution): boolean =>
   isCanonicalDirectoryAlias(bindingID) &&
   /^owner-[A-Za-z0-9_-]{16,128}$/u.test(value.ownerID.value) &&
   /^vault-[A-Za-z0-9_-]{16,128}$/u.test(value.vaultID.value) &&
   value.ownerID.value !== value.vaultID.value &&
   value.initID === deriveDirectoryInitID(bindingID) &&
-  value.generationEpoch === 1 &&
-  value.activeGeneration === 1 &&
-  value.routingEpoch === 1 &&
-  value.credentialEpoch === 1;
+  Number.isSafeInteger(value.generationEpoch) &&
+  value.generationEpoch >= 1 &&
+  Number.isSafeInteger(value.activeGeneration) &&
+  value.activeGeneration >= 1 &&
+  Number.isSafeInteger(value.routingEpoch) &&
+  value.routingEpoch >= 1 &&
+  Number.isSafeInteger(value.credentialEpoch) &&
+  value.credentialEpoch >= 1;
