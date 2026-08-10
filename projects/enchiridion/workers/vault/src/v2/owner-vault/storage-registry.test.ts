@@ -15,7 +15,7 @@ const registered = (category: Parameters<typeof ownerVaultStorageRegistry.get>[0
 
 describe("OwnerVault physical state registry", () => {
   test("is exhaustive and assigns the restore policy matrix", () => {
-    expect(ownerVaultStorageRegistry.size).toBe(32);
+    expect(ownerVaultStorageRegistry.size).toBe(34);
     const expected = {
       "root.identity": ["exclude", "never"],
       "root.admission": ["exclude", "never"],
@@ -23,7 +23,9 @@ describe("OwnerVault physical state registry", () => {
       "root.log-head": ["exclude", "rebuild"],
       "root.runtime": ["exclude", "never"],
       "root.accounting": ["exclude", "rebuild"],
-      "catalog.derived": ["exclude", "rebuild"],
+      "catalog.current": ["exclude", "rebuild"],
+      "catalog.root": ["exclude", "rebuild"],
+      "catalog.page": ["exclude", "rebuild"],
       "audit.restore-source": ["audit", "audit-only"],
       device: ["include", "apply"],
       "device-challenge": ["exclude", "never"],

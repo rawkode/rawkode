@@ -118,6 +118,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     expect(Exit.isFailure(rebind)).toBe(true);
     expect(JSON.stringify(rebind)).toContain("identity_conflict");
     expect([...native.entries.keys()].sort()).toEqual([
+      "v2.ov/catalog/current",
+      "v2.ov/catalog/page/00000000000000000001-0000",
+      "v2.ov/catalog/root/00000000000000000001",
       "v2.ov/device/device-1",
       "v2.ov/root/accounting",
       "v2.ov/root/identity",
@@ -181,16 +184,7 @@ describe("v2 OwnerVault per-record durable storage", () => {
 
   test("uses root accounting to refuse admission before writing an over-budget row", async () => {
     const { repository, native } = repositoryFor();
-    native.entries.set("v2.ov/root/identity", {
-      category: "root.identity",
-      version: 1,
-      payload: scope,
-    });
-    native.entries.set("v2.ov/root/runtime", {
-      category: "root.runtime",
-      version: 1,
-      payload: { schemaVersion: 1, migrationJournal: { state: "ready", step: 0 } },
-    });
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
     native.entries.set("v2.ov/root/accounting", {
       category: "root.accounting",
       version: 1,
@@ -237,6 +231,68 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const second = await Effect.runPromise(repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, first.nextCursor, 1));
     expect(first.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-a"]);
     expect(second.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-b"]);
+  });
+
+  test("builds a dense immutable catalog from staged snapshot rows and excludes target-local rows", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(
+      repository.transact((tx) =>
+        tx.initialize(scope).pipe(
+          Effect.zipRight(tx.put({ category: "device", identifier: "z" }, { key: "z" })),
+          Effect.zipRight(tx.put({ category: "nonce", identifier: "local" }, { nonce: "never-backed-up" })),
+          Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" })),
+        ),
+      ),
+    );
+    const current = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
+    const root = native.entries.get(`v2.ov/catalog/root/${String(current.payload.catalogRevision).padStart(20, "0")}`) as {
+      payload: { pages: readonly { identifier: string }[] };
+    };
+    const entries = root.payload.pages.flatMap((page) =>
+      ((native.entries.get(`v2.ov/catalog/page/${page.identifier}`) as { payload: { entries: readonly { key: string; ordinal: number; category: string; bytes: number; digest: string }[] } }).payload.entries),
+    );
+    expect(entries).toEqual([
+      { key: "v2.ov/device/a", ordinal: 0, category: "device", bytes: expect.any(Number), digest: expect.any(String) },
+      { key: "v2.ov/device/z", ordinal: 1, category: "device", bytes: expect.any(Number), digest: expect.any(String) },
+    ]);
+    expect(entries.some((entry) => entry.key.includes("nonce"))).toBe(false);
+  });
+
+  test("splits catalog pages, replaces roots copy-on-write, and merges after delete", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(
+      repository.transact((tx) => {
+        let work = tx.initialize(scope);
+        for (let index = 0; index < 130; index += 1)
+          work = work.pipe(Effect.zipRight(tx.put({ category: "device", identifier: `d${String(index).padStart(3, "0")}` }, { key: index })));
+        return work;
+      }),
+    );
+    const currentAfterInsert = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
+    const rootAfterInsert = native.entries.get(`v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`) as { payload: { pages: readonly unknown[] } };
+    expect(rootAfterInsert.payload.pages).toHaveLength(2);
+    await Effect.runPromise(
+      repository.transact((tx) =>
+        Effect.forEach(Array.from({ length: 3 }, (_, index) => index), (index) =>
+          tx.delete({ category: "device", identifier: `d${String(index).padStart(3, "0")}` })),
+      ),
+    );
+    const currentAfterDelete = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
+    const rootAfterDelete = native.entries.get(`v2.ov/catalog/root/${String(currentAfterDelete.payload.catalogRevision).padStart(20, "0")}`) as { payload: { pages: readonly unknown[] } };
+    expect(currentAfterDelete.payload.catalogRevision).toBe(currentAfterInsert.payload.catalogRevision + 1);
+    expect(rootAfterDelete.payload.pages).toHaveLength(1);
+    expect(native.entries.has(`v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`)).toBe(false);
+  });
+
+  test("fails closed on catalog corruption and can read an unchanged catalog through a fresh repository", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope).pipe(Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" })) )));
+    const restarted = makeDurableObjectOwnerVaultStorageRepository(makeDurableObjectBoundary(native.state).storage, native.storage);
+    expect((await Effect.runPromise(restarted.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 2))).entries).toHaveLength(1);
+    native.entries.set("v2.ov/catalog/current", { category: "catalog.current", version: 1, payload: { catalogRevision: 1, rootDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" } });
+    const corrupt = await Effect.runPromiseExit(restarted.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 2));
+    expect(Exit.isFailure(corrupt)).toBe(true);
+    expect(JSON.stringify(corrupt)).toContain("state_corrupt");
   });
 
   test("refuses excluded rows and mismatched inspection purposes", async () => {

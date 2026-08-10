@@ -6,6 +6,13 @@
  * snapshot/restore policy before field codecs exist. Category-specific field
  * codecs belong with the repositories that introduce those fields.
  */
+import {
+  isOwnerVaultCatalogCurrentPayload,
+  isOwnerVaultCatalogPagePayload,
+  isOwnerVaultCatalogRevisionIdentifier,
+  isOwnerVaultCatalogRootPayload,
+} from "./catalog";
+
 export const ownerVaultStoragePrefix = "v2.ov/";
 
 export const ownerVaultStorageCategories = [
@@ -15,7 +22,11 @@ export const ownerVaultStorageCategories = [
   "root.log-head",
   "root.runtime",
   "root.accounting",
-  "catalog.derived",
+  // catalog.derived was the pre-C1 non-authoritative placeholder. Fresh v2
+  // namespaces use immutable roots/pages plus this one mutable head pointer.
+  "catalog.current",
+  "catalog.root",
+  "catalog.page",
   "audit.restore-source",
   "device",
   "device-challenge",
@@ -85,11 +96,13 @@ export const isRestorableOwnerVaultStorageCategory = (
 
 const identifierPattern = /^[A-Za-z0-9_-]{1,128}$/u;
 const appendSequencePattern = /^[0-9]{20}$/u;
+const catalogPageIdentifierPattern = /^[0-9]{20}-[0-9]{4}$/u;
 const authorityScopeKeys = new Set(["ownerID", "vaultID", "generationEpoch", "namespaceState", "sourceOwnerID", "sourceVaultID", "sourceGenerationEpoch", "sourceScope"]);
 const regularMaximumBytes = 16 * 1024;
 const rootMaximumBytes = 8 * 1024;
 const appendMaximumBytes = 1_100_000; // append wire payloads remain limited to 1 MiB.
-const catalogMaximumBytes = 24 * 1024;
+/** Catalog builder targets 24 KiB; this is the corruption/admission hard stop. */
+const catalogMaximumBytes = 32 * 1024;
 const journalMaximumBytes = 32 * 1024;
 const maximumBlobTrackedLeases = 32;
 const blobHashPattern = /^[a-f0-9]{64}$/u;
@@ -228,7 +241,33 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
   { category: "root.log-head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/log-head"), decode: (value) => decodeEnvelope("root.log-head", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.runtime", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/runtime"), decode: (value) => decodeEnvelope("root.runtime", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.accounting", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/accounting"), decode: (value) => decodeEnvelope("root.accounting", value, (payload) => !hasForbiddenScope(payload)) },
-  { category: "catalog.derived", snapshot: "exclude", restore: "rebuild", maximumBytes: catalogMaximumBytes, ...keyedFamily("catalog"), decode: (value) => decodeEnvelope("catalog.derived", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "catalog.current", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("catalog/current"), decode: (value) => decodeEnvelope("catalog.current", value, isOwnerVaultCatalogCurrentPayload) },
+  {
+    category: "catalog.root",
+    snapshot: "exclude",
+    restore: "rebuild",
+    maximumBytes: rootMaximumBytes,
+    key: (identifier?: string) => {
+      if (identifier === undefined || !isOwnerVaultCatalogRevisionIdentifier(identifier))
+        throw new OwnerVaultStorageRegistryError("invalid_key");
+      return `${ownerVaultStoragePrefix}catalog/root/${identifier}`;
+    },
+    matches: (key) => /^v2\.ov\/catalog\/root\/[0-9]{20}$/u.test(key),
+    decode: (value) => decodeEnvelope("catalog.root", value, isOwnerVaultCatalogRootPayload),
+  },
+  {
+    category: "catalog.page",
+    snapshot: "exclude",
+    restore: "rebuild",
+    maximumBytes: catalogMaximumBytes,
+    key: (identifier?: string) => {
+      if (identifier === undefined || !catalogPageIdentifierPattern.test(identifier))
+        throw new OwnerVaultStorageRegistryError("invalid_key");
+      return `${ownerVaultStoragePrefix}catalog/page/${identifier}`;
+    },
+    matches: (key) => /^v2\.ov\/catalog\/page\/[0-9]{20}-[0-9]{4}$/u.test(key),
+    decode: (value) => decodeEnvelope("catalog.page", value, isOwnerVaultCatalogPagePayload),
+  },
   { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validAuditSourceScope(payload.source) && !hasForbiddenScope(payload.audit)) },
   ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
   // Challenges, replay fences, capabilities, and live sessions are target-local security state.

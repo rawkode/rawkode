@@ -7,18 +7,28 @@ import {
 } from "@enchiridion/runtime";
 import { Data, Effect, Schema } from "effect";
 import {
-  type DurableObjectStorageKeyPage,
-  type DurableObjectStorageListNative,
-  listDurableObjectStoragePage,
-  maximumDurableObjectListPageEntries,
-} from "../runtime/durable-object-list";
-import {
   type OwnerVaultStorageCategory,
   type OwnerVaultStorageRecord,
   type OwnerVaultTargetRoot,
   assertOwnerVaultStorageRecord,
+  ownerVaultStoragePrefix,
   ownerVaultStorageRegistry,
 } from "./storage-registry";
+import {
+  ownerVaultCatalogCanonicalBytes,
+  ownerVaultCatalogWithinQuota,
+  ownerVaultCatalogDigest,
+  ownerVaultCatalogEntryDigest,
+  ownerVaultCatalogMaximumObjectBytes,
+  ownerVaultCatalogMaximumObjects,
+  ownerVaultCatalogMaximumPageEntries,
+  ownerVaultCatalogMaximumTotalBytes,
+  ownerVaultCatalogPageIdentifier,
+  ownerVaultCatalogPages,
+  ownerVaultCatalogRevisionIdentifier,
+  type OwnerVaultCatalogEntry,
+  type OwnerVaultCatalogRootPayload,
+} from "./catalog";
 
 const kibibyte = 1024;
 const mebibyte = 1024 * kibibyte;
@@ -36,6 +46,9 @@ export const ownerVaultAdmissionReserveBytes = 16 * mebibyte;
 const identityCategory: OwnerVaultStorageCategory = "root.identity";
 const accountingCategory: OwnerVaultStorageCategory = "root.accounting";
 const runtimeCategory: OwnerVaultStorageCategory = "root.runtime";
+const catalogCurrentCategory: OwnerVaultStorageCategory = "catalog.current";
+const catalogRootCategory: OwnerVaultStorageCategory = "catalog.root";
+const catalogPageCategory: OwnerVaultStorageCategory = "catalog.page";
 const schemaVersion = 1;
 
 const accountingMaximumBytes = ownerVaultStorageRegistry.get(accountingCategory)?.maximumBytes;
@@ -145,6 +158,26 @@ const keyFor = (address: OwnerVaultStorageAddress): string | undefined => {
   }
 };
 
+/** Prefix calculation is only a catalog-entry filter, never a storage scan. */
+const catalogFilterKey = (address: OwnerVaultStorageAddress): string | undefined => {
+  if (address.identifier !== undefined) return keyFor(address);
+  const definition = ownerVaultStorageRegistry.get(address.category);
+  if (definition === undefined) return undefined;
+  try {
+    const singleton = definition.key();
+    return singleton;
+  } catch {
+    try {
+      const example = address.category === "append-log.entry"
+        ? definition.key("00000000000000000000")
+        : definition.key("x");
+      return example.slice(0, example.lastIndexOf("/") + 1);
+    } catch {
+      return undefined;
+    }
+  }
+};
+
 const serializeRecord = (
   address: OwnerVaultStorageAddress,
   payload: Readonly<Record<string, unknown>>,
@@ -173,24 +206,6 @@ const decodeStored = (
     const definition = ownerVaultStorageRegistry.get(decoded.category);
     if (definition === undefined || normalized.bytes > definition.maximumBytes) return undefined;
     return { record: decoded, bytes: normalized.bytes };
-  } catch {
-    return undefined;
-  }
-};
-
-const listPrefix = (address: OwnerVaultStorageAddress): string | undefined => {
-  const definition = ownerVaultStorageRegistry.get(address.category);
-  if (definition === undefined) return undefined;
-  if (address.identifier !== undefined) return keyFor(address);
-  const singleton = keyFor(address);
-  if (singleton !== undefined) return singleton;
-  try {
-    if (address.category === "append-log.entry") {
-      const key = definition.key("00000000000000000000");
-      return key.slice(0, key.lastIndexOf("/") + 1);
-    }
-    const key = definition.key("x");
-    return key.slice(0, key.lastIndexOf("/") + 1);
   } catch {
     return undefined;
   }
@@ -338,6 +353,54 @@ export interface OwnerVaultStorageRepository {
 const accountingAddress: OwnerVaultStorageAddress = { category: accountingCategory };
 const runtimeAddress: OwnerVaultStorageAddress = { category: runtimeCategory };
 const identityAddress: OwnerVaultStorageAddress = { category: identityCategory };
+const catalogCurrentAddress: OwnerVaultStorageAddress = { category: catalogCurrentCategory };
+
+interface CatalogState {
+  readonly revision: number;
+  readonly entries: readonly OwnerVaultCatalogEntry[];
+  readonly root: OwnerVaultCatalogRootPayload;
+  readonly rootAddress: OwnerVaultStorageAddress;
+  readonly pageAddresses: readonly OwnerVaultStorageAddress[];
+}
+
+type CatalogDelta =
+  | { readonly _tag: "put"; readonly entry: Omit<OwnerVaultCatalogEntry, "ordinal"> }
+  | { readonly _tag: "delete" };
+
+const catalogEntryFor = (
+  key: string,
+  category: OwnerVaultStorageCategory,
+  value: unknown,
+  bytes: number,
+): Omit<OwnerVaultCatalogEntry, "ordinal"> | undefined => {
+  if (bytes > ownerVaultCatalogMaximumObjectBytes) return undefined;
+  const digest = ownerVaultCatalogEntryDigest(value);
+  return digest === undefined ? undefined : { key, category, bytes, digest };
+};
+
+const catalogScopeMatches = (root: OwnerVaultCatalogRootPayload, identity: OwnerVaultTargetRoot): boolean =>
+  root.scope.ownerID === identity.ownerID && root.scope.vaultID === identity.vaultID &&
+  root.scope.generationEpoch === identity.generationEpoch && root.scope.namespaceState === identity.namespaceState;
+
+const catalogRootPayload = (
+  scope: OwnerVaultTargetRoot,
+  catalogRevision: number,
+  entries: readonly OwnerVaultCatalogEntry[],
+  pages: readonly { readonly identifier: string; readonly count: number; readonly bytes: number; readonly digest: string }[],
+  logHead: number,
+): OwnerVaultCatalogRootPayload | undefined => {
+  const catalogDigest = ownerVaultCatalogDigest(entries);
+  const highWaterDigest = ownerVaultCatalogDigest({ logHead, entries });
+  if (catalogDigest === undefined || highWaterDigest === undefined) return undefined;
+  return {
+    scope,
+    catalogRevision,
+    catalogDigest,
+    pages: pages.map((page, ordinal) => ({ ordinal, ...page })),
+    logHead,
+    highWaterDigest,
+  };
+};
 
 /**
  * Per-record v2 OwnerVault physical storage.  This intentionally never adopts
@@ -346,7 +409,9 @@ const identityAddress: OwnerVaultStorageAddress = { category: identityCategory }
  */
 export const makeDurableObjectOwnerVaultStorageRepository = (
   storage: DurableObjectStorage,
-  listing?: DurableObjectStorageListNative,
+  // Retained only for source compatibility. Catalog readers never enumerate
+  // DO storage; an immutable root supplies the complete bounded inventory.
+  _listing?: unknown,
 ): OwnerVaultStorageRepository => {
   let transactionActive = false;
 
@@ -381,6 +446,68 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 ? storageError<OwnerVaultStorageRecord>("state_corrupt")
                 : Effect.succeed(decoded.record);
             });
+
+          let catalog: CatalogState | undefined;
+          const catalogChanges = new Map<string, CatalogDelta>();
+
+          const loadCatalog = (): Effect.Effect<CatalogState, OwnerVaultStorageTransactionFailure> => {
+            if (catalog !== undefined) return Effect.succeed(catalog);
+            return Effect.all([read(identityAddress), read(catalogCurrentAddress)]).pipe(
+              Effect.flatMap(([identityRecord, currentRecord]) => {
+                if (identityRecord === undefined) return storageError("not_initialized");
+                if (currentRecord === undefined) return storageError("state_corrupt");
+                const current = currentRecord.payload as { readonly catalogRevision: unknown; readonly rootDigest: unknown };
+                if (typeof current.catalogRevision !== "number" || !Number.isSafeInteger(current.catalogRevision) || current.catalogRevision < 0 || typeof current.rootDigest !== "string")
+                  return storageError("state_corrupt");
+                const rootIdentifier = ownerVaultCatalogRevisionIdentifier(current.catalogRevision);
+                if (rootIdentifier === undefined) return storageError("state_corrupt");
+                const rootAddress: OwnerVaultStorageAddress = { category: catalogRootCategory, identifier: rootIdentifier };
+                return read(rootAddress).pipe(
+                  Effect.flatMap((rootRecord) => {
+                    if (rootRecord === undefined) return storageError("state_corrupt");
+                    const root = rootRecord.payload as unknown as OwnerVaultCatalogRootPayload;
+                    if (
+                      ownerVaultCatalogDigest(root) !== current.rootDigest ||
+                      root.catalogRevision !== current.catalogRevision ||
+                      !catalogScopeMatches(root, identityRecord.payload as unknown as OwnerVaultTargetRoot)
+                    ) return storageError("state_corrupt");
+                    const pageAddresses: OwnerVaultStorageAddress[] = [];
+                    return Effect.forEach(root.pages, (descriptor) => {
+                      const pageAddress: OwnerVaultStorageAddress = { category: catalogPageCategory, identifier: descriptor.identifier };
+                      pageAddresses.push(pageAddress);
+                      return read(pageAddress).pipe(
+                        Effect.flatMap((pageRecord) => {
+                          if (pageRecord === undefined) return storageError<readonly OwnerVaultCatalogEntry[]>("state_corrupt");
+                          const payload = pageRecord.payload as { readonly entries: unknown; readonly digest: unknown };
+                          const entries = Array.isArray(payload.entries) ? payload.entries as OwnerVaultCatalogEntry[] : undefined;
+                          const bytes = ownerVaultCatalogCanonicalBytes(payload)?.byteLength;
+                          if (
+                            entries === undefined || payload.digest !== descriptor.digest || entries.length !== descriptor.count ||
+                            bytes !== descriptor.bytes || ownerVaultCatalogDigest(entries) !== descriptor.digest
+                          ) return storageError<readonly OwnerVaultCatalogEntry[]>("state_corrupt");
+                          return Effect.succeed(entries);
+                        }),
+                      );
+                    }).pipe(
+                      Effect.flatMap((pages) => {
+                        const entries = pages.flat();
+                        const total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+                        const ordered = entries.every((entry, index) => entry.ordinal === index && (index === 0 || entries[index - 1]!.key < entry.key));
+                        if (
+                          entries.length > ownerVaultCatalogMaximumObjects || total > ownerVaultCatalogMaximumTotalBytes ||
+                          !ordered || new Set(entries.map((entry) => entry.key)).size !== entries.length ||
+                          ownerVaultCatalogDigest(entries) !== root.catalogDigest ||
+                          ownerVaultCatalogDigest({ logHead: root.logHead, entries }) !== root.highWaterDigest
+                        ) return storageError<CatalogState>("state_corrupt");
+                        catalog = { revision: root.catalogRevision, entries, root, rootAddress, pageAddresses };
+                        return Effect.succeed(catalog);
+                      }),
+                    );
+                  }),
+                );
+              }),
+            );
+          };
 
           const ready = (): Effect.Effect<Accounting, OwnerVaultStorageTransactionFailure> =>
             Effect.all([read(identityAddress), read(runtimeAddress), read(accountingAddress)]).pipe(
@@ -418,7 +545,17 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 schemaVersion,
                 migrationJournal: { state: "ready", step: 0 },
               });
-              if (proposed === undefined || runtime === undefined) return storageError("invalid_record");
+              const rootIdentifier = ownerVaultCatalogRevisionIdentifier(0);
+              const initialRoot = rootIdentifier === undefined ? undefined : catalogRootPayload(root, 0, [], [], 0);
+              const rootDigest = initialRoot === undefined ? undefined : ownerVaultCatalogDigest(initialRoot);
+              const catalogRoot = rootIdentifier === undefined || initialRoot === undefined
+                ? undefined
+                : serializeRecord({ category: catalogRootCategory, identifier: rootIdentifier }, initialRoot as unknown as Readonly<Record<string, unknown>>);
+              const catalogCurrent = rootDigest === undefined
+                ? undefined
+                : serializeRecord(catalogCurrentAddress, { catalogRevision: 0, rootDigest });
+              if (proposed === undefined || runtime === undefined || catalogRoot === undefined || catalogCurrent === undefined)
+                return storageError("invalid_record");
               if (existing !== undefined) {
                 const decoded = decodeStored(identityKey, existing);
                 if (decoded === undefined) return storageError("state_corrupt");
@@ -430,11 +567,13 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                   ? ready().pipe(Effect.asVoid)
                   : storageError("identity_conflict");
               }
-              const usedBytes = proposed.bytes + runtime.bytes;
+              const usedBytes = proposed.bytes + runtime.bytes + catalogRoot.bytes + catalogCurrent.bytes;
               return usedBytes > ownerVaultMaximumAccountedBytes
                 ? storageError("quota_exceeded")
                 : native.put(proposed.key, proposed.value).pipe(
                     Effect.zipRight(native.put(runtime.key, runtime.value)),
+                    Effect.zipRight(native.put(catalogRoot.key, catalogRoot.value)),
+                    Effect.zipRight(native.put(catalogCurrent.key, catalogCurrent.value)),
                     Effect.zipRight(writeAccounting(usedBytes)),
                   );
             });
@@ -448,7 +587,15 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
               return storageError("invalid_address");
             const next = serializeRecord(address, payload);
             if (next === undefined) return storageError("invalid_record");
-            return Effect.flatMap(ready(), (accounting) =>
+            const included = ownerVaultStorageRegistry.get(address.category)?.snapshot === "include";
+            const stage = (): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
+              if (!included) return Effect.void;
+              const entry = catalogEntryFor(next.key, address.category, next.value, next.bytes);
+              return entry === undefined
+                ? storageError("invalid_record")
+                : loadCatalog().pipe(Effect.zipRight(Effect.sync(() => { catalogChanges.set(next.key, { _tag: "put", entry }); })));
+            };
+            return Effect.flatMap(stage(), () => Effect.flatMap(ready(), (accounting) =>
               Effect.flatMap(raw(address), ([key, previous]) => {
                 if (key !== next.key) return storageError("invalid_address");
                 const prior = previous === undefined ? undefined : decodeStored(key, previous);
@@ -461,7 +608,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                   Effect.zipRight(writeAccounting(usedBytes)),
                 );
               }),
-            );
+            ));
           };
 
           const remove = (
@@ -473,6 +620,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
               address.category === runtimeCategory
             )
               return storageError("invalid_address");
+            const included = ownerVaultStorageRegistry.get(address.category)?.snapshot === "include";
             return Effect.flatMap(ready(), (accounting) =>
               Effect.flatMap(raw(address), ([key, previous]) => {
                 if (previous === undefined) return Effect.void;
@@ -482,7 +630,101 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 if (!nonNegativeInteger(usedBytes)) return storageError("state_corrupt");
                 return native.delete(key).pipe(
                   Effect.zipRight(writeAccounting(usedBytes)),
+                  Effect.zipRight(
+                    included
+                      ? loadCatalog().pipe(Effect.zipRight(Effect.sync(() => { catalogChanges.set(key, { _tag: "delete" }); })))
+                      : Effect.void,
+                  ),
                   Effect.asVoid,
+                );
+              }),
+            );
+          };
+
+          /**
+           * The only catalog write.  Application rows (including log heads)
+           * are staged first; this final native-transaction step creates a new
+           * immutable root/pages and then swings the single current pointer.
+           */
+          const finalizeCatalog = (): Effect.Effect<void, OwnerVaultStorageTransactionFailure> => {
+            if (catalogChanges.size === 0) return Effect.void;
+            return loadCatalog().pipe(
+              Effect.flatMap((prior) => {
+                const nextByKey = new Map(prior.entries.map((entry) => [entry.key, entry]));
+                for (const [key, change] of catalogChanges) {
+                  if (change._tag === "delete") nextByKey.delete(key);
+                  else nextByKey.set(key, { ordinal: 0, ...change.entry });
+                }
+                const entries = [...nextByKey.values()]
+                  .sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
+                  .map((entry, ordinal) => ({ ...entry, ordinal }));
+                if (!ownerVaultCatalogWithinQuota(entries))
+                  return storageError("quota_exceeded");
+                const revision = prior.revision + 1;
+                const revisionIdentifier = ownerVaultCatalogRevisionIdentifier(revision);
+                const pages = ownerVaultCatalogPages(entries);
+                if (revisionIdentifier === undefined || pages === undefined || pages.length > 10_000)
+                  return storageError("state_corrupt");
+                return Effect.all([read(identityAddress), read({ category: "root.log-head" })]).pipe(
+                  Effect.flatMap(([identityRecord, logHeadRecord]) => {
+                    if (identityRecord === undefined) return storageError("not_initialized");
+                    const logHeadPayload = logHeadRecord?.payload;
+                    const logHead = typeof logHeadPayload?.logSequence === "number" && nonNegativeInteger(logHeadPayload.logSequence)
+                      ? logHeadPayload.logSequence
+                      : 0;
+                    const descriptors = pages.map((page, ordinal) => {
+                      const identifier = ownerVaultCatalogPageIdentifier(revision, ordinal);
+                      return identifier === undefined ? undefined : { identifier, count: page.entries.length, bytes: page.bytes, digest: page.digest };
+                    });
+                    if (descriptors.some((descriptor) => descriptor === undefined)) return storageError("state_corrupt");
+                    const root = catalogRootPayload(
+                      identityRecord.payload as unknown as OwnerVaultTargetRoot,
+                      revision,
+                      entries,
+                      descriptors as readonly { readonly identifier: string; readonly count: number; readonly bytes: number; readonly digest: string }[],
+                      logHead,
+                    );
+                    const rootDigest = root === undefined ? undefined : ownerVaultCatalogDigest(root);
+                    const nextRoot = root === undefined ? undefined : serializeRecord({ category: catalogRootCategory, identifier: revisionIdentifier }, root as unknown as Readonly<Record<string, unknown>>);
+                    const nextPages = pages.map((page, ordinal) => {
+                      const identifier = ownerVaultCatalogPageIdentifier(revision, ordinal);
+                      return identifier === undefined ? undefined : serializeRecord(
+                        { category: catalogPageCategory, identifier },
+                        { entries: page.entries, digest: page.digest },
+                      );
+                    });
+                    const nextCurrent = rootDigest === undefined
+                      ? undefined
+                      : serializeRecord(catalogCurrentAddress, { catalogRevision: revision, rootDigest });
+                    if (nextRoot === undefined || nextCurrent === undefined || nextPages.some((page) => page === undefined))
+                      return storageError("state_corrupt");
+                    return Effect.all([
+                      read(accountingAddress),
+                      read(catalogCurrentAddress),
+                      read(prior.rootAddress),
+                      Effect.forEach(prior.pageAddresses, read),
+                    ]).pipe(
+                      Effect.flatMap(([accountingRecord, oldCurrent, oldRoot, oldPages]) => {
+                        const accounting = decodeAccounting(accountingRecord?.payload);
+                        if (accounting === undefined || oldCurrent === undefined || oldRoot === undefined || oldPages.some((page) => page === undefined))
+                          return storageError("state_corrupt");
+                        const oldBytes = [oldCurrent, oldRoot, ...oldPages as OwnerVaultStorageRecord[]]
+                          .reduce((total, item) => total + (stableBytes(envelope(item.category, item.payload))?.bytes ?? Number.NaN), 0);
+                        const writtenPages = nextPages as readonly NonNullable<typeof nextRoot>[];
+                        const newBytes = nextCurrent.bytes + nextRoot.bytes + writtenPages.reduce((total, page) => total + page.bytes, 0);
+                        const usedBytes = accounting.usedBytes - oldBytes + newBytes;
+                        if (!nonNegativeInteger(usedBytes) || usedBytes > ownerVaultMaximumAccountedBytes)
+                          return storageError("quota_exceeded");
+                        return Effect.forEach(writtenPages, (page) => native.put(page.key, page.value)).pipe(
+                          Effect.zipRight(native.put(nextRoot.key, nextRoot.value)),
+                          Effect.zipRight(native.put(nextCurrent.key, nextCurrent.value)),
+                          Effect.zipRight(Effect.forEach(prior.pageAddresses, (address) => raw(address).pipe(Effect.flatMap(([key]) => native.delete(key))))),
+                          Effect.zipRight(raw(prior.rootAddress).pipe(Effect.flatMap(([key]) => native.delete(key)))),
+                          Effect.zipRight(writeAccounting(usedBytes)),
+                        );
+                      }),
+                    );
+                  }),
                 );
               }),
             );
@@ -496,6 +738,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
             delete: remove,
           };
           return operation(Object.freeze(tx)).pipe(
+            Effect.flatMap((value) => finalizeCatalog().pipe(Effect.as(value))),
             Effect.ensuring(Effect.sync(() => {
               transactionActive = false;
             })),
@@ -519,39 +762,71 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
     cursor: string | undefined,
     limit: number,
   ): Effect.Effect<OwnerVaultStoragePage, OwnerVaultStorageRepositoryError | OwnerVaultStorageError> =>
-    Effect.tryPromise({
-      try: async () => {
-        if (!validInspectionPurpose(purpose) || !inspectionPermits(purpose, address.category))
-          throw { _tag: "OwnerVaultStorageError", reason: "inspection_forbidden" } satisfies OwnerVaultStorageError;
-        if (listing === undefined) throw new OwnerVaultStorageRepositoryError({ reason: "listing_unavailable" });
-        const prefix = listPrefix(address);
+    Effect.gen(function* () {
+      if (!validInspectionPurpose(purpose) || !inspectionPermits(purpose, address.category))
+        return yield* storageError<OwnerVaultStoragePage>("inspection_forbidden");
+      const exactKey = catalogFilterKey(address);
+      if (
+        exactKey === undefined || !Number.isSafeInteger(limit) || limit < 1 || limit > ownerVaultCatalogMaximumPageEntries ||
+        (cursor !== undefined && (cursor.length > 512 || !cursor.startsWith(ownerVaultStoragePrefix)))
+      ) return yield* storageError<OwnerVaultStoragePage>("invalid_address");
+      const currentValue = yield* storage.get(keyFor(catalogCurrentAddress)!);
+      const current = currentValue === undefined ? undefined : decodeStored(keyFor(catalogCurrentAddress)!, currentValue)?.record;
+      const currentPayload = current?.payload as { readonly catalogRevision?: unknown; readonly rootDigest?: unknown } | undefined;
+      if (currentPayload === undefined || typeof currentPayload.catalogRevision !== "number" || typeof currentPayload.rootDigest !== "string")
+        return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+      const rootIdentifier = ownerVaultCatalogRevisionIdentifier(currentPayload.catalogRevision);
+      if (rootIdentifier === undefined) return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+      const rootKey = keyFor({ category: catalogRootCategory, identifier: rootIdentifier })!;
+      const rootValue = yield* storage.get(rootKey);
+      const rootRecord = rootValue === undefined ? undefined : decodeStored(rootKey, rootValue)?.record;
+      const root = rootRecord?.payload as OwnerVaultCatalogRootPayload | undefined;
+      const identityValue = yield* storage.get(keyFor(identityAddress)!);
+      const identity = identityValue === undefined ? undefined : decodeStored(keyFor(identityAddress)!, identityValue)?.record;
+      if (
+        root === undefined || identity === undefined || ownerVaultCatalogDigest(root) !== currentPayload.rootDigest ||
+        root.catalogRevision !== currentPayload.catalogRevision || !catalogScopeMatches(root, identity.payload as unknown as OwnerVaultTargetRoot)
+      )
+        return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+      const listed: OwnerVaultCatalogEntry[] = [];
+      for (const descriptor of root.pages) {
+        const pageKey = keyFor({ category: catalogPageCategory, identifier: descriptor.identifier });
+        if (pageKey === undefined) return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+        const pageValue = yield* storage.get(pageKey);
+        const pageRecord = pageValue === undefined ? undefined : decodeStored(pageKey, pageValue)?.record;
+        const payload = pageRecord?.payload as { readonly entries?: unknown; readonly digest?: unknown } | undefined;
+        const pageBytes = ownerVaultCatalogCanonicalBytes(payload)?.byteLength;
         if (
-          prefix === undefined ||
-          !Number.isSafeInteger(limit) ||
-          limit < 1 ||
-          limit > maximumDurableObjectListPageEntries ||
-          (cursor !== undefined && (!cursor.startsWith(prefix) || cursor.length > 512))
+          !Array.isArray(payload?.entries) || payload.digest !== descriptor.digest || payload.entries.length !== descriptor.count ||
+          pageBytes !== descriptor.bytes || ownerVaultCatalogDigest(payload.entries) !== descriptor.digest
         )
-          throw { _tag: "OwnerVaultStorageError", reason: "invalid_address" } satisfies OwnerVaultStorageError;
-        const page: DurableObjectStorageKeyPage = await listDurableObjectStoragePage(listing, {
-          prefix,
-          ...(cursor === undefined ? {} : { startAfter: cursor }),
-          limit,
-        });
-        const entries: (readonly [string, OwnerVaultStorageRecord])[] = [];
-        for (const [key, value] of page.entries) {
-          const decoded = decodeStored(key, value);
-          if (decoded === undefined || decoded.record.category !== address.category)
-            throw { _tag: "OwnerVaultStorageError", reason: "state_corrupt" } satisfies OwnerVaultStorageError;
-          entries.push([key, decoded.record]);
-        }
-        return { entries, ...(page.nextStartAfter === undefined ? {} : { nextCursor: page.nextStartAfter }) };
-      },
-      catch: (cause) =>
-        isOwnerVaultStorageError(cause) || cause instanceof OwnerVaultStorageRepositoryError
-          ? cause
-          : new OwnerVaultStorageRepositoryError({ reason: "listing_unavailable" }),
-    });
+          return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+        listed.push(...payload.entries as OwnerVaultCatalogEntry[]);
+      }
+      const ordered = listed.every((entry, index) => entry.ordinal === index && (index === 0 || listed[index - 1]!.key < entry.key));
+      if (
+        !ordered || !ownerVaultCatalogWithinQuota(listed) ||
+        ownerVaultCatalogDigest(listed) !== root.catalogDigest || ownerVaultCatalogDigest({ logHead: root.logHead, entries: listed }) !== root.highWaterDigest
+      )
+        return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+      const selected = listed.filter((entry) => entry.category === address.category &&
+        (address.identifier === undefined ? entry.key.startsWith(exactKey) : entry.key === exactKey) &&
+        (cursor === undefined || entry.key > cursor));
+      const results: (readonly [string, OwnerVaultStorageRecord])[] = [];
+      for (const entry of selected.slice(0, limit)) {
+        const value = yield* storage.get(entry.key);
+        const decoded = value === undefined ? undefined : decodeStored(entry.key, value);
+        if (decoded === undefined || decoded.record.category !== address.category || decoded.bytes !== entry.bytes || ownerVaultCatalogEntryDigest(value) !== entry.digest)
+          return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
+        results.push([entry.key, decoded.record]);
+      }
+      const hasMore = selected.length > results.length;
+      return { entries: results, ...(hasMore ? { nextCursor: results.at(-1)?.[0] } : {}) };
+    }).pipe(
+      Effect.mapError((error) => isOwnerVaultStorageError(error)
+        ? error
+        : new OwnerVaultStorageRepositoryError({ reason: "unavailable" })),
+    );
 
   return Object.freeze({ transact, inspectPage });
 };
