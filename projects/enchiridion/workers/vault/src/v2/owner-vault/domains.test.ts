@@ -198,6 +198,10 @@ describe("v2 OwnerVault durable domain provider", () => {
       payload: { source: "http", logSequence: 1 },
     });
 
+    expect(await Effect.runPromise(afterReconnect.expireCapabilities(1_100))).toBe(1_200);
+    expect(await Effect.runPromise(afterReconnect.expireCapabilities(1_200))).toBeUndefined();
+    expect(fixture.native.entries.has("v2.ov/capability-receipt/jti-123456789012")).toBe(false);
+
     const conflict = await Effect.runPromiseExit(afterReconnect.append(append({ fingerprint: "9".repeat(64) })));
     expect(Exit.isFailure(conflict)).toBe(true);
     expect(JSON.stringify(conflict)).toContain("replay_conflict");

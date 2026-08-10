@@ -18,7 +18,7 @@ const registered = (
 
 describe("OwnerVault physical state registry", () => {
   test("is exhaustive and assigns the restore policy matrix", () => {
-    expect(ownerVaultStorageRegistry.size).toBe(39);
+    expect(ownerVaultStorageRegistry.size).toBe(40);
     const expected = {
       "root.identity": ["exclude", "never"],
       "root.admission": ["exclude", "never"],
@@ -36,6 +36,7 @@ describe("OwnerVault physical state registry", () => {
       nonce: ["exclude", "never"],
       jti: ["exclude", "never"],
       "capability-receipt": ["exclude", "never"],
+      "capability-receipt-index": ["exclude", "never"],
       "operation-receipt": ["include", "apply"],
       "operation-index": ["include", "apply"],
       session: ["exclude", "never"],
@@ -118,6 +119,32 @@ describe("OwnerVault physical state registry", () => {
         category: "root.floors",
         version: 1,
         payload: { generation: 1, securityFloor: 0 },
+      }),
+    ).toThrow(OwnerVaultStorageRegistryError);
+  });
+
+  test("keeps the capability expiry cursor in one bounded local-only singleton", () => {
+    expect(
+      assertOwnerVaultStorageRecord(registered("capability-receipt-index"), {
+        category: "capability-receipt-index",
+        version: 1,
+        payload: {
+          cursor: 0,
+          entries: [{ jti: "capability-jti-0001", expiresAtSeconds: 10 }],
+        },
+      }),
+    ).toMatchObject({ category: "capability-receipt-index" });
+    expect(() =>
+      assertOwnerVaultStorageRecord(registered("capability-receipt-index"), {
+        category: "capability-receipt-index",
+        version: 1,
+        payload: {
+          cursor: 0,
+          entries: [
+            { jti: "capability-jti-0002", expiresAtSeconds: 10 },
+            { jti: "capability-jti-0001", expiresAtSeconds: 10 },
+          ],
+        },
       }),
     ).toThrow(OwnerVaultStorageRegistryError);
   });

@@ -37,6 +37,7 @@ export const ownerVaultStorageCategories = [
   "nonce",
   "jti",
   "capability-receipt",
+  "capability-receipt-index",
   "operation-receipt",
   "operation-index",
   "session",
@@ -129,6 +130,7 @@ const appendMaximumBytes = 1_100_000; // append wire payloads remain limited to 
 const catalogMaximumBytes = 32 * 1024;
 const journalMaximumBytes = 32 * 1024;
 const maximumBlobTrackedLeases = 32;
+const maximumCapabilityReceiptIndexEntries = 64;
 const blobHashPattern = /^[a-f0-9]{64}$/u;
 
 const plainRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
@@ -229,6 +231,22 @@ const validSecurityFloor = (value: unknown): boolean => {
     Number.isSafeInteger(source.securityFloor) &&
     source.securityFloor >= 0
   );
+};
+
+/** A fixed singleton, never a storage listing: it gives alarms an exact,
+ * bounded expiration cursor for otherwise opaque capability receipts. */
+const validCapabilityReceiptIndex = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  if (source === undefined || !exactKeys(source, ["cursor", "entries"]) || !Number.isSafeInteger(source.cursor) || source.cursor < 0 || !Array.isArray(source.entries) || source.entries.length > maximumCapabilityReceiptIndexEntries) return false;
+  let previous = "";
+  return source.entries.every((entry) => {
+    const row = plainRecord(entry);
+    if (row === undefined || !exactKeys(row, ["expiresAtSeconds", "jti"]) || typeof row.jti !== "string" || !identifierPattern.test(row.jti) || !Number.isSafeInteger(row.expiresAtSeconds) || row.expiresAtSeconds < 1) return false;
+    const sortKey = `${row.expiresAtSeconds.toString().padStart(12, "0")}/${row.jti}`;
+    const ordered = previous === "" || previous < sortKey;
+    previous = sortKey;
+    return ordered;
+  }) && (source.entries.length === 0 ? source.cursor === 0 : source.cursor < source.entries.length);
 };
 
 /**
@@ -605,6 +623,14 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
           validAuditSourceScope(payload.source) &&
           !hasForbiddenScope(payload.audit),
       ),
+  },
+  {
+    category: "capability-receipt-index",
+    snapshot: "exclude",
+    restore: "never",
+    maximumBytes: regularMaximumBytes,
+    ...staticKey("capability-receipts/index"),
+    decode: (value) => decodeEnvelope("capability-receipt-index", value, validCapabilityReceiptIndex),
   },
   ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({
     category,

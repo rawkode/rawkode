@@ -1723,6 +1723,41 @@ export const makeOwnerVaultDO = (
       );
     };
 
+    /** Multiple receipt families share one DO alarm; admission can only move
+     * it earlier. The alarm itself recomputes the exact next bounded cursor. */
+    private scheduleReconciliation = (atMilliseconds: number): Effect.Effect<void, unknown> =>
+      this.boundary.storage.getAlarm().pipe(
+        Effect.flatMap((current) =>
+          current === null || current > atMilliseconds
+            ? this.boundary.storage.setAlarm(atMilliseconds)
+            : Effect.void,
+        ),
+      );
+
+    private reconcileCapabilityReceipts = (
+      nowSeconds: number,
+    ): Effect.Effect<number | undefined, unknown> =>
+      this.socketAuthority().pipe(
+        Effect.flatMap((authority) => {
+          const root = {
+            ownerID: authority.ownerID,
+            vaultID: authority.vaultID,
+            generationEpoch: authority.generationEpoch,
+            namespaceState: authority.namespaceState,
+          } as const;
+          const graph = this.production === undefined
+            ? undefined
+            : makeOwnerVaultProviderGraph(
+                makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
+                root,
+                this.production,
+              );
+          return graph === undefined
+            ? rejectControl<number | undefined>()
+            : graph.domains.expireCapabilities(nowSeconds);
+        }),
+      );
+
     /**
      * Adapter for the P02 service.  It deliberately exposes the real P02
      * challenge and registration path over this object’s one repository
@@ -2065,7 +2100,11 @@ export const makeOwnerVaultDO = (
                       ),
                       tokenFingerprint: capabilityTokenFingerprint(envelope.capability),
                     },
-                  });
+                  }).pipe(
+                    Effect.tap(() =>
+                      this.scheduleReconciliation(capability.expiresAt * 1_000),
+                    ),
+                  );
                 }),
               ),
             ),
@@ -2736,8 +2775,7 @@ export const makeOwnerVaultDO = (
                   // The PREPARED receipt already owns quota and a JTI. Schedule
                   // its exact expiry before any accept-outside-transaction work
                   // so an isolate loss cannot leave that reservation unbounded.
-                  return this.boundary.storage
-                    .setAlarm(prepared.record.expiresAtMilliseconds)
+                  return this.scheduleReconciliation(prepared.record.expiresAtMilliseconds)
                     .pipe(
                   Effect.zipRight(graph.domains.getDevice(prepared.record.deviceID)),
                     Effect.flatMap((device) =>
@@ -2789,7 +2827,7 @@ export const makeOwnerVaultDO = (
                                   }),
                                 ),
                                 Effect.tap(() =>
-                                  this.boundary.storage.setAlarm(attachment.expiresAtMilliseconds),
+                                  this.scheduleReconciliation(attachment.expiresAtMilliseconds),
                                 ),
                                 Effect.map(
                                   () =>
@@ -3008,7 +3046,12 @@ export const makeOwnerVaultDO = (
             message: payload,
             signatureDER: signature,
           })
-          .pipe(Effect.mapError((error): unknown => error));
+          .pipe(
+            Effect.tap(() =>
+              this.scheduleReconciliation(admission.expiresAtMilliseconds),
+            ),
+            Effect.mapError((error): unknown => error),
+          );
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,
@@ -3252,6 +3295,13 @@ export const makeOwnerVaultDO = (
           );
           if (preparedNearest !== undefined)
             nearest = nearest === undefined ? preparedNearest : Math.min(nearest, preparedNearest);
+          const capabilityNearest = yield* this.reconcileCapabilityReceipts(
+            Math.floor(nowMilliseconds / 1_000),
+          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          if (capabilityNearest !== undefined) {
+            const capabilityAt = capabilityNearest * 1_000;
+            nearest = nearest === undefined ? capabilityAt : Math.min(nearest, capabilityAt);
+          }
           if (nearest === undefined) yield* this.boundary.storage.deleteAlarm();
           else yield* this.boundary.storage.setAlarm(nearest);
         }),

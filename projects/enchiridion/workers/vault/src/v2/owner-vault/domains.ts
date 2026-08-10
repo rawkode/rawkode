@@ -32,7 +32,8 @@ const sequenceWidth = 20;
 export const ownerVaultMaximumDevices = 256;
 export const ownerVaultMaximumOutstandingChallenges = 64;
 export const ownerVaultMaximumSessions = 64;
-export const ownerVaultMaximumCapabilityReceipts = 4_096;
+/** The singleton expiry index is deliberately resident and never scanned. */
+export const ownerVaultMaximumCapabilityReceipts = 64;
 export const ownerVaultMaximumOperationReceiptTTLSeconds = 3_600;
 export const ownerVaultMaximumSecurityReceiptTTLSeconds = 300;
 
@@ -185,6 +186,10 @@ export interface OwnerVaultDomainProvider {
     jti: string,
     nowSeconds: number,
   ) => Effect.Effect<boolean, OwnerVaultDomainError>;
+  /** Reaps at most one bounded cursor page and returns the next alarm instant. */
+  readonly expireCapabilities: (
+    nowSeconds: number,
+  ) => Effect.Effect<number | undefined, OwnerVaultDomainError>;
 }
 
 interface Admission {
@@ -227,6 +232,14 @@ interface CapabilityReceipt {
   readonly claimsFingerprint: string;
   readonly tokenFingerprint: string;
   readonly result: { readonly logSequence: number; readonly payloadHash: string };
+}
+interface CapabilityReceiptIndexEntry {
+  readonly jti: string;
+  readonly expiresAtSeconds: number;
+}
+interface CapabilityReceiptIndex {
+  readonly cursor: number;
+  readonly entries: readonly CapabilityReceiptIndexEntry[];
 }
 interface JtiClaim {
   readonly operationID: string;
@@ -499,6 +512,24 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
         result: { logSequence: value.result.logSequence, payloadHash: value.result.payloadHash },
       }
     : undefined;
+const capabilityIndexSortKey = (entry: CapabilityReceiptIndexEntry): string =>
+  `${entry.expiresAtSeconds.toString().padStart(12, "0")}/${entry.jti}`;
+const decodeCapabilityIndex = (value: unknown): CapabilityReceiptIndex | undefined => {
+  if (!isRecord(value) || !exact(value, ["cursor", "entries"]) || !isSafeNonNegative(value.cursor) || !Array.isArray(value.entries) || value.entries.length > ownerVaultMaximumCapabilityReceipts) return undefined;
+  const entries: CapabilityReceiptIndexEntry[] = [];
+  let previous = "";
+  for (const source of value.entries) {
+    if (!isRecord(source) || !exact(source, ["expiresAtSeconds", "jti"]) || typeof source.jti !== "string" || !identifier.test(source.jti) || !isSafePositive(source.expiresAtSeconds)) return undefined;
+    const entry = { jti: source.jti, expiresAtSeconds: source.expiresAtSeconds };
+    const key = capabilityIndexSortKey(entry);
+    if (previous !== "" && previous >= key) return undefined;
+    previous = key;
+    entries.push(entry);
+  }
+  return entries.length === 0
+    ? value.cursor === 0 ? { cursor: 0, entries } : undefined
+    : value.cursor < entries.length ? { cursor: value.cursor, entries } : undefined;
+};
 const decodeJtiClaim = (value: unknown): JtiClaim | undefined =>
   isRecord(value) &&
   exact(value, ["expiresAtSeconds", "operationID"]) &&
@@ -796,6 +827,14 @@ export const makeOwnerVaultDomainProvider = (
                 preparedSocketOperationIDs: [],
                 socketReplayJTIs: [],
               })
+            : Effect.void,
+        ),
+        Effect.zipRight(
+          read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
+        ),
+        Effect.flatMap((index) =>
+          index === undefined
+            ? write(tx, address("capability-receipt-index"), { cursor: 0, entries: [] })
             : Effect.void,
         ),
         Effect.zipRight(read(tx, address("root.floors"), decodeFloors)),
@@ -1118,9 +1157,11 @@ export const makeOwnerVaultDomainProvider = (
                 read(tx, address("operation-index", input.operationID), decodeOperationIndex),
                 read(tx, address("nonce", input.nonce.value), decodeNonce),
                 getAdmission(tx),
+                read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
               ]),
             ),
-            Effect.flatMap(([head, index, nonce, admission]) => {
+            Effect.flatMap(([head, index, nonce, admission, receiptIndex]) => {
+              if (receiptIndex === undefined) return fail("state_corrupt");
               if (index !== undefined)
                 return index.fingerprint === input.fingerprint
                   ? fail("state_corrupt")
@@ -1136,7 +1177,10 @@ export const makeOwnerVaultDomainProvider = (
                 priorCapabilityReceipt.expiresAtSeconds > input.nowSeconds
               )
                 return fail("capability_replayed");
-              if (admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts)
+              if (
+                admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts ||
+                receiptIndex.entries.length >= ownerVaultMaximumCapabilityReceipts
+              )
                 return fail("quota_exceeded");
               const logSequence = head.appendLogSequence + 1;
               if (!isSafePositive(logSequence)) return fail("quota_exceeded");
@@ -1157,6 +1201,13 @@ export const makeOwnerVaultDomainProvider = (
               };
               const nextHead = ownerVaultAppendProofNext(root, head, entry);
               if (nextHead === undefined) return fail("state_corrupt");
+              const nextReceiptIndex = {
+                cursor: 0,
+                entries: [
+                  ...receiptIndex.entries,
+                  { jti: input.capability.jti, expiresAtSeconds: input.capability.expiresAtSeconds },
+                ].sort((left, right) => capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right))),
+              } satisfies CapabilityReceiptIndex;
               return write(tx, address("nonce", input.nonce.value), {
                 expiresAtSeconds: input.nonce.expiresAtSeconds,
                 fingerprint: input.nonce.fingerprint,
@@ -1177,6 +1228,9 @@ export const makeOwnerVaultDomainProvider = (
                     tokenFingerprint: input.capability.tokenFingerprint,
                     result: { logSequence, payloadHash: input.payloadHash },
                   }),
+                ),
+                Effect.zipRight(
+                  write(tx, address("capability-receipt-index"), nextReceiptIndex),
                 ),
                 Effect.zipRight(
                   write(tx, address("append-log.entry", sequenceID(logSequence)), { ...entry }),
@@ -1376,9 +1430,11 @@ export const makeOwnerVaultDomainProvider = (
             read(tx, address("jti", jti), decodeJtiClaim),
             read(tx, address("capability-receipt", jti), decodeCapability),
             getAdmission(tx),
+            read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
           ]),
         ),
-        Effect.flatMap(([jtiClaim, receipt, admission]) => {
+        Effect.flatMap(([jtiClaim, receipt, admission, receiptIndex]) => {
+          if (receiptIndex === undefined) return fail("state_corrupt");
           if (jtiClaim === undefined && receipt === undefined) return Effect.succeed(false);
           if (
             jtiClaim === undefined ||
@@ -1389,8 +1445,16 @@ export const makeOwnerVaultDomainProvider = (
           if (jtiClaim.expiresAtSeconds > nowSeconds || receipt.expiresAtSeconds > nowSeconds)
             return Effect.succeed(false);
           if (admission.capabilityReceipts < 1) return fail("state_corrupt");
+          const nextEntries = receiptIndex.entries.filter((entry) => entry.jti !== jti);
+          if (nextEntries.length !== receiptIndex.entries.length - 1) return fail("state_corrupt");
           return remove(tx, address("jti", jti)).pipe(
             Effect.zipRight(remove(tx, address("capability-receipt", jti))),
+            Effect.zipRight(
+              write(tx, address("capability-receipt-index"), {
+                cursor: nextEntries.length === 0 ? 0 : receiptIndex.cursor % nextEntries.length,
+                entries: nextEntries,
+              }),
+            ),
             Effect.zipRight(
               write(tx, address("root.admission"), {
                 ...admission,
@@ -1400,6 +1464,37 @@ export const makeOwnerVaultDomainProvider = (
             Effect.as(true),
           );
         }),
+      ),
+    );
+  };
+  const expireCapabilities = (
+    nowSeconds: number,
+  ): Effect.Effect<number | undefined, OwnerVaultDomainError> => {
+    if (!isSafeNonNegative(nowSeconds)) return fail("invalid_input");
+    return transact((tx) =>
+      read(tx, address("capability-receipt-index"), decodeCapabilityIndex).pipe(
+        Effect.flatMap((index) =>
+          index === undefined
+            ? fail<readonly CapabilityReceiptIndexEntry[]>("state_corrupt")
+            : Effect.succeed(index.entries.filter((entry) => entry.expiresAtSeconds <= nowSeconds)),
+        ),
+      ),
+    ).pipe(
+      Effect.flatMap((expired) =>
+        Effect.forEach(expired, (entry) => expireCapability(entry.jti, nowSeconds), {
+          concurrency: 1,
+        }),
+      ),
+      Effect.zipRight(
+        transact((tx) =>
+          read(tx, address("capability-receipt-index"), decodeCapabilityIndex).pipe(
+            Effect.flatMap((index) =>
+              index === undefined
+                ? fail<number | undefined>("state_corrupt")
+                : Effect.succeed(index.entries[0]?.expiresAtSeconds),
+            ),
+          ),
+        ),
       ),
     );
   };
@@ -1416,6 +1511,7 @@ export const makeOwnerVaultDomainProvider = (
     deactivateSession,
     expireSession,
     expireCapability,
+    expireCapabilities,
   });
 };
 
