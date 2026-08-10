@@ -7,11 +7,15 @@ import {
 } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
 import {
+  OwnerVaultInspectionPurpose,
+  ownerVaultAccountingEnvelopeSafetyBytes,
+  ownerVaultAdmissionReserveBytes,
+  ownerVaultIsolateCeilingBytes,
   ownerVaultMaximumAccountedBytes,
   makeDurableObjectOwnerVaultStorageRepository,
 } from "./repository";
 
-const scope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1 };
+const scope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1, namespaceState: "PRIVATE" } as const;
 
 const nativeState = (): {
   readonly state: DurableObjectStateNative;
@@ -121,6 +125,23 @@ describe("v2 OwnerVault per-record durable storage", () => {
     ]);
   });
 
+  test("requires the exact immutable target root, not a scope-shaped authority row", async () => {
+    const { repository, native } = repositoryFor();
+    const invalidEpoch = await Effect.runPromiseExit(
+      repository.transact((tx) => tx.initialize({ ...scope, generationEpoch: 0 })),
+    );
+    expect(Exit.isFailure(invalidEpoch)).toBe(true);
+    expect(JSON.stringify(invalidEpoch)).toContain("invalid_record");
+    expect([...native.entries.keys()]).toEqual([]);
+
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
+    const stateChange = await Effect.runPromiseExit(
+      repository.transact((tx) => tx.initialize({ ...scope, namespaceState: "ACTIVE" })),
+    );
+    expect(Exit.isFailure(stateChange)).toBe(true);
+    expect(JSON.stringify(stateChange)).toContain("identity_conflict");
+  });
+
   test("rejects nested transactions before a second native transaction can begin", async () => {
     const { repository } = repositoryFor();
     const nested = await Effect.runPromise(
@@ -164,7 +185,22 @@ describe("v2 OwnerVault per-record durable storage", () => {
     expect(JSON.stringify([...native.entries.entries()])).toBe(before);
   });
 
-  test("offers only deterministic, bounded inspection pages and never aggregate state", async () => {
+  test("retains the full reserve after accounting for the accounting envelope", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
+    const encodedAccountingBytes = new TextEncoder().encode(
+      JSON.stringify(native.entries.get("v2.ov/root/accounting")),
+    ).byteLength;
+    expect(encodedAccountingBytes).toBeLessThanOrEqual(ownerVaultAccountingEnvelopeSafetyBytes);
+    expect(
+      ownerVaultMaximumAccountedBytes + ownerVaultAccountingEnvelopeSafetyBytes + ownerVaultAdmissionReserveBytes,
+    ).toBe(ownerVaultIsolateCeilingBytes);
+    expect(
+      ownerVaultMaximumAccountedBytes + encodedAccountingBytes + ownerVaultAdmissionReserveBytes,
+    ).toBeLessThanOrEqual(ownerVaultIsolateCeilingBytes);
+  });
+
+  test("offers only deterministic, bounded backup pages and never aggregate state", async () => {
     const { repository } = repositoryFor();
     await Effect.runPromise(
       repository.transact((tx) =>
@@ -175,9 +211,24 @@ describe("v2 OwnerVault per-record durable storage", () => {
       ),
     );
 
-    const first = await Effect.runPromise(repository.inspectPage({ category: "device" }, undefined, 1));
-    const second = await Effect.runPromise(repository.inspectPage({ category: "device" }, first.nextCursor, 1));
+    const first = await Effect.runPromise(repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 1));
+    const second = await Effect.runPromise(repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, first.nextCursor, 1));
     expect(first.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-a"]);
     expect(second.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-b"]);
+  });
+
+  test("refuses excluded rows and mismatched inspection purposes", async () => {
+    const { repository } = repositoryFor();
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
+    const excluded = await Effect.runPromiseExit(
+      repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "root.admission" }, undefined, 1),
+    );
+    const mismatched = await Effect.runPromiseExit(
+      repository.inspectPage(OwnerVaultInspectionPurpose.RestoreAudit, { category: "device" }, undefined, 1),
+    );
+    expect(Exit.isFailure(excluded)).toBe(true);
+    expect(JSON.stringify(excluded)).toContain("inspection_forbidden");
+    expect(Exit.isFailure(mismatched)).toBe(true);
+    expect(JSON.stringify(mismatched)).toContain("inspection_forbidden");
   });
 });

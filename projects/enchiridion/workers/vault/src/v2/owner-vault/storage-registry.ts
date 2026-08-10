@@ -46,7 +46,16 @@ export type OwnerVaultStorageCategory = (typeof ownerVaultStorageCategories)[num
 export type OwnerVaultSnapshotPolicy = "include" | "exclude" | "audit";
 export type OwnerVaultRestorePolicy = "apply" | "never" | "target-overlay" | "rebuild" | "audit-only";
 
-export interface OwnerVaultStorageScope {
+/** Immutable target identity for one fresh OwnerVault generation. */
+export interface OwnerVaultTargetRoot {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+  readonly namespaceState: "PRIVATE" | "ACTIVE";
+}
+
+/** Restore source identity is descriptive audit data, never target authority. */
+export interface OwnerVaultAuditSourceScope {
   readonly ownerID: string;
   readonly vaultID: string;
   readonly generationEpoch: number;
@@ -75,7 +84,7 @@ export const isRestorableOwnerVaultStorageCategory = (
 
 const identifierPattern = /^[A-Za-z0-9_-]{1,128}$/u;
 const appendSequencePattern = /^[0-9]{20}$/u;
-const sourceScopeKeys = new Set(["ownerID", "vaultID", "generationEpoch", "sourceOwnerID", "sourceVaultID", "sourceGenerationEpoch", "sourceScope"]);
+const authorityScopeKeys = new Set(["ownerID", "vaultID", "generationEpoch", "namespaceState", "sourceOwnerID", "sourceVaultID", "sourceGenerationEpoch", "sourceScope"]);
 const regularMaximumBytes = 16 * 1024;
 const rootMaximumBytes = 8 * 1024;
 const appendMaximumBytes = 1_100_000; // append wire payloads remain limited to 1 MiB.
@@ -97,11 +106,27 @@ const hasForbiddenScope = (value: unknown): boolean => {
   const record = plainRecord(value);
   if (record === undefined) return false;
   return Object.entries(record).some(
-    ([key, entry]) => sourceScopeKeys.has(key) || hasForbiddenScope(entry),
+    ([key, entry]) => authorityScopeKeys.has(key) || hasForbiddenScope(entry),
   );
 };
 
-const validScope = (value: unknown): value is OwnerVaultStorageScope => {
+const validTargetRoot = (value: unknown): value is OwnerVaultTargetRoot => {
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    exactKeys(source, ["ownerID", "vaultID", "generationEpoch", "namespaceState"]) &&
+    typeof source.ownerID === "string" &&
+    source.ownerID.length > 0 &&
+    typeof source.vaultID === "string" &&
+    source.vaultID.length > 0 &&
+    typeof source.generationEpoch === "number" &&
+    Number.isSafeInteger(source.generationEpoch) &&
+    source.generationEpoch >= 1 &&
+    (source.namespaceState === "PRIVATE" || source.namespaceState === "ACTIVE")
+  );
+};
+
+const validAuditSourceScope = (value: unknown): value is OwnerVaultAuditSourceScope => {
   const source = plainRecord(value);
   return (
     source !== undefined &&
@@ -112,7 +137,7 @@ const validScope = (value: unknown): value is OwnerVaultStorageScope => {
     source.vaultID.length > 0 &&
     typeof source.generationEpoch === "number" &&
     Number.isSafeInteger(source.generationEpoch) &&
-    source.generationEpoch >= 0
+    source.generationEpoch >= 1
   );
 };
 
@@ -157,14 +182,14 @@ export class OwnerVaultStorageRegistryError extends Error {
 
 const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
   // DirectoryControl creates the target identity; a source identity is never restored.
-  { category: "root.identity", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/identity"), decode: (value) => decodeEnvelope("root.identity", value, (payload) => validScope(payload)) },
+  { category: "root.identity", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/identity"), decode: (value) => decodeEnvelope("root.identity", value, (payload) => validTargetRoot(payload)) },
   { category: "root.admission", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/admission"), decode: (value) => decodeEnvelope("root.admission", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.floors", snapshot: "exclude", restore: "target-overlay", maximumBytes: rootMaximumBytes, ...staticKey("root/floors"), decode: (value) => decodeEnvelope("root.floors", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.log-head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/log-head"), decode: (value) => decodeEnvelope("root.log-head", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.runtime", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/runtime"), decode: (value) => decodeEnvelope("root.runtime", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.accounting", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/accounting"), decode: (value) => decodeEnvelope("root.accounting", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "catalog.derived", snapshot: "exclude", restore: "rebuild", maximumBytes: catalogMaximumBytes, ...keyedFamily("catalog"), decode: (value) => decodeEnvelope("catalog.derived", value, (payload) => !hasForbiddenScope(payload)) },
-  { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validScope(payload.source) && !hasForbiddenScope(payload.audit)) },
+  { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validAuditSourceScope(payload.source) && !hasForbiddenScope(payload.audit)) },
   ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
   // Challenges, replay fences, capabilities, and live sessions are target-local security state.
   ...(["device-challenge", "nonce", "jti", "capability-receipt", "session", "resume", "rate-window"] as const).map((category) => ({ category, snapshot: "exclude" as const, restore: "never" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),

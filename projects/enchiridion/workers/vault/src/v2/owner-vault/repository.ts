@@ -15,7 +15,7 @@ import {
 import {
   type OwnerVaultStorageCategory,
   type OwnerVaultStorageRecord,
-  type OwnerVaultStorageScope,
+  type OwnerVaultTargetRoot,
   assertOwnerVaultStorageRecord,
   ownerVaultStorageRegistry,
 } from "./storage-registry";
@@ -29,16 +29,21 @@ export const ownerVaultIsolateCeilingBytes = 128 * mebibyte;
 export const ownerVaultAdmissionReserveBytes = 16 * mebibyte;
 /**
  * The largest sum of application rows this repository will admit.  The
- * accounting/root envelopes are bounded separately, so successful admission
- * always leaves the reserve intact below Cloudflare's 128 MiB isolate ceiling.
+ * accounting envelope has a fixed worst-case allowance below this limit, so
+ * successful admission always leaves the full reserve intact below
+ * Cloudflare's 128 MiB isolate ceiling.
  */
-export const ownerVaultMaximumAccountedBytes =
-  ownerVaultIsolateCeilingBytes - ownerVaultAdmissionReserveBytes;
-
 const identityCategory: OwnerVaultStorageCategory = "root.identity";
 const accountingCategory: OwnerVaultStorageCategory = "root.accounting";
 const runtimeCategory: OwnerVaultStorageCategory = "root.runtime";
 const schemaVersion = 1;
+
+const accountingMaximumBytes = ownerVaultStorageRegistry.get(accountingCategory)?.maximumBytes;
+if (accountingMaximumBytes === undefined) throw new Error("OwnerVault accounting category missing.");
+/** Fixed safety subtraction retains the entire reserve even as accounting evolves. */
+export const ownerVaultAccountingEnvelopeSafetyBytes = accountingMaximumBytes;
+export const ownerVaultMaximumAccountedBytes =
+  ownerVaultIsolateCeilingBytes - ownerVaultAdmissionReserveBytes - ownerVaultAccountingEnvelopeSafetyBytes;
 
 export interface OwnerVaultStorageAddress {
   readonly category: OwnerVaultStorageCategory;
@@ -50,6 +55,23 @@ export interface OwnerVaultStoragePage {
   readonly entries: readonly (readonly [key: string, record: OwnerVaultStorageRecord])[];
   readonly nextCursor?: string;
 }
+
+export const OwnerVaultInspectionPurpose = {
+  BackupSnapshot: "backup-snapshot",
+  RestoreAudit: "restore-audit",
+} as const;
+export type OwnerVaultInspectionPurpose =
+  (typeof OwnerVaultInspectionPurpose)[keyof typeof OwnerVaultInspectionPurpose];
+
+const validInspectionPurpose = (purpose: unknown): purpose is OwnerVaultInspectionPurpose =>
+  purpose === OwnerVaultInspectionPurpose.BackupSnapshot || purpose === OwnerVaultInspectionPurpose.RestoreAudit;
+
+const inspectionPermits = (purpose: OwnerVaultInspectionPurpose, category: OwnerVaultStorageCategory): boolean => {
+  const definition = ownerVaultStorageRegistry.get(category);
+  return definition !== undefined && (purpose === OwnerVaultInspectionPurpose.BackupSnapshot
+    ? definition.snapshot === "include"
+    : purpose === OwnerVaultInspectionPurpose.RestoreAudit && definition.snapshot === "audit");
+};
 
 interface Accounting {
   readonly usedBytes: number;
@@ -183,6 +205,7 @@ export interface OwnerVaultStorageError {
     | "migration_required"
     | "nested_transaction"
     | "not_initialized"
+    | "inspection_forbidden"
     | "quota_exceeded"
     | "state_corrupt";
 }
@@ -210,6 +233,7 @@ const transactionErrorSchema = Schema.Struct({
     "migration_required",
     "nested_transaction",
     "not_initialized",
+    "inspection_forbidden",
     "quota_exceeded",
     "state_corrupt",
   ),
@@ -230,7 +254,7 @@ const ownerVaultTxBrand: unique symbol = Symbol("OwnerVaultTx");
 export interface OwnerVaultTx {
   readonly [ownerVaultTxBrand]: "OwnerVaultTx";
   readonly initialize: (
-    scope: OwnerVaultStorageScope,
+    root: OwnerVaultTargetRoot,
   ) => Effect.Effect<void, OwnerVaultStorageTransactionFailure>;
   readonly get: (
     address: OwnerVaultStorageAddress,
@@ -250,11 +274,11 @@ export interface OwnerVaultStorageRepository {
     operation: (tx: OwnerVaultTx) => Effect.Effect<A, OwnerVaultStorageTransactionFailure>,
   ) => Effect.Effect<A, OwnerVaultStorageError | OwnerVaultStorageRepositoryError>;
   /**
-   * A bounded inspection primitive for backup/audit only. It is deliberately
-   * separate from `transact`; no correctness or admission decision may depend
-   * on prefix enumeration.
+   * A bounded snapshot/audit primitive. Runtime policy allows snapshot rows
+   * only for backup and audit rows only for restore audit.
    */
   readonly inspectPage: (
+    purpose: OwnerVaultInspectionPurpose,
     address: OwnerVaultStorageAddress,
     cursor: string | undefined,
     limit: number,
@@ -328,13 +352,14 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
           };
 
           const initialize = (
-            scope: OwnerVaultStorageScope,
+            root: OwnerVaultTargetRoot,
           ): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
             Effect.flatMap(raw(identityAddress), ([identityKey, existing]) => {
               const proposed = serializeRecord(identityAddress, {
-                ownerID: scope.ownerID,
-                vaultID: scope.vaultID,
-                generationEpoch: scope.generationEpoch,
+                ownerID: root.ownerID,
+                vaultID: root.vaultID,
+                generationEpoch: root.generationEpoch,
+                namespaceState: root.namespaceState,
               });
               const runtime = serializeRecord(runtimeAddress, {
                 schemaVersion,
@@ -345,9 +370,10 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 const decoded = decodeStored(identityKey, existing);
                 if (decoded === undefined) return storageError("state_corrupt");
                 const prior = decoded.record.payload;
-                return prior.ownerID === scope.ownerID &&
-                  prior.vaultID === scope.vaultID &&
-                  prior.generationEpoch === scope.generationEpoch
+                return prior.ownerID === root.ownerID &&
+                  prior.vaultID === root.vaultID &&
+                  prior.generationEpoch === root.generationEpoch &&
+                  prior.namespaceState === root.namespaceState
                   ? ready().pipe(Effect.asVoid)
                   : storageError("identity_conflict");
               }
@@ -435,12 +461,15 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
     });
 
   const inspectPage = (
+    purpose: OwnerVaultInspectionPurpose,
     address: OwnerVaultStorageAddress,
     cursor: string | undefined,
     limit: number,
   ): Effect.Effect<OwnerVaultStoragePage, OwnerVaultStorageRepositoryError | OwnerVaultStorageError> =>
     Effect.tryPromise({
       try: async () => {
+        if (!validInspectionPurpose(purpose) || !inspectionPermits(purpose, address.category))
+          throw { _tag: "OwnerVaultStorageError", reason: "inspection_forbidden" } satisfies OwnerVaultStorageError;
         if (listing === undefined) throw new OwnerVaultStorageRepositoryError({ reason: "listing_unavailable" });
         const prefix = listPrefix(address);
         if (

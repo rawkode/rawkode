@@ -59,16 +59,19 @@ describe("OwnerVault physical state registry", () => {
     }
   });
 
-  test("rejects unknown physical keys and any authoritative scope outside root identity", () => {
+  test("requires the exact target root and rejects its authority fields outside root identity", () => {
     expect(() => ownerVaultStorageDefinitionForKey("v2.ov/unregistered/key")).toThrow(
       OwnerVaultStorageRegistryError,
     );
     expect(() => registered("append-log.entry", "1")).toThrow(OwnerVaultStorageRegistryError);
     expect(assertOwnerVaultStorageRecord(registered("root.identity"), {
-      category: "root.identity", version: 1, payload: { ownerID: "owner", vaultID: "vault", generationEpoch: 2 },
+      category: "root.identity", version: 1, payload: { ownerID: "owner", vaultID: "vault", generationEpoch: 2, namespaceState: "PRIVATE" },
     })).toMatchObject({ category: "root.identity" });
+    expect(() => assertOwnerVaultStorageRecord(registered("root.identity"), {
+      category: "root.identity", version: 1, payload: { ownerID: "owner", vaultID: "vault", generationEpoch: 0, namespaceState: "PRIVATE" },
+    })).toThrow(OwnerVaultStorageRegistryError);
     expect(() => assertOwnerVaultStorageRecord(registered("device", "device_1"), {
-      category: "device", version: 1, payload: { ownerID: "owner" },
+      category: "device", version: 1, payload: { namespaceState: "ACTIVE" },
     })).toThrow(OwnerVaultStorageRegistryError);
   });
 
