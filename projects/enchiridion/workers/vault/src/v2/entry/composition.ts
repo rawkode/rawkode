@@ -3,16 +3,27 @@ import {
   type AccessJwksSessionFactory,
   AccessJwtVerifier,
   type CapabilityConfigurationError,
+  type CapabilitySigningError,
+  type CapabilityVerificationError,
   type DurableObjectNamespaceNative,
+  type OwnerVaultDirectoryControlClaims,
+  type OwnerVaultDirectoryControlClaimsInput,
+  type OwnerVaultDirectoryControlExpectation,
+  type OwnerVaultDirectoryControlRequestBinding,
+  type SignedOwnerVaultDirectoryControl,
   type OwnerVaultSocketAdmissionSigner,
   type OwnerVaultSocketAdmissionVerifier,
   P256Crypto,
   makeAccessJwtVerifier,
+  makeOwnerVaultDirectoryControlKeyRing,
   makeOwnerVaultSocketAdmissionKeyRing,
   makeOwnerVaultSocketAdmissionSigner,
   makeOwnerVaultSocketAdmissionVerifier,
   makeP256Crypto,
+  maximumPriorOwnerVaultDirectoryControlKeys,
   maximumPriorOwnerVaultSocketAdmissionKeys,
+  signOwnerVaultDirectoryControl,
+  verifyOwnerVaultDirectoryControl,
 } from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
 import { makeDirectorySecureRandom } from "../directory/service";
@@ -67,6 +78,13 @@ export interface VaultV2EntryEnv {
   /** Canonical secret JSON array of `{ keyID, secret }`; never a plaintext Wrangler var. */
   readonly ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: string;
   readonly ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: string;
+  /** Public identifier; current material is supplied through a Wrangler secret. */
+  readonly ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID: string;
+  /** Secret-only key material; never a plaintext Wrangler var. */
+  readonly ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET: string;
+  /** Canonical secret JSON array of `{ keyID, secret }`; never a plaintext Wrangler var. */
+  readonly ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON: string;
+  readonly ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON: string;
   readonly CREDENTIAL_DIRECTORY_DO: DurableObjectNamespaceNative;
   /** Target-only binding; P06-05 supplies the OwnerVaultV2 implementation. */
   readonly OWNER_VAULT_V2_DO: DurableObjectNamespaceNative;
@@ -151,6 +169,10 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
     const socketCurrentSecret = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET");
     const socketPrior = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON");
     const socketRevoked = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON");
+    const ownerVaultControlCurrentKeyID = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID");
+    const ownerVaultControlCurrentSecret = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET");
+    const ownerVaultControlPrior = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON");
+    const ownerVaultControlRevoked = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON");
     const directory = source.CREDENTIAL_DIRECTORY_DO;
     const ownerVault = source.OWNER_VAULT_V2_DO;
     if (
@@ -170,6 +192,8 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       manifestSPKI === undefined || manifestPrior === undefined || manifestRevoked === undefined ||
       socketCurrentKeyID === undefined || socketCurrentSecret === undefined || socketPrior === undefined ||
       socketRevoked === undefined ||
+      ownerVaultControlCurrentKeyID === undefined || ownerVaultControlCurrentSecret === undefined ||
+      ownerVaultControlPrior === undefined || ownerVaultControlRevoked === undefined ||
       !isDirectoryNamespace(directory) ||
       !isDirectoryNamespace(ownerVault)
     )
@@ -197,6 +221,10 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: socketCurrentSecret,
       ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: socketPrior,
       ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: socketRevoked,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID: ownerVaultControlCurrentKeyID,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET: ownerVaultControlCurrentSecret,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON: ownerVaultControlPrior,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON: ownerVaultControlRevoked,
       CREDENTIAL_DIRECTORY_DO: directory,
       OWNER_VAULT_V2_DO: ownerVault,
       BLOB_R2: source.BLOB_R2,
@@ -264,6 +292,35 @@ const parseSocketAdmissionPriorKeys = (
         !socketKeyID.test(key.keyID as string) ||
         !socketSecret(key.secret)
       ) return undefined;
+      keys.push({ keyID: key.keyID as string, secret: key.secret as string });
+    }
+    return keys;
+  } catch {
+    return undefined;
+  }
+};
+
+const parseOwnerVaultDirectoryControlPriorKeys = (
+  source: string,
+): readonly RawSocketAdmissionKey[] | undefined => {
+  try {
+    const value = JSON.parse(source);
+    if (
+      !Array.isArray(value) ||
+      JSON.stringify(value) !== source ||
+      value.length > maximumPriorOwnerVaultDirectoryControlKeys
+    )
+      return undefined;
+    const keys: RawSocketAdmissionKey[] = [];
+    for (const item of value) {
+      const key = record(item);
+      if (
+        key === undefined ||
+        !exactKeyPair(key) ||
+        !socketKeyID.test(key.keyID as string) ||
+        !socketSecret(key.secret)
+      )
+        return undefined;
       keys.push({ keyID: key.keyID as string, secret: key.secret as string });
     }
     return keys;
@@ -358,6 +415,26 @@ export interface OwnerVaultSocketAdmissionFactory {
   readonly verifier: OwnerVaultSocketAdmissionVerifier;
 }
 
+/** Fixed ovdc1 verifier/signer; the HMAC ring never escapes isolate composition. */
+export interface OwnerVaultDirectoryControlFactory {
+  readonly sign: (
+    input: OwnerVaultDirectoryControlClaimsInput,
+    nowSeconds: number,
+  ) => Effect.Effect<
+    SignedOwnerVaultDirectoryControl,
+    CapabilityConfigurationError | CapabilitySigningError
+  >;
+  readonly verify: (
+    signed: SignedOwnerVaultDirectoryControl,
+    binding: OwnerVaultDirectoryControlRequestBinding,
+    expected: OwnerVaultDirectoryControlExpectation,
+    nowSeconds: number,
+  ) => Effect.Effect<
+    OwnerVaultDirectoryControlClaims,
+    CapabilityConfigurationError | CapabilityVerificationError
+  >;
+}
+
 /**
  * The socket ring is deliberately constructed apart from `VaultV2Config`:
  * runtime rejects generic/Directory capability material at its own boundary,
@@ -400,6 +477,63 @@ const makeOwnerVaultSocketAdmissionFactory = (
   );
 };
 
+const makeOwnerVaultDirectoryControlFactory = (
+  env: VaultV2EntryEnv,
+  directoryPrior: readonly RawKey[],
+  socketCurrent: RawSocketAdmissionKey,
+  socketPrior: readonly RawSocketAdmissionKey[],
+): Effect.Effect<OwnerVaultDirectoryControlFactory, CapabilityConfigurationError> => {
+  const prior = parseOwnerVaultDirectoryControlPriorKeys(
+    env.ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON,
+  );
+  const revoked = parseSocketAdmissionRevokedKeyIDs(
+    env.ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON,
+  );
+  const current: RawSocketAdmissionKey = {
+    keyID: env.ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID,
+    secret: env.ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET,
+  };
+  const active = prior === undefined ? [] : [current, ...prior];
+  const disjoint =
+    prior !== undefined &&
+    revoked !== undefined &&
+    distinctSocketAdmissionMaterial(
+      current,
+      prior,
+      revoked,
+      env.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_KEY_ID,
+      env.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET,
+      [...directoryPrior, socketCurrent, ...socketPrior],
+    ) &&
+    !active.some(
+      (entry) =>
+        entry.keyID === socketCurrent.keyID ||
+        entry.secret === socketCurrent.secret ||
+        socketPrior.some(
+          (socket) => socket.keyID === entry.keyID || socket.secret === entry.secret,
+        ),
+    );
+  if (!disjoint) return Effect.die("owner_vault_directory_control_configuration_invalid");
+  return makeOwnerVaultDirectoryControlKeyRing({
+    current: { keyID: current.keyID, secret: Redacted.make(current.secret) },
+    prior: prior.map((key) => ({ keyID: key.keyID, secret: Redacted.make(key.secret) })),
+    revokedKeyIDs: revoked,
+  }).pipe(
+    Effect.map((keyRing) =>
+      Object.freeze({
+        sign: (input: OwnerVaultDirectoryControlClaimsInput, nowSeconds: number) =>
+          signOwnerVaultDirectoryControl(input, keyRing, nowSeconds),
+        verify: (
+          signed: SignedOwnerVaultDirectoryControl,
+          binding: OwnerVaultDirectoryControlRequestBinding,
+          expected: OwnerVaultDirectoryControlExpectation,
+          nowSeconds: number,
+        ) => verifyOwnerVaultDirectoryControl(signed, binding, expected, keyRing, nowSeconds),
+      }),
+    ),
+  );
+};
+
 export interface VaultV2EntryComposition {
   readonly assertionVerifier: AccessAssertionVerifier;
   readonly issuerHasher: VersionedIssuerHasher;
@@ -410,6 +544,7 @@ export interface VaultV2EntryComposition {
   /** The sole config authority handed to future OwnerVault provider wiring. */
   readonly ownerVaultProduction: OwnerVaultProductionAuthority;
   readonly ownerVaultSocketAdmission: OwnerVaultSocketAdmissionFactory;
+  readonly ownerVaultDirectoryControls: OwnerVaultDirectoryControlFactory;
 }
 
 /**
@@ -475,6 +610,21 @@ export const makeVaultV2EntryComposition = (
     const ownerVaultSocketAdmission = Effect.runSync(
       makeOwnerVaultSocketAdmissionFactory(env, directoryPrior),
     );
+    const socketPrior = parseSocketAdmissionPriorKeys(
+      env.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON,
+    );
+    if (socketPrior === undefined) return undefined;
+    const ownerVaultDirectoryControls = Effect.runSync(
+      makeOwnerVaultDirectoryControlFactory(
+        env,
+        directoryPrior,
+        {
+          keyID: env.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID,
+          secret: env.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET,
+        },
+        socketPrior,
+      ),
+    );
     const random = Effect.runSync(
       makeDirectorySecureRandom.pipe(Effect.provideService(P256Crypto, makeP256Crypto())),
     );
@@ -487,6 +637,7 @@ export const makeVaultV2EntryComposition = (
       ownerVaultInitialization: makeOwnerVaultInitializationClient(env.OWNER_VAULT_V2_DO),
       ownerVaultProduction,
       ownerVaultSocketAdmission,
+      ownerVaultDirectoryControls,
     };
   } catch {
     return undefined;

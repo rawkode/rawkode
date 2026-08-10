@@ -58,6 +58,11 @@ const environment = (directory: unknown): Readonly<Record<string, unknown>> => (
     "socket-admission-current-secret-0123456789-abcdef",
   ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: "[]",
   ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: "[]",
+  ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID: "owner-control-current",
+  ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET:
+    "owner-control-current-secret-0123456789-abcdef",
+  ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON: "[]",
+  ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON: "[]",
   CREDENTIAL_DIRECTORY_DO: directory,
   OWNER_VAULT_V2_DO: directory,
   BLOB_R2: r2(),
@@ -76,6 +81,12 @@ test("entry binding parser accepts non-enumerable Durable Object namespace metho
     parseVaultV2EntryEnv({
       ...environment(namespace),
       ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: undefined,
+    }),
+  ).toBeUndefined();
+  expect(
+    parseVaultV2EntryEnv({
+      ...environment(namespace),
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET: undefined,
     }),
   ).toBeUndefined();
 });
@@ -180,9 +191,49 @@ test("builds an isolated bounded socket-admission ring and retries only valid co
   const composed = cache(raw);
   if (composed === undefined) throw new Error("test setup invalid");
   expect(composed.ownerVaultSocketAdmission.signer).not.toBe(composed.directoryControls.signer);
+  expect(composed.ownerVaultDirectoryControls).toBeDefined();
   const retry = cache(raw);
   expect(retry).toBe(composed);
   expect(JSON.stringify(composed)).not.toContain("socket-admission-current-secret");
+  expect(JSON.stringify(composed)).not.toContain("owner-control-current-secret");
+});
+
+test("keeps the ovdc1 control authority isolated from Directory and socket admission keys", () => {
+  const namespace = Object.create(null);
+  Object.defineProperties(namespace, {
+    idFromName: { value: () => ({ toString: () => "directory" }) },
+    get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
+  });
+  const raw = environment(namespace);
+  const cache = makeVaultV2EntryCompositionCache();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET:
+        raw.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET,
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID: "socket-current",
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON:
+        '[ {"keyID":"owner-control-prior","secret":"owner-control-prior-secret-0123456789-abcdef"}]',
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON:
+        '["owner-control-current"]',
+    }),
+  ).toBeUndefined();
+  expect(cache(raw)?.ownerVaultDirectoryControls).toBeDefined();
 });
 
 test("reuses the injected Access singleton across cold, kid rotation, cached operation, and expiry outage", async () => {
