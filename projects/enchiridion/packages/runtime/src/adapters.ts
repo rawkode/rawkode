@@ -9,6 +9,7 @@ import type {
 import {
   AccessJwtVerificationError,
   AdapterContractError,
+  BlobR2Error,
   DurableObjectBoundaryError,
   ExternalServiceError,
   ImmutableR2Error,
@@ -56,6 +57,13 @@ export const cloudflareAdapterLedger = [
     owner: "@enchiridion/runtime",
     audit:
       "Only put with etagDoesNotMatch '*' is exposed publicly; keys, byte counts and list results are structurally bounded before workers receive them.",
+  },
+  {
+    id: "blob-r2",
+    boundary: "Cloudflare R2 conditional blob object, exact bounded read and exact delete Promises",
+    owner: "@enchiridion/runtime",
+    audit:
+      "The Blob contract exposes no list, prefix, bulk, stream or overwrite operation; keys, sizes and returned metadata are bounded before workers receive them.",
   },
   {
     id: "manifest-p256-webcrypto",
@@ -338,6 +346,116 @@ export const immutableR2Delete = (
   key: string,
 ): Effect.Effect<void, ImmutableR2Error> =>
   fromImmutableR2Promise("delete", () => binding.delete(key));
+
+/** Separate, deliberately non-listable R2 view for Blob authority. */
+export interface BlobR2NativeObject {
+  readonly key: string;
+  readonly etag: string;
+  readonly httpEtag?: string;
+  readonly size: number;
+  readonly checksums?: { readonly sha256?: ArrayBuffer };
+  readonly customMetadata?: Readonly<Record<string, string>>;
+}
+
+export interface BlobR2NativeObjectBody extends BlobR2NativeObject {
+  readonly arrayBuffer: () => Promise<ArrayBuffer>;
+}
+
+export interface BlobR2NativeBindingInput {
+  readonly head: (key: string) => Promise<BlobR2NativeObject | null>;
+  readonly get: (
+    key: string,
+    options: { readonly range: { readonly offset: 0; readonly length: number } },
+  ) => Promise<BlobR2NativeObjectBody | null>;
+  readonly put: (
+    key: string,
+    value: Uint8Array<ArrayBuffer>,
+    options: {
+      readonly onlyIf: { readonly etagDoesNotMatch: "*" };
+      readonly sha256: ArrayBuffer;
+    },
+  ) => Promise<BlobR2NativeObject | null>;
+  readonly delete: (key: string) => Promise<void>;
+}
+
+const blobR2BindingBrand: unique symbol = Symbol("BlobR2NativeBinding");
+/** Nominal capability: an ImmutableR2 native authority cannot be assigned here. */
+export interface BlobR2NativeBinding extends BlobR2NativeBindingInput {
+  readonly [blobR2BindingBrand]: "BlobR2NativeBinding";
+}
+
+export const makeBlobR2NativeBinding = (input: BlobR2NativeBindingInput): BlobR2NativeBinding => ({
+  ...input,
+  [blobR2BindingBrand]: "BlobR2NativeBinding",
+});
+
+const blobR2Promise = <A>(
+  operation: BlobR2Error["operation"],
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, BlobR2Error> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: () => new BlobR2Error({ operation, reason: "platform_failed" }),
+  });
+
+export const blobR2SHA256 = (
+  operation: BlobR2Error["operation"],
+  bytes: Uint8Array<ArrayBuffer>,
+): Effect.Effect<Uint8Array<ArrayBuffer>, BlobR2Error> =>
+  blobR2Promise(operation, () => crypto.subtle.digest("SHA-256", bytes)).pipe(
+    Effect.map((digest) => {
+      const output = new Uint8Array(digest.byteLength);
+      output.set(new Uint8Array(digest));
+      return output;
+    }),
+  );
+
+export const blobR2Head = (
+  binding: BlobR2NativeBinding,
+  key: string,
+): Effect.Effect<BlobR2NativeObject | null, BlobR2Error> =>
+  blobR2Promise("head", () => binding.head(key));
+
+export const blobR2Get = (
+  binding: BlobR2NativeBinding,
+  key: string,
+  maximumBytes: number,
+): Effect.Effect<BlobR2NativeObjectBody | null, BlobR2Error> =>
+  blobR2Promise("read", () => binding.get(key, { range: { offset: 0, length: maximumBytes } }));
+
+export const blobR2ReadBytes = (
+  object: BlobR2NativeObjectBody,
+  maximumBytes: number,
+): Effect.Effect<Uint8Array<ArrayBuffer>, BlobR2Error> =>
+  blobR2Promise("read", () => object.arrayBuffer()).pipe(
+    Effect.flatMap((buffer) => {
+      if (buffer.byteLength > maximumBytes)
+        return Effect.fail(new BlobR2Error({ operation: "read", reason: "too_large" }));
+      const output = new Uint8Array(buffer.byteLength);
+      output.set(new Uint8Array(buffer));
+      return Effect.succeed(output);
+    }),
+  );
+
+export const blobR2PutIfAbsent = (
+  binding: BlobR2NativeBinding,
+  key: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  sha256: Uint8Array<ArrayBuffer>,
+): Effect.Effect<BlobR2NativeObject | null, BlobR2Error> => {
+  const body = new Uint8Array(bytes.byteLength);
+  body.set(bytes);
+  const checksum = new Uint8Array(sha256.byteLength);
+  checksum.set(sha256);
+  return blobR2Promise("put_if_absent", () =>
+    binding.put(key, body, { onlyIf: { etagDoesNotMatch: "*" }, sha256: checksum.buffer }),
+  );
+};
+
+export const blobR2Delete = (
+  binding: BlobR2NativeBinding,
+  key: string,
+): Effect.Effect<void, BlobR2Error> => blobR2Promise("delete", () => binding.delete(key));
 
 /** Audited Web Crypto PKCS#8 signing seam for backup manifests. The caller
  * supplies only Redacted material and canonical bytes. */

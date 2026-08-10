@@ -472,6 +472,46 @@ export class ImmutableR2Error extends Data.TaggedError("ImmutableR2Error")<{
   }
 }
 
+/** Safe failures at the Blob R2 boundary. Blob object names, metadata and
+ * platform causes deliberately never cross this error boundary. */
+export class BlobR2Error extends Data.TaggedError("BlobR2Error")<{
+  readonly operation: "put_if_absent" | "head" | "read" | "delete";
+  readonly reason:
+    | "invalid_key"
+    | "not_found"
+    | "already_exists"
+    | "too_large"
+    | "metadata_mismatch"
+    | "platform_failed";
+}> {
+  constructor(input: {
+    readonly operation: "put_if_absent" | "head" | "read" | "delete";
+    readonly reason:
+      | "invalid_key"
+      | "not_found"
+      | "already_exists"
+      | "too_large"
+      | "metadata_mismatch"
+      | "platform_failed";
+  }) {
+    if (
+      !(["put_if_absent", "head", "read", "delete"] as const).includes(input.operation) ||
+      !(
+        [
+          "invalid_key",
+          "not_found",
+          "already_exists",
+          "too_large",
+          "metadata_mismatch",
+          "platform_failed",
+        ] as const
+      ).includes(input.reason)
+    )
+      throw new TypeError("Invalid BlobR2Error fields.");
+    super({ operation: input.operation, reason: input.reason });
+  }
+}
+
 /** Manifest signing configuration is independent of all HMAC capability rings. */
 export class ManifestKeyRingConfigurationError extends Data.TaggedError(
   "ManifestKeyRingConfigurationError",

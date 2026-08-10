@@ -1,5 +1,6 @@
 export * from "./adapters";
 export * from "./access-jwt";
+export * from "./blob-r2";
 export * from "./capability";
 export * from "./config";
 export * from "./durable-object-client";
@@ -8,6 +9,7 @@ export * from "./immutable-r2";
 export * from "./limiter";
 export * from "./manifest";
 export * from "./operation";
+export * from "./owner-vault-socket-admission";
 export * from "./p256";
 export * from "./p256-vectors";
 export * from "./request-body";
