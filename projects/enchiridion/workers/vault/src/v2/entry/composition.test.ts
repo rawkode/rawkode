@@ -116,7 +116,11 @@ test("requires exact immutable production limits and distinct structural R2 bind
   const authority = makeVaultV2EntryComposition(parsed)?.ownerVaultProduction;
   expect(authority).toBeDefined();
   expect(Object.isFrozen(authority?.limits)).toBe(true);
+  expect(authority?.blobR2.purpose).toBe("owner-vault-blob-r2");
+  expect(authority?.backupR2.purpose).toBe("owner-vault-backup-r2");
   expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("24576", "32769") })).toBeUndefined();
+  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"gcChunk\":128", "\"gcChunk\":0") })).toBeUndefined();
+  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"stageTTLSeconds\":900", "\"stageTTLSeconds\":0") })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: parsed.BACKUP_R2 })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: {} })).toBeUndefined();
 });
@@ -125,12 +129,25 @@ test("validates manifest key pairing and rejects revoked active configuration wi
   const namespace = Object.create(null);
   Object.defineProperties(namespace, { idFromName: { value: () => ({ toString: () => "directory" }) }, get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) } });
   const raw = environment(namespace);
-  const cache = makeVaultV2EntryCompositionCache();
-  expect(cache({ ...raw, ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad" })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]' })).toBeUndefined();
-  const composed = cache(raw);
-  expect(composed).toBeDefined();
-  expect(composed?.ownerVaultProduction.manifestKeys.current.keyID).toBe("manifest-current");
+  const invalidKeyPair = makeVaultV2EntryComposition(
+    parseVaultV2EntryEnv({ ...raw, ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad" })!,
+  );
+  const revoked = makeVaultV2EntryComposition(
+    parseVaultV2EntryEnv({ ...raw, ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]' })!,
+  );
+  const composed = makeVaultV2EntryCompositionCache()(raw);
+  return Promise.all([
+    Effect.runPromiseExit(invalidKeyPair?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
+    Effect.runPromiseExit(revoked?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
+    Effect.runPromise(composed?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
+  ]).then(([invalid, revokedExit, ring]) => {
+    expect(Exit.isFailure(invalid)).toBe(true);
+    expect(Exit.isFailure(revokedExit)).toBe(true);
+    expect(ring.current.keyID).toBe("manifest-current");
+    return Effect.runPromise(composed!.ownerVaultProduction.manifestKeys()).then((retry) =>
+      expect(retry).toBe(ring),
+    );
+  });
 });
 
 test("reuses the injected Access singleton across cold, kid rotation, cached operation, and expiry outage", async () => {

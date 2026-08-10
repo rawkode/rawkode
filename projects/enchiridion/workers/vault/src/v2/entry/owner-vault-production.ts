@@ -1,6 +1,7 @@
 /** @enchiridion/effect-module */
 import {
   type ImmutableR2NativeBinding,
+  type ManifestKeyRingConfigurationError,
   type ManifestP256KeyRing,
   makeManifestP256KeyRing,
 } from "@enchiridion/runtime";
@@ -38,10 +39,20 @@ export interface OwnerVaultProductionLimits {
 
 export interface OwnerVaultProductionAuthority {
   readonly limits: OwnerVaultProductionLimits;
-  readonly manifestKeys: ManifestP256KeyRing;
-  /** Separate binding positions are intentional: blob stages never use archive R2. */
-  readonly blobR2: ImmutableR2NativeBinding;
-  readonly backupR2: ImmutableR2NativeBinding;
+  /** One validated ring per isolate; failed Web Crypto validation is never cached. */
+  readonly manifestKeys: () => Effect.Effect<ManifestP256KeyRing, ManifestKeyRingConfigurationError>;
+  /** Separate structural capabilities: neither provider can accept the other. */
+  readonly blobR2: OwnerVaultBlobR2Binding;
+  readonly backupR2: OwnerVaultBackupR2Binding;
+}
+
+export interface OwnerVaultBlobR2Binding {
+  readonly purpose: "owner-vault-blob-r2";
+  readonly native: ImmutableR2NativeBinding;
+}
+export interface OwnerVaultBackupR2Binding {
+  readonly purpose: "owner-vault-backup-r2";
+  readonly native: ImmutableR2NativeBinding;
 }
 
 interface ManifestPrior { readonly keyID: string; readonly publicKeySPKIDERBase64: string }
@@ -52,8 +63,8 @@ const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 const integer = (value: unknown, minimum = 0): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
-const read = (source: Readonly<Record<string, unknown>>, key: string): number | undefined =>
-  integer(source[key]) ? source[key] as number : undefined;
+const read = (source: Readonly<Record<string, unknown>>, key: string, minimum = 1): number | undefined =>
+  integer(source[key], minimum) ? source[key] as number : undefined;
 
 const validR2Binding = (value: unknown): value is ImmutableR2NativeBinding => {
   try {
@@ -69,12 +80,6 @@ const freezeLimits = (limits: OwnerVaultProductionLimits): OwnerVaultProductionL
   backup: Object.freeze({ ...limits.backup }),
   pins: Object.freeze({ ...limits.pins }),
   r2: Object.freeze({ ...limits.r2 }),
-});
-const freezeManifestKeys = (keys: ManifestP256KeyRing): ManifestP256KeyRing => Object.freeze({
-  ...keys,
-  current: Object.freeze({ ...keys.current }),
-  prior: Object.freeze(keys.prior.map((key) => Object.freeze({ ...key }))),
-  revokedKeyIDs: Object.freeze([...keys.revokedKeyIDs]),
 });
 
 /** Strict JSON decoder deliberately rejects undeclared or missing caps. */
@@ -92,7 +97,7 @@ export const parseOwnerVaultProductionLimits = (raw: string): OwnerVaultProducti
       !exact(r2, ["maximumCursorBytes", "maximumKeyBytes", "maximumListPageSize", "maximumObjectBytes"])) return undefined;
     const values = [
       "maximumBlobBytes", "maximumOrphanBytes", "maximumOrphanCount", "maximumVaultBytes", "maximumActiveLeasesPerVault", "maximumActiveLeasesPerFinal", "stageTTLSeconds", "tombstoneGraceSeconds",
-    ].map((key) => read(blob, key));
+    ].map((key) => read(blob, key, key === "maximumOrphanBytes" || key === "maximumOrphanCount" ? 0 : 1));
     const catalogValues = ["maximumObjects", "maximumObjectBytes", "maximumTotalBytes", "maximumPageEntries", "targetPageBytes", "maximumPageBytes", "maximumRootBytes"].map((key) => read(catalog, key));
     const backupValues = ["maximumPageBytes", "maximumPageEntries", "maximumObjectBytes", "maximumTotalBytes", "maximumManifestBytes", "maximumRestoreJournalBytes", "maximumObjects"].map((key) => read(backup, key));
     const pinValues = ["maximumPins", "gcChunk", "retentionSeconds"].map((key) => read(pins, key));
@@ -145,12 +150,16 @@ export const makeOwnerVaultProductionAuthority = (input: {
   const prior = parsePrior(input.manifestPriorKeysJSON);
   const revoked = parseRevoked(input.manifestRevokedKeyIDsJSON);
   if (!limits || !prior || !revoked || !validR2Binding(input.blobR2) || !validR2Binding(input.backupR2) || input.blobR2 === input.backupR2) return undefined;
-  try {
-    const manifestKeys = Effect.runSync(makeManifestP256KeyRing({
-      current: { keyID: input.manifestCurrentKeyID, privateKeyPKCS8Base64: Redacted.make(input.manifestCurrentPKCS8), publicKeySPKIDERBase64: input.manifestCurrentSPKI },
-      prior,
-      revokedKeyIDs: revoked,
-    }));
-    return Object.freeze({ limits, manifestKeys: freezeManifestKeys(manifestKeys), blobR2: input.blobR2, backupR2: input.backupR2 });
-  } catch { return undefined; }
+  let ring: ManifestP256KeyRing | undefined;
+  const manifestKeys = (): Effect.Effect<ManifestP256KeyRing, ManifestKeyRingConfigurationError> =>
+    ring === undefined
+      ? makeManifestP256KeyRing({
+          current: { keyID: input.manifestCurrentKeyID, privateKeyPKCS8Base64: Redacted.make(input.manifestCurrentPKCS8), publicKeySPKIDERBase64: input.manifestCurrentSPKI },
+          prior,
+          revokedKeyIDs: revoked,
+        }).pipe(Effect.tap((validated) => Effect.sync(() => { ring = validated; })))
+      : Effect.succeed(ring);
+  const blobR2: OwnerVaultBlobR2Binding = Object.freeze({ purpose: "owner-vault-blob-r2", native: input.blobR2 });
+  const backupR2: OwnerVaultBackupR2Binding = Object.freeze({ purpose: "owner-vault-backup-r2", native: input.backupR2 });
+  return Object.freeze({ limits, manifestKeys, blobR2, backupR2 });
 };
