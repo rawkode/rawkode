@@ -100,6 +100,82 @@ const directoryControlExpectation = {
   operationID: "credential-transition-0001",
 } as const;
 
+const ownerVaultInitializationBinding = {
+  method: CapabilityMethod.POST,
+  path: "/__v2/internal/owner-vault/initialize",
+  canonicalQuery: "",
+  bodySHA256: "c".repeat(64),
+  ownerID: "owner-1",
+  vaultID: "vault-1",
+  resource: DirectoryControlResource.OwnerVaultInitialization,
+  initDigest: "d".repeat(64),
+  controlEpoch: 15,
+  jti: "owner-vault-init-0001",
+} as const;
+
+const ownerVaultInitializationInput = {
+  ...ownerVaultInitializationBinding,
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  operationID: "owner-vault-init-0001",
+  ttlSeconds: 60,
+} as const;
+
+const ownerVaultInitializationExpectation = {
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  resource: DirectoryControlResource.OwnerVaultInitialization,
+  ownerID: ownerVaultInitializationBinding.ownerID,
+  vaultID: ownerVaultInitializationBinding.vaultID,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  controlEpoch: 15,
+  operationID: "owner-vault-init-0001",
+  jti: ownerVaultInitializationBinding.jti,
+} as const;
+
+const ownerVaultFloorSyncBinding = {
+  method: CapabilityMethod.POST,
+  path: "/__v2/internal/owner-vault/floor-sync",
+  canonicalQuery: "",
+  bodySHA256: "e".repeat(64),
+  ownerID: "owner-1",
+  vaultID: "vault-1",
+  resource: DirectoryControlResource.OwnerVaultFloorSync,
+  floorSyncDigest: "f".repeat(64),
+  controlEpoch: 16,
+  jti: "owner-vault-floor-001",
+} as const;
+
+const ownerVaultFloorSyncInput = {
+  ...ownerVaultFloorSyncBinding,
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  operationID: "owner-vault-floor-001",
+  ttlSeconds: 60,
+} as const;
+
+const ownerVaultFloorSyncExpectation = {
+  audience: DirectoryControlCapabilityAudience.DirectoryControl,
+  authority: DirectoryControlCapabilityAuthority.DirectoryControl,
+  resource: DirectoryControlResource.OwnerVaultFloorSync,
+  ownerID: ownerVaultFloorSyncBinding.ownerID,
+  vaultID: ownerVaultFloorSyncBinding.vaultID,
+  credentialEpoch: 4,
+  generationEpoch: 9,
+  routingEpoch: 12,
+  controlEpoch: 16,
+  operationID: "owner-vault-floor-001",
+  jti: ownerVaultFloorSyncBinding.jti,
+} as const;
+
 const base64url = (bytes: Uint8Array): string => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -116,6 +192,19 @@ const signedRawBytes = async (payload: Uint8Array): Promise<{ readonly value: st
   const encodedPayload = base64url(payload);
   const signature = await Effect.runPromise(signCapabilityHmac(key.secret, encodedPayload));
   return { value: `v1.${encodedPayload}.${base64url(signature)}` };
+};
+
+const payloadText = (signed: { readonly value: string }): string => {
+  const payload = signed.value.split(".")[1];
+  if (payload === undefined) throw new Error("test setup invalid");
+  return new TextDecoder().decode(
+    Uint8Array.from(
+      atob(
+        `${payload.replace(/-/gu, "+").replace(/_/gu, "/")}${"=".repeat((4 - (payload.length % 4)) % 4)}`,
+      ),
+      (character) => character.charCodeAt(0),
+    ),
+  );
 };
 
 describe("internal capabilities", () => {
@@ -350,6 +439,70 @@ describe("internal capabilities", () => {
     expect(claims.jti).toBe(directoryControlInput.jti);
     expect(claims.routingEpoch).toBe(12);
     expect(JSON.stringify(signed)).not.toContain("capability-test-secret");
+  });
+
+  test("requires caller-supplied JTIs for fixed OwnerVault initialization and floor controls", async () => {
+    for (const [input, binding, expected] of [
+      [
+        ownerVaultInitializationInput,
+        ownerVaultInitializationBinding,
+        ownerVaultInitializationExpectation,
+      ],
+      [ownerVaultFloorSyncInput, ownerVaultFloorSyncBinding, ownerVaultFloorSyncExpectation],
+    ] as const) {
+      const signed = await Effect.runPromise(signDirectoryControlCapability(input, keyRing, 1_000));
+      const claims = await Effect.runPromise(
+        verifyDirectoryControlCapability(signed, binding, expected, keyRing, 1_030),
+      );
+      expect(claims.jti).toBe(input.jti);
+
+      const missingBinding = { ...binding };
+      Reflect.deleteProperty(missingBinding, "jti");
+      const missingExpectation = { ...expected };
+      Reflect.deleteProperty(missingExpectation, "jti");
+      for (const invalid of [
+        verifyDirectoryControlCapability(signed, missingBinding, expected, keyRing, 1_030),
+        verifyDirectoryControlCapability(signed, binding, missingExpectation, keyRing, 1_030),
+        verifyDirectoryControlCapability(
+          signed,
+          { ...binding, jti: "owner-vault-other-01" },
+          expected,
+          keyRing,
+          1_030,
+        ),
+        verifyDirectoryControlCapability(
+          signed,
+          binding,
+          { ...expected, jti: "owner-vault-other-01" },
+          keyRing,
+          1_030,
+        ),
+      ]) {
+        expect(Exit.isFailure(await Effect.runPromiseExit(invalid))).toBe(true);
+      }
+
+      const old = await signedRawPayload(payloadText(signed).replace(`"jti":"${input.jti}",`, ""));
+      const extra = await signedRawPayload(`${payloadText(signed).slice(0, -1)},"extra":true}`);
+      for (const malformed of [old, extra]) {
+        expect(
+          Exit.isFailure(
+            await Effect.runPromiseExit(
+              verifyDirectoryControlCapability(malformed, binding, expected, keyRing, 1_030),
+            ),
+          ),
+        ).toBe(true);
+      }
+    }
+    for (const input of [
+      { ...ownerVaultInitializationInput, jti: "short" },
+      { ...ownerVaultFloorSyncInput, jti: "owner vault floor invalid" },
+    ]) {
+      expect(
+        Exit.isFailure(
+          await Effect.runPromiseExit(signDirectoryControlCapability(input, keyRing, 1_000)),
+        ),
+      ).toBe(true);
+    }
   });
 
   test("binds every DirectoryControl identity, epoch, operation, and request field", async () => {
