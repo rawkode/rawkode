@@ -1,0 +1,185 @@
+/**
+ * The complete physical state vocabulary for a fresh OwnerVault v2.
+ *
+ * Nothing writes storage in this package yet.  This registry is deliberately
+ * established first so a later repository cannot create an unclassified row,
+ * accidentally copy identity scope into a record, or silently include a new
+ * key family in backup/restore.
+ */
+export const ownerVaultStoragePrefix = "v2.ov/";
+
+export const ownerVaultStorageCategories = [
+  "root.identity",
+  "root.admission",
+  "root.floors",
+  "root.log-head",
+  "root.runtime",
+  "root.accounting",
+  "catalog.derived",
+  "audit.restore-source",
+  "device",
+  "device-challenge",
+  "nonce",
+  "jti",
+  "capability-receipt",
+  "operation-receipt",
+  "operation-index",
+  "session",
+  "resume",
+  "rate-window",
+  "append-log.entry",
+  "append-log.head",
+  "blob.metadata",
+  "blob.reference",
+  "blob.tombstone",
+  "blob.lease",
+  "blob.purge",
+  "backup.pin",
+  "backup.manifest",
+  "backup.page",
+  "backup.restore-journal",
+  "control.initialization-ack",
+  "control.floor-sync",
+] as const;
+
+export type OwnerVaultStorageCategory = (typeof ownerVaultStorageCategories)[number];
+export type OwnerVaultSnapshotPolicy = "include" | "exclude" | "audit";
+export type OwnerVaultRestorePolicy = "apply" | "never" | "target-overlay" | "rebuild" | "audit-only";
+
+export interface OwnerVaultStorageScope {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+}
+
+export interface OwnerVaultStorageRecord {
+  readonly category: OwnerVaultStorageCategory;
+  readonly version: 1;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+export interface OwnerVaultStorageCategoryDefinition {
+  readonly category: OwnerVaultStorageCategory;
+  readonly snapshot: OwnerVaultSnapshotPolicy;
+  readonly restore: OwnerVaultRestorePolicy;
+  readonly maximumBytes: number;
+  readonly key: (identifier?: string) => string;
+  readonly matches: (key: string) => boolean;
+  readonly decode: (value: unknown) => OwnerVaultStorageRecord | undefined;
+}
+
+const identifierPattern = /^[A-Za-z0-9_-]{1,128}$/u;
+const appendSequencePattern = /^[0-9]{20}$/u;
+const sourceScopeKeys = new Set(["ownerID", "vaultID", "generationEpoch", "sourceOwnerID", "sourceVaultID", "sourceGenerationEpoch", "sourceScope"]);
+const regularMaximumBytes = 16 * 1024;
+const rootMaximumBytes = 8 * 1024;
+const appendMaximumBytes = 1_100_000; // append wire payloads remain limited to 1 MiB.
+const catalogMaximumBytes = 24 * 1024;
+const journalMaximumBytes = 32 * 1024;
+
+const plainRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+
+const exactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean => {
+  const actual = Object.keys(value).sort();
+  return actual.length === keys.length && actual.every((key, index) => key === [...keys].sort()[index]);
+};
+
+const hasForbiddenScope = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(hasForbiddenScope);
+  const record = plainRecord(value);
+  if (record === undefined) return false;
+  return Object.entries(record).some(
+    ([key, entry]) => sourceScopeKeys.has(key) || hasForbiddenScope(entry),
+  );
+};
+
+const validScope = (value: unknown): value is OwnerVaultStorageScope => {
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    exactKeys(source, ["ownerID", "vaultID", "generationEpoch"]) &&
+    typeof source.ownerID === "string" &&
+    source.ownerID.length > 0 &&
+    typeof source.vaultID === "string" &&
+    source.vaultID.length > 0 &&
+    typeof source.generationEpoch === "number" &&
+    Number.isSafeInteger(source.generationEpoch) &&
+    source.generationEpoch >= 0
+  );
+};
+
+const decodeEnvelope = (
+  category: OwnerVaultStorageCategory,
+  value: unknown,
+  permits: (payload: Readonly<Record<string, unknown>>) => boolean,
+): OwnerVaultStorageRecord | undefined => {
+  const envelope = plainRecord(value);
+  if (
+    envelope === undefined ||
+    !exactKeys(envelope, ["category", "payload", "version"]) ||
+    envelope.category !== category ||
+    envelope.version !== 1
+  )
+    return undefined;
+  const payload = plainRecord(envelope.payload);
+  return payload !== undefined && permits(payload) ? { category, version: 1, payload } : undefined;
+};
+
+const staticKey = (name: string) => {
+  const key = `${ownerVaultStoragePrefix}${name}`;
+  return { key: () => key, matches: (candidate: string) => candidate === key };
+};
+const keyedFamily = (name: string) => {
+  const prefix = `${ownerVaultStoragePrefix}${name}/`;
+  return {
+    key: (identifier?: string) => {
+      if (identifier === undefined || !identifierPattern.test(identifier))
+        throw new OwnerVaultStorageRegistryError("invalid_key");
+      return `${prefix}${identifier}`;
+    },
+    matches: (candidate: string) => identifierPattern.test(candidate.slice(prefix.length)) && candidate.startsWith(prefix),
+  };
+};
+
+export class OwnerVaultStorageRegistryError extends Error {
+  constructor(readonly reason: "invalid_key" | "unknown_key" | "invalid_record") {
+    super(`owner_vault_storage_${reason}`);
+  }
+}
+
+const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
+  { category: "root.identity", snapshot: "include", restore: "apply", maximumBytes: rootMaximumBytes, ...staticKey("root/identity"), decode: (value) => decodeEnvelope("root.identity", value, (payload) => validScope(payload)) },
+  { category: "root.admission", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/admission"), decode: (value) => decodeEnvelope("root.admission", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "root.floors", snapshot: "exclude", restore: "target-overlay", maximumBytes: rootMaximumBytes, ...staticKey("root/floors"), decode: (value) => decodeEnvelope("root.floors", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "root.log-head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/log-head"), decode: (value) => decodeEnvelope("root.log-head", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "root.runtime", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/runtime"), decode: (value) => decodeEnvelope("root.runtime", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "root.accounting", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/accounting"), decode: (value) => decodeEnvelope("root.accounting", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "catalog.derived", snapshot: "exclude", restore: "rebuild", maximumBytes: catalogMaximumBytes, ...keyedFamily("catalog"), decode: (value) => decodeEnvelope("catalog.derived", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validScope(payload.source) && !hasForbiddenScope(payload.audit)) },
+  ...(["device", "device-challenge", "nonce", "jti", "capability-receipt", "operation-receipt", "operation-index", "session", "resume", "rate-window"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  { category: "append-log.entry", snapshot: "include", restore: "apply", maximumBytes: appendMaximumBytes, key: (identifier?: string) => { if (identifier === undefined || !appendSequencePattern.test(identifier)) throw new OwnerVaultStorageRegistryError("invalid_key"); return `${ownerVaultStoragePrefix}append-log/entry/${identifier}`; }, matches: (key) => /^v2\.ov\/append-log\/entry\/[0-9]{20}$/u.test(key), decode: (value) => decodeEnvelope("append-log.entry", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "append-log.head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("append-log/head"), decode: (value) => decodeEnvelope("append-log.head", value, (payload) => !hasForbiddenScope(payload)) },
+  ...(["blob.metadata", "blob.reference", "blob.tombstone", "blob.lease", "blob.purge", "backup.pin", "backup.manifest", "backup.page"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  { category: "backup.restore-journal", snapshot: "include", restore: "apply", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "control.initialization-ack", snapshot: "include", restore: "apply", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "control.floor-sync", snapshot: "include", restore: "apply", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
+];
+
+export const ownerVaultStorageRegistry: ReadonlyMap<OwnerVaultStorageCategory, OwnerVaultStorageCategoryDefinition> = new Map(definitions.map((definition) => [definition.category, Object.freeze(definition)]));
+
+/** Resolves exactly one category; unknown and ambiguous physical keys are fatal. */
+export const ownerVaultStorageDefinitionForKey = (key: string): OwnerVaultStorageCategoryDefinition => {
+  const matches = definitions.filter((definition) => definition.matches(key));
+  if (matches.length !== 1) throw new OwnerVaultStorageRegistryError("unknown_key");
+  return matches[0]!;
+};
+
+export const assertOwnerVaultStorageRecord = (key: string, value: unknown): OwnerVaultStorageRecord => {
+  const definition = ownerVaultStorageDefinitionForKey(key);
+  const record = definition.decode(value);
+  if (record === undefined) throw new OwnerVaultStorageRegistryError("invalid_record");
+  return record;
+};
