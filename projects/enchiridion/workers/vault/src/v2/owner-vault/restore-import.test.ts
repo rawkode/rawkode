@@ -9,7 +9,7 @@ import { Effect, Exit } from "effect";
 import { ownerID, vaultID } from "../foundation/schemas";
 import { type BlobLimits, type BlobScope, blobObjectKey } from "../blobs/blobs";
 import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
-import type { OwnerVaultRestoreImportPlan, OwnerVaultRestoreImportRecord } from "./backup-types";
+import type { OwnerVaultRestoreImportFinalization, OwnerVaultRestoreImportPlan, OwnerVaultRestoreImportRecord } from "./backup-types";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
 import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
 import { ownerVaultAppendProofValidate } from "./append-proof";
@@ -43,11 +43,22 @@ const nativeState = (): {
   return { entries, storage, state: { storage, blockConcurrencyWhile: (work) => work() } };
 };
 
+const restoreID = "restore-import-0001";
+const testRestore = (repository: ReturnType<typeof makeDurableObjectOwnerVaultStorageRepository>) => {
+  const restore = makeOwnerVaultRestoreImport({ repository });
+  return {
+    beginRestoreImport: (plan: OwnerVaultRestoreImportPlan) => restore.beginRestoreImport(restoreID, plan),
+    applyRestoreRecord: (input: { readonly manifestDigest: string; readonly expected: OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }) => restore.applyRestoreRecord({ ...input, restoreID }),
+    finalizeRestoreImport: (manifestDigest: string, finalization: OwnerVaultRestoreImportFinalization) => restore.finalizeRestoreImport(restoreID, manifestDigest, finalization),
+  };
+};
 const fixture = async () => {
   const native = nativeState();
   const repository = makeDurableObjectOwnerVaultStorageRepository(makeDurableObjectBoundary(native.state).storage);
-  await Effect.runPromise(repository.transact((tx) => tx.initialize(root)));
-  return { native, repository, restore: makeOwnerVaultRestoreImport({ repository }) };
+  await Effect.runPromise(repository.transact((tx) => tx.initialize(root).pipe(
+    Effect.zipRight(tx.put({ category: "root.floors" }, { securityFloor: 0 })),
+  )));
+  return { native, repository, restore: testRestore(repository) };
 };
 const digest = (text: string): string => ownerVaultBackupDigest(new TextEncoder().encode(text));
 const record = (ordinal: number, id: string): { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord } => {
@@ -87,14 +98,24 @@ describe("OwnerVault C1 restore import", () => {
     expect(built.native.entries.has("v2.ov/device/device-a")).toBe(true);
     expect(built.native.entries.has("v2.ov/catalog/page/00000000000000000001-0000")).toBe(false);
 
-    const restarted = makeOwnerVaultRestoreImport({ repository: built.repository });
+    const restarted = testRestore(built.repository);
     await Effect.runPromise(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: first.stored }));
     const outOfOrder = await Effect.runPromiseExit(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: { ...second.expected, ordinal: 2 }, record: second.stored }));
     expect(Exit.isFailure(outOfOrder)).toBe(true);
     const conflict = await Effect.runPromiseExit(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: { ...first.stored, payload: { publicKey: "changed" } } }));
     expect(Exit.isFailure(conflict)).toBe(true);
     await Effect.runPromise(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: second.expected, record: second.stored }));
-    await Effect.runPromise(restarted.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    const receipt = await Effect.runPromise(restarted.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    const committed = JSON.stringify([...built.native.entries]);
+    // Simulate a lost terminal response: every exact terminal retry is a
+    // no-write replay, including after rebuilding the importer on restart.
+    const afterCommitRestart = testRestore(built.repository);
+    expect(await Effect.runPromise(afterCommitRestart.beginRestoreImport(plan))).toEqual(receipt);
+    expect(await Effect.runPromise(afterCommitRestart.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: first.stored }))).toEqual(receipt);
+    expect(await Effect.runPromise(afterCommitRestart.finalizeRestoreImport(plan.manifestDigest, finalization()))).toEqual(receipt);
+    expect(JSON.stringify([...built.native.entries])).toBe(committed);
+    const mismatch = await Effect.runPromiseExit(afterCommitRestart.beginRestoreImport({ ...plan, backupID: "backup-restore-0002" }));
+    expect(Exit.isFailure(mismatch)).toBe(true);
     expect(revision(built.native.entries)).toBe(1);
     expect((built.native.entries.get("v2.ov/root/accounting") as { payload: { usedBytes: number } }).payload.usedBytes).toBeGreaterThan(initialAccounting);
     expect(built.native.entries.get("v2.ov/blob/accounting")).toMatchObject({ payload: { referencedBytes: 0, leaseIDs: [], purgeSHA256s: [] } });
@@ -185,9 +206,9 @@ describe("OwnerVault C1 restore import", () => {
   test("rolls finalization back when the pure reconstruction callback rejects its typed inventory", async () => {
     const item = record(0, "device-a"); const plan = planFor(item); const built = await fixture();
     const restore = makeOwnerVaultRestoreImport({ repository: built.repository, reconstruct: () => ({ _tag: "OwnerVaultBlobRestoreReconstructionFailure", reason: "invalid_inventory" }) });
-    await Effect.runPromise(restore.beginRestoreImport(plan));
-    await Effect.runPromise(restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: item.expected, record: item.stored }));
-    const exit = await Effect.runPromiseExit(restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    await Effect.runPromise(restore.beginRestoreImport(restoreID, plan));
+    await Effect.runPromise(restore.applyRestoreRecord({ restoreID, manifestDigest: plan.manifestDigest, expected: item.expected, record: item.stored }));
+    const exit = await Effect.runPromiseExit(restore.finalizeRestoreImport(restoreID, plan.manifestDigest, finalization()));
     expect(Exit.isFailure(exit)).toBe(true);
     expect(revision(built.native.entries)).toBe(0);
     expect(built.native.entries.has("v2.ov/blob/accounting")).toBe(false);

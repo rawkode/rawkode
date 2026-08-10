@@ -96,9 +96,9 @@ const target = (): { readonly target: OwnerVaultPrivateRestoreTarget; readonly a
       root: { ownerID: scope.ownerID, vaultID: scope.vaultID, generationEpoch: 4, namespaceState: "PRIVATE" },
       assertFreshPrivateTarget: () => Effect.sync(() => events.push("private")),
       restoreImport: {
-        beginRestoreImport: (plan) => Effect.sync(() => { events.push(`begin:${plan.objectCount}`); }),
-        applyRestoreRecord: ({ expected }) => Effect.sync(() => { applied.push(expected.ordinal); }),
-        finalizeRestoreImport: () => Effect.sync(() => { events.push("complete"); }),
+        beginRestoreImport: (_restoreID, plan) => Effect.sync(() => { events.push(`begin:${plan.objectCount}`); return undefined; }),
+        applyRestoreRecord: ({ expected }) => Effect.sync(() => { applied.push(expected.ordinal); return undefined; }),
+        finalizeRestoreImport: () => Effect.sync(() => { events.push("complete"); return {} as import("./backup-types").OwnerVaultRestoreImportReceipt; }),
       },
       blobScope: { ownerID: { value: scope.ownerID }, vaultID: { value: scope.vaultID }, generationEpoch: 4 },
       blobLimits: { maximumBlobBytes: 8 * 1024 * 1024, maximumVaultBytes: 96 * 1024 * 1024, maximumOrphanBytes: 0, maximumOrphanCount: 0, maximumActiveLeasesPerVault: 32, maximumActiveLeasesPerFinal: 32, stageTTLSeconds: 60 },
@@ -148,9 +148,9 @@ describe("OwnerVault bounded paged backup and private restore", () => {
       ...restored.target,
       restoreImport: {
         ...restored.target.restoreImport,
-        applyRestoreRecord: ({ expected, record }) => expected.ordinal === 1 && interrupted
+        applyRestoreRecord: ({ restoreID, expected, record }) => expected.ordinal === 1 && interrupted
           ? Effect.fail(new OwnerVaultBackupError({ reason: "source_unavailable" }))
-          : restored.target.restoreImport.applyRestoreRecord({ manifestDigest: "a".repeat(44), expected, record }),
+          : restored.target.restoreImport.applyRestoreRecord({ restoreID, manifestDigest: "a".repeat(44), expected, record }),
       },
     };
     const first = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(store.boundary), interrupting, scope, backupID));

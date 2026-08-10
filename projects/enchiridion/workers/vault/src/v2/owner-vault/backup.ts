@@ -255,9 +255,9 @@ export const restoreOwnerVaultBackup = (
       records: staged.map((item) => item.expected),
     };
     yield* target.writeRestoreAudit(source, backupID, manifestDigest);
-    yield* target.restoreImport.beginRestoreImport(plan);
-    for (const item of staged) yield* target.restoreImport.applyRestoreRecord({ manifestDigest, ...item });
-    yield* target.restoreImport.finalizeRestoreImport(manifestDigest, { blobScope: target.blobScope, blobLimits: target.blobLimits, targetBlobEvidence: evidence });
+    yield* target.restoreImport.beginRestoreImport(backupID, plan);
+    for (const item of staged) yield* target.restoreImport.applyRestoreRecord({ restoreID: backupID, manifestDigest, ...item });
+    yield* target.restoreImport.finalizeRestoreImport(backupID, manifestDigest, { blobScope: target.blobScope, blobLimits: target.blobLimits, targetBlobEvidence: evidence });
   });
 
 /** Storage adapter for a fresh initialized PRIVATE DO. It cannot enumerate or promote a target. */

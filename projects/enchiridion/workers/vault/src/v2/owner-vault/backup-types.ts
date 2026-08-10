@@ -143,6 +143,22 @@ export interface OwnerVaultRestoreImportPlan {
   readonly records: readonly OwnerVaultRestoreImportRecord[];
 }
 
+export interface OwnerVaultRestoreImportReceipt {
+  readonly restoreID: string;
+  readonly outcome: "COMPLETED";
+  readonly targetRoot: OwnerVaultTargetRoot;
+  readonly securityFloor: number;
+  readonly manifestDigest: string;
+  readonly inventoryDigest: string;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
+  /** Deterministic target inventory/catalog content proof. */
+  readonly targetCatalogProof: string;
+  readonly accountingProof: string;
+  readonly blobProof: string;
+  readonly finalizationProof: string;
+}
+
 /**
  * Target R2 evidence is represented only by the already-decoded target-keyed
  * P03 inventory. Its pure callback rejects a source object key fail-closed.

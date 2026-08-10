@@ -169,9 +169,13 @@ const validAuditSourceScope = (value: unknown): value is OwnerVaultAuditSourceSc
 const validRestoreJournal = (value: unknown): boolean => {
   const source = plainRecord(value);
   if (source === undefined) return false;
-  if (source.source === undefined) return !hasForbiddenScope(source);
-  const rest = Object.fromEntries(Object.entries(source).filter(([key]) => key !== "source"));
-  return validAuditSourceScope(source.source) && !hasForbiddenScope(rest);
+  const receipt = source.receipt === undefined ? undefined : plainRecord(source.receipt);
+  const receiptRoot = receipt === undefined ? undefined : plainRecord(receipt.targetRoot);
+  const rest = Object.fromEntries(Object.entries(source).filter(([key]) => key !== "source" && key !== "receipt"));
+  const receiptRest = receipt === undefined ? undefined : Object.fromEntries(Object.entries(receipt).filter(([key]) => key !== "targetRoot"));
+  return (source.source === undefined || validAuditSourceScope(source.source)) &&
+    (receipt === undefined || (validTargetRoot(receiptRoot) && receiptRest !== undefined && !hasForbiddenScope(receiptRest))) &&
+    !hasForbiddenScope(rest);
 };
 
 const validAppendHead = (value: unknown): boolean => {
