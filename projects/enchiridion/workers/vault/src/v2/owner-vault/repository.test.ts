@@ -309,4 +309,13 @@ describe("v2 OwnerVault per-record durable storage", () => {
     expect(Exit.isFailure(mismatched)).toBe(true);
     expect(JSON.stringify(mismatched)).toContain("inspection_forbidden");
   });
+
+  test("accepts only the canonical append head tuple", async () => {
+    const { repository } = repositoryFor();
+    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
+    const legacy = await Effect.runPromiseExit(repository.transact((tx) => tx.put({ category: "root.log-head" }, { logSequence: 1 })));
+    const mixed = await Effect.runPromiseExit(repository.transact((tx) => tx.put({ category: "append-log.head" }, { appendLogSequence: 1, appendLogDigest: "a".repeat(64), logSequence: 1 })));
+    expect(Exit.isFailure(legacy)).toBe(true);
+    expect(Exit.isFailure(mixed)).toBe(true);
+  });
 });

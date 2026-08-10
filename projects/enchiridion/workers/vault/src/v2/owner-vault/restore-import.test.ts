@@ -13,6 +13,7 @@ import type { OwnerVaultRestoreImportPlan, OwnerVaultRestoreImportRecord } from 
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
 import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
 import { ownerVaultAppendProofValidate } from "./append-proof";
+import { makeOwnerVaultDomainProvider } from "./domains";
 import type { OwnerVaultAppendLogEntry } from "./domains";
 import type { OwnerVaultStorageRecord } from "./storage-registry";
 
@@ -111,6 +112,31 @@ describe("OwnerVault C1 restore import", () => {
     await Effect.runPromise(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
     expect(revision(built.native.entries)).toBe(1);
     expect(built.native.entries.get("v2.ov/append-log/head")).toEqual({ category: "append-log.head", version: 1, payload: { appendLogSequence: 2, appendLogDigest: plan.appendLogDigest } });
+  });
+
+  test("publishes restored N into the catalog and appends N+1 from the canonical head tuple", async () => {
+    const entry = (ordinal: number, sequence: number) => imported(ordinal, "append-log.entry", String(sequence).padStart(20, "0"), {
+      operationID: `operation-${sequence}`, fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: sequence,
+    });
+    const plan = planWithHead(2, entry(0, 1), entry(1, 2)); const built = await fixture();
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    for (const item of plan.records) {
+      const stored = [entry(0, 1), entry(1, 2)][item.ordinal]!.stored;
+      await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: item, record: stored }));
+    }
+    await Effect.runPromise(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    const restoredCatalog = built.native.entries.get("v2.ov/catalog/root/00000000000000000001") as { readonly payload: { readonly appendLogSequence: number; readonly appendLogDigest: string } };
+    expect(restoredCatalog.payload).toMatchObject({ appendLogSequence: 2, appendLogDigest: plan.appendLogDigest });
+
+    const provider = makeOwnerVaultDomainProvider(built.repository, root);
+    await Effect.runPromise(provider.initialize());
+    await Effect.runPromise(provider.issueChallenge({ challengeID: "challenge-12345678", challengeBase64: "challenge", challengeAudience: "enroll", devicePublicKey: "spki", expiresAtMilliseconds: 5_000, consumed: false }, 1_000));
+    await Effect.runPromise(provider.registerDevice({ registrationID: "register-12345678", proofFingerprint: "c".repeat(64), challengeID: "challenge-12345678", device: { deviceID: "device-1", publicKeySPKI: "spki", authEpoch: 1, credentialEpoch: 1, revoked: false, securityFloor: 0 }, nowMilliseconds: 1_000 }));
+    const appended = await Effect.runPromise(provider.append({ operationID: "operation-3", fingerprint: "d".repeat(64), payloadHash: "e".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", observedHighWater: 2, nowSeconds: 1_000, receiptExpiresAtSeconds: 2_000, actor: { deviceID: "device-1", authEpoch: 1, credentialEpoch: 1, securityFloor: 0 }, nonce: { value: "nonce-123456789012", expiresAtSeconds: 1_200, fingerprint: "f".repeat(64) }, capability: { jti: "jti-123456789012", expiresAtSeconds: 1_200 } }));
+    expect(appended.logSequence).toBe(3);
+    const catalog = built.native.entries.get("v2.ov/catalog/current") as { readonly payload: { readonly catalogRevision: number } };
+    const nextCatalog = built.native.entries.get(`v2.ov/catalog/root/${String(catalog.payload.catalogRevision).padStart(20, "0")}`) as { readonly payload: { readonly appendLogSequence: number } };
+    expect(nextCatalog.payload.appendLogSequence).toBe(3);
   });
 
   test("rejects missing, extra, or head-chain-mismatched append inventories before publication", async () => {
