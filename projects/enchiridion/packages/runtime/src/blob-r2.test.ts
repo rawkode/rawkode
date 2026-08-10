@@ -140,7 +140,7 @@ describe("Blob R2 boundary", () => {
       head: async (key) => ({ key, etag: "etag", size: 1 }),
     };
     const missing = await Effect.runPromiseExit(
-      makeBlobR2Boundary(makeBlobR2NativeBinding(missingChecksum)).read("blob/one"),
+      makeBlobR2Boundary(makeBlobR2NativeBinding(missingChecksum)).head("blob/one"),
     );
     expect(JSON.stringify(missing)).toContain("metadata_mismatch");
 
@@ -157,5 +157,21 @@ describe("Blob R2 boundary", () => {
       makeBlobR2Boundary(makeBlobR2NativeBinding(oversizedChecksum)).head("blob/one"),
     );
     expect(JSON.stringify(oversized)).toContain("metadata_mismatch");
+
+    const hostileGetter: BlobR2NativeBindingInput = {
+      ...source.native,
+      head: async () => ({
+        get key(): string {
+          throw new Error("native-secret");
+        },
+        etag: "etag",
+        size: 1,
+      }),
+    };
+    const hostile = await Effect.runPromiseExit(
+      makeBlobR2Boundary(makeBlobR2NativeBinding(hostileGetter)).head("blob/one"),
+    );
+    expect(JSON.stringify(hostile)).toContain("metadata_mismatch");
+    expect(JSON.stringify(hostile)).not.toContain("native-secret");
   });
 });

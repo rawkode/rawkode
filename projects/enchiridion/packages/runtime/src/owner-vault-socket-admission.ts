@@ -25,6 +25,7 @@ export interface OwnerVaultSocketAdmissionKeyRing {
   readonly purpose: "owner-vault-socket-admission";
   readonly current: OwnerVaultSocketAdmissionKeyMaterial;
   readonly prior: readonly OwnerVaultSocketAdmissionKeyMaterial[];
+  readonly revokedKeyIDs: readonly string[];
 }
 
 export interface OwnerVaultSocketAdmissionRequestBinding {
@@ -311,8 +312,10 @@ const claimsFromUnknown = (
 export const makeOwnerVaultSocketAdmissionKeyRing = (input: {
   readonly current: OwnerVaultSocketAdmissionKeyMaterial;
   readonly prior?: readonly OwnerVaultSocketAdmissionKeyMaterial[];
+  readonly revokedKeyIDs?: readonly string[];
 }): Effect.Effect<OwnerVaultSocketAdmissionKeyRing, CapabilityConfigurationError> => {
   const prior = input.prior ?? [];
+  const revokedKeyIDs = input.revokedKeyIDs ?? [];
   if (prior.length > maximumPriorOwnerVaultSocketAdmissionKeys)
     return Effect.fail(new CapabilityConfigurationError({ reason: "too_many_prior_keys" }));
   const keys = [input.current, ...prior];
@@ -324,10 +327,16 @@ export const makeOwnerVaultSocketAdmissionKeyRing = (input: {
     return Effect.fail(new CapabilityConfigurationError({ reason: "duplicate_key_id" }));
   if (new Set(keys.map((key) => Redacted.value(key.secret))).size !== keys.length)
     return Effect.fail(new CapabilityConfigurationError({ reason: "duplicate_secret" }));
+  if (
+    revokedKeyIDs.some((keyID) => !KEY_ID.test(keyID)) ||
+    new Set(revokedKeyIDs).size !== revokedKeyIDs.length
+  )
+    return Effect.fail(new CapabilityConfigurationError({ reason: "invalid_key_id" }));
   return Effect.succeed({
     purpose: "owner-vault-socket-admission",
     current: input.current,
     prior,
+    revokedKeyIDs,
   });
 };
 
@@ -399,7 +408,7 @@ export const verifyOwnerVaultSocketAdmission = (
     if (payload !== canonicalPayload(claims))
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
     const material = [ring.current, ...ring.prior].find((key) => key.keyID === claims.keyID);
-    if (material === undefined)
+    if (material === undefined || ring.revokedKeyIDs.includes(claims.keyID))
       return yield* Effect.fail(
         new CapabilityVerificationError({ reason: "unknown_or_stale_key" }),
       );

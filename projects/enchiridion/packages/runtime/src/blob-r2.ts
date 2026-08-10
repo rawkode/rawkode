@@ -5,6 +5,7 @@ import {
   blobR2Delete,
   blobR2Get,
   blobR2Head,
+  blobR2ObjectSnapshot,
   blobR2PutIfAbsent,
   blobR2ReadBytes,
   blobR2SHA256,
@@ -33,7 +34,7 @@ export interface BlobR2ObjectMetadata {
   readonly etag: string;
   readonly httpEtag?: string;
   readonly size: number;
-  readonly sha256Base64?: string;
+  readonly sha256Base64: string;
 }
 
 export interface BlobR2Read extends BlobR2ObjectMetadata {
@@ -94,7 +95,6 @@ const metadata = (
   expected: {
     readonly key?: string;
     readonly size?: number;
-    readonly requireSHA256?: boolean;
   } = {},
 ): Effect.Effect<BlobR2ObjectMetadata, BlobR2Error> => {
   const checksum = object.checksums?.sha256;
@@ -121,30 +121,31 @@ const metadata = (
     customEntries.some(([key, value]) => !validText(key, 128) || !validText(value, 512)) ||
     (object.customMetadata?.sha256 !== undefined && customSHA256 === undefined) ||
     (nativeSHA256 !== undefined && customSHA256 !== undefined && nativeSHA256 !== customSHA256) ||
-    (expected.requireSHA256 === true && sha256Base64 === undefined) ||
+    sha256Base64 === undefined ||
     (expected.size !== undefined && object.size !== expected.size)
   )
     return fail(
       operation,
       object.size > limits.maximumObjectBytes ? "too_large" : "metadata_mismatch",
     );
-  return Effect.succeed(
-    sha256Base64 === undefined
-      ? {
-          key: object.key,
-          etag: object.etag,
-          httpEtag: object.httpEtag,
-          size: object.size,
-        }
-      : {
-          key: object.key,
-          etag: object.etag,
-          httpEtag: object.httpEtag,
-          size: object.size,
-          sha256Base64,
-        },
-  );
+  return Effect.succeed({
+    key: object.key,
+    etag: object.etag,
+    httpEtag: object.httpEtag,
+    size: object.size,
+    sha256Base64,
+  });
 };
+
+const safeMetadata = (
+  operation: BlobR2Error["operation"],
+  object: BlobR2NativeObject,
+  limits: BlobR2Limits,
+  expected: { readonly key?: string; readonly size?: number } = {},
+): Effect.Effect<BlobR2ObjectMetadata, BlobR2Error> =>
+  blobR2ObjectSnapshot(operation, object).pipe(
+    Effect.flatMap((snapshot) => metadata(operation, snapshot, limits, expected)),
+  );
 
 export const makeBlobR2Boundary = (
   binding: BlobR2NativeBinding,
@@ -169,10 +170,9 @@ export const makeBlobR2Boundary = (
             Effect.flatMap((object) => {
               if (object === null)
                 return fail<BlobR2ObjectMetadata>("put_if_absent", "already_exists");
-              return metadata("put_if_absent", object, configuredLimits, {
+              return safeMetadata("put_if_absent", object, configuredLimits, {
                 key,
                 size: body.byteLength,
-                requireSHA256: true,
               }).pipe(
                 Effect.flatMap((result) =>
                   result.sha256Base64 === base64(checksum)
@@ -191,7 +191,7 @@ export const makeBlobR2Boundary = (
         Effect.flatMap((object) =>
           object === null
             ? Effect.succeed(undefined)
-            : metadata("head", object, configuredLimits, { key }),
+            : safeMetadata("head", object, configuredLimits, { key }),
         ),
       );
     },
@@ -201,15 +201,14 @@ export const makeBlobR2Boundary = (
       return blobR2Head(binding, key).pipe(
         Effect.flatMap((head) => {
           if (head === null) return fail<BlobR2Read>("read", "not_found");
-          return metadata("read", head, configuredLimits, { key, requireSHA256: true }).pipe(
+          return safeMetadata("read", head, configuredLimits, { key }).pipe(
             Effect.flatMap((headMetadata) =>
               blobR2Get(binding, key, configuredLimits.maximumObjectBytes + 1).pipe(
                 Effect.flatMap((object) => {
                   if (object === null) return fail<BlobR2Read>("read", "not_found");
-                  return metadata("read", object, configuredLimits, {
+                  return safeMetadata("read", object, configuredLimits, {
                     key,
                     size: headMetadata.size,
-                    requireSHA256: true,
                   }).pipe(
                     Effect.flatMap((bodyMetadata) => {
                       if (

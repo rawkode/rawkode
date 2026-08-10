@@ -384,6 +384,59 @@ export interface BlobR2NativeBinding extends BlobR2NativeBindingInput {
   readonly [blobR2BindingBrand]: "BlobR2NativeBinding";
 }
 
+/** Reads potentially hostile native object fields only at the audited adapter
+ * seam. It returns a detached structural snapshot or a closed failure. */
+export const blobR2ObjectSnapshot = (
+  operation: BlobR2Error["operation"],
+  object: BlobR2NativeObject,
+): Effect.Effect<BlobR2NativeObject, BlobR2Error> =>
+  Effect.try({
+    try: () => {
+      const { key, etag, httpEtag, size, checksums, customMetadata } = object;
+      if (
+        typeof key !== "string" ||
+        typeof etag !== "string" ||
+        (httpEtag !== undefined && typeof httpEtag !== "string") ||
+        typeof size !== "number" ||
+        (checksums !== undefined && (typeof checksums !== "object" || checksums === null)) ||
+        (customMetadata !== undefined &&
+          (typeof customMetadata !== "object" ||
+            customMetadata === null ||
+            Array.isArray(customMetadata)))
+      )
+        throw new TypeError("invalid blob R2 object");
+      const checksum = checksums?.sha256;
+      if (checksum !== undefined && !(checksum instanceof ArrayBuffer))
+        throw new TypeError("invalid blob R2 checksum");
+      const copiedChecksum =
+        checksum === undefined
+          ? undefined
+          : (() => {
+              const copied = new Uint8Array(checksum.byteLength);
+              copied.set(new Uint8Array(checksum));
+              return copied.buffer;
+            })();
+      const copiedMetadata =
+        customMetadata === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.entries(customMetadata).map(([metadataKey, value]) => {
+                if (typeof value !== "string") throw new TypeError("invalid blob R2 metadata");
+                return [metadataKey, value] as const;
+              }),
+            );
+      return {
+        key,
+        etag,
+        httpEtag,
+        size,
+        checksums: copiedChecksum === undefined ? undefined : { sha256: copiedChecksum },
+        customMetadata: copiedMetadata,
+      };
+    },
+    catch: () => new BlobR2Error({ operation, reason: "metadata_mismatch" }),
+  });
+
 export const makeBlobR2NativeBinding = (input: BlobR2NativeBindingInput): BlobR2NativeBinding => ({
   ...input,
   [blobR2BindingBrand]: "BlobR2NativeBinding",

@@ -130,6 +130,22 @@ describe("OwnerVault socket admission", () => {
     await expect(
       Effect.runPromise(verifyOwnerVaultSocketAdmission(signed, binding, expected, rotated, 1_030)),
     ).resolves.toBeDefined();
+    const revoked = await Effect.runPromise(
+      makeOwnerVaultSocketAdmissionKeyRing({
+        current: { keyID: "socket-current", secret: Redacted.make("socket-current-secret") },
+        prior: [previous.current],
+        revokedKeyIDs: ["socket-prior"],
+      }),
+    );
+    const revokedExit = await Effect.runPromiseExit(
+      verifyOwnerVaultSocketAdmission(signed, binding, expected, revoked, 1_030),
+    );
+    expect(JSON.stringify(revokedExit)).toContain("unknown_or_stale_key");
+    const foreignGrammar = { value: signed.value.replace("ovsa1.", "v1.") };
+    const foreignExit = await Effect.runPromiseExit(
+      verifyOwnerVaultSocketAdmission(foreignGrammar, binding, expected, rotated, 1_030),
+    );
+    expect(JSON.stringify(foreignExit)).toContain("malformed_token");
     const nonUtf8 = { value: "ovsa1.__8.AA" };
     const exit = await Effect.runPromiseExit(
       verifyOwnerVaultSocketAdmission(nonUtf8, binding, expected, rotated, 1_030),
