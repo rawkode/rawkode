@@ -43,6 +43,8 @@ const rotated: CapabilityKeyMaterial = {
   secret: Redacted.make("owner-vault-control-rotated-secret"),
 };
 const sha = "a".repeat(64);
+const manifestDigest = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU";
+const otherManifestDigest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const base = {
   ownerID: "owner-control-0001",
   vaultID: "vault-control-0001",
@@ -66,7 +68,7 @@ const privateInitialize: OwnerVaultPrivateInitializeBinding = {
   allocationID: "allocation-control-001",
   initID: "init-control-00000001",
   backupID: "backup-control-000001",
-  manifestDigest: sha,
+  manifestDigest,
 };
 const fence: OwnerVaultCredentialFenceBinding = {
   ...base,
@@ -84,6 +86,7 @@ const snapshot: OwnerVaultSnapshotBinding = {
   resource: OwnerVaultDirectoryControlResource.Snapshot,
   path: ownerVaultSnapshotPath,
   backupID: "backup-control-000001",
+  manifestDigest,
   sourceGeneration: 5,
   sourceRoutingEpoch: 9,
   sourceCredentialEpoch: 8,
@@ -99,7 +102,7 @@ const restore: OwnerVaultRestoreBinding = {
   sourceGeneration: 5,
   targetGeneration: 7,
   backupID: "backup-control-000001",
-  manifestDigest: sha,
+  manifestDigest,
 };
 const encoded = (bytes: Uint8Array): string => {
   let text = "";
@@ -111,6 +114,19 @@ const signedRaw = async (payload: string | Uint8Array, material = key) => {
   const body = encoded(bytes);
   const signature = await Effect.runPromise(signCapabilityHmac(material.secret, body));
   return { value: `ovdc1.${body}.${encoded(signature)}` };
+};
+const payloadText = (token: { readonly value: string }): string => {
+  const payload = token.value.split(".")[1];
+  if (payload === undefined) throw new Error("test setup invalid");
+  return new TextDecoder().decode(
+    Uint8Array.from(
+      atob(
+        payload.replace(/-/gu, "+").replace(/_/gu, "/") +
+          "=".repeat((4 - (payload.length % 4)) % 4),
+      ),
+      (character) => character.charCodeAt(0),
+    ),
+  );
 };
 const ring = async () => Effect.runPromise(makeOwnerVaultDirectoryControlKeyRing({ current: key }));
 const signed = (
@@ -169,6 +185,35 @@ describe("OwnerVault DirectoryControl capability", () => {
     expect(Exit.isFailure(staleControl)).toBe(true);
   });
 
+  test("requires one canonical base64url SHA-256 manifest digest in every manifest resource", async () => {
+    const keys = await ring();
+    const nonCanonical = `${manifestDigest.slice(0, -1)}B`;
+    const invalidDigests = [
+      sha,
+      `${manifestDigest}=`,
+      manifestDigest.replace("-", "+"),
+      nonCanonical,
+    ];
+    for (const binding of [privateInitialize, snapshot, restore] as const) {
+      const token = await Effect.runPromise(signed(binding, keys));
+      for (const invalidDigest of invalidDigests) {
+        const signExit = await Effect.runPromiseExit(
+          signOwnerVaultDirectoryControl(
+            { ...binding, manifestDigest: invalidDigest, ttlSeconds: 30 },
+            keys,
+            100,
+          ),
+        );
+        expect(Exit.isFailure(signExit)).toBe(true);
+        const hostile = await signedRaw(payloadText(token).replace(manifestDigest, invalidDigest));
+        const verifyExit = await Effect.runPromiseExit(
+          verifyOwnerVaultDirectoryControl(hostile, binding, binding, keys, 110),
+        );
+        expect(Exit.isFailure(verifyExit)).toBe(true);
+      }
+    }
+  });
+
   test("rejects substitutions across every common and resource-owned authority field", async () => {
     const keys = await ring();
     const privateToken = await Effect.runPromise(signed(privateInitialize, keys));
@@ -187,7 +232,7 @@ describe("OwnerVault DirectoryControl capability", () => {
       { ...privateInitialize, allocationID: "allocation-control-002" },
       { ...privateInitialize, initID: "init-control-00000002" },
       { ...privateInitialize, backupID: "backup-control-000002" },
-      { ...privateInitialize, manifestDigest: "b".repeat(64) },
+      { ...privateInitialize, manifestDigest: otherManifestDigest },
     ];
     for (const expected of privateMutations) {
       const exit = await Effect.runPromiseExit(
@@ -198,6 +243,7 @@ describe("OwnerVault DirectoryControl capability", () => {
     const snapshotToken = await Effect.runPromise(signed(snapshot, keys));
     for (const expected of [
       { ...snapshot, backupID: "backup-control-000002" },
+      { ...snapshot, manifestDigest: otherManifestDigest },
       { ...snapshot, sourceGeneration: 6 },
       { ...snapshot, sourceRoutingEpoch: 10 },
       { ...snapshot, sourceCredentialEpoch: 9 },
@@ -250,7 +296,7 @@ describe("OwnerVault DirectoryControl capability", () => {
       { ...restore, allocationID: "allocation-control-002" },
       { ...restore, initID: "init-control-00000002" },
       { ...restore, backupID: "backup-control-000002" },
-      { ...restore, manifestDigest: "b".repeat(64) },
+      { ...restore, manifestDigest: otherManifestDigest },
     ]) {
       const exit = await Effect.runPromiseExit(
         verifyOwnerVaultDirectoryControl(restoreToken, restore, expected, keys, 110),
@@ -262,17 +308,7 @@ describe("OwnerVault DirectoryControl capability", () => {
   test("rejects malformed, incomplete, noncanonical, and unsafe-time claims", async () => {
     const keys = await ring();
     const token = await Effect.runPromise(signed(privateInitialize, keys));
-    const payload = token.value.split(".")[1];
-    if (payload === undefined) throw new Error("test setup invalid");
-    const text = new TextDecoder().decode(
-      Uint8Array.from(
-        atob(
-          payload.replace(/-/gu, "+").replace(/_/gu, "/") +
-            "=".repeat((4 - (payload.length % 4)) % 4),
-        ),
-        (character) => character.charCodeAt(0),
-      ),
-    );
+    const text = payloadText(token);
     const { manifestDigest: _, ...incomplete } = JSON.parse(text) as Record<string, unknown>;
     const extra = await signedRaw(`${text.slice(0, -1)},"extra":true}`);
     const duplicate = await signedRaw(`${text.slice(0, -1)},"resource":"private-initialize"}`);

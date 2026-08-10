@@ -67,6 +67,8 @@ export interface OwnerVaultSnapshotBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.Snapshot;
   readonly path: typeof ownerVaultSnapshotPath;
   readonly backupID: string;
+  /** SHA-256 of the exact signed backup manifest: canonical base64url without padding. */
+  readonly manifestDigest: string;
   readonly sourceGeneration: number;
   readonly sourceRoutingEpoch: number;
   readonly sourceCredentialEpoch: number;
@@ -136,7 +138,8 @@ export interface OwnerVaultDirectoryControlKeyRing {
 const keyID = /^[A-Za-z0-9_-]{1,64}$/u;
 const id = /^[A-Za-z0-9._~-]{1,128}$/u;
 const opaque = /^[A-Za-z0-9_-]{16,128}$/u;
-const digest = /^[a-f0-9]{64}$/u;
+const sha256Hex = /^[a-f0-9]{64}$/u;
+const sha256Base64url = /^[A-Za-z0-9_-]{43}$/u;
 const encoder = new TextEncoder();
 const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
@@ -155,6 +158,12 @@ const fromB64url = (value: string): Uint8Array<ArrayBuffer> | undefined => {
     return undefined;
   }
 };
+/** A SHA-256 digest has exactly 32 bytes and one canonical, unpadded base64url spelling. */
+const manifestDigestValid = (value: string): boolean => {
+  if (!sha256Base64url.test(value)) return false;
+  const bytes = fromB64url(value);
+  return bytes !== undefined && bytes.byteLength === 32;
+};
 const commonValid = (value: Common): boolean =>
   id.test(value.ownerID) &&
   id.test(value.vaultID) &&
@@ -168,7 +177,7 @@ const commonValid = (value: Common): boolean =>
   opaque.test(value.jti) &&
   value.method === "POST" &&
   value.canonicalQuery === "" &&
-  digest.test(value.bodySHA256);
+  sha256Hex.test(value.bodySHA256);
 const allocationValid = (value: {
   readonly sourceGeneration: number;
   readonly targetGeneration: number;
@@ -182,7 +191,7 @@ const allocationValid = (value: {
   opaque.test(value.allocationID) &&
   opaque.test(value.initID) &&
   opaque.test(value.backupID) &&
-  digest.test(value.manifestDigest);
+  manifestDigestValid(value.manifestDigest);
 const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean => {
   switch (value.resource) {
     case OwnerVaultDirectoryControlResource.PrivateInitialize:
@@ -214,6 +223,7 @@ const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean 
         commonValid(value) &&
         value.path === ownerVaultSnapshotPath &&
         opaque.test(value.backupID) &&
+        manifestDigestValid(value.manifestDigest) &&
         positive(value.sourceGeneration) &&
         positive(value.sourceRoutingEpoch) &&
         positive(value.sourceCredentialEpoch) &&
@@ -283,6 +293,7 @@ const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
       return JSON.stringify({
         ...common,
         backupID: claims.backupID,
+        manifestDigest: claims.manifestDigest,
         sourceGeneration: claims.sourceGeneration,
         sourceRoutingEpoch: claims.sourceRoutingEpoch,
         sourceCredentialEpoch: claims.sourceCredentialEpoch,
@@ -461,6 +472,7 @@ const decode = (
           !hasExact(record, [
             ...commonKeys,
             "backupID",
+            "manifestDigest",
             "sourceGeneration",
             "sourceRoutingEpoch",
             "sourceCredentialEpoch",
@@ -469,6 +481,7 @@ const decode = (
           ]) ||
           record.path !== ownerVaultSnapshotPath ||
           typeof record.backupID !== "string" ||
+          typeof record.manifestDigest !== "string" ||
           typeof record.sourceGeneration !== "number" ||
           typeof record.sourceRoutingEpoch !== "number" ||
           typeof record.sourceCredentialEpoch !== "number" ||
@@ -483,6 +496,7 @@ const decode = (
           canonicalQuery: "",
           ...common,
           backupID: record.backupID,
+          manifestDigest: record.manifestDigest,
           sourceGeneration: record.sourceGeneration,
           sourceRoutingEpoch: record.sourceRoutingEpoch,
           sourceCredentialEpoch: record.sourceCredentialEpoch,
