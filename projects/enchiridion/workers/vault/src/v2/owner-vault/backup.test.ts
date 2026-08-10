@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { ImmutableR2Error, ManifestVerificationError, type ImmutableR2Boundary, type ImmutableR2ObjectMetadata } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
-import { canonicalPageBytes, canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
+import {
+  canonicalPageBytes,
+  canonicalSnapshotRecordBytes,
+  ownerVaultBackupControlDigest,
+  ownerVaultBackupDigest,
+  validOwnerVaultBackupControlDigest,
+} from "./backup-canonical";
 import { ownerVaultAppendProofValidate } from "./append-proof";
 import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import { OwnerVaultBackupError } from "./backup-types";
@@ -108,6 +114,14 @@ const target = (alreadyCompleted = false): { readonly target: OwnerVaultPrivateR
 };
 
 describe("OwnerVault bounded paged backup and private restore", () => {
+  test("uses one canonical base64url digest spelling for Directory control", () => {
+    const control = ownerVaultBackupControlDigest(new Uint8Array([1, 2, 3]));
+    expect(control).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(validOwnerVaultBackupControlDigest(control)).toBe(true);
+    expect(validOwnerVaultBackupControlDigest(`${control}=`)).toBe(false);
+    expect(validOwnerVaultBackupControlDigest(`${control.slice(0, -1)}+`)).toBe(false);
+  });
+
   test("archives a pinned high-water page and restores it into a later private generation", async () => {
     const store = r2();
     const signed = await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
@@ -150,7 +164,7 @@ describe("OwnerVault bounded paged backup and private restore", () => {
         restored.target,
         scope,
         backupID,
-        ownerVaultBackupDigest(new Uint8Array([9])),
+        ownerVaultBackupControlDigest(new Uint8Array([9])),
       ),
     );
     expect(Exit.isFailure(exit)).toBe(true);

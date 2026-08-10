@@ -9,6 +9,7 @@ import {
   canonicalSnapshotRecordBytes,
   decodeCanonicalSignedManifest,
   decodeSnapshotRecordBytes,
+  ownerVaultBackupControlDigest,
   ownerVaultBackupDigest,
   validOwnerVaultBackupDigest,
 } from "./backup-canonical";
@@ -191,8 +192,8 @@ export const restoreOwnerVaultBackup = (
     if (bytes.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
     if (
       expectedManifestDigest !== undefined &&
-      (!validOwnerVaultBackupDigest(expectedManifestDigest) ||
-        ownerVaultBackupDigest(bytes) !== expectedManifestDigest)
+      (!/^[A-Za-z0-9_-]{43}$/u.test(expectedManifestDigest) ||
+        ownerVaultBackupControlDigest(bytes) !== expectedManifestDigest)
     )
       return yield* ownerVaultBackupFailure("manifest_invalid");
     const signed = decodeCanonicalSignedManifest(bytes);

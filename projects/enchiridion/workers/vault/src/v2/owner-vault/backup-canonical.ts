@@ -19,6 +19,20 @@ export const ownerVaultBackupDigest = hash;
 export const validOwnerVaultBackupDigest = (value: unknown): value is string =>
   typeof value === "string" && base64.test(value) && (() => { try { return btoa(atob(value)) === value; } catch { return false; } })();
 
+/** The archive inventory keeps padded base64; Directory control commits the
+ * same SHA-256 in canonical unpadded base64url. */
+export const ownerVaultBackupControlDigest = (bytes: Uint8Array): string =>
+  ownerVaultBackupDigest(bytes).replace(/\+/gu, "-").replace(/\//gu, "_").slice(0, -1);
+export const validOwnerVaultBackupControlDigest = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{43}$/u.test(value) && (() => {
+    try {
+      const padded = `${value.replace(/-/gu, "+").replace(/_/gu, "/")}=`;
+      return btoa(atob(padded)) === padded;
+    } catch {
+      return false;
+    }
+  })();
+
 const canonicalValue = (value: unknown): string | undefined => {
   if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number") return Number.isFinite(value) ? JSON.stringify(value) : undefined;

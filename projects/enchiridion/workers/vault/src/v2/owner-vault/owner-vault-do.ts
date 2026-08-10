@@ -72,7 +72,11 @@ import {
   type DeviceService as DeviceServiceType,
 } from "../devices/types";
 import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
-import { canonicalSignedManifestBytes, ownerVaultBackupDigest } from "./backup-canonical";
+import {
+  canonicalSignedManifestBytes,
+  ownerVaultBackupControlDigest,
+  validOwnerVaultBackupControlDigest,
+} from "./backup-canonical";
 import { OwnerVaultBackupError } from "./backup-types";
 import {
   makeOwnerVaultDomainProvider,
@@ -868,7 +872,7 @@ const validPrivateInitialize = (
   typeof value.backupID === "string" &&
   opaqueOperationID.test(value.backupID) &&
   typeof value.manifestDigest === "string" &&
-  hexDigest.test(value.manifestDigest);
+  validOwnerVaultBackupControlDigest(value.manifestDigest);
 const validFence = (
   value: Readonly<Record<string, unknown>>,
 ): value is OwnerVaultCredentialFenceCommand =>
@@ -943,7 +947,7 @@ const validRestore = (
   typeof value.backupID === "string" &&
   opaqueOperationID.test(value.backupID) &&
   typeof value.manifestDigest === "string" &&
-  hexDigest.test(value.manifestDigest);
+  validOwnerVaultBackupControlDigest(value.manifestDigest);
 
 export interface OwnerVaultDODependencies {
   readonly controls: DirectoryControlCapabilityFactory;
@@ -1457,8 +1461,7 @@ export const makeOwnerVaultDO = (
                     completed.controlDigest === acknowledgement.controlDigest &&
                     completed.durableReceipt === acknowledgement.durableReceipt &&
                     completed.state === "COMPLETED" &&
-                    typeof completed.manifestDigest === "string" &&
-                    /^[A-Za-z0-9+/]{43}=$/u.test(completed.manifestDigest)
+                    validOwnerVaultBackupControlDigest(completed.manifestDigest)
                     ? Effect.succeed<SnapshotJournal>({
                         phase: "COMPLETED" as const,
                         manifestDigest: completed.manifestDigest,
@@ -1487,10 +1490,14 @@ export const makeOwnerVaultDO = (
                           const signed = canonicalSignedManifestBytes(manifest);
                           return signed === undefined
                             ? rejectControl<string>()
-                            : completeAcknowledgement(ownerVaultBackupDigest(signed));
+                            : completeAcknowledgement(ownerVaultBackupControlDigest(signed));
                         }),
                       )
-                    : completeAcknowledgement(recovered),
+                    : completeAcknowledgement(
+                        ownerVaultBackupControlDigest(
+                          Uint8Array.from(atob(recovered), (entry) => entry.charCodeAt(0)),
+                        ),
+                      ),
                 ),
               ),
         ),

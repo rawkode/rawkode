@@ -198,7 +198,7 @@ const ownerVaultSocketAdmissionRing = () =>
   });
 const owner = "owner-workerd-fixture";
 const vault = "vault-workerd-fixture";
-const digest = "a".repeat(64);
+const digest = "A".repeat(43);
 const privateInit = {
   ownerID: owner,
   vaultID: vault,
