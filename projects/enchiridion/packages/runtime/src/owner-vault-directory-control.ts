@@ -1,18 +1,18 @@
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
 import { signCapabilityHmac, unknownRecord, verifyCapabilityHmac } from "./adapters";
-import { type InternalCapabilityKeyRing, makeInternalCapabilityKeyRing } from "./capability";
-import {
-  type CapabilityConfigurationError,
+import type { CapabilityKeyMaterial } from "./capability";
+import type {
+  CapabilityConfigurationError,
   CapabilitySigningError,
   CapabilityVerificationError,
 } from "./errors";
+import {
+  CapabilityConfigurationError as ConfigurationError,
+  CapabilitySigningError as SigningError,
+  CapabilityVerificationError as VerificationError,
+} from "./errors";
 
-/**
- * OwnerVault's four Directory-issued operations deliberately have a different
- * token type from the legacy DirectoryControl journal.  The discriminated
- * request/expectation pairs make a new resource impossible to authorize with
- * an optional-field bag or an old control token.
- */
+/** A separate authority from legacy DirectoryControl and generic v1 capabilities. */
 export enum OwnerVaultDirectoryControlResource {
   PrivateInitialize = "private-initialize",
   CredentialFence = "credential-fence",
@@ -25,11 +25,17 @@ export const ownerVaultCredentialFencePath = "/__v2/internal/owner-vault/credent
 export const ownerVaultSnapshotPath = "/__v2/internal/owner-vault/snapshot";
 export const ownerVaultRestorePath = "/__v2/internal/owner-vault/restore";
 export const maximumOwnerVaultDirectoryControlTTLSeconds = 60;
+export const maximumPriorOwnerVaultDirectoryControlKeys = 2;
 
-interface OwnerVaultDirectoryControlCommon {
+interface Common {
   readonly ownerID: string;
   readonly vaultID: string;
+  /** The receiving target generation; never inferred from any source tuple. */
   readonly generationEpoch: number;
+  readonly routingEpoch: number;
+  readonly credentialEpoch: number;
+  readonly controlEpoch: number;
+  readonly securityFloor: number;
   readonly operationID: string;
   readonly jti: string;
   readonly method: "POST";
@@ -37,109 +43,68 @@ interface OwnerVaultDirectoryControlCommon {
   readonly bodySHA256: string;
 }
 
-interface OwnerVaultDirectoryControlCurrent {
-  readonly credentialEpoch: number;
-  readonly routingEpoch: number;
-  readonly controlEpoch: number;
-  readonly securityFloor: number;
-}
-
-export interface OwnerVaultPrivateInitializeBinding
-  extends OwnerVaultDirectoryControlCommon,
-    OwnerVaultDirectoryControlCurrent {
+export interface OwnerVaultPrivateInitializeBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.PrivateInitialize;
   readonly path: typeof ownerVaultPrivateInitializePath;
-  readonly initDigest: string;
+  readonly sourceGeneration: number;
+  readonly targetGeneration: number;
+  readonly allocationID: string;
+  readonly initID: string;
+  readonly backupID: string;
+  readonly manifestDigest: string;
 }
-
-/** Both raised values are authenticated; a receiver cannot apply a partial fence. */
-export interface OwnerVaultCredentialFenceBinding extends OwnerVaultDirectoryControlCommon {
+export interface OwnerVaultCredentialFenceBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.CredentialFence;
   readonly path: typeof ownerVaultCredentialFencePath;
   readonly expectedCredentialEpoch: number;
   readonly expectedRoutingEpoch: number;
-  readonly credentialEpoch: number;
-  readonly routingEpoch: number;
-  readonly controlEpoch: number;
-  readonly securityFloor: number;
+  readonly expectedControlEpoch: number;
+  readonly expectedSecurityFloor: number;
+  readonly raisedCredentialEpoch: number;
+  readonly raisedRoutingEpoch: number;
 }
-
-export interface OwnerVaultSnapshotBinding
-  extends OwnerVaultDirectoryControlCommon,
-    OwnerVaultDirectoryControlCurrent {
+export interface OwnerVaultSnapshotBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.Snapshot;
   readonly path: typeof ownerVaultSnapshotPath;
   readonly backupID: string;
+  readonly sourceGeneration: number;
+  readonly sourceRoutingEpoch: number;
+  readonly sourceCredentialEpoch: number;
+  readonly sourceControlEpoch: number;
+  readonly sourceSecurityFloor: number;
 }
-
-export interface OwnerVaultRestoreBinding
-  extends OwnerVaultDirectoryControlCommon,
-    OwnerVaultDirectoryControlCurrent {
+export interface OwnerVaultRestoreBinding extends Common {
   readonly resource: OwnerVaultDirectoryControlResource.Restore;
   readonly path: typeof ownerVaultRestorePath;
-  readonly restoreID: string;
+  readonly allocationID: string;
+  readonly initID: string;
+  readonly sourceGeneration: number;
+  readonly targetGeneration: number;
   readonly backupID: string;
   readonly manifestDigest: string;
 }
-
 export type OwnerVaultDirectoryControlRequestBinding =
   | OwnerVaultPrivateInitializeBinding
   | OwnerVaultCredentialFenceBinding
   | OwnerVaultSnapshotBinding
   | OwnerVaultRestoreBinding;
 
-interface OwnerVaultDirectoryControlExpectedCommon extends OwnerVaultDirectoryControlCurrent {
-  readonly resource: OwnerVaultDirectoryControlResource;
-  readonly ownerID: string;
-  readonly vaultID: string;
-  readonly generationEpoch: number;
-  readonly operationID: string;
-}
-
-export interface OwnerVaultPrivateInitializeExpectation
-  extends OwnerVaultDirectoryControlExpectedCommon {
-  readonly resource: OwnerVaultDirectoryControlResource.PrivateInitialize;
-  readonly initDigest: string;
-}
-export interface OwnerVaultCredentialFenceExpectation
-  extends OwnerVaultDirectoryControlExpectedCommon {
-  readonly resource: OwnerVaultDirectoryControlResource.CredentialFence;
-  readonly expectedCredentialEpoch: number;
-  readonly expectedRoutingEpoch: number;
-}
-export interface OwnerVaultSnapshotExpectation extends OwnerVaultDirectoryControlExpectedCommon {
-  readonly resource: OwnerVaultDirectoryControlResource.Snapshot;
-  readonly backupID: string;
-}
-export interface OwnerVaultRestoreExpectation extends OwnerVaultDirectoryControlExpectedCommon {
-  readonly resource: OwnerVaultDirectoryControlResource.Restore;
-  readonly restoreID: string;
-  readonly backupID: string;
-  readonly manifestDigest: string;
-}
-export type OwnerVaultDirectoryControlExpectation =
-  | OwnerVaultPrivateInitializeExpectation
-  | OwnerVaultCredentialFenceExpectation
-  | OwnerVaultSnapshotExpectation
-  | OwnerVaultRestoreExpectation;
-
-interface OwnerVaultDirectoryControlSigned {
+/** Expectations intentionally mirror every request claim (except key/time). */
+export type OwnerVaultDirectoryControlExpectation = OwnerVaultDirectoryControlRequestBinding;
+interface Signed {
   readonly keyID: string;
   readonly issuedAt: number;
   readonly expiresAt: number;
 }
-export type OwnerVaultPrivateInitializeClaims = OwnerVaultPrivateInitializeBinding &
-  OwnerVaultDirectoryControlSigned;
-export type OwnerVaultCredentialFenceClaims = OwnerVaultCredentialFenceBinding &
-  OwnerVaultDirectoryControlSigned;
-export type OwnerVaultSnapshotClaims = OwnerVaultSnapshotBinding & OwnerVaultDirectoryControlSigned;
-export type OwnerVaultRestoreClaims = OwnerVaultRestoreBinding & OwnerVaultDirectoryControlSigned;
+export type OwnerVaultPrivateInitializeClaims = OwnerVaultPrivateInitializeBinding & Signed;
+export type OwnerVaultCredentialFenceClaims = OwnerVaultCredentialFenceBinding & Signed;
+export type OwnerVaultSnapshotClaims = OwnerVaultSnapshotBinding & Signed;
+export type OwnerVaultRestoreClaims = OwnerVaultRestoreBinding & Signed;
 export type OwnerVaultDirectoryControlClaims =
   | OwnerVaultPrivateInitializeClaims
   | OwnerVaultCredentialFenceClaims
   | OwnerVaultSnapshotClaims
   | OwnerVaultRestoreClaims;
-
 export type OwnerVaultPrivateInitializeClaimsInput = OwnerVaultPrivateInitializeBinding & {
   readonly ttlSeconds: number;
 };
@@ -157,132 +122,132 @@ export type OwnerVaultDirectoryControlClaimsInput =
   | OwnerVaultCredentialFenceClaimsInput
   | OwnerVaultSnapshotClaimsInput
   | OwnerVaultRestoreClaimsInput;
-
 export interface SignedOwnerVaultDirectoryControl {
   readonly value: string;
 }
 
-const keyIDPattern = /^[A-Za-z0-9_-]{1,64}$/u;
-const identifierPattern = /^[A-Za-z0-9._~-]{1,128}$/u;
-const operationPattern = /^[A-Za-z0-9_-]{16,128}$/u;
-const digestPattern = /^[a-f0-9]{64}$/u;
-const textEncoder = new TextEncoder();
+export interface OwnerVaultDirectoryControlKeyRing {
+  readonly purpose: "owner-vault-directory-control";
+  readonly current: CapabilityKeyMaterial;
+  readonly prior: readonly CapabilityKeyMaterial[];
+  readonly revokedKeyIDs: readonly string[];
+}
 
-const base64url = (bytes: Uint8Array): string => {
+const keyID = /^[A-Za-z0-9_-]{1,64}$/u;
+const id = /^[A-Za-z0-9._~-]{1,128}$/u;
+const opaque = /^[A-Za-z0-9_-]{16,128}$/u;
+const digest = /^[a-f0-9]{64}$/u;
+const encoder = new TextEncoder();
+const positive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+const b64url = (value: Uint8Array): string => {
   let text = "";
-  for (const byte of bytes) text += String.fromCharCode(byte);
+  for (const byte of value) text += String.fromCharCode(byte);
   return btoa(text).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
 };
-const fromBase64url = (value: string): Uint8Array<ArrayBuffer> | undefined => {
+const fromB64url = (value: string): Uint8Array<ArrayBuffer> | undefined => {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) return undefined;
   try {
     const padded = `${value.replace(/-/gu, "+").replace(/_/gu, "/")}${"=".repeat((4 - (value.length % 4)) % 4)}`;
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-    return base64url(bytes) === value ? bytes : undefined;
+    const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+    return b64url(bytes) === value ? bytes : undefined;
   } catch {
     return undefined;
   }
 };
-const positive = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
-const nonNegative = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-const commonValid = (value: OwnerVaultDirectoryControlCommon): boolean =>
-  identifierPattern.test(value.ownerID) &&
-  identifierPattern.test(value.vaultID) &&
+const commonValid = (value: Common): boolean =>
+  id.test(value.ownerID) &&
+  id.test(value.vaultID) &&
   value.ownerID !== value.vaultID &&
   positive(value.generationEpoch) &&
-  operationPattern.test(value.operationID) &&
-  operationPattern.test(value.jti) &&
+  positive(value.routingEpoch) &&
+  positive(value.credentialEpoch) &&
+  positive(value.controlEpoch) &&
+  positive(value.securityFloor) &&
+  opaque.test(value.operationID) &&
+  opaque.test(value.jti) &&
   value.method === "POST" &&
   value.canonicalQuery === "" &&
-  digestPattern.test(value.bodySHA256);
-const currentValid = (value: OwnerVaultDirectoryControlCurrent): boolean =>
-  positive(value.credentialEpoch) &&
-  positive(value.routingEpoch) &&
-  positive(value.controlEpoch) &&
-  nonNegative(value.securityFloor);
-const fenceValid = (value: OwnerVaultCredentialFenceBinding): boolean =>
-  commonValid(value) &&
-  positive(value.expectedCredentialEpoch) &&
-  positive(value.expectedRoutingEpoch) &&
-  value.credentialEpoch === value.expectedCredentialEpoch + 1 &&
-  value.routingEpoch === value.expectedRoutingEpoch + 1 &&
-  positive(value.controlEpoch) &&
-  nonNegative(value.securityFloor);
+  digest.test(value.bodySHA256);
+const allocationValid = (value: {
+  readonly sourceGeneration: number;
+  readonly targetGeneration: number;
+  readonly allocationID: string;
+  readonly initID: string;
+  readonly backupID: string;
+  readonly manifestDigest: string;
+}): boolean =>
+  positive(value.sourceGeneration) &&
+  positive(value.targetGeneration) &&
+  opaque.test(value.allocationID) &&
+  opaque.test(value.initID) &&
+  opaque.test(value.backupID) &&
+  digest.test(value.manifestDigest);
 const bindingValid = (value: OwnerVaultDirectoryControlRequestBinding): boolean => {
   switch (value.resource) {
     case OwnerVaultDirectoryControlResource.PrivateInitialize:
       return (
         commonValid(value) &&
         value.path === ownerVaultPrivateInitializePath &&
-        digestPattern.test(value.initDigest) &&
-        currentValid(value)
+        allocationValid(value) &&
+        value.generationEpoch === value.targetGeneration
       );
     case OwnerVaultDirectoryControlResource.CredentialFence:
-      return value.path === ownerVaultCredentialFencePath && fenceValid(value);
+      return (
+        commonValid(value) &&
+        value.path === ownerVaultCredentialFencePath &&
+        positive(value.expectedCredentialEpoch) &&
+        positive(value.expectedRoutingEpoch) &&
+        positive(value.expectedControlEpoch) &&
+        positive(value.expectedSecurityFloor) &&
+        positive(value.raisedCredentialEpoch) &&
+        positive(value.raisedRoutingEpoch) &&
+        value.credentialEpoch === value.raisedCredentialEpoch &&
+        value.routingEpoch === value.raisedRoutingEpoch &&
+        value.controlEpoch === value.expectedControlEpoch &&
+        value.securityFloor === value.expectedSecurityFloor &&
+        value.raisedCredentialEpoch === value.expectedCredentialEpoch + 1 &&
+        value.raisedRoutingEpoch === value.expectedRoutingEpoch + 1
+      );
     case OwnerVaultDirectoryControlResource.Snapshot:
       return (
         commonValid(value) &&
         value.path === ownerVaultSnapshotPath &&
-        operationPattern.test(value.backupID) &&
-        currentValid(value)
+        opaque.test(value.backupID) &&
+        positive(value.sourceGeneration) &&
+        positive(value.sourceRoutingEpoch) &&
+        positive(value.sourceCredentialEpoch) &&
+        positive(value.sourceControlEpoch) &&
+        positive(value.sourceSecurityFloor)
       );
     case OwnerVaultDirectoryControlResource.Restore:
       return (
         commonValid(value) &&
         value.path === ownerVaultRestorePath &&
-        operationPattern.test(value.restoreID) &&
-        operationPattern.test(value.backupID) &&
-        digestPattern.test(value.manifestDigest) &&
-        currentValid(value)
-      );
-  }
-};
-const expectationValid = (value: OwnerVaultDirectoryControlExpectation): boolean => {
-  const common =
-    identifierPattern.test(value.ownerID) &&
-    identifierPattern.test(value.vaultID) &&
-    value.ownerID !== value.vaultID &&
-    positive(value.generationEpoch) &&
-    operationPattern.test(value.operationID) &&
-    currentValid(value);
-  if (!common) return false;
-  switch (value.resource) {
-    case OwnerVaultDirectoryControlResource.PrivateInitialize:
-      return digestPattern.test(value.initDigest);
-    case OwnerVaultDirectoryControlResource.CredentialFence:
-      return (
-        positive(value.expectedCredentialEpoch) &&
-        positive(value.expectedRoutingEpoch) &&
-        value.credentialEpoch === value.expectedCredentialEpoch + 1 &&
-        value.routingEpoch === value.expectedRoutingEpoch + 1
-      );
-    case OwnerVaultDirectoryControlResource.Snapshot:
-      return operationPattern.test(value.backupID);
-    case OwnerVaultDirectoryControlResource.Restore:
-      return (
-        operationPattern.test(value.restoreID) &&
-        operationPattern.test(value.backupID) &&
-        digestPattern.test(value.manifestDigest)
+        allocationValid(value) &&
+        value.generationEpoch === value.targetGeneration
       );
   }
 };
 const claimsValid = (value: OwnerVaultDirectoryControlClaims): boolean =>
   bindingValid(value) &&
-  keyIDPattern.test(value.keyID) &&
+  keyID.test(value.keyID) &&
+  positive(value.issuedAt) &&
   positive(value.expiresAt) &&
-  nonNegative(value.issuedAt) &&
   value.expiresAt > value.issuedAt &&
   value.expiresAt - value.issuedAt <= maximumOwnerVaultDirectoryControlTTLSeconds;
 
-/** Fixed key order is part of the signed protocol. */
-const canonicalPayload = (claims: OwnerVaultDirectoryControlClaims): string => {
+/** Every branch explicitly fixes its own shape and serialization order. */
+const canonical = (claims: OwnerVaultDirectoryControlClaims): string => {
   const common = {
     resource: claims.resource,
     ownerID: claims.ownerID,
     vaultID: claims.vaultID,
     generationEpoch: claims.generationEpoch,
+    routingEpoch: claims.routingEpoch,
+    credentialEpoch: claims.credentialEpoch,
+    controlEpoch: claims.controlEpoch,
+    securityFloor: claims.securityFloor,
     operationID: claims.operationID,
     jti: claims.jti,
     method: claims.method,
@@ -297,50 +262,54 @@ const canonicalPayload = (claims: OwnerVaultDirectoryControlClaims): string => {
     case OwnerVaultDirectoryControlResource.PrivateInitialize:
       return JSON.stringify({
         ...common,
-        initDigest: claims.initDigest,
-        credentialEpoch: claims.credentialEpoch,
-        routingEpoch: claims.routingEpoch,
-        controlEpoch: claims.controlEpoch,
-        securityFloor: claims.securityFloor,
+        sourceGeneration: claims.sourceGeneration,
+        targetGeneration: claims.targetGeneration,
+        allocationID: claims.allocationID,
+        initID: claims.initID,
+        backupID: claims.backupID,
+        manifestDigest: claims.manifestDigest,
       });
     case OwnerVaultDirectoryControlResource.CredentialFence:
       return JSON.stringify({
         ...common,
         expectedCredentialEpoch: claims.expectedCredentialEpoch,
         expectedRoutingEpoch: claims.expectedRoutingEpoch,
-        credentialEpoch: claims.credentialEpoch,
-        routingEpoch: claims.routingEpoch,
-        controlEpoch: claims.controlEpoch,
-        securityFloor: claims.securityFloor,
+        expectedControlEpoch: claims.expectedControlEpoch,
+        expectedSecurityFloor: claims.expectedSecurityFloor,
+        raisedCredentialEpoch: claims.raisedCredentialEpoch,
+        raisedRoutingEpoch: claims.raisedRoutingEpoch,
       });
     case OwnerVaultDirectoryControlResource.Snapshot:
       return JSON.stringify({
         ...common,
         backupID: claims.backupID,
-        credentialEpoch: claims.credentialEpoch,
-        routingEpoch: claims.routingEpoch,
-        controlEpoch: claims.controlEpoch,
-        securityFloor: claims.securityFloor,
+        sourceGeneration: claims.sourceGeneration,
+        sourceRoutingEpoch: claims.sourceRoutingEpoch,
+        sourceCredentialEpoch: claims.sourceCredentialEpoch,
+        sourceControlEpoch: claims.sourceControlEpoch,
+        sourceSecurityFloor: claims.sourceSecurityFloor,
       });
     case OwnerVaultDirectoryControlResource.Restore:
       return JSON.stringify({
         ...common,
-        restoreID: claims.restoreID,
+        allocationID: claims.allocationID,
+        initID: claims.initID,
+        sourceGeneration: claims.sourceGeneration,
+        targetGeneration: claims.targetGeneration,
         backupID: claims.backupID,
         manifestDigest: claims.manifestDigest,
-        credentialEpoch: claims.credentialEpoch,
-        routingEpoch: claims.routingEpoch,
-        controlEpoch: claims.controlEpoch,
-        securityFloor: claims.securityFloor,
       });
   }
 };
-
 const commonKeys = [
   "resource",
   "ownerID",
   "vaultID",
   "generationEpoch",
+  "routingEpoch",
+  "credentialEpoch",
+  "controlEpoch",
+  "securityFloor",
   "operationID",
   "jti",
   "method",
@@ -351,28 +320,34 @@ const commonKeys = [
   "issuedAt",
   "expiresAt",
 ] as const;
-const exact = (record: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
+const hasExact = (record: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(record).length === keys.length && keys.every((key) => Object.hasOwn(record, key));
 interface DecodedCommon {
   readonly ownerID: string;
   readonly vaultID: string;
   readonly generationEpoch: number;
+  readonly routingEpoch: number;
+  readonly credentialEpoch: number;
+  readonly controlEpoch: number;
+  readonly securityFloor: number;
   readonly operationID: string;
   readonly jti: string;
-  readonly path: string;
   readonly bodySHA256: string;
   readonly keyID: string;
   readonly issuedAt: number;
   readonly expiresAt: number;
 }
-const decodedCommon = (record: Readonly<Record<string, unknown>>): DecodedCommon | undefined =>
+const decodeCommon = (record: Readonly<Record<string, unknown>>): DecodedCommon | undefined =>
   typeof record.ownerID === "string" &&
   typeof record.vaultID === "string" &&
   typeof record.generationEpoch === "number" &&
+  typeof record.routingEpoch === "number" &&
+  typeof record.credentialEpoch === "number" &&
+  typeof record.controlEpoch === "number" &&
+  typeof record.securityFloor === "number" &&
   typeof record.operationID === "string" &&
   typeof record.jti === "string" &&
   record.method === "POST" &&
-  typeof record.path === "string" &&
   record.canonicalQuery === "" &&
   typeof record.bodySHA256 === "string" &&
   typeof record.keyID === "string" &&
@@ -382,214 +357,218 @@ const decodedCommon = (record: Readonly<Record<string, unknown>>): DecodedCommon
         ownerID: record.ownerID,
         vaultID: record.vaultID,
         generationEpoch: record.generationEpoch,
+        routingEpoch: record.routingEpoch,
+        credentialEpoch: record.credentialEpoch,
+        controlEpoch: record.controlEpoch,
+        securityFloor: record.securityFloor,
         operationID: record.operationID,
         jti: record.jti,
-        path: record.path,
         bodySHA256: record.bodySHA256,
         keyID: record.keyID,
         issuedAt: record.issuedAt,
         expiresAt: record.expiresAt,
       }
     : undefined;
-const fromUnknown = (
+const invalid = <A = never>(): Effect.Effect<A, CapabilityVerificationError> =>
+  Effect.fail(new VerificationError({ reason: "claims_invalid" }));
+const decode = (
   value: unknown,
 ): Effect.Effect<OwnerVaultDirectoryControlClaims, CapabilityVerificationError> =>
   Effect.gen(function* () {
     const record = yield* unknownRecord("unknown-record", value).pipe(
-      Effect.mapError(() => new CapabilityVerificationError({ reason: "claims_invalid" })),
+      Effect.mapError(() => new VerificationError({ reason: "claims_invalid" })),
     );
-    const common = decodedCommon(record);
-    if (common === undefined || typeof record.resource !== "string")
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const common = decodeCommon(record);
+    if (
+      common === undefined ||
+      typeof record.resource !== "string" ||
+      typeof record.path !== "string"
+    )
+      return yield* invalid();
     switch (record.resource) {
       case OwnerVaultDirectoryControlResource.PrivateInitialize: {
         if (
-          !exact(record, [
+          !hasExact(record, [
             ...commonKeys,
-            "initDigest",
-            "credentialEpoch",
-            "routingEpoch",
-            "controlEpoch",
-            "securityFloor",
+            "sourceGeneration",
+            "targetGeneration",
+            "allocationID",
+            "initID",
+            "backupID",
+            "manifestDigest",
           ]) ||
-          typeof record.initDigest !== "string" ||
-          typeof record.credentialEpoch !== "number" ||
-          typeof record.routingEpoch !== "number" ||
-          typeof record.controlEpoch !== "number" ||
-          typeof record.securityFloor !== "number" ||
-          common.path !== ownerVaultPrivateInitializePath
+          record.path !== ownerVaultPrivateInitializePath ||
+          typeof record.sourceGeneration !== "number" ||
+          typeof record.targetGeneration !== "number" ||
+          typeof record.allocationID !== "string" ||
+          typeof record.initID !== "string" ||
+          typeof record.backupID !== "string" ||
+          typeof record.manifestDigest !== "string"
         )
-          return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+          return yield* invalid();
         const claims: OwnerVaultPrivateInitializeClaims = {
           resource: record.resource,
-          ownerID: common.ownerID,
-          vaultID: common.vaultID,
-          generationEpoch: common.generationEpoch,
-          operationID: common.operationID,
-          jti: common.jti,
-          method: "POST",
           path: ownerVaultPrivateInitializePath,
+          method: "POST",
           canonicalQuery: "",
-          bodySHA256: common.bodySHA256,
-          initDigest: record.initDigest,
-          credentialEpoch: record.credentialEpoch,
-          routingEpoch: record.routingEpoch,
-          controlEpoch: record.controlEpoch,
-          securityFloor: record.securityFloor,
-          keyID: common.keyID,
-          issuedAt: common.issuedAt,
-          expiresAt: common.expiresAt,
+          ...common,
+          sourceGeneration: record.sourceGeneration,
+          targetGeneration: record.targetGeneration,
+          allocationID: record.allocationID,
+          initID: record.initID,
+          backupID: record.backupID,
+          manifestDigest: record.manifestDigest,
         };
-        return claimsValid(claims)
-          ? claims
-          : yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+        return claimsValid(claims) ? claims : yield* invalid();
       }
       case OwnerVaultDirectoryControlResource.CredentialFence: {
         if (
-          !exact(record, [
+          !hasExact(record, [
             ...commonKeys,
             "expectedCredentialEpoch",
             "expectedRoutingEpoch",
-            "credentialEpoch",
-            "routingEpoch",
-            "controlEpoch",
-            "securityFloor",
+            "expectedControlEpoch",
+            "expectedSecurityFloor",
+            "raisedCredentialEpoch",
+            "raisedRoutingEpoch",
           ]) ||
+          record.path !== ownerVaultCredentialFencePath ||
           typeof record.expectedCredentialEpoch !== "number" ||
           typeof record.expectedRoutingEpoch !== "number" ||
-          typeof record.credentialEpoch !== "number" ||
-          typeof record.routingEpoch !== "number" ||
-          typeof record.controlEpoch !== "number" ||
-          typeof record.securityFloor !== "number" ||
-          common.path !== ownerVaultCredentialFencePath
+          typeof record.expectedControlEpoch !== "number" ||
+          typeof record.expectedSecurityFloor !== "number" ||
+          typeof record.raisedCredentialEpoch !== "number" ||
+          typeof record.raisedRoutingEpoch !== "number"
         )
-          return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+          return yield* invalid();
         const claims: OwnerVaultCredentialFenceClaims = {
           resource: record.resource,
-          ownerID: common.ownerID,
-          vaultID: common.vaultID,
-          generationEpoch: common.generationEpoch,
-          operationID: common.operationID,
-          jti: common.jti,
-          method: "POST",
           path: ownerVaultCredentialFencePath,
+          method: "POST",
           canonicalQuery: "",
-          bodySHA256: common.bodySHA256,
+          ...common,
           expectedCredentialEpoch: record.expectedCredentialEpoch,
           expectedRoutingEpoch: record.expectedRoutingEpoch,
-          credentialEpoch: record.credentialEpoch,
-          routingEpoch: record.routingEpoch,
-          controlEpoch: record.controlEpoch,
-          securityFloor: record.securityFloor,
-          keyID: common.keyID,
-          issuedAt: common.issuedAt,
-          expiresAt: common.expiresAt,
+          expectedControlEpoch: record.expectedControlEpoch,
+          expectedSecurityFloor: record.expectedSecurityFloor,
+          raisedCredentialEpoch: record.raisedCredentialEpoch,
+          raisedRoutingEpoch: record.raisedRoutingEpoch,
         };
-        return claimsValid(claims)
-          ? claims
-          : yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+        return claimsValid(claims) ? claims : yield* invalid();
       }
       case OwnerVaultDirectoryControlResource.Snapshot: {
         if (
-          !exact(record, [
+          !hasExact(record, [
             ...commonKeys,
             "backupID",
-            "credentialEpoch",
-            "routingEpoch",
-            "controlEpoch",
-            "securityFloor",
+            "sourceGeneration",
+            "sourceRoutingEpoch",
+            "sourceCredentialEpoch",
+            "sourceControlEpoch",
+            "sourceSecurityFloor",
           ]) ||
+          record.path !== ownerVaultSnapshotPath ||
           typeof record.backupID !== "string" ||
-          typeof record.credentialEpoch !== "number" ||
-          typeof record.routingEpoch !== "number" ||
-          typeof record.controlEpoch !== "number" ||
-          typeof record.securityFloor !== "number" ||
-          common.path !== ownerVaultSnapshotPath
+          typeof record.sourceGeneration !== "number" ||
+          typeof record.sourceRoutingEpoch !== "number" ||
+          typeof record.sourceCredentialEpoch !== "number" ||
+          typeof record.sourceControlEpoch !== "number" ||
+          typeof record.sourceSecurityFloor !== "number"
         )
-          return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+          return yield* invalid();
         const claims: OwnerVaultSnapshotClaims = {
           resource: record.resource,
-          ownerID: common.ownerID,
-          vaultID: common.vaultID,
-          generationEpoch: common.generationEpoch,
-          operationID: common.operationID,
-          jti: common.jti,
-          method: "POST",
           path: ownerVaultSnapshotPath,
+          method: "POST",
           canonicalQuery: "",
-          bodySHA256: common.bodySHA256,
+          ...common,
           backupID: record.backupID,
-          credentialEpoch: record.credentialEpoch,
-          routingEpoch: record.routingEpoch,
-          controlEpoch: record.controlEpoch,
-          securityFloor: record.securityFloor,
-          keyID: common.keyID,
-          issuedAt: common.issuedAt,
-          expiresAt: common.expiresAt,
+          sourceGeneration: record.sourceGeneration,
+          sourceRoutingEpoch: record.sourceRoutingEpoch,
+          sourceCredentialEpoch: record.sourceCredentialEpoch,
+          sourceControlEpoch: record.sourceControlEpoch,
+          sourceSecurityFloor: record.sourceSecurityFloor,
         };
-        return claimsValid(claims)
-          ? claims
-          : yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+        return claimsValid(claims) ? claims : yield* invalid();
       }
       case OwnerVaultDirectoryControlResource.Restore: {
         if (
-          !exact(record, [
+          !hasExact(record, [
             ...commonKeys,
-            "restoreID",
+            "allocationID",
+            "initID",
+            "sourceGeneration",
+            "targetGeneration",
             "backupID",
             "manifestDigest",
-            "credentialEpoch",
-            "routingEpoch",
-            "controlEpoch",
-            "securityFloor",
           ]) ||
-          typeof record.restoreID !== "string" ||
+          record.path !== ownerVaultRestorePath ||
+          typeof record.allocationID !== "string" ||
+          typeof record.initID !== "string" ||
+          typeof record.sourceGeneration !== "number" ||
+          typeof record.targetGeneration !== "number" ||
           typeof record.backupID !== "string" ||
-          typeof record.manifestDigest !== "string" ||
-          typeof record.credentialEpoch !== "number" ||
-          typeof record.routingEpoch !== "number" ||
-          typeof record.controlEpoch !== "number" ||
-          typeof record.securityFloor !== "number" ||
-          common.path !== ownerVaultRestorePath
+          typeof record.manifestDigest !== "string"
         )
-          return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+          return yield* invalid();
         const claims: OwnerVaultRestoreClaims = {
           resource: record.resource,
-          ownerID: common.ownerID,
-          vaultID: common.vaultID,
-          generationEpoch: common.generationEpoch,
-          operationID: common.operationID,
-          jti: common.jti,
-          method: "POST",
           path: ownerVaultRestorePath,
+          method: "POST",
           canonicalQuery: "",
-          bodySHA256: common.bodySHA256,
-          restoreID: record.restoreID,
+          ...common,
+          allocationID: record.allocationID,
+          initID: record.initID,
+          sourceGeneration: record.sourceGeneration,
+          targetGeneration: record.targetGeneration,
           backupID: record.backupID,
           manifestDigest: record.manifestDigest,
-          credentialEpoch: record.credentialEpoch,
-          routingEpoch: record.routingEpoch,
-          controlEpoch: record.controlEpoch,
-          securityFloor: record.securityFloor,
-          keyID: common.keyID,
-          issuedAt: common.issuedAt,
-          expiresAt: common.expiresAt,
         };
-        return claimsValid(claims)
-          ? claims
-          : yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+        return claimsValid(claims) ? claims : yield* invalid();
       }
       default:
-        return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+        return yield* invalid();
     }
   });
 
-const claimsFor = (
+export const makeOwnerVaultDirectoryControlKeyRing = (input: {
+  readonly current: CapabilityKeyMaterial;
+  readonly prior?: readonly CapabilityKeyMaterial[];
+  readonly revokedKeyIDs?: readonly string[];
+}): Effect.Effect<OwnerVaultDirectoryControlKeyRing, CapabilityConfigurationError> => {
+  const prior = input.prior ?? [];
+  const revoked = input.revokedKeyIDs ?? [];
+  const active = [input.current, ...prior];
+  if (prior.length > maximumPriorOwnerVaultDirectoryControlKeys)
+    return Effect.fail(new ConfigurationError({ reason: "too_many_prior_keys" }));
+  if (
+    active.some((entry) => !keyID.test(entry.keyID)) ||
+    revoked.some((entry) => !keyID.test(entry))
+  )
+    return Effect.fail(new ConfigurationError({ reason: "invalid_key_id" }));
+  if (active.some((entry) => Redacted.value(entry.secret).length === 0))
+    return Effect.fail(new ConfigurationError({ reason: "invalid_secret" }));
+  if (
+    new Set(active.map((entry) => entry.keyID)).size !== active.length ||
+    new Set(active.map((entry) => Redacted.value(entry.secret))).size !== active.length ||
+    new Set(revoked).size !== revoked.length
+  )
+    return Effect.fail(new ConfigurationError({ reason: "duplicate_key_id" }));
+  if (active.some((entry) => revoked.includes(entry.keyID)))
+    return Effect.fail(new ConfigurationError({ reason: "key_ring_overlap" }));
+  return Effect.succeed({
+    purpose: "owner-vault-directory-control",
+    current: input.current,
+    prior,
+    revokedKeyIDs: revoked,
+  });
+};
+const createClaims = (
   input: OwnerVaultDirectoryControlClaimsInput,
-  keyID: string,
-  nowSeconds: number,
+  key: string,
+  now: number,
 ): OwnerVaultDirectoryControlClaims => {
-  const signed = { keyID, issuedAt: nowSeconds, expiresAt: nowSeconds + input.ttlSeconds };
+  const signed = { keyID: key, issuedAt: now, expiresAt: now + input.ttlSeconds };
   switch (input.resource) {
     case OwnerVaultDirectoryControlResource.PrivateInitialize: {
       const { ttlSeconds: _, ...binding } = input;
@@ -609,139 +588,66 @@ const claimsFor = (
     }
   }
 };
-
+const signedBinding = (
+  binding: OwnerVaultDirectoryControlRequestBinding,
+  claims: OwnerVaultDirectoryControlClaims,
+): OwnerVaultDirectoryControlClaims => {
+  const signed = {
+    keyID: claims.keyID,
+    issuedAt: claims.issuedAt,
+    expiresAt: claims.expiresAt,
+  };
+  switch (binding.resource) {
+    case OwnerVaultDirectoryControlResource.PrivateInitialize:
+      return { ...binding, ...signed };
+    case OwnerVaultDirectoryControlResource.CredentialFence:
+      return { ...binding, ...signed };
+    case OwnerVaultDirectoryControlResource.Snapshot:
+      return { ...binding, ...signed };
+    case OwnerVaultDirectoryControlResource.Restore:
+      return { ...binding, ...signed };
+  }
+};
 const sameBinding = (
   claims: OwnerVaultDirectoryControlClaims,
   binding: OwnerVaultDirectoryControlRequestBinding,
-): boolean => {
-  if (
-    claims.resource !== binding.resource ||
-    claims.ownerID !== binding.ownerID ||
-    claims.vaultID !== binding.vaultID ||
-    claims.generationEpoch !== binding.generationEpoch ||
-    claims.operationID !== binding.operationID ||
-    claims.jti !== binding.jti ||
-    claims.method !== binding.method ||
-    claims.path !== binding.path ||
-    claims.canonicalQuery !== binding.canonicalQuery ||
-    claims.bodySHA256 !== binding.bodySHA256
-  )
-    return false;
-  switch (claims.resource) {
-    case OwnerVaultDirectoryControlResource.PrivateInitialize:
-      return (
-        binding.resource === claims.resource &&
-        claims.initDigest === binding.initDigest &&
-        claims.credentialEpoch === binding.credentialEpoch &&
-        claims.routingEpoch === binding.routingEpoch &&
-        claims.controlEpoch === binding.controlEpoch &&
-        claims.securityFloor === binding.securityFloor
-      );
-    case OwnerVaultDirectoryControlResource.CredentialFence:
-      return (
-        binding.resource === claims.resource &&
-        claims.expectedCredentialEpoch === binding.expectedCredentialEpoch &&
-        claims.expectedRoutingEpoch === binding.expectedRoutingEpoch &&
-        claims.credentialEpoch === binding.credentialEpoch &&
-        claims.routingEpoch === binding.routingEpoch &&
-        claims.controlEpoch === binding.controlEpoch &&
-        claims.securityFloor === binding.securityFloor
-      );
-    case OwnerVaultDirectoryControlResource.Snapshot:
-      return (
-        binding.resource === claims.resource &&
-        claims.backupID === binding.backupID &&
-        claims.credentialEpoch === binding.credentialEpoch &&
-        claims.routingEpoch === binding.routingEpoch &&
-        claims.controlEpoch === binding.controlEpoch &&
-        claims.securityFloor === binding.securityFloor
-      );
-    case OwnerVaultDirectoryControlResource.Restore:
-      return (
-        binding.resource === claims.resource &&
-        claims.restoreID === binding.restoreID &&
-        claims.backupID === binding.backupID &&
-        claims.manifestDigest === binding.manifestDigest &&
-        claims.credentialEpoch === binding.credentialEpoch &&
-        claims.routingEpoch === binding.routingEpoch &&
-        claims.controlEpoch === binding.controlEpoch &&
-        claims.securityFloor === binding.securityFloor
-      );
-  }
-};
-const sameExpectation = (
-  claims: OwnerVaultDirectoryControlClaims,
-  expected: OwnerVaultDirectoryControlExpectation,
-): boolean => {
-  if (
-    claims.resource !== expected.resource ||
-    claims.ownerID !== expected.ownerID ||
-    claims.vaultID !== expected.vaultID ||
-    claims.generationEpoch !== expected.generationEpoch ||
-    claims.operationID !== expected.operationID ||
-    claims.credentialEpoch !== expected.credentialEpoch ||
-    claims.routingEpoch !== expected.routingEpoch ||
-    claims.controlEpoch !== expected.controlEpoch ||
-    claims.securityFloor !== expected.securityFloor
-  )
-    return false;
-  switch (claims.resource) {
-    case OwnerVaultDirectoryControlResource.PrivateInitialize:
-      return expected.resource === claims.resource && claims.initDigest === expected.initDigest;
-    case OwnerVaultDirectoryControlResource.CredentialFence:
-      return (
-        expected.resource === claims.resource &&
-        claims.expectedCredentialEpoch === expected.expectedCredentialEpoch &&
-        claims.expectedRoutingEpoch === expected.expectedRoutingEpoch
-      );
-    case OwnerVaultDirectoryControlResource.Snapshot:
-      return expected.resource === claims.resource && claims.backupID === expected.backupID;
-    case OwnerVaultDirectoryControlResource.Restore:
-      return (
-        expected.resource === claims.resource &&
-        claims.restoreID === expected.restoreID &&
-        claims.backupID === expected.backupID &&
-        claims.manifestDigest === expected.manifestDigest
-      );
-  }
-};
+): boolean => canonical(claims) === canonical(signedBinding(binding, claims));
 
 export const signOwnerVaultDirectoryControl = (
   input: OwnerVaultDirectoryControlClaimsInput,
-  keyRing: InternalCapabilityKeyRing,
+  keyRing: OwnerVaultDirectoryControlKeyRing,
   nowSeconds: number,
 ): Effect.Effect<
   SignedOwnerVaultDirectoryControl,
   CapabilityConfigurationError | CapabilitySigningError
 > =>
   Effect.gen(function* () {
-    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
-    if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0 || !positive(input.ttlSeconds))
-      return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
-    const claims = claimsFor(input, ring.current.keyID, nowSeconds);
+    const ring = yield* makeOwnerVaultDirectoryControlKeyRing(keyRing);
+    if (!positive(input.ttlSeconds) || !positive(nowSeconds))
+      return yield* Effect.fail(new SigningError({ reason: "invalid_claims" }));
+    const claims = createClaims(input, ring.current.keyID, nowSeconds);
     if (!claimsValid(claims))
-      return yield* Effect.fail(new CapabilitySigningError({ reason: "invalid_claims" }));
-    const payload = base64url(textEncoder.encode(canonicalPayload(claims)));
+      return yield* Effect.fail(new SigningError({ reason: "invalid_claims" }));
+    const payload = b64url(encoder.encode(canonical(claims)));
     const signature = yield* signCapabilityHmac(ring.current.secret, payload).pipe(
-      Effect.mapError(() => new CapabilitySigningError({ reason: "crypto_failed" })),
+      Effect.mapError(() => new SigningError({ reason: "crypto_failed" })),
     );
-    return { value: `ovdc1.${payload}.${base64url(signature)}` };
+    return { value: `ovdc1.${payload}.${b64url(signature)}` };
   });
-
 export const verifyOwnerVaultDirectoryControl = (
   signed: SignedOwnerVaultDirectoryControl,
   binding: OwnerVaultDirectoryControlRequestBinding,
   expected: OwnerVaultDirectoryControlExpectation,
-  keyRing: InternalCapabilityKeyRing,
+  keyRing: OwnerVaultDirectoryControlKeyRing,
   nowSeconds: number,
 ): Effect.Effect<
   OwnerVaultDirectoryControlClaims,
   CapabilityConfigurationError | CapabilityVerificationError
 > =>
   Effect.gen(function* () {
-    const ring = yield* makeInternalCapabilityKeyRing(keyRing);
-    if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
+    const ring = yield* makeOwnerVaultDirectoryControlKeyRing(keyRing);
+    if (!positive(nowSeconds) || !bindingValid(binding) || !bindingValid(expected))
+      return yield* Effect.fail(new VerificationError({ reason: "claims_invalid" }));
     const parts = signed.value.split(".");
     if (
       parts.length !== 3 ||
@@ -749,46 +655,37 @@ export const verifyOwnerVaultDirectoryControl = (
       parts[1] === undefined ||
       parts[2] === undefined
     )
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
-    const payloadBytes = fromBase64url(parts[1]);
+      return yield* Effect.fail(new VerificationError({ reason: "malformed_token" }));
+    const payloadBytes = fromB64url(parts[1]);
     if (payloadBytes === undefined)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+      return yield* Effect.fail(new VerificationError({ reason: "malformed_token" }));
     let payload: string;
     let parsed: unknown;
     try {
       payload = new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes);
       parsed = JSON.parse(payload);
     } catch {
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
+      return yield* Effect.fail(new VerificationError({ reason: "malformed_token" }));
     }
-    const claims = yield* fromUnknown(parsed);
-    if (payload !== canonicalPayload(claims))
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
-    const material = [ring.current, ...ring.prior].find(
-      (candidate) => candidate.keyID === claims.keyID,
-    );
-    if (material === undefined)
-      return yield* Effect.fail(
-        new CapabilityVerificationError({ reason: "unknown_or_stale_key" }),
-      );
-    const signature = fromBase64url(parts[2]);
+    const claims = yield* decode(parsed);
+    if (payload !== canonical(claims))
+      return yield* Effect.fail(new VerificationError({ reason: "claims_invalid" }));
+    const key = [ring.current, ...ring.prior].find((entry) => entry.keyID === claims.keyID);
+    if (key === undefined || ring.revokedKeyIDs.includes(claims.keyID))
+      return yield* Effect.fail(new VerificationError({ reason: "unknown_or_stale_key" }));
+    const signature = fromB64url(parts[2]);
     if (signature === undefined)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "malformed_token" }));
-    const verified = yield* verifyCapabilityHmac(material.secret, parts[1], signature).pipe(
-      Effect.mapError(() => new CapabilityVerificationError({ reason: "signature_invalid" })),
+      return yield* Effect.fail(new VerificationError({ reason: "malformed_token" }));
+    const verified = yield* verifyCapabilityHmac(key.secret, parts[1], signature).pipe(
+      Effect.mapError(() => new VerificationError({ reason: "signature_invalid" })),
     );
     if (!verified)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "signature_invalid" }));
-    if (
-      !bindingValid(binding) ||
-      !expectationValid(expected) ||
-      !sameBinding(claims, binding) ||
-      !sameExpectation(claims, expected)
-    )
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));
+      return yield* Effect.fail(new VerificationError({ reason: "signature_invalid" }));
+    if (!sameBinding(claims, binding) || !sameBinding(claims, expected))
+      return yield* Effect.fail(new VerificationError({ reason: "binding_mismatch" }));
     if (claims.expiresAt <= nowSeconds)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "expired" }));
+      return yield* Effect.fail(new VerificationError({ reason: "expired" }));
     if (claims.issuedAt > nowSeconds)
-      return yield* Effect.fail(new CapabilityVerificationError({ reason: "not_yet_valid" }));
+      return yield* Effect.fail(new VerificationError({ reason: "not_yet_valid" }));
     return claims;
   });
