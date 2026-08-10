@@ -111,6 +111,12 @@ describe("Directory private generation contract", () => {
     expect(Object.values(state.bindings)).toHaveLength(1);
     expect(Object.values(state.bindings)[0]?.activeGeneration).toBe(source.activeGeneration);
     expect(state.privateGenerations[target.operationID]).toEqual(target);
+    const before = JSON.stringify(state.privateGenerations);
+    const forgedSource = await Effect.runPromiseExit(service.prepare({
+      ownerID: source.ownerID.value, vaultID: source.vaultID.value, generationEpoch: target.generationEpoch,
+    }, "private-generation-forged-source", now));
+    expect(forgedSource._tag).toBe("Failure");
+    expect(JSON.stringify((await Effect.runPromise(Ref.get(memory.state))).privateGenerations)).toBe(before);
   });
 
   test("re-reads floors after init acknowledgement, syncs forward exactly, and leaves stale init private", async () => {
