@@ -1551,9 +1551,9 @@ export const makeOwnerVaultDO = (
           )
           .pipe(Effect.mapError((error): unknown => error));
       };
-      return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
-        Effect.flatMap(() =>
-          repository.transact<SnapshotJournal>((tx) =>
+      const executeSnapshot = (): Effect.Effect<string, unknown> =>
+        repository
+          .transact<SnapshotJournal>((tx) =>
             tx.get({ category: "control.initialization-ack", identifier: command.jti }).pipe(
               Effect.flatMap((existing) => {
                 if (existing === undefined)
@@ -1590,37 +1590,60 @@ export const makeOwnerVaultDO = (
                   : rejectControl<SnapshotJournal>();
               }),
             ),
-          ),
-        ),
-        Effect.flatMap((journal) =>
-          journal.phase === "COMPLETED"
-            ? Effect.succeed(journal.manifestDigest)
-            : graph.snapshots.completedManifestDigest(source, command.backupID).pipe(
-                Effect.flatMap((recovered) =>
-                  recovered === undefined
-                    ? graph.backupRuntime().pipe(
-                        Effect.flatMap((runtime) =>
-                          createOwnerVaultBackup(
-                            graph.snapshots,
-                            runtime,
-                            source,
-                            command.backupID,
+          )
+          .pipe(
+            Effect.flatMap((journal) =>
+              journal.phase === "COMPLETED"
+                ? Effect.succeed(journal.manifestDigest)
+                : graph.snapshots.completedManifestDigest(source, command.backupID).pipe(
+                    Effect.flatMap((recovered) =>
+                      recovered === undefined
+                        ? graph.backupRuntime().pipe(
+                            Effect.flatMap((runtime) =>
+                              createOwnerVaultBackup(
+                                graph.snapshots,
+                                runtime,
+                                source,
+                                command.backupID,
+                              ),
+                            ),
+                            Effect.flatMap((manifest) => {
+                              const signed = canonicalSignedManifestBytes(manifest);
+                              return signed === undefined
+                                ? rejectControl<string>()
+                                : completeAcknowledgement(ownerVaultBackupControlDigest(signed));
+                            }),
+                          )
+                        : completeAcknowledgement(
+                            ownerVaultBackupControlDigest(
+                              Uint8Array.from(atob(recovered), (entry) => entry.charCodeAt(0)),
+                            ),
                           ),
-                        ),
-                        Effect.flatMap((manifest) => {
-                          const signed = canonicalSignedManifestBytes(manifest);
-                          return signed === undefined
-                            ? rejectControl<string>()
-                            : completeAcknowledgement(ownerVaultBackupControlDigest(signed));
-                        }),
-                      )
-                    : completeAcknowledgement(
-                        ownerVaultBackupControlDigest(
-                          Uint8Array.from(atob(recovered), (entry) => entry.charCodeAt(0)),
-                        ),
-                      ),
-                ),
-              ),
+                    ),
+                  ),
+            ),
+          );
+      return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
+        Effect.flatMap((claims) =>
+          this.withCapabilityReceipt(
+            graph.domains,
+            claims,
+            envelope.capability,
+            ownerVaultSnapshotPath,
+            command.operationID,
+            executeSnapshot,
+            (manifestDigest) => ({
+              backupID: command.backupID,
+              manifestDigest,
+              durableReceipt: durable,
+            }),
+            (stored) =>
+              stored.backupID === command.backupID &&
+              typeof stored.manifestDigest === "string" &&
+              stored.durableReceipt === durable
+                ? stored.manifestDigest
+                : undefined,
+          ),
         ),
         Effect.map(
           (manifestDigest): Response =>
@@ -1716,9 +1739,9 @@ export const makeOwnerVaultDO = (
           .pipe(
             Effect.mapError(() => new OwnerVaultBackupError({ reason: "private_target_required" })),
           );
-      return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
-        Effect.flatMap(() =>
-          repository.transact<RestoreJournal>((tx) =>
+      const executeRestore = (): Effect.Effect<"restored", unknown> =>
+        repository
+          .transact<RestoreJournal>((tx) =>
             tx.get({ category: "control.initialization-ack", identifier: command.jti }).pipe(
               Effect.flatMap(
                 (existing): Effect.Effect<RestoreJournal, OwnerVaultStorageTransactionFailure> =>
@@ -1755,27 +1778,51 @@ export const makeOwnerVaultDO = (
                         })(),
               ),
             ),
-          ),
-        ),
-        Effect.flatMap((journal) =>
-          journal.phase === "COMPLETED"
-            ? Effect.void
-            : graph.backupRuntime().pipe(
-                Effect.flatMap((runtime) =>
-                  restoreOwnerVaultBackup(
-                    runtime,
-                    graph.privateRestoreTarget(assertFreshPrivateTarget),
-                    {
-                      ownerID: command.ownerID,
-                      vaultID: command.vaultID,
-                      generationEpoch: command.sourceGeneration,
-                    },
-                    command.backupID,
-                    command.manifestDigest,
+          )
+          .pipe(
+            Effect.flatMap((journal) =>
+              journal.phase === "COMPLETED"
+                ? Effect.void
+                : graph.backupRuntime().pipe(
+                    Effect.flatMap((runtime) =>
+                      restoreOwnerVaultBackup(
+                        runtime,
+                        graph.privateRestoreTarget(assertFreshPrivateTarget),
+                        {
+                          ownerID: command.ownerID,
+                          vaultID: command.vaultID,
+                          generationEpoch: command.sourceGeneration,
+                        },
+                        command.backupID,
+                        command.manifestDigest,
+                      ),
+                    ),
+                    Effect.zipRight(completeAcknowledgement()),
                   ),
-                ),
-                Effect.zipRight(completeAcknowledgement()),
-              ),
+            ),
+            Effect.as("restored" as const),
+          );
+      return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
+        Effect.flatMap((claims) =>
+          this.withCapabilityReceipt(
+            graph.domains,
+            claims,
+            envelope.capability,
+            ownerVaultRestorePath,
+            command.operationID,
+            executeRestore,
+            () => ({
+              backupID: command.backupID,
+              targetGeneration: command.targetGeneration,
+              durableReceipt: durable,
+            }),
+            (stored) =>
+              stored.backupID === command.backupID &&
+              stored.targetGeneration === command.targetGeneration &&
+              stored.durableReceipt === durable
+                ? "restored"
+                : undefined,
+          ),
         ),
         Effect.as(
           response({
