@@ -15,7 +15,7 @@ const registered = (category: Parameters<typeof ownerVaultStorageRegistry.get>[0
 
 describe("OwnerVault physical state registry", () => {
   test("is exhaustive and assigns the restore policy matrix", () => {
-    expect(ownerVaultStorageRegistry.size).toBe(34);
+    expect(ownerVaultStorageRegistry.size).toBe(37);
     const expected = {
       "root.identity": ["exclude", "never"],
       "root.admission": ["exclude", "never"],
@@ -26,6 +26,7 @@ describe("OwnerVault physical state registry", () => {
       "catalog.current": ["exclude", "rebuild"],
       "catalog.root": ["exclude", "rebuild"],
       "catalog.page": ["exclude", "rebuild"],
+      "catalog.retention": ["exclude", "never"],
       "audit.restore-source": ["audit", "audit-only"],
       device: ["include", "apply"],
       "device-challenge": ["exclude", "never"],
@@ -46,6 +47,8 @@ describe("OwnerVault physical state registry", () => {
       "blob.lease": ["exclude", "never"],
       "blob.purge": ["exclude", "never"],
       "backup.pin": ["exclude", "never"],
+      "backup.preimage": ["exclude", "never"],
+      "backup.gc-journal": ["exclude", "never"],
       "backup.manifest": ["include", "apply"],
       "backup.page": ["include", "apply"],
       "backup.restore-journal": ["exclude", "never"],

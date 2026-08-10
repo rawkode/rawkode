@@ -49,6 +49,8 @@ const runtimeCategory: OwnerVaultStorageCategory = "root.runtime";
 const catalogCurrentCategory: OwnerVaultStorageCategory = "catalog.current";
 const catalogRootCategory: OwnerVaultStorageCategory = "catalog.root";
 const catalogPageCategory: OwnerVaultStorageCategory = "catalog.page";
+const catalogRetentionCategory: OwnerVaultStorageCategory = "catalog.retention";
+const backupPreimageCategory: OwnerVaultStorageCategory = "backup.preimage";
 const schemaVersion = 1;
 
 const accountingMaximumBytes = ownerVaultStorageRegistry.get(accountingCategory)?.maximumBytes;
@@ -402,6 +404,20 @@ const catalogRootPayload = (
   };
 };
 
+const snapshotPreimageIdentifier = (catalogRevision: number, ordinal: number): string | undefined => {
+  const revision = ownerVaultCatalogRevisionIdentifier(catalogRevision);
+  return revision !== undefined && nonNegativeInteger(ordinal) && ordinal <= 9_999
+    ? `${revision}-${String(ordinal).padStart(4, "0")}`
+    : undefined;
+};
+
+const pinCount = (value: unknown): number | undefined => {
+  const source = record(value);
+  return source !== undefined && exact(source, ["pinCount"]) && nonNegativeInteger(source.pinCount)
+    ? source.pinCount
+    : undefined;
+};
+
 /**
  * Per-record v2 OwnerVault physical storage.  This intentionally never adopts
  * the legacy aggregate VaultDO map: a generation starts with only its root
@@ -575,8 +591,59 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                     Effect.zipRight(native.put(catalogRoot.key, catalogRoot.value)),
                     Effect.zipRight(native.put(catalogCurrent.key, catalogCurrent.value)),
                     Effect.zipRight(writeAccounting(usedBytes)),
-                  );
+              );
             });
+
+          /**
+           * A pinned catalog owns the old value of every row it names.  We
+           * retain a preimage only on the first overwrite/delete for that
+           * revision; later writes are against a newer catalog and cannot
+           * affect the historical read.  The preimage is deliberately a
+           * physical record, never an in-memory snapshot or storage scan.
+           */
+          const preservePinnedPreimage = (
+            prior: { readonly key: string; readonly record: OwnerVaultStorageRecord; readonly bytes: number },
+          ): Effect.Effect<number, OwnerVaultStorageTransactionFailure> =>
+            loadCatalog().pipe(
+              Effect.flatMap((current) => {
+                const entry = current.entries.find((candidate) => candidate.key === prior.key);
+                if (entry === undefined) return storageError<number>("state_corrupt");
+                const retentionAddress: OwnerVaultStorageAddress = {
+                  category: catalogRetentionCategory,
+                  identifier: ownerVaultCatalogRevisionIdentifier(current.revision),
+                };
+                if (retentionAddress.identifier === undefined) return storageError<number>("state_corrupt");
+                return read(retentionAddress).pipe(
+                  Effect.flatMap((retention) => {
+                    const retained = retention === undefined ? 0 : pinCount(retention.payload);
+                    if (retained === undefined) return storageError<number>("state_corrupt");
+                    if (retained === 0) return Effect.succeed(0);
+                    const identifier = snapshotPreimageIdentifier(current.revision, entry.ordinal);
+                    if (identifier === undefined) return storageError<number>("state_corrupt");
+                    const address: OwnerVaultStorageAddress = { category: backupPreimageCategory, identifier };
+                    return raw(address).pipe(
+                      Effect.flatMap(([key, existing]): Effect.Effect<number, OwnerVaultStorageTransactionFailure> => {
+                        if (existing !== undefined) {
+                          const decoded = decodeStored(key, existing);
+                          return decoded === undefined ? storageError<number>("state_corrupt") : Effect.succeed(0);
+                        }
+                        const copy = serializeRecord(address, {
+                          key: prior.key,
+                          category: prior.record.category,
+                          bytes: prior.bytes,
+                          digest: entry.digest,
+                          payload: prior.record.payload,
+                        });
+                        return copy === undefined
+                          ? storageError<number>("invalid_record")
+                          : native.put(copy.key, copy.value).pipe(Effect.as(copy.bytes));
+                      }),
+                    );
+                  }),
+                );
+              }),
+              Effect.mapError((error): OwnerVaultStorageTransactionFailure => error as OwnerVaultStorageTransactionFailure),
+            );
 
           const put = (
             address: OwnerVaultStorageAddress,
@@ -604,9 +671,18 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 if (!nonNegativeInteger(usedBytes)) return storageError("state_corrupt");
                 if (usedBytes > ownerVaultMaximumAccountedBytes)
                   return storageError("quota_exceeded");
-                return native.put(next.key, next.value).pipe(
-                  Effect.zipRight(writeAccounting(usedBytes)),
-                );
+                return (included && prior !== undefined
+                  ? preservePinnedPreimage({ key, record: prior.record, bytes: prior.bytes })
+                  : Effect.succeed(0)).pipe(
+                    Effect.flatMap((preimageBytes) => {
+                      const total = usedBytes + preimageBytes;
+                      if (!nonNegativeInteger(total) || total > ownerVaultMaximumAccountedBytes)
+                        return storageError("quota_exceeded");
+                      return native.put(next.key, next.value).pipe(
+                        Effect.zipRight(writeAccounting(total)),
+                      );
+                    }),
+                  );
               }),
             ));
           };
@@ -628,15 +704,24 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 if (prior === undefined) return storageError("state_corrupt");
                 const usedBytes = accounting.usedBytes - prior.bytes;
                 if (!nonNegativeInteger(usedBytes)) return storageError("state_corrupt");
-                return native.delete(key).pipe(
-                  Effect.zipRight(writeAccounting(usedBytes)),
-                  Effect.zipRight(
-                    included
-                      ? loadCatalog().pipe(Effect.zipRight(Effect.sync(() => { catalogChanges.set(key, { _tag: "delete" }); })))
-                      : Effect.void,
-                  ),
-                  Effect.asVoid,
-                );
+                return (included
+                  ? preservePinnedPreimage({ key, record: prior.record, bytes: prior.bytes })
+                  : Effect.succeed(0)).pipe(
+                    Effect.flatMap((preimageBytes) => {
+                      const total = usedBytes + preimageBytes;
+                      if (!nonNegativeInteger(total) || total > ownerVaultMaximumAccountedBytes)
+                        return storageError("quota_exceeded");
+                      return native.delete(key).pipe(
+                        Effect.zipRight(writeAccounting(total)),
+                        Effect.zipRight(
+                          included
+                            ? loadCatalog().pipe(Effect.zipRight(Effect.sync(() => { catalogChanges.set(key, { _tag: "delete" }); })))
+                            : Effect.void,
+                        ),
+                        Effect.asVoid,
+                      );
+                    }),
+                  );
               }),
             );
           };
@@ -703,12 +788,14 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                       read(catalogCurrentAddress),
                       read(prior.rootAddress),
                       Effect.forEach(prior.pageAddresses, read),
+                      read({ category: catalogRetentionCategory, identifier: ownerVaultCatalogRevisionIdentifier(prior.revision) }),
                     ]).pipe(
-                      Effect.flatMap(([accountingRecord, oldCurrent, oldRoot, oldPages]) => {
+                      Effect.flatMap(([accountingRecord, oldCurrent, oldRoot, oldPages, retentionRecord]) => {
                         const accounting = decodeAccounting(accountingRecord?.payload);
-                        if (accounting === undefined || oldCurrent === undefined || oldRoot === undefined || oldPages.some((page) => page === undefined))
+                        const retained = retentionRecord === undefined ? 0 : pinCount(retentionRecord.payload);
+                        if (accounting === undefined || retained === undefined || oldCurrent === undefined || oldRoot === undefined || oldPages.some((page) => page === undefined))
                           return storageError("state_corrupt");
-                        const oldBytes = [oldCurrent, oldRoot, ...oldPages as OwnerVaultStorageRecord[]]
+                        const oldBytes = [oldCurrent, ...(retained === 0 ? [oldRoot, ...oldPages as OwnerVaultStorageRecord[]] : [])]
                           .reduce((total, item) => total + (stableBytes(envelope(item.category, item.payload))?.bytes ?? Number.NaN), 0);
                         const writtenPages = nextPages as readonly NonNullable<typeof nextRoot>[];
                         const newBytes = nextCurrent.bytes + nextRoot.bytes + writtenPages.reduce((total, page) => total + page.bytes, 0);
@@ -718,8 +805,12 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                         return Effect.forEach(writtenPages, (page) => native.put(page.key, page.value)).pipe(
                           Effect.zipRight(native.put(nextRoot.key, nextRoot.value)),
                           Effect.zipRight(native.put(nextCurrent.key, nextCurrent.value)),
-                          Effect.zipRight(Effect.forEach(prior.pageAddresses, (address) => raw(address).pipe(Effect.flatMap(([key]) => native.delete(key))))),
-                          Effect.zipRight(raw(prior.rootAddress).pipe(Effect.flatMap(([key]) => native.delete(key)))),
+                          Effect.zipRight(retained === 0
+                            ? Effect.forEach(prior.pageAddresses, (address) => raw(address).pipe(Effect.flatMap(([key]) => native.delete(key))))
+                            : Effect.void),
+                          Effect.zipRight(retained === 0
+                            ? raw(prior.rootAddress).pipe(Effect.flatMap(([key]) => native.delete(key)))
+                            : Effect.void),
                           Effect.zipRight(writeAccounting(usedBytes)),
                         );
                       }),

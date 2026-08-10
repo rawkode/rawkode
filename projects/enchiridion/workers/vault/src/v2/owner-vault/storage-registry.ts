@@ -8,6 +8,7 @@
  */
 import {
   isOwnerVaultCatalogCurrentPayload,
+  ownerVaultCatalogMaximumObjectBytes,
   isOwnerVaultCatalogPagePayload,
   isOwnerVaultCatalogRevisionIdentifier,
   isOwnerVaultCatalogRootPayload,
@@ -27,6 +28,9 @@ export const ownerVaultStorageCategories = [
   "catalog.current",
   "catalog.root",
   "catalog.page",
+  // Retention is deliberately separate from immutable catalog roots. Pins
+  // may retain a historical root without changing the root's digest.
+  "catalog.retention",
   "audit.restore-source",
   "device",
   "device-challenge",
@@ -47,6 +51,8 @@ export const ownerVaultStorageCategories = [
   "blob.lease",
   "blob.purge",
   "backup.pin",
+  "backup.preimage",
+  "backup.gc-journal",
   "backup.manifest",
   "backup.page",
   "backup.restore-journal",
@@ -97,6 +103,8 @@ export const isRestorableOwnerVaultStorageCategory = (
 const identifierPattern = /^[A-Za-z0-9_-]{1,128}$/u;
 const appendSequencePattern = /^[0-9]{20}$/u;
 const catalogPageIdentifierPattern = /^[0-9]{20}-[0-9]{4}$/u;
+const catalogRevisionIdentifierPattern = /^[0-9]{20}$/u;
+const backupPreimageIdentifierPattern = /^[0-9]{20}-[0-9]{4}$/u;
 const authorityScopeKeys = new Set(["ownerID", "vaultID", "generationEpoch", "namespaceState", "sourceOwnerID", "sourceVaultID", "sourceGenerationEpoch", "sourceScope"]);
 const regularMaximumBytes = 16 * 1024;
 const rootMaximumBytes = 8 * 1024;
@@ -194,6 +202,27 @@ const validBlobAccounting = (value: unknown): boolean => {
     new Set(purgeSHA256s).size === purgeSHA256s.length;
 };
 
+/** Backup pins are the one excluded local record that names its own target scope. */
+const validBackupPin = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const scope = source === undefined ? undefined : plainRecord(source.scope);
+  const keys = source === undefined ? [] : Object.keys(source).sort();
+  const expected = [
+    "backupID", "catalogDigest", "catalogRevision", "highWaterMark", "logHead", "pinProof", "retained", "rootDigest", "scope", "state",
+    ...(source?.manifestDigest === undefined ? [] : ["manifestDigest"]),
+  ].sort();
+  return source !== undefined && scope !== undefined && keys.length === expected.length && keys.every((key, index) => key === expected[index]) &&
+    exactKeys(scope, ["ownerID", "vaultID", "generationEpoch"]) &&
+    typeof scope.ownerID === "string" && typeof scope.vaultID === "string" && typeof scope.generationEpoch === "number" && Number.isSafeInteger(scope.generationEpoch) && scope.generationEpoch >= 1 &&
+    typeof source.backupID === "string" && identifierPattern.test(source.backupID) &&
+    typeof source.catalogRevision === "number" && Number.isSafeInteger(source.catalogRevision) && source.catalogRevision >= 0 &&
+    [source.catalogDigest, source.highWaterMark, source.rootDigest].every((entry) => typeof entry === "string" && /^[A-Za-z0-9+/]{43}=$/u.test(entry)) &&
+    typeof source.logHead === "number" && Number.isSafeInteger(source.logHead) && source.logHead >= 0 &&
+    typeof source.pinProof === "string" && /^[A-Za-z0-9_-]{16,512}$/u.test(source.pinProof) && typeof source.retained === "boolean" &&
+    (source.state === "OPEN" || source.state === "COMPLETED" || source.state === "ABORTED" || source.state === "EXPIRED") &&
+    (source.manifestDigest === undefined || (typeof source.manifestDigest === "string" && /^[A-Za-z0-9+/]{43}=$/u.test(source.manifestDigest)));
+};
+
 const decodeEnvelope = (
   category: OwnerVaultStorageCategory,
   value: unknown,
@@ -268,6 +297,22 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
     matches: (key) => /^v2\.ov\/catalog\/page\/[0-9]{20}-[0-9]{4}$/u.test(key),
     decode: (value) => decodeEnvelope("catalog.page", value, isOwnerVaultCatalogPagePayload),
   },
+  {
+    category: "catalog.retention",
+    snapshot: "exclude",
+    restore: "never",
+    maximumBytes: rootMaximumBytes,
+    key: (identifier?: string) => {
+      if (identifier === undefined || !catalogRevisionIdentifierPattern.test(identifier))
+        throw new OwnerVaultStorageRegistryError("invalid_key");
+      return `${ownerVaultStoragePrefix}catalog/retention/${identifier}`;
+    },
+    matches: (key) => /^v2\.ov\/catalog\/retention\/[0-9]{20}$/u.test(key),
+    decode: (value) => decodeEnvelope("catalog.retention", value, (payload) =>
+      exactKeys(payload, ["pinCount"]) && typeof payload.pinCount === "number" &&
+      Number.isSafeInteger(payload.pinCount) && payload.pinCount >= 0,
+    ),
+  },
   { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validAuditSourceScope(payload.source) && !hasForbiddenScope(payload.audit)) },
   ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
   // Challenges, replay fences, capabilities, and live sessions are target-local security state.
@@ -276,7 +321,22 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
   { category: "append-log.head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("append-log/head"), decode: (value) => decodeEnvelope("append-log.head", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "blob.accounting", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("blob/accounting"), decode: (value) => decodeEnvelope("blob.accounting", value, validBlobAccounting) },
   ...(["blob.metadata", "blob.reference", "blob.tombstone", "backup.manifest", "backup.page"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
-  ...(["blob.lease", "blob.purge", "backup.pin"] as const).map((category) => ({ category, snapshot: "exclude" as const, restore: "never" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  ...(["blob.lease", "blob.purge"] as const).map((category) => ({ category, snapshot: "exclude" as const, restore: "never" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  { category: "backup.pin", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("backup/pin"), decode: (value) => decodeEnvelope("backup.pin", value, validBackupPin) },
+  {
+    category: "backup.preimage",
+    snapshot: "exclude",
+    restore: "never",
+    maximumBytes: ownerVaultCatalogMaximumObjectBytes,
+    key: (identifier?: string) => {
+      if (identifier === undefined || !backupPreimageIdentifierPattern.test(identifier))
+        throw new OwnerVaultStorageRegistryError("invalid_key");
+      return `${ownerVaultStoragePrefix}backup/preimage/${identifier}`;
+    },
+    matches: (key) => /^v2\.ov\/backup\/preimage\/[0-9]{20}-[0-9]{4}$/u.test(key),
+    decode: (value) => decodeEnvelope("backup.preimage", value, (payload) => !hasForbiddenScope(payload)),
+  },
+  { category: "backup.gc-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/gc-journal"), decode: (value) => decodeEnvelope("backup.gc-journal", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "backup.restore-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "control.initialization-ack", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "control.floor-sync", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
