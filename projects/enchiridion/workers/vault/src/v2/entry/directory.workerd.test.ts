@@ -272,11 +272,10 @@ const base64 = (bytes: Uint8Array): string => {
   return btoa(output);
 };
 const p256Device = async () => {
-  const pair = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  );
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
   const publicKey = base64(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey)));
   return {
     publicKey,
@@ -321,7 +320,10 @@ const signedSocketAdmission = async (
     ttlSeconds: 60,
   } satisfies OwnerVaultSocketAdmissionClaimsInput;
   const signed = await Effect.runPromise(signOwnerVaultSocketAdmission(input, ring, nowSeconds));
-  return { capability: signed.value, expiresAtMilliseconds: (nowSeconds + input.ttlSeconds) * 1_000 };
+  return {
+    capability: signed.value,
+    expiresAtMilliseconds: (nowSeconds + input.ttlSeconds) * 1_000,
+  };
 };
 const socketUpgradeStatus = (
   capability: string,
@@ -507,9 +509,9 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // durably registered; bearer-like headers are rejected even earlier.
     const socketCapability = await signedSocketAdmission();
     expect(await socketUpgradeStatus(socketCapability.capability)).toBe(401);
-    expect(await socketUpgradeStatus(socketCapability.capability, { Authorization: "Bearer forbidden" })).toBe(
-      400,
-    );
+    expect(
+      await socketUpgradeStatus(socketCapability.capability, { Authorization: "Bearer forbidden" }),
+    ).toBe(400);
     expect((await fetch(`${baseURL}/__v2/internal/owner-vault/socket`)).status).toBe(404);
 
     process?.kill();
@@ -572,7 +574,9 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     );
     const registration = await ownerVaultUser("devices/complete", registerBody);
     if (registration.status !== 200)
-      throw new Error(`P02 registration failed: ${registration.status} ${await registration.text()}`);
+      throw new Error(
+        `P02 registration failed: ${registration.status} ${await registration.text()}`,
+      );
     const registered = record(await registration.json());
     if (registered === undefined || typeof registered.deviceID !== "string")
       throw new Error("P02 registration response was malformed");
@@ -637,7 +641,9 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
 
     // A registered device can now reach the real socket admission saga. The
     // test relay does not host a WebSocket implementation or seed state.
-    expect(await socketUpgradeStatus((await signedSocketAdmission(registered.deviceID)).capability)).toBe(101);
+    expect(
+      await socketUpgradeStatus((await signedSocketAdmission(registered.deviceID)).capability),
+    ).toBe(101);
 
     // The PREPARED receipt is a single durable compare-and-claim. Concurrent
     // copies of a byte-identical admission capability cannot manufacture two
@@ -645,10 +651,12 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // other observes its durable replay receipt.
     const concurrentAdmission = await signedSocketAdmission(registered.deviceID, "0003");
     expect(
-      (await Promise.all([
-        socketUpgradeStatus(concurrentAdmission.capability),
-        socketUpgradeStatus(concurrentAdmission.capability),
-      ])).sort((left, right) => left - right),
+      (
+        await Promise.all([
+          socketUpgradeStatus(concurrentAdmission.capability),
+          socketUpgradeStatus(concurrentAdmission.capability),
+        ])
+      ).sort((left, right) => left - right),
     ).toEqual([101, 409]);
 
     const snapshot = {
@@ -692,7 +700,9 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // to the persisted CSPRNG challenge/session nonce, and appended through
     // the durable receipt/log authority rather than a test-only mutation.
     const liveAdmission = await signedSocketAdmission(registered.deviceID, "0002");
-    const { socket, challenge: socketChallenge } = await openOwnerVaultSocket(liveAdmission.capability);
+    const { socket, challenge: socketChallenge } = await openOwnerVaultSocket(
+      liveAdmission.capability,
+    );
     if (typeof socketChallenge.challengeBase64 !== "string")
       throw new Error("OwnerVault socket did not return its persisted challenge nonce");
     const unsignedSyncChange = {

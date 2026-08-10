@@ -237,16 +237,112 @@ const validSecurityFloor = (value: unknown): boolean => {
  * bounded expiration cursor for otherwise opaque capability receipts. */
 const validCapabilityReceiptIndex = (value: unknown): boolean => {
   const source = plainRecord(value);
-  if (source === undefined || !exactKeys(source, ["cursor", "entries"]) || !Number.isSafeInteger(source.cursor) || source.cursor < 0 || !Array.isArray(source.entries) || source.entries.length > maximumCapabilityReceiptIndexEntries) return false;
+  if (source === undefined || !exactKeys(source, ["cursor", "entries"])) return false;
+  const cursor = source.cursor;
+  const entries = source.entries;
+  if (
+    typeof cursor !== "number" ||
+    !Number.isSafeInteger(cursor) ||
+    cursor < 0 ||
+    !Array.isArray(entries) ||
+    entries.length > maximumCapabilityReceiptIndexEntries
+  )
+    return false;
   let previous = "";
-  return source.entries.every((entry) => {
-    const row = plainRecord(entry);
-    if (row === undefined || !exactKeys(row, ["expiresAtSeconds", "jti"]) || typeof row.jti !== "string" || !identifierPattern.test(row.jti) || !Number.isSafeInteger(row.expiresAtSeconds) || row.expiresAtSeconds < 1) return false;
-    const sortKey = `${row.expiresAtSeconds.toString().padStart(12, "0")}/${row.jti}`;
-    const ordered = previous === "" || previous < sortKey;
-    previous = sortKey;
-    return ordered;
-  }) && (source.entries.length === 0 ? source.cursor === 0 : source.cursor < source.entries.length);
+  return (
+    entries.every((entry) => {
+      const row = plainRecord(entry);
+      if (row === undefined || !exactKeys(row, ["expiresAtSeconds", "jti"])) return false;
+      const expiresAtSeconds = row.expiresAtSeconds;
+      const jti = row.jti;
+      if (
+        typeof jti !== "string" ||
+        !identifierPattern.test(jti) ||
+        typeof expiresAtSeconds !== "number" ||
+        !Number.isSafeInteger(expiresAtSeconds) ||
+        expiresAtSeconds < 1
+      )
+        return false;
+      const sortKey = `${expiresAtSeconds.toString().padStart(12, "0")}/${jti}`;
+      const ordered = previous === "" || previous < sortKey;
+      previous = sortKey;
+      return ordered;
+    }) && (entries.length === 0 ? cursor === 0 : cursor < entries.length)
+  );
+};
+
+/**
+ * Capability claims deliberately retain the verified target scope, while the
+ * receipt itself remains generation-local and is never snapshotted or
+ * restored. This is the sole storage family allowed to carry that canonical
+ * claim JSON; raw signed capability material is represented separately only
+ * by its SHA-256 fingerprint.
+ */
+const validCapabilityReceipt = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  if (source === undefined) return false;
+  const preparedKeys = [
+    "claims",
+    "claimsFingerprint",
+    "expiresAtSeconds",
+    "jti",
+    "operationID",
+    "resource",
+    "state",
+    "tokenFingerprint",
+  ];
+  const completedKeys = [...preparedKeys, "result"];
+  if (
+    !exactKeys(source, source.state === "PREPARED" ? preparedKeys : completedKeys) ||
+    (source.state !== "PREPARED" && source.state !== "COMPLETED") ||
+    typeof source.jti !== "string" ||
+    !identifierPattern.test(source.jti) ||
+    typeof source.operationID !== "string" ||
+    !identifierPattern.test(source.operationID) ||
+    typeof source.resource !== "string" ||
+    !/^\/[A-Za-z0-9_./-]{1,192}$/u.test(source.resource) ||
+    typeof source.expiresAtSeconds !== "number" ||
+    !Number.isSafeInteger(source.expiresAtSeconds) ||
+    source.expiresAtSeconds < 1 ||
+    typeof source.claims !== "string" ||
+    new TextEncoder().encode(source.claims).byteLength > 8_192 ||
+    typeof source.claimsFingerprint !== "string" ||
+    !blobHashPattern.test(source.claimsFingerprint) ||
+    typeof source.tokenFingerprint !== "string" ||
+    !blobHashPattern.test(source.tokenFingerprint)
+  )
+    return false;
+  // A terminal result is canonicalized and schema-checked again by domains;
+  // storage only refuses bearer-shaped envelopes at this physical boundary.
+  if (source.state === "COMPLETED") {
+    const result = plainRecord(source.result);
+    if (result === undefined || hasReceiptBearerField(result)) return false;
+  }
+  try {
+    return !hasReceiptBearerField(JSON.parse(source.claims));
+  } catch {
+    return false;
+  }
+};
+
+const receiptBearerKeys = new Set([
+  "authorization",
+  "bearer",
+  "capability",
+  "cookie",
+  "rawToken",
+  "signedCapability",
+  "token",
+]);
+const hasReceiptBearerField = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(hasReceiptBearerField);
+  const source = plainRecord(value);
+  return (
+    source !== undefined &&
+    Object.entries(source).some(
+      ([key, entry]) => receiptBearerKeys.has(key) || hasReceiptBearerField(entry),
+    )
+  );
 };
 
 /**
@@ -630,7 +726,8 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
     restore: "never",
     maximumBytes: regularMaximumBytes,
     ...staticKey("capability-receipts/index"),
-    decode: (value) => decodeEnvelope("capability-receipt-index", value, validCapabilityReceiptIndex),
+    decode: (value) =>
+      decodeEnvelope("capability-receipt-index", value, validCapabilityReceiptIndex),
   },
   ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({
     category,
@@ -642,25 +739,25 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
       decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)),
   })),
   // Challenges, replay fences, capabilities, and live sessions are target-local security state.
-  ...(
-    [
-      "device-challenge",
-      "nonce",
-      "jti",
-      "capability-receipt",
-      "session",
-      "resume",
-      "rate-window",
-    ] as const
-  ).map((category) => ({
-    category,
-    snapshot: "exclude" as const,
-    restore: "never" as const,
+  ...(["device-challenge", "nonce", "jti", "session", "resume", "rate-window"] as const).map(
+    (category) => ({
+      category,
+      snapshot: "exclude" as const,
+      restore: "never" as const,
+      maximumBytes: regularMaximumBytes,
+      ...keyedFamily(category),
+      decode: (value: unknown) =>
+        decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)),
+    }),
+  ),
+  {
+    category: "capability-receipt",
+    snapshot: "exclude",
+    restore: "never",
     maximumBytes: regularMaximumBytes,
-    ...keyedFamily(category),
-    decode: (value: unknown) =>
-      decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)),
-  })),
+    ...keyedFamily("capability-receipt"),
+    decode: (value: unknown) => decodeEnvelope("capability-receipt", value, validCapabilityReceipt),
+  },
   {
     category: "append-log.entry",
     snapshot: "include",
@@ -796,8 +893,10 @@ export const ownerVaultStorageDefinitionForKey = (
   key: string,
 ): OwnerVaultStorageCategoryDefinition => {
   const matches = definitions.filter((definition) => definition.matches(key));
-  if (matches.length !== 1) throw new OwnerVaultStorageRegistryError("unknown_key");
-  return matches[0]!;
+  const [match] = matches;
+  if (matches.length !== 1 || match === undefined)
+    throw new OwnerVaultStorageRegistryError("unknown_key");
+  return match;
 };
 
 export const assertOwnerVaultStorageRecord = (

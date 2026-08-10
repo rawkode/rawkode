@@ -130,6 +130,35 @@ export interface OwnerVaultAppendInput {
   };
 }
 
+/**
+ * A bounded durable receipt for every verified capability. Claims are stored
+ * as canonical non-bearer JSON and the token is represented only by its
+ * fingerprint. Endpoint journals may use PREPARED to resume work after an
+ * isolate loss; a completed receipt returns its exact canonical result.
+ */
+export interface OwnerVaultCapabilityReceiptInput {
+  readonly jti: string;
+  readonly resource: string;
+  readonly operationID: string;
+  readonly nowSeconds: number;
+  readonly expiresAtSeconds: number;
+  readonly claims: string;
+  readonly claimsFingerprint: string;
+  readonly tokenFingerprint: string;
+}
+
+export interface OwnerVaultCapabilityReceipt {
+  readonly state: "PREPARED" | "COMPLETED";
+  readonly jti: string;
+  readonly resource: string;
+  readonly operationID: string;
+  readonly expiresAtSeconds: number;
+  readonly claims: string;
+  readonly claimsFingerprint: string;
+  readonly tokenFingerprint: string;
+  readonly result: Readonly<Record<string, unknown>> | undefined;
+}
+
 export interface OwnerVaultDomainProvider {
   readonly initialize: () => Effect.Effect<void, OwnerVaultDomainError>;
   readonly issueChallenge: (
@@ -194,6 +223,13 @@ export interface OwnerVaultDomainProvider {
   readonly expireCapabilities: (
     nowSeconds: number,
   ) => Effect.Effect<number | undefined, OwnerVaultDomainError>;
+  readonly claimCapabilityReceipt: (
+    input: OwnerVaultCapabilityReceiptInput,
+  ) => Effect.Effect<OwnerVaultCapabilityReceipt, OwnerVaultDomainError>;
+  readonly completeCapabilityReceipt: (
+    input: OwnerVaultCapabilityReceiptInput,
+    result: Readonly<Record<string, unknown>>,
+  ) => Effect.Effect<OwnerVaultCapabilityReceipt, OwnerVaultDomainError>;
 }
 
 interface Admission {
@@ -228,17 +264,7 @@ interface NonceClaim {
   readonly expiresAtSeconds: number;
   readonly fingerprint: string;
 }
-interface CapabilityReceipt {
-  readonly state: "COMPLETED";
-  readonly jti: string;
-  readonly resource: string;
-  readonly operationID: string;
-  readonly expiresAtSeconds: number;
-  readonly claims: string;
-  readonly claimsFingerprint: string;
-  readonly tokenFingerprint: string;
-  readonly result: { readonly logSequence: number; readonly payloadHash: string };
-}
+type CapabilityReceipt = OwnerVaultCapabilityReceipt;
 interface CapabilityReceiptIndexEntry {
   readonly jti: string;
   readonly expiresAtSeconds: number;
@@ -284,7 +310,10 @@ const isSafePositive = (value: unknown): value is number => isSafeNonNegative(va
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const canonicalClaims = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
-  if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > maximumCapabilityReceiptClaimsBytes)
+  if (
+    typeof value !== "string" ||
+    new TextEncoder().encode(value).byteLength > maximumCapabilityReceiptClaimsBytes
+  )
     return undefined;
   try {
     const parsed = JSON.parse(value);
@@ -494,9 +523,83 @@ const decodeNonce = (value: unknown): NonceClaim | undefined =>
   sha256.test(value.fingerprint)
     ? { expiresAtSeconds: value.expiresAtSeconds, fingerprint: value.fingerprint }
     : undefined;
-const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
-  isRecord(value) &&
-  exact(value, [
+const validCapabilityReceiptInput = (input: OwnerVaultCapabilityReceiptInput): boolean =>
+  identifier.test(input.jti) &&
+  /^\/[A-Za-z0-9_./-]{1,192}$/u.test(input.resource) &&
+  identifier.test(input.operationID) &&
+  isSafeNonNegative(input.nowSeconds) &&
+  validReceiptTTL(
+    input.nowSeconds,
+    input.expiresAtSeconds,
+    ownerVaultMaximumSecurityReceiptTTLSeconds,
+  ) &&
+  canonicalClaims(input.claims)?.jti === input.jti &&
+  sha256.test(input.claimsFingerprint) &&
+  sha256Hex(new TextEncoder().encode(input.claims)) === input.claimsFingerprint &&
+  sha256.test(input.tokenFingerprint);
+const validCanonicalResult = (value: unknown): value is Readonly<Record<string, unknown>> => {
+  if (!isRecord(value)) return false;
+  try {
+    return (
+      new TextEncoder().encode(canonicalJSONStringify(value as CanonicalJSON)).byteLength <=
+      maximumCapabilityReceiptClaimsBytes
+    );
+  } catch {
+    return false;
+  }
+};
+const sameCanonicalResult = (
+  left: Readonly<Record<string, unknown>>,
+  right: Readonly<Record<string, unknown>>,
+): boolean => {
+  try {
+    return (
+      canonicalJSONStringify(left as CanonicalJSON) ===
+      canonicalJSONStringify(right as CanonicalJSON)
+    );
+  } catch {
+    return false;
+  }
+};
+const sameCapabilityReceipt = (
+  receipt: CapabilityReceipt,
+  input: OwnerVaultCapabilityReceiptInput,
+): boolean =>
+  receipt.jti === input.jti &&
+  receipt.resource === input.resource &&
+  receipt.operationID === input.operationID &&
+  receipt.expiresAtSeconds === input.expiresAtSeconds &&
+  receipt.claims === input.claims &&
+  receipt.claimsFingerprint === input.claimsFingerprint &&
+  receipt.tokenFingerprint === input.tokenFingerprint;
+const capabilityReceipt = (
+  input: OwnerVaultCapabilityReceiptInput,
+  state: OwnerVaultCapabilityReceipt["state"],
+  result: OwnerVaultCapabilityReceipt["result"],
+): OwnerVaultCapabilityReceipt => ({
+  state,
+  jti: input.jti,
+  resource: input.resource,
+  operationID: input.operationID,
+  expiresAtSeconds: input.expiresAtSeconds,
+  claims: input.claims,
+  claimsFingerprint: input.claimsFingerprint,
+  tokenFingerprint: input.tokenFingerprint,
+  result,
+});
+const decodeCapability = (value: unknown): CapabilityReceipt | undefined => {
+  if (!isRecord(value)) return undefined;
+  const prepared = exact(value, [
+    "claimsFingerprint",
+    "claims",
+    "expiresAtSeconds",
+    "jti",
+    "operationID",
+    "resource",
+    "state",
+    "tokenFingerprint",
+  ]);
+  const completed = exact(value, [
     "claimsFingerprint",
     "claims",
     "expiresAtSeconds",
@@ -506,46 +609,59 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
     "result",
     "state",
     "tokenFingerprint",
-  ]) &&
-  value.state === "COMPLETED" &&
-  typeof value.jti === "string" &&
-  identifier.test(value.jti) &&
-  typeof value.resource === "string" &&
-  /^\/[A-Za-z0-9_./-]{1,192}$/u.test(value.resource) &&
-  isSafePositive(value.expiresAtSeconds) &&
-  typeof value.operationID === "string" &&
-  identifier.test(value.operationID) &&
-  typeof value.claimsFingerprint === "string" &&
-  sha256.test(value.claimsFingerprint) &&
-  canonicalClaims(value.claims)?.jti === value.jti &&
-  sha256Hex(new TextEncoder().encode(value.claims)) === value.claimsFingerprint &&
-  typeof value.tokenFingerprint === "string" &&
-  sha256.test(value.tokenFingerprint) &&
-  isRecord(value.result) &&
-  exact(value.result, ["logSequence", "payloadHash"]) &&
-  isSafePositive(value.result.logSequence) &&
-  typeof value.result.payloadHash === "string" &&
-  sha256.test(value.result.payloadHash)
-    ? {
-        state: "COMPLETED",
-        jti: value.jti,
-        resource: value.resource,
-        expiresAtSeconds: value.expiresAtSeconds,
-        operationID: value.operationID,
-        claims: value.claims,
-        claimsFingerprint: value.claimsFingerprint,
-        tokenFingerprint: value.tokenFingerprint,
-        result: { logSequence: value.result.logSequence, payloadHash: value.result.payloadHash },
-      }
+  ]);
+  if (
+    (!prepared && !completed) ||
+    (value.state !== "PREPARED" && value.state !== "COMPLETED") ||
+    (value.state === "PREPARED" && !prepared) ||
+    (value.state === "COMPLETED" && !completed) ||
+    typeof value.jti !== "string" ||
+    typeof value.resource !== "string" ||
+    typeof value.operationID !== "string" ||
+    typeof value.expiresAtSeconds !== "number" ||
+    typeof value.claims !== "string" ||
+    typeof value.claimsFingerprint !== "string" ||
+    typeof value.tokenFingerprint !== "string"
+  )
+    return undefined;
+  const input = {
+    jti: value.jti,
+    resource: value.resource,
+    operationID: value.operationID,
+    nowSeconds: value.expiresAtSeconds - 1,
+    expiresAtSeconds: value.expiresAtSeconds,
+    claims: value.claims,
+    claimsFingerprint: value.claimsFingerprint,
+    tokenFingerprint: value.tokenFingerprint,
+  } satisfies OwnerVaultCapabilityReceiptInput;
+  if (!validCapabilityReceiptInput(input)) return undefined;
+  if (value.state === "PREPARED") return capabilityReceipt(input, "PREPARED", undefined);
+  return validCanonicalResult(value.result)
+    ? capabilityReceipt(input, "COMPLETED", value.result)
     : undefined;
+};
 const capabilityIndexSortKey = (entry: CapabilityReceiptIndexEntry): string =>
   `${entry.expiresAtSeconds.toString().padStart(12, "0")}/${entry.jti}`;
 const decodeCapabilityIndex = (value: unknown): CapabilityReceiptIndex | undefined => {
-  if (!isRecord(value) || !exact(value, ["cursor", "entries"]) || !isSafeNonNegative(value.cursor) || !Array.isArray(value.entries) || value.entries.length > ownerVaultMaximumCapabilityReceipts) return undefined;
+  if (
+    !isRecord(value) ||
+    !exact(value, ["cursor", "entries"]) ||
+    !isSafeNonNegative(value.cursor) ||
+    !Array.isArray(value.entries) ||
+    value.entries.length > ownerVaultMaximumCapabilityReceipts
+  )
+    return undefined;
   const entries: CapabilityReceiptIndexEntry[] = [];
   let previous = "";
   for (const source of value.entries) {
-    if (!isRecord(source) || !exact(source, ["expiresAtSeconds", "jti"]) || typeof source.jti !== "string" || !identifier.test(source.jti) || !isSafePositive(source.expiresAtSeconds)) return undefined;
+    if (
+      !isRecord(source) ||
+      !exact(source, ["expiresAtSeconds", "jti"]) ||
+      typeof source.jti !== "string" ||
+      !identifier.test(source.jti) ||
+      !isSafePositive(source.expiresAtSeconds)
+    )
+      return undefined;
     const entry = { jti: source.jti, expiresAtSeconds: source.expiresAtSeconds };
     const key = capabilityIndexSortKey(entry);
     if (previous !== "" && previous >= key) return undefined;
@@ -553,8 +669,12 @@ const decodeCapabilityIndex = (value: unknown): CapabilityReceiptIndex | undefin
     entries.push(entry);
   }
   return entries.length === 0
-    ? value.cursor === 0 ? { cursor: 0, entries } : undefined
-    : value.cursor < entries.length ? { cursor: value.cursor, entries } : undefined;
+    ? value.cursor === 0
+      ? { cursor: 0, entries }
+      : undefined
+    : value.cursor < entries.length
+      ? { cursor: value.cursor, entries }
+      : undefined;
 };
 const decodeJtiClaim = (value: unknown): JtiClaim | undefined =>
   isRecord(value) &&
@@ -754,7 +874,11 @@ export const makeOwnerVaultDomainProvider = (
   ) => tx.put(target, payload).pipe(Effect.mapError(storageFailure));
   const remove = (tx: OwnerVaultTx, target: OwnerVaultStorageAddress) =>
     tx.delete(target).pipe(Effect.mapError(storageFailure));
-  const requireRoot = (tx: OwnerVaultTx): Effect.Effect<void, OwnerVaultDomainError> =>
+  /**
+   * Expiry/lease reclamation must keep working after a credential fence. The
+   * identity is still immutable; only admission of new caller work is stopped.
+   */
+  const requireRootIdentity = (tx: OwnerVaultTx): Effect.Effect<void, OwnerVaultDomainError> =>
     read(tx, address("root.identity"), (value): OwnerVaultTargetRoot | undefined => {
       if (
         !isRecord(value) ||
@@ -777,12 +901,15 @@ export const makeOwnerVaultDomainProvider = (
         stored === undefined
           ? fail("identity_conflict")
           : sameRoot(stored, root)
-            ? getAdmission(tx).pipe(
-                Effect.flatMap((admission) =>
-                  admission.stopped ? fail("authorization_denied") : Effect.void,
-                ),
-              )
+            ? Effect.void
             : fail("identity_conflict"),
+      ),
+    );
+  const requireRoot = (tx: OwnerVaultTx): Effect.Effect<void, OwnerVaultDomainError> =>
+    requireRootIdentity(tx).pipe(
+      Effect.zipRight(getAdmission(tx)),
+      Effect.flatMap((admission) =>
+        admission.stopped ? fail("authorization_denied") : Effect.void,
       ),
     );
   const getAdmission = (tx: OwnerVaultTx) =>
@@ -855,9 +982,7 @@ export const makeOwnerVaultDomainProvider = (
               })
             : Effect.void,
         ),
-        Effect.zipRight(
-          read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
-        ),
+        Effect.zipRight(read(tx, address("capability-receipt-index"), decodeCapabilityIndex)),
         Effect.flatMap((index) =>
           index === undefined
             ? write(tx, address("capability-receipt-index"), { cursor: 0, entries: [] })
@@ -1234,8 +1359,13 @@ export const makeOwnerVaultDomainProvider = (
                 cursor: 0,
                 entries: [
                   ...receiptIndex.entries,
-                  { jti: input.capability.jti, expiresAtSeconds: input.capability.expiresAtSeconds },
-                ].sort((left, right) => capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right))),
+                  {
+                    jti: input.capability.jti,
+                    expiresAtSeconds: input.capability.expiresAtSeconds,
+                  },
+                ].sort((left, right) =>
+                  capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right)),
+                ),
               } satisfies CapabilityReceiptIndex;
               return write(tx, address("nonce", input.nonce.value), {
                 expiresAtSeconds: input.nonce.expiresAtSeconds,
@@ -1260,9 +1390,7 @@ export const makeOwnerVaultDomainProvider = (
                     result: { logSequence, payloadHash: input.payloadHash },
                   }),
                 ),
-                Effect.zipRight(
-                  write(tx, address("capability-receipt-index"), nextReceiptIndex),
-                ),
+                Effect.zipRight(write(tx, address("capability-receipt-index"), nextReceiptIndex)),
                 Effect.zipRight(
                   write(tx, address("append-log.entry", sequenceID(logSequence)), { ...entry }),
                 ),
@@ -1449,13 +1577,130 @@ export const makeOwnerVaultDomainProvider = (
       ),
     );
   };
+  const claimCapabilityReceipt: OwnerVaultDomainProvider["claimCapabilityReceipt"] = (input) => {
+    if (!validCapabilityReceiptInput(input)) return fail("invalid_input");
+    return transact((tx) =>
+      requireRoot(tx).pipe(
+        Effect.zipRight(
+          Effect.all([
+            read(tx, address("jti", input.jti), decodeJtiClaim),
+            read(tx, address("capability-receipt", input.jti), decodeCapability),
+            getAdmission(tx),
+            read(tx, address("capability-receipt-index"), decodeCapabilityIndex),
+          ]),
+        ),
+        Effect.flatMap(([jtiClaim, receipt, admission, receiptIndex]) => {
+          if (receiptIndex === undefined) return fail<CapabilityReceipt>("state_corrupt");
+          const indexed = receiptIndex.entries.some(
+            (entry) => entry.jti === input.jti && entry.expiresAtSeconds === input.expiresAtSeconds,
+          );
+          if (jtiClaim === undefined && receipt === undefined) {
+            if (indexed) return fail<CapabilityReceipt>("state_corrupt");
+            if (
+              admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts ||
+              receiptIndex.entries.length >= ownerVaultMaximumCapabilityReceipts
+            )
+              return fail<CapabilityReceipt>("quota_exceeded");
+            const nextIndex = {
+              cursor: 0,
+              entries: [
+                ...receiptIndex.entries,
+                { jti: input.jti, expiresAtSeconds: input.expiresAtSeconds },
+              ].sort((left, right) =>
+                capabilityIndexSortKey(left).localeCompare(capabilityIndexSortKey(right)),
+              ),
+            } satisfies CapabilityReceiptIndex;
+            const prepared = capabilityReceipt(input, "PREPARED", undefined);
+            return write(tx, address("jti", input.jti), {
+              operationID: input.operationID,
+              expiresAtSeconds: input.expiresAtSeconds,
+            }).pipe(
+              Effect.zipRight(
+                write(tx, address("capability-receipt", input.jti), {
+                  state: prepared.state,
+                  jti: prepared.jti,
+                  resource: prepared.resource,
+                  operationID: prepared.operationID,
+                  expiresAtSeconds: prepared.expiresAtSeconds,
+                  claims: prepared.claims,
+                  claimsFingerprint: prepared.claimsFingerprint,
+                  tokenFingerprint: prepared.tokenFingerprint,
+                }),
+              ),
+              Effect.zipRight(write(tx, address("capability-receipt-index"), nextIndex)),
+              Effect.zipRight(
+                write(tx, address("root.admission"), {
+                  ...admission,
+                  capabilityReceipts: admission.capabilityReceipts + 1,
+                }),
+              ),
+              Effect.as(prepared),
+            );
+          }
+          if (
+            jtiClaim === undefined ||
+            receipt === undefined ||
+            !indexed ||
+            jtiClaim.operationID !== input.operationID ||
+            jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
+            !sameCapabilityReceipt(receipt, input)
+          )
+            return fail<CapabilityReceipt>("replay_conflict");
+          return Effect.succeed(receipt);
+        }),
+      ),
+    );
+  };
+  const completeCapabilityReceipt: OwnerVaultDomainProvider["completeCapabilityReceipt"] = (
+    input,
+    result,
+  ) => {
+    if (!validCapabilityReceiptInput(input) || !validCanonicalResult(result))
+      return fail("invalid_input");
+    return transact((tx) =>
+      requireRootIdentity(tx).pipe(
+        Effect.zipRight(
+          Effect.all([
+            read(tx, address("jti", input.jti), decodeJtiClaim),
+            read(tx, address("capability-receipt", input.jti), decodeCapability),
+          ]),
+        ),
+        Effect.flatMap(([jtiClaim, receipt]) => {
+          if (
+            jtiClaim === undefined ||
+            receipt === undefined ||
+            jtiClaim.operationID !== input.operationID ||
+            jtiClaim.expiresAtSeconds !== input.expiresAtSeconds ||
+            !sameCapabilityReceipt(receipt, input)
+          )
+            return fail<CapabilityReceipt>("replay_conflict");
+          if (receipt.state === "COMPLETED")
+            return receipt.result !== undefined && sameCanonicalResult(receipt.result, result)
+              ? Effect.succeed(receipt)
+              : fail<CapabilityReceipt>("replay_conflict");
+          const completed = capabilityReceipt(input, "COMPLETED", result);
+          return write(tx, address("capability-receipt", input.jti), {
+            state: completed.state,
+            jti: completed.jti,
+            resource: completed.resource,
+            operationID: completed.operationID,
+            expiresAtSeconds: completed.expiresAtSeconds,
+            claims: completed.claims,
+            claimsFingerprint: completed.claimsFingerprint,
+            tokenFingerprint: completed.tokenFingerprint,
+            result: completed.result,
+          }).pipe(Effect.as(completed));
+        }),
+      ),
+    );
+  };
   const expireCapability = (
     jti: string,
     nowSeconds: number,
   ): Effect.Effect<boolean, OwnerVaultDomainError> => {
     if (!identifier.test(jti) || !isSafeNonNegative(nowSeconds)) return fail("invalid_input");
     return transact((tx) =>
-      requireRoot(tx).pipe(
+      requireRootIdentity(tx).pipe(
         Effect.zipRight(
           Effect.all([
             read(tx, address("jti", jti), decodeJtiClaim),
@@ -1543,6 +1788,8 @@ export const makeOwnerVaultDomainProvider = (
     expireSession,
     expireCapability,
     expireCapabilities,
+    claimCapabilityReceipt,
+    completeCapabilityReceipt,
   });
 };
 

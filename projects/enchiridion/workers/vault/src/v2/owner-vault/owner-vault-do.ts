@@ -4,7 +4,9 @@ import {
   type CanonicalJSON,
   canonicalJSONStringify,
   decodeDeviceChallengeRequest,
+  decodeDeviceChallengeResponse,
   decodeDeviceRegisterRequest,
+  decodeDeviceRegisterResponse,
   decodeMutationRequest,
   mutationCommandSHA256,
   parseJSONWithoutDuplicateMembers,
@@ -85,6 +87,7 @@ import {
   ownerVaultMaximumSessions,
   OwnerVaultDomainError,
   type OwnerVaultDevice,
+  type OwnerVaultCapabilityReceiptInput,
   type OwnerVaultDomainProvider,
 } from "./domains";
 import { makeOwnerVaultProviderGraph } from "./provider-graph";
@@ -128,6 +131,24 @@ const capabilityClaimsFingerprint = (claims: Readonly<Record<string, unknown>>):
   sha256Hex(new TextEncoder().encode(canonicalCapabilityClaims(claims)));
 const capabilityTokenFingerprint = (capability: SignedCapability): string =>
   sha256Hex(new TextEncoder().encode(capability.value));
+const capabilityReceiptInput = (
+  claims: CapabilityClaims,
+  capability: SignedCapability,
+  resource: string,
+  operationID: string,
+  nowSeconds: number,
+): OwnerVaultCapabilityReceiptInput => ({
+  jti: claims.jti,
+  resource,
+  operationID,
+  nowSeconds,
+  expiresAtSeconds: claims.expiresAt,
+  claims: canonicalCapabilityClaims(claims as unknown as Readonly<Record<string, unknown>>),
+  claimsFingerprint: capabilityClaimsFingerprint(
+    claims as unknown as Readonly<Record<string, unknown>>,
+  ),
+  tokenFingerprint: capabilityTokenFingerprint(capability),
+});
 const durableReceipt = (kind: string, operationID: string, digest: string): string =>
   sha256Hex(new TextEncoder().encode(`${kind}\u0000${operationID}\u0000${digest}`));
 const privateRestoreLink = (
@@ -1029,6 +1050,9 @@ export const makeOwnerVaultDO = (
         vaultID: command.vaultID,
         initDigest: command.initDigest,
         controlEpoch: command.controlEpoch,
+        // The fixed Directory control signer binds this durable operation
+        // identity as its JTI; no token-derived surrogate is accepted.
+        jti: command.operationID,
       } as const;
       const expected = {
         audience: DirectoryControlCapabilityAudience.DirectoryControl,
@@ -1041,6 +1065,7 @@ export const makeOwnerVaultDO = (
         routingEpoch: command.routingEpoch,
         controlEpoch: command.controlEpoch,
         operationID: command.operationID,
+        jti: command.operationID,
       } as const;
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
@@ -1102,6 +1127,9 @@ export const makeOwnerVaultDO = (
         vaultID: command.vaultID,
         floorSyncDigest: command.floorSyncDigest,
         controlEpoch: command.controlEpoch,
+        // Floor reconciliation persists the same caller-generated durable
+        // operation as the signed capability JTI.
+        jti: command.operationID,
       } as const;
       const expected = {
         audience: DirectoryControlCapabilityAudience.DirectoryControl,
@@ -1114,6 +1142,7 @@ export const makeOwnerVaultDO = (
         routingEpoch: command.routingEpoch,
         controlEpoch: command.controlEpoch,
         operationID: command.operationID,
+        jti: command.operationID,
       } as const;
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
@@ -1415,10 +1444,9 @@ export const makeOwnerVaultDO = (
       } as const;
       const completeAcknowledgement = (manifestDigest: string): Effect.Effect<string, unknown> => {
         const completed = { ...acknowledgement, state: "COMPLETED" as const, manifestDigest };
-        return repository.transact((tx) =>
-          tx
-            .get({ category: "control.initialization-ack", identifier: command.jti })
-            .pipe(
+        return repository
+          .transact((tx) =>
+            tx.get({ category: "control.initialization-ack", identifier: command.jti }).pipe(
               Effect.flatMap((existing) =>
                 existing !== undefined && samePayload(existing.payload, acknowledgement)
                   ? tx
@@ -1435,49 +1463,48 @@ export const makeOwnerVaultDO = (
                     : rejectControl<string>(),
               ),
             ),
-        ).pipe(Effect.mapError((error): unknown => error));
+          )
+          .pipe(Effect.mapError((error): unknown => error));
       };
       return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
         Effect.flatMap(() =>
           repository.transact<SnapshotJournal>((tx) =>
-            tx
-              .get({ category: "control.initialization-ack", identifier: command.jti })
-              .pipe(
-                Effect.flatMap((existing) => {
-                  if (existing === undefined)
-                    return tx
-                      .put(
-                        { category: "control.initialization-ack", identifier: command.jti },
-                        acknowledgement,
-                      )
-                      .pipe(Effect.as<SnapshotJournal>({ phase: "PREPARED" }));
-                  if (samePayload(existing.payload, acknowledgement))
-                    return Effect.succeed<SnapshotJournal>({ phase: "PREPARED" });
-                  const completed = record(existing.payload);
-                  return completed !== undefined &&
-                    exact(completed, [
-                      "kind",
-                      "operationID",
-                      "backupID",
-                      "controlDigest",
-                      "durableReceipt",
-                      "state",
-                      "manifestDigest",
-                    ]) &&
-                    completed.kind === acknowledgement.kind &&
-                    completed.operationID === acknowledgement.operationID &&
-                    completed.backupID === acknowledgement.backupID &&
-                    completed.controlDigest === acknowledgement.controlDigest &&
-                    completed.durableReceipt === acknowledgement.durableReceipt &&
-                    completed.state === "COMPLETED" &&
-                    validOwnerVaultBackupControlDigest(completed.manifestDigest)
-                    ? Effect.succeed<SnapshotJournal>({
-                        phase: "COMPLETED" as const,
-                        manifestDigest: completed.manifestDigest,
-                      })
-                    : rejectControl<SnapshotJournal>();
-                }),
-              ),
+            tx.get({ category: "control.initialization-ack", identifier: command.jti }).pipe(
+              Effect.flatMap((existing) => {
+                if (existing === undefined)
+                  return tx
+                    .put(
+                      { category: "control.initialization-ack", identifier: command.jti },
+                      acknowledgement,
+                    )
+                    .pipe(Effect.as<SnapshotJournal>({ phase: "PREPARED" }));
+                if (samePayload(existing.payload, acknowledgement))
+                  return Effect.succeed<SnapshotJournal>({ phase: "PREPARED" });
+                const completed = record(existing.payload);
+                return completed !== undefined &&
+                  exact(completed, [
+                    "kind",
+                    "operationID",
+                    "backupID",
+                    "controlDigest",
+                    "durableReceipt",
+                    "state",
+                    "manifestDigest",
+                  ]) &&
+                  completed.kind === acknowledgement.kind &&
+                  completed.operationID === acknowledgement.operationID &&
+                  completed.backupID === acknowledgement.backupID &&
+                  completed.controlDigest === acknowledgement.controlDigest &&
+                  completed.durableReceipt === acknowledgement.durableReceipt &&
+                  completed.state === "COMPLETED" &&
+                  validOwnerVaultBackupControlDigest(completed.manifestDigest)
+                  ? Effect.succeed<SnapshotJournal>({
+                      phase: "COMPLETED" as const,
+                      manifestDigest: completed.manifestDigest,
+                    })
+                  : rejectControl<SnapshotJournal>();
+              }),
+            ),
           ),
         ),
         Effect.flatMap((journal) =>
@@ -1510,8 +1537,14 @@ export const makeOwnerVaultDO = (
                 ),
               ),
         ),
-        Effect.map((manifestDigest): Response =>
-          response({ ok: true, backupID: command.backupID, manifestDigest, durableReceipt: durable }),
+        Effect.map(
+          (manifestDigest): Response =>
+            response({
+              ok: true,
+              backupID: command.backupID,
+              manifestDigest,
+              durableReceipt: durable,
+            }),
         ),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 403))),
       );
@@ -1553,24 +1586,26 @@ export const makeOwnerVaultDO = (
       type RestoreJournal = { readonly phase: "PREPARED" } | { readonly phase: "COMPLETED" };
       const completeAcknowledgement = (): Effect.Effect<void, unknown> => {
         const completed = { ...acknowledgement, state: "COMPLETED" as const };
-        return repository.transact((tx) =>
-          tx
-            .get({ category: "control.initialization-ack", identifier: command.jti })
-            .pipe(
-              Effect.flatMap((existing) =>
-                existing !== undefined && samePayload(existing.payload, acknowledgement)
-                  ? tx
-                      .put(
-                        { category: "control.initialization-ack", identifier: command.jti },
-                        completed,
-                      )
-                      .pipe(Effect.asVoid)
-                  : existing !== undefined && samePayload(existing.payload, completed)
-                    ? Effect.void
-                    : rejectControl<void>(),
+        return repository
+          .transact((tx) =>
+            tx
+              .get({ category: "control.initialization-ack", identifier: command.jti })
+              .pipe(
+                Effect.flatMap((existing) =>
+                  existing !== undefined && samePayload(existing.payload, acknowledgement)
+                    ? tx
+                        .put(
+                          { category: "control.initialization-ack", identifier: command.jti },
+                          completed,
+                        )
+                        .pipe(Effect.asVoid)
+                    : existing !== undefined && samePayload(existing.payload, completed)
+                      ? Effect.void
+                      : rejectControl<void>(),
+                ),
               ),
-            ),
-        ).pipe(Effect.mapError((error): unknown => error));
+          )
+          .pipe(Effect.mapError((error): unknown => error));
       };
       const assertFreshPrivateTarget = (): Effect.Effect<void, OwnerVaultBackupError> =>
         repository
@@ -1599,10 +1634,9 @@ export const makeOwnerVaultDO = (
       return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
         Effect.flatMap(() =>
           repository.transact<RestoreJournal>((tx) =>
-            tx
-              .get({ category: "control.initialization-ack", identifier: command.jti })
-              .pipe(
-                Effect.flatMap((existing): Effect.Effect<RestoreJournal, OwnerVaultStorageTransactionFailure> =>
+            tx.get({ category: "control.initialization-ack", identifier: command.jti }).pipe(
+              Effect.flatMap(
+                (existing): Effect.Effect<RestoreJournal, OwnerVaultStorageTransactionFailure> =>
                   existing === undefined
                     ? tx
                         .put(
@@ -1634,8 +1668,8 @@ export const makeOwnerVaultDO = (
                             ? Effect.succeed<RestoreJournal>({ phase: "COMPLETED" })
                             : rejectControl<RestoreJournal>();
                         })(),
-                ),
               ),
+            ),
           ),
         ),
         Effect.flatMap((journal) =>
@@ -1730,32 +1764,35 @@ export const makeOwnerVaultDO = (
     /** Multiple receipt families share one DO alarm; admission can only move
      * it earlier. The alarm itself recomputes the exact next bounded cursor. */
     private scheduleReconciliation = (atMilliseconds: number): Effect.Effect<void, unknown> =>
-      this.boundary.storage.getAlarm().pipe(
-        Effect.flatMap((current) =>
-          current === null || current > atMilliseconds
-            ? this.boundary.storage.setAlarm(atMilliseconds)
-            : Effect.void,
-        ),
-      );
+      this.boundary.storage
+        .getAlarm()
+        .pipe(
+          Effect.flatMap((current) =>
+            current === null || current > atMilliseconds
+              ? this.boundary.storage.setAlarm(atMilliseconds)
+              : Effect.void,
+          ),
+        );
 
     private reconcileCapabilityReceipts = (
       nowSeconds: number,
     ): Effect.Effect<number | undefined, unknown> =>
       this.socketAuthority().pipe(
-        Effect.flatMap((authority) => {
+        Effect.flatMap((authority): Effect.Effect<number | undefined, unknown> => {
           const root = {
             ownerID: authority.ownerID,
             vaultID: authority.vaultID,
             generationEpoch: authority.generationEpoch,
             namespaceState: authority.namespaceState,
           } as const;
-          const graph = this.production === undefined
-            ? undefined
-            : makeOwnerVaultProviderGraph(
-                makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
-                root,
-                this.production,
-              );
+          const graph =
+            this.production === undefined
+              ? undefined
+              : makeOwnerVaultProviderGraph(
+                  makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
+                  root,
+                  this.production,
+                );
           return graph === undefined
             ? rejectControl<number | undefined>()
             : graph.domains.expireCapabilities(nowSeconds);
@@ -1826,7 +1863,8 @@ export const makeOwnerVaultDO = (
                 if (stored === undefined) return Effect.succeed(undefined);
                 const receipt = record(stored.payload);
                 const result = receipt === undefined ? undefined : record(receipt.result);
-                const storedDevice = result === undefined ? undefined : socketDeviceRecord(result.device);
+                const storedDevice =
+                  result === undefined ? undefined : socketDeviceRecord(result.device);
                 if (
                   receipt === undefined ||
                   !exact(receipt, ["expiresAtSeconds", "fingerprint", "kind", "result"]) ||
@@ -1843,7 +1881,8 @@ export const makeOwnerVaultDO = (
               Effect.catchAll(() => Effect.fail(deviceError("temporarily_unavailable"))),
             ),
         registerFromChallenge: (input) => {
-          if (!sameDeviceRoot(root, input.device)) return Effect.fail(deviceError("invalid_request"));
+          if (!sameDeviceRoot(root, input.device))
+            return Effect.fail(deviceError("invalid_request"));
           return mapDomain(
             domains.registerDevice({
               registrationID: input.idempotencyKey,
@@ -1970,19 +2009,57 @@ export const makeOwnerVaultDO = (
             ownerVaultDeviceChallengePath,
             authority,
           ).pipe(
-            Effect.zipRight(this.deviceServiceFor(authority, graph.domains, repository)),
-            Effect.flatMap((devices) =>
-              devices.createAccessChallenge(
-                {
-                  ownerID: authority.ownerID,
-                  vaultID: authority.vaultID,
-                  generationEpoch: authority.generationEpoch,
-                },
-                envelope.command,
-                Date.now(),
-              ),
-            ),
-            Effect.map((challenge) => response(challenge)),
+            Effect.flatMap((claims): Effect.Effect<Response, unknown> => {
+              // DeviceChallenge has no separately signed operation field. Its
+              // canonical one-shot operation identity is therefore the signed
+              // capability JTI, never a bearer-derived surrogate.
+              const receipt = capabilityReceiptInput(
+                claims,
+                envelope.capability,
+                ownerVaultDeviceChallengePath,
+                claims.jti,
+                now(),
+              );
+              return graph.domains.claimCapabilityReceipt(receipt).pipe(
+                Effect.flatMap((claimed): Effect.Effect<Response, OwnerVaultDomainError> => {
+                  if (claimed.state === "COMPLETED") {
+                    if (claimed.result === undefined)
+                      return Effect.fail(new OwnerVaultDomainError({ reason: "replay_conflict" }));
+                    try {
+                      return Effect.succeed(
+                        response(decodeDeviceChallengeResponse(claimed.result)),
+                      );
+                    } catch {
+                      return Effect.fail(new OwnerVaultDomainError({ reason: "replay_conflict" }));
+                    }
+                  }
+                  return this.deviceServiceFor(authority, graph.domains, repository).pipe(
+                    Effect.flatMap((devices) =>
+                      devices.createAccessChallenge(
+                        {
+                          ownerID: authority.ownerID,
+                          vaultID: authority.vaultID,
+                          generationEpoch: authority.generationEpoch,
+                        },
+                        envelope.command,
+                        Date.now(),
+                      ),
+                    ),
+                    Effect.flatMap((challenge) =>
+                      graph.domains
+                        .completeCapabilityReceipt(
+                          receipt,
+                          challenge as unknown as Readonly<Record<string, unknown>>,
+                        )
+                        .pipe(Effect.as(response(challenge))),
+                    ),
+                    Effect.mapError(
+                      () => new OwnerVaultDomainError({ reason: "authorization_denied" }),
+                    ),
+                  );
+                }),
+              );
+            }),
           );
         }),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 403))),
@@ -2007,11 +2084,46 @@ export const makeOwnerVaultDO = (
             ownerVaultDeviceCompletePath,
             authority,
           ).pipe(
-            Effect.zipRight(this.deviceServiceFor(authority, graph.domains, repository)),
-            Effect.flatMap((devices) =>
-              devices.registerInitialOrAdditionalDevice(envelope.command, Date.now()),
-            ),
-            Effect.map((registered) => response(registered)),
+            Effect.flatMap((claims): Effect.Effect<Response, unknown> => {
+              // DeviceComplete carries its own signed idempotency key, which
+              // is the durable operation identity for this receipt.
+              const receipt = capabilityReceiptInput(
+                claims,
+                envelope.capability,
+                ownerVaultDeviceCompletePath,
+                envelope.command.idempotencyKey,
+                now(),
+              );
+              return graph.domains.claimCapabilityReceipt(receipt).pipe(
+                Effect.flatMap((claimed): Effect.Effect<Response, OwnerVaultDomainError> => {
+                  if (claimed.state === "COMPLETED") {
+                    if (claimed.result === undefined)
+                      return Effect.fail(new OwnerVaultDomainError({ reason: "replay_conflict" }));
+                    try {
+                      return Effect.succeed(response(decodeDeviceRegisterResponse(claimed.result)));
+                    } catch {
+                      return Effect.fail(new OwnerVaultDomainError({ reason: "replay_conflict" }));
+                    }
+                  }
+                  return this.deviceServiceFor(authority, graph.domains, repository).pipe(
+                    Effect.flatMap((devices) =>
+                      devices.registerInitialOrAdditionalDevice(envelope.command, Date.now()),
+                    ),
+                    Effect.flatMap((registered) =>
+                      graph.domains
+                        .completeCapabilityReceipt(
+                          receipt,
+                          registered as unknown as Readonly<Record<string, unknown>>,
+                        )
+                        .pipe(Effect.as(response(registered))),
+                    ),
+                    Effect.mapError(
+                      () => new OwnerVaultDomainError({ reason: "authorization_denied" }),
+                    ),
+                  );
+                }),
+              );
+            }),
           );
         }),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 403))),
@@ -2072,46 +2184,44 @@ export const makeOwnerVaultDO = (
                     observedHighWater: envelope.command.command.causalVersion ?? 0,
                   });
                   if (fingerprint === undefined)
-                    return Effect.fail(
-                      new OwnerVaultDomainError({ reason: "invalid_input" }),
-                    );
-                  return graph.domains.append({
-                    operationID: envelope.command.command.operationID,
-                    fingerprint,
-                    payloadHash: envelope.command.command.payloadSHA256,
-                    payloadBase64: envelope.command.command.payloadBase64,
-                    source: "http",
-                    observedHighWater: envelope.command.command.causalVersion ?? 0,
-                    nowSeconds,
-                    receiptExpiresAtSeconds: capability.expiresAt,
-                    actor: {
-                      deviceID: actor.deviceID,
-                      authEpoch: actor.authEpoch,
-                      credentialEpoch: actor.credentialEpoch,
-                      securityFloor: actor.securityFloor,
-                    },
-                    nonce: {
-                      value: envelope.command.envelope.nonce,
-                      expiresAtSeconds: Math.floor(envelope.command.envelope.expiresAt / 1_000),
+                    return Effect.fail(new OwnerVaultDomainError({ reason: "invalid_input" }));
+                  return graph.domains
+                    .append({
+                      operationID: envelope.command.command.operationID,
                       fingerprint,
-                    },
-                    capability: {
-                      jti: capability.jti,
-                      expiresAtSeconds: capability.expiresAt,
-                      resource: ownerVaultOpaqueAppendPath,
-                      claims: canonicalCapabilityClaims(
-                        capability as unknown as Readonly<Record<string, unknown>>,
-                      ),
-                      claimsFingerprint: capabilityClaimsFingerprint(
-                        capability as unknown as Readonly<Record<string, unknown>>,
-                      ),
-                      tokenFingerprint: capabilityTokenFingerprint(envelope.capability),
-                    },
-                  }).pipe(
-                    Effect.tap(() =>
-                      this.scheduleReconciliation(capability.expiresAt * 1_000),
-                    ),
-                  );
+                      payloadHash: envelope.command.command.payloadSHA256,
+                      payloadBase64: envelope.command.command.payloadBase64,
+                      source: "http",
+                      observedHighWater: envelope.command.command.causalVersion ?? 0,
+                      nowSeconds,
+                      receiptExpiresAtSeconds: capability.expiresAt,
+                      actor: {
+                        deviceID: actor.deviceID,
+                        authEpoch: actor.authEpoch,
+                        credentialEpoch: actor.credentialEpoch,
+                        securityFloor: actor.securityFloor,
+                      },
+                      nonce: {
+                        value: envelope.command.envelope.nonce,
+                        expiresAtSeconds: Math.floor(envelope.command.envelope.expiresAt / 1_000),
+                        fingerprint,
+                      },
+                      capability: {
+                        jti: capability.jti,
+                        expiresAtSeconds: capability.expiresAt,
+                        resource: ownerVaultOpaqueAppendPath,
+                        claims: canonicalCapabilityClaims(
+                          capability as unknown as Readonly<Record<string, unknown>>,
+                        ),
+                        claimsFingerprint: capabilityClaimsFingerprint(
+                          capability as unknown as Readonly<Record<string, unknown>>,
+                        ),
+                        tokenFingerprint: capabilityTokenFingerprint(envelope.capability),
+                      },
+                    })
+                    .pipe(
+                      Effect.tap(() => this.scheduleReconciliation(capability.expiresAt * 1_000)),
+                    );
                 }),
               ),
             ),
@@ -2507,10 +2617,7 @@ export const makeOwnerVaultDO = (
                 );
             }
             if (prior.phase === "ACCEPTED") {
-              if (
-                counts.activeSocketAdmissions < 1 ||
-                (ownedSession && counts.activeSessions < 1)
-              )
+              if (counts.activeSocketAdmissions < 1 || (ownedSession && counts.activeSessions < 1))
                 return rejectControl<void>();
               const next: SocketAdmissionRecord = { ...prior, phase: "CLOSED" };
               return tx
@@ -2617,14 +2724,12 @@ export const makeOwnerVaultDO = (
                             { category: "root.admission" },
                             {
                               ...counts,
-                              pendingSocketAdmissions:
-                                consumesPending
-                                  ? counts.pendingSocketAdmissions - 1
-                                  : counts.pendingSocketAdmissions,
-                              activeSocketAdmissions:
-                                consumesActiveSocket
-                                  ? counts.activeSocketAdmissions - 1
-                                  : counts.activeSocketAdmissions,
+                              pendingSocketAdmissions: consumesPending
+                                ? counts.pendingSocketAdmissions - 1
+                                : counts.pendingSocketAdmissions,
+                              activeSocketAdmissions: consumesActiveSocket
+                                ? counts.activeSocketAdmissions - 1
+                                : counts.activeSocketAdmissions,
                               activeSessions: ownedSession
                                 ? counts.activeSessions - 1
                                 : counts.activeSessions,
@@ -2730,138 +2835,135 @@ export const makeOwnerVaultDO = (
             headerName: ownerVaultSocketAdmissionHeader,
             headerValue: capability,
           };
-          return socketAdmissions.verifier.verify(
-            { value: capability },
-            binding,
-            {
-              ownerID: authority.ownerID,
-              vaultID: authority.vaultID,
-              generationEpoch: authority.generationEpoch,
-              routingEpoch: authority.routingEpoch,
-              credentialEpoch: authority.credentialEpoch,
-              controlEpoch: authority.controlEpoch,
-              securityFloor: authority.securityFloor,
-              deviceID: hint.deviceID,
-              sessionID: hint.sessionID,
-              operationID: hint.operationID,
-            },
-            now(),
-          ).pipe(
-            Effect.flatMap((claims) => {
-              const root = {
+          return socketAdmissions.verifier
+            .verify(
+              { value: capability },
+              binding,
+              {
                 ownerID: authority.ownerID,
                 vaultID: authority.vaultID,
                 generationEpoch: authority.generationEpoch,
-                namespaceState: authority.namespaceState,
-              } as const;
-              const graph = makeOwnerVaultProviderGraph(
-                makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
-                root,
-                production,
-              );
-              if (graph === undefined) return rejectControl<Response>();
-              return graph.domains.getDevice(claims.deviceID).pipe(
-                Effect.flatMap((device) =>
-                  !device.revoked &&
-                  device.credentialEpoch === claims.credentialEpoch &&
-                  device.securityFloor >= claims.securityFloor
-                    ? this.socketNonce()
-                    : rejectControl<string>(),
-                ),
-                Effect.flatMap((bindingNonce) =>
-                  /^[A-Za-z0-9_-]{22}$/u.test(bindingNonce)
-                    ? this.prepareSocket(
-                        authority,
-                        claims,
-                        fingerprint,
-                        bindingNonce,
-                        Date.now(),
-                      )
-                    : rejectControl(),
-                ),
-                Effect.flatMap((prepared) => {
-                  if (!prepared.creator) return Effect.succeed(response({ ok: false }, 409));
-                  // The PREPARED receipt already owns quota and a JTI. Schedule
-                  // its exact expiry before any accept-outside-transaction work
-                  // so an isolate loss cannot leave that reservation unbounded.
-                  return this.scheduleReconciliation(prepared.record.expiresAtMilliseconds)
-                    .pipe(
-                  Effect.zipRight(graph.domains.getDevice(prepared.record.deviceID)),
-                    Effect.flatMap((device) =>
-                      graph.domains.establishSession({
-                        sessionID: prepared.record.sessionID,
-                        deviceID: prepared.record.deviceID,
-                        authEpoch: device.authEpoch,
-                        credentialEpoch: authority.credentialEpoch,
-                        securityFloor: authority.securityFloor,
-                        assertionExpiresAtMilliseconds: prepared.record.expiresAtMilliseconds,
-                        // The persisted value is only a hash of the signed
-                        // capability, never a resume bearer or raw token.
-                        resumeTokenHash: prepared.record.fingerprint,
-                      }),
-                    ),
-                    Effect.flatMap(() => {
-                      const attachment: SocketAttachment = {
-                        version: 1,
-                        operationID: prepared.record.operationID,
-                        jti: prepared.record.jti,
-                        sessionID: prepared.record.sessionID,
-                        deviceID: prepared.record.deviceID,
-                        bindingNonce: prepared.record.bindingNonce,
-                        socketGeneration: prepared.record.socketGeneration,
-                        expiresAtMilliseconds: prepared.record.expiresAtMilliseconds,
-                      };
-                      return Effect.try({
-                        try: () => {
-                          const pair = new WebSocketPair();
-                          const client = pair[0];
-                          const server = pair[1];
-                          server.serializeAttachment(attachment);
-                          this.ctx.acceptWebSocket(server);
-                          return { client, server };
-                        },
-                        catch: () => undefined,
-                      }).pipe(
-                        Effect.flatMap((socket) =>
-                          socket === undefined
-                            ? this.releaseSocket(attachment).pipe(
-                                Effect.catchAll(() => Effect.void),
-                                Effect.as(response({ ok: false }, 503)),
-                              )
-                            : this.acceptSocket(attachment).pipe(
-                                Effect.tap((accepted) =>
-                                  Effect.sync(() => {
-                                    if (accepted.accepted)
-                                      socket.server.send(JSON.stringify(accepted.record.challenge));
-                                  }),
-                                ),
-                                Effect.tap(() =>
-                                  this.scheduleReconciliation(attachment.expiresAtMilliseconds),
-                                ),
-                                Effect.map(
-                                  () =>
-                                    new Response(null, { status: 101, webSocket: socket.client }),
-                                ),
-                                Effect.catchAll(() =>
-                                  this.releaseSocket(attachment).pipe(
-                                    Effect.catchAll(() => Effect.void),
-                                    Effect.as(response({ ok: false }, 503)),
-                                    Effect.tap(() =>
-                                      Effect.sync(() =>
-                                        socket.server.close(4401, "socket admission failed"),
+                routingEpoch: authority.routingEpoch,
+                credentialEpoch: authority.credentialEpoch,
+                controlEpoch: authority.controlEpoch,
+                securityFloor: authority.securityFloor,
+                deviceID: hint.deviceID,
+                sessionID: hint.sessionID,
+                operationID: hint.operationID,
+              },
+              now(),
+            )
+            .pipe(
+              Effect.flatMap((claims) => {
+                const root = {
+                  ownerID: authority.ownerID,
+                  vaultID: authority.vaultID,
+                  generationEpoch: authority.generationEpoch,
+                  namespaceState: authority.namespaceState,
+                } as const;
+                const graph = makeOwnerVaultProviderGraph(
+                  makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
+                  root,
+                  production,
+                );
+                if (graph === undefined) return rejectControl<Response>();
+                return graph.domains.getDevice(claims.deviceID).pipe(
+                  Effect.flatMap((device) =>
+                    !device.revoked &&
+                    device.credentialEpoch === claims.credentialEpoch &&
+                    device.securityFloor >= claims.securityFloor
+                      ? this.socketNonce()
+                      : rejectControl<string>(),
+                  ),
+                  Effect.flatMap((bindingNonce) =>
+                    /^[A-Za-z0-9_-]{22}$/u.test(bindingNonce)
+                      ? this.prepareSocket(authority, claims, fingerprint, bindingNonce, Date.now())
+                      : rejectControl(),
+                  ),
+                  Effect.flatMap((prepared) => {
+                    if (!prepared.creator) return Effect.succeed(response({ ok: false }, 409));
+                    // The PREPARED receipt already owns quota and a JTI. Schedule
+                    // its exact expiry before any accept-outside-transaction work
+                    // so an isolate loss cannot leave that reservation unbounded.
+                    return this.scheduleReconciliation(prepared.record.expiresAtMilliseconds).pipe(
+                      Effect.zipRight(graph.domains.getDevice(prepared.record.deviceID)),
+                      Effect.flatMap((device) =>
+                        graph.domains.establishSession({
+                          sessionID: prepared.record.sessionID,
+                          deviceID: prepared.record.deviceID,
+                          authEpoch: device.authEpoch,
+                          credentialEpoch: authority.credentialEpoch,
+                          securityFloor: authority.securityFloor,
+                          assertionExpiresAtMilliseconds: prepared.record.expiresAtMilliseconds,
+                          // The persisted value is only a hash of the signed
+                          // capability, never a resume bearer or raw token.
+                          resumeTokenHash: prepared.record.fingerprint,
+                        }),
+                      ),
+                      Effect.flatMap(() => {
+                        const attachment: SocketAttachment = {
+                          version: 1,
+                          operationID: prepared.record.operationID,
+                          jti: prepared.record.jti,
+                          sessionID: prepared.record.sessionID,
+                          deviceID: prepared.record.deviceID,
+                          bindingNonce: prepared.record.bindingNonce,
+                          socketGeneration: prepared.record.socketGeneration,
+                          expiresAtMilliseconds: prepared.record.expiresAtMilliseconds,
+                        };
+                        return Effect.try({
+                          try: () => {
+                            const pair = new WebSocketPair();
+                            const client = pair[0];
+                            const server = pair[1];
+                            server.serializeAttachment(attachment);
+                            this.ctx.acceptWebSocket(server);
+                            return { client, server };
+                          },
+                          catch: () => undefined,
+                        }).pipe(
+                          Effect.flatMap((socket) =>
+                            socket === undefined
+                              ? this.releaseSocket(attachment).pipe(
+                                  Effect.catchAll(() => Effect.void),
+                                  Effect.as(response({ ok: false }, 503)),
+                                )
+                              : this.acceptSocket(attachment).pipe(
+                                  Effect.tap((accepted) =>
+                                    Effect.sync(() => {
+                                      if (accepted.accepted)
+                                        socket.server.send(
+                                          JSON.stringify(accepted.record.challenge),
+                                        );
+                                    }),
+                                  ),
+                                  Effect.tap(() =>
+                                    this.scheduleReconciliation(attachment.expiresAtMilliseconds),
+                                  ),
+                                  Effect.map(
+                                    () =>
+                                      new Response(null, { status: 101, webSocket: socket.client }),
+                                  ),
+                                  Effect.catchAll(() =>
+                                    this.releaseSocket(attachment).pipe(
+                                      Effect.catchAll(() => Effect.void),
+                                      Effect.as(response({ ok: false }, 503)),
+                                      Effect.tap(() =>
+                                        Effect.sync(() =>
+                                          socket.server.close(4401, "socket admission failed"),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                        ),
-                      );
-                    }),
+                          ),
+                        );
+                      }),
                     );
-                }),
-              );
-            }),
-          );
+                  }),
+                );
+              }),
+            );
         }),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 401))),
       );
@@ -2898,79 +3000,94 @@ export const makeOwnerVaultDO = (
                 tx.get({ category: "device", identifier: attachment.deviceID }),
                 tx.get({ category: "session", identifier: attachment.sessionID }),
               ]).pipe(
-                Effect.flatMap(([
-                  identity,
-                  floors,
-                  admission,
-                  current,
-                  storedSocket,
-                  storedJti,
-                  storedDevice,
-                  storedSession,
-                ]): Effect.Effect<SocketAdmissionRecord, OwnerVaultStorageTransactionFailure> => {
-                  const durableRoot = identity === undefined ? undefined : record(identity.payload);
-                  const durableFloors = floors === undefined ? undefined : record(floors.payload);
-                  const counts = admission === undefined ? undefined : socketAdmissionCounts(admission.payload);
-                  const durableAuthority = current === undefined ? undefined : record(current.payload);
-                  const socket = storedSocket === undefined ? undefined : socketRecord(storedSocket.payload);
-                  const jti = storedJti === undefined ? undefined : socketJtiRecord(storedJti.payload);
-                  const device = storedDevice === undefined ? undefined : socketDeviceRecord(storedDevice.payload);
-                  const session = storedSession === undefined ? undefined : socketSessionRecord(storedSession.payload);
-                  if (
-                    durableRoot === undefined ||
-                    durableFloors === undefined ||
-                    counts === undefined ||
-                    durableAuthority === undefined ||
-                    socket === undefined ||
-                    jti === undefined ||
-                    device === undefined ||
-                    session === undefined ||
-                    counts.stopped ||
-                    !samePayload(durableRoot, root) ||
-                    !samePayload(durableFloors, { securityFloor: authority.securityFloor }) ||
-                    !samePayload(durableAuthority, {
-                      kind: "authority",
-                      credentialEpoch: authority.credentialEpoch,
-                      routingEpoch: authority.routingEpoch,
-                      controlEpoch: authority.controlEpoch,
-                      securityFloor: authority.securityFloor,
-                    }) ||
-                    socket.phase !== "ACCEPTED" ||
-                    socket.ownerID !== authority.ownerID ||
-                    socket.vaultID !== authority.vaultID ||
-                    socket.generationEpoch !== authority.generationEpoch ||
-                    socket.namespaceState !== authority.namespaceState ||
-                    socket.routingEpoch !== authority.routingEpoch ||
-                    socket.credentialEpoch !== authority.credentialEpoch ||
-                    socket.controlEpoch !== authority.controlEpoch ||
-                    socket.securityFloor !== authority.securityFloor ||
-                    socket.jti !== attachment.jti ||
-                    socket.bindingNonce !== attachment.bindingNonce ||
-                    socket.socketGeneration !== attachment.socketGeneration ||
-                    socket.sessionID !== attachment.sessionID ||
-                    socket.deviceID !== attachment.deviceID ||
-                    socket.expiresAtMilliseconds !== attachment.expiresAtMilliseconds ||
-                    socket.expiresAtMilliseconds <= nowMilliseconds ||
-                    jti.operationID !== socket.operationID ||
-                    jti.fingerprint !== socket.fingerprint ||
-                    jti.expiresAtMilliseconds !== socket.expiresAtMilliseconds ||
-                    !counts.socketReplayJTIs.includes(socket.jti) ||
-                    device.deviceID !== socket.deviceID ||
-                    device.revoked ||
-                    device.credentialEpoch !== socket.credentialEpoch ||
-                    device.securityFloor < socket.securityFloor ||
-                    session.sessionID !== socket.sessionID ||
-                    session.deviceID !== socket.deviceID ||
-                    session.authEpoch !== device.authEpoch ||
-                    session.credentialEpoch !== socket.credentialEpoch ||
-                    session.securityFloor < socket.securityFloor ||
-                    session.assertionExpiresAtMilliseconds !== socket.expiresAtMilliseconds ||
-                    session.assertionExpiresAtMilliseconds <= nowMilliseconds ||
-                    session.resumeTokenHash !== socket.fingerprint
-                  )
-                    return rejectControl<SocketAdmissionRecord>();
-                  return Effect.succeed(socket);
-                }),
+                Effect.flatMap(
+                  ([
+                    identity,
+                    floors,
+                    admission,
+                    current,
+                    storedSocket,
+                    storedJti,
+                    storedDevice,
+                    storedSession,
+                  ]): Effect.Effect<SocketAdmissionRecord, OwnerVaultStorageTransactionFailure> => {
+                    const durableRoot =
+                      identity === undefined ? undefined : record(identity.payload);
+                    const durableFloors = floors === undefined ? undefined : record(floors.payload);
+                    const counts =
+                      admission === undefined
+                        ? undefined
+                        : socketAdmissionCounts(admission.payload);
+                    const durableAuthority =
+                      current === undefined ? undefined : record(current.payload);
+                    const socket =
+                      storedSocket === undefined ? undefined : socketRecord(storedSocket.payload);
+                    const jti =
+                      storedJti === undefined ? undefined : socketJtiRecord(storedJti.payload);
+                    const device =
+                      storedDevice === undefined
+                        ? undefined
+                        : socketDeviceRecord(storedDevice.payload);
+                    const session =
+                      storedSession === undefined
+                        ? undefined
+                        : socketSessionRecord(storedSession.payload);
+                    if (
+                      durableRoot === undefined ||
+                      durableFloors === undefined ||
+                      counts === undefined ||
+                      durableAuthority === undefined ||
+                      socket === undefined ||
+                      jti === undefined ||
+                      device === undefined ||
+                      session === undefined ||
+                      counts.stopped ||
+                      !samePayload(durableRoot, root) ||
+                      !samePayload(durableFloors, { securityFloor: authority.securityFloor }) ||
+                      !samePayload(durableAuthority, {
+                        kind: "authority",
+                        credentialEpoch: authority.credentialEpoch,
+                        routingEpoch: authority.routingEpoch,
+                        controlEpoch: authority.controlEpoch,
+                        securityFloor: authority.securityFloor,
+                      }) ||
+                      socket.phase !== "ACCEPTED" ||
+                      socket.ownerID !== authority.ownerID ||
+                      socket.vaultID !== authority.vaultID ||
+                      socket.generationEpoch !== authority.generationEpoch ||
+                      socket.namespaceState !== authority.namespaceState ||
+                      socket.routingEpoch !== authority.routingEpoch ||
+                      socket.credentialEpoch !== authority.credentialEpoch ||
+                      socket.controlEpoch !== authority.controlEpoch ||
+                      socket.securityFloor !== authority.securityFloor ||
+                      socket.jti !== attachment.jti ||
+                      socket.bindingNonce !== attachment.bindingNonce ||
+                      socket.socketGeneration !== attachment.socketGeneration ||
+                      socket.sessionID !== attachment.sessionID ||
+                      socket.deviceID !== attachment.deviceID ||
+                      socket.expiresAtMilliseconds !== attachment.expiresAtMilliseconds ||
+                      socket.expiresAtMilliseconds <= nowMilliseconds ||
+                      jti.operationID !== socket.operationID ||
+                      jti.fingerprint !== socket.fingerprint ||
+                      jti.expiresAtMilliseconds !== socket.expiresAtMilliseconds ||
+                      !counts.socketReplayJTIs.includes(socket.jti) ||
+                      device.deviceID !== socket.deviceID ||
+                      device.revoked ||
+                      device.credentialEpoch !== socket.credentialEpoch ||
+                      device.securityFloor < socket.securityFloor ||
+                      session.sessionID !== socket.sessionID ||
+                      session.deviceID !== socket.deviceID ||
+                      session.authEpoch !== device.authEpoch ||
+                      session.credentialEpoch !== socket.credentialEpoch ||
+                      session.securityFloor < socket.securityFloor ||
+                      session.assertionExpiresAtMilliseconds !== socket.expiresAtMilliseconds ||
+                      session.assertionExpiresAtMilliseconds <= nowMilliseconds ||
+                      session.resumeTokenHash !== socket.fingerprint
+                    )
+                      return rejectControl<SocketAdmissionRecord>();
+                    return Effect.succeed(socket);
+                  },
+                ),
               ),
             )
             .pipe(
@@ -3005,8 +3122,7 @@ export const makeOwnerVaultDO = (
     ): Effect.Effect<void, unknown> => {
       const production = this.production;
       const storage = this.boundary.storage;
-      return (
-      Effect.gen(function* () {
+      return Effect.gen(function* () {
         const frame = yield* decodeOwnerVaultClientFrame(message, maximumBodyBytes).pipe(
           Effect.mapError((error): unknown => error),
         );
@@ -3081,15 +3197,16 @@ export const makeOwnerVaultDO = (
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,
-            fingerprint: ownerVaultOpaqueMutationFingerprint({
-              ownerID: admission.ownerID,
-              vaultID: admission.vaultID,
-              generationEpoch: admission.generationEpoch,
-              operationID: frame.operationID,
-              payloadSHA256: frame.payloadSHA256,
-              payloadBase64: frame.payloadBase64,
-              observedHighWater: frame.observedHighWater,
-            }) ?? (yield* rejectControl<string>()),
+            fingerprint:
+              ownerVaultOpaqueMutationFingerprint({
+                ownerID: admission.ownerID,
+                vaultID: admission.vaultID,
+                generationEpoch: admission.generationEpoch,
+                operationID: frame.operationID,
+                payloadSHA256: frame.payloadSHA256,
+                payloadBase64: frame.payloadBase64,
+                observedHighWater: frame.observedHighWater,
+              }) ?? (yield* rejectControl<string>()),
             payloadHash: frame.payloadSHA256,
             payloadBase64: frame.payloadBase64,
             source: "websocket",
@@ -3126,8 +3243,7 @@ export const makeOwnerVaultDO = (
             logSequence: acknowledgement.logSequence,
           }),
         );
-      })
-      );
+      });
     };
 
     private socketMessage = (
@@ -3147,7 +3263,9 @@ export const makeOwnerVaultDO = (
           accepted.accepted
             ? Effect.sync(() => socket.send(JSON.stringify(accepted.record.challenge)))
             : this.revalidateSocket(attachment).pipe(
-                Effect.flatMap((admission) => this.applySocketSyncChange(socket, attachment, admission, message)),
+                Effect.flatMap((admission) =>
+                  this.applySocketSyncChange(socket, attachment, admission, message),
+                ),
               ),
         ),
         // The frame that races acceptance is deliberately discarded. Every
@@ -3257,10 +3375,7 @@ export const makeOwnerVaultDO = (
             this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
           );
     };
-    override readonly webSocketError = (
-      socket: WebSocket,
-      _error: unknown,
-    ): Promise<void> => {
+    override readonly webSocketError = (socket: WebSocket, _error: unknown): Promise<void> => {
       const candidate = socket.deserializeAttachment();
       const attachment = validSocketAttachment(candidate) ? candidate : undefined;
       return attachment === undefined
