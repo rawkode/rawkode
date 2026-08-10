@@ -67,6 +67,7 @@ let process: ReturnType<typeof Bun.spawn> | undefined;
 let baseURL = "";
 let persistDirectory: string | undefined;
 let localPort = 0;
+type SocketFault = "accept-failure" | "early-callback" | "finalize-loss" | "prepared-loss";
 const bootstrap = () =>
   fetch(`${baseURL}/__v2/internal/bootstrap`, {
     method: "POST",
@@ -298,9 +299,12 @@ const p256Device = async () => {
 const signedSocketAdmission = async (
   deviceID = "socket-device-workerd-0001",
   suffix = "0001",
+  options: { readonly sessionSuffix?: string; readonly ttlSeconds?: number } = {},
 ): Promise<{ readonly capability: string; readonly expiresAtMilliseconds: number }> => {
   const nowSeconds = Math.floor(Date.now() / 1_000);
   const ring = await Effect.runPromise(ownerVaultSocketAdmissionRing());
+  const sessionSuffix = options.sessionSuffix ?? suffix;
+  const ttlSeconds = options.ttlSeconds ?? 60;
   const input = {
     ownerID: owner,
     vaultID: vault,
@@ -310,19 +314,19 @@ const signedSocketAdmission = async (
     controlEpoch: 1,
     securityFloor: 1,
     deviceID,
-    sessionID: `socket-session-workerd-${suffix}`,
+    sessionID: `socket-session-workerd-${sessionSuffix}`,
     operationID: `socket-operation-workerd-${suffix}`,
     jti: `socket-admission-jti-workerd-${suffix}`,
     method: "GET" as const,
     canonicalQuery: "",
     bodySHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     upgradeNonce: "AAAAAAAAAAAAAAAAAAAAAA",
-    ttlSeconds: 60,
+    ttlSeconds,
   } satisfies OwnerVaultSocketAdmissionClaimsInput;
   const signed = await Effect.runPromise(signOwnerVaultSocketAdmission(input, ring, nowSeconds));
   return {
     capability: signed.value,
-    expiresAtMilliseconds: (nowSeconds + input.ttlSeconds) * 1_000,
+    expiresAtMilliseconds: (nowSeconds + ttlSeconds) * 1_000,
   };
 };
 const socketUpgradeStatus = (
@@ -389,8 +393,10 @@ const nextSocketJSON = (socket: WebSocket): Promise<Readonly<Record<string, unkn
   });
 const socketClose = (socket: WebSocket): Promise<number> =>
   new Promise((resolve) => socket.once("close", (code) => resolve(code)));
+const wait = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const start = async (): Promise<void> => {
+const start = async (socketFault?: SocketFault): Promise<void> => {
   baseURL = `http://127.0.0.1:${localPort}`;
   process = Bun.spawn(
     [
@@ -401,6 +407,9 @@ const start = async (): Promise<void> => {
       "--local",
       `--persist-to=${persistDirectory}`,
       "--show-interactive-dev-session=false",
+      ...(socketFault === undefined
+        ? []
+        : ["--var", `ENCHIRIDION_V2_OWNER_VAULT_SOCKET_TEST_FAULT:${socketFault}`]),
     ],
     { cwd: vaultDirectory, stdin: "ignore", stdout: "ignore", stderr: "ignore" },
   );
@@ -416,7 +425,7 @@ const start = async (): Promise<void> => {
   throw new Error("Directory Workerd fixture did not start");
 };
 
-const restart = async (): Promise<void> => {
+const restart = async (socketFault?: SocketFault): Promise<void> => {
   // `start` assigns the module-scoped child asynchronously, which TypeScript
   // cannot infer through its body at each test call site.
   const running = process as ReturnType<typeof Bun.spawn> | undefined;
@@ -424,7 +433,7 @@ const restart = async (): Promise<void> => {
   running.kill();
   await running.exited;
   process = undefined;
-  await start();
+  await start(socketFault);
 };
 
 beforeAll(async () => {
@@ -639,6 +648,87 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     expect(appendReplay.status).toBe(200);
     expect(await appendReplay.json()).toMatchObject({ logSequence: 1 });
 
+    // These cases retain the production OwnerVault DO and namespace. The
+    // test-only constructor fault is configured by Workerd, never by a
+    // request, so each failure exercises a durable socket-saga boundary.
+    expect(
+      await socketUpgradeStatus(
+        (await signedSocketAdmission(registered.deviceID, "socket-baseline-0001")).capability,
+      ),
+    ).toBe(101);
+    await restart("accept-failure");
+    expect(
+      await socketUpgradeStatus(
+        (await signedSocketAdmission(registered.deviceID, "accept-failure-0001")).capability,
+      ),
+    ).toBe(503);
+    await restart();
+    expect(
+      await socketUpgradeStatus(
+        (await signedSocketAdmission(registered.deviceID, "accept-retry-0001")).capability,
+      ),
+    ).toBe(101);
+
+    await restart("finalize-loss");
+    expect(
+      await socketUpgradeStatus(
+        (await signedSocketAdmission(registered.deviceID, "finalize-loss-0001")).capability,
+      ),
+    ).toBe(503);
+    await restart();
+    expect(
+      await socketUpgradeStatus(
+        (await signedSocketAdmission(registered.deviceID, "finalize-retry-0001")).capability,
+      ),
+    ).toBe(101);
+
+    // A crash after PREPARED owns neither a live pair nor unbounded quota. On
+    // a fresh isolate the persisted alarm reaps the expired receipt/session,
+    // allowing a newly signed operation to reuse that exact session ID.
+    await restart("prepared-loss");
+    expect(
+      await socketUpgradeStatus(
+        (
+          await signedSocketAdmission(registered.deviceID, "prepared-loss-0001", {
+            sessionSuffix: "prepared-reuse-0001",
+            ttlSeconds: 1,
+          })
+        ).capability,
+      ),
+    ).toBe(503);
+    await restart();
+    await wait(1_500);
+    expect(
+      await socketUpgradeStatus(
+        (
+          await signedSocketAdmission(registered.deviceID, "prepared-retry-0001", {
+            sessionSuffix: "prepared-reuse-0001",
+          })
+        ).capability,
+      ),
+    ).toBe(101);
+
+    // An abrupt peer termination reaches the DO terminal callback. Whether
+    // Workerd reports it as close or error, release is idempotent and the
+    // exact session identifier can be admitted by a later signed operation.
+    const abruptAdmission = await signedSocketAdmission(registered.deviceID, "abrupt-0001", {
+      sessionSuffix: "abrupt-reuse-0001",
+    });
+    const { socket: abruptSocket } = await openOwnerVaultSocket(abruptAdmission.capability);
+    const abruptClose = socketClose(abruptSocket);
+    abruptSocket.terminate();
+    expect(await abruptClose).toBe(1006);
+    await wait(200);
+    expect(
+      await socketUpgradeStatus(
+        (
+          await signedSocketAdmission(registered.deviceID, "abrupt-retry-0001", {
+            sessionSuffix: "abrupt-reuse-0001",
+          })
+        ).capability,
+      ),
+    ).toBe(101);
+
     // A registered device can now reach the real socket admission saga. The
     // test relay does not host a WebSocket implementation or seed state.
     expect(
@@ -695,6 +785,11 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     expect(JSON.stringify(await secondPin.json())).toBe(
       JSON.stringify(await firstPin.clone().json()),
     );
+
+    // The injected callback runs after `acceptWebSocket` but before the
+    // normal finalizer. Its first frame must be discarded: the subsequent
+    // valid typed P02 frame remains the second append, not a third one.
+    await restart("early-callback");
 
     // The next callback is decoded through the typed P02 frame codec, bound
     // to the persisted CSPRNG challenge/session nonce, and appended through
@@ -783,20 +878,18 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
       bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(fence))),
       ...fence,
     } satisfies Omit<OwnerVaultCredentialFenceClaimsInput, "ttlSeconds">;
-    const fenceResponse = await ownerVaultControl(
-      "credential-fence",
-      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
-    );
+    const fenceBody = await signedOwnerVaultControlBody(fence, {
+      ...fenceBinding,
+      ttlSeconds: 60,
+    });
+    const fenceResponse = await ownerVaultControl("credential-fence", fenceBody);
     expect(fenceResponse.status).toBe(200);
     const fenced = await fenceResponse.json();
     expect(record(fenced)?.durableReceipt).toEqual(expect.any(String));
     // Fence persistence happens before the best-effort live socket close;
     // the open hibernating socket receives the durable revocation close.
     expect(await fencedSocketClose).toBe(4401);
-    const fenceReplay = await ownerVaultControl(
-      "credential-fence",
-      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
-    );
+    const fenceReplay = await ownerVaultControl("credential-fence", fenceBody);
     expect(fenceReplay.status).toBe(200);
     expect(JSON.stringify(await fenceReplay.json())).toBe(JSON.stringify(fenced));
 
@@ -804,10 +897,7 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // Attachment storage contains only durable identifiers/nonce/expiry. A
     // restart cannot revive its old capability or session after the fence.
     expect(await socketUpgradeStatus(liveAdmission.capability)).toBe(401);
-    const fencedRestartReplay = await ownerVaultControl(
-      "credential-fence",
-      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
-    );
+    const fencedRestartReplay = await ownerVaultControl("credential-fence", fenceBody);
     expect(fencedRestartReplay.status).toBe(200);
     expect(JSON.stringify(await fencedRestartReplay.json())).toBe(JSON.stringify(fenced));
   }, 45_000);

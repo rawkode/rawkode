@@ -991,7 +991,18 @@ export interface OwnerVaultDODependencies {
   readonly socketAdmissions?: OwnerVaultSocketAdmissionFactory;
   /** Injected only for deterministic Workerd fault/race tests; production uses Web Crypto. */
   readonly socketNonce?: () => Effect.Effect<string>;
+  /**
+   * Workerd-only fault seam for the two-step socket saga. It is deliberately
+   * a constructor dependency, never a request field or persisted record: a
+   * deployed composition leaves it absent and cannot expose an extra route.
+   */
+  readonly socketAdmissionFault?: OwnerVaultSocketAdmissionFault;
 }
+export type OwnerVaultSocketAdmissionFault =
+  | "accept-failure"
+  | "early-callback"
+  | "finalize-loss"
+  | "prepared-loss";
 export type OwnerVaultDODependencyProvider = (env: unknown) => OwnerVaultDODependencies | undefined;
 export type OwnerVaultDOConstructor = new (
   ctx: DurableObjectState,
@@ -1014,6 +1025,7 @@ export const makeOwnerVaultDO = (
     private readonly production: OwnerVaultProductionAuthority | undefined;
     private readonly socketAdmissions: OwnerVaultSocketAdmissionFactory | undefined;
     private readonly socketNonce: () => Effect.Effect<string>;
+    private readonly socketAdmissionFault: OwnerVaultSocketAdmissionFault | undefined;
     constructor(ctx: DurableObjectState, env: Readonly<Record<never, never>>) {
       super(ctx, env);
       const resolved = typeof dependencies === "function" ? dependencies(env) : dependencies;
@@ -1022,6 +1034,7 @@ export const makeOwnerVaultDO = (
       this.ownerVaultControls = resolved?.ownerVaultControls;
       this.production = resolved?.production;
       this.socketAdmissions = resolved?.socketAdmissions;
+      this.socketAdmissionFault = resolved?.socketAdmissionFault;
       this.socketNonce =
         resolved?.socketNonce ??
         (() =>
@@ -3067,6 +3080,12 @@ export const makeOwnerVaultDO = (
                         }),
                       ),
                       Effect.flatMap(() => {
+                        // This retains the PREPARED transaction exactly as an
+                        // isolate loss between session establishment and pair
+                        // creation would. The durable alarm must release it;
+                        // no live socket is manufactured from this state.
+                        if (this.socketAdmissionFault === "prepared-loss")
+                          return Effect.succeed(response({ ok: false }, 503));
                         const attachment: SocketAttachment = {
                           version: 1,
                           operationID: prepared.record.operationID,
@@ -3077,51 +3096,73 @@ export const makeOwnerVaultDO = (
                           socketGeneration: prepared.record.socketGeneration,
                           expiresAtMilliseconds: prepared.record.expiresAtMilliseconds,
                         };
-                        return Effect.try({
-                          try: () => {
-                            const pair = new WebSocketPair();
-                            const client = pair[0];
-                            const server = pair[1];
-                            server.serializeAttachment(attachment);
-                            this.ctx.acceptWebSocket(server);
-                            return { client, server };
-                          },
-                          catch: () => undefined,
+                        return Effect.try(() => {
+                          const pair = new WebSocketPair();
+                          const client = pair[0];
+                          const server = pair[1];
+                          server.serializeAttachment(attachment);
+                          if (this.socketAdmissionFault === "accept-failure")
+                            throw new Error("workerd socket acceptance fault");
+                          this.ctx.acceptWebSocket(server);
+                          return { client, server };
                         }).pipe(
+                          // A WebSocketPair or acceptWebSocket failure is a
+                          // transport failure, not an authorization failure.
+                          // Convert it to the bounded cleanup branch below.
+                          Effect.catchAll(() => Effect.succeed(undefined)),
                           Effect.flatMap((socket) =>
                             socket === undefined
                               ? this.releaseSocket(attachment).pipe(
                                   Effect.catchAll(() => Effect.void),
                                   Effect.as(response({ ok: false }, 503)),
                                 )
-                              : this.acceptSocket(attachment).pipe(
-                                  Effect.tap((accepted) =>
-                                    Effect.sync(() => {
-                                      if (accepted.accepted)
-                                        socket.server.send(
-                                          JSON.stringify(accepted.record.challenge),
-                                        );
-                                    }),
-                                  ),
-                                  Effect.tap(() =>
-                                    this.scheduleReconciliation(attachment.expiresAtMilliseconds),
-                                  ),
-                                  Effect.map(
-                                    () =>
-                                      new Response(null, { status: 101, webSocket: socket.client }),
-                                  ),
-                                  Effect.catchAll(() =>
-                                    this.releaseSocket(attachment).pipe(
-                                      Effect.catchAll(() => Effect.void),
-                                      Effect.as(response({ ok: false }, 503)),
-                                      Effect.tap(() =>
-                                        Effect.sync(() =>
-                                          socket.server.close(4401, "socket admission failed"),
+                              : this.socketAdmissionFault === "finalize-loss"
+                                ? this.releaseSocket(attachment).pipe(
+                                    Effect.catchAll(() => Effect.void),
+                                    Effect.tap(() =>
+                                      Effect.sync(() =>
+                                        socket.server.close(4401, "socket admission lost"),
+                                      ),
+                                    ),
+                                    Effect.as(response({ ok: false }, 503)),
+                                  )
+                                : (this.socketAdmissionFault === "early-callback"
+                                    ? this.socketMessage(
+                                        socket.server,
+                                        "discarded early callback",
+                                      ).pipe(Effect.zipRight(this.acceptSocket(attachment)))
+                                    : this.acceptSocket(attachment)
+                                  ).pipe(
+                                    Effect.tap((accepted) =>
+                                      Effect.sync(() => {
+                                        if (accepted.accepted)
+                                          socket.server.send(
+                                            JSON.stringify(accepted.record.challenge),
+                                          );
+                                      }),
+                                    ),
+                                    Effect.tap(() =>
+                                      this.scheduleReconciliation(attachment.expiresAtMilliseconds),
+                                    ),
+                                    Effect.map(
+                                      () =>
+                                        new Response(null, {
+                                          status: 101,
+                                          webSocket: socket.client,
+                                        }),
+                                    ),
+                                    Effect.catchAll(() =>
+                                      this.releaseSocket(attachment).pipe(
+                                        Effect.catchAll(() => Effect.void),
+                                        Effect.as(response({ ok: false }, 503)),
+                                        Effect.tap(() =>
+                                          Effect.sync(() =>
+                                            socket.server.close(4401, "socket admission failed"),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
                           ),
                         );
                       }),

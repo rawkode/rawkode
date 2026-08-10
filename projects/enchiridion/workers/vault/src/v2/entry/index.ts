@@ -15,7 +15,10 @@ import { makeDirectoryInvocation } from "../directory/gateway";
 import { validDirectoryResolution } from "../directory/invariants";
 import { accessAssertionHeadersFromWorkerHeaders } from "../foundation/access";
 import { InternalCapabilityFactory } from "../foundation/crypto";
-import { makeOwnerVaultDO } from "../owner-vault/owner-vault-do";
+import {
+  makeOwnerVaultDO,
+  type OwnerVaultSocketAdmissionFault,
+} from "../owner-vault/owner-vault-do";
 import {
   type VaultV2EntryCompositionOptions,
   makeVaultV2EntryCompositionCache,
@@ -75,6 +78,17 @@ const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const ownerVaultSocketAdmissionFault = (
+  raw: unknown,
+): OwnerVaultSocketAdmissionFault | undefined => {
+  const value = record(raw)?.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_TEST_FAULT;
+  return value === "accept-failure" ||
+    value === "early-callback" ||
+    value === "finalize-loss" ||
+    value === "prepared-loss"
+    ? value
+    : undefined;
+};
 
 /**
  * Directory is an authority boundary: success is accepted only when every
@@ -261,19 +275,22 @@ export const OwnerVaultV2 = makeOwnerVaultDO((raw) => {
   return resolved === undefined
     ? undefined
     : {
-          controls: resolved.directoryControls,
-          ownerVaultCapabilities: resolved.capabilities,
-      ownerVaultControls: resolved.ownerVaultDirectoryControls,
-      production: resolved.ownerVaultProduction,
-      socketAdmissions: resolved.ownerVaultSocketAdmission,
-      // P02 sync frame IDs are fixed 16-byte base64url values. Retain the
-      // production CSPRNG source but bind only that exact protocol width.
-      socketNonce: () =>
-        makeP256Crypto().random32().pipe(
-          Effect.map((bytes) => base64url(bytes.slice(0, 16))),
-          Effect.orDie,
-        ),
-    };
+        controls: resolved.directoryControls,
+        ownerVaultCapabilities: resolved.capabilities,
+        ownerVaultControls: resolved.ownerVaultDirectoryControls,
+        production: resolved.ownerVaultProduction,
+        socketAdmissions: resolved.ownerVaultSocketAdmission,
+        socketAdmissionFault: ownerVaultSocketAdmissionFault(raw),
+        // P02 sync frame IDs are fixed 16-byte base64url values. Retain the
+        // production CSPRNG source but bind only that exact protocol width.
+        socketNonce: () =>
+          makeP256Crypto()
+            .random32()
+            .pipe(
+              Effect.map((bytes) => base64url(bytes.slice(0, 16))),
+              Effect.orDie,
+            ),
+      };
 });
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>
