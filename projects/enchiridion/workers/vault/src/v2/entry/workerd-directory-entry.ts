@@ -6,12 +6,12 @@ import {
   type VerifiedAccessJwt,
   makeFixedDurableObjectClient,
   makeWorkerBoundary,
+  ownerVaultSocketAdmissionPath,
   readBoundedRequestBody,
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
 import { directoryDOPath } from "../directory/directory-do";
 import { ownerVaultObjectName } from "../directory/lifecycle";
-import { ownerVaultInternalSocketPath } from "../owner-vault/owner-vault-do";
 import { parseVaultV2EntryEnv } from "./composition";
 import { OwnerVaultV2, makeVaultV2Entry } from "./index";
 
@@ -71,6 +71,12 @@ const ownerVaultControlPath = (pathname: string): string | undefined => {
       return "/__v2/internal/owner-vault/snapshot";
     case "restore":
       return "/__v2/internal/owner-vault/restore";
+    case "devices/challenge":
+      return "/__v2/internal/owner-vault/devices/challenge";
+    case "devices/complete":
+      return "/__v2/internal/owner-vault/devices/complete";
+    case "append":
+      return "/__v2/internal/owner-vault/append";
     default:
       return undefined;
   }
@@ -95,7 +101,9 @@ const handler = (request: Request, raw: unknown): Effect.Effect<Response> =>
         );
         return Effect.tryPromise({
           try: () =>
-            stub.fetch(new Request(`https://owner-vault.invalid${ownerVaultInternalSocketPath}`, request)),
+            stub.fetch(
+              new Request(`https://owner-vault.invalid${ownerVaultSocketAdmissionPath}`, request),
+            ),
           catch: () => new Response("unavailable", { status: 503 }),
         });
       }

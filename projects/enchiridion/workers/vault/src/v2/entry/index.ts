@@ -261,12 +261,18 @@ export const OwnerVaultV2 = makeOwnerVaultDO((raw) => {
   return resolved === undefined
     ? undefined
     : {
-        controls: resolved.directoryControls,
+          controls: resolved.directoryControls,
+          ownerVaultCapabilities: resolved.capabilities,
       ownerVaultControls: resolved.ownerVaultDirectoryControls,
       production: resolved.ownerVaultProduction,
       socketAdmissions: resolved.ownerVaultSocketAdmission,
+      // P02 sync frame IDs are fixed 16-byte base64url values. Retain the
+      // production CSPRNG source but bind only that exact protocol width.
       socketNonce: () =>
-        makeP256Crypto().random32().pipe(Effect.map(base64url), Effect.orDie),
+        makeP256Crypto().random32().pipe(
+          Effect.map((bytes) => base64url(bytes.slice(0, 16))),
+          Effect.orDie,
+        ),
     };
 });
 export default {

@@ -4,8 +4,23 @@ import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CanonicalJSON, canonicalJSONStringify, sha256Hex } from "@enchiridion/protocol";
 import {
+  type CanonicalJSON,
+  canonicalJSONStringify,
+  deviceChallengeProofSigningPayload,
+  decodeClientWebSocketFrame,
+  decodeDeviceRegisterRequest,
+  decodeMutationRequest,
+  mutationCommandSHA256,
+  protocolVersion,
+  sha256Hex,
+  signedDeviceRequestSigningPayload,
+  syncChangeSigningPayload,
+} from "@enchiridion/protocol";
+import {
+  CapabilityAudience,
+  CapabilityAuthority,
+  CapabilityMethod,
   type OwnerVaultCredentialFenceClaimsInput,
   type OwnerVaultDirectoryControlClaimsInput,
   OwnerVaultDirectoryControlResource,
@@ -14,10 +29,13 @@ import {
   type OwnerVaultSnapshotClaimsInput,
   makeOwnerVaultDirectoryControlKeyRing,
   makeOwnerVaultSocketAdmissionKeyRing,
+  ownerVaultSocketAdmissionHeader,
+  p256P1363ToCanonicalLowSDer,
   signOwnerVaultDirectoryControl,
   signOwnerVaultSocketAdmission,
 } from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
+import WebSocket from "ws";
 import { makeDirectoryInvocation } from "../directory/gateway";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
@@ -56,6 +74,15 @@ const bootstrap = () =>
   });
 const get = (path: string) => fetch(`${baseURL}/${path}`);
 const ownerVaultControl = (route: string, body: Uint8Array) => {
+  const copy = new Uint8Array(body.byteLength);
+  copy.set(body);
+  return fetch(`${baseURL}/__test/owner-vault-control/${route}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: copy.buffer,
+  });
+};
+const ownerVaultUser = (route: string, body: Uint8Array) => {
   const copy = new Uint8Array(body.byteLength);
   copy.set(body);
   return fetch(`${baseURL}/__test/owner-vault-control/${route}`, {
@@ -208,7 +235,71 @@ const signedOwnerVaultControlBody = async <A extends Readonly<Record<string, unk
   );
   return new TextEncoder().encode(JSON.stringify({ capability: signed.value, command }));
 };
-const signedSocketAdmission = async (): Promise<string> => {
+const signedOwnerVaultUserBody = async <A extends Readonly<Record<string, unknown>>>(
+  path: string,
+  command: A,
+  jti: string,
+): Promise<Uint8Array> => {
+  const config = await Effect.runPromise(makeVaultV2Config(input));
+  const capabilities = await Effect.runPromise(
+    makeInternalCapabilityFactory.pipe(Effect.provideService(VaultV2Config, config)),
+  );
+  const nowSeconds = Math.floor(Date.now() / 1_000);
+  const signed = await Effect.runPromise(
+    capabilities.signer.sign(
+      {
+        audience: CapabilityAudience.OwnerVault,
+        authority: CapabilityAuthority.OwnerVault,
+        method: CapabilityMethod.POST,
+        path,
+        canonicalQuery: "",
+        bodySHA256: sha256Hex(new TextEncoder().encode(JSON.stringify(command))),
+        ownerID: owner,
+        vaultID: vault,
+        credentialEpoch: 1,
+        generationEpoch: 2,
+        jti,
+        ttlSeconds: 60,
+      },
+      nowSeconds,
+    ),
+  );
+  return new TextEncoder().encode(JSON.stringify({ capability: signed.value, command }));
+};
+const base64 = (bytes: Uint8Array): string => {
+  let output = "";
+  for (const byte of bytes) output += String.fromCharCode(byte);
+  return btoa(output);
+};
+const p256Device = async () => {
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const publicKey = base64(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey)));
+  return {
+    publicKey,
+    sign: async (message: Uint8Array): Promise<string> => {
+      const canonicalMessage = new Uint8Array(message.byteLength);
+      canonicalMessage.set(message);
+      const raw = new Uint8Array(
+        await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          pair.privateKey,
+          canonicalMessage,
+        ),
+      );
+      const signature = p256P1363ToCanonicalLowSDer(raw);
+      if (signature === undefined) throw new Error("P-256 test signature was invalid");
+      return base64(signature);
+    },
+  };
+};
+const signedSocketAdmission = async (
+  deviceID = "socket-device-workerd-0001",
+  suffix = "0001",
+): Promise<{ readonly capability: string; readonly expiresAtMilliseconds: number }> => {
   const nowSeconds = Math.floor(Date.now() / 1_000);
   const ring = await Effect.runPromise(ownerVaultSocketAdmissionRing());
   const input = {
@@ -219,26 +310,31 @@ const signedSocketAdmission = async (): Promise<string> => {
     credentialEpoch: 1,
     controlEpoch: 1,
     securityFloor: 1,
-    deviceID: "socket-device-workerd-0001",
-    sessionID: "socket-session-workerd-0001",
-    operationID: "socket-operation-workerd-0001",
-    jti: "socket-admission-jti-workerd-0001",
+    deviceID,
+    sessionID: `socket-session-workerd-${suffix}`,
+    operationID: `socket-operation-workerd-${suffix}`,
+    jti: `socket-admission-jti-workerd-${suffix}`,
     method: "GET" as const,
     canonicalQuery: "",
-    bodySHA256: sha256Hex(new Uint8Array()),
+    bodySHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     upgradeNonce: "AAAAAAAAAAAAAAAAAAAAAA",
     ttlSeconds: 60,
   } satisfies OwnerVaultSocketAdmissionClaimsInput;
   const signed = await Effect.runPromise(signOwnerVaultSocketAdmission(input, ring, nowSeconds));
-  return signed.value;
+  return { capability: signed.value, expiresAtMilliseconds: (nowSeconds + input.ttlSeconds) * 1_000 };
 };
-const socketUpgradeStatus = (capability: string, headers: Record<string, string> = {}): Promise<number> =>
+const socketUpgradeStatus = (
+  capability: string,
+  headers: Record<string, string> = {},
+): Promise<number> =>
   new Promise((resolve, reject) => {
     const request = httpRequest(`${baseURL}/__test/owner-vault-socket`, {
       headers: {
         Connection: "Upgrade",
         Upgrade: "websocket",
-        "Enchiridion-OwnerVault-Socket-Admission": capability,
+        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+        "Sec-WebSocket-Version": "13",
+        [ownerVaultSocketAdmissionHeader]: capability,
         ...headers,
       },
     });
@@ -253,6 +349,44 @@ const socketUpgradeStatus = (capability: string, headers: Record<string, string>
     request.once("error", reject);
     request.end();
   });
+
+const openOwnerVaultSocket = (
+  capability: string,
+): Promise<{ readonly socket: WebSocket; readonly challenge: Readonly<Record<string, unknown>> }> =>
+  new Promise((resolve, reject) => {
+    const socket = new WebSocket(`${baseURL.replace(/^http/u, "ws")}/__test/owner-vault-socket`, {
+      headers: { [ownerVaultSocketAdmissionHeader]: capability },
+    });
+    socket.once("message", (data) => {
+      try {
+        const challenge = record(JSON.parse(data.toString()));
+        if (challenge === undefined) return reject(new Error("socket challenge was not an object"));
+        resolve({ socket, challenge });
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.once("error", reject);
+    socket.once("close", (code) => reject(new Error(`socket closed before response: ${code}`)));
+  });
+const nextSocketJSON = (socket: WebSocket): Promise<Readonly<Record<string, unknown>>> =>
+  new Promise((resolve, reject) => {
+    socket.once("message", (data) => {
+      try {
+        const decoded = record(JSON.parse(data.toString()));
+        if (decoded === undefined) return reject(new Error("socket message was not an object"));
+        resolve(decoded);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.once("error", reject);
+    socket.once("close", (code, reason) =>
+      reject(new Error(`socket closed before acknowledgement: ${code} ${reason.toString()}`)),
+    );
+  });
+const socketClose = (socket: WebSocket): Promise<number> =>
+  new Promise((resolve) => socket.once("close", (code) => resolve(code)));
 
 const start = async (): Promise<void> => {
   baseURL = `http://127.0.0.1:${localPort}`;
@@ -278,6 +412,17 @@ const start = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Directory Workerd fixture did not start");
+};
+
+const restart = async (): Promise<void> => {
+  // `start` assigns the module-scoped child asynchronously, which TypeScript
+  // cannot infer through its body at each test call site.
+  const running = process as ReturnType<typeof Bun.spawn> | undefined;
+  if (running === undefined) throw new Error("Directory Workerd fixture was not running");
+  running.kill();
+  await running.exited;
+  process = undefined;
+  await start();
 };
 
 beforeAll(async () => {
@@ -317,10 +462,7 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     const before = await invokeSigned(body);
     expect(before.status).toBe(200);
     const first = await before.json();
-    process?.kill();
-    if (process !== undefined) await process.exited;
-    process = undefined;
-    await start();
+    await restart();
     const after = await invokeSigned(body);
     expect(after.status).toBe(200);
     expect(JSON.stringify(await after.json())).toBe(JSON.stringify(first));
@@ -364,8 +506,10 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // signed ovsa1 token still cannot create a pair until its device is
     // durably registered; bearer-like headers are rejected even earlier.
     const socketCapability = await signedSocketAdmission();
-    expect(await socketUpgradeStatus(socketCapability)).toBe(401);
-    expect(await socketUpgradeStatus(socketCapability, { Authorization: "Bearer forbidden" })).toBe(400);
+    expect(await socketUpgradeStatus(socketCapability.capability)).toBe(401);
+    expect(await socketUpgradeStatus(socketCapability.capability, { Authorization: "Bearer forbidden" })).toBe(
+      400,
+    );
     expect((await fetch(`${baseURL}/__v2/internal/owner-vault/socket`)).status).toBe(404);
 
     process?.kill();
@@ -375,6 +519,125 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     const replay = await ownerVaultControl("private-initialize", initBody);
     expect(replay.status).toBe(200);
     expect(JSON.stringify(await replay.json())).toBe(JSON.stringify(acknowledgement));
+
+    // The fixture crosses the production OwnerVault namespace only.  It
+    // creates a real P-256 key, obtains a P02 challenge, and completes the
+    // signed registration before C2 is allowed to snapshot its device row.
+    const device = await p256Device();
+    const challengeCommand = {
+      protocolVersion,
+      devicePublicKey: device.publicKey,
+      challengeAudience: "owner-vault-device-onboarding",
+    } as const;
+    const challengeResponse = await ownerVaultUser(
+      "devices/challenge",
+      await signedOwnerVaultUserBody(
+        "/__v2/internal/owner-vault/devices/challenge",
+        challengeCommand,
+        "device-challenge-capability-0001",
+      ),
+    );
+    expect(challengeResponse.status).toBe(200);
+    const challenge = record(await challengeResponse.json());
+    expect(challenge).toMatchObject({ protocolVersion });
+    if (
+      challenge === undefined ||
+      typeof challenge.challengeID !== "string" ||
+      typeof challenge.challengeBase64 !== "string" ||
+      typeof challenge.expiresAt !== "number"
+    )
+      throw new Error("P02 challenge response was malformed");
+    const proof = {
+      protocolVersion,
+      challengeID: challenge.challengeID,
+      challengeAudience: challengeCommand.challengeAudience,
+      challengeBase64: challenge.challengeBase64,
+      expiresAt: challenge.expiresAt,
+      nonce: "AQEBAQEBAQEBAQEBAQEBAQ",
+      devicePublicKey: device.publicKey,
+      signature: "",
+    };
+    const registerCommand = {
+      challengeProof: {
+        ...proof,
+        signature: await device.sign(deviceChallengeProofSigningPayload(proof)),
+      },
+      idempotencyKey: "device-registration-workerd-0001",
+    } as const;
+    expect(() => decodeDeviceRegisterRequest(registerCommand)).not.toThrow();
+    const registerBody = await signedOwnerVaultUserBody(
+      "/__v2/internal/owner-vault/devices/complete",
+      registerCommand,
+      "device-complete-capability-0001",
+    );
+    const registration = await ownerVaultUser("devices/complete", registerBody);
+    if (registration.status !== 200)
+      throw new Error(`P02 registration failed: ${registration.status} ${await registration.text()}`);
+    const registered = record(await registration.json());
+    if (registered === undefined || typeof registered.deviceID !== "string")
+      throw new Error("P02 registration response was malformed");
+    const registrationReplay = await ownerVaultUser("devices/complete", registerBody);
+    expect(registrationReplay.status).toBe(200);
+    expect(JSON.stringify(await registrationReplay.json())).toBe(JSON.stringify(registered));
+
+    const mutationCommand = {
+      type: "mutation" as const,
+      operationID: "opaque-append-operation-0001",
+      deviceID: registered.deviceID,
+      sourceKind: "http" as const,
+      payloadSHA256: sha256Hex(new Uint8Array([1])),
+      payloadBase64: "AQ==",
+      causalVersion: 0,
+    };
+    const issuedAt = Date.now();
+    const unsignedMutationEnvelope = {
+      protocolVersion,
+      method: "POST" as const,
+      canonicalPath: "/v2/mutations",
+      canonicalQuery: "",
+      bodySHA256: mutationCommandSHA256(mutationCommand),
+      requestID: "opaque-append-request-0001",
+      idempotencyKey: "opaque-append-idempotency-0001",
+      ownerID: owner,
+      vaultID: vault,
+      generationEpoch: 2,
+      actorDeviceID: registered.deviceID,
+      authEpoch: 1,
+      credentialEpoch: 1,
+      issuedAt,
+      expiresAt: issuedAt + 60_000,
+      nonce: "AgICAgICAgICAgICAgICAg",
+      deviceSignature: "",
+    };
+    const mutationRequest = {
+      envelope: {
+        ...unsignedMutationEnvelope,
+        deviceSignature: await device.sign(
+          signedDeviceRequestSigningPayload(unsignedMutationEnvelope),
+        ),
+      },
+      command: mutationCommand,
+    } as const;
+    expect(() => decodeMutationRequest(mutationRequest)).not.toThrow();
+    const appendBody = await signedOwnerVaultUserBody(
+      "/__v2/internal/owner-vault/append",
+      mutationRequest,
+      "opaque-append-capability-0001",
+    );
+    const append = await ownerVaultUser("append", appendBody);
+    expect(append.status).toBe(200);
+    expect(await append.json()).toMatchObject({
+      protocolVersion,
+      operationID: mutationCommand.operationID,
+      logSequence: 1,
+    });
+    const appendReplay = await ownerVaultUser("append", appendBody);
+    expect(appendReplay.status).toBe(200);
+    expect(await appendReplay.json()).toMatchObject({ logSequence: 1 });
+
+    // A registered device can now reach the real socket admission saga. The
+    // test relay does not host a WebSocket implementation or seed state.
+    expect(await socketUpgradeStatus((await signedSocketAdmission(registered.deviceID)).capability)).toBe(101);
 
     const snapshot = {
       ownerID: owner,
@@ -413,6 +676,47 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
       JSON.stringify(await firstPin.clone().json()),
     );
 
+    // The next callback is decoded through the typed P02 frame codec, bound
+    // to the persisted CSPRNG challenge/session nonce, and appended through
+    // the durable receipt/log authority rather than a test-only mutation.
+    const liveAdmission = await signedSocketAdmission(registered.deviceID, "0002");
+    const { socket, challenge: socketChallenge } = await openOwnerVaultSocket(liveAdmission.capability);
+    if (typeof socketChallenge.challengeBase64 !== "string")
+      throw new Error("OwnerVault socket did not return its persisted challenge nonce");
+    const unsignedSyncChange = {
+      type: "syncChange" as const,
+      protocolVersion,
+      vaultID: vault,
+      deviceID: registered.deviceID,
+      authEpoch: 1,
+      credentialEpoch: 1,
+      generationEpoch: 2,
+      sessionNonce: socketChallenge.challengeBase64,
+      assertionExpiresAt: liveAdmission.expiresAtMilliseconds,
+      operationID: "socket-sync-operation-0001",
+      sourceKind: "websocket" as const,
+      payloadSHA256: sha256Hex(new Uint8Array([2])),
+      causalVersion: 1,
+      observedHighWater: 1,
+      frameID: "AwMDAwMDAwMDAwMDAwMDAw",
+      signingPayloadVersion: 1 as const,
+      payloadBase64: "Ag==",
+      deviceSignature: "",
+    };
+    const syncChange = {
+      ...unsignedSyncChange,
+      deviceSignature: await device.sign(syncChangeSigningPayload(unsignedSyncChange)),
+    };
+    expect(() => decodeClientWebSocketFrame(syncChange)).not.toThrow();
+    socket.send(JSON.stringify(syncChange));
+    expect(await nextSocketJSON(socket)).toMatchObject({
+      type: "syncAcknowledged",
+      protocolVersion,
+      operationID: syncChange.operationID,
+      logSequence: 2,
+    });
+    const fencedSocketClose = socketClose(socket);
+
     const fence = {
       ownerID: owner,
       vaultID: vault,
@@ -445,11 +749,25 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     expect(fenceResponse.status).toBe(200);
     const fenced = await fenceResponse.json();
     expect(record(fenced)?.durableReceipt).toEqual(expect.any(String));
+    // Fence persistence happens before the best-effort live socket close;
+    // the open hibernating socket receives the durable revocation close.
+    expect(await fencedSocketClose).toBe(4401);
     const fenceReplay = await ownerVaultControl(
       "credential-fence",
       await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
     );
     expect(fenceReplay.status).toBe(200);
     expect(JSON.stringify(await fenceReplay.json())).toBe(JSON.stringify(fenced));
+
+    await restart();
+    // Attachment storage contains only durable identifiers/nonce/expiry. A
+    // restart cannot revive its old capability or session after the fence.
+    expect(await socketUpgradeStatus(liveAdmission.capability)).toBe(401);
+    const fencedRestartReplay = await ownerVaultControl(
+      "credential-fence",
+      await signedOwnerVaultControlBody(fence, { ...fenceBinding, ttlSeconds: 60 }),
+    );
+    expect(fencedRestartReplay.status).toBe(200);
+    expect(JSON.stringify(await fencedRestartReplay.json())).toBe(JSON.stringify(fenced));
   }, 45_000);
 });

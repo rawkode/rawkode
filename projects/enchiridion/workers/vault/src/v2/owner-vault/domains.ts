@@ -193,6 +193,10 @@ interface Admission {
   /** Only PREPARED operation IDs are indexed, so alarms can release leases
    * that survived an isolate loss before a live attachment was accepted. */
   readonly preparedSocketOperationIDs: readonly string[];
+  /** Socket capability JTIs are retained exactly until their signed expiry.
+   * The socket DO bounds this list to its admission capacity and reaps it
+   * through its own alarm, including after an isolate restart. */
+  readonly socketReplayJTIs: readonly string[];
 }
 interface Floors {
   readonly securityFloor: number;
@@ -339,21 +343,66 @@ const decodeChallenge = (value: unknown): OwnerVaultChallenge | undefined => {
 const decodeAdmission = (value: unknown): Admission | undefined =>
   isRecord(value) &&
   (exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts"]) ||
-    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped"]) ||
-    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped", "pendingSocketAdmissions", "activeSocketAdmissions"]) ||
-    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped", "pendingSocketAdmissions", "activeSocketAdmissions", "preparedSocketOperationIDs"])) &&
+    exact(value, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "capabilityReceipts",
+      "stopped",
+    ]) ||
+    exact(value, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "capabilityReceipts",
+      "stopped",
+      "pendingSocketAdmissions",
+      "activeSocketAdmissions",
+    ]) ||
+    exact(value, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "capabilityReceipts",
+      "stopped",
+      "pendingSocketAdmissions",
+      "activeSocketAdmissions",
+      "preparedSocketOperationIDs",
+    ]) ||
+    exact(value, [
+      "activeChallenges",
+      "activeDevices",
+      "activeSessions",
+      "capabilityReceipts",
+      "stopped",
+      "pendingSocketAdmissions",
+      "activeSocketAdmissions",
+      "preparedSocketOperationIDs",
+      "socketReplayJTIs",
+    ])) &&
   isSafeNonNegative(value.activeChallenges) &&
   isSafeNonNegative(value.activeDevices) &&
   isSafeNonNegative(value.activeSessions) &&
   isSafeNonNegative(value.capabilityReceipts) &&
   (value.stopped === undefined || typeof value.stopped === "boolean") &&
-  (value.pendingSocketAdmissions === undefined || isSafeNonNegative(value.pendingSocketAdmissions)) &&
+  (value.pendingSocketAdmissions === undefined ||
+    isSafeNonNegative(value.pendingSocketAdmissions)) &&
   (value.activeSocketAdmissions === undefined || isSafeNonNegative(value.activeSocketAdmissions)) &&
   (value.preparedSocketOperationIDs === undefined ||
     (Array.isArray(value.preparedSocketOperationIDs) &&
       value.preparedSocketOperationIDs.length <= ownerVaultMaximumSessions &&
-      value.preparedSocketOperationIDs.every((entry) => typeof entry === "string" && identifier.test(entry)) &&
-      new Set(value.preparedSocketOperationIDs).size === value.preparedSocketOperationIDs.length))
+      value.preparedSocketOperationIDs.every(
+        (entry) => typeof entry === "string" && identifier.test(entry),
+      ) &&
+      new Set(value.preparedSocketOperationIDs).size ===
+        value.preparedSocketOperationIDs.length)) &&
+  (value.socketReplayJTIs === undefined ||
+    (Array.isArray(value.socketReplayJTIs) &&
+      value.socketReplayJTIs.length <= ownerVaultMaximumSessions &&
+      value.socketReplayJTIs.every(
+        (entry) => typeof entry === "string" && identifier.test(entry) && entry.length <= 64,
+      ) &&
+      new Set(value.socketReplayJTIs).size === value.socketReplayJTIs.length))
     ? {
         activeChallenges: value.activeChallenges,
         activeDevices: value.activeDevices,
@@ -363,6 +412,7 @@ const decodeAdmission = (value: unknown): Admission | undefined =>
         pendingSocketAdmissions: value.pendingSocketAdmissions ?? 0,
         activeSocketAdmissions: value.activeSocketAdmissions ?? 0,
         preparedSocketOperationIDs: value.preparedSocketOperationIDs ?? [],
+        socketReplayJTIs: value.socketReplayJTIs ?? [],
       }
     : undefined;
 const decodeFloors = (value: unknown): Floors | undefined =>
@@ -718,6 +768,7 @@ export const makeOwnerVaultDomainProvider = (
                 pendingSocketAdmissions: 0,
                 activeSocketAdmissions: 0,
                 preparedSocketOperationIDs: [],
+                socketReplayJTIs: [],
               })
             : Effect.void,
         ),
