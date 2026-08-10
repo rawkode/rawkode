@@ -251,6 +251,10 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "observedHighWater": {
+                "minimum": 0,
+                "type": "integer"
+              },
               "operationID": {
                 "maxLength": 128,
                 "minLength": 1,
@@ -307,6 +311,7 @@
               "operationID",
               "sourceKind",
               "payloadSHA256",
+              "observedHighWater",
               "frameID",
               "signingPayloadVersion",
               "payloadBase64",
@@ -1739,6 +1744,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "observedHighWater": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "operationID": {
             "maxLength": 128,
             "minLength": 1,
@@ -1795,6 +1804,7 @@
           "operationID",
           "sourceKind",
           "payloadSHA256",
+          "observedHighWater",
           "frameID",
           "signingPayloadVersion",
           "payloadBase64",

@@ -1125,12 +1125,13 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
   public let sourceKind: String
   public let payloadSHA256: EnchiridionSHA256Digest
   public let causalVersion: EnchiridionNonNegativeInt?
+  public let observedHighWater: EnchiridionNonNegativeInt
   public let frameID: EnchiridionFrameID
   public let signingPayloadVersion: EnchiridionSigningPayloadVersion
   public let payloadBase64: EnchiridionBase64Payload
   public let deviceSignature: EnchiridionP256Signature
-  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, operationID, sourceKind, payloadSHA256, causalVersion, frameID, signingPayloadVersion, payloadBase64, deviceSignature }
-  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, assertionExpiresAt: EnchiridionSignedTimestamp, operationID: EnchiridionIdentifier, sourceKind: String, payloadSHA256: EnchiridionSHA256Digest, causalVersion: EnchiridionNonNegativeInt? = nil, frameID: EnchiridionFrameID, signingPayloadVersion: EnchiridionSigningPayloadVersion, payloadBase64: EnchiridionBase64Payload, deviceSignature: EnchiridionP256Signature) {
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, operationID, sourceKind, payloadSHA256, causalVersion, observedHighWater, frameID, signingPayloadVersion, payloadBase64, deviceSignature }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, assertionExpiresAt: EnchiridionSignedTimestamp, operationID: EnchiridionIdentifier, sourceKind: String, payloadSHA256: EnchiridionSHA256Digest, causalVersion: EnchiridionNonNegativeInt? = nil, observedHighWater: EnchiridionNonNegativeInt, frameID: EnchiridionFrameID, signingPayloadVersion: EnchiridionSigningPayloadVersion, payloadBase64: EnchiridionBase64Payload, deviceSignature: EnchiridionP256Signature) {
     self.type = type
     self.protocolVersion = protocolVersion
     self.vaultID = vaultID
@@ -1144,6 +1145,7 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     self.sourceKind = sourceKind
     self.payloadSHA256 = payloadSHA256
     self.causalVersion = causalVersion
+    self.observedHighWater = observedHighWater
     self.frameID = frameID
     self.signingPayloadVersion = signingPayloadVersion
     self.payloadBase64 = payloadBase64
@@ -1168,6 +1170,7 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     guard sourceKind == "websocket" else { throw EnchiridionProtocolValidationError.invalidValue("sourceKind") }
     let payloadSHA256 = try c.decode(EnchiridionSHA256Digest.self, forKey: .payloadSHA256)
     let causalVersion = try c.decodeIfPresent(EnchiridionNonNegativeInt.self, forKey: .causalVersion)
+    let observedHighWater = try c.decode(EnchiridionNonNegativeInt.self, forKey: .observedHighWater)
     let frameID = try c.decode(EnchiridionFrameID.self, forKey: .frameID)
     let signingPayloadVersion = try c.decode(EnchiridionSigningPayloadVersion.self, forKey: .signingPayloadVersion)
     let payloadBase64 = try c.decode(EnchiridionBase64Payload.self, forKey: .payloadBase64)
@@ -1185,6 +1188,7 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     self.sourceKind = sourceKind
     self.payloadSHA256 = payloadSHA256
     self.causalVersion = causalVersion
+    self.observedHighWater = observedHighWater
     self.frameID = frameID
     self.signingPayloadVersion = signingPayloadVersion
     self.payloadBase64 = payloadBase64
@@ -1207,6 +1211,7 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     try c.encode(sourceKind, forKey: .sourceKind)
     try c.encode(payloadSHA256, forKey: .payloadSHA256)
     try c.encodeIfPresent(causalVersion, forKey: .causalVersion)
+    try c.encode(observedHighWater, forKey: .observedHighWater)
     try c.encode(frameID, forKey: .frameID)
     try c.encode(signingPayloadVersion, forKey: .signingPayloadVersion)
     try c.encode(payloadBase64, forKey: .payloadBase64)
@@ -1437,7 +1442,7 @@ public struct EnchiridionHTTPClient: Sendable {
 public enum EnchiridionSyncChangeSigningPayload {
   public static let version = 1
   public static func canonicalBytes(_ frame: SyncChangeFrame) -> Data {
-    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.operationID.value, frame.sourceKind, frame.payloadSHA256.value, frame.causalVersion.map { String($0.value) } ?? "", frame.frameID.value, frame.payloadBase64.value]
+    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.operationID.value, frame.sourceKind, frame.payloadSHA256.value, frame.causalVersion.map { String($0.value) } ?? "", String(frame.observedHighWater.value), frame.frameID.value, frame.payloadBase64.value]
     var bytes = Data("ENCHSYNC".utf8); bytes.append(UInt8(version))
     for field in fields { let fieldBytes = Data(field.utf8); var length = UInt32(fieldBytes.count).bigEndian; withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }; bytes.append(fieldBytes) }
     return bytes

@@ -514,7 +514,7 @@ public struct EnchiridionHTTPClient: Sendable {
 public enum EnchiridionSyncChangeSigningPayload {
   public static let version = ${syncFrameSigningPayloadVersion}
   public static func canonicalBytes(_ frame: SyncChangeFrame) -> Data {
-    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.operationID.value, frame.sourceKind, frame.payloadSHA256.value, frame.causalVersion.map { String($0.value) } ?? "", frame.frameID.value, frame.payloadBase64.value]
+    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.operationID.value, frame.sourceKind, frame.payloadSHA256.value, frame.causalVersion.map { String($0.value) } ?? "", String(frame.observedHighWater.value), frame.frameID.value, frame.payloadBase64.value]
     var bytes = Data("ENCHSYNC".utf8); bytes.append(UInt8(version))
     for field in fields { let fieldBytes = Data(field.utf8); var length = UInt32(fieldBytes.count).bigEndian; withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }; bytes.append(fieldBytes) }
     return bytes

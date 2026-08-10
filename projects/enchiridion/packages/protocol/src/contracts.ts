@@ -770,6 +770,12 @@ export const SyncChangeFrameSchema = Schema.Struct({
   payloadSHA256: SHA256DigestSchema,
   /** Client causal metadata only; never an authoritative server log position. */
   causalVersion: Schema.optional(nonNegativeInt),
+  /**
+   * The sender's last durably observed OwnerVault log sequence. OwnerVault
+   * rejects a value ahead of its authoritative head inside the mutation
+   * transaction; this is client evidence, never a requested log position.
+   */
+  observedHighWater: nonNegativeInt,
   /** Immutable 128-bit base64url nonce. Servers claim it before applying a change. */
   frameID: FrameIDSchema,
   signingPayloadVersion: Schema.Literal(syncFrameSigningPayloadVersion).pipe(
@@ -973,6 +979,7 @@ const syncChangeKeys = [
   "sourceKind",
   "payloadSHA256",
   "causalVersion",
+  "observedHighWater",
   "frameID",
   "signingPayloadVersion",
   "payloadBase64",
@@ -1414,6 +1421,7 @@ export function syncChangeSigningPayload(frame: SyncChangeFrame): Uint8Array {
     frame.sourceKind,
     frame.payloadSHA256,
     frame.causalVersion === undefined ? "" : String(frame.causalVersion),
+    String(frame.observedHighWater),
     frame.frameID,
     frame.payloadBase64,
   ]);

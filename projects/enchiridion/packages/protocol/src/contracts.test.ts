@@ -61,6 +61,7 @@ function signedSyncChange(
     sourceKind: "websocket",
     payloadSHA256: opaquePayloadSHA256,
     causalVersion: 9,
+    observedHighWater: 17,
     frameID: validFrameID,
     signingPayloadVersion: 1,
     payloadBase64: "AQI=",
@@ -365,6 +366,7 @@ describe("v2 protocol schemas", () => {
       sourceKind: "websocket",
       payloadSHA256: opaquePayloadSHA256,
       causalVersion: 9,
+      observedHighWater: 17,
       frameID: validFrameID,
       signingPayloadVersion: 1,
       payloadBase64: "AQI=",
@@ -379,6 +381,7 @@ describe("v2 protocol schemas", () => {
       { generationEpoch: 6 },
       { sessionNonce: "AAAAAAAAAAAAAAAAAAAAAQ" },
       { assertionExpiresAt: 1_760_000_121_000 },
+      { observedHighWater: 18 },
     ]) {
       const candidate = decodeClientWebSocketFrame(signedSyncChange(mutation));
       if (candidate.type !== "syncChange") throw new Error("Expected sync change");
@@ -400,6 +403,7 @@ describe("v2 protocol schemas", () => {
       sourceKind: "websocket",
       payloadSHA256: opaquePayloadSHA256,
       causalVersion: 9,
+      observedHighWater: 17,
       frameID: "AAAAAAAAAAAAAAAAAAAAAQ",
       signingPayloadVersion: 1,
       payloadBase64: "AQI=",
@@ -424,6 +428,7 @@ describe("v2 protocol schemas", () => {
         sourceKind: "websocket",
         payloadSHA256: opaquePayloadSHA256,
         causalVersion: 9,
+        observedHighWater: 17,
         frameID: "frame-1",
         signingPayloadVersion: 1,
         payloadBase64: "AQI=",
@@ -498,6 +503,11 @@ describe("v2 protocol schemas", () => {
     expect(decodeClientWebSocketFrame(signedSyncChange({ causalVersion: undefined })).type).toBe(
       "syncChange",
     );
+    expect(() => decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: undefined }))).toThrow();
+    expect(() => decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: -1 }))).toThrow();
+    expect(() =>
+      decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: Number.MAX_SAFE_INTEGER + 1 })),
+    ).toThrow();
   });
 
   test("binds canonical JSON and every signed revoke field into unambiguous request bytes", () => {
