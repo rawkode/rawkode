@@ -5,6 +5,7 @@ import {
   type DurableObjectTransactionNative,
   makeDurableObjectBoundary,
 } from "@enchiridion/runtime";
+import { sha256Hex } from "@enchiridion/protocol";
 import { Effect, Exit } from "effect";
 import {
   makeOwnerVaultDomainProvider,
@@ -28,9 +29,19 @@ const capability = {
   jti: "jti-123456789012",
   expiresAtSeconds: 1_200,
   resource: "/v2/sync",
-  claimsFingerprint: "d".repeat(64),
+  claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
+  claimsFingerprint: "87e3da47009b520b1d1c7affaf2f08b33ce263f252fdfd0c8330ec9b4fca2b80",
   tokenFingerprint: "e".repeat(64),
 } as const;
+const capabilityFor = (jti: string, operationID = "operation-1") => {
+  const claims = `{"jti":"${jti}","operationID":"${operationID}"}`;
+  return {
+    ...capability,
+    jti,
+    claims,
+    claimsFingerprint: sha256Hex(new TextEncoder().encode(claims)),
+  };
+};
 
 const durable = (): {
   readonly entries: Map<string, unknown>;
@@ -180,7 +191,7 @@ describe("v2 OwnerVault durable domain provider", () => {
     const first = await Effect.runPromise(fixture.provider.append(append()));
     const afterReconnect = makeOwnerVaultDomainProvider(fixture.repository, root);
     const retried = await Effect.runPromise(
-      afterReconnect.append(append({ source: "websocket", nonce: { value: "different-nonce-123", expiresAtSeconds: 1_200, fingerprint: "f".repeat(64) }, capability: { ...capability, jti: "different-jti-12345" } })),
+      afterReconnect.append(append({ source: "websocket", nonce: { value: "different-nonce-123", expiresAtSeconds: 1_200, fingerprint: "f".repeat(64) }, capability: capabilityFor("different-jti-12345") })),
     );
 
     expect(first).toEqual({ operationID: "operation-1", payloadHash: "b".repeat(64), logSequence: 1, replayed: false });
@@ -188,9 +199,11 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(fixture.native.entries.get("v2.ov/capability-receipt/jti-123456789012")).toMatchObject({
       payload: {
         state: "COMPLETED",
+        jti: "jti-123456789012",
         resource: "/v2/sync",
         operationID: "operation-1",
-        claimsFingerprint: "d".repeat(64),
+        claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
+        claimsFingerprint: "87e3da47009b520b1d1c7affaf2f08b33ce263f252fdfd0c8330ec9b4fca2b80",
         tokenFingerprint: "e".repeat(64),
       },
     });
@@ -217,7 +230,7 @@ describe("v2 OwnerVault durable domain provider", () => {
           fingerprint: "1".repeat(64),
           payloadHash: "2".repeat(64),
           observedHighWater: 1,
-          capability: { ...capability, jti: "jti-222222222222" },
+          capability: capabilityFor("jti-222222222222", "operation-2"),
         }),
       ),
     );
@@ -225,6 +238,25 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(JSON.stringify(rejected)).toContain("nonce_replayed");
     expect(fixture.native.entries.has("v2.ov/append-log/entry/00000000000000000002")).toBe(false);
     expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { appendLogSequence: 1 } });
+  });
+
+  test("retains canonical verified claims beside the JTI rather than trusting a digest alone", async () => {
+    const fixture = await enrolledProvider();
+    const exit = await Effect.runPromiseExit(
+      fixture.provider.append(
+        append({
+          capability: {
+            ...capability,
+            // Same JSON members, but not the canonical sorted-key form that
+            // the verified capability receipt binds and fingerprints.
+            claims: '{"operationID":"operation-1","jti":"jti-123456789012"}',
+          },
+        }),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain("invalid_input");
+    expect(fixture.native.entries.has("v2.ov/capability-receipt/jti-123456789012")).toBe(false);
   });
 
   test("serializes concurrent operations while retaining their independent retry identities", async () => {
@@ -238,7 +270,7 @@ describe("v2 OwnerVault durable domain provider", () => {
             fingerprint: "1".repeat(64),
             payloadHash: "2".repeat(64),
             nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
-            capability: { ...capability, jti: "jti-222222222222" },
+            capability: capabilityFor("jti-222222222222", "operation-2"),
           }),
         ),
       ),
@@ -256,7 +288,7 @@ describe("v2 OwnerVault durable domain provider", () => {
       payloadHash: "2".repeat(64),
       observedHighWater: 1,
       nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
-      capability: { ...capability, jti: "jti-222222222222" },
+      capability: capabilityFor("jti-222222222222", "operation-2"),
     });
     await Effect.runPromise(
       fixture.provider.append(

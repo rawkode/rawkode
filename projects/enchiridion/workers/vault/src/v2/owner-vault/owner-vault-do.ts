@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 /** @enchiridion/effect-module */
 import {
+  type CanonicalJSON,
+  canonicalJSONStringify,
   decodeDeviceChallengeRequest,
   decodeDeviceRegisterRequest,
   decodeMutationRequest,
@@ -120,8 +122,10 @@ const response = (body: Readonly<Record<string, unknown>>, status = 200): Respon
 const bodyHash = (command: Readonly<Record<string, unknown>>): string =>
   sha256Hex(new TextEncoder().encode(JSON.stringify(command)));
 /** Canonical non-secret proof persisted with a claimed capability receipt. */
+const canonicalCapabilityClaims = (claims: Readonly<Record<string, unknown>>): string =>
+  canonicalJSONStringify(claims as CanonicalJSON);
 const capabilityClaimsFingerprint = (claims: Readonly<Record<string, unknown>>): string =>
-  sha256Hex(new TextEncoder().encode(JSON.stringify(claims)));
+  sha256Hex(new TextEncoder().encode(canonicalCapabilityClaims(claims)));
 const capabilityTokenFingerprint = (capability: SignedCapability): string =>
   sha256Hex(new TextEncoder().encode(capability.value));
 const durableReceipt = (kind: string, operationID: string, digest: string): string =>
@@ -2095,6 +2099,9 @@ export const makeOwnerVaultDO = (
                       jti: capability.jti,
                       expiresAtSeconds: capability.expiresAt,
                       resource: ownerVaultOpaqueAppendPath,
+                      claims: canonicalCapabilityClaims(
+                        capability as unknown as Readonly<Record<string, unknown>>,
+                      ),
                       claimsFingerprint: capabilityClaimsFingerprint(
                         capability as unknown as Readonly<Record<string, unknown>>,
                       ),
@@ -3049,6 +3056,28 @@ export const makeOwnerVaultDO = (
             signatureDER: signature,
           })
           .pipe(Effect.mapError((error): unknown => error));
+        const receiptJTI = sha256Hex(
+          new TextEncoder().encode(
+            `owner-vault-socket-sync\u0000${admission.jti}\u0000${frame.frameID}`,
+          ),
+        );
+        const receiptClaims = {
+          ownerID: admission.ownerID,
+          vaultID: admission.vaultID,
+          generationEpoch: admission.generationEpoch,
+          routingEpoch: admission.routingEpoch,
+          credentialEpoch: admission.credentialEpoch,
+          controlEpoch: admission.controlEpoch,
+          securityFloor: admission.securityFloor,
+          deviceID: admission.deviceID,
+          sessionID: admission.sessionID,
+          operationID: frame.operationID,
+          jti: receiptJTI,
+          socketAdmissionJTI: admission.jti,
+          frameID: frame.frameID,
+          issuedAt: admission.issuedAtSeconds,
+          expiresAt: admission.expiresAtSeconds,
+        } as const;
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,
@@ -3079,28 +3108,11 @@ export const makeOwnerVaultDO = (
               fingerprint: sha256Hex(payload),
             },
             capability: {
-              jti: sha256Hex(
-                new TextEncoder().encode(
-                  `owner-vault-socket-sync\u0000${admission.jti}\u0000${frame.frameID}`,
-                ),
-              ),
+              jti: receiptJTI,
               expiresAtSeconds: admission.expiresAtSeconds,
               resource: "/v2/sync",
-              claimsFingerprint: capabilityClaimsFingerprint({
-                ownerID: admission.ownerID,
-                vaultID: admission.vaultID,
-                generationEpoch: admission.generationEpoch,
-                routingEpoch: admission.routingEpoch,
-                credentialEpoch: admission.credentialEpoch,
-                controlEpoch: admission.controlEpoch,
-                securityFloor: admission.securityFloor,
-                deviceID: admission.deviceID,
-                sessionID: admission.sessionID,
-                operationID: admission.operationID,
-                jti: admission.jti,
-                issuedAt: admission.issuedAtSeconds,
-                expiresAt: admission.expiresAtSeconds,
-              }),
+              claims: canonicalCapabilityClaims(receiptClaims),
+              claimsFingerprint: capabilityClaimsFingerprint(receiptClaims),
               tokenFingerprint: admission.fingerprint,
             },
           })

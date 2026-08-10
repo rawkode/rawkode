@@ -1,4 +1,5 @@
 /** @enchiridion/effect-module */
+import { type CanonicalJSON, canonicalJSONStringify, sha256Hex } from "@enchiridion/protocol";
 import { Data, Effect } from "effect";
 import {
   type OwnerVaultAppendProof,
@@ -28,6 +29,7 @@ const identifier = /^[A-Za-z0-9_-]{1,128}$/u;
 const sha256 = /^[a-f0-9]{64}$/u;
 const base64url = /^[A-Za-z0-9_-]{16,256}$/u;
 const sequenceWidth = 20;
+const maximumCapabilityReceiptClaimsBytes = 8_192;
 
 export const ownerVaultMaximumDevices = 256;
 export const ownerVaultMaximumOutstandingChallenges = 64;
@@ -121,6 +123,8 @@ export interface OwnerVaultAppendInput {
     readonly jti: string;
     readonly expiresAtSeconds: number;
     readonly resource: string;
+    /** Canonical verified claims; it contains no bearer material. */
+    readonly claims: string;
     readonly claimsFingerprint: string;
     readonly tokenFingerprint: string;
   };
@@ -226,9 +230,11 @@ interface NonceClaim {
 }
 interface CapabilityReceipt {
   readonly state: "COMPLETED";
+  readonly jti: string;
   readonly resource: string;
   readonly operationID: string;
   readonly expiresAtSeconds: number;
+  readonly claims: string;
   readonly claimsFingerprint: string;
   readonly tokenFingerprint: string;
   readonly result: { readonly logSequence: number; readonly payloadHash: string };
@@ -277,6 +283,18 @@ const isSafeNonNegative = (value: unknown): value is number =>
 const isSafePositive = (value: unknown): value is number => isSafeNonNegative(value) && value > 0;
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+const canonicalClaims = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
+  if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > maximumCapabilityReceiptClaimsBytes)
+    return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) && canonicalJSONStringify(parsed as CanonicalJSON) === value
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 const sameRoot = (left: OwnerVaultTargetRoot, right: OwnerVaultTargetRoot): boolean =>
@@ -480,7 +498,9 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
   isRecord(value) &&
   exact(value, [
     "claimsFingerprint",
+    "claims",
     "expiresAtSeconds",
+    "jti",
     "operationID",
     "resource",
     "result",
@@ -488,6 +508,8 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
     "tokenFingerprint",
   ]) &&
   value.state === "COMPLETED" &&
+  typeof value.jti === "string" &&
+  identifier.test(value.jti) &&
   typeof value.resource === "string" &&
   /^\/[A-Za-z0-9_./-]{1,192}$/u.test(value.resource) &&
   isSafePositive(value.expiresAtSeconds) &&
@@ -495,6 +517,8 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
   identifier.test(value.operationID) &&
   typeof value.claimsFingerprint === "string" &&
   sha256.test(value.claimsFingerprint) &&
+  canonicalClaims(value.claims)?.jti === value.jti &&
+  sha256Hex(new TextEncoder().encode(value.claims)) === value.claimsFingerprint &&
   typeof value.tokenFingerprint === "string" &&
   sha256.test(value.tokenFingerprint) &&
   isRecord(value.result) &&
@@ -504,9 +528,11 @@ const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
   sha256.test(value.result.payloadHash)
     ? {
         state: "COMPLETED",
+        jti: value.jti,
         resource: value.resource,
         expiresAtSeconds: value.expiresAtSeconds,
         operationID: value.operationID,
+        claims: value.claims,
         claimsFingerprint: value.claimsFingerprint,
         tokenFingerprint: value.tokenFingerprint,
         result: { logSequence: value.result.logSequence, payloadHash: value.result.payloadHash },
@@ -1103,6 +1129,9 @@ export const makeOwnerVaultDomainProvider = (
       ) ||
       !identifier.test(input.capability.jti) ||
       !/^\/[A-Za-z0-9_./-]{1,192}$/u.test(input.capability.resource) ||
+      canonicalClaims(input.capability.claims)?.jti !== input.capability.jti ||
+      sha256Hex(new TextEncoder().encode(input.capability.claims)) !==
+        input.capability.claimsFingerprint ||
       !sha256.test(input.capability.claimsFingerprint) ||
       !sha256.test(input.capability.tokenFingerprint) ||
       !validReceiptTTL(
@@ -1221,9 +1250,11 @@ export const makeOwnerVaultDomainProvider = (
                 Effect.zipRight(
                   write(tx, address("capability-receipt", input.capability.jti), {
                     state: "COMPLETED",
+                    jti: input.capability.jti,
                     resource: input.capability.resource,
                     operationID: input.operationID,
                     expiresAtSeconds: input.capability.expiresAtSeconds,
+                    claims: input.capability.claims,
                     claimsFingerprint: input.capability.claimsFingerprint,
                     tokenFingerprint: input.capability.tokenFingerprint,
                     result: { logSequence, payloadHash: input.payloadHash },
