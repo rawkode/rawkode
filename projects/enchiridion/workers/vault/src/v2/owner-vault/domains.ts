@@ -1580,7 +1580,7 @@ export const makeOwnerVaultDomainProvider = (
   const claimCapabilityReceipt: OwnerVaultDomainProvider["claimCapabilityReceipt"] = (input) => {
     if (!validCapabilityReceiptInput(input)) return fail("invalid_input");
     return transact((tx) =>
-      requireRoot(tx).pipe(
+      requireRootIdentity(tx).pipe(
         Effect.zipRight(
           Effect.all([
             read(tx, address("jti", input.jti), decodeJtiClaim),
@@ -1595,6 +1595,10 @@ export const makeOwnerVaultDomainProvider = (
             (entry) => entry.jti === input.jti && entry.expiresAtSeconds === input.expiresAtSeconds,
           );
           if (jtiClaim === undefined && receipt === undefined) {
+            // A fence stops new admission, but a durable pre-fence receipt
+            // may be read/reconciled exactly after a lost response. Its
+            // endpoint-specific journal still revalidates before mutation.
+            if (admission.stopped) return fail<CapabilityReceipt>("authorization_denied");
             if (indexed) return fail<CapabilityReceipt>("state_corrupt");
             if (
               admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts ||

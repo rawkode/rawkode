@@ -132,8 +132,8 @@ const capabilityClaimsFingerprint = (claims: Readonly<Record<string, unknown>>):
 const capabilityTokenFingerprint = (capability: SignedCapability): string =>
   sha256Hex(new TextEncoder().encode(capability.value));
 const capabilityReceiptInput = (
-  claims: CapabilityClaims,
-  capability: SignedCapability,
+  claims: Readonly<{ jti: string; expiresAt: number }>,
+  capability: Readonly<{ value: string }>,
   resource: string,
   operationID: string,
   nowSeconds: number,
@@ -1070,13 +1070,21 @@ export const makeOwnerVaultDO = (
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
       return this.controls.verifier.verify(envelope.capability, binding, expected, now()).pipe(
-        Effect.flatMap(() => {
+        Effect.flatMap((claims) => {
           const provider = makeOwnerVaultDomainProvider(repository, commandIdentity(command));
+          const capabilityReceipt = capabilityReceiptInput(
+            claims,
+            envelope.capability,
+            ownerVaultInitializationPath,
+            command.operationID,
+            now(),
+          );
           const payload = initPayload(
             command,
             durableReceipt("init", command.operationID, command.initDigest),
           );
           return provider.initialize().pipe(
+            Effect.zipRight(provider.claimCapabilityReceipt(capabilityReceipt)),
             Effect.zipRight(
               repository.transact((tx) =>
                 tx
@@ -1099,6 +1107,11 @@ export const makeOwnerVaultDO = (
                     }),
                   ),
               ),
+            ),
+            Effect.flatMap((receipt) =>
+              provider
+                .completeCapabilityReceipt(capabilityReceipt, { durableReceipt: receipt })
+                .pipe(Effect.as(receipt)),
             ),
             Effect.map(
               (receipt): Response =>
@@ -1147,57 +1160,74 @@ export const makeOwnerVaultDO = (
       if (this.controls === undefined) return Effect.succeed(response({ ok: false }, 503));
       const repository = makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage);
       return this.controls.verifier.verify(envelope.capability, binding, expected, now()).pipe(
-        Effect.flatMap(() =>
-          repository.transact((tx) => {
-            const payload = floorPayload(
-              command,
-              durableReceipt("floor", command.operationID, command.floorSyncDigest),
-            );
-            return tx.get({ category: "root.identity" }).pipe(
-              Effect.flatMap((identity) =>
-                identity === undefined || !samePrivateIdentity(identity.payload, command)
-                  ? rejectControl()
-                  : tx.get({ category: "control.floor-sync", identifier: command.operationID }),
-              ),
-              Effect.flatMap((existing) => {
-                if (existing !== undefined)
-                  return samePayload(existing.payload, payload)
-                    ? Effect.succeed(payload.durableReceipt)
-                    : rejectControl();
-                return tx.get({ category: "control.floor-sync", identifier: "current" }).pipe(
-                  Effect.flatMap((current) => {
-                    if (current !== undefined) {
-                      const prior = current.payload;
-                      if (
-                        typeof prior.credentialEpoch !== "number" ||
-                        typeof prior.routingEpoch !== "number" ||
-                        typeof prior.controlEpoch !== "number" ||
-                        command.credentialEpoch < prior.credentialEpoch ||
-                        command.routingEpoch < prior.routingEpoch ||
-                        command.controlEpoch < prior.controlEpoch
-                      )
-                        return rejectControl();
-                    }
-                    return tx
-                      .put(
-                        { category: "control.floor-sync", identifier: command.operationID },
-                        payload,
-                      )
-                      .pipe(
-                        Effect.zipRight(
-                          tx.put(
-                            { category: "control.floor-sync", identifier: "current" },
+        Effect.flatMap((claims) => {
+          const provider = makeOwnerVaultDomainProvider(repository, commandIdentity(command));
+          const capabilityReceipt = capabilityReceiptInput(
+            claims,
+            envelope.capability,
+            ownerVaultFloorSyncPath,
+            command.operationID,
+            now(),
+          );
+          return provider.claimCapabilityReceipt(capabilityReceipt).pipe(
+            Effect.zipRight(
+              repository.transact((tx) => {
+                const payload = floorPayload(
+                  command,
+                  durableReceipt("floor", command.operationID, command.floorSyncDigest),
+                );
+                return tx.get({ category: "root.identity" }).pipe(
+                  Effect.flatMap((identity) =>
+                    identity === undefined || !samePrivateIdentity(identity.payload, command)
+                      ? rejectControl()
+                      : tx.get({ category: "control.floor-sync", identifier: command.operationID }),
+                  ),
+                  Effect.flatMap((existing) => {
+                    if (existing !== undefined)
+                      return samePayload(existing.payload, payload)
+                        ? Effect.succeed(payload.durableReceipt)
+                        : rejectControl();
+                    return tx.get({ category: "control.floor-sync", identifier: "current" }).pipe(
+                      Effect.flatMap((current) => {
+                        if (current !== undefined) {
+                          const prior = current.payload;
+                          if (
+                            typeof prior.credentialEpoch !== "number" ||
+                            typeof prior.routingEpoch !== "number" ||
+                            typeof prior.controlEpoch !== "number" ||
+                            command.credentialEpoch < prior.credentialEpoch ||
+                            command.routingEpoch < prior.routingEpoch ||
+                            command.controlEpoch < prior.controlEpoch
+                          )
+                            return rejectControl();
+                        }
+                        return tx
+                          .put(
+                            { category: "control.floor-sync", identifier: command.operationID },
                             payload,
-                          ),
-                        ),
-                        Effect.as(payload.durableReceipt),
-                      );
+                          )
+                          .pipe(
+                            Effect.zipRight(
+                              tx.put(
+                                { category: "control.floor-sync", identifier: "current" },
+                                payload,
+                              ),
+                            ),
+                            Effect.as(payload.durableReceipt),
+                          );
+                      }),
+                    );
                   }),
                 );
               }),
-            );
-          }),
-        ),
+            ),
+            Effect.flatMap((receipt) =>
+              provider
+                .completeCapabilityReceipt(capabilityReceipt, { durableReceipt: receipt })
+                .pipe(Effect.as(receipt)),
+            ),
+          );
+        }),
         Effect.map(
           (receipt): Response =>
             response({ ...command, durableReceipt: receipt } satisfies OwnerVaultFloorSyncAck),
@@ -1244,42 +1274,64 @@ export const makeOwnerVaultDO = (
         securityFloor: command.securityFloor,
       } as const;
       return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
-        Effect.flatMap(() => graph.domains.initialize()),
-        Effect.zipRight(
-          repository.transact((tx) =>
-            tx.get({ category: "control.initialization-ack", identifier: command.initID }).pipe(
-              Effect.flatMap((existing) => {
-                if (existing !== undefined)
-                  return samePayload(existing.payload, acknowledgement)
-                    ? Effect.succeed(receipt)
-                    : rejectControl();
-                return tx.get({ category: "control.floor-sync", identifier: "authority" }).pipe(
-                  Effect.flatMap((prior) => {
-                    if (prior !== undefined && !samePayload(prior.payload, authority))
-                      return rejectControl();
-                    return tx
-                      .put({ category: "root.floors" }, { securityFloor: command.securityFloor })
-                      .pipe(
-                        Effect.zipRight(
-                          tx.put(
-                            { category: "control.initialization-ack", identifier: command.initID },
-                            acknowledgement,
-                          ),
-                        ),
-                        Effect.zipRight(
-                          tx.put(
-                            { category: "control.floor-sync", identifier: "authority" },
-                            authority,
-                          ),
-                        ),
-                        Effect.as(receipt),
-                      );
+        Effect.flatMap((claims) => {
+          const capabilityReceipt = capabilityReceiptInput(
+            claims,
+            envelope.capability,
+            ownerVaultPrivateInitializePath,
+            command.operationID,
+            now(),
+          );
+          return graph.domains.initialize().pipe(
+            Effect.zipRight(graph.domains.claimCapabilityReceipt(capabilityReceipt)),
+            Effect.zipRight(
+              repository.transact((tx) =>
+                tx.get({ category: "control.initialization-ack", identifier: command.initID }).pipe(
+                  Effect.flatMap((existing) => {
+                    if (existing !== undefined)
+                      return samePayload(existing.payload, acknowledgement)
+                        ? Effect.succeed(receipt)
+                        : rejectControl();
+                    return tx.get({ category: "control.floor-sync", identifier: "authority" }).pipe(
+                      Effect.flatMap((prior) => {
+                        if (prior !== undefined && !samePayload(prior.payload, authority))
+                          return rejectControl();
+                        return tx
+                          .put(
+                            { category: "root.floors" },
+                            { securityFloor: command.securityFloor },
+                          )
+                          .pipe(
+                            Effect.zipRight(
+                              tx.put(
+                                {
+                                  category: "control.initialization-ack",
+                                  identifier: command.initID,
+                                },
+                                acknowledgement,
+                              ),
+                            ),
+                            Effect.zipRight(
+                              tx.put(
+                                { category: "control.floor-sync", identifier: "authority" },
+                                authority,
+                              ),
+                            ),
+                            Effect.as(receipt),
+                          );
+                      }),
+                    );
                   }),
-                );
-              }),
+                ),
+              ),
             ),
-          ),
-        ),
+            Effect.flatMap((durableReceipt) =>
+              graph.domains
+                .completeCapabilityReceipt(capabilityReceipt, { durableReceipt })
+                .pipe(Effect.as(durableReceipt)),
+            ),
+          );
+        }),
         Effect.map((durableReceipt): Response => response({ ...command, durableReceipt })),
         Effect.catchAll(() => Effect.succeed(response({ ok: false }, 403))),
       );
@@ -1314,74 +1366,107 @@ export const makeOwnerVaultDO = (
         securityFloor: command.expectedSecurityFloor,
       } as const;
       return this.ownerVaultControls.verify(envelope.capability, binding, binding, now()).pipe(
-        Effect.flatMap(() =>
-          repository.transact((tx) =>
-            tx.get({ category: "control.floor-sync", identifier: command.operationID }).pipe(
-              Effect.flatMap((priorAck) => {
-                if (priorAck !== undefined)
-                  return samePayload(priorAck.payload, acknowledgement)
-                    ? Effect.succeed(receipt)
-                    : rejectControl();
-                return Effect.all([
-                  tx.get({ category: "root.identity" }),
-                  tx.get({ category: "root.floors" }),
-                  tx.get({ category: "root.admission" }),
-                  tx.get({ category: "control.floor-sync", identifier: "authority" }),
-                ]).pipe(
-                  Effect.flatMap(([identity, floors, admission, authority]) => {
-                    const root = identity === undefined ? undefined : record(identity.payload);
-                    const currentFloors = floors === undefined ? undefined : record(floors.payload);
-                    const currentAdmission =
-                      admission === undefined ? undefined : record(admission.payload);
-                    const currentAuthority =
-                      authority === undefined ? undefined : record(authority.payload);
-                    const expectedAuthority = {
-                      kind: "authority",
-                      credentialEpoch: command.expectedCredentialEpoch,
-                      routingEpoch: command.expectedRoutingEpoch,
-                      controlEpoch: command.expectedControlEpoch,
-                      securityFloor: command.expectedSecurityFloor,
-                    };
-                    if (
-                      root === undefined ||
-                      !exact(root, ["ownerID", "vaultID", "generationEpoch", "namespaceState"]) ||
-                      root.ownerID !== command.ownerID ||
-                      root.vaultID !== command.vaultID ||
-                      root.generationEpoch !== command.generationEpoch ||
-                      (root.namespaceState !== "PRIVATE" && root.namespaceState !== "ACTIVE") ||
-                      currentFloors === undefined ||
-                      !exact(currentFloors, ["securityFloor"]) ||
-                      currentFloors.securityFloor !== command.expectedSecurityFloor ||
-                      currentAdmission === undefined ||
-                      typeof currentAdmission.stopped !== "boolean" ||
-                      currentAdmission.stopped ||
-                      currentAuthority === undefined ||
-                      !samePayload(currentAuthority, expectedAuthority)
-                    )
-                      return rejectControl();
-                    return tx
-                      .put(
-                        { category: "control.floor-sync", identifier: command.operationID },
-                        acknowledgement,
-                      )
+        Effect.flatMap((claims) =>
+          this.socketAuthority().pipe(
+            Effect.flatMap((authority) =>
+              this.withCapabilityReceipt(
+                makeOwnerVaultDomainProvider(repository, {
+                  ownerID: authority.ownerID,
+                  vaultID: authority.vaultID,
+                  generationEpoch: authority.generationEpoch,
+                  namespaceState: authority.namespaceState,
+                }),
+                claims,
+                envelope.capability,
+                ownerVaultCredentialFencePath,
+                command.operationID,
+                () =>
+                  repository.transact((tx) =>
+                    tx
+                      .get({ category: "control.floor-sync", identifier: command.operationID })
                       .pipe(
-                        Effect.zipRight(
-                          tx.put(
-                            { category: "control.floor-sync", identifier: "authority" },
-                            raisedAuthority,
-                          ),
-                        ),
-                        Effect.zipRight(
-                          tx.put(
-                            { category: "root.admission" },
-                            { ...currentAdmission, stopped: true },
-                          ),
-                        ),
-                        Effect.as(receipt),
-                      );
-                  }),
-                );
-              }),
+                        Effect.flatMap((priorAck) => {
+                          if (priorAck !== undefined)
+                            return samePayload(priorAck.payload, acknowledgement)
+                              ? Effect.succeed(receipt)
+                              : rejectControl();
+                          return Effect.all([
+                            tx.get({ category: "root.identity" }),
+                            tx.get({ category: "root.floors" }),
+                            tx.get({ category: "root.admission" }),
+                            tx.get({ category: "control.floor-sync", identifier: "authority" }),
+                          ]).pipe(
+                            Effect.flatMap(([identity, floors, admission, authority]) => {
+                              const root =
+                                identity === undefined ? undefined : record(identity.payload);
+                              const currentFloors =
+                                floors === undefined ? undefined : record(floors.payload);
+                              const currentAdmission =
+                                admission === undefined ? undefined : record(admission.payload);
+                              const currentAuthority =
+                                authority === undefined ? undefined : record(authority.payload);
+                              const expectedAuthority = {
+                                kind: "authority",
+                                credentialEpoch: command.expectedCredentialEpoch,
+                                routingEpoch: command.expectedRoutingEpoch,
+                                controlEpoch: command.expectedControlEpoch,
+                                securityFloor: command.expectedSecurityFloor,
+                              };
+                              if (
+                                root === undefined ||
+                                !exact(root, [
+                                  "ownerID",
+                                  "vaultID",
+                                  "generationEpoch",
+                                  "namespaceState",
+                                ]) ||
+                                root.ownerID !== command.ownerID ||
+                                root.vaultID !== command.vaultID ||
+                                root.generationEpoch !== command.generationEpoch ||
+                                (root.namespaceState !== "PRIVATE" &&
+                                  root.namespaceState !== "ACTIVE") ||
+                                currentFloors === undefined ||
+                                !exact(currentFloors, ["securityFloor"]) ||
+                                currentFloors.securityFloor !== command.expectedSecurityFloor ||
+                                currentAdmission === undefined ||
+                                typeof currentAdmission.stopped !== "boolean" ||
+                                currentAdmission.stopped ||
+                                currentAuthority === undefined ||
+                                !samePayload(currentAuthority, expectedAuthority)
+                              )
+                                return rejectControl();
+                              return tx
+                                .put(
+                                  {
+                                    category: "control.floor-sync",
+                                    identifier: command.operationID,
+                                  },
+                                  acknowledgement,
+                                )
+                                .pipe(
+                                  Effect.zipRight(
+                                    tx.put(
+                                      { category: "control.floor-sync", identifier: "authority" },
+                                      raisedAuthority,
+                                    ),
+                                  ),
+                                  Effect.zipRight(
+                                    tx.put(
+                                      { category: "root.admission" },
+                                      { ...currentAdmission, stopped: true },
+                                    ),
+                                  ),
+                                  Effect.as(receipt),
+                                );
+                            }),
+                          );
+                        }),
+                      ),
+                  ),
+                () => ({ durableReceipt: receipt }),
+                (stored) =>
+                  typeof stored.durableReceipt === "string" ? stored.durableReceipt : undefined,
+              ),
             ),
           ),
         ),
@@ -1988,6 +2073,40 @@ export const makeOwnerVaultDO = (
               : rejectControl<CapabilityClaims>(),
           ),
         );
+    };
+
+    /**
+     * One verified capability is claimed before its endpoint journal can
+     * mutate state, then completed with the endpoint's exact canonical
+     * result. A completed receipt returns its validated exact result and
+     * never re-enters the endpoint journal.
+     */
+    private withCapabilityReceipt = <A>(
+      domains: OwnerVaultDomainProvider,
+      claims: Readonly<{ jti: string; expiresAt: number }>,
+      capability: Readonly<{ value: string }>,
+      resource: string,
+      operationID: string,
+      run: () => Effect.Effect<A, unknown>,
+      result: (value: A) => Readonly<Record<string, unknown>>,
+      replay: (result: Readonly<Record<string, unknown>>) => A | undefined,
+    ): Effect.Effect<A, unknown> => {
+      const receipt = capabilityReceiptInput(claims, capability, resource, operationID, now());
+      return domains.claimCapabilityReceipt(receipt).pipe(
+        Effect.flatMap((claimed) => {
+          if (claimed.state === "COMPLETED") {
+            const replayed = claimed.result === undefined ? undefined : replay(claimed.result);
+            return replayed === undefined
+              ? Effect.fail(new OwnerVaultDomainError({ reason: "replay_conflict" }))
+              : Effect.succeed(replayed);
+          }
+          return run().pipe(
+            Effect.flatMap((value) =>
+              domains.completeCapabilityReceipt(receipt, result(value)).pipe(Effect.as(value)),
+            ),
+          );
+        }),
+      );
     };
 
     private deviceChallenge = (envelope: ControlEnvelope<DeviceChallengeRequest>) =>
