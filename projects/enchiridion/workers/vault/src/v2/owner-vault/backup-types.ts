@@ -195,8 +195,6 @@ export interface OwnerVaultPrivateRestoreTarget {
   readonly restoreImport: OwnerVaultRestoreImport;
   readonly blobScope: BlobScope;
   readonly blobLimits: BlobLimits;
-  /** Non-authoritative audit is recorded while the target remains PRIVATE. */
-  readonly writeRestoreAudit: (source: OwnerVaultBackupScope, backupID: string, manifestDigest: string) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultBackupRuntime {

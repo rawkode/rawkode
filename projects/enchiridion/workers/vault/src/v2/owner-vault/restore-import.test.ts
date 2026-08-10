@@ -88,6 +88,22 @@ const finalization = () => ({ blobScope, blobLimits, targetBlobEvidence: [] });
 const revision = (entries: Map<string, unknown>): number => (entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } }).payload.catalogRevision;
 
 describe("OwnerVault C1 restore import", () => {
+  test("binds the immutable source audit to first begin and rejects an audit mismatch", async () => {
+    const built = await fixture();
+    const first = record(0, "device-a"); const plan = planFor(first);
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    expect(built.native.entries.get("v2.ov/audit/restore-source")).toEqual({
+      category: "audit.restore-source", version: 1,
+      payload: { source: plan.source, audit: { backupID: plan.backupID, manifestDigest: plan.manifestDigest } },
+    });
+    built.native.entries.set("v2.ov/audit/restore-source", {
+      category: "audit.restore-source", version: 1,
+      payload: { source: plan.source, audit: { backupID: "backup-other-0001", manifestDigest: plan.manifestDigest } },
+    });
+    const exit = await Effect.runPromiseExit(built.restore.beginRestoreImport(plan));
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+
   test("keeps partial rows non-authoritative across restart, requires ordinal order, and accepts only exact duplicate replay", async () => {
     const first = record(0, "device-a"); const second = record(1, "device-b"); const plan = planFor(first, second);
     const built = await fixture();

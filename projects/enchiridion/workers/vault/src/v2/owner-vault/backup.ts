@@ -196,6 +196,7 @@ export const restoreOwnerVaultBackup = (
     );
     const manifestDigest = ownerVaultBackupDigest(bytes);
     const staged: { readonly expected: import("./backup-types").OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }[] = [];
+    const blobCopies: { readonly sourceKey: string; readonly targetKey: string; readonly metadata: import("../blobs/restore-reconstruction").OwnerVaultRestoredBlobMetadata }[] = [];
     const evidence: import("../blobs/restore-reconstruction").OwnerVaultRestoredBlobMetadata[] = [];
     let expectedLogSequence = 1;
     for (const expected of signed.manifest.pages) {
@@ -226,16 +227,8 @@ export const restoreOwnerVaultBackup = (
           const metadata = decodeOwnerVaultBlobStoredMetadata(decoded.record);
           const targetKey = metadata === undefined ? undefined : blobObjectKey(target.blobScope, metadata.sha256);
           if (metadata === undefined || targetKey === undefined || metadata.size < 0 || metadata.size > target.blobLimits.maximumBlobBytes) return yield* ownerVaultBackupFailure("integrity_failed");
-          const blob = yield* integrity(runtime.r2.read(metadata.objectKey));
-          if (blob.size !== metadata.size || blob.bytes.byteLength !== metadata.size || sha256Hex(blob.bytes) !== metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
-          const prior = yield* integrity(runtime.r2.head(targetKey));
-          if (prior === undefined) {
-            yield* integrity(runtime.r2.putIfAbsent(targetKey, blob.bytes));
-          }
-          const verified = yield* integrity(runtime.r2.read(targetKey));
-          if (verified.size !== metadata.size || verified.bytes.byteLength !== metadata.size || sha256Hex(verified.bytes) !== metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
           restored = { ...decoded.record, payload: { ...decoded.record.payload, objectKey: targetKey } };
-          evidence.push({ ...metadata, objectKey: targetKey });
+          blobCopies.push({ sourceKey: metadata.objectKey, targetKey, metadata: { ...metadata, objectKey: targetKey } });
         }
         const restoredBytes = canonicalSnapshotRecordBytes(decoded.address, restored);
         if (restoredBytes === undefined) return yield* ownerVaultBackupFailure("integrity_failed");
@@ -254,8 +247,17 @@ export const restoreOwnerVaultBackup = (
       totalBytes: staged.reduce((sum, item) => sum + item.expected.size, 0), objectCount: staged.length, hashChain,
       records: staged.map((item) => item.expected),
     };
-    yield* target.writeRestoreAudit(source, backupID, manifestDigest);
-    yield* target.restoreImport.beginRestoreImport(backupID, plan);
+    const completed = yield* target.restoreImport.beginRestoreImport(backupID, plan);
+    if (completed !== undefined) return;
+    for (const copy of blobCopies) {
+      const blob = yield* integrity(runtime.r2.read(copy.sourceKey));
+      if (blob.size !== copy.metadata.size || blob.bytes.byteLength !== copy.metadata.size || sha256Hex(blob.bytes) !== copy.metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
+      const prior = yield* integrity(runtime.r2.head(copy.targetKey));
+      if (prior === undefined) yield* integrity(runtime.r2.putIfAbsent(copy.targetKey, blob.bytes));
+      const verified = yield* integrity(runtime.r2.read(copy.targetKey));
+      if (verified.size !== copy.metadata.size || verified.bytes.byteLength !== copy.metadata.size || sha256Hex(verified.bytes) !== copy.metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
+      evidence.push(copy.metadata);
+    }
     for (const item of staged) yield* target.restoreImport.applyRestoreRecord({ restoreID: backupID, manifestDigest, ...item });
     yield* target.restoreImport.finalizeRestoreImport(backupID, manifestDigest, { blobScope: target.blobScope, blobLimits: target.blobLimits, targetBlobEvidence: evidence });
   });
@@ -279,6 +281,5 @@ export const makeOwnerVaultPrivateStorageRestoreTarget = (
     restoreImport: makeOwnerVaultRestoreImport({ repository: options.repository, reconstruct: options.reconstruct, validateAppendLog: options.validateAppendLog }),
     blobScope: options.blobScope,
     blobLimits: options.blobLimits,
-    writeRestoreAudit: (source, backupID, manifestDigest) => mapStorage(options.repository.transact((tx) => tx.put(address("audit.restore-source"), { source, audit: { backupID, manifestDigest } }))),
   };
 };

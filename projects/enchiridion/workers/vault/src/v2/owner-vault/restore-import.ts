@@ -217,6 +217,16 @@ const readPage = (tx: OwnerVaultTx, restoreID: string, manifestDigest: string, o
 const write = (tx: OwnerVaultTx, destination: OwnerVaultStorageAddress, payload: Readonly<Record<string, unknown>>): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
   tx.put(destination, payload);
 
+const restoreAudit = (plan: OwnerVaultRestoreImportPlan): Readonly<Record<string, unknown>> => ({
+  source: plan.source,
+  audit: { backupID: plan.backupID, manifestDigest: plan.manifestDigest },
+});
+const matchesRestoreAudit = (value: unknown, plan: OwnerVaultRestoreImportPlan): boolean => {
+  const payload = plain(value); const source = payload === undefined ? undefined : plain(payload.source); const audit = payload === undefined ? undefined : plain(payload.audit);
+  return source?.ownerID === plan.source.ownerID && source.vaultID === plan.source.vaultID && source.generationEpoch === plan.source.generationEpoch &&
+    audit?.backupID === plan.backupID && audit.manifestDigest === plan.manifestDigest;
+};
+
 const freshPrivate = (tx: OwnerVaultTx): Effect.Effect<void, OwnerVaultStorageTransactionFailure> =>
   Effect.all([tx.get(address("root.identity")), tx.get(address("catalog.current"))]).pipe(
     Effect.flatMap(([identity, current]) => {
@@ -346,13 +356,17 @@ export const makeOwnerVaultRestoreImport = (options: {
           const prior = existing === undefined ? undefined : decodeHeader(existing.payload);
           if (prior !== undefined) {
             if (!sameHeaderPlan(prior, restoreID, plan)) return txFailure();
-            if (prior.state !== "COMPLETED" || prior.receipt === undefined) return Effect.succeed(undefined);
-            return Effect.all([tx.get(address("root.identity")), tx.get(address("root.floors"))]).pipe(
+            return tx.get(address("audit.restore-source")).pipe(Effect.flatMap((audit) => {
+              if (!matchesRestoreAudit(audit?.payload, plan)) return txFailure();
+              if (prior.state !== "COMPLETED" || prior.receipt === undefined) return Effect.succeed(undefined);
+              return Effect.all([tx.get(address("root.identity")), tx.get(address("root.floors"))]).pipe(
               Effect.flatMap(([identity, floors]) => matchesCompletedTarget(prior.receipt!, identity?.payload, floors?.payload) ? Effect.succeed(prior.receipt) : txFailure()),
-            );
+              );
+            }));
           }
           return freshPrivate(tx).pipe(Effect.zipRight(write(tx, headerAddress(restoreID), header as unknown as Readonly<Record<string, unknown>>)),
             Effect.zipRight(Effect.forEach(pages, (page) => write(tx, pageAddress(restoreID, page.pageOrdinal), page as unknown as Readonly<Record<string, unknown>>))),
+            Effect.zipRight(write(tx, address("audit.restore-source"), restoreAudit(plan))),
             Effect.as(undefined),
           );
         })),

@@ -11,6 +11,7 @@ import type {
   OwnerVaultBackupScope,
   OwnerVaultBackupSnapshotSource,
   OwnerVaultPrivateRestoreTarget,
+  OwnerVaultRestoreImportReceipt,
   OwnerVaultSnapshotObject,
 } from "./backup-types";
 
@@ -86,7 +87,7 @@ const source = (items = records()): OwnerVaultBackupSnapshotSource => {
   };
 };
 
-const target = (): { readonly target: OwnerVaultPrivateRestoreTarget; readonly applied: number[]; readonly events: string[] } => {
+const target = (alreadyCompleted = false): { readonly target: OwnerVaultPrivateRestoreTarget; readonly applied: number[]; readonly events: string[] } => {
   const applied: number[] = [];
   const events: string[] = [];
   return {
@@ -96,13 +97,12 @@ const target = (): { readonly target: OwnerVaultPrivateRestoreTarget; readonly a
       root: { ownerID: scope.ownerID, vaultID: scope.vaultID, generationEpoch: 4, namespaceState: "PRIVATE" },
       assertFreshPrivateTarget: () => Effect.sync(() => events.push("private")),
       restoreImport: {
-        beginRestoreImport: (_restoreID, plan) => Effect.sync(() => { events.push(`begin:${plan.objectCount}`); return undefined; }),
+        beginRestoreImport: (_restoreID, plan) => Effect.sync(() => { events.push(`begin:${plan.objectCount}`); return alreadyCompleted ? {} as OwnerVaultRestoreImportReceipt : undefined; }),
         applyRestoreRecord: ({ expected }) => Effect.sync(() => { applied.push(expected.ordinal); return undefined; }),
         finalizeRestoreImport: () => Effect.sync(() => { events.push("complete"); return {} as import("./backup-types").OwnerVaultRestoreImportReceipt; }),
       },
       blobScope: { ownerID: { value: scope.ownerID }, vaultID: { value: scope.vaultID }, generationEpoch: 4 },
       blobLimits: { maximumBlobBytes: 8 * 1024 * 1024, maximumVaultBytes: 96 * 1024 * 1024, maximumOrphanBytes: 0, maximumOrphanCount: 0, maximumActiveLeasesPerVault: 32, maximumActiveLeasesPerFinal: 32, stageTTLSeconds: 60 },
-      writeRestoreAudit: () => Effect.sync(() => events.push("audit")),
     },
   };
 };
@@ -116,7 +116,7 @@ describe("OwnerVault bounded paged backup and private restore", () => {
     const restored = target();
     await Effect.runPromise(restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID));
     expect(restored.applied).toEqual([0, 1]);
-    expect(restored.events).toEqual(expect.arrayContaining(["private", "audit", "begin:2", "complete"]));
+    expect(restored.events).toEqual(expect.arrayContaining(["private", "begin:2", "complete"]));
   });
 
   test("fails closed for a tampered signed manifest", async () => {
@@ -130,6 +130,15 @@ describe("OwnerVault bounded paged backup and private restore", () => {
     const exit = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(store.boundary), target().target, scope, backupID));
     expect(Exit.isFailure(exit)).toBe(true);
     expect(JSON.stringify(exit)).toContain("manifest_untrusted");
+  });
+
+  test("treats a completed C1 begin receipt as terminal without apply or finalization callbacks", async () => {
+    const store = r2();
+    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    const restored = target(true);
+    await Effect.runPromise(restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID));
+    expect(restored.applied).toEqual([]);
+    expect(restored.events).toEqual(["private", "begin:2"]);
   });
 
   test("rejects a source catalog with a mismatched R2 metadata proof", async () => {
