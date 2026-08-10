@@ -210,6 +210,24 @@ export interface OwnerVaultStorageError {
     | "state_corrupt";
 }
 
+/**
+ * Closed semantic rejections that a v2 OwnerVault domain may raise while it
+ * is holding the sole durable transaction.  They are deliberately separate
+ * from storage faults: the transaction boundary serializes them, rolls back
+ * every staged row, and returns the original typed reason to the caller.
+ */
+export interface OwnerVaultDomainTransactionError {
+  readonly _tag: "OwnerVaultDomainTransactionError";
+  readonly reason:
+    | "authorization_denied"
+    | "capability_replayed"
+    | "nonce_replayed"
+    | "observed_high_water_ahead"
+    | "operation_capacity"
+    | "rate_limited"
+    | "replay_conflict";
+}
+
 export class OwnerVaultStorageRepositoryError extends Data.TaggedError(
   "OwnerVaultStorageRepositoryError",
 )<{ readonly reason: "listing_unavailable" | "unavailable" }> {}
@@ -223,6 +241,13 @@ const isOwnerVaultStorageError = (value: unknown): value is OwnerVaultStorageErr
   value !== null &&
   typeof value === "object" &&
   (value as { readonly _tag?: unknown })._tag === "OwnerVaultStorageError";
+
+const isOwnerVaultDomainTransactionError = (
+  value: unknown,
+): value is OwnerVaultDomainTransactionError =>
+  value !== null &&
+  typeof value === "object" &&
+  (value as { readonly _tag?: unknown })._tag === "OwnerVaultDomainTransactionError";
 
 const transactionErrorSchema = Schema.Struct({
   _tag: Schema.Literal("OwnerVaultStorageError"),
@@ -238,11 +263,25 @@ const transactionErrorSchema = Schema.Struct({
     "state_corrupt",
   ),
 });
-const transactionCodec: DurableObjectTransactionDomainCodec<OwnerVaultStorageError> =
-  durableObjectTransactionDomainCodec(transactionErrorSchema);
+const domainTransactionErrorSchema = Schema.Struct({
+  _tag: Schema.Literal("OwnerVaultDomainTransactionError"),
+  reason: Schema.Literal(
+    "authorization_denied",
+    "capability_replayed",
+    "nonce_replayed",
+    "observed_high_water_ahead",
+    "operation_capacity",
+    "rate_limited",
+    "replay_conflict",
+  ),
+});
+const transactionCodec: DurableObjectTransactionDomainCodec<
+  OwnerVaultStorageError | OwnerVaultDomainTransactionError
+> = durableObjectTransactionDomainCodec(Schema.Union(transactionErrorSchema, domainTransactionErrorSchema));
 
 export type OwnerVaultStorageTransactionFailure =
   | OwnerVaultStorageError
+  | OwnerVaultDomainTransactionError
   | DurableObjectBoundaryError;
 
 /**
@@ -272,7 +311,10 @@ export interface OwnerVaultStorageRepository {
   /** The sole read/modify/write gateway for the OwnerVault's DO state. */
   readonly transact: <A>(
     operation: (tx: OwnerVaultTx) => Effect.Effect<A, OwnerVaultStorageTransactionFailure>,
-  ) => Effect.Effect<A, OwnerVaultStorageError | OwnerVaultStorageRepositoryError>;
+  ) => Effect.Effect<
+    A,
+    OwnerVaultStorageError | OwnerVaultDomainTransactionError | OwnerVaultStorageRepositoryError
+  >;
   /**
    * A bounded snapshot/audit primitive. Runtime policy allows snapshot rows
    * only for backup and audit rows only for restore audit.
@@ -302,11 +344,14 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
 
   const transact = <A>(
     operation: (tx: OwnerVaultTx) => Effect.Effect<A, OwnerVaultStorageTransactionFailure>,
-  ): Effect.Effect<A, OwnerVaultStorageError | OwnerVaultStorageRepositoryError> =>
+  ): Effect.Effect<
+    A,
+    OwnerVaultStorageError | OwnerVaultDomainTransactionError | OwnerVaultStorageRepositoryError
+  > =>
     Effect.suspend(() => {
       if (transactionActive) return storageError("nested_transaction");
       return storage
-        .transactionOutcome<A, OwnerVaultStorageError>(transactionCodec, (native) => {
+        .transactionOutcome<A, OwnerVaultStorageError | OwnerVaultDomainTransactionError>(transactionCodec, (native) => {
           transactionActive = true;
 
           const raw = (
@@ -453,7 +498,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
             outcome._tag === "success" ? Effect.succeed(outcome.value) : Effect.fail(outcome.error),
           ),
           Effect.mapError((error) =>
-            isOwnerVaultStorageError(error)
+            isOwnerVaultStorageError(error) || isOwnerVaultDomainTransactionError(error)
               ? error
               : new OwnerVaultStorageRepositoryError({ reason: "unavailable" }),
           ),

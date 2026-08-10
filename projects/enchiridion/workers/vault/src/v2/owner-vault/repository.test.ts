@@ -157,6 +157,28 @@ describe("v2 OwnerVault per-record durable storage", () => {
     });
   });
 
+  test("rolls back staged rows and preserves a typed domain rejection", async () => {
+    const { repository, native } = repositoryFor();
+    const exit = await Effect.runPromiseExit(
+      repository.transact((tx) =>
+        tx.initialize(scope).pipe(
+          Effect.zipRight(tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" })),
+          Effect.zipRight(
+            Effect.fail({
+              _tag: "OwnerVaultDomainTransactionError" as const,
+              reason: "nonce_replayed" as const,
+            }),
+          ),
+        ),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain("OwnerVaultDomainTransactionError");
+    expect(JSON.stringify(exit)).toContain("nonce_replayed");
+    expect([...native.entries.keys()]).toEqual([]);
+  });
+
   test("uses root accounting to refuse admission before writing an over-budget row", async () => {
     const { repository, native } = repositoryFor();
     native.entries.set("v2.ov/root/identity", {
