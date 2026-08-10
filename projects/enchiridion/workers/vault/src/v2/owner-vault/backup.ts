@@ -1,0 +1,252 @@
+/** @enchiridion/effect-module */
+import { Effect } from "effect";
+import { isRestorableOwnerVaultStorageCategory, ownerVaultStorageRegistry } from "./storage-registry";
+import {
+  canonicalManifestBytes,
+  canonicalPageBytes,
+  canonicalSignedManifestBytes,
+  canonicalSnapshotRecordBytes,
+  decodeCanonicalSignedManifest,
+  decodeSnapshotRecordBytes,
+  ownerVaultBackupDigest,
+  validOwnerVaultBackupDigest,
+} from "./backup-canonical";
+import {
+  ownerVaultBackupFailure,
+  ownerVaultBackupMaximumManifestBytes,
+  ownerVaultBackupMaximumObjectBytes,
+  ownerVaultBackupMaximumObjects,
+  ownerVaultBackupMaximumPageBytes,
+  ownerVaultBackupMaximumPageEntries,
+  ownerVaultBackupMaximumRestoreJournalBytes,
+  ownerVaultBackupMaximumTotalBytes,
+  type OwnerVaultBackupManifest,
+  type OwnerVaultBackupPage,
+  type OwnerVaultBackupPageEntry,
+  type OwnerVaultBackupRuntime,
+  type OwnerVaultBackupScope,
+  type OwnerVaultBackupSnapshotSource,
+  type OwnerVaultPrivateRestoreTarget,
+  type OwnerVaultSignedBackupManifest,
+  type OwnerVaultSnapshotObject,
+  type OwnerVaultSnapshotPin,
+  type OwnerVaultStorageRestoreAdapterOptions,
+} from "./backup-types";
+import type { OwnerVaultStorageAddress } from "./repository";
+import type { OwnerVaultStorageRecord } from "./storage-registry";
+
+const encoder = new TextEncoder();
+const scopeKey = (scope: OwnerVaultBackupScope): string => `${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}`;
+const archivePrefix = (scope: OwnerVaultBackupScope, backupID: string): string => `v2/owner-vault/backups/${scopeKey(scope)}/${backupID}`;
+const manifestKey = (scope: OwnerVaultBackupScope, backupID: string): string => `${archivePrefix(scope, backupID)}/manifest.json`;
+const pageKey = (scope: OwnerVaultBackupScope, backupID: string, ordinal: number): string => `${archivePrefix(scope, backupID)}/pages/${ordinal.toString().padStart(8, "0")}.json`;
+const objectKey = (scope: OwnerVaultBackupScope, backupID: string, ordinal: number): string => `${archivePrefix(scope, backupID)}/objects/${ordinal.toString().padStart(8, "0")}.json`;
+const safeNonNegative = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const sameScope = (left: OwnerVaultBackupScope, right: OwnerVaultBackupScope): boolean => left.ownerID === right.ownerID && left.vaultID === right.vaultID && left.generationEpoch === right.generationEpoch;
+const safePathPart = /^[A-Za-z0-9_-]{1,128}$/u;
+const safeBackupID = /^[A-Za-z0-9_-]{16,120}$/u;
+const validScope = (scope: OwnerVaultBackupScope): boolean => safePathPart.test(scope.ownerID) && safePathPart.test(scope.vaultID) && safeNonNegative(scope.generationEpoch) && scope.generationEpoch > 0;
+const record = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
+const integrity = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A, import("./backup-types").OwnerVaultBackupError> =>
+  effect.pipe(Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "integrity_failed" } as import("./backup-types").OwnerVaultBackupError)));
+
+const writeImmutable = (
+  runtime: OwnerVaultBackupRuntime,
+  key: string,
+  bytes: Uint8Array,
+): Effect.Effect<void, import("./backup-types").OwnerVaultBackupError> =>
+  Effect.gen(function* () {
+    const prior = yield* integrity(runtime.r2.head(key));
+    if (prior !== undefined) {
+      const read = yield* integrity(runtime.r2.read(key));
+      if (read.size !== bytes.byteLength || ownerVaultBackupDigest(read.bytes) !== ownerVaultBackupDigest(bytes))
+        return yield* ownerVaultBackupFailure("archive_conflict");
+      return;
+    }
+    yield* integrity(runtime.r2.putIfAbsent(key, bytes));
+  });
+
+const checkedObject = (entry: OwnerVaultSnapshotObject): { readonly bytes: Uint8Array; readonly archive: OwnerVaultBackupPageEntry } | undefined => {
+  const bytes = canonicalSnapshotRecordBytes(entry.address, entry.record);
+  const category = ownerVaultStorageRegistry.get(entry.address.category);
+  if (bytes === undefined || category === undefined || category.snapshot !== "include" || entry.record.category !== entry.address.category || !safeNonNegative(entry.ordinal) || entry.size !== bytes.byteLength || entry.size > ownerVaultBackupMaximumObjectBytes || entry.sha256Base64 !== ownerVaultBackupDigest(bytes)) return undefined;
+  if (entry.r2 !== undefined && (entry.r2.size !== entry.size || entry.r2.sha256Base64 !== entry.sha256Base64 || entry.r2.key.length === 0)) return undefined;
+  return { bytes, archive: { ordinal: entry.ordinal, key: "", sha256Base64: entry.sha256Base64, size: entry.size, category: entry.address.category, ...(entry.address.identifier === undefined ? {} : { identifier: entry.address.identifier }), ...(entry.r2 === undefined ? {} : { r2: entry.r2 }) } };
+};
+
+const validPin = (pin: OwnerVaultSnapshotPin, scope: OwnerVaultBackupScope, backupID: string): boolean =>
+  validScope(scope) && safeBackupID.test(backupID) && pin.backupID === backupID && sameScope(pin.scope, scope) && validOwnerVaultBackupDigest(pin.highWaterMark) && validOwnerVaultBackupDigest(pin.catalogDigest) && typeof pin.pinProof === "string" && /^[A-Za-z0-9_-]{16,512}$/u.test(pin.pinProof) && safeNonNegative(pin.logHead);
+
+/** Archives an already-pinned catalog one bounded page at a time, then signs its exact inventory. */
+export const createOwnerVaultBackup = (
+  source: OwnerVaultBackupSnapshotSource,
+  runtime: OwnerVaultBackupRuntime,
+  scope: OwnerVaultBackupScope,
+  backupID: string,
+): Effect.Effect<OwnerVaultSignedBackupManifest, import("./backup-types").OwnerVaultBackupError> =>
+  Effect.gen(function* () {
+    const pin = yield* source.beginSnapshot(scope, backupID);
+    if (!validPin(pin, scope, backupID)) return yield* ownerVaultBackupFailure("catalog_invalid");
+    const release = source.releaseSnapshot(pin);
+    const archive = Effect.gen(function* () {
+      let cursor: string | undefined;
+      let pageOrdinal = 0;
+      let totalBytes = 0;
+      let nextOrdinal = 0;
+      const pages: { ordinal: number; key: string; digest: string; count: number; size: number }[] = [];
+      const catalogEntries: OwnerVaultBackupPageEntry[] = [];
+      for (;;) {
+        const sourcePage = yield* source.readSnapshotPage(pin, cursor);
+        if (sourcePage.entries.length === 0 || sourcePage.entries.length > ownerVaultBackupMaximumPageEntries || sourcePage.entries.some((entry, index) => entry.ordinal !== nextOrdinal + index)) return yield* ownerVaultBackupFailure("catalog_invalid");
+        const entries: OwnerVaultBackupPageEntry[] = [];
+        for (const sourceEntry of sourcePage.entries) {
+          const checked = checkedObject(sourceEntry);
+          if (checked === undefined) return yield* ownerVaultBackupFailure("catalog_invalid");
+          totalBytes += checked.bytes.byteLength;
+          if (totalBytes > ownerVaultBackupMaximumTotalBytes || nextOrdinal >= ownerVaultBackupMaximumObjects) return yield* ownerVaultBackupFailure("catalog_invalid");
+          const entry = { ...checked.archive, key: objectKey(scope, backupID, nextOrdinal) };
+          if (entry.ordinal !== nextOrdinal) return yield* ownerVaultBackupFailure("catalog_invalid");
+          yield* writeImmutable(runtime, entry.key, checked.bytes);
+          entries.push(entry); catalogEntries.push(entry); nextOrdinal += 1;
+        }
+        const page: OwnerVaultBackupPage = { ordinal: pageOrdinal, entries, digest: "" };
+        const unsigned = canonicalPageBytes({ ...page, digest: "" });
+        if (unsigned === undefined || unsigned.byteLength > ownerVaultBackupMaximumPageBytes || ownerVaultBackupDigest(unsigned) !== sourcePage.digest) return yield* ownerVaultBackupFailure("catalog_invalid");
+        const completed: OwnerVaultBackupPage = { ...page, digest: ownerVaultBackupDigest(unsigned) };
+        const pageBytes = canonicalPageBytes(completed);
+        if (pageBytes === undefined || pageBytes.byteLength > ownerVaultBackupMaximumPageBytes) return yield* ownerVaultBackupFailure("catalog_invalid");
+        const key = pageKey(scope, backupID, pageOrdinal);
+        yield* writeImmutable(runtime, key, pageBytes);
+        pages.push({ ordinal: pageOrdinal, key, digest: completed.digest, count: entries.length, size: pageBytes.byteLength });
+        pageOrdinal += 1;
+        if (sourcePage.nextCursor === undefined) break;
+        if (sourcePage.nextCursor === cursor || sourcePage.nextCursor.length > 512) return yield* ownerVaultBackupFailure("catalog_invalid");
+        cursor = sourcePage.nextCursor;
+      }
+      if (nextOrdinal === 0 || ownerVaultBackupDigest(encoder.encode(JSON.stringify(catalogEntries.map(({ key, ...entry }) => entry)))) !== pin.catalogDigest) return yield* ownerVaultBackupFailure("catalog_invalid");
+      const manifest: OwnerVaultBackupManifest = { version: 1, backupID, source: scope, highWaterMark: pin.highWaterMark, logHead: pin.logHead, catalogDigest: pin.catalogDigest, pinProof: pin.pinProof, totalBytes, objectCount: nextOrdinal, pages };
+      const canonical = canonicalManifestBytes(manifest);
+      if (canonical === undefined || canonical.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
+      const signature = yield* runtime.signer.signCanonical(canonical).pipe(
+        Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "manifest_untrusted" } as import("./backup-types").OwnerVaultBackupError)),
+      );
+      const signed: OwnerVaultSignedBackupManifest = { manifest, signature };
+      const signedBytes = canonicalSignedManifestBytes(signed);
+      if (signedBytes === undefined || signedBytes.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
+      yield* writeImmutable(runtime, manifestKey(scope, backupID), signedBytes);
+      return signed;
+    });
+    // A pin release failure is not safe to mask: crash the invocation rather
+    // than claim success while retaining a source freeze indefinitely.
+    return yield* archive.pipe(Effect.ensuring(Effect.orDie(release)));
+  });
+
+const validJournal = (journal: import("./backup-types").OwnerVaultRestoreJournal, backupID: string, manifestDigest: string): boolean =>
+  journal.backupID === backupID && journal.manifestDigest === manifestDigest && safeNonNegative(journal.lastAppliedOrdinal) && (journal.state === "APPLYING" || journal.state === "COMPLETED") && (canonicalManifestBytes({ version: 1, backupID: journal.backupID, source: { ownerID: "journal", vaultID: "journal", generationEpoch: 1 }, highWaterMark: manifestDigest, logHead: journal.lastAppliedOrdinal, catalogDigest: manifestDigest, pinProof: journal.state, totalBytes: 0, objectCount: 0, pages: [] })?.byteLength ?? Infinity) <= ownerVaultBackupMaximumRestoreJournalBytes;
+
+const validateManifest = (manifest: OwnerVaultBackupManifest, scope: OwnerVaultBackupScope, backupID: string): boolean =>
+  record(manifest) && validScope(scope) && safeBackupID.test(backupID) &&
+  manifest.version === 1 && manifest.backupID === backupID && record(manifest.source) && sameScope(manifest.source, scope) &&
+  validOwnerVaultBackupDigest(manifest.highWaterMark) && validOwnerVaultBackupDigest(manifest.catalogDigest) &&
+  typeof manifest.pinProof === "string" && /^[A-Za-z0-9_-]{16,512}$/u.test(manifest.pinProof) &&
+  safeNonNegative(manifest.logHead) && safeNonNegative(manifest.totalBytes) && safeNonNegative(manifest.objectCount) &&
+  manifest.objectCount > 0 && manifest.objectCount <= ownerVaultBackupMaximumObjects && manifest.totalBytes <= ownerVaultBackupMaximumTotalBytes &&
+  Array.isArray(manifest.pages) && manifest.pages.length > 0 && manifest.pages.every((page, index) =>
+    record(page) && page.ordinal === index && page.key === pageKey(scope, backupID, index) &&
+    validOwnerVaultBackupDigest(page.digest) && typeof page.count === "number" && page.count > 0 && page.count <= ownerVaultBackupMaximumPageEntries &&
+    typeof page.size === "number" && page.size <= ownerVaultBackupMaximumPageBytes,
+  );
+
+const validPageEntry = (value: unknown): value is OwnerVaultBackupPageEntry => {
+  if (!record(value) || !safeNonNegative(value.ordinal) || typeof value.key !== "string" || value.key.length === 0 || !validOwnerVaultBackupDigest(value.sha256Base64) || !safeNonNegative(value.size) || value.size > ownerVaultBackupMaximumObjectBytes || typeof value.category !== "string" || ownerVaultStorageRegistry.get(value.category as OwnerVaultStorageAddress["category"]) === undefined) return false;
+  if (value.identifier !== undefined && (typeof value.identifier !== "string" || !/^[A-Za-z0-9_-]{1,128}$/u.test(value.identifier))) return false;
+  if (value.r2 === undefined) return true;
+  return record(value.r2) && typeof value.r2.key === "string" && value.r2.key.length > 0 && safeNonNegative(value.r2.size) && validOwnerVaultBackupDigest(value.r2.sha256Base64);
+};
+
+/** Restores only a pre-initialized later private target; public activation is intentionally absent. */
+export const restoreOwnerVaultBackup = (
+  runtime: OwnerVaultBackupRuntime,
+  target: OwnerVaultPrivateRestoreTarget,
+  source: OwnerVaultBackupScope,
+  backupID: string,
+): Effect.Effect<void, import("./backup-types").OwnerVaultBackupError> =>
+  Effect.gen(function* () {
+    if (target.root.namespaceState !== "PRIVATE" || target.root.generationEpoch <= source.generationEpoch) return yield* ownerVaultBackupFailure("private_target_required");
+    yield* target.assertFreshPrivateTarget();
+    const bytes = yield* integrity(runtime.r2.read(manifestKey(source, backupID))).pipe(Effect.map((item) => item.bytes));
+    if (bytes.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
+    const signed = decodeCanonicalSignedManifest(bytes);
+    if (signed === undefined || !validateManifest(signed.manifest, source, backupID)) return yield* ownerVaultBackupFailure("manifest_invalid");
+    const canonical = canonicalManifestBytes(signed.manifest);
+    if (canonical === undefined) return yield* ownerVaultBackupFailure("manifest_invalid");
+    yield* runtime.verifier.verifyCanonical(canonical, signed.signature).pipe(
+      Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "manifest_untrusted" } as import("./backup-types").OwnerVaultBackupError)),
+    );
+    const manifestDigest = ownerVaultBackupDigest(bytes);
+    const existing = yield* target.readJournal(backupID);
+    if (existing !== undefined && !validJournal(existing, backupID, manifestDigest)) return yield* ownerVaultBackupFailure("restore_conflict");
+    if (existing?.state === "COMPLETED") return;
+    let lastApplied = existing?.lastAppliedOrdinal ?? -1;
+    let expectedLogSequence = 1;
+    for (const expected of signed.manifest.pages) {
+      const pageBytes = yield* integrity(runtime.r2.read(expected.key)).pipe(Effect.map((item) => item.bytes));
+      if (pageBytes.byteLength !== expected.size || pageBytes.byteLength > ownerVaultBackupMaximumPageBytes) return yield* ownerVaultBackupFailure("integrity_failed");
+      let page: OwnerVaultBackupPage;
+      try { page = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(pageBytes)) as OwnerVaultBackupPage; } catch { return yield* ownerVaultBackupFailure("integrity_failed"); }
+      if (!Array.isArray(page.entries) || !safeNonNegative(page.ordinal) || typeof page.digest !== "string") return yield* ownerVaultBackupFailure("integrity_failed");
+      const unsigned = canonicalPageBytes({ ordinal: page.ordinal, entries: page.entries, digest: "" });
+      const canonicalPage = canonicalPageBytes(page);
+      if (unsigned === undefined || canonicalPage === undefined || new TextDecoder("utf-8", { fatal: true }).decode(canonicalPage) !== new TextDecoder("utf-8", { fatal: true }).decode(pageBytes) || page.ordinal !== expected.ordinal || page.entries.length !== expected.count || ownerVaultBackupDigest(unsigned) !== expected.digest || page.digest !== expected.digest) return yield* ownerVaultBackupFailure("integrity_failed");
+      for (const entry of page.entries) {
+        if (!validPageEntry(entry)) return yield* ownerVaultBackupFailure("integrity_failed");
+        if (entry.category === "append-log.entry") {
+          if (entry.identifier !== expectedLogSequence.toString().padStart(20, "0")) return yield* ownerVaultBackupFailure("integrity_failed");
+          expectedLogSequence += 1;
+        }
+        if (entry.ordinal <= lastApplied) continue;
+        if (entry.ordinal !== lastApplied + 1 || entry.key !== objectKey(source, backupID, entry.ordinal) || entry.size > ownerVaultBackupMaximumObjectBytes || !validOwnerVaultBackupDigest(entry.sha256Base64)) return yield* ownerVaultBackupFailure("integrity_failed");
+        const definition = ownerVaultStorageRegistry.get(entry.category);
+        if (definition === undefined || !isRestorableOwnerVaultStorageCategory(definition)) return yield* ownerVaultBackupFailure("integrity_failed");
+        const objectBytes = yield* integrity(runtime.r2.read(entry.key)).pipe(Effect.map((item) => item.bytes));
+        if (objectBytes.byteLength !== entry.size || ownerVaultBackupDigest(objectBytes) !== entry.sha256Base64) return yield* ownerVaultBackupFailure("integrity_failed");
+        if (entry.r2 !== undefined && (entry.r2.size !== entry.size || entry.r2.sha256Base64 !== entry.sha256Base64)) return yield* ownerVaultBackupFailure("integrity_failed");
+        const decoded = decodeSnapshotRecordBytes(objectBytes);
+        if (decoded === undefined || decoded.address.category !== entry.category || decoded.address.identifier !== entry.identifier || decoded.record.category !== entry.category) return yield* ownerVaultBackupFailure("integrity_failed");
+        yield* target.applyRecord(entry, decoded.record);
+        lastApplied = entry.ordinal;
+        yield* target.writeJournal({ backupID, manifestDigest, lastAppliedOrdinal: lastApplied, state: "APPLYING" });
+      }
+    }
+    if (lastApplied + 1 !== signed.manifest.objectCount || expectedLogSequence - 1 !== signed.manifest.logHead) return yield* ownerVaultBackupFailure("integrity_failed");
+    yield* target.writeRestoreAudit(source, backupID, manifestDigest);
+    yield* target.completeRestore({ backupID, highWaterMark: signed.manifest.highWaterMark, logHead: signed.manifest.logHead, manifestDigest });
+    yield* target.writeJournal({ backupID, manifestDigest, lastAppliedOrdinal: lastApplied, state: "COMPLETED" });
+  });
+
+/** Storage adapter for a fresh initialized PRIVATE DO. It cannot enumerate or promote a target. */
+export const makeOwnerVaultPrivateStorageRestoreTarget = (
+  options: OwnerVaultStorageRestoreAdapterOptions,
+): OwnerVaultPrivateRestoreTarget => {
+  const address = (category: OwnerVaultStorageAddress["category"], identifier?: string): OwnerVaultStorageAddress => identifier === undefined ? { category } : { category, identifier };
+  const mapStorage = <A>(effect: Effect.Effect<A, unknown>) => effect.pipe(
+    Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "source_unavailable" } as import("./backup-types").OwnerVaultBackupError)),
+  );
+  const journalID = (backupID: string) => `restore_${backupID}`;
+  return {
+    root: options.root,
+    assertFreshPrivateTarget: () => mapStorage(options.repository.transact((tx) => tx.get(address("root.identity")))).pipe(
+      Effect.flatMap((root) => root?.payload.ownerID === options.root.ownerID && root.payload.vaultID === options.root.vaultID && root.payload.generationEpoch === options.root.generationEpoch && root.payload.namespaceState === "PRIVATE"
+        ? options.assertFreshPrivateTarget()
+        : ownerVaultBackupFailure("private_target_required"),
+      ),
+    ),
+    readJournal: (backupID) => mapStorage(options.repository.transact((tx) => tx.get(address("backup.restore-journal", journalID(backupID))).pipe(Effect.map((value) => value?.payload as import("./backup-types").OwnerVaultRestoreJournal | undefined)))),
+    writeJournal: (journal) => mapStorage(options.repository.transact((tx) => tx.put(address("backup.restore-journal", journalID(journal.backupID)), journal as unknown as Readonly<Record<string, unknown>>))),
+    applyRecord: (entry, record) => mapStorage(options.repository.transact((tx) => tx.put(address(entry.category, entry.identifier), record.payload))),
+    writeRestoreAudit: (source, backupID, manifestDigest) => mapStorage(options.repository.transact((tx) => tx.put(address("audit.restore-source"), { source, audit: { backupID, manifestDigest } }))),
+    completeRestore: (input) => mapStorage(options.repository.transact((tx) => tx.put(address("root.log-head"), { logSequence: input.logHead, highWaterMark: input.highWaterMark }))).pipe(
+      Effect.zipRight(options.rebuildDerived(input)),
+    ),
+  };
+};
