@@ -77,11 +77,12 @@ import { OwnerVaultBackupError } from "./backup-types";
 import {
   makeOwnerVaultDomainProvider,
   ownerVaultMaximumSessions,
+  OwnerVaultDomainError,
   type OwnerVaultDevice,
-  type OwnerVaultDomainError,
   type OwnerVaultDomainProvider,
 } from "./domains";
 import { makeOwnerVaultProviderGraph } from "./provider-graph";
+import { ownerVaultOpaqueMutationFingerprint } from "./opaque-mutation-fingerprint";
 import {
   type OwnerVaultStorageTransactionFailure,
   type OwnerVaultStorageRepositoryError,
@@ -1635,6 +1636,7 @@ export const makeOwnerVaultDO = (
                       generationEpoch: command.sourceGeneration,
                     },
                     command.backupID,
+                    command.manifestDigest,
                   ),
                 ),
                 Effect.zipRight(completeAcknowledgement()),
@@ -2009,9 +2011,19 @@ export const makeOwnerVaultDO = (
                   }),
                 ),
                 Effect.flatMap((actor) => {
-                  const fingerprint = sha256Hex(
-                    signedDeviceRequestSigningPayload(envelope.command.envelope),
-                  );
+                  const fingerprint = ownerVaultOpaqueMutationFingerprint({
+                    ownerID: authority.ownerID,
+                    vaultID: authority.vaultID,
+                    generationEpoch: authority.generationEpoch,
+                    operationID: envelope.command.command.operationID,
+                    payloadSHA256: envelope.command.command.payloadSHA256,
+                    payloadBase64: envelope.command.command.payloadBase64,
+                    observedHighWater: envelope.command.command.causalVersion ?? 0,
+                  });
+                  if (fingerprint === undefined)
+                    return Effect.fail(
+                      new OwnerVaultDomainError({ reason: "invalid_input" }),
+                    );
                   return graph.domains.append({
                     operationID: envelope.command.command.operationID,
                     fingerprint,
@@ -2393,6 +2405,12 @@ export const makeOwnerVaultDO = (
                   )
                 : Effect.void;
             if (prior.phase === "PREPARED" && prior.quotaReserved) {
+              if (
+                counts.pendingSocketAdmissions < 1 ||
+                !counts.preparedSocketOperationIDs.includes(attachment.operationID) ||
+                (ownedSession && counts.activeSessions < 1)
+              )
+                return rejectControl<void>();
               const next: SocketAdmissionRecord = {
                 ...prior,
                 phase: "EXPIRED",
@@ -2410,9 +2428,9 @@ export const makeOwnerVaultDO = (
                       { category: "root.admission" },
                       {
                         ...counts,
-                        pendingSocketAdmissions: Math.max(0, counts.pendingSocketAdmissions - 1),
+                        pendingSocketAdmissions: counts.pendingSocketAdmissions - 1,
                         activeSessions: ownedSession
-                          ? Math.max(0, counts.activeSessions - 1)
+                          ? counts.activeSessions - 1
                           : counts.activeSessions,
                         preparedSocketOperationIDs: counts.preparedSocketOperationIDs.filter(
                           (operationID) => operationID !== attachment.operationID,
@@ -2423,6 +2441,11 @@ export const makeOwnerVaultDO = (
                 );
             }
             if (prior.phase === "ACCEPTED") {
+              if (
+                counts.activeSocketAdmissions < 1 ||
+                (ownedSession && counts.activeSessions < 1)
+              )
+                return rejectControl<void>();
               const next: SocketAdmissionRecord = { ...prior, phase: "CLOSED" };
               return tx
                 .put(
@@ -2436,9 +2459,9 @@ export const makeOwnerVaultDO = (
                       { category: "root.admission" },
                       {
                         ...counts,
-                        activeSocketAdmissions: Math.max(0, counts.activeSocketAdmissions - 1),
+                        activeSocketAdmissions: counts.activeSocketAdmissions - 1,
                         activeSessions: ownedSession
-                          ? Math.max(0, counts.activeSessions - 1)
+                          ? counts.activeSessions - 1
                           : counts.activeSessions,
                       },
                     ),
@@ -2508,6 +2531,16 @@ export const makeOwnerVaultDO = (
                             ),
                           )
                         : Effect.void;
+                    const consumesPending = prior.phase === "PREPARED" && prior.quotaReserved;
+                    const consumesActiveSocket = prior.phase === "ACCEPTED";
+                    if (
+                      (consumesPending &&
+                        (counts.pendingSocketAdmissions < 1 ||
+                          !counts.preparedSocketOperationIDs.includes(prior.operationID))) ||
+                      (consumesActiveSocket && counts.activeSocketAdmissions < 1) ||
+                      (ownedSession && counts.activeSessions < 1)
+                    )
+                      return rejectControl<number | undefined>();
                     return tx
                       .delete({ category: "socket.admission", identifier: prior.operationID })
                       .pipe(
@@ -2519,15 +2552,15 @@ export const makeOwnerVaultDO = (
                             {
                               ...counts,
                               pendingSocketAdmissions:
-                                prior.phase === "PREPARED" && prior.quotaReserved
-                                  ? Math.max(0, counts.pendingSocketAdmissions - 1)
+                                consumesPending
+                                  ? counts.pendingSocketAdmissions - 1
                                   : counts.pendingSocketAdmissions,
                               activeSocketAdmissions:
-                                prior.phase === "ACCEPTED"
-                                  ? Math.max(0, counts.activeSocketAdmissions - 1)
+                                consumesActiveSocket
+                                  ? counts.activeSocketAdmissions - 1
                                   : counts.activeSocketAdmissions,
                               activeSessions: ownedSession
-                                ? Math.max(0, counts.activeSessions - 1)
+                                ? counts.activeSessions - 1
                                 : counts.activeSessions,
                               preparedSocketOperationIDs: counts.preparedSocketOperationIDs.filter(
                                 (operationID) => operationID !== prior.operationID,
@@ -2680,7 +2713,13 @@ export const makeOwnerVaultDO = (
                 ),
                 Effect.flatMap((prepared) => {
                   if (!prepared.creator) return Effect.succeed(response({ ok: false }, 409));
-                  return graph.domains.getDevice(prepared.record.deviceID).pipe(
+                  // The PREPARED receipt already owns quota and a JTI. Schedule
+                  // its exact expiry before any accept-outside-transaction work
+                  // so an isolate loss cannot leave that reservation unbounded.
+                  return this.boundary.storage
+                    .setAlarm(prepared.record.expiresAtMilliseconds)
+                    .pipe(
+                  Effect.zipRight(graph.domains.getDevice(prepared.record.deviceID)),
                     Effect.flatMap((device) =>
                       graph.domains.establishSession({
                         sessionID: prepared.record.sessionID,
@@ -2751,7 +2790,7 @@ export const makeOwnerVaultDO = (
                         ),
                       );
                     }),
-                  );
+                    );
                 }),
               );
             }),
@@ -2953,7 +2992,15 @@ export const makeOwnerVaultDO = (
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,
-            fingerprint: sha256Hex(payload),
+            fingerprint: ownerVaultOpaqueMutationFingerprint({
+              ownerID: admission.ownerID,
+              vaultID: admission.vaultID,
+              generationEpoch: admission.generationEpoch,
+              operationID: frame.operationID,
+              payloadSHA256: frame.payloadSHA256,
+              payloadBase64: frame.payloadBase64,
+              observedHighWater: frame.observedHighWater,
+            }) ?? (yield* rejectControl<string>()),
             payloadHash: frame.payloadSHA256,
             payloadBase64: frame.payloadBase64,
             source: "websocket",
@@ -3112,21 +3159,26 @@ export const makeOwnerVaultDO = (
       message: string | ArrayBuffer,
     ): Promise<void> =>
       this.boundary.callbacks.webSocketMessage(this.socketMessage(socket, message));
-    override readonly webSocketClose = (socket: WebSocket): void => {
+    override readonly webSocketClose = (socket: WebSocket): Promise<void> => {
       const candidate = socket.deserializeAttachment();
       const attachment = validSocketAttachment(candidate) ? candidate : undefined;
-      if (attachment !== undefined)
-        void this.boundary.callbacks.webSocketMessage(
-          this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
-        );
+      return attachment === undefined
+        ? Promise.resolve()
+        : this.boundary.callbacks.webSocketMessage(
+            this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
+          );
     };
-    override readonly webSocketError = (socket: WebSocket, _error: unknown): void => {
+    override readonly webSocketError = (
+      socket: WebSocket,
+      _error: unknown,
+    ): Promise<void> => {
       const candidate = socket.deserializeAttachment();
       const attachment = validSocketAttachment(candidate) ? candidate : undefined;
-      if (attachment !== undefined)
-        void this.boundary.callbacks.webSocketMessage(
-          this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
-        );
+      return attachment === undefined
+        ? Promise.resolve()
+        : this.boundary.callbacks.webSocketMessage(
+            this.releaseSocket(attachment).pipe(Effect.catchAll(() => Effect.void)),
+          );
     };
     override readonly alarm = (): Promise<void> =>
       this.boundary.callbacks.alarm(

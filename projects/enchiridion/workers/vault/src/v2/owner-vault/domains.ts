@@ -916,6 +916,7 @@ export const makeOwnerVaultDomainProvider = (
                 return fail("authorization_denied");
               if (admission.activeDevices >= ownerVaultMaximumDevices)
                 return fail("quota_exceeded");
+              if (admission.activeChallenges < 1) return fail("state_corrupt");
               const consumed: OwnerVaultChallenge = { ...challenge, consumed: true };
               const result = { device: input.device };
               return write(tx, address("device-challenge", input.challengeID), {
@@ -938,7 +939,7 @@ export const makeOwnerVaultDomainProvider = (
                   write(tx, address("root.admission"), {
                     ...admission,
                     activeDevices: admission.activeDevices + 1,
-                    activeChallenges: Math.max(0, admission.activeChallenges - 1),
+                    activeChallenges: admission.activeChallenges - 1,
                   }),
                 ),
                 Effect.as({ device: input.device, replayed: false }),
@@ -1045,9 +1046,27 @@ export const makeOwnerVaultDomainProvider = (
       return fail("invalid_input");
     return transact((tx) =>
       requireRoot(tx).pipe(
-        Effect.zipRight(read(tx, address("operation-receipt", input.operationID), decodeReceipt)),
-        Effect.flatMap((receipt) => {
+        Effect.zipRight(
+          Effect.all([
+            read(tx, address("operation-receipt", input.operationID), decodeReceipt),
+            read(tx, address("jti", input.capability.jti), decodeJtiClaim),
+            read(tx, address("capability-receipt", input.capability.jti), decodeCapability),
+          ]),
+        ),
+        Effect.flatMap(([receipt, priorJti, priorCapabilityReceipt]) => {
           if (receipt !== undefined) {
+            // An operation receipt is never an authorization shortcut. A
+            // still-live JTI must name this exact operation and capability
+            // receipt before it may replay the acknowledgement.
+            if (
+              priorJti !== undefined &&
+              priorJti.expiresAtSeconds > input.nowSeconds &&
+              (priorJti.operationID !== input.operationID ||
+                priorCapabilityReceipt === undefined ||
+                priorCapabilityReceipt.expiresAtSeconds <= input.nowSeconds ||
+                priorCapabilityReceipt.operationID !== input.operationID)
+            )
+              return fail("capability_replayed");
             if (receipt.kind !== "append" || receipt.fingerprint !== input.fingerprint)
               return fail("replay_conflict");
             const sequence = receipt.result.logSequence;
@@ -1069,12 +1088,10 @@ export const makeOwnerVaultDomainProvider = (
                 getHead(tx),
                 read(tx, address("operation-index", input.operationID), decodeOperationIndex),
                 read(tx, address("nonce", input.nonce.value), decodeNonce),
-                read(tx, address("jti", input.capability.jti), decodeJtiClaim),
-                read(tx, address("capability-receipt", input.capability.jti), decodeCapability),
                 getAdmission(tx),
               ]),
             ),
-            Effect.flatMap(([head, index, nonce, jti, capabilityReceipt, admission]) => {
+            Effect.flatMap(([head, index, nonce, admission]) => {
               if (index !== undefined)
                 return index.fingerprint === input.fingerprint
                   ? fail("state_corrupt")
@@ -1083,11 +1100,11 @@ export const makeOwnerVaultDomainProvider = (
                 return fail("observed_high_water_ahead");
               if (nonce !== undefined && nonce.expiresAtSeconds > input.nowSeconds)
                 return fail("nonce_replayed");
-              if (jti !== undefined && jti.expiresAtSeconds > input.nowSeconds)
+              if (priorJti !== undefined && priorJti.expiresAtSeconds > input.nowSeconds)
                 return fail("capability_replayed");
               if (
-                capabilityReceipt !== undefined &&
-                capabilityReceipt.expiresAtSeconds > input.nowSeconds
+                priorCapabilityReceipt !== undefined &&
+                priorCapabilityReceipt.expiresAtSeconds > input.nowSeconds
               )
                 return fail("capability_replayed");
               if (admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts)
@@ -1270,13 +1287,14 @@ export const makeOwnerVaultDomainProvider = (
             session.credentialEpoch !== input.credentialEpoch
           )
             return fail("authorization_denied");
+          if (admission.activeSessions < 1) return fail("state_corrupt");
           return remove(tx, address("session", input.sessionID)).pipe(
             Effect.zipRight(remove(tx, address("resume", session.resumeTokenHash))),
             Effect.zipRight(remove(tx, address("rate-window", input.sessionID))),
             Effect.zipRight(
               write(tx, address("root.admission"), {
                 ...admission,
-                activeSessions: Math.max(0, admission.activeSessions - 1),
+                activeSessions: admission.activeSessions - 1,
               }),
             ),
           );
@@ -1298,13 +1316,14 @@ export const makeOwnerVaultDomainProvider = (
         Effect.flatMap(([session, admission]) => {
           if (session === undefined || session.assertionExpiresAtMilliseconds > nowMilliseconds)
             return Effect.succeed(false);
+          if (admission.activeSessions < 1) return fail("state_corrupt");
           return remove(tx, address("session", sessionID)).pipe(
             Effect.zipRight(remove(tx, address("resume", session.resumeTokenHash))),
             Effect.zipRight(remove(tx, address("rate-window", sessionID))),
             Effect.zipRight(
               write(tx, address("root.admission"), {
                 ...admission,
-                activeSessions: Math.max(0, admission.activeSessions - 1),
+                activeSessions: admission.activeSessions - 1,
               }),
             ),
             Effect.as(true),
@@ -1337,12 +1356,13 @@ export const makeOwnerVaultDomainProvider = (
             return fail("state_corrupt");
           if (jtiClaim.expiresAtSeconds > nowSeconds || receipt.expiresAtSeconds > nowSeconds)
             return Effect.succeed(false);
+          if (admission.capabilityReceipts < 1) return fail("state_corrupt");
           return remove(tx, address("jti", jti)).pipe(
             Effect.zipRight(remove(tx, address("capability-receipt", jti))),
             Effect.zipRight(
               write(tx, address("root.admission"), {
                 ...admission,
-                capabilityReceipts: Math.max(0, admission.capabilityReceipts - 1),
+                capabilityReceipts: admission.capabilityReceipts - 1,
               }),
             ),
             Effect.as(true),

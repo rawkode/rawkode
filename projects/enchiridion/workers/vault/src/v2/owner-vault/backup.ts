@@ -181,12 +181,20 @@ export const restoreOwnerVaultBackup = (
   target: OwnerVaultPrivateRestoreTarget,
   source: OwnerVaultBackupScope,
   backupID: string,
+  /** Directory control binds the signed-manifest bytes before any archive object is read. */
+  expectedManifestDigest?: string,
 ): Effect.Effect<void, import("./backup-types").OwnerVaultBackupError> =>
   Effect.gen(function* () {
     if (target.root.namespaceState !== "PRIVATE" || target.root.generationEpoch <= source.generationEpoch) return yield* ownerVaultBackupFailure("private_target_required");
     yield* target.assertFreshPrivateTarget();
     const bytes = yield* integrity(runtime.r2.read(manifestKey(source, backupID))).pipe(Effect.map((item) => item.bytes));
     if (bytes.byteLength > ownerVaultBackupMaximumManifestBytes) return yield* ownerVaultBackupFailure("manifest_invalid");
+    if (
+      expectedManifestDigest !== undefined &&
+      (!validOwnerVaultBackupDigest(expectedManifestDigest) ||
+        ownerVaultBackupDigest(bytes) !== expectedManifestDigest)
+    )
+      return yield* ownerVaultBackupFailure("manifest_invalid");
     const signed = decodeCanonicalSignedManifest(bytes);
     if (signed === undefined || !validateManifest(signed.manifest, source, backupID)) return yield* ownerVaultBackupFailure("manifest_invalid");
     const canonical = canonicalManifestBytes(signed.manifest);

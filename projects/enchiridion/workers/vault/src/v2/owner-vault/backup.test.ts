@@ -132,6 +132,34 @@ describe("OwnerVault bounded paged backup and private restore", () => {
     expect(JSON.stringify(exit)).toContain("manifest_untrusted");
   });
 
+  test("binds a restore command digest before reading archive pages or applying state", async () => {
+    const store = r2();
+    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    const reads: string[] = [];
+    const bounded: ImmutableR2Boundary = {
+      ...store.boundary,
+      read: (key) => {
+        reads.push(key);
+        return store.boundary.read(key);
+      },
+    };
+    const restored = target();
+    const exit = await Effect.runPromiseExit(
+      restoreOwnerVaultBackup(
+        runtime(bounded),
+        restored.target,
+        scope,
+        backupID,
+        ownerVaultBackupDigest(new Uint8Array([9])),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain("manifest_invalid");
+    expect(reads).toHaveLength(1);
+    expect(restored.applied).toEqual([]);
+    expect(restored.events).toEqual(["private"]);
+  });
+
   test("treats a completed C1 begin receipt as terminal without apply or finalization callbacks", async () => {
     const store = r2();
     await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
