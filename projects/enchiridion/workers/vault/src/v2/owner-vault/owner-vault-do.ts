@@ -2679,7 +2679,9 @@ export const makeOwnerVaultDO = (
     };
 
     private socketUpgrade = (request: Request): Effect.Effect<Response> => {
-      if (this.socketAdmissions === undefined || this.production === undefined)
+      const socketAdmissions = this.socketAdmissions;
+      const production = this.production;
+      if (socketAdmissions === undefined || production === undefined)
         return Effect.succeed(response({ ok: false }, 503));
       const url = new URL(request.url);
       const upgrade = request.headers.get("Upgrade");
@@ -2721,7 +2723,7 @@ export const makeOwnerVaultDO = (
             headerName: ownerVaultSocketAdmissionHeader,
             headerValue: capability,
           };
-          return this.socketAdmissions!.verifier.verify(
+          return socketAdmissions.verifier.verify(
             { value: capability },
             binding,
             {
@@ -2748,7 +2750,7 @@ export const makeOwnerVaultDO = (
               const graph = makeOwnerVaultProviderGraph(
                 makeDurableObjectOwnerVaultStorageRepository(this.boundary.storage),
                 root,
-                this.production!,
+                production,
               );
               if (graph === undefined) return rejectControl<Response>();
               return graph.domains.getDevice(claims.deviceID).pipe(
@@ -3046,12 +3048,7 @@ export const makeOwnerVaultDO = (
             message: payload,
             signatureDER: signature,
           })
-          .pipe(
-            Effect.tap(() =>
-              this.scheduleReconciliation(admission.expiresAtMilliseconds),
-            ),
-            Effect.mapError((error): unknown => error),
-          );
+          .pipe(Effect.mapError((error): unknown => error));
         const acknowledgement = yield* graph.domains
           .append({
             operationID: frame.operationID,

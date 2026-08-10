@@ -639,6 +639,18 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     // test relay does not host a WebSocket implementation or seed state.
     expect(await socketUpgradeStatus((await signedSocketAdmission(registered.deviceID)).capability)).toBe(101);
 
+    // The PREPARED receipt is a single durable compare-and-claim. Concurrent
+    // copies of a byte-identical admission capability cannot manufacture two
+    // pairs or consume quota twice: exactly one creator reaches 101 and the
+    // other observes its durable replay receipt.
+    const concurrentAdmission = await signedSocketAdmission(registered.deviceID, "0003");
+    expect(
+      (await Promise.all([
+        socketUpgradeStatus(concurrentAdmission.capability),
+        socketUpgradeStatus(concurrentAdmission.capability),
+      ])).sort((left, right) => left - right),
+    ).toEqual([101, 409]);
+
     const snapshot = {
       ownerID: owner,
       vaultID: vault,
@@ -715,6 +727,25 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
       operationID: syncChange.operationID,
       logSequence: 2,
     });
+
+    // A callback reloads its durable attachment/receipt before decoding a
+    // frame. A correctly signed frame with a different binding nonce must
+    // close rather than being attributed to the accepted socket.
+    const wrongNonceAdmission = await signedSocketAdmission(registered.deviceID, "0004");
+    const { socket: wrongNonceSocket } = await openOwnerVaultSocket(wrongNonceAdmission.capability);
+    const unsignedWrongNonce = {
+      ...unsignedSyncChange,
+      sessionNonce: "BAQEBAQEBAQEBAQEBAQEBA",
+      operationID: "socket-sync-operation-0002",
+      frameID: "BAQEBAQEBAQEBAQEBAQEBA",
+    };
+    const wrongNonceFrame = {
+      ...unsignedWrongNonce,
+      deviceSignature: await device.sign(syncChangeSigningPayload(unsignedWrongNonce)),
+    };
+    const wrongNonceClose = socketClose(wrongNonceSocket);
+    wrongNonceSocket.send(JSON.stringify(wrongNonceFrame));
+    expect(await wrongNonceClose).toBe(4401);
     const fencedSocketClose = socketClose(socket);
 
     const fence = {
