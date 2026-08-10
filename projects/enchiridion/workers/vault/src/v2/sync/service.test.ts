@@ -65,8 +65,11 @@ const syncChange = {
   generationEpoch: identity.generationEpoch,
   sessionNonce: frameID,
   assertionExpiresAt: nowMilliseconds + 30_000,
-  changeID: "change-1",
+  operationID: "operation-1",
+  sourceKind: "websocket" as const,
+  payloadSHA256: "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
   causalVersion: 1,
+  observedHighWater: 0,
   frameID: "AQEBAQEBAQEBAQEBAQEBAQ",
   signingPayloadVersion: syncFrameSigningPayloadVersion,
   payloadBase64: "AA==",
@@ -106,8 +109,8 @@ const dependencies: OwnerVaultSyncDependenciesService = {
         type: "syncAcknowledged",
         protocolVersion,
         vaultID: identity.vaultID,
-        changeID: frame.changeID,
-        causalVersion: frame.causalVersion,
+        operationID: frame.operationID,
+        logSequence: 1,
       }),
   },
   atomicChanges: {
@@ -466,8 +469,8 @@ describe("OwnerVault v2 sync state machine", () => {
       type: "syncAcknowledged",
       protocolVersion,
       vaultID: identity.vaultID,
-      changeID: syncChange.changeID,
-      causalVersion: syncChange.causalVersion,
+      operationID: syncChange.operationID,
+      logSequence: 1,
     });
     const stale = await Effect.runPromiseExit(
       provide(

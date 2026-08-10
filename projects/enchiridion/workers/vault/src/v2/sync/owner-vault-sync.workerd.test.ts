@@ -121,8 +121,11 @@ const changeFrame = (
   generationEpoch: 3,
   sessionNonce: "AAAAAAAAAAAAAAAAAAAAAA",
   assertionExpiresAt: accepted.assertionExpiresAt,
-  changeID: `change-${frameID.slice(0, 2)}`,
+  operationID: `operation-${frameID.slice(0, 2)}`,
+  sourceKind: "websocket",
+  payloadSHA256: "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
   causalVersion: 1,
+  observedHighWater: 0,
   frameID,
   signingPayloadVersion: 1,
   payloadBase64: "AA==",
@@ -202,8 +205,11 @@ describe("OwnerVault v2 sync on real Workerd hibernation callbacks", () => {
       generationEpoch: 3,
       sessionNonce: "AAAAAAAAAAAAAAAAAAAAAA",
       assertionExpiresAt: accepted.assertionExpiresAt,
-      changeID: "change-1",
+      operationID: "operation-1",
+      sourceKind: "websocket",
+      payloadSHA256: "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
       causalVersion: 1,
+      observedHighWater: 0,
       frameID: "AQEBAQEBAQEBAQEBAQEBAQ",
       signingPayloadVersion: 1,
       payloadBase64: "AA==",
@@ -212,12 +218,14 @@ describe("OwnerVault v2 sync on real Workerd hibernation callbacks", () => {
     socket.send(JSON.stringify(frame));
     expect(await nextJSON(socket)).toMatchObject({
       type: "syncAcknowledged",
-      changeID: "change-1",
+      operationID: "operation-1",
+      logSequence: 1,
     });
     socket.send(JSON.stringify(frame));
     expect(await nextJSON(socket)).toMatchObject({
       type: "syncAcknowledged",
-      changeID: "change-1",
+      operationID: "operation-1",
+      logSequence: 1,
     });
     socket.close();
   }, 45_000);
@@ -270,8 +278,11 @@ describe("OwnerVault v2 sync on real Workerd hibernation callbacks", () => {
         generationEpoch: 3,
         sessionNonce: "AAAAAAAAAAAAAAAAAAAAAA",
         assertionExpiresAt: accepted.assertionExpiresAt,
-        changeID: "stale",
+        operationID: "operation-stale",
+        sourceKind: "websocket",
+        payloadSHA256: "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
         causalVersion: 1,
+        observedHighWater: 0,
         frameID: "AwMDAwMDAwMDAwMDAwMDAw",
         signingPayloadVersion: 1,
         payloadBase64: "AA==",
@@ -318,7 +329,8 @@ describe("OwnerVault v2 sync on real Workerd hibernation callbacks", () => {
     initial.send(JSON.stringify(frame));
     expect(await nextJSON(initial)).toMatchObject({
       type: "syncAcknowledged",
-      changeID: "change-CQ",
+      operationID: "operation-CQ",
+      logSequence: 1,
     });
     const initialClosed = closed(initial);
     initial.close();
@@ -342,7 +354,8 @@ describe("OwnerVault v2 sync on real Workerd hibernation callbacks", () => {
     resumed.send(JSON.stringify(frame));
     expect(await nextJSON(resumed)).toMatchObject({
       type: "syncAcknowledged",
-      changeID: "change-CQ",
+      operationID: "operation-CQ",
+      logSequence: 1,
     });
     const mismatchClose = closed(resumed);
     resumed.send(JSON.stringify({ ...frame, payloadBase64: "AQ==" }));

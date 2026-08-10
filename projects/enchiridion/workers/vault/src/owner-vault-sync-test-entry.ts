@@ -33,8 +33,8 @@ const acknowledgedFrames = new Map<
     readonly type: "syncAcknowledged";
     readonly protocolVersion: 2;
     readonly vaultID: string;
-    readonly changeID: string;
-    readonly causalVersion: number;
+    readonly operationID: string;
+    readonly logSequence: number;
   }
 >();
 
@@ -126,8 +126,8 @@ const dependencies: OwnerVaultSyncDependencies = {
         type: "syncAcknowledged" as const,
         protocolVersion: 2 as const,
         vaultID: session.identity.vaultID,
-        changeID: frame.changeID,
-        causalVersion: frame.causalVersion,
+        operationID: frame.operationID,
+        logSequence: 1,
       };
       acknowledgedFrames.set(key, response);
       return Effect.succeed(response);
