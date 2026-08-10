@@ -15,6 +15,7 @@ export const ownerVaultInitializationPath = "/v2/control/ensure-initialized";
 const operationID = /^[A-Za-z0-9_-]{16,128}$/u;
 const identity = /^(?:owner|vault)-[A-Za-z0-9_-]{16,128}$/u;
 const digest = /^[a-f0-9]{64}$/u;
+const durableReceipt = /^[A-Za-z0-9_-]{16,128}$/u;
 const epoch = (value: number): boolean => Number.isSafeInteger(value) && value >= 1;
 
 export interface OwnerVaultInitializationCommand {
@@ -24,10 +25,17 @@ export interface OwnerVaultInitializationCommand {
   readonly operationID: string;
   readonly credentialEpoch: number;
   readonly routingEpoch: number;
+  readonly controlEpoch: number;
   readonly initDigest: string;
 }
 
-export interface OwnerVaultInitializationAck extends OwnerVaultInitializationCommand {}
+/**
+ * OwnerVault generates and persists this opaque receipt in its initialization
+ * transaction. Directory deliberately cannot derive it from the command.
+ */
+export interface OwnerVaultInitializationAck extends OwnerVaultInitializationCommand {
+  readonly durableReceipt: string;
+}
 
 export class OwnerVaultInitializationError extends Data.TaggedError(
   "OwnerVaultInitializationError",
@@ -43,7 +51,8 @@ export const validOwnerVaultInitializationCommand = (
   digest.test(value.initDigest) &&
   epoch(value.generationEpoch) &&
   epoch(value.credentialEpoch) &&
-  epoch(value.routingEpoch);
+  epoch(value.routingEpoch) &&
+  epoch(value.controlEpoch);
 
 /** Stable, opaque per-generation OwnerVault shard; no legacy identity participates. */
 export const ownerVaultObjectName = (command: Pick<OwnerVaultInitializationCommand, "ownerID" | "vaultID" | "generationEpoch">): string =>
@@ -52,6 +61,7 @@ export const ownerVaultObjectName = (command: Pick<OwnerVaultInitializationComma
 export const initializationDigest = (command: Omit<OwnerVaultInitializationCommand, "initDigest">): string =>
   sha256Hex(new TextEncoder().encode(JSON.stringify({
     credentialEpoch: command.credentialEpoch,
+    controlEpoch: command.controlEpoch,
     generationEpoch: command.generationEpoch,
     operationID: command.operationID,
     ownerID: command.ownerID,
@@ -64,19 +74,26 @@ const commandBytes = (command: OwnerVaultInitializationCommand): Uint8Array =>
 const body = (command: OwnerVaultInitializationCommand, capability: SignedCapability): Uint8Array =>
   new TextEncoder().encode(JSON.stringify({ capability: capability.value, command }));
 
-const same = (left: OwnerVaultInitializationCommand, right: OwnerVaultInitializationAck): boolean =>
+export const sameOwnerVaultInitializationAck = (
+  left: OwnerVaultInitializationCommand,
+  right: OwnerVaultInitializationAck,
+): boolean =>
   left.ownerID === right.ownerID && left.vaultID === right.vaultID &&
   left.generationEpoch === right.generationEpoch && left.operationID === right.operationID &&
   left.credentialEpoch === right.credentialEpoch && left.routingEpoch === right.routingEpoch &&
-  left.initDigest === right.initDigest;
+  left.controlEpoch === right.controlEpoch && left.initDigest === right.initDigest &&
+  durableReceipt.test(right.durableReceipt);
 
 const decodeAck = (value: unknown): OwnerVaultInitializationAck | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const source = Object.fromEntries(Object.entries(value));
-  const keys = ["ownerID", "vaultID", "generationEpoch", "operationID", "credentialEpoch", "routingEpoch", "initDigest"];
+  const keys = ["ownerID", "vaultID", "generationEpoch", "operationID", "credentialEpoch", "routingEpoch", "controlEpoch", "initDigest", "durableReceipt"];
   if (Object.keys(source).length !== keys.length || keys.some((key) => !Object.hasOwn(source, key))) return undefined;
   const candidate = source as unknown as OwnerVaultInitializationAck;
-  return validOwnerVaultInitializationCommand(candidate) ? candidate : undefined;
+  return validOwnerVaultInitializationCommand(candidate) &&
+    typeof candidate.durableReceipt === "string" && durableReceipt.test(candidate.durableReceipt)
+    ? candidate
+    : undefined;
 };
 
 export interface OwnerVaultInitializationClient {
@@ -97,7 +114,7 @@ export const makeOwnerVaultInitializationClient = (namespace: DurableObjectNames
       }));
       if (response.status !== 200) throw new OwnerVaultInitializationError({ reason: "unavailable" });
       const ack = decodeAck(JSON.parse(await response.text()));
-      if (ack === undefined || !same(command, ack)) throw new OwnerVaultInitializationError({ reason: "ack_mismatch" });
+      if (ack === undefined || !sameOwnerVaultInitializationAck(command, ack)) throw new OwnerVaultInitializationError({ reason: "ack_mismatch" });
       return ack;
     },
     catch: (cause) => cause instanceof OwnerVaultInitializationError ? cause : new OwnerVaultInitializationError({ reason: "unavailable" }),
@@ -118,7 +135,8 @@ export const signOwnerVaultInitialization = (
     resource: DirectoryControlResource.OwnerVaultInitialization,
     method: CapabilityMethod.POST, path: ownerVaultInitializationPath, canonicalQuery: "", bodySHA256,
     ownerID: command.ownerID, vaultID: command.vaultID, initDigest: command.initDigest,
-    credentialEpoch: command.credentialEpoch, generationEpoch: command.generationEpoch,
+    credentialEpoch: command.credentialEpoch, controlEpoch: command.controlEpoch,
+    generationEpoch: command.generationEpoch,
     routingEpoch: command.routingEpoch, operationID: command.operationID, jti, ttlSeconds: 60,
   }, nowSeconds).pipe(Effect.mapError(() => new OwnerVaultInitializationError({ reason: "unavailable" })));
 };

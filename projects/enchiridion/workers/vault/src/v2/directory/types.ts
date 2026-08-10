@@ -69,9 +69,10 @@ export interface DirectoryOwnerVaultInitialization {
   readonly operationID: string;
   readonly credentialEpoch: number;
   readonly routingEpoch: number;
+  readonly controlEpoch: number;
   readonly initDigest: string;
-  /** Only an exact durable OwnerVault acknowledgement may set this true. */
-  readonly activated: boolean;
+  /** Opaque OwnerVault receipt persisted only after its exact acknowledgement. */
+  readonly durableReceipt?: string;
 }
 
 export type DirectoryCredentialTransitionPhase =

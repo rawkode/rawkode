@@ -14,6 +14,8 @@ import {
 } from "../foundation/crypto";
 import {
   initializationDigest,
+  sameOwnerVaultInitializationAck,
+  type OwnerVaultInitializationAck,
   type OwnerVaultInitializationClient,
   type OwnerVaultInitializationCommand,
   signOwnerVaultInitialization,
@@ -305,8 +307,9 @@ export const makeDirectoryService = (
                             vaultID: created.vaultID.value,
                             generationEpoch: created.activeGeneration,
                             operationID: generatedOperationID,
-                            credentialEpoch: created.credentialEpoch,
-                            routingEpoch: created.routingEpoch,
+                          credentialEpoch: created.credentialEpoch,
+                          routingEpoch: created.routingEpoch,
+                          controlEpoch: 1,
                           };
                           return { ...unsigned, initDigest: initializationDigest(unsigned) };
                         })()
@@ -327,10 +330,10 @@ export const makeDirectoryService = (
                       bindings: existing === undefined ? { ...state.bindings, [bindingID]: created } : state.bindings,
                       replays: retainedReplays,
                       initializations: existingInitialization === undefined
-                        ? { ...state.initializations, [bindingID]: { ...command, activated: false } }
+                        ? { ...state.initializations, [bindingID]: command }
                         : state.initializations,
                     } satisfies DirectoryState;
-                    return existingInitialization?.activated === true
+                    return existingInitialization?.durableReceipt !== undefined
                       ? Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([{ _tag: "activate" as const, bindingID, command, resolution: created }, next])
                       : Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([{ _tag: "initialize" as const, bindingID, command, resolution: created }, next]);
                   }).pipe(Effect.mapError(toTransaction)),
@@ -339,7 +342,7 @@ export const makeDirectoryService = (
                   Effect.flatMap((reserved) => {
                     if (reserved._tag === "ready") return Effect.succeed(reserved.resolution);
                     const needsRPC = reserved._tag === "initialize";
-                    const rpc: Effect.Effect<void, DirectoryServiceError> = needsRPC
+                    const rpc: Effect.Effect<OwnerVaultInitializationAck | undefined, DirectoryServiceError> = needsRPC
                       ? signOwnerVaultInitialization(
                           controls.signer,
                           reserved.command,
@@ -350,10 +353,10 @@ export const makeDirectoryService = (
                             initializer.client.ensureInitialized(reserved.command, capability),
                           ),
                           Effect.mapError(() => new DirectoryServiceError({ reason: "owner_initialization_unavailable" })),
-                        ).pipe(Effect.asVoid)
+                        )
                       : Effect.succeed(undefined);
                     return rpc.pipe(
-                      Effect.flatMap(() =>
+                      Effect.flatMap((ack) =>
                         repository.transact((state) =>
                           Effect.suspend(() => {
                             const initialization = state.initializations[reserved.bindingID];
@@ -362,7 +365,8 @@ export const makeDirectoryService = (
                               initialization === undefined ||
                               current === undefined ||
                               initialization.operationID !== reserved.command.operationID ||
-                              initialization.initDigest !== reserved.command.initDigest
+                              initialization.initDigest !== reserved.command.initDigest ||
+                              (ack !== undefined && !sameOwnerVaultInitializationAck(initialization, ack))
                             )
                               return Effect.fail(new DirectoryServiceError({ reason: "repository_unavailable" }));
                             const retainedReplays = Object.fromEntries(
@@ -392,7 +396,9 @@ export const makeDirectoryService = (
                               },
                               initializations: {
                                 ...state.initializations,
-                                [reserved.bindingID]: { ...initialization, activated: true },
+                                [reserved.bindingID]: ack === undefined
+                                  ? initialization
+                                  : { ...initialization, durableReceipt: ack.durableReceipt },
                               },
                             };
                             return Effect.succeed([current, next] as const);

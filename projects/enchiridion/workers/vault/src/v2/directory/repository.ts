@@ -107,6 +107,7 @@ const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =
     ? Object.fromEntries(Object.entries(value))
     : undefined;
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
+  new Set(keys).size === keys.length &&
   Object.keys(value).length === keys.length &&
   keys.every((key) => Object.hasOwn(value, key));
 const epoch = (value: unknown): value is number =>
@@ -117,6 +118,7 @@ const initializationDigest = (value: Omit<DirectoryOwnerVaultInitialization, "in
     new TextEncoder().encode(
       JSON.stringify({
         credentialEpoch: value.credentialEpoch,
+        controlEpoch: value.controlEpoch,
         generationEpoch: value.generationEpoch,
         operationID: value.operationID,
         ownerID: value.ownerID,
@@ -137,8 +139,9 @@ const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization
       "operationID",
       "credentialEpoch",
       "routingEpoch",
+      "controlEpoch",
       "initDigest",
-      "activated",
+      ...(Object.hasOwn(source, "durableReceipt") ? ["durableReceipt"] : []),
     ]) ||
     typeof source.ownerID !== "string" ||
     ownerID(source.ownerID) === undefined ||
@@ -149,9 +152,11 @@ const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization
     !operationID.test(source.operationID) ||
     !epoch(source.credentialEpoch) ||
     !epoch(source.routingEpoch) ||
+    !epoch(source.controlEpoch) ||
     typeof source.initDigest !== "string" ||
     !/^[a-f0-9]{64}$/u.test(source.initDigest) ||
-    typeof source.activated !== "boolean"
+    (Object.hasOwn(source, "durableReceipt") &&
+      (typeof source.durableReceipt !== "string" || !/^[A-Za-z0-9_-]{16,128}$/u.test(source.durableReceipt)))
   )
     return undefined;
   const candidate = {
@@ -161,8 +166,11 @@ const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization
     operationID: source.operationID,
     credentialEpoch: source.credentialEpoch,
     routingEpoch: source.routingEpoch,
+    controlEpoch: source.controlEpoch,
     initDigest: source.initDigest,
-    activated: source.activated,
+    ...(typeof source.durableReceipt === "string"
+      ? { durableReceipt: source.durableReceipt }
+      : {}),
   } satisfies DirectoryOwnerVaultInitialization;
   return initializationDigest(candidate) === candidate.initDigest ? candidate : undefined;
 };
@@ -227,7 +235,6 @@ const encodeResolution = (
         credentialEpoch: value.credentialEpoch,
       }
     : undefined;
-
 const sameResolution = (left: DirectoryResolution, right: DirectoryResolution): boolean =>
   left.ownerID.value === right.ownerID.value &&
   left.vaultID.value === right.vaultID.value &&
@@ -389,22 +396,24 @@ const decodeRetiredAlias = (alias: string, value: unknown): DirectoryRetiredAlia
     routingEpoch: source.routingEpoch,
   };
 };
+const ownerFenceAckKeys = [
+  "ownerID",
+  "vaultID",
+  "generation",
+  "operationID",
+  "expectedCredentialEpoch",
+  "expectedRoutingEpoch",
+  "credentialEpoch",
+  "routingEpoch",
+  "admissionsStopped",
+  "socketsFenced",
+] as const;
+
 const decodeAck = (value: unknown): DirectoryOwnerFenceAck | undefined => {
   const source = record(value);
   if (
     source === undefined ||
-    !exact(source, [
-      "ownerID",
-      "vaultID",
-      "generation",
-      "operationID",
-      "expectedCredentialEpoch",
-      "expectedRoutingEpoch",
-      "credentialEpoch",
-      "routingEpoch",
-      "admissionsStopped",
-      "socketsFenced",
-    ]) ||
+    !exact(source, ownerFenceAckKeys) ||
     typeof source.ownerID !== "string" ||
     typeof source.vaultID !== "string" ||
     typeof source.operationID !== "string" ||
@@ -847,7 +856,11 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, rawRetired] of Object.entries(rawRetiredAliases)) {
     const decoded = decodeRetiredAlias(alias, rawRetired);
-    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
+    if (
+      decoded === undefined ||
+      aliases[alias] !== undefined ||
+      bindings[alias] !== undefined
+    )
       return undefined;
     retiredAliases[alias] = decoded;
   }
@@ -941,7 +954,11 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, retired] of Object.entries(value.retiredAliases)) {
     const decoded = decodeRetiredAlias(alias, retired);
-    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
+    if (
+      decoded === undefined ||
+      aliases[alias] !== undefined ||
+      bindings[alias] !== undefined
+    )
       return undefined;
     retiredAliases[alias] = decoded;
   }

@@ -606,6 +606,8 @@ export interface DirectoryControlCapabilityRequestBinding {
   readonly vaultID: string;
   /** Present only for the immutable OwnerVault initialization command. */
   readonly initDigest?: string;
+  /** Present only for the immutable OwnerVault initialization command. */
+  readonly controlEpoch?: number;
 }
 
 export interface DirectoryControlCapabilityExpectation {
@@ -618,6 +620,8 @@ export interface DirectoryControlCapabilityExpectation {
   readonly credentialEpoch: number;
   readonly generationEpoch: number;
   readonly routingEpoch: number;
+  /** Present only for the immutable OwnerVault initialization command. */
+  readonly controlEpoch?: number;
   /** The exact durable control journal the receiver is resuming or advancing. */
   readonly operationID: string;
 }
@@ -686,8 +690,8 @@ const validDirectoryControlBinding = (value: DirectoryControlCapabilityRequestBi
   IDENTITY.test(value.ownerID) &&
   IDENTITY.test(value.vaultID) &&
   (value.resource === DirectoryControlResource.OwnerVaultInitialization
-    ? validInitDigest(value.initDigest)
-    : value.initDigest === undefined);
+    ? validInitDigest(value.initDigest) && typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
+    : value.initDigest === undefined && value.controlEpoch === undefined);
 
 const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpectation): boolean =>
   value.audience === DirectoryControlCapabilityAudience.DirectoryControl &&
@@ -701,6 +705,9 @@ const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpec
   value.generationEpoch > 0 &&
   Number.isSafeInteger(value.routingEpoch) &&
   value.routingEpoch > 0 &&
+  (value.resource === DirectoryControlResource.OwnerVaultInitialization
+    ? typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
+    : value.controlEpoch === undefined) &&
   DIRECTORY_CONTROL_OPERATION_ID.test(value.operationID);
 
 const validDirectoryControlClaims = (value: DirectoryControlCapabilityClaims): boolean =>
@@ -733,7 +740,7 @@ const canonicalDirectoryControlPayload = (claims: DirectoryControlCapabilityClai
     expiresAt: claims.expiresAt,
     generationEpoch: claims.generationEpoch,
     ...(claims.resource === DirectoryControlResource.OwnerVaultInitialization
-      ? { initDigest: claims.initDigest }
+      ? { controlEpoch: claims.controlEpoch, initDigest: claims.initDigest }
       : {}),
     issuedAt: claims.issuedAt,
     jti: claims.jti,
@@ -780,11 +787,11 @@ const directoryControlClaimsFromUnknown = (
       !isDirectoryControlResource(record.resource) ||
       Object.keys(record).length !==
         directoryControlClaimKeys.length +
-          (record.resource === DirectoryControlResource.OwnerVaultInitialization ? 1 : 0) ||
+          (record.resource === DirectoryControlResource.OwnerVaultInitialization ? 2 : 0) ||
       directoryControlClaimKeys.some((key) => !Object.hasOwn(record, key)) ||
       (record.resource === DirectoryControlResource.OwnerVaultInitialization
-        ? !Object.hasOwn(record, "initDigest")
-        : Object.hasOwn(record, "initDigest"))
+        ? !Object.hasOwn(record, "initDigest") || !Object.hasOwn(record, "controlEpoch")
+        : Object.hasOwn(record, "initDigest") || Object.hasOwn(record, "controlEpoch"))
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
     const {
@@ -792,6 +799,7 @@ const directoryControlClaimsFromUnknown = (
       authority,
       bodySHA256,
       canonicalQuery,
+      controlEpoch,
       credentialEpoch,
       expiresAt,
       generationEpoch,
@@ -826,6 +834,7 @@ const directoryControlClaimsFromUnknown = (
       !isDirectoryControlResource(resource) ||
       typeof routingEpoch !== "number" ||
       typeof vaultID !== "string" ||
+      (resource === DirectoryControlResource.OwnerVaultInitialization && typeof controlEpoch !== "number") ||
       version !== 1
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
@@ -837,8 +846,8 @@ const directoryControlClaimsFromUnknown = (
       credentialEpoch,
       expiresAt,
       generationEpoch,
-      ...(resource === DirectoryControlResource.OwnerVaultInitialization && typeof initDigest === "string"
-        ? { initDigest }
+      ...(resource === DirectoryControlResource.OwnerVaultInitialization && typeof initDigest === "string" && typeof controlEpoch === "number"
+        ? { controlEpoch, initDigest }
         : {}),
       issuedAt,
       jti,
@@ -935,12 +944,14 @@ export const verifyDirectoryControlCapability = (
       claims.ownerID !== binding.ownerID ||
       claims.vaultID !== binding.vaultID ||
       claims.initDigest !== binding.initDigest ||
+      claims.controlEpoch !== binding.controlEpoch ||
       claims.resource !== expected.resource ||
       claims.ownerID !== expected.ownerID ||
       claims.vaultID !== expected.vaultID ||
       claims.credentialEpoch !== expected.credentialEpoch ||
       claims.generationEpoch !== expected.generationEpoch ||
       claims.routingEpoch !== expected.routingEpoch ||
+      claims.controlEpoch !== expected.controlEpoch ||
       claims.operationID !== expected.operationID
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "binding_mismatch" }));

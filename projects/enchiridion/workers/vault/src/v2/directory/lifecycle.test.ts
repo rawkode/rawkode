@@ -23,6 +23,7 @@ const base = {
   operationID: "initialize-operation-0001",
   credentialEpoch: 1,
   routingEpoch: 1,
+  controlEpoch: 1,
 };
 const command = { ...base, initDigest: initializationDigest(base) };
 const ring = { purpose: "internal-capability" as const, current: { keyID: "control", secret: Redacted.make("directory-control-secret-0123456789") }, prior: [] };
@@ -34,22 +35,40 @@ test("signs a command-bound OwnerVault initialization capability", async () => {
     method: CapabilityMethod.POST, path: ownerVaultInitializationPath, canonicalQuery: "",
     bodySHA256: (await import("@enchiridion/protocol")).sha256Hex(new TextEncoder().encode(JSON.stringify(command))),
     ownerID: command.ownerID, vaultID: command.vaultID, initDigest: command.initDigest,
+    controlEpoch: command.controlEpoch,
   }, {
     audience: DirectoryControlCapabilityAudience.DirectoryControl,
     authority: DirectoryControlCapabilityAuthority.DirectoryControl,
     resource: DirectoryControlResource.OwnerVaultInitialization,
     ownerID: command.ownerID, vaultID: command.vaultID,
-    credentialEpoch: 1, generationEpoch: 1, routingEpoch: 1, operationID: command.operationID,
+    credentialEpoch: 1, controlEpoch: 1, generationEpoch: 1, routingEpoch: 1, operationID: command.operationID,
   }, 101));
   expect(claims.initDigest).toBe(command.initDigest);
 });
 
-test("uses a target-only stable shard and rejects substituted acknowledgements", async () => {
+test("uses a target-only stable shard and rejects substituted or echo-only acknowledgements", async () => {
   expect(ownerVaultObjectName(command)).toBe(ownerVaultObjectName({ ownerID: command.ownerID, vaultID: command.vaultID, generationEpoch: command.generationEpoch }));
   const client = makeOwnerVaultInitializationClient({
     idFromName: (name) => ({ toString: () => name }),
-    get: () => ({ fetch: async () => new Response(JSON.stringify({ ...command, operationID: "substituted-operation-1" })) }),
+    get: () => ({ fetch: async () => new Response(JSON.stringify({
+      ...command,
+      operationID: "substituted-operation-1",
+      durableReceipt: "owner-vault-receipt-0001",
+    })) }),
   });
   const exit = await Effect.runPromiseExit(client.ensureInitialized(command, { value: "token" }));
   expect(exit._tag).toBe("Failure");
+  const echo = makeOwnerVaultInitializationClient({
+    idFromName: (name) => ({ toString: () => name }),
+    get: () => ({ fetch: async () => new Response(JSON.stringify(command)) }),
+  });
+  expect((await Effect.runPromiseExit(echo.ensureInitialized(command, { value: "token" })))._tag).toBe("Failure");
+  const acknowledged = makeOwnerVaultInitializationClient({
+    idFromName: (name) => ({ toString: () => name }),
+    get: () => ({ fetch: async () => new Response(JSON.stringify({
+      ...command,
+      durableReceipt: "owner-vault-receipt-0001",
+    })) }),
+  });
+  expect((await Effect.runPromiseExit(acknowledged.ensureInitialized(command, { value: "token" })))._tag).toBe("Success");
 });
