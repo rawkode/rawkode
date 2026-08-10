@@ -6,18 +6,25 @@
  */
 import { Effect } from "effect";
 import { reconstructOwnerVaultRestoredBlobInventory } from "../blobs/restore-reconstruction";
+import {
+  decodeOwnerVaultBlobReference,
+  decodeOwnerVaultBlobStoredMetadata,
+  decodeOwnerVaultBlobTombstone,
+} from "../blobs/owner-vault-blob-repository";
 import { canonicalOwnerVaultBackupBytes, canonicalSnapshotRecordBytes, ownerVaultBackupDigest, validOwnerVaultBackupDigest } from "./backup-canonical";
 import {
   type OwnerVaultRestoreImportFinalization,
   type OwnerVaultRestoreImportPlan,
   type OwnerVaultRestoreImportRecord,
   type OwnerVaultRestoreReconstruction,
+  type OwnerVaultRestoreAppendLogValidator,
   ownerVaultBackupFailure,
   ownerVaultBackupMaximumObjectBytes,
   ownerVaultBackupMaximumObjects,
   ownerVaultBackupMaximumTotalBytes,
   OwnerVaultBackupError,
 } from "./backup-types";
+import { decodeOwnerVaultAppendLogEntry, type OwnerVaultAppendLogEntry } from "./domains";
 import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository, OwnerVaultStorageTransactionFailure, OwnerVaultTx } from "./repository";
 import { isRestorableOwnerVaultStorageCategory, ownerVaultStorageRegistry, type OwnerVaultStorageRecord } from "./storage-registry";
 
@@ -73,7 +80,7 @@ const sameRecord = (left: OwnerVaultRestoreImportRecord, right: OwnerVaultRestor
 
 const validImportRecord = (value: OwnerVaultRestoreImportRecord): boolean => {
   const definition = ownerVaultStorageRegistry.get(value.category);
-  if (!nonNegative(value.ordinal) || value.ordinal < 1 || value.version !== 1 || value.codec !== codec ||
+  if (!nonNegative(value.ordinal) || value.version !== 1 || value.codec !== codec ||
     !validOwnerVaultBackupDigest(value.sha256Base64) || !nonNegative(value.size) || value.size > ownerVaultBackupMaximumObjectBytes ||
     value.address.category !== value.category || definition === undefined || !isRestorableOwnerVaultStorageCategory(definition)) return false;
   try { return definition.key(value.address.identifier) !== ""; } catch { return false; }
@@ -86,6 +93,25 @@ const chainStep = (prior: string, item: OwnerVaultRestoreImportRecord): string |
   });
   return bytes === undefined ? undefined : ownerVaultBackupDigest(bytes);
 };
+
+/** Deterministic P02-log proof rooted independently of an archive transport. */
+export const ownerVaultRestoreAppendLogDigest = (
+  entries: readonly OwnerVaultAppendLogEntry[],
+  logHead: number,
+): string | undefined => {
+  if (!nonNegative(logHead) || entries.length !== logHead || !entries.every((entry, index) => entry.logSequence === index + 1)) return undefined;
+  let previous = ownerVaultBackupDigest(new TextEncoder().encode("owner-vault-append-log-v1"));
+  for (const entry of entries) {
+    const bytes = canonicalOwnerVaultBackupBytes({ previous, entry });
+    if (bytes === undefined) return undefined;
+    previous = ownerVaultBackupDigest(bytes);
+  }
+  const head = canonicalOwnerVaultBackupBytes({ logHead, previous });
+  return head === undefined ? undefined : ownerVaultBackupDigest(head);
+};
+
+const strictAppendLogValidator: OwnerVaultRestoreAppendLogValidator = (input) =>
+  ownerVaultRestoreAppendLogDigest(input.entries, input.logHead) === input.highWaterMark;
 
 export const ownerVaultRestoreImportHashChain = (
   manifestDigest: string,
@@ -106,7 +132,7 @@ const validPlan = (plan: OwnerVaultRestoreImportPlan): boolean => {
     !validOwnerVaultBackupDigest(plan.highWaterMark) || !validOwnerVaultBackupDigest(plan.hashChain) ||
     !nonNegative(plan.logHead) || !nonNegative(plan.totalBytes) || !nonNegative(plan.objectCount) ||
     plan.objectCount < 1 || plan.objectCount > ownerVaultBackupMaximumObjects || plan.records.length !== plan.objectCount ||
-    plan.totalBytes > ownerVaultBackupMaximumTotalBytes || !plan.records.every((item, index) => item.ordinal === index + 1 && validImportRecord(item))) return false;
+    plan.totalBytes > ownerVaultBackupMaximumTotalBytes || !plan.records.every((item, index) => item.ordinal === index && validImportRecord(item))) return false;
   const total = plan.records.reduce((sum, item) => sum + item.size, 0);
   return Number.isSafeInteger(total) && total === plan.totalBytes &&
     ownerVaultRestoreImportHashChain(plan.manifestDigest, plan.records) === plan.hashChain;
@@ -115,7 +141,7 @@ const validPlan = (plan: OwnerVaultRestoreImportPlan): boolean => {
 const headerFor = (plan: OwnerVaultRestoreImportPlan): Header => ({
   kind: "header", backupID: plan.backupID, manifestDigest: plan.manifestDigest, highWaterMark: plan.highWaterMark,
   logHead: plan.logHead, totalBytes: plan.totalBytes, objectCount: plan.objectCount,
-  hashChain: plan.hashChain, pageCount: Math.ceil(plan.objectCount / journalPageSize), lastAppliedOrdinal: 0, state: "APPLYING",
+  hashChain: plan.hashChain, pageCount: Math.ceil(plan.objectCount / journalPageSize), lastAppliedOrdinal: -1, state: "APPLYING",
 });
 const pagesFor = (plan: OwnerVaultRestoreImportPlan): readonly Page[] =>
   Array.from({ length: Math.ceil(plan.records.length / journalPageSize) }, (_, pageOrdinal) => ({
@@ -143,12 +169,12 @@ const decodeHeader = (value: unknown): Header | undefined => {
   const item = plain(value);
   if (item === undefined || !exact(item, ["backupID", "hashChain", "highWaterMark", "kind", "lastAppliedOrdinal", "logHead", "manifestDigest", "objectCount", "pageCount", "state", "totalBytes"]) ||
     item.kind !== "header" || typeof item.backupID !== "string" || typeof item.manifestDigest !== "string" || typeof item.highWaterMark !== "string" ||
-    typeof item.hashChain !== "string" || !nonNegative(item.lastAppliedOrdinal) || !nonNegative(item.logHead) || !nonNegative(item.objectCount) ||
+    typeof item.hashChain !== "string" || !Number.isSafeInteger(item.lastAppliedOrdinal) || (item.lastAppliedOrdinal as number) < -1 || !nonNegative(item.logHead) || !nonNegative(item.objectCount) ||
     !nonNegative(item.pageCount) || !nonNegative(item.totalBytes) || (item.state !== "APPLYING" && item.state !== "COMPLETED")) return undefined;
   const header = item as unknown as Header;
   return backupIDPattern.test(header.backupID) && validOwnerVaultBackupDigest(header.manifestDigest) && validOwnerVaultBackupDigest(header.highWaterMark) &&
     validOwnerVaultBackupDigest(header.hashChain) && header.objectCount >= 1 && header.objectCount <= ownerVaultBackupMaximumObjects &&
-    header.pageCount === Math.ceil(header.objectCount / journalPageSize) && header.lastAppliedOrdinal <= header.objectCount && header.totalBytes <= ownerVaultBackupMaximumTotalBytes ? header : undefined;
+    header.pageCount === Math.ceil(header.objectCount / journalPageSize) && header.lastAppliedOrdinal < header.objectCount && header.totalBytes <= ownerVaultBackupMaximumTotalBytes ? header : undefined;
 };
 const decodePage = (value: unknown, manifestDigest: string, pageOrdinal: number): Page | undefined => {
   const item = plain(value);
@@ -191,6 +217,60 @@ const targetScopeMatches = (root: unknown, finalization: OwnerVaultRestoreImport
     finalization.blobScope.generationEpoch === identity.generationEpoch;
 };
 
+const sameBlobEvidence = (
+  left: { readonly sha256: string; readonly requestID: string; readonly path: string; readonly size: number; readonly objectKey: string },
+  right: { readonly sha256: string; readonly requestID: string; readonly path: string; readonly size: number; readonly objectKey: string },
+): boolean => left.sha256 === right.sha256 && left.requestID === right.requestID && left.path === right.path && left.size === right.size && left.objectKey === right.objectKey;
+
+const deriveBlobInventory = (
+  rows: readonly { readonly inventory: OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }[],
+  finalization: OwnerVaultRestoreImportFinalization,
+) => {
+  const metadata: { sha256: string; requestID: string; path: string; size: number; objectKey: string }[] = [];
+  const references: { sha256: string; reference: NonNullable<ReturnType<typeof decodeOwnerVaultBlobReference>> }[] = [];
+  const tombstones: { sha256: string; tombstone: NonNullable<ReturnType<typeof decodeOwnerVaultBlobTombstone>> }[] = [];
+  for (const row of rows) {
+    const sha256 = row.inventory.address.identifier;
+    if (sha256 === undefined) return undefined;
+    if (row.inventory.category === "blob.metadata") {
+      const decoded = decodeOwnerVaultBlobStoredMetadata(row.record);
+      if (decoded === undefined || decoded.sha256 !== sha256) return undefined;
+      metadata.push(decoded);
+    } else if (row.inventory.category === "blob.reference") {
+      const decoded = decodeOwnerVaultBlobReference(row.record);
+      if (decoded === undefined) return undefined;
+      references.push({ sha256, reference: decoded });
+    } else if (row.inventory.category === "blob.tombstone") {
+      const decoded = decodeOwnerVaultBlobTombstone(row.record);
+      if (decoded === undefined) return undefined;
+      tombstones.push({ sha256, tombstone: decoded });
+    }
+  }
+  const sortedMetadata = metadata.sort((left, right) => left.sha256.localeCompare(right.sha256));
+  const evidence = [...finalization.targetBlobEvidence].sort((left, right) => left.sha256.localeCompare(right.sha256));
+  return sortedMetadata.length === evidence.length && sortedMetadata.every((item, index) => sameBlobEvidence(item, evidence[index]!)) &&
+    new Set(sortedMetadata.map((item) => item.sha256)).size === sortedMetadata.length &&
+    new Set(evidence.map((item) => item.sha256)).size === evidence.length
+    ? { metadata: sortedMetadata, references, tombstones }
+    : undefined;
+};
+
+const deriveAppendLog = (
+  rows: readonly { readonly inventory: OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }[],
+  logHead: number,
+): readonly OwnerVaultAppendLogEntry[] | undefined => {
+  const entries: OwnerVaultAppendLogEntry[] = [];
+  for (const row of rows) {
+    if (row.inventory.category !== "append-log.entry") continue;
+    const entry = decodeOwnerVaultAppendLogEntry(row.record.payload);
+    const identifier = row.inventory.address.identifier;
+    if (entry === undefined || identifier !== String(entry.logSequence).padStart(20, "0")) return undefined;
+    entries.push(entry);
+  }
+  const ordered = entries.sort((left, right) => left.logSequence - right.logSequence);
+  return ordered.length === logHead && ordered.every((entry, index) => entry.logSequence === index + 1) ? ordered : undefined;
+};
+
 export interface OwnerVaultRestoreImport {
   readonly beginRestoreImport: (plan: OwnerVaultRestoreImportPlan) => Effect.Effect<void, OwnerVaultBackupError>;
   readonly applyRestoreRecord: (input: {
@@ -207,8 +287,10 @@ export interface OwnerVaultRestoreImport {
 export const makeOwnerVaultRestoreImport = (options: {
   readonly repository: OwnerVaultStorageRepository;
   readonly reconstruct?: OwnerVaultRestoreReconstruction;
+  readonly validateAppendLog?: OwnerVaultRestoreAppendLogValidator;
 }): OwnerVaultRestoreImport => {
   const reconstruct = options.reconstruct ?? reconstructOwnerVaultRestoredBlobInventory;
+  const validateAppendLog = options.validateAppendLog ?? strictAppendLogValidator;
   return Object.freeze({
     beginRestoreImport: (plan: OwnerVaultRestoreImportPlan) => {
       if (!validPlan(plan)) return failure("manifest_invalid");
@@ -228,7 +310,7 @@ export const makeOwnerVaultRestoreImport = (options: {
         return failure("integrity_failed");
       return options.repository.transact((tx) => readHeader(tx, input.manifestDigest).pipe(Effect.flatMap((header) => {
         if (header.state !== "APPLYING") return txFailure();
-        const pageOrdinal = Math.floor((input.expected.ordinal - 1) / journalPageSize);
+        const pageOrdinal = Math.floor(input.expected.ordinal / journalPageSize);
         return readPage(tx, input.manifestDigest, pageOrdinal).pipe(Effect.flatMap((page) => {
           const planned = page.records.find((candidate) => candidate.ordinal === input.expected.ordinal);
           if (planned === undefined || !sameRecord(planned, input.expected)) return txFailure();
@@ -255,21 +337,29 @@ export const makeOwnerVaultRestoreImport = (options: {
       if (!validOwnerVaultBackupDigest(manifestDigest)) return failure("manifest_invalid");
       return options.repository.transact((tx) => readHeader(tx, manifestDigest).pipe(Effect.flatMap((header) => {
         if (header.state === "COMPLETED") return Effect.void;
-        if (header.lastAppliedOrdinal !== header.objectCount) return txFailure();
+        if (header.lastAppliedOrdinal !== header.objectCount - 1) return txFailure();
         return tx.get(address("root.identity")).pipe(Effect.flatMap((identity) => {
           if (!targetScopeMatches(identity?.payload, finalization)) return txFailure();
           return Effect.forEach(Array.from({ length: header.pageCount }, (_, ordinal) => ordinal), (ordinal) => readPage(tx, manifestDigest, ordinal)).pipe(
           Effect.flatMap((pages) => {
             const records = pages.flatMap((page) => page.records);
-            if (records.length !== header.objectCount || !records.every((item, index) => item.ordinal === index + 1 && validImportRecord(item)) ||
+            if (records.length !== header.objectCount || !records.every((item, index) => item.ordinal === index && validImportRecord(item)) ||
               pages.some((page) => page.appliedOrdinals.length !== page.records.length || !page.records.every((item) => page.appliedOrdinals.includes(item.ordinal))) ||
               records.reduce((sum, item) => sum + item.size, 0) !== header.totalBytes || ownerVaultRestoreImportHashChain(header.manifestDigest, records) !== header.hashChain)
               return txFailure();
             return Effect.forEach(records, (item) => tx.get(item.address).pipe(Effect.flatMap((stored) => {
               const bytes = stored === undefined ? undefined : canonicalSnapshotRecordBytes(item.address, stored);
-              return bytes === undefined || bytes.byteLength !== item.size || ownerVaultBackupDigest(bytes) !== item.sha256Base64 ? txFailure() : Effect.void;
+              return bytes === undefined || stored === undefined || bytes.byteLength !== item.size || ownerVaultBackupDigest(bytes) !== item.sha256Base64
+                ? txFailure()
+                : Effect.succeed({ inventory: item, record: stored });
             }))).pipe(
-              Effect.flatMap(() => Effect.sync(() => reconstruct(finalization.blobScope, finalization.blobLimits, finalization.targetScopedBlobInventory))),
+              Effect.flatMap((storedRows) => {
+                const log = deriveAppendLog(storedRows, header.logHead);
+                const blobs = deriveBlobInventory(storedRows, finalization);
+                return log === undefined || blobs === undefined || !validateAppendLog({ entries: log, highWaterMark: header.highWaterMark, logHead: header.logHead })
+                  ? txFailure()
+                  : Effect.sync(() => reconstruct(finalization.blobScope, finalization.blobLimits, blobs));
+              }),
               Effect.flatMap((reconstructed) => reconstructed._tag === "OwnerVaultBlobRestoreReconstructionSuccess" ? Effect.succeed(reconstructed.value) : txFailure()),
               Effect.flatMap((reconstructed) =>
                 write(tx, address("blob.accounting"), reconstructed.accounting as unknown as Readonly<Record<string, unknown>>).pipe(

@@ -117,6 +117,14 @@ export interface OwnerVaultBlobTombstone {
   readonly deletedAtSeconds: number;
   readonly purgeAfterSeconds: number;
 }
+/** Canonical persisted final-object metadata, shared with C1 restore reconstruction. */
+export interface OwnerVaultBlobStoredMetadata {
+  readonly requestID: string;
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly objectKey: string;
+}
 export interface OwnerVaultBlobPurge {
   readonly objectKey: string;
   readonly leaseID: string;
@@ -198,6 +206,23 @@ const decodeTombstone = (record: OwnerVaultStorageRecord | undefined): Tombstone
   const candidate: Tombstone = { objectKey: source.objectKey, deletedAtSeconds: source.deletedAtSeconds, purgeAfterSeconds: source.purgeAfterSeconds };
   return isOwnerVaultBlobTombstone(candidate) ? candidate : undefined;
 };
+
+/** P03's one persisted-metadata decoder; restore import must not reinterpret payloads. */
+export const decodeOwnerVaultBlobStoredMetadata = (
+  record: OwnerVaultStorageRecord | undefined,
+): OwnerVaultBlobStoredMetadata | undefined => {
+  const source = record === undefined ? undefined : object(record.payload);
+  return source !== undefined && exact(source, ["objectKey", "path", "requestID", "sha256", "size"]) &&
+    typeof source.requestID === "string" && safeID.test(source.requestID) && typeof source.path === "string" &&
+    typeof source.sha256 === "string" && hash.test(source.sha256) && typeof source.size === "number" && integer(source.size) &&
+    typeof source.objectKey === "string" && source.objectKey.length > 0 && source.objectKey.length <= 1024
+    ? { requestID: source.requestID, path: source.path, sha256: source.sha256, size: source.size, objectKey: source.objectKey }
+    : undefined;
+};
+/** P03's canonical persisted reference decoder. */
+export const decodeOwnerVaultBlobReference = decodeReference;
+/** P03's canonical persisted tombstone decoder. */
+export const decodeOwnerVaultBlobTombstone = decodeTombstone;
 const decodePurge = (record: OwnerVaultStorageRecord | undefined): Purge | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
   return source !== undefined && exact(source, ["leaseID", "objectKey", "startedAtSeconds"]) &&

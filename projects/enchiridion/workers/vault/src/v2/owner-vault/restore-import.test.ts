@@ -11,7 +11,8 @@ import { type BlobLimits, type BlobScope, blobObjectKey } from "../blobs/blobs";
 import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
 import type { OwnerVaultRestoreImportPlan, OwnerVaultRestoreImportRecord } from "./backup-types";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
-import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
+import { makeOwnerVaultRestoreImport, ownerVaultRestoreAppendLogDigest, ownerVaultRestoreImportHashChain } from "./restore-import";
+import type { OwnerVaultAppendLogEntry } from "./domains";
 import type { OwnerVaultStorageRecord } from "./storage-registry";
 
 const root = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 2, namespaceState: "PRIVATE" } as const;
@@ -53,18 +54,28 @@ const record = (ordinal: number, id: string): { readonly expected: OwnerVaultRes
   if (bytes === undefined) throw new Error("test setup");
   return { expected: { ordinal, address: { category: "device", identifier: id }, version: 1, category: "device", codec: "owner-vault-storage-record-v1", sha256Base64: ownerVaultBackupDigest(bytes), size: bytes.byteLength }, stored };
 };
-const planFor = (...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => {
+const imported = (ordinal: number, category: OwnerVaultRestoreImportRecord["category"], identifier: string, payload: Readonly<Record<string, unknown>>) => {
+  const stored: OwnerVaultStorageRecord = { category, version: 1, payload };
+  const bytes = canonicalSnapshotRecordBytes({ category, identifier }, stored);
+  if (bytes === undefined) throw new Error("test setup");
+  return { expected: { ordinal, address: { category, identifier }, version: 1 as const, category, codec: "owner-vault-storage-record-v1" as const, sha256Base64: ownerVaultBackupDigest(bytes), size: bytes.byteLength }, stored };
+};
+const planWithHead = (logHead: number, ...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => {
   const manifestDigest = digest("signed-manifest"); const records = items.map((item) => item.expected);
   const hashChain = ownerVaultRestoreImportHashChain(manifestDigest, records);
   if (hashChain === undefined) throw new Error("test setup");
-  return { backupID: "backup-restore-0001", manifestDigest, highWaterMark: digest("high-water"), logHead: 2, totalBytes: records.reduce((total, item) => total + item.size, 0), objectCount: records.length, hashChain, records };
+  const log = items.filter((item) => item.expected.category === "append-log.entry").map((item) => item.stored.payload as unknown as OwnerVaultAppendLogEntry);
+  const highWaterMark = ownerVaultRestoreAppendLogDigest(log, logHead);
+  if (highWaterMark === undefined) throw new Error("test setup");
+  return { backupID: "backup-restore-0001", manifestDigest, highWaterMark, logHead, totalBytes: records.reduce((total, item) => total + item.size, 0), objectCount: records.length, hashChain, records };
 };
-const finalization = () => ({ blobScope, blobLimits, targetScopedBlobInventory: { metadata: [], references: [], tombstones: [] } });
+const planFor = (...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => planWithHead(0, ...items);
+const finalization = () => ({ blobScope, blobLimits, targetBlobEvidence: [] });
 const revision = (entries: Map<string, unknown>): number => (entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } }).payload.catalogRevision;
 
 describe("OwnerVault C1 restore import", () => {
   test("keeps partial rows non-authoritative across restart, requires ordinal order, and accepts only exact duplicate replay", async () => {
-    const first = record(1, "device-a"); const second = record(2, "device-b"); const plan = planFor(first, second);
+    const first = record(0, "device-a"); const second = record(1, "device-b"); const plan = planFor(first, second);
     const built = await fixture();
     const initialAccounting = (built.native.entries.get("v2.ov/root/accounting") as { payload: { usedBytes: number } }).payload.usedBytes;
     await Effect.runPromise(built.restore.beginRestoreImport(plan));
@@ -75,7 +86,7 @@ describe("OwnerVault C1 restore import", () => {
 
     const restarted = makeOwnerVaultRestoreImport({ repository: built.repository });
     await Effect.runPromise(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: first.stored }));
-    const outOfOrder = await Effect.runPromiseExit(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: { ...second.expected, ordinal: 3 }, record: second.stored }));
+    const outOfOrder = await Effect.runPromiseExit(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: { ...second.expected, ordinal: 2 }, record: second.stored }));
     expect(Exit.isFailure(outOfOrder)).toBe(true);
     const conflict = await Effect.runPromiseExit(restarted.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: { ...first.stored, payload: { publicKey: "changed" } } }));
     expect(Exit.isFailure(conflict)).toBe(true);
@@ -84,11 +95,56 @@ describe("OwnerVault C1 restore import", () => {
     expect(revision(built.native.entries)).toBe(1);
     expect((built.native.entries.get("v2.ov/root/accounting") as { payload: { usedBytes: number } }).payload.usedBytes).toBeGreaterThan(initialAccounting);
     expect(built.native.entries.get("v2.ov/blob/accounting")).toMatchObject({ payload: { referencedBytes: 0, leaseIDs: [], purgeSHA256s: [] } });
-    expect(built.native.entries.get("v2.ov/root/log-head")).toEqual({ category: "root.log-head", version: 1, payload: { logSequence: 2 } });
+    expect(built.native.entries.get("v2.ov/root/log-head")).toEqual({ category: "root.log-head", version: 1, payload: { logSequence: 0 } });
+  });
+
+  test("accepts the manifest's zero-based append inventory only when strict contiguous P02 rows match its head digest", async () => {
+    const entry = (ordinal: number, sequence: number) => imported(ordinal, "append-log.entry", String(sequence).padStart(20, "0"), {
+      operationID: `operation-${sequence}`, fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: sequence,
+    });
+    const first = entry(0, 1); const second = entry(1, 2); const plan = planWithHead(2, first, second); const built = await fixture();
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: first.expected, record: first.stored }));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: second.expected, record: second.stored }));
+    await Effect.runPromise(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    expect(revision(built.native.entries)).toBe(1);
+    expect(built.native.entries.get("v2.ov/append-log/head")).toEqual({ category: "append-log.head", version: 1, payload: { logSequence: 2 } });
+  });
+
+  test("rejects missing, extra, or head-chain-mismatched append inventories before publication", async () => {
+    const entry = imported(0, "append-log.entry", "00000000000000000001", {
+      operationID: "operation-1", fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: 1,
+    });
+    const valid = planWithHead(1, entry);
+    for (const plan of [
+      { ...valid, logHead: 2 },
+      { ...valid, logHead: 0 },
+      { ...valid, highWaterMark: digest("wrong-log-chain") },
+    ]) {
+      const built = await fixture();
+      await Effect.runPromise(built.restore.beginRestoreImport(plan));
+      await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: entry.expected, record: entry.stored }));
+      const exit = await Effect.runPromiseExit(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(revision(built.native.entries)).toBe(0);
+    }
+  });
+
+  test("rejects a tampered strict append entry and keeps the target private", async () => {
+    const entry = imported(0, "append-log.entry", "00000000000000000001", {
+      operationID: "operation-1", fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: 1,
+    });
+    const plan = planWithHead(1, entry); const built = await fixture();
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: entry.expected, record: entry.stored }));
+    built.native.entries.set("v2.ov/append-log/entry/00000000000000000001", { category: "append-log.entry", version: 1, payload: { ...entry.stored.payload, logSequence: 2 } });
+    const exit = await Effect.runPromiseExit(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(revision(built.native.entries)).toBe(0);
   });
 
   test("rolls finalization back on staged-row corruption and never advances the catalog", async () => {
-    const item = record(1, "device-a"); const plan = planFor(item); const built = await fixture();
+    const item = record(0, "device-a"); const plan = planFor(item); const built = await fixture();
     await Effect.runPromise(built.restore.beginRestoreImport(plan));
     await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: item.expected, record: item.stored }));
     built.native.entries.set("v2.ov/device/device-a", { category: "device", version: 1, payload: { publicKey: "tampered" } });
@@ -99,7 +155,7 @@ describe("OwnerVault C1 restore import", () => {
   });
 
   test("rolls finalization back when the pure reconstruction callback rejects its typed inventory", async () => {
-    const item = record(1, "device-a"); const plan = planFor(item); const built = await fixture();
+    const item = record(0, "device-a"); const plan = planFor(item); const built = await fixture();
     const restore = makeOwnerVaultRestoreImport({ repository: built.repository, reconstruct: () => ({ _tag: "OwnerVaultBlobRestoreReconstructionFailure", reason: "invalid_inventory" }) });
     await Effect.runPromise(restore.beginRestoreImport(plan));
     await Effect.runPromise(restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: item.expected, record: item.stored }));
@@ -109,22 +165,43 @@ describe("OwnerVault C1 restore import", () => {
     expect(built.native.entries.has("v2.ov/blob/accounting")).toBe(false);
   });
 
-  test("rejects source object-key evidence through the P03 callback and leaves private target non-authoritative", async () => {
-    const item = record(1, "device-a"); const plan = planFor(item); const built = await fixture();
-    await Effect.runPromise(built.restore.beginRestoreImport(plan));
-    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: item.expected, record: item.stored }));
+  test("derives blob inventory from restored rows and rejects source object-key evidence through P03", async () => {
+    const built = await fixture();
     const sha256 = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
     const sourceScope: BlobScope = { ownerID: required(ownerID(root.ownerID)), vaultID: required(vaultID(root.vaultID)), generationEpoch: 1 };
     const sourceKey = required(blobObjectKey(sourceScope, sha256));
+    const metadata = imported(0, "blob.metadata", sha256, { requestID: "restore-request-0001", path: "notes/today", sha256, size: 3, objectKey: sourceKey });
+    const reference = imported(1, "blob.reference", sha256, { objectKey: sourceKey, size: 3, referenceCount: 1, activeLeaseCount: 0 });
+    const plan = planFor(metadata, reference);
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: metadata.expected, record: metadata.stored }));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: reference.expected, record: reference.stored }));
     const exit = await Effect.runPromiseExit(built.restore.finalizeRestoreImport(plan.manifestDigest, {
       ...finalization(),
-      targetScopedBlobInventory: {
-        metadata: [{ sha256, requestID: "restore-request-0001", path: "notes/today", size: 3, objectKey: sourceKey }],
-        references: [{ sha256, reference: { objectKey: sourceKey, size: 3, referenceCount: 1, activeLeaseCount: 0 } }],
-        tombstones: [],
-      },
+      targetBlobEvidence: [{ sha256, requestID: "restore-request-0001", path: "notes/today", size: 3, objectKey: sourceKey }],
     }));
     expect(Exit.isFailure(exit)).toBe(true);
+    expect(revision(built.native.entries)).toBe(0);
+    expect(built.native.entries.has("v2.ov/blob/accounting")).toBe(false);
+  });
+
+  test("rejects empty or substituted target evidence instead of trusting caller-selected blob inventory", async () => {
+    const built = await fixture();
+    const sha256 = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
+    const targetKey = required(blobObjectKey(blobScope, sha256));
+    const metadata = imported(0, "blob.metadata", sha256, { requestID: "restore-request-0001", path: "notes/today", sha256, size: 3, objectKey: targetKey });
+    const reference = imported(1, "blob.reference", sha256, { objectKey: targetKey, size: 3, referenceCount: 1, activeLeaseCount: 0 });
+    const plan = planFor(metadata, reference);
+    await Effect.runPromise(built.restore.beginRestoreImport(plan));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: metadata.expected, record: metadata.stored }));
+    await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: reference.expected, record: reference.stored }));
+    const exit = await Effect.runPromiseExit(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
+    expect(Exit.isFailure(exit)).toBe(true);
+    const substituted = await Effect.runPromiseExit(built.restore.finalizeRestoreImport(plan.manifestDigest, {
+      ...finalization(),
+      targetBlobEvidence: [{ sha256, requestID: "restore-request-0001", path: "notes/today", size: 3, objectKey: "v2/blobs/substituted" }],
+    }));
+    expect(Exit.isFailure(substituted)).toBe(true);
     expect(revision(built.native.entries)).toBe(0);
     expect(built.native.entries.has("v2.ov/blob/accounting")).toBe(false);
   });

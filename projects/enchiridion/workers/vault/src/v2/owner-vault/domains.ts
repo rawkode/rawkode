@@ -178,7 +178,7 @@ interface CapabilityReceipt {
 }
 interface JtiClaim { readonly operationID: string; readonly expiresAtSeconds: number }
 interface RateWindow { readonly startedAtMilliseconds: number; readonly count: number }
-interface AppendEntry {
+export interface OwnerVaultAppendLogEntry {
   readonly operationID: string;
   readonly fingerprint: string;
   readonly payloadHash: string;
@@ -279,7 +279,7 @@ const decodeSession = (value: unknown): OwnerVaultSessionRecord | undefined => {
 const decodeRate = (value: unknown): RateWindow | undefined =>
   isRecord(value) && exact(value, ["count", "startedAtMilliseconds"]) && isSafeNonNegative(value.count) && isSafeNonNegative(value.startedAtMilliseconds)
     ? { count: value.count, startedAtMilliseconds: value.startedAtMilliseconds } : undefined;
-const decodeAppendEntry = (value: unknown): AppendEntry | undefined => {
+export const decodeOwnerVaultAppendLogEntry = (value: unknown): OwnerVaultAppendLogEntry | undefined => {
   if (!isRecord(value) || !exact(value, ["deviceID", "fingerprint", "logSequence", "operationID", "payloadBase64", "payloadHash", "source"])) return undefined;
   return typeof value.operationID === "string" && identifier.test(value.operationID) && typeof value.fingerprint === "string" && sha256.test(value.fingerprint) &&
       typeof value.payloadHash === "string" && sha256.test(value.payloadHash) && typeof value.payloadBase64 === "string" && value.payloadBase64.length <= 1_048_576 &&
@@ -287,6 +287,7 @@ const decodeAppendEntry = (value: unknown): AppendEntry | undefined => {
     ? { operationID: value.operationID, fingerprint: value.fingerprint, payloadHash: value.payloadHash, payloadBase64: value.payloadBase64, source: value.source, deviceID: value.deviceID, logSequence: value.logSequence }
     : undefined;
 };
+const decodeAppendEntry = decodeOwnerVaultAppendLogEntry;
 const decodeOperationIndex = (value: unknown): OperationIndex | undefined =>
   isRecord(value) && exact(value, ["fingerprint", "logSequence", "payloadHash"]) &&
   typeof value.fingerprint === "string" && sha256.test(value.fingerprint) &&
@@ -471,7 +472,7 @@ export const makeOwnerVaultDomainProvider = (
         const logSequence = head.logSequence + 1;
         if (!isSafePositive(logSequence)) return fail("quota_exceeded");
         const acknowledgement = { operationID: input.operationID, payloadHash: input.payloadHash, logSequence, replayed: false } satisfies OwnerVaultAppendAcknowledgement;
-        const entry: AppendEntry = { operationID: input.operationID, fingerprint: input.fingerprint, payloadHash: input.payloadHash, payloadBase64: input.payloadBase64, source: input.source, deviceID: input.actor.deviceID, logSequence };
+        const entry: OwnerVaultAppendLogEntry = { operationID: input.operationID, fingerprint: input.fingerprint, payloadHash: input.payloadHash, payloadBase64: input.payloadBase64, source: input.source, deviceID: input.actor.deviceID, logSequence };
         return write(tx, address("nonce", input.nonce.value), { expiresAtSeconds: input.nonce.expiresAtSeconds, fingerprint: input.nonce.fingerprint }).pipe(
           Effect.zipRight(write(tx, address("jti", input.capability.jti), { operationID: input.operationID, expiresAtSeconds: input.capability.expiresAtSeconds })),
           Effect.zipRight(write(tx, address("capability-receipt", input.capability.jti), { operationID: input.operationID, expiresAtSeconds: input.capability.expiresAtSeconds, fingerprint: input.fingerprint, result: { logSequence, payloadHash: input.payloadHash } })),
