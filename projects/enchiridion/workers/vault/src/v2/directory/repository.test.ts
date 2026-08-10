@@ -21,6 +21,7 @@ const emptyState = (): DirectoryState => ({
   frozenBindings: {},
   retiredAliases: {},
   initializations: {},
+  privateGenerations: {},
 });
 const canonicalAlias = (keyID = "current", final = "A"): string =>
   `v2.${keyID}.${"A".repeat(42)}${final}`;
@@ -39,6 +40,7 @@ const resolutionFor = (
     activeGeneration: 1,
     routingEpoch: 1,
     credentialEpoch: 1,
+    controlEpoch: 1,
   };
 };
 
@@ -100,6 +102,7 @@ describe("v2 Directory durable repository", () => {
       activeGeneration: 1,
       routingEpoch: 1,
       credentialEpoch: 1,
+      controlEpoch: 1,
     };
     for (const corruptResolution of [
       { ...resolution, ownerID: resolution.vaultID },
@@ -147,6 +150,7 @@ describe("v2 Directory durable repository", () => {
                 activeGeneration: 1,
                 routingEpoch: 2,
                 credentialEpoch: 1,
+                controlEpoch: 1,
               },
             },
           },

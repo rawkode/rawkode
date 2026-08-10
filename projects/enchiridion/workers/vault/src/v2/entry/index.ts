@@ -112,7 +112,8 @@ const validResponse = (
       !positive(resolution.generationEpoch) ||
       !positive(resolution.activeGeneration) ||
       !positive(resolution.routingEpoch) ||
-      !positive(resolution.credentialEpoch)
+      !positive(resolution.credentialEpoch) ||
+      !positive(resolution.controlEpoch)
     )
       return undefined;
     const ownerID = resolution.ownerID;
@@ -125,6 +126,7 @@ const validResponse = (
       activeGeneration: resolution.activeGeneration,
       routingEpoch: resolution.routingEpoch,
       credentialEpoch: resolution.credentialEpoch,
+      controlEpoch: resolution.controlEpoch,
     };
     if (!aliases.some((binding) => validDirectoryResolution(binding, candidate))) return undefined;
     return root;

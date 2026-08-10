@@ -171,6 +171,7 @@ const resolution = (
     activeGeneration: 1,
     routingEpoch: 1,
     credentialEpoch: 1,
+    controlEpoch: 1,
   } satisfies DirectoryResolution;
   return validDirectoryResolution(bindingID, created) ? created : undefined;
 };
@@ -309,7 +310,7 @@ export const makeDirectoryService = (
                             operationID: generatedOperationID,
                           credentialEpoch: created.credentialEpoch,
                           routingEpoch: created.routingEpoch,
-                          controlEpoch: 1,
+                          controlEpoch: created.controlEpoch,
                           };
                           return { ...unsigned, initDigest: initializationDigest(unsigned) };
                         })()

@@ -594,6 +594,7 @@ export enum DirectoryControlCapabilityAudience {
 export enum DirectoryControlResource {
   CredentialTransition = "credential-transition",
   OwnerVaultInitialization = "owner-vault-initialization",
+  OwnerVaultFloorSync = "owner-vault-floor-sync",
 }
 
 export interface DirectoryControlCapabilityRequestBinding {
@@ -606,7 +607,9 @@ export interface DirectoryControlCapabilityRequestBinding {
   readonly vaultID: string;
   /** Present only for the immutable OwnerVault initialization command. */
   readonly initDigest?: string;
-  /** Present only for the immutable OwnerVault initialization command. */
+  /** Present only for an exact forward-only OwnerVault floor-sync command. */
+  readonly floorSyncDigest?: string;
+  /** Present only for an immutable initialization or forward-only floor sync. */
   readonly controlEpoch?: number;
 }
 
@@ -679,7 +682,8 @@ const isDirectoryControlAudience = (value: unknown): value is DirectoryControlCa
 
 const isDirectoryControlResource = (value: unknown): value is DirectoryControlResource =>
   value === DirectoryControlResource.CredentialTransition ||
-  value === DirectoryControlResource.OwnerVaultInitialization;
+  value === DirectoryControlResource.OwnerVaultInitialization ||
+  value === DirectoryControlResource.OwnerVaultFloorSync;
 
 const validInitDigest = (value: unknown): value is string =>
   typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
@@ -690,8 +694,10 @@ const validDirectoryControlBinding = (value: DirectoryControlCapabilityRequestBi
   IDENTITY.test(value.ownerID) &&
   IDENTITY.test(value.vaultID) &&
   (value.resource === DirectoryControlResource.OwnerVaultInitialization
-    ? validInitDigest(value.initDigest) && typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
-    : value.initDigest === undefined && value.controlEpoch === undefined);
+    ? validInitDigest(value.initDigest) && value.floorSyncDigest === undefined && typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
+    : value.resource === DirectoryControlResource.OwnerVaultFloorSync
+      ? value.initDigest === undefined && validInitDigest(value.floorSyncDigest) && typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
+      : value.initDigest === undefined && value.floorSyncDigest === undefined && value.controlEpoch === undefined);
 
 const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpectation): boolean =>
   value.audience === DirectoryControlCapabilityAudience.DirectoryControl &&
@@ -705,7 +711,7 @@ const validDirectoryControlExpectation = (value: DirectoryControlCapabilityExpec
   value.generationEpoch > 0 &&
   Number.isSafeInteger(value.routingEpoch) &&
   value.routingEpoch > 0 &&
-  (value.resource === DirectoryControlResource.OwnerVaultInitialization
+  (value.resource === DirectoryControlResource.OwnerVaultInitialization || value.resource === DirectoryControlResource.OwnerVaultFloorSync
     ? typeof value.controlEpoch === "number" && Number.isSafeInteger(value.controlEpoch) && value.controlEpoch > 0
     : value.controlEpoch === undefined) &&
   DIRECTORY_CONTROL_OPERATION_ID.test(value.operationID);
@@ -741,6 +747,8 @@ const canonicalDirectoryControlPayload = (claims: DirectoryControlCapabilityClai
     generationEpoch: claims.generationEpoch,
     ...(claims.resource === DirectoryControlResource.OwnerVaultInitialization
       ? { controlEpoch: claims.controlEpoch, initDigest: claims.initDigest }
+      : claims.resource === DirectoryControlResource.OwnerVaultFloorSync
+        ? { controlEpoch: claims.controlEpoch, floorSyncDigest: claims.floorSyncDigest }
       : {}),
     issuedAt: claims.issuedAt,
     jti: claims.jti,
@@ -787,11 +795,13 @@ const directoryControlClaimsFromUnknown = (
       !isDirectoryControlResource(record.resource) ||
       Object.keys(record).length !==
         directoryControlClaimKeys.length +
-          (record.resource === DirectoryControlResource.OwnerVaultInitialization ? 2 : 0) ||
+          (record.resource === DirectoryControlResource.OwnerVaultInitialization || record.resource === DirectoryControlResource.OwnerVaultFloorSync ? 2 : 0) ||
       directoryControlClaimKeys.some((key) => !Object.hasOwn(record, key)) ||
       (record.resource === DirectoryControlResource.OwnerVaultInitialization
         ? !Object.hasOwn(record, "initDigest") || !Object.hasOwn(record, "controlEpoch")
-        : Object.hasOwn(record, "initDigest") || Object.hasOwn(record, "controlEpoch"))
+        : record.resource === DirectoryControlResource.OwnerVaultFloorSync
+          ? !Object.hasOwn(record, "floorSyncDigest") || !Object.hasOwn(record, "controlEpoch")
+          : Object.hasOwn(record, "initDigest") || Object.hasOwn(record, "floorSyncDigest") || Object.hasOwn(record, "controlEpoch"))
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
     const {
@@ -804,6 +814,7 @@ const directoryControlClaimsFromUnknown = (
       expiresAt,
       generationEpoch,
       initDigest,
+      floorSyncDigest,
       issuedAt,
       jti,
       keyID,
@@ -834,7 +845,7 @@ const directoryControlClaimsFromUnknown = (
       !isDirectoryControlResource(resource) ||
       typeof routingEpoch !== "number" ||
       typeof vaultID !== "string" ||
-      (resource === DirectoryControlResource.OwnerVaultInitialization && typeof controlEpoch !== "number") ||
+      ((resource === DirectoryControlResource.OwnerVaultInitialization || resource === DirectoryControlResource.OwnerVaultFloorSync) && typeof controlEpoch !== "number") ||
       version !== 1
     )
       return yield* Effect.fail(new CapabilityVerificationError({ reason: "claims_invalid" }));
@@ -848,6 +859,8 @@ const directoryControlClaimsFromUnknown = (
       generationEpoch,
       ...(resource === DirectoryControlResource.OwnerVaultInitialization && typeof initDigest === "string" && typeof controlEpoch === "number"
         ? { controlEpoch, initDigest }
+        : resource === DirectoryControlResource.OwnerVaultFloorSync && typeof floorSyncDigest === "string" && typeof controlEpoch === "number"
+          ? { controlEpoch, floorSyncDigest }
         : {}),
       issuedAt,
       jti,
@@ -944,6 +957,7 @@ export const verifyDirectoryControlCapability = (
       claims.ownerID !== binding.ownerID ||
       claims.vaultID !== binding.vaultID ||
       claims.initDigest !== binding.initDigest ||
+      claims.floorSyncDigest !== binding.floorSyncDigest ||
       claims.controlEpoch !== binding.controlEpoch ||
       claims.resource !== expected.resource ||
       claims.ownerID !== expected.ownerID ||

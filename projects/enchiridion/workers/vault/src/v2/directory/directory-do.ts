@@ -85,6 +85,7 @@ const wireResolution = (
   positive(value.activeGeneration) &&
   positive(value.routingEpoch) &&
   positive(value.credentialEpoch)
+  && positive(value.controlEpoch)
     ? {
         ownerID: value.ownerID.value,
         vaultID: value.vaultID.value,
@@ -93,6 +94,7 @@ const wireResolution = (
         activeGeneration: value.activeGeneration,
         routingEpoch: value.routingEpoch,
         credentialEpoch: value.credentialEpoch,
+        controlEpoch: value.controlEpoch,
       }
     : undefined;
 

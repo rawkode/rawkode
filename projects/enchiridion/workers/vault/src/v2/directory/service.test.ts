@@ -47,7 +47,7 @@ const ownerVaultReceipt = "owner-vault-receipt-0001";
 const random = (() => {
   let value = 0;
   return {
-    identifier: (purpose: "owner" | "vault" | "owner-vault-initialization") =>
+    identifier: (purpose: "owner" | "vault" | "owner-vault-initialization" | "owner-vault-floor-sync") =>
       Effect.succeed(`${purpose}-generated-${String(++value).padStart(16, "0")}`),
   };
 })();
@@ -307,6 +307,7 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
         frozenBindings: {},
         retiredAliases,
         initializations: {},
+        privateGenerations: {},
       }),
     );
     for (const alias of aliases.ordered) {
@@ -357,6 +358,7 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
       frozenBindings: {},
       retiredAliases: {},
       initializations: {},
+      privateGenerations: {},
     });
     await Effect.runPromise(service.resolveOrBootstrap(retry, now));
 
@@ -403,6 +405,7 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
       frozenBindings: {},
       retiredAliases: {},
       initializations: {},
+      privateGenerations: {},
     };
     await Effect.runPromise(Ref.set(memory.state, conflicting));
     const collision = await Effect.runPromise(

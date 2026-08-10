@@ -108,6 +108,7 @@ const resolution = (): DirectoryResolution => ({
   activeGeneration: 1,
   routingEpoch: 1,
   credentialEpoch: 1,
+  controlEpoch: 1,
 });
 const initial = (): DirectoryState => ({
   aliases: { [binding]: binding },
@@ -136,6 +137,7 @@ const initial = (): DirectoryState => ({
       },
     };
   })(),
+  privateGenerations: {},
 });
 const otherResolution = (): DirectoryResolution => ({
   ownerID: required(ownerID("owner-transition-00000002")),
@@ -145,6 +147,7 @@ const otherResolution = (): DirectoryResolution => ({
   activeGeneration: 1,
   routingEpoch: 1,
   credentialEpoch: 1,
+  controlEpoch: 1,
 });
 const request = (operationID = "credential-transition-0001"): DirectoryTransitionRequest => ({
   operationID,
@@ -934,8 +937,9 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         initID: required(deriveDirectoryInitID(bindingID)),
         generationEpoch: 1,
         activeGeneration: 1,
-        routingEpoch: 1,
-        credentialEpoch: 1,
+              routingEpoch: 1,
+              credentialEpoch: 1,
+              controlEpoch: 1,
       };
       return completedTransition(operationID, now + 300, bindingID, expected);
     });
@@ -951,6 +955,7 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         aliases: {},
         bindings: {},
         initializations: {},
+        privateGenerations: {},
         transitions: saturated,
         retiredAliases,
       }),
