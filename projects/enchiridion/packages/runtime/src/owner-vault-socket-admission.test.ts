@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Redacted } from "effect";
 import {
+  CapabilityAudience,
+  CapabilityAuthority,
+  CapabilityMethod,
+  makeInternalCapabilityKeyRing,
+  signCapability,
+  verifyCapability,
+} from "./capability";
+import {
   type OwnerVaultSocketAdmissionClaimsInput,
   type OwnerVaultSocketAdmissionExpectation,
   type OwnerVaultSocketAdmissionKeyRing,
@@ -133,7 +141,6 @@ describe("OwnerVault socket admission", () => {
     const revoked = await Effect.runPromise(
       makeOwnerVaultSocketAdmissionKeyRing({
         current: { keyID: "socket-current", secret: Redacted.make("socket-current-secret") },
-        prior: [previous.current],
         revokedKeyIDs: ["socket-prior"],
       }),
     );
@@ -146,6 +153,64 @@ describe("OwnerVault socket admission", () => {
       verifyOwnerVaultSocketAdmission(foreignGrammar, binding, expected, rotated, 1_030),
     );
     expect(JSON.stringify(foreignExit)).toContain("malformed_token");
+    const genericRing = await Effect.runPromise(
+      makeInternalCapabilityKeyRing({
+        current: { keyID: "socket-current", secret: Redacted.make("socket-current-secret") },
+      }),
+    );
+    const generic = await Effect.runPromise(
+      signCapability(
+        {
+          audience: CapabilityAudience.OwnerVault,
+          authority: CapabilityAuthority.OwnerVault,
+          ownerID: "owner",
+          vaultID: "vault",
+          method: CapabilityMethod.GET,
+          path: "/internal/owner-vault/socket",
+          canonicalQuery: "a=b",
+          bodySHA256: "a".repeat(64),
+          credentialEpoch: 4,
+          generationEpoch: 2,
+          jti: "0123456789abcdef",
+          ttlSeconds: 60,
+        },
+        genericRing,
+        1_000,
+      ),
+    );
+    const genericRejectsSocket = await Effect.runPromiseExit(
+      verifyCapability(
+        signed,
+        {
+          method: CapabilityMethod.GET,
+          path: "/internal/owner-vault/socket",
+          canonicalQuery: "a=b",
+          bodySHA256: "a".repeat(64),
+          ownerID: "owner",
+          vaultID: "vault",
+        },
+        {
+          audience: CapabilityAudience.OwnerVault,
+          authority: CapabilityAuthority.OwnerVault,
+          ownerID: "owner",
+          vaultID: "vault",
+        },
+        genericRing,
+        1_030,
+      ),
+    );
+    const socketRejectsGeneric = await Effect.runPromiseExit(
+      verifyOwnerVaultSocketAdmission(generic, binding, expected, rotated, 1_030),
+    );
+    expect(JSON.stringify(genericRejectsSocket)).toContain("malformed_token");
+    expect(JSON.stringify(socketRejectsGeneric)).toContain("malformed_token");
+    const overlap = await Effect.runPromiseExit(
+      makeOwnerVaultSocketAdmissionKeyRing({
+        current: { keyID: "socket-current", secret: Redacted.make("socket-current-secret") },
+        revokedKeyIDs: ["socket-current"],
+      }),
+    );
+    expect(JSON.stringify(overlap)).toContain("key_ring_overlap");
     const nonUtf8 = { value: "ovsa1.__8.AA" };
     const exit = await Effect.runPromiseExit(
       verifyOwnerVaultSocketAdmission(nonUtf8, binding, expected, rotated, 1_030),

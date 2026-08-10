@@ -332,6 +332,8 @@ export const makeOwnerVaultSocketAdmissionKeyRing = (input: {
     new Set(revokedKeyIDs).size !== revokedKeyIDs.length
   )
     return Effect.fail(new CapabilityConfigurationError({ reason: "invalid_key_id" }));
+  if (keys.some((key) => revokedKeyIDs.includes(key.keyID)))
+    return Effect.fail(new CapabilityConfigurationError({ reason: "key_ring_overlap" }));
   return Effect.succeed({
     purpose: "owner-vault-socket-admission",
     current: input.current,
