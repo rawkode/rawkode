@@ -116,7 +116,9 @@ export const parseOwnerVaultProductionLimits = (raw: string): OwnerVaultProducti
       c.maximumObjectBytes <= c.maximumTotalBytes && c.maximumTotalBytes <= b.maximumVaultBytes && c.maximumObjects === a.maximumObjects &&
       c.maximumObjectBytes === a.maximumObjectBytes && c.maximumTotalBytes === a.maximumTotalBytes &&
       c.maximumPageEntries === a.maximumPageEntries && c.targetPageBytes <= c.maximumPageBytes && c.maximumRootBytes <= c.maximumPageBytes &&
-      a.maximumPageBytes <= r.maximumObjectBytes && a.maximumObjectBytes <= r.maximumObjectBytes && a.maximumPageEntries <= r.maximumListPageSize &&
+      b.maximumBlobBytes <= r.maximumObjectBytes && a.maximumPageBytes <= r.maximumObjectBytes &&
+      a.maximumObjectBytes <= r.maximumObjectBytes && a.maximumManifestBytes <= r.maximumObjectBytes &&
+      a.maximumPageEntries <= r.maximumListPageSize &&
       p.gcChunk <= c.maximumPageEntries && p.maximumPins >= 1 && p.retentionSeconds >= b.stageTTLSeconds
       ? freezeLimits(result) : undefined;
   } catch { return undefined; }

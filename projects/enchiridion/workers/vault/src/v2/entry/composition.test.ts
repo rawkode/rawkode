@@ -121,6 +121,7 @@ test("requires exact immutable production limits and distinct structural R2 bind
   expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("24576", "32769") })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"gcChunk\":128", "\"gcChunk\":0") })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"stageTTLSeconds\":900", "\"stageTTLSeconds\":0") })).toBeUndefined();
+  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"maximumBlobBytes\":8388608", "\"maximumBlobBytes\":8388609") })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: parsed.BACKUP_R2 })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: {} })).toBeUndefined();
 });
