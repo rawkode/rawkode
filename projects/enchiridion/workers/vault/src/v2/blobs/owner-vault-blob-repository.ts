@@ -82,7 +82,7 @@ const floorsAddress = storageAddress("root.floors");
 const admissionAddress = storageAddress("root.admission");
 
 interface Floors {
-  readonly generationEpoch: number;
+  readonly generation: number;
   readonly securityFloor: number;
 }
 interface Admission {
@@ -130,9 +130,9 @@ interface StoredReceipt {
 
 const decodeFloors = (record: OwnerVaultStorageRecord | undefined): Floors | undefined => {
   const source = record === undefined ? undefined : object(record.payload);
-  return source !== undefined && exact(source, ["generationEpoch", "securityFloor"]) &&
-    integer(source.generationEpoch, 1) && integer(source.securityFloor)
-    ? { generationEpoch: source.generationEpoch, securityFloor: source.securityFloor }
+  return source !== undefined && exact(source, ["generation", "securityFloor"]) &&
+    integer(source.generation, 1) && integer(source.securityFloor)
+    ? { generation: source.generation, securityFloor: source.securityFloor }
     : undefined;
 };
 const decodeAdmission = (record: OwnerVaultStorageRecord | undefined): Admission | undefined => {
@@ -228,7 +228,7 @@ export interface OwnerVaultBlobLifecycleRepository extends BlobStagingRepository
  * OwnerVault-backed implementation. Its root records must be initialized by
  * the OwnerVault initialization package before it accepts traffic:
  *
- * - root.floors: { generationEpoch, securityFloor }
+ * - root.floors: { generation, securityFloor } (the immutable generation identity is root.identity)
  * - root.admission: { referencedBytes, reservedStageBytes, prospectiveFinalBytes, leaseIDs, purgeSHA256s }
  * - device/<id>: a DeviceRecord-shaped authority row.
  */
@@ -247,7 +247,7 @@ export const makeOwnerVaultBlobStagingRepository = (
         const floors = decodeFloors(floorRecord);
         const device = deviceRecord === undefined ? undefined : object(deviceRecord.payload);
         return floors === undefined || device === undefined ||
-          floors.generationEpoch !== config.scope.generationEpoch ||
+          floors.generation !== config.scope.generationEpoch ||
           authorization.generationEpoch !== config.scope.generationEpoch ||
           !sameScope(authorization, config.scope) ||
           device.revoked !== false || device.deviceID !== authorization.deviceID ||
@@ -265,6 +265,10 @@ export const makeOwnerVaultBlobStagingRepository = (
     tx.put(admissionAddress, { referencedBytes: value.referencedBytes, reservedStageBytes: value.reservedStageBytes, prospectiveFinalBytes: value.prospectiveFinalBytes, leaseIDs: [...value.leaseIDs], purgeSHA256s: [...value.purgeSHA256s] }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
   const readLease = (tx: OwnerVaultTx, operationID: string): Effect.Effect<Lease | undefined, BlobTransactionFailure> =>
     tx.get(leaseAddress(operationID)).pipe(Effect.flatMap((row) => row === undefined ? Effect.succeed(undefined) : decodeLease(row) === undefined ? storageFailed() : Effect.succeed(decodeLease(row))));
+  const hydrateResponse = (response: BlobStageExecution): BlobStageExecution => ({
+    ...response,
+    metadata: { ...response.metadata, generationEpoch: config.scope.generationEpoch },
+  });
   const releaseLease = (tx: OwnerVaultTx, lease: Lease, admission: Admission): Effect.Effect<void, BlobTransactionFailure> => {
     const nextIDs = admission.leaseIDs.filter((value) => value !== lease.operationID);
     return tx.get(refAddress(lease.sha256)).pipe(Effect.flatMap((row) => {
@@ -283,7 +287,7 @@ export const makeOwnerVaultBlobStagingRepository = (
       if (row === undefined) return Effect.succeed(undefined);
       const receipt = decodeReceipt(row);
       if (receipt === undefined || receipt.kind !== "blob-stage") return storageFailed();
-      return receipt.fingerprint === fingerprint ? Effect.succeed(receipt.response as BlobStageExecution) : failed("replay_conflict");
+      return receipt.fingerprint === fingerprint ? Effect.succeed(hydrateResponse(receipt.response as BlobStageExecution)) : failed("replay_conflict");
     })));
   const reserveStage: BlobStagingRepository["reserveStage"] = (command, stageKey, finalKey, nowSeconds) =>
     transact((tx) => Effect.gen(function* () {
@@ -366,7 +370,7 @@ export const makeOwnerVaultBlobStagingRepository = (
       const receiptRow = yield* tx.get(receiptAddress(command.requestID.value));
       if (receiptRow !== undefined) {
         const prior = decodeReceipt(receiptRow);
-        if (prior?.kind === "blob-stage" && prior.fingerprint === stageFingerprint(command)) return prior.response as BlobStageExecution;
+        if (prior?.kind === "blob-stage" && prior.fingerprint === stageFingerprint(command)) return hydrateResponse(prior.response as BlobStageExecution);
         return yield* failed<BlobStageExecution>("replay_conflict");
       }
       const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
@@ -375,9 +379,11 @@ export const makeOwnerVaultBlobStagingRepository = (
       const metadata: BlobMetadata = { requestID: command.requestID.value, path: command.path, sha256: command.sha256, size: command.size, objectKey, generationEpoch: command.scope.generationEpoch };
       const response: BlobStageExecution = { metadata, status: "APPLIED" };
       const hadReference = reference.referenceCount > 0;
-      yield* tx.put(metadataAddress(command.sha256), payload(metadata)).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
+      const storedMetadata = { requestID: metadata.requestID, path: metadata.path, sha256: metadata.sha256, size: metadata.size, objectKey: metadata.objectKey };
+      const storedResponse = { metadata: storedMetadata, status: "APPLIED" };
+      yield* tx.put(metadataAddress(command.sha256), storedMetadata).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* tx.put(refAddress(command.sha256), { objectKey, size: command.size, referenceCount: reference.referenceCount + 1, activeLeaseCount: reference.activeLeaseCount - 1 }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
-      yield* tx.put(receiptAddress(command.requestID.value), { kind: "blob-stage", fingerprint: stageFingerprint(command), response }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
+      yield* tx.put(receiptAddress(command.requestID.value), { kind: "blob-stage", fingerprint: stageFingerprint(command), response: storedResponse }).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* tx.delete(leaseAddress(lease.operationID)).pipe(Effect.mapError(() => new BlobError({ reason: "stage_conflict" })));
       yield* writeAdmission(tx, { referencedBytes: admission.referencedBytes + (hadReference ? 0 : command.size), reservedStageBytes: admission.reservedStageBytes - command.size, prospectiveFinalBytes: admission.prospectiveFinalBytes - (hadReference ? 0 : command.size), leaseIDs: admission.leaseIDs.filter((id) => id !== lease.operationID), purgeSHA256s: admission.purgeSHA256s });
       return response;
