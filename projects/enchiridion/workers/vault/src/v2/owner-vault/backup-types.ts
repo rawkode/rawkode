@@ -9,6 +9,7 @@ import type {
   OwnerVaultRestoredBlobInventory,
 } from "../blobs/restore-reconstruction";
 import type { OwnerVaultAppendLogEntry } from "./domains";
+import type { OwnerVaultRestoreImport } from "./restore-import";
 import type { OwnerVaultStorageCategory, OwnerVaultStorageRecord, OwnerVaultTargetRoot } from "./storage-registry";
 
 export const ownerVaultBackupMaximumPageBytes = 512 * 1024;
@@ -167,16 +168,19 @@ export type OwnerVaultRestoreReconstruction = (
   inventory: OwnerVaultRestoredBlobInventory,
 ) => OwnerVaultBlobRestoreReconstructionResult;
 
-/** The target root and all security state are created independently of a source backup. */
+/**
+ * Composition boundary for a pre-initialized later PRIVATE target.  The C1
+ * importer owns its journal and atomic publication; this adapter only admits
+ * verified archive/R2 material to that contract.
+ */
 export interface OwnerVaultPrivateRestoreTarget {
   readonly root: OwnerVaultTargetRoot;
   readonly assertFreshPrivateTarget: () => Effect.Effect<void, OwnerVaultBackupError>;
-  readonly readJournal: (backupID: string) => Effect.Effect<OwnerVaultRestoreJournal | undefined, OwnerVaultBackupError>;
-  readonly writeJournal: (journal: OwnerVaultRestoreJournal) => Effect.Effect<void, OwnerVaultBackupError>;
-  readonly applyRecord: (entry: OwnerVaultBackupPageEntry, record: OwnerVaultStorageRecord) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly restoreImport: OwnerVaultRestoreImport;
+  readonly blobScope: BlobScope;
+  readonly blobLimits: BlobLimits;
+  /** Non-authoritative audit is recorded while the target remains PRIVATE. */
   readonly writeRestoreAudit: (source: OwnerVaultBackupScope, backupID: string, manifestDigest: string) => Effect.Effect<void, OwnerVaultBackupError>;
-  /** Rebuilds derived catalog/accounting and commits the exact source append proof. */
-  readonly completeRestore: (input: { readonly backupID: string; readonly highWaterMark: string; readonly appendLogSequence: number; readonly appendLogDigest: string; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultBackupRuntime {
@@ -190,7 +194,10 @@ export interface OwnerVaultStorageRestoreAdapterOptions {
   readonly root: OwnerVaultTargetRoot;
   /** P06-05 supplies the DO-local no-source-state check; storage listing is never used as a fallback. */
   readonly assertFreshPrivateTarget: () => Effect.Effect<void, OwnerVaultBackupError>;
-  readonly rebuildDerived: (input: { readonly backupID: string; readonly highWaterMark: string; readonly appendLogSequence: number; readonly appendLogDigest: string; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly blobScope: BlobScope;
+  readonly blobLimits: BlobLimits;
+  readonly reconstruct?: OwnerVaultRestoreReconstruction;
+  readonly validateAppendLog?: OwnerVaultRestoreAppendLogValidator;
 }
 
 export class OwnerVaultBackupError extends Data.TaggedError("OwnerVaultBackupError")<{

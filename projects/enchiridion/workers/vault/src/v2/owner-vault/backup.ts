@@ -1,5 +1,6 @@
 /** @enchiridion/effect-module */
 import { Effect } from "effect";
+import { sha256Hex } from "@enchiridion/protocol";
 import { isRestorableOwnerVaultStorageCategory, ownerVaultStorageRegistry } from "./storage-registry";
 import {
   canonicalManifestBytes,
@@ -32,8 +33,9 @@ import {
   type OwnerVaultSnapshotPin,
   type OwnerVaultStorageRestoreAdapterOptions,
 } from "./backup-types";
-import { ownerVaultAppendProofD0, ownerVaultAppendProofNext } from "./append-proof";
-import { decodeOwnerVaultAppendLogEntry } from "./domains";
+import { blobObjectKey } from "../blobs/blobs";
+import { decodeOwnerVaultBlobStoredMetadata } from "../blobs/owner-vault-blob-repository";
+import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
 import type { OwnerVaultStorageAddress } from "./repository";
 import type { OwnerVaultStorageRecord } from "./storage-registry";
 
@@ -193,14 +195,9 @@ export const restoreOwnerVaultBackup = (
       Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "manifest_untrusted" } as import("./backup-types").OwnerVaultBackupError)),
     );
     const manifestDigest = ownerVaultBackupDigest(bytes);
-    const existing = yield* target.readJournal(backupID);
-    if (existing !== undefined && !validJournal(existing, backupID, manifestDigest)) return yield* ownerVaultBackupFailure("restore_conflict");
-    if (existing?.state === "COMPLETED") return;
-    let lastApplied = existing?.lastAppliedOrdinal ?? -1;
+    const staged: { readonly expected: import("./backup-types").OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }[] = [];
+    const evidence: import("../blobs/restore-reconstruction").OwnerVaultRestoredBlobMetadata[] = [];
     let expectedLogSequence = 1;
-    let rollingProof = existing === undefined
-      ? { appendLogSequence: 0, appendLogDigest: ownerVaultAppendProofD0(signed.manifest.source) }
-      : { appendLogSequence: existing.appendLogSequence, appendLogDigest: existing.appendLogDigest };
     for (const expected of signed.manifest.pages) {
       const pageBytes = yield* integrity(runtime.r2.read(expected.key)).pipe(Effect.map((item) => item.bytes));
       if (pageBytes.byteLength !== expected.size || pageBytes.byteLength > ownerVaultBackupMaximumPageBytes) return yield* ownerVaultBackupFailure("integrity_failed");
@@ -216,8 +213,7 @@ export const restoreOwnerVaultBackup = (
           if (entry.identifier !== expectedLogSequence.toString().padStart(20, "0")) return yield* ownerVaultBackupFailure("integrity_failed");
           expectedLogSequence += 1;
         }
-        if (entry.ordinal <= lastApplied) continue;
-        if (entry.ordinal !== lastApplied + 1 || entry.key !== objectKey(source, backupID, entry.ordinal) || entry.size > ownerVaultBackupMaximumObjectBytes || !validOwnerVaultBackupDigest(entry.sha256Base64)) return yield* ownerVaultBackupFailure("integrity_failed");
+        if (entry.ordinal !== staged.length || entry.key !== objectKey(source, backupID, entry.ordinal) || entry.size > ownerVaultBackupMaximumObjectBytes || !validOwnerVaultBackupDigest(entry.sha256Base64)) return yield* ownerVaultBackupFailure("integrity_failed");
         const definition = ownerVaultStorageRegistry.get(entry.category);
         if (definition === undefined || !isRestorableOwnerVaultStorageCategory(definition)) return yield* ownerVaultBackupFailure("integrity_failed");
         const objectBytes = yield* integrity(runtime.r2.read(entry.key)).pipe(Effect.map((item) => item.bytes));
@@ -225,21 +221,43 @@ export const restoreOwnerVaultBackup = (
         if (entry.r2 !== undefined && (entry.r2.size !== entry.size || entry.r2.sha256Base64 !== entry.sha256Base64)) return yield* ownerVaultBackupFailure("integrity_failed");
         const decoded = decodeSnapshotRecordBytes(objectBytes);
         if (decoded === undefined || decoded.address.category !== entry.category || decoded.address.identifier !== entry.identifier || decoded.record.category !== entry.category) return yield* ownerVaultBackupFailure("integrity_failed");
-        if (entry.category === "append-log.entry") {
-          const append = decodeOwnerVaultAppendLogEntry(decoded.record.payload);
-          const next = append === undefined ? undefined : ownerVaultAppendProofNext(signed.manifest.source, rollingProof, append);
-          if (next === undefined) return yield* ownerVaultBackupFailure("integrity_failed");
-          rollingProof = next;
+        let restored = decoded.record;
+        if (entry.category === "blob.metadata") {
+          const metadata = decodeOwnerVaultBlobStoredMetadata(decoded.record);
+          const targetKey = metadata === undefined ? undefined : blobObjectKey(target.blobScope, metadata.sha256);
+          if (metadata === undefined || targetKey === undefined || metadata.size < 0 || metadata.size > target.blobLimits.maximumBlobBytes) return yield* ownerVaultBackupFailure("integrity_failed");
+          const blob = yield* integrity(runtime.r2.read(metadata.objectKey));
+          if (blob.size !== metadata.size || blob.bytes.byteLength !== metadata.size || sha256Hex(blob.bytes) !== metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
+          const prior = yield* integrity(runtime.r2.head(targetKey));
+          if (prior === undefined) {
+            yield* integrity(runtime.r2.putIfAbsent(targetKey, blob.bytes));
+          }
+          const verified = yield* integrity(runtime.r2.read(targetKey));
+          if (verified.size !== metadata.size || verified.bytes.byteLength !== metadata.size || sha256Hex(verified.bytes) !== metadata.sha256) return yield* ownerVaultBackupFailure("integrity_failed");
+          restored = { ...decoded.record, payload: { ...decoded.record.payload, objectKey: targetKey } };
+          evidence.push({ ...metadata, objectKey: targetKey });
         }
-        yield* target.applyRecord(entry, decoded.record);
-        lastApplied = entry.ordinal;
-        yield* target.writeJournal({ backupID, manifestDigest, lastAppliedOrdinal: lastApplied, appendLogSequence: rollingProof.appendLogSequence, appendLogDigest: rollingProof.appendLogDigest, state: "APPLYING" });
+        const restoredBytes = canonicalSnapshotRecordBytes(decoded.address, restored);
+        if (restoredBytes === undefined) return yield* ownerVaultBackupFailure("integrity_failed");
+        staged.push({
+          expected: { ordinal: entry.ordinal, address: decoded.address, version: 1, category: entry.category, codec: "owner-vault-storage-record-v1", sha256Base64: ownerVaultBackupDigest(restoredBytes), size: restoredBytes.byteLength },
+          record: restored,
+        });
       }
     }
-    if (lastApplied + 1 !== signed.manifest.objectCount || expectedLogSequence - 1 !== signed.manifest.appendLogSequence || rollingProof.appendLogSequence !== signed.manifest.appendLogSequence || rollingProof.appendLogDigest !== signed.manifest.appendLogDigest) return yield* ownerVaultBackupFailure("integrity_failed");
+    if (staged.length !== signed.manifest.objectCount || expectedLogSequence - 1 !== signed.manifest.appendLogSequence) return yield* ownerVaultBackupFailure("integrity_failed");
+    const hashChain = ownerVaultRestoreImportHashChain(manifestDigest, staged.map((item) => item.expected));
+    if (hashChain === undefined) return yield* ownerVaultBackupFailure("integrity_failed");
+    const plan: import("./backup-types").OwnerVaultRestoreImportPlan = {
+      backupID, manifestDigest, source: signed.manifest.source, highWaterMark: signed.manifest.highWaterMark,
+      appendLogSequence: signed.manifest.appendLogSequence, appendLogDigest: signed.manifest.appendLogDigest,
+      totalBytes: staged.reduce((sum, item) => sum + item.expected.size, 0), objectCount: staged.length, hashChain,
+      records: staged.map((item) => item.expected),
+    };
     yield* target.writeRestoreAudit(source, backupID, manifestDigest);
-    yield* target.completeRestore({ backupID, highWaterMark: signed.manifest.highWaterMark, appendLogSequence: signed.manifest.appendLogSequence, appendLogDigest: signed.manifest.appendLogDigest, manifestDigest });
-    yield* target.writeJournal({ backupID, manifestDigest, lastAppliedOrdinal: lastApplied, appendLogSequence: rollingProof.appendLogSequence, appendLogDigest: rollingProof.appendLogDigest, state: "COMPLETED" });
+    yield* target.restoreImport.beginRestoreImport(plan);
+    for (const item of staged) yield* target.restoreImport.applyRestoreRecord({ manifestDigest, ...item });
+    yield* target.restoreImport.finalizeRestoreImport(manifestDigest, { blobScope: target.blobScope, blobLimits: target.blobLimits, targetBlobEvidence: evidence });
   });
 
 /** Storage adapter for a fresh initialized PRIVATE DO. It cannot enumerate or promote a target. */
@@ -250,7 +268,6 @@ export const makeOwnerVaultPrivateStorageRestoreTarget = (
   const mapStorage = <A>(effect: Effect.Effect<A, unknown>) => effect.pipe(
     Effect.mapError(() => ({ _tag: "OwnerVaultBackupError", reason: "source_unavailable" } as import("./backup-types").OwnerVaultBackupError)),
   );
-  const journalID = (backupID: string) => `restore_${backupID}`;
   return {
     root: options.root,
     assertFreshPrivateTarget: () => mapStorage(options.repository.transact((tx) => tx.get(address("root.identity")))).pipe(
@@ -259,14 +276,9 @@ export const makeOwnerVaultPrivateStorageRestoreTarget = (
         : ownerVaultBackupFailure("private_target_required"),
       ),
     ),
-    readJournal: (backupID) => mapStorage(options.repository.transact((tx) => tx.get(address("backup.restore-journal", journalID(backupID))).pipe(Effect.map((value) => value?.payload as import("./backup-types").OwnerVaultRestoreJournal | undefined)))),
-    writeJournal: (journal) => mapStorage(options.repository.transact((tx) => tx.put(address("backup.restore-journal", journalID(journal.backupID)), journal as unknown as Readonly<Record<string, unknown>>))),
-    applyRecord: (entry, record) => mapStorage(options.repository.transact((tx) => tx.put(address(entry.category, entry.identifier), record.payload))),
+    restoreImport: makeOwnerVaultRestoreImport({ repository: options.repository, reconstruct: options.reconstruct, validateAppendLog: options.validateAppendLog }),
+    blobScope: options.blobScope,
+    blobLimits: options.blobLimits,
     writeRestoreAudit: (source, backupID, manifestDigest) => mapStorage(options.repository.transact((tx) => tx.put(address("audit.restore-source"), { source, audit: { backupID, manifestDigest } }))),
-    completeRestore: (input) => mapStorage(options.repository.transact((tx) => tx.put(address("root.log-head"), { appendLogSequence: input.appendLogSequence, appendLogDigest: input.appendLogDigest }).pipe(
-      Effect.zipRight(tx.put(address("append-log.head"), { appendLogSequence: input.appendLogSequence, appendLogDigest: input.appendLogDigest })),
-    ))).pipe(
-      Effect.zipRight(options.rebuildDerived(input)),
-    ),
   };
 };
