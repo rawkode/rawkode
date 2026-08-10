@@ -19,9 +19,12 @@
     "ENCHIRIDION_V2_MANIFEST_CURRENT_KEY_ID": "manifest-current",
     "ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64": "",
     "ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON": "[]",
-    "ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON": "[]"
+    "ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON": "[]",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID": "owner-vault-socket-current",
+    "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON": "[]"
   },
-  // ENCHIRIDION_V2_MANIFEST_CURRENT_PKCS8_BASE64 is a Wrangler secret; never add it to vars.
+  // Manifest PKCS#8 and both socket-admission secret inputs are Wrangler secrets; never add them to vars.
+  // `ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON` contains prior HMAC material.
   "migrations": [
     { "tag": "v2-directory", "new_sqlite_classes": ["CredentialDirectoryDO"] },
     { "tag": "v2-owner-vault", "new_sqlite_classes": ["OwnerVaultV2"] }

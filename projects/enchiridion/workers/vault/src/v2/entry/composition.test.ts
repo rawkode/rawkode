@@ -53,6 +53,11 @@ const environment = (directory: unknown): Readonly<Record<string, unknown>> => (
   ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: manifestPublic,
   ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON: "[]",
   ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: "[]",
+  ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID: "socket-current",
+  ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET:
+    "socket-admission-current-secret-0123456789-abcdef",
+  ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: "[]",
+  ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: "[]",
   CREDENTIAL_DIRECTORY_DO: directory,
   OWNER_VAULT_V2_DO: directory,
   BLOB_R2: r2(),
@@ -67,6 +72,12 @@ test("entry binding parser accepts non-enumerable Durable Object namespace metho
   });
   expect(parseVaultV2EntryEnv(environment(namespace))?.CREDENTIAL_DIRECTORY_DO).toBe(namespace);
   expect(parseVaultV2EntryEnv(environment({}))).toBeUndefined();
+  expect(
+    parseVaultV2EntryEnv({
+      ...environment(namespace),
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: undefined,
+    }),
+  ).toBeUndefined();
 });
 
 test("entry composition caches only a successful construction and permits retry after invalid bindings", () => {
@@ -149,6 +160,29 @@ test("validates manifest key pairing and rejects revoked active configuration wi
       expect(retry).toBe(ring),
     );
   });
+});
+
+test("builds an isolated bounded socket-admission ring and retries only valid configuration", async () => {
+  const namespace = Object.create(null);
+  Object.defineProperties(namespace, {
+    idFromName: { value: () => ({ toString: () => "directory" }) },
+    get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
+  });
+  const raw = environment(namespace);
+  const cache = makeVaultV2EntryCompositionCache();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: "too-short" })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[ {"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"}]' })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: '["socket-current"]' })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: raw.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID: "capability-current" })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[{"keyID":"socket-current","secret":"socket-admission-prior-secret-0123456789-abcdef"}]' })).toBeUndefined();
+  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[{"keyID":"socket-prior-a","secret":"socket-admission-prior-a-secret-0123456789-abcdef"},{"keyID":"socket-prior-b","secret":"socket-admission-prior-b-secret-0123456789-abcdef"},{"keyID":"socket-prior-c","secret":"socket-admission-prior-c-secret-0123456789-abcdef"}]' })).toBeUndefined();
+  const composed = cache(raw);
+  if (composed === undefined) throw new Error("test setup invalid");
+  expect(composed.ownerVaultSocketAdmission.signer).not.toBe(composed.directoryControls.signer);
+  const retry = cache(raw);
+  expect(retry).toBe(composed);
+  expect(JSON.stringify(composed)).not.toContain("socket-admission-current-secret");
 });
 
 test("reuses the injected Access singleton across cold, kid rotation, cached operation, and expiry outage", async () => {
