@@ -56,6 +56,7 @@ export const ownerVaultStorageCategories = [
   "backup.manifest",
   "backup.page",
   "backup.restore-journal",
+  "socket.admission",
   "control.initialization-ack",
   "control.floor-sync",
 ] as const;
@@ -222,6 +223,34 @@ const validBlobAccounting = (value: unknown): boolean => {
     new Set(purgeSHA256s).size === purgeSHA256s.length;
 };
 
+/** Socket tokens are never stored. This bounded journal retains only an
+ * irreversible fingerprint plus the non-bearer state required to reconcile
+ * a prepared hibernating socket after an isolate restart. */
+const validSocketAdmission = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  const challenge = source === undefined ? undefined : plainRecord(source.challenge);
+  return source !== undefined &&
+    exactKeys(source, [
+      "bindingNonce", "challenge", "createdAtMilliseconds", "deviceID", "expiresAtMilliseconds",
+      "fingerprint", "jti", "operationID", "phase", "quotaReserved", "sessionID", "socketGeneration",
+    ]) &&
+    source.phase !== undefined && ["PREPARED", "ACCEPTED", "EXPIRED", "CLOSED"].includes(source.phase as string) &&
+    typeof source.bindingNonce === "string" && /^[A-Za-z0-9_-]{22,128}$/u.test(source.bindingNonce) &&
+    typeof source.fingerprint === "string" && blobHashPattern.test(source.fingerprint) &&
+    typeof source.jti === "string" && identifierPattern.test(source.jti) &&
+    typeof source.operationID === "string" && identifierPattern.test(source.operationID) &&
+    typeof source.deviceID === "string" && identifierPattern.test(source.deviceID) &&
+    typeof source.sessionID === "string" && identifierPattern.test(source.sessionID) &&
+    typeof source.createdAtMilliseconds === "number" && Number.isSafeInteger(source.createdAtMilliseconds) && source.createdAtMilliseconds >= 0 &&
+    typeof source.expiresAtMilliseconds === "number" && Number.isSafeInteger(source.expiresAtMilliseconds) && source.expiresAtMilliseconds > source.createdAtMilliseconds &&
+    typeof source.socketGeneration === "number" && Number.isSafeInteger(source.socketGeneration) && source.socketGeneration >= 1 &&
+    typeof source.quotaReserved === "boolean" &&
+    challenge !== undefined && exactKeys(challenge, ["challengeBase64", "challengeID", "challengeAudience"]) &&
+    typeof challenge.challengeID === "string" && identifierPattern.test(challenge.challengeID) &&
+    typeof challenge.challengeBase64 === "string" && /^[A-Za-z0-9_-]{22,128}$/u.test(challenge.challengeBase64) &&
+    challenge.challengeAudience === "owner-vault-socket";
+};
+
 /** Backup pins are the one excluded local record that names its own target scope. */
 const validBackupPin = (value: unknown): boolean => {
   const source = plainRecord(value);
@@ -359,6 +388,7 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
   },
   { category: "backup.gc-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/gc-journal"), decode: (value) => decodeEnvelope("backup.gc-journal", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "backup.restore-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, validRestoreJournal) },
+  { category: "socket.admission", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("socket/admission"), decode: (value) => decodeEnvelope("socket.admission", value, validSocketAdmission) },
   { category: "control.initialization-ack", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "control.floor-sync", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
 ];

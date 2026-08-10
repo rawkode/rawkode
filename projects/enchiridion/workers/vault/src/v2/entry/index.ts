@@ -262,9 +262,12 @@ export const OwnerVaultV2 = makeOwnerVaultDO((raw) => {
     ? undefined
     : {
         controls: resolved.directoryControls,
-        ownerVaultControls: resolved.ownerVaultDirectoryControls,
-        production: resolved.ownerVaultProduction,
-      };
+      ownerVaultControls: resolved.ownerVaultDirectoryControls,
+      production: resolved.ownerVaultProduction,
+      socketAdmissions: resolved.ownerVaultSocketAdmission,
+      socketNonce: () =>
+        makeP256Crypto().random32().pipe(Effect.map(base64url), Effect.orDie),
+    };
 });
 export default {
   fetch: (request: Request, env: unknown, ctx: ExecutionContext) =>

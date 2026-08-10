@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +10,12 @@ import {
   type OwnerVaultDirectoryControlClaimsInput,
   OwnerVaultDirectoryControlResource,
   type OwnerVaultPrivateInitializeClaimsInput,
+  type OwnerVaultSocketAdmissionClaimsInput,
   type OwnerVaultSnapshotClaimsInput,
   makeOwnerVaultDirectoryControlKeyRing,
+  makeOwnerVaultSocketAdmissionKeyRing,
   signOwnerVaultDirectoryControl,
+  signOwnerVaultSocketAdmission,
 } from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
 import { makeDirectoryInvocation } from "../directory/gateway";
@@ -156,6 +160,15 @@ const ownerVaultControlRing = () =>
     prior: [],
     revokedKeyIDs: [],
   });
+const ownerVaultSocketAdmissionRing = () =>
+  makeOwnerVaultSocketAdmissionKeyRing({
+    current: {
+      keyID: "socket-current",
+      secret: secret("socket-admission-current-secret-0123456789-abcdef"),
+    },
+    prior: [],
+    revokedKeyIDs: [],
+  });
 const owner = "owner-workerd-fixture";
 const vault = "vault-workerd-fixture";
 const digest = "a".repeat(64);
@@ -195,6 +208,51 @@ const signedOwnerVaultControlBody = async <A extends Readonly<Record<string, unk
   );
   return new TextEncoder().encode(JSON.stringify({ capability: signed.value, command }));
 };
+const signedSocketAdmission = async (): Promise<string> => {
+  const nowSeconds = Math.floor(Date.now() / 1_000);
+  const ring = await Effect.runPromise(ownerVaultSocketAdmissionRing());
+  const input = {
+    ownerID: owner,
+    vaultID: vault,
+    generationEpoch: 2,
+    routingEpoch: 1,
+    credentialEpoch: 1,
+    controlEpoch: 1,
+    securityFloor: 1,
+    deviceID: "socket-device-workerd-0001",
+    sessionID: "socket-session-workerd-0001",
+    operationID: "socket-operation-workerd-0001",
+    jti: "socket-admission-jti-workerd-0001",
+    method: "GET" as const,
+    canonicalQuery: "",
+    bodySHA256: sha256Hex(new Uint8Array()),
+    upgradeNonce: "AAAAAAAAAAAAAAAAAAAAAA",
+    ttlSeconds: 60,
+  } satisfies OwnerVaultSocketAdmissionClaimsInput;
+  const signed = await Effect.runPromise(signOwnerVaultSocketAdmission(input, ring, nowSeconds));
+  return signed.value;
+};
+const socketUpgradeStatus = (capability: string, headers: Record<string, string> = {}): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const request = httpRequest(`${baseURL}/__test/owner-vault-socket`, {
+      headers: {
+        Connection: "Upgrade",
+        Upgrade: "websocket",
+        "Enchiridion-OwnerVault-Socket-Admission": capability,
+        ...headers,
+      },
+    });
+    request.once("response", (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    request.once("upgrade", (response, socket) => {
+      socket.destroy();
+      resolve(response.statusCode ?? 101);
+    });
+    request.once("error", reject);
+    request.end();
+  });
 
 const start = async (): Promise<void> => {
   baseURL = `http://127.0.0.1:${localPort}`;
@@ -301,6 +359,14 @@ describe("v2 fixed-shard CredentialDirectory RPC on Workerd", () => {
     expect(first.status).toBe(200);
     const acknowledgement = await first.json();
     expect(record(acknowledgement)?.durableReceipt).toEqual(expect.any(String));
+
+    // This exercises the real fixed internal WebSocket relay. A correctly
+    // signed ovsa1 token still cannot create a pair until its device is
+    // durably registered; bearer-like headers are rejected even earlier.
+    const socketCapability = await signedSocketAdmission();
+    expect(await socketUpgradeStatus(socketCapability)).toBe(401);
+    expect(await socketUpgradeStatus(socketCapability, { Authorization: "Bearer forbidden" })).toBe(400);
+    expect((await fetch(`${baseURL}/__v2/internal/owner-vault/socket`)).status).toBe(404);
 
     process?.kill();
     if (process !== undefined) await process.exited;

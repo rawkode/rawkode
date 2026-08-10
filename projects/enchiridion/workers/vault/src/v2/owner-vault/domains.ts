@@ -187,6 +187,12 @@ interface Admission {
   readonly capabilityReceipts: number;
   /** A credential fence is durable and makes every admission path fail closed. */
   readonly stopped: boolean;
+  /** Reserved/active socket counts make accept-outside-transaction bounded. */
+  readonly pendingSocketAdmissions: number;
+  readonly activeSocketAdmissions: number;
+  /** Only PREPARED operation IDs are indexed, so alarms can release leases
+   * that survived an isolate loss before a live attachment was accepted. */
+  readonly preparedSocketOperationIDs: readonly string[];
 }
 interface Floors {
   readonly securityFloor: number;
@@ -333,24 +339,30 @@ const decodeChallenge = (value: unknown): OwnerVaultChallenge | undefined => {
 const decodeAdmission = (value: unknown): Admission | undefined =>
   isRecord(value) &&
   (exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts"]) ||
-    exact(value, [
-      "activeChallenges",
-      "activeDevices",
-      "activeSessions",
-      "capabilityReceipts",
-      "stopped",
-    ])) &&
+    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped"]) ||
+    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped", "pendingSocketAdmissions", "activeSocketAdmissions"]) ||
+    exact(value, ["activeChallenges", "activeDevices", "activeSessions", "capabilityReceipts", "stopped", "pendingSocketAdmissions", "activeSocketAdmissions", "preparedSocketOperationIDs"])) &&
   isSafeNonNegative(value.activeChallenges) &&
   isSafeNonNegative(value.activeDevices) &&
   isSafeNonNegative(value.activeSessions) &&
   isSafeNonNegative(value.capabilityReceipts) &&
-  (value.stopped === undefined || typeof value.stopped === "boolean")
+  (value.stopped === undefined || typeof value.stopped === "boolean") &&
+  (value.pendingSocketAdmissions === undefined || isSafeNonNegative(value.pendingSocketAdmissions)) &&
+  (value.activeSocketAdmissions === undefined || isSafeNonNegative(value.activeSocketAdmissions)) &&
+  (value.preparedSocketOperationIDs === undefined ||
+    (Array.isArray(value.preparedSocketOperationIDs) &&
+      value.preparedSocketOperationIDs.length <= ownerVaultMaximumSessions &&
+      value.preparedSocketOperationIDs.every((entry) => typeof entry === "string" && identifier.test(entry)) &&
+      new Set(value.preparedSocketOperationIDs).size === value.preparedSocketOperationIDs.length))
     ? {
         activeChallenges: value.activeChallenges,
         activeDevices: value.activeDevices,
         activeSessions: value.activeSessions,
         capabilityReceipts: value.capabilityReceipts,
         stopped: value.stopped === true,
+        pendingSocketAdmissions: value.pendingSocketAdmissions ?? 0,
+        activeSocketAdmissions: value.activeSocketAdmissions ?? 0,
+        preparedSocketOperationIDs: value.preparedSocketOperationIDs ?? [],
       }
     : undefined;
 const decodeFloors = (value: unknown): Floors | undefined =>
@@ -703,6 +715,9 @@ export const makeOwnerVaultDomainProvider = (
                 activeSessions: 0,
                 capabilityReceipts: 0,
                 stopped: false,
+                pendingSocketAdmissions: 0,
+                activeSocketAdmissions: 0,
+                preparedSocketOperationIDs: [],
               })
             : Effect.void,
         ),

@@ -11,6 +11,7 @@ import {
 import { Effect } from "effect";
 import { directoryDOPath } from "../directory/directory-do";
 import { ownerVaultObjectName } from "../directory/lifecycle";
+import { ownerVaultInternalSocketPath } from "../owner-vault/owner-vault-do";
 import { parseVaultV2EntryEnv } from "./composition";
 import { OwnerVaultV2, makeVaultV2Entry } from "./index";
 
@@ -54,6 +55,7 @@ const testDirectoryTarget = {
 };
 const testInvocationPath = "/__test/directory-invocation";
 const testOwnerVaultControlPrefix = "/__test/owner-vault-control/";
+const testOwnerVaultSocketPath = "/__test/owner-vault-socket";
 const testOwnerVault = {
   ownerID: "owner-workerd-fixture",
   vaultID: "vault-workerd-fixture",
@@ -85,6 +87,18 @@ const handler = (request: Request, raw: unknown): Effect.Effect<Response> =>
     catch: () => undefined,
   }).pipe(
     Effect.flatMap((route) => {
+      if (route?.method === "GET" && route.pathname === testOwnerVaultSocketPath) {
+        const env = parseVaultV2EntryEnv(raw);
+        if (env === undefined) return Effect.succeed(new Response("not found", { status: 404 }));
+        const stub = env.OWNER_VAULT_V2_DO.get(
+          env.OWNER_VAULT_V2_DO.idFromName(ownerVaultObjectName(testOwnerVault)),
+        );
+        return Effect.tryPromise({
+          try: () =>
+            stub.fetch(new Request(`https://owner-vault.invalid${ownerVaultInternalSocketPath}`, request)),
+          catch: () => new Response("unavailable", { status: 503 }),
+        });
+      }
       if (route?.method === "POST" && route.pathname.startsWith(testOwnerVaultControlPrefix)) {
         const env = parseVaultV2EntryEnv(raw);
         const targetPath = ownerVaultControlPath(route.pathname);

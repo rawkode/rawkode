@@ -13,6 +13,8 @@ export enum OwnerVaultSocketAdmissionAuthority {
 }
 
 export const ownerVaultSocketAdmissionPath = "/internal/owner-vault/socket";
+/** Fixed internal transport header. The value is an ovsa1 capability, never an Access bearer. */
+export const ownerVaultSocketAdmissionHeader = "Enchiridion-OwnerVault-Socket-Admission";
 export const maximumOwnerVaultSocketAdmissionTTLSeconds = 60;
 export const maximumPriorOwnerVaultSocketAdmissionKeys = 2;
 
