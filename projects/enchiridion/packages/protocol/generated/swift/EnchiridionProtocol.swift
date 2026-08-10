@@ -242,16 +242,23 @@ public struct EnchiridionCredentialEpoch: Codable, Equatable, Hashable, Sendable
   public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(value) }
 }
 
-public enum EnchiridionBlobOperationType: String, Codable, Equatable, Hashable, Sendable {
-  case blobput = "blobPut"
-  case blobdelete = "blobDelete"
-}
-
 public struct EnchiridionNonNegativeInt: Codable, Equatable, Hashable, Sendable {
   public let value: Int
   public init(_ value: Int) throws { guard true && value >= 0 else { throw EnchiridionProtocolValidationError.invalidValue("NonNegativeInt") }; self.value = value }
   public init(from decoder: Decoder) throws { try self.init(try decoder.singleValueContainer().decode(Int.self)) }
   public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(value) }
+}
+
+public struct EnchiridionLogSequence: Codable, Equatable, Hashable, Sendable {
+  public let value: Int
+  public init(_ value: Int) throws { guard true && value >= 1 else { throw EnchiridionProtocolValidationError.invalidValue("LogSequence") }; self.value = value }
+  public init(from decoder: Decoder) throws { try self.init(try decoder.singleValueContainer().decode(Int.self)) }
+  public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(value) }
+}
+
+public enum EnchiridionBlobOperationType: String, Codable, Equatable, Hashable, Sendable {
+  case blobput = "blobPut"
+  case blobdelete = "blobDelete"
 }
 
 public struct EnchiridionResumeToken: Codable, Equatable, Hashable, Sendable {
@@ -729,15 +736,21 @@ public struct DeviceRevokeResponse: Codable, Equatable, Sendable {
 
 public struct MutationCommand: Codable, Equatable, Sendable {
   public let type: String
-  public let mutationID: EnchiridionIdentifier
-  public let contentSHA256: EnchiridionSHA256Digest
+  public let operationID: EnchiridionIdentifier
+  public let deviceID: EnchiridionDeviceID
+  public let sourceKind: String
+  public let payloadSHA256: EnchiridionSHA256Digest
   public let payloadBase64: EnchiridionBase64Payload
-  private enum CodingKeys: String, CodingKey { case type, mutationID, contentSHA256, payloadBase64 }
-  public init(type: String, mutationID: EnchiridionIdentifier, contentSHA256: EnchiridionSHA256Digest, payloadBase64: EnchiridionBase64Payload) {
+  public let causalVersion: EnchiridionNonNegativeInt?
+  private enum CodingKeys: String, CodingKey { case type, operationID, deviceID, sourceKind, payloadSHA256, payloadBase64, causalVersion }
+  public init(type: String, operationID: EnchiridionIdentifier, deviceID: EnchiridionDeviceID, sourceKind: String, payloadSHA256: EnchiridionSHA256Digest, payloadBase64: EnchiridionBase64Payload, causalVersion: EnchiridionNonNegativeInt? = nil) {
     self.type = type
-    self.mutationID = mutationID
-    self.contentSHA256 = contentSHA256
+    self.operationID = operationID
+    self.deviceID = deviceID
+    self.sourceKind = sourceKind
+    self.payloadSHA256 = payloadSHA256
     self.payloadBase64 = payloadBase64
+    self.causalVersion = causalVersion
   }
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: EnchiridionAnyCodingKey.self)
@@ -745,21 +758,32 @@ public struct MutationCommand: Codable, Equatable, Sendable {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let type = try c.decode(String.self, forKey: .type)
     guard type == "mutation" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
-    let mutationID = try c.decode(EnchiridionIdentifier.self, forKey: .mutationID)
-    let contentSHA256 = try c.decode(EnchiridionSHA256Digest.self, forKey: .contentSHA256)
+    let operationID = try c.decode(EnchiridionIdentifier.self, forKey: .operationID)
+    let deviceID = try c.decode(EnchiridionDeviceID.self, forKey: .deviceID)
+    let sourceKind = try c.decode(String.self, forKey: .sourceKind)
+    guard sourceKind == "http" else { throw EnchiridionProtocolValidationError.invalidValue("sourceKind") }
+    let payloadSHA256 = try c.decode(EnchiridionSHA256Digest.self, forKey: .payloadSHA256)
     let payloadBase64 = try c.decode(EnchiridionBase64Payload.self, forKey: .payloadBase64)
+    let causalVersion = try c.decodeIfPresent(EnchiridionNonNegativeInt.self, forKey: .causalVersion)
     self.type = type
-    self.mutationID = mutationID
-    self.contentSHA256 = contentSHA256
+    self.operationID = operationID
+    self.deviceID = deviceID
+    self.sourceKind = sourceKind
+    self.payloadSHA256 = payloadSHA256
     self.payloadBase64 = payloadBase64
+    self.causalVersion = causalVersion
   }
   public func encode(to encoder: Encoder) throws {
     guard type == "mutation" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
+    guard sourceKind == "http" else { throw EnchiridionProtocolValidationError.invalidValue("sourceKind") }
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(type, forKey: .type)
-    try c.encode(mutationID, forKey: .mutationID)
-    try c.encode(contentSHA256, forKey: .contentSHA256)
+    try c.encode(operationID, forKey: .operationID)
+    try c.encode(deviceID, forKey: .deviceID)
+    try c.encode(sourceKind, forKey: .sourceKind)
+    try c.encode(payloadSHA256, forKey: .payloadSHA256)
     try c.encode(payloadBase64, forKey: .payloadBase64)
+    try c.encodeIfPresent(causalVersion, forKey: .causalVersion)
   }
 }
 
@@ -790,31 +814,31 @@ public struct MutationRequest: Codable, Equatable, Sendable {
 
 public struct MutationResponse: Codable, Equatable, Sendable {
   public let protocolVersion: EnchiridionProtocolVersion
-  public let mutationID: EnchiridionIdentifier
-  public let acceptedAt: EnchiridionSignedTimestamp
-  private enum CodingKeys: String, CodingKey { case protocolVersion, mutationID, acceptedAt }
-  public init(protocolVersion: EnchiridionProtocolVersion, mutationID: EnchiridionIdentifier, acceptedAt: EnchiridionSignedTimestamp) {
+  public let operationID: EnchiridionIdentifier
+  public let logSequence: EnchiridionLogSequence
+  private enum CodingKeys: String, CodingKey { case protocolVersion, operationID, logSequence }
+  public init(protocolVersion: EnchiridionProtocolVersion, operationID: EnchiridionIdentifier, logSequence: EnchiridionLogSequence) {
     self.protocolVersion = protocolVersion
-    self.mutationID = mutationID
-    self.acceptedAt = acceptedAt
+    self.operationID = operationID
+    self.logSequence = logSequence
   }
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: EnchiridionAnyCodingKey.self)
     guard all.allKeys.allSatisfy({ CodingKeys(stringValue: $0.stringValue) != nil }) else { throw EnchiridionProtocolValidationError.invalidValue("MutationResponse unknown key") }
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let protocolVersion = try c.decode(EnchiridionProtocolVersion.self, forKey: .protocolVersion)
-    let mutationID = try c.decode(EnchiridionIdentifier.self, forKey: .mutationID)
-    let acceptedAt = try c.decode(EnchiridionSignedTimestamp.self, forKey: .acceptedAt)
+    let operationID = try c.decode(EnchiridionIdentifier.self, forKey: .operationID)
+    let logSequence = try c.decode(EnchiridionLogSequence.self, forKey: .logSequence)
     self.protocolVersion = protocolVersion
-    self.mutationID = mutationID
-    self.acceptedAt = acceptedAt
+    self.operationID = operationID
+    self.logSequence = logSequence
   }
   public func encode(to encoder: Encoder) throws {
 
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(protocolVersion, forKey: .protocolVersion)
-    try c.encode(mutationID, forKey: .mutationID)
-    try c.encode(acceptedAt, forKey: .acceptedAt)
+    try c.encode(operationID, forKey: .operationID)
+    try c.encode(logSequence, forKey: .logSequence)
   }
 }
 
@@ -1097,14 +1121,16 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
   public let generationEpoch: EnchiridionGenerationEpoch
   public let sessionNonce: EnchiridionFrameID
   public let assertionExpiresAt: EnchiridionSignedTimestamp
-  public let changeID: EnchiridionIdentifier
-  public let causalVersion: EnchiridionNonNegativeInt
+  public let operationID: EnchiridionIdentifier
+  public let sourceKind: String
+  public let payloadSHA256: EnchiridionSHA256Digest
+  public let causalVersion: EnchiridionNonNegativeInt?
   public let frameID: EnchiridionFrameID
   public let signingPayloadVersion: EnchiridionSigningPayloadVersion
   public let payloadBase64: EnchiridionBase64Payload
   public let deviceSignature: EnchiridionP256Signature
-  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, changeID, causalVersion, frameID, signingPayloadVersion, payloadBase64, deviceSignature }
-  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, assertionExpiresAt: EnchiridionSignedTimestamp, changeID: EnchiridionIdentifier, causalVersion: EnchiridionNonNegativeInt, frameID: EnchiridionFrameID, signingPayloadVersion: EnchiridionSigningPayloadVersion, payloadBase64: EnchiridionBase64Payload, deviceSignature: EnchiridionP256Signature) {
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, deviceID, authEpoch, credentialEpoch, generationEpoch, sessionNonce, assertionExpiresAt, operationID, sourceKind, payloadSHA256, causalVersion, frameID, signingPayloadVersion, payloadBase64, deviceSignature }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, deviceID: EnchiridionDeviceID, authEpoch: EnchiridionAuthEpoch, credentialEpoch: EnchiridionCredentialEpoch, generationEpoch: EnchiridionGenerationEpoch, sessionNonce: EnchiridionFrameID, assertionExpiresAt: EnchiridionSignedTimestamp, operationID: EnchiridionIdentifier, sourceKind: String, payloadSHA256: EnchiridionSHA256Digest, causalVersion: EnchiridionNonNegativeInt? = nil, frameID: EnchiridionFrameID, signingPayloadVersion: EnchiridionSigningPayloadVersion, payloadBase64: EnchiridionBase64Payload, deviceSignature: EnchiridionP256Signature) {
     self.type = type
     self.protocolVersion = protocolVersion
     self.vaultID = vaultID
@@ -1114,7 +1140,9 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     self.generationEpoch = generationEpoch
     self.sessionNonce = sessionNonce
     self.assertionExpiresAt = assertionExpiresAt
-    self.changeID = changeID
+    self.operationID = operationID
+    self.sourceKind = sourceKind
+    self.payloadSHA256 = payloadSHA256
     self.causalVersion = causalVersion
     self.frameID = frameID
     self.signingPayloadVersion = signingPayloadVersion
@@ -1135,8 +1163,11 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     let generationEpoch = try c.decode(EnchiridionGenerationEpoch.self, forKey: .generationEpoch)
     let sessionNonce = try c.decode(EnchiridionFrameID.self, forKey: .sessionNonce)
     let assertionExpiresAt = try c.decode(EnchiridionSignedTimestamp.self, forKey: .assertionExpiresAt)
-    let changeID = try c.decode(EnchiridionIdentifier.self, forKey: .changeID)
-    let causalVersion = try c.decode(EnchiridionNonNegativeInt.self, forKey: .causalVersion)
+    let operationID = try c.decode(EnchiridionIdentifier.self, forKey: .operationID)
+    let sourceKind = try c.decode(String.self, forKey: .sourceKind)
+    guard sourceKind == "websocket" else { throw EnchiridionProtocolValidationError.invalidValue("sourceKind") }
+    let payloadSHA256 = try c.decode(EnchiridionSHA256Digest.self, forKey: .payloadSHA256)
+    let causalVersion = try c.decodeIfPresent(EnchiridionNonNegativeInt.self, forKey: .causalVersion)
     let frameID = try c.decode(EnchiridionFrameID.self, forKey: .frameID)
     let signingPayloadVersion = try c.decode(EnchiridionSigningPayloadVersion.self, forKey: .signingPayloadVersion)
     let payloadBase64 = try c.decode(EnchiridionBase64Payload.self, forKey: .payloadBase64)
@@ -1150,7 +1181,9 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     self.generationEpoch = generationEpoch
     self.sessionNonce = sessionNonce
     self.assertionExpiresAt = assertionExpiresAt
-    self.changeID = changeID
+    self.operationID = operationID
+    self.sourceKind = sourceKind
+    self.payloadSHA256 = payloadSHA256
     self.causalVersion = causalVersion
     self.frameID = frameID
     self.signingPayloadVersion = signingPayloadVersion
@@ -1159,6 +1192,7 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
   }
   public func encode(to encoder: Encoder) throws {
     guard type == "syncChange" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
+    guard sourceKind == "websocket" else { throw EnchiridionProtocolValidationError.invalidValue("sourceKind") }
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(type, forKey: .type)
     try c.encode(protocolVersion, forKey: .protocolVersion)
@@ -1169,8 +1203,10 @@ public struct SyncChangeFrame: Codable, Equatable, Sendable {
     try c.encode(generationEpoch, forKey: .generationEpoch)
     try c.encode(sessionNonce, forKey: .sessionNonce)
     try c.encode(assertionExpiresAt, forKey: .assertionExpiresAt)
-    try c.encode(changeID, forKey: .changeID)
-    try c.encode(causalVersion, forKey: .causalVersion)
+    try c.encode(operationID, forKey: .operationID)
+    try c.encode(sourceKind, forKey: .sourceKind)
+    try c.encode(payloadSHA256, forKey: .payloadSHA256)
+    try c.encodeIfPresent(causalVersion, forKey: .causalVersion)
     try c.encode(frameID, forKey: .frameID)
     try c.encode(signingPayloadVersion, forKey: .signingPayloadVersion)
     try c.encode(payloadBase64, forKey: .payloadBase64)
@@ -1182,15 +1218,15 @@ public struct SyncAcknowledgedFrame: Codable, Equatable, Sendable {
   public let type: String
   public let protocolVersion: EnchiridionProtocolVersion
   public let vaultID: EnchiridionVaultID
-  public let changeID: EnchiridionIdentifier
-  public let causalVersion: EnchiridionNonNegativeInt
-  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, changeID, causalVersion }
-  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, changeID: EnchiridionIdentifier, causalVersion: EnchiridionNonNegativeInt) {
+  public let operationID: EnchiridionIdentifier
+  public let logSequence: EnchiridionLogSequence
+  private enum CodingKeys: String, CodingKey { case type, protocolVersion, vaultID, operationID, logSequence }
+  public init(type: String, protocolVersion: EnchiridionProtocolVersion, vaultID: EnchiridionVaultID, operationID: EnchiridionIdentifier, logSequence: EnchiridionLogSequence) {
     self.type = type
     self.protocolVersion = protocolVersion
     self.vaultID = vaultID
-    self.changeID = changeID
-    self.causalVersion = causalVersion
+    self.operationID = operationID
+    self.logSequence = logSequence
   }
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: EnchiridionAnyCodingKey.self)
@@ -1200,13 +1236,13 @@ public struct SyncAcknowledgedFrame: Codable, Equatable, Sendable {
     guard type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
     let protocolVersion = try c.decode(EnchiridionProtocolVersion.self, forKey: .protocolVersion)
     let vaultID = try c.decode(EnchiridionVaultID.self, forKey: .vaultID)
-    let changeID = try c.decode(EnchiridionIdentifier.self, forKey: .changeID)
-    let causalVersion = try c.decode(EnchiridionNonNegativeInt.self, forKey: .causalVersion)
+    let operationID = try c.decode(EnchiridionIdentifier.self, forKey: .operationID)
+    let logSequence = try c.decode(EnchiridionLogSequence.self, forKey: .logSequence)
     self.type = type
     self.protocolVersion = protocolVersion
     self.vaultID = vaultID
-    self.changeID = changeID
-    self.causalVersion = causalVersion
+    self.operationID = operationID
+    self.logSequence = logSequence
   }
   public func encode(to encoder: Encoder) throws {
     guard type == "syncAcknowledged" else { throw EnchiridionProtocolValidationError.invalidValue("type") }
@@ -1214,8 +1250,8 @@ public struct SyncAcknowledgedFrame: Codable, Equatable, Sendable {
     try c.encode(type, forKey: .type)
     try c.encode(protocolVersion, forKey: .protocolVersion)
     try c.encode(vaultID, forKey: .vaultID)
-    try c.encode(changeID, forKey: .changeID)
-    try c.encode(causalVersion, forKey: .causalVersion)
+    try c.encode(operationID, forKey: .operationID)
+    try c.encode(logSequence, forKey: .logSequence)
   }
 }
 
@@ -1401,7 +1437,7 @@ public struct EnchiridionHTTPClient: Sendable {
 public enum EnchiridionSyncChangeSigningPayload {
   public static let version = 1
   public static func canonicalBytes(_ frame: SyncChangeFrame) -> Data {
-    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.changeID.value, String(frame.causalVersion.value), frame.frameID.value, frame.payloadBase64.value]
+    let fields = [String(frame.protocolVersion.value), frame.vaultID.value, frame.deviceID.value, String(frame.authEpoch.value), String(frame.credentialEpoch.value), String(frame.generationEpoch.value), frame.sessionNonce.value, String(frame.assertionExpiresAt.value), frame.operationID.value, frame.sourceKind, frame.payloadSHA256.value, frame.causalVersion.map { String($0.value) } ?? "", frame.frameID.value, frame.payloadBase64.value]
     var bytes = Data("ENCHSYNC".utf8); bytes.append(UInt8(version))
     for field in fields { let fieldBytes = Data(field.utf8); var length = UInt32(fieldBytes.count).bigEndian; withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }; bytes.append(fieldBytes) }
     return bytes
