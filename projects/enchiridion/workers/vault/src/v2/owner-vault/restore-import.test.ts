@@ -11,7 +11,8 @@ import { type BlobLimits, type BlobScope, blobObjectKey } from "../blobs/blobs";
 import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
 import type { OwnerVaultRestoreImportPlan, OwnerVaultRestoreImportRecord } from "./backup-types";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
-import { makeOwnerVaultRestoreImport, ownerVaultRestoreAppendLogDigest, ownerVaultRestoreImportHashChain } from "./restore-import";
+import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
+import { ownerVaultAppendProofValidate } from "./append-proof";
 import type { OwnerVaultAppendLogEntry } from "./domains";
 import type { OwnerVaultStorageRecord } from "./storage-registry";
 
@@ -60,14 +61,15 @@ const imported = (ordinal: number, category: OwnerVaultRestoreImportRecord["cate
   if (bytes === undefined) throw new Error("test setup");
   return { expected: { ordinal, address: { category, identifier }, version: 1 as const, category, codec: "owner-vault-storage-record-v1" as const, sha256Base64: ownerVaultBackupDigest(bytes), size: bytes.byteLength }, stored };
 };
-const planWithHead = (logHead: number, ...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => {
+const sourceScope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1 } as const;
+const planWithHead = (appendLogSequence: number, ...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => {
   const manifestDigest = digest("signed-manifest"); const records = items.map((item) => item.expected);
   const hashChain = ownerVaultRestoreImportHashChain(manifestDigest, records);
   if (hashChain === undefined) throw new Error("test setup");
   const log = items.filter((item) => item.expected.category === "append-log.entry").map((item) => item.stored.payload as unknown as OwnerVaultAppendLogEntry);
-  const highWaterMark = ownerVaultRestoreAppendLogDigest(log, logHead);
-  if (highWaterMark === undefined) throw new Error("test setup");
-  return { backupID: "backup-restore-0001", manifestDigest, highWaterMark, logHead, totalBytes: records.reduce((total, item) => total + item.size, 0), objectCount: records.length, hashChain, records };
+  const appendProof = ownerVaultAppendProofValidate(sourceScope, log);
+  if (appendProof === undefined || appendProof.appendLogSequence !== appendLogSequence) throw new Error("test setup");
+  return { backupID: "backup-restore-0001", manifestDigest, source: sourceScope, highWaterMark: digest("catalog-identity"), appendLogSequence, appendLogDigest: appendProof.appendLogDigest, totalBytes: records.reduce((total, item) => total + item.size, 0), objectCount: records.length, hashChain, records };
 };
 const planFor = (...items: readonly { readonly expected: OwnerVaultRestoreImportRecord; readonly stored: OwnerVaultStorageRecord }[]): OwnerVaultRestoreImportPlan => planWithHead(0, ...items);
 const finalization = () => ({ blobScope, blobLimits, targetBlobEvidence: [] });
@@ -95,7 +97,7 @@ describe("OwnerVault C1 restore import", () => {
     expect(revision(built.native.entries)).toBe(1);
     expect((built.native.entries.get("v2.ov/root/accounting") as { payload: { usedBytes: number } }).payload.usedBytes).toBeGreaterThan(initialAccounting);
     expect(built.native.entries.get("v2.ov/blob/accounting")).toMatchObject({ payload: { referencedBytes: 0, leaseIDs: [], purgeSHA256s: [] } });
-    expect(built.native.entries.get("v2.ov/root/log-head")).toEqual({ category: "root.log-head", version: 1, payload: { logSequence: 0 } });
+    expect(built.native.entries.get("v2.ov/root/log-head")).toEqual({ category: "root.log-head", version: 1, payload: { appendLogSequence: 0, appendLogDigest: ownerVaultAppendProofValidate(sourceScope, [])?.appendLogDigest } });
   });
 
   test("accepts the manifest's zero-based append inventory only when strict contiguous P02 rows match its head digest", async () => {
@@ -108,7 +110,7 @@ describe("OwnerVault C1 restore import", () => {
     await Effect.runPromise(built.restore.applyRestoreRecord({ manifestDigest: plan.manifestDigest, expected: second.expected, record: second.stored }));
     await Effect.runPromise(built.restore.finalizeRestoreImport(plan.manifestDigest, finalization()));
     expect(revision(built.native.entries)).toBe(1);
-    expect(built.native.entries.get("v2.ov/append-log/head")).toEqual({ category: "append-log.head", version: 1, payload: { logSequence: 2 } });
+    expect(built.native.entries.get("v2.ov/append-log/head")).toEqual({ category: "append-log.head", version: 1, payload: { appendLogSequence: 2, appendLogDigest: plan.appendLogDigest } });
   });
 
   test("rejects missing, extra, or head-chain-mismatched append inventories before publication", async () => {
@@ -117,9 +119,9 @@ describe("OwnerVault C1 restore import", () => {
     });
     const valid = planWithHead(1, entry);
     for (const plan of [
-      { ...valid, logHead: 2 },
-      { ...valid, logHead: 0 },
-      { ...valid, highWaterMark: digest("wrong-log-chain") },
+      { ...valid, appendLogSequence: 2 },
+      { ...valid, appendLogSequence: 0 },
+      { ...valid, appendLogDigest: "a".repeat(64) },
     ]) {
       const built = await fixture();
       await Effect.runPromise(built.restore.beginRestoreImport(plan));

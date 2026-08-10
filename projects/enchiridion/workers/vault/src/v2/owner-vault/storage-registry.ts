@@ -165,6 +165,15 @@ const validAuditSourceScope = (value: unknown): value is OwnerVaultAuditSourceSc
   );
 };
 
+/** Restore headers retain the immutable *source* scope solely to seed D0. */
+const validRestoreJournal = (value: unknown): boolean => {
+  const source = plainRecord(value);
+  if (source === undefined) return false;
+  if (source.source === undefined) return !hasForbiddenScope(source);
+  const rest = Object.fromEntries(Object.entries(source).filter(([key]) => key !== "source"));
+  return validAuditSourceScope(source.source) && !hasForbiddenScope(rest);
+};
+
 /** The security fence is target-local; generation authority is root.identity. */
 const validSecurityFloor = (value: unknown): boolean => {
   const source = plainRecord(value);
@@ -208,7 +217,7 @@ const validBackupPin = (value: unknown): boolean => {
   const scope = source === undefined ? undefined : plainRecord(source.scope);
   const keys = source === undefined ? [] : Object.keys(source).sort();
   const expected = [
-    "backupID", "catalogDigest", "catalogRevision", "highWaterMark", "logHead", "pinProof", "retained", "rootDigest", "scope", "state",
+    "appendLogDigest", "appendLogSequence", "backupID", "catalogDigest", "catalogRevision", "highWaterMark", "pinProof", "retained", "rootDigest", "scope", "state",
     ...(source?.manifestDigest === undefined ? [] : ["manifestDigest"]),
   ].sort();
   return source !== undefined && scope !== undefined && keys.length === expected.length && keys.every((key, index) => key === expected[index]) &&
@@ -217,7 +226,8 @@ const validBackupPin = (value: unknown): boolean => {
     typeof source.backupID === "string" && identifierPattern.test(source.backupID) &&
     typeof source.catalogRevision === "number" && Number.isSafeInteger(source.catalogRevision) && source.catalogRevision >= 0 &&
     [source.catalogDigest, source.highWaterMark, source.rootDigest].every((entry) => typeof entry === "string" && /^[A-Za-z0-9+/]{43}=$/u.test(entry)) &&
-    typeof source.logHead === "number" && Number.isSafeInteger(source.logHead) && source.logHead >= 0 &&
+    typeof source.appendLogSequence === "number" && Number.isSafeInteger(source.appendLogSequence) && source.appendLogSequence >= 0 &&
+    typeof source.appendLogDigest === "string" && /^[a-f0-9]{64}$/u.test(source.appendLogDigest) &&
     typeof source.pinProof === "string" && /^[A-Za-z0-9_-]{16,512}$/u.test(source.pinProof) && typeof source.retained === "boolean" &&
     (source.state === "OPEN" || source.state === "COMPLETED" || source.state === "ABORTED" || source.state === "EXPIRED") &&
     (source.manifestDigest === undefined || (typeof source.manifestDigest === "string" && /^[A-Za-z0-9+/]{43}=$/u.test(source.manifestDigest)));
@@ -337,7 +347,7 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
     decode: (value) => decodeEnvelope("backup.preimage", value, (payload) => !hasForbiddenScope(payload)),
   },
   { category: "backup.gc-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/gc-journal"), decode: (value) => decodeEnvelope("backup.gc-journal", value, (payload) => !hasForbiddenScope(payload)) },
-  { category: "backup.restore-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "backup.restore-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, validRestoreJournal) },
   { category: "control.initialization-ack", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "control.floor-sync", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
 ];

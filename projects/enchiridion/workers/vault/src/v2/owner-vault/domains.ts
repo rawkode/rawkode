@@ -8,6 +8,11 @@ import type {
   OwnerVaultTx,
 } from "./repository";
 import type { OwnerVaultTargetRoot } from "./storage-registry";
+import {
+  ownerVaultAppendProofD0,
+  ownerVaultAppendProofNext,
+  type OwnerVaultAppendProof,
+} from "./append-proof";
 
 /**
  * The one durable domain boundary used by the v2 OwnerVault.  Callers verify
@@ -162,7 +167,7 @@ interface Admission {
   readonly capabilityReceipts: number;
 }
 interface Floors { readonly securityFloor: number }
-interface LogHead { readonly logSequence: number }
+interface LogHead extends OwnerVaultAppendProof {}
 interface OperationReceipt {
   readonly kind: "append" | "device-registration" | "device-revoke";
   readonly fingerprint: string;
@@ -244,7 +249,9 @@ const decodeAdmission = (value: unknown): Admission | undefined =>
 const decodeFloors = (value: unknown): Floors | undefined =>
   isRecord(value) && exact(value, ["securityFloor"]) && isSafeNonNegative(value.securityFloor) ? { securityFloor: value.securityFloor } : undefined;
 const decodeLogHead = (value: unknown): LogHead | undefined =>
-  isRecord(value) && exact(value, ["logSequence"]) && isSafeNonNegative(value.logSequence) ? { logSequence: value.logSequence } : undefined;
+  isRecord(value) && exact(value, ["appendLogDigest", "appendLogSequence"]) &&
+  isSafeNonNegative(value.appendLogSequence) && typeof value.appendLogDigest === "string" && sha256.test(value.appendLogDigest)
+    ? { appendLogSequence: value.appendLogSequence, appendLogDigest: value.appendLogDigest } : undefined;
 const decodeReceipt = (value: unknown): OperationReceipt | undefined => {
   if (!isRecord(value) || !exact(value, ["expiresAtSeconds", "fingerprint", "kind", "result"])) return undefined;
   return (value.kind === "append" || value.kind === "device-registration" || value.kind === "device-revoke") &&
@@ -374,7 +381,11 @@ export const makeOwnerVaultDomainProvider = (
     }).pipe(Effect.flatMap((stored) => stored === undefined ? fail("identity_conflict") : sameRoot(stored, root) ? Effect.void : fail("identity_conflict")));
   const getAdmission = (tx: OwnerVaultTx) => read(tx, address("root.admission"), decodeAdmission).pipe(Effect.flatMap((value) => value === undefined ? fail<Admission>("state_corrupt") : Effect.succeed(value)));
   const getFloors = (tx: OwnerVaultTx) => read(tx, address("root.floors"), decodeFloors).pipe(Effect.flatMap((value) => value === undefined ? fail<Floors>("state_corrupt") : Effect.succeed(value)));
-  const getHead = (tx: OwnerVaultTx) => Effect.all([read(tx, address("root.log-head"), decodeLogHead), read(tx, address("append-log.head"), decodeLogHead)]).pipe(Effect.flatMap(([rootHead, appendHead]) => rootHead === undefined || appendHead === undefined || rootHead.logSequence !== appendHead.logSequence ? fail<LogHead>("state_corrupt") : Effect.succeed(rootHead)));
+  const getHead = (tx: OwnerVaultTx) => Effect.all([read(tx, address("root.log-head"), decodeLogHead), read(tx, address("append-log.head"), decodeLogHead)]).pipe(Effect.flatMap(([rootHead, appendHead]) =>
+    rootHead === undefined || appendHead === undefined ||
+    rootHead.appendLogSequence !== appendHead.appendLogSequence ||
+    rootHead.appendLogDigest !== appendHead.appendLogDigest
+      ? fail<LogHead>("state_corrupt") : Effect.succeed(rootHead)));
   const authenticatedDevice = (tx: OwnerVaultTx, actor: OwnerVaultAppendInput["actor"] | { readonly deviceID: string; readonly authEpoch: number; readonly credentialEpoch: number; readonly securityFloor: number }) =>
     Effect.all([read(tx, address("device", actor.deviceID), decodeDevice), getFloors(tx)]).pipe(Effect.flatMap(([device, floors]) =>
       device === undefined || device.revoked || device.authEpoch !== actor.authEpoch || device.credentialEpoch !== actor.credentialEpoch || device.securityFloor !== actor.securityFloor || actor.authEpoch < floors.securityFloor
@@ -388,9 +399,9 @@ export const makeOwnerVaultDomainProvider = (
       Effect.zipRight(read(tx, address("root.floors"), decodeFloors)),
       Effect.flatMap((floors) => floors === undefined ? write(tx, address("root.floors"), { securityFloor: 0 }) : Effect.void),
       Effect.zipRight(read(tx, address("root.log-head"), decodeLogHead)),
-      Effect.flatMap((head) => head === undefined ? write(tx, address("root.log-head"), { logSequence: 0 }) : Effect.void),
+      Effect.flatMap((head) => head === undefined ? write(tx, address("root.log-head"), { appendLogSequence: 0, appendLogDigest: ownerVaultAppendProofD0(root) }) : Effect.void),
       Effect.zipRight(read(tx, address("append-log.head"), decodeLogHead)),
-      Effect.flatMap((head) => head === undefined ? write(tx, address("append-log.head"), { logSequence: 0 }) : Effect.void),
+      Effect.flatMap((head) => head === undefined ? write(tx, address("append-log.head"), { appendLogSequence: 0, appendLogDigest: ownerVaultAppendProofD0(root) }) : Effect.void),
       Effect.zipRight(getHead(tx).pipe(Effect.asVoid)),
     ));
 
@@ -464,23 +475,25 @@ export const makeOwnerVaultDomainProvider = (
       }
       return authenticatedDevice(tx, input.actor).pipe(Effect.zipRight(Effect.all([getHead(tx), read(tx, address("operation-index", input.operationID), decodeOperationIndex), read(tx, address("nonce", input.nonce.value), decodeNonce), read(tx, address("jti", input.capability.jti), decodeJtiClaim), read(tx, address("capability-receipt", input.capability.jti), decodeCapability), getAdmission(tx)])), Effect.flatMap(([head, index, nonce, jti, capabilityReceipt, admission]) => {
         if (index !== undefined) return index.fingerprint === input.fingerprint ? fail("state_corrupt") : fail("replay_conflict");
-        if (input.observedHighWater > head.logSequence) return fail("observed_high_water_ahead");
+        if (input.observedHighWater > head.appendLogSequence) return fail("observed_high_water_ahead");
         if (nonce !== undefined && nonce.expiresAtSeconds > input.nowSeconds) return fail("nonce_replayed");
         if (jti !== undefined && jti.expiresAtSeconds > input.nowSeconds) return fail("capability_replayed");
         if (capabilityReceipt !== undefined && capabilityReceipt.expiresAtSeconds > input.nowSeconds) return fail("capability_replayed");
         if (admission.capabilityReceipts >= ownerVaultMaximumCapabilityReceipts) return fail("quota_exceeded");
-        const logSequence = head.logSequence + 1;
+        const logSequence = head.appendLogSequence + 1;
         if (!isSafePositive(logSequence)) return fail("quota_exceeded");
         const acknowledgement = { operationID: input.operationID, payloadHash: input.payloadHash, logSequence, replayed: false } satisfies OwnerVaultAppendAcknowledgement;
         const entry: OwnerVaultAppendLogEntry = { operationID: input.operationID, fingerprint: input.fingerprint, payloadHash: input.payloadHash, payloadBase64: input.payloadBase64, source: input.source, deviceID: input.actor.deviceID, logSequence };
+        const nextHead = ownerVaultAppendProofNext(root, head, entry);
+        if (nextHead === undefined) return fail("state_corrupt");
         return write(tx, address("nonce", input.nonce.value), { expiresAtSeconds: input.nonce.expiresAtSeconds, fingerprint: input.nonce.fingerprint }).pipe(
           Effect.zipRight(write(tx, address("jti", input.capability.jti), { operationID: input.operationID, expiresAtSeconds: input.capability.expiresAtSeconds })),
           Effect.zipRight(write(tx, address("capability-receipt", input.capability.jti), { operationID: input.operationID, expiresAtSeconds: input.capability.expiresAtSeconds, fingerprint: input.fingerprint, result: { logSequence, payloadHash: input.payloadHash } })),
           Effect.zipRight(write(tx, address("append-log.entry", sequenceID(logSequence)), { ...entry })),
           Effect.zipRight(write(tx, address("operation-index", input.operationID), { logSequence, fingerprint: input.fingerprint, payloadHash: input.payloadHash })),
           Effect.zipRight(write(tx, address("operation-receipt", input.operationID), { kind: "append", fingerprint: input.fingerprint, expiresAtSeconds: input.receiptExpiresAtSeconds, result: { logSequence, payloadHash: input.payloadHash } })),
-          Effect.zipRight(write(tx, address("root.log-head"), { logSequence })),
-          Effect.zipRight(write(tx, address("append-log.head"), { logSequence })),
+          Effect.zipRight(write(tx, address("root.log-head"), { ...nextHead })),
+          Effect.zipRight(write(tx, address("append-log.head"), { ...nextHead })),
           Effect.zipRight(write(tx, address("root.admission"), { ...admission, capabilityReceipts: admission.capabilityReceipts + 1 })),
           Effect.as(acknowledgement),
         );

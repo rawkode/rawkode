@@ -15,6 +15,7 @@ export const ownerVaultCatalogMaximumPageBytes = 32 * 1024;
 
 const encoder = new TextEncoder();
 const base64 = /^[A-Za-z0-9+/]{43}=$/u;
+const hex = /^[a-f0-9]{64}$/u;
 const revision = /^[0-9]{20}$/u;
 const pageIdentifier = /^[0-9]{20}-[0-9]{4}$/u;
 
@@ -44,8 +45,10 @@ export interface OwnerVaultCatalogRootPayload {
   readonly catalogRevision: number;
   readonly catalogDigest: string;
   readonly pages: readonly OwnerVaultCatalogPageDescriptor[];
-  readonly logHead: number;
-  readonly highWaterDigest: string;
+  /** Catalog identity; it is not the append-chain proof. */
+  readonly highWaterMark: string;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
 }
 
 export interface OwnerVaultCatalogCurrentPayload {
@@ -161,11 +164,12 @@ const isDescriptor = (value: unknown, ordinal: number, catalogRevision: number):
 
 export const isOwnerVaultCatalogRootPayload = (value: unknown): value is OwnerVaultCatalogRootPayload => {
   const source = plainRecord(value);
-  return source !== undefined && exact(source, ["scope", "catalogRevision", "catalogDigest", "pages", "logHead", "highWaterDigest"]) &&
+  return source !== undefined && exact(source, ["scope", "catalogRevision", "catalogDigest", "pages", "highWaterMark", "appendLogSequence", "appendLogDigest"]) &&
     isScope(source.scope) && safeNonNegativeInteger(source.catalogRevision) &&
     typeof source.catalogDigest === "string" && base64.test(source.catalogDigest) &&
     Array.isArray(source.pages) && source.pages.length <= ownerVaultCatalogMaximumObjects / ownerVaultCatalogMaximumPageEntries && source.pages.every((page, index) => isDescriptor(page, index, source.catalogRevision as number)) &&
-    safeNonNegativeInteger(source.logHead) && typeof source.highWaterDigest === "string" && base64.test(source.highWaterDigest) &&
+    typeof source.highWaterMark === "string" && base64.test(source.highWaterMark) &&
+    safeNonNegativeInteger(source.appendLogSequence) && typeof source.appendLogDigest === "string" && hex.test(source.appendLogDigest) &&
     ownerVaultCatalogCanonicalBytes(source)?.byteLength !== undefined && ownerVaultCatalogCanonicalBytes(source)!.byteLength <= 8 * 1024;
 };
 

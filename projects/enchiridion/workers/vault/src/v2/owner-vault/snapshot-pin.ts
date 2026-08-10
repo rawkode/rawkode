@@ -43,6 +43,7 @@ import type { OwnerVaultStorageRecord } from "./storage-registry";
 
 const backupIDPattern = /^[A-Za-z0-9_-]{16,120}$/u;
 const digestPattern = /^[A-Za-z0-9+/]{43}=$/u;
+const appendDigestPattern = /^[a-f0-9]{64}$/u;
 const cursorPattern = /^[0-9]{20}$/u;
 const maxPins = 1_024;
 const gcChunk = 128;
@@ -129,7 +130,7 @@ const backupObjectKey = (scope: OwnerVaultBackupScope, backupID: string, ordinal
 const decodePin = (value: unknown): StoredPin | undefined => {
   const source = plain(value);
   if (source === undefined || !exact(source, [
-    "backupID", "catalogDigest", "catalogRevision", "highWaterMark", "logHead", "pinProof", "retained", "rootDigest", "scope", "state",
+    "appendLogDigest", "appendLogSequence", "backupID", "catalogDigest", "catalogRevision", "highWaterMark", "pinProof", "retained", "rootDigest", "scope", "state",
     ...(source.manifestDigest === undefined ? [] : ["manifestDigest"]),
   ])) return undefined;
   const scope = plain(source.scope);
@@ -140,7 +141,7 @@ const decodePin = (value: unknown): StoredPin | undefined => {
     typeof source.rootDigest !== "string" || !digestPattern.test(source.rootDigest) ||
     typeof source.catalogDigest !== "string" || !digestPattern.test(source.catalogDigest) ||
     typeof source.highWaterMark !== "string" || !digestPattern.test(source.highWaterMark) ||
-    !nonNegative(source.logHead) || typeof source.pinProof !== "string" || !/^[A-Za-z0-9_-]{16,512}$/u.test(source.pinProof) ||
+    !nonNegative(source.appendLogSequence) || typeof source.appendLogDigest !== "string" || !appendDigestPattern.test(source.appendLogDigest) || typeof source.pinProof !== "string" || !/^[A-Za-z0-9_-]{16,512}$/u.test(source.pinProof) ||
     typeof source.retained !== "boolean" || !validState(source.state) ||
     (source.manifestDigest !== undefined && (typeof source.manifestDigest !== "string" || !digestPattern.test(source.manifestDigest)))
   ) return undefined;
@@ -151,7 +152,8 @@ const decodePin = (value: unknown): StoredPin | undefined => {
     rootDigest: source.rootDigest,
     catalogDigest: source.catalogDigest,
     highWaterMark: source.highWaterMark,
-    logHead: source.logHead,
+    appendLogSequence: source.appendLogSequence,
+    appendLogDigest: source.appendLogDigest,
     pinProof: source.pinProof,
     state: source.state,
     retained: source.retained,
@@ -166,7 +168,8 @@ const encodePin = (value: StoredPin): Readonly<Record<string, unknown>> => ({
   rootDigest: value.rootDigest,
   catalogDigest: value.catalogDigest,
   highWaterMark: value.highWaterMark,
-  logHead: value.logHead,
+  appendLogSequence: value.appendLogSequence,
+  appendLogDigest: value.appendLogDigest,
   pinProof: value.pinProof,
   state: value.state,
   retained: value.retained,
@@ -177,14 +180,15 @@ const publicPin = (pin: StoredPin): OwnerVaultSnapshotPin => ({
   backupID: pin.backupID,
   scope: pin.scope,
   highWaterMark: pin.highWaterMark,
-  logHead: pin.logHead,
+  appendLogSequence: pin.appendLogSequence,
+  appendLogDigest: pin.appendLogDigest,
   catalogDigest: pin.catalogDigest,
   pinProof: pin.pinProof,
 });
 
 const pinMatches = (candidate: StoredPin, pin: OwnerVaultSnapshotPin): boolean =>
   candidate.backupID === pin.backupID && sameScope(candidate.scope, pin.scope) &&
-  candidate.highWaterMark === pin.highWaterMark && candidate.logHead === pin.logHead &&
+  candidate.highWaterMark === pin.highWaterMark && candidate.appendLogSequence === pin.appendLogSequence && candidate.appendLogDigest === pin.appendLogDigest &&
   candidate.catalogDigest === pin.catalogDigest && candidate.pinProof === pin.pinProof;
 
 const catalogEntries = (
@@ -206,8 +210,7 @@ const catalogEntries = (
       const entries = pages.flat();
       const ordered = entries.every((entry, index) => entry.ordinal === index &&
         (index === 0 || entries[index - 1]!.key < entry.key));
-      return ordered && ownerVaultCatalogDigest(entries) === root.catalogDigest &&
-        ownerVaultCatalogDigest({ logHead: root.logHead, entries }) === root.highWaterDigest
+      return ordered && ownerVaultCatalogDigest(entries) === root.catalogDigest && root.highWaterMark === root.catalogDigest
         ? Effect.succeed(entries)
         : Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
     }),
@@ -224,7 +227,7 @@ const pinnedRoot = (
       const root = stored?.payload;
       if (stored === undefined || !isOwnerVaultCatalogRootPayload(root) || root.catalogRevision !== pin.catalogRevision ||
         ownerVaultCatalogDigest(root) !== pin.rootDigest || root.catalogDigest !== pin.catalogDigest ||
-        root.highWaterDigest !== pin.highWaterMark || root.logHead !== pin.logHead || !sameScope(root.scope, pin.scope))
+        root.highWaterMark !== pin.highWaterMark || root.appendLogSequence !== pin.appendLogSequence || root.appendLogDigest !== pin.appendLogDigest || !sameScope(root.scope, pin.scope))
         return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "state_corrupt" } as const);
       return catalogEntries(tx, root).pipe(Effect.map((entries) => ({ root, entries })));
     }),
@@ -296,7 +299,8 @@ export const makeOwnerVaultSnapshotPinController = (
                         if (!nonNegative(count) || count >= maxPins) return Effect.fail({ _tag: "OwnerVaultStorageError", reason: "quota_exceeded" } as const);
                         const pin: StoredPin = {
                           backupID, scope, catalogRevision: root.catalogRevision, rootDigest,
-                          catalogDigest: root.catalogDigest, highWaterMark: root.highWaterDigest, logHead: root.logHead,
+                          catalogDigest: root.catalogDigest, highWaterMark: root.highWaterMark,
+                          appendLogSequence: root.appendLogSequence, appendLogDigest: root.appendLogDigest,
                           pinProof: proof, state: OwnerVaultSnapshotPinState.Open, retained: true,
                         };
                         return tx.put(address("backup.pin", backupID), encodePin(pin)).pipe(

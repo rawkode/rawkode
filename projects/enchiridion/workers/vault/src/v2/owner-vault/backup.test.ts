@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ImmutableR2Error, ManifestVerificationError, type ImmutableR2Boundary, type ImmutableR2ObjectMetadata } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
 import { canonicalPageBytes, canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
+import { ownerVaultAppendProofValidate } from "./append-proof";
 import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import { OwnerVaultBackupError } from "./backup-types";
 import type {
@@ -50,7 +51,7 @@ const runtime = (boundary: ImmutableR2Boundary): OwnerVaultBackupRuntime => ({
 const records = (): readonly OwnerVaultSnapshotObject[] => {
   const source: readonly { readonly category: OwnerVaultSnapshotObject["address"]["category"]; readonly identifier: string; readonly payload: Readonly<Record<string, unknown>> }[] = [
     { category: "device", identifier: "device-1", payload: { publicKey: "key" } },
-    { category: "append-log.entry", identifier: "00000000000000000001", payload: { operationID: "op-1", payload: "change" } },
+    { category: "append-log.entry", identifier: "00000000000000000001", payload: { operationID: "operation-1", fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: 1 } },
   ];
   return source.map((item, ordinal) => {
     const address = { category: item.category, identifier: item.identifier } as const;
@@ -73,8 +74,10 @@ const source = (items = records()): OwnerVaultBackupSnapshotSource => {
   const pageBytes = canonicalPageBytes({ ordinal: 0, entries, digest: "" });
   if (pageBytes === undefined) throw new Error("test page encoding failed");
   const catalog = ownerVaultBackupDigest(new TextEncoder().encode(JSON.stringify(entries.map(({ key, ...entry }) => entry))));
+  const appendEntries = items.filter((item) => item.address.category === "append-log.entry").map((item) => item.record.payload as unknown as import("./domains").OwnerVaultAppendLogEntry);
+  const appendProof = ownerVaultAppendProofValidate(scope, appendEntries)!;
   return {
-    beginSnapshot: () => Effect.succeed({ backupID, scope, highWaterMark: ownerVaultBackupDigest(new TextEncoder().encode("high-water")), logHead: 1, catalogDigest: catalog, pinProof: "p".repeat(16) }),
+    beginSnapshot: () => Effect.succeed({ backupID, scope, highWaterMark: ownerVaultBackupDigest(new TextEncoder().encode("high-water")), appendLogSequence: appendProof.appendLogSequence, appendLogDigest: appendProof.appendLogDigest, catalogDigest: catalog, pinProof: "p".repeat(16) }),
     readSnapshotPage: (_pin, cursor) => cursor === undefined
       ? Effect.succeed({ entries: items, digest: ownerVaultBackupDigest(pageBytes) })
       : Effect.fail(new OwnerVaultBackupError({ reason: "catalog_invalid" })),
@@ -98,7 +101,7 @@ const target = (): { readonly target: OwnerVaultPrivateRestoreTarget; readonly a
       writeJournal: (next) => Effect.sync(() => { journal = next; events.push(`journal:${next.lastAppliedOrdinal}:${next.state}`); }),
       applyRecord: (entry) => Effect.sync(() => { applied.push(entry.ordinal); }),
       writeRestoreAudit: () => Effect.sync(() => events.push("audit")),
-      completeRestore: (input) => Effect.sync(() => events.push(`complete:${input.highWaterMark}:${input.logHead}`)),
+      completeRestore: (input) => Effect.sync(() => events.push(`complete:${input.highWaterMark}:${input.appendLogSequence}`)),
     },
   };
 };

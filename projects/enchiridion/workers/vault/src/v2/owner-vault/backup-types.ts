@@ -31,7 +31,8 @@ export interface OwnerVaultSnapshotPin {
   readonly backupID: string;
   readonly scope: OwnerVaultBackupScope;
   readonly highWaterMark: string;
-  readonly logHead: number;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
   readonly catalogDigest: string;
   readonly pinProof: string;
 }
@@ -88,7 +89,8 @@ export interface OwnerVaultBackupManifest {
   readonly backupID: string;
   readonly source: OwnerVaultBackupScope;
   readonly highWaterMark: string;
-  readonly logHead: number;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
   readonly catalogDigest: string;
   readonly pinProof: string;
   readonly totalBytes: number;
@@ -105,6 +107,9 @@ export interface OwnerVaultRestoreJournal {
   readonly backupID: string;
   readonly manifestDigest: string;
   readonly lastAppliedOrdinal: number;
+  /** Rolling source-scoped Dn tuple; ordinal zero starts at D0. */
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
   readonly state: "APPLYING" | "COMPLETED";
 }
 
@@ -125,8 +130,11 @@ export interface OwnerVaultRestoreImportRecord {
 export interface OwnerVaultRestoreImportPlan {
   readonly backupID: string;
   readonly manifestDigest: string;
+  /** Immutable source scope, used for D0 rather than the later PRIVATE target. */
+  readonly source: OwnerVaultBackupScope;
   readonly highWaterMark: string;
-  readonly logHead: number;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
   readonly totalBytes: number;
   readonly objectCount: number;
   /** Deterministic hash chain over the exact ordinal/address/version/hash inventory. */
@@ -147,9 +155,10 @@ export interface OwnerVaultRestoreImportFinalization {
 
 /** Pure P02 seam: C1 supplies exact restored rows, never caller-selected subsets. */
 export type OwnerVaultRestoreAppendLogValidator = (input: {
+  readonly scope: OwnerVaultBackupScope;
   readonly entries: readonly OwnerVaultAppendLogEntry[];
-  readonly highWaterMark: string;
-  readonly logHead: number;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
 }) => boolean;
 
 export type OwnerVaultRestoreReconstruction = (
@@ -166,8 +175,8 @@ export interface OwnerVaultPrivateRestoreTarget {
   readonly writeJournal: (journal: OwnerVaultRestoreJournal) => Effect.Effect<void, OwnerVaultBackupError>;
   readonly applyRecord: (entry: OwnerVaultBackupPageEntry, record: OwnerVaultStorageRecord) => Effect.Effect<void, OwnerVaultBackupError>;
   readonly writeRestoreAudit: (source: OwnerVaultBackupScope, backupID: string, manifestDigest: string) => Effect.Effect<void, OwnerVaultBackupError>;
-  /** Rebuilds derived catalog/accounting and sets log head only after exact 1..N validation. */
-  readonly completeRestore: (input: { readonly backupID: string; readonly highWaterMark: string; readonly logHead: number; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
+  /** Rebuilds derived catalog/accounting and commits the exact source append proof. */
+  readonly completeRestore: (input: { readonly backupID: string; readonly highWaterMark: string; readonly appendLogSequence: number; readonly appendLogDigest: string; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultBackupRuntime {
@@ -181,7 +190,7 @@ export interface OwnerVaultStorageRestoreAdapterOptions {
   readonly root: OwnerVaultTargetRoot;
   /** P06-05 supplies the DO-local no-source-state check; storage listing is never used as a fallback. */
   readonly assertFreshPrivateTarget: () => Effect.Effect<void, OwnerVaultBackupError>;
-  readonly rebuildDerived: (input: { readonly backupID: string; readonly highWaterMark: string; readonly logHead: number; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly rebuildDerived: (input: { readonly backupID: string; readonly highWaterMark: string; readonly appendLogSequence: number; readonly appendLogDigest: string; readonly manifestDigest: string }) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export class OwnerVaultBackupError extends Data.TaggedError("OwnerVaultBackupError")<{

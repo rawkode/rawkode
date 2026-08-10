@@ -19,7 +19,7 @@ const nativeState = () => {
   const transaction: DurableObjectTransactionNative = {
     get: (key) => Promise.resolve(entries.get(key)),
     put: (key, value) => { entries.set(key, value); return Promise.resolve(); },
-    delete: (key) => { entries.delete(key); return Promise.resolve(); },
+    delete: (key) => Promise.resolve(entries.delete(key)),
   };
   const storage: DurableObjectStorageNative = {
     ...transaction,
@@ -80,6 +80,19 @@ describe("OwnerVault durable snapshot pins", () => {
     expect((await Effect.runPromise(afterRestart.readSnapshotPage(first, undefined))).entries).toHaveLength(2);
     const retention = await Effect.runPromise(restarted.transact((tx) => tx.get({ category: "catalog.retention", identifier: "00000000000000000001" })));
     expect(retention?.payload).toEqual({ pinCount: 1 });
+  });
+
+  test("rejects legacy or mixed pin proofs rather than reinterpreting a catalog high-water as an append head", async () => {
+    const { native, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+    const key = "v2.ov/backup/pin/snapshot-pin-0001";
+    const stored = native.entries.get(key) as { readonly category: string; readonly version: number; readonly payload: Readonly<Record<string, unknown>> };
+    native.entries.set(key, { ...stored, payload: { ...stored.payload, logHead: 0 } });
+    const legacy = await Effect.runPromiseExit(controller.beginSnapshot(scope, backupID));
+    expect(Exit.isFailure(legacy)).toBe(true);
+    native.entries.set(key, { ...stored, payload: { ...stored.payload, appendLogDigest: "a".repeat(64), appendLogSequence: 0 } });
+    const mixed = await Effect.runPromiseExit(controller.readSnapshotPage(pin, undefined));
+    expect(Exit.isFailure(mixed)).toBe(true);
   });
 
   test("aborting closes the named archive namespace permanently", async () => {

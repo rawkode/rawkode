@@ -30,6 +30,7 @@ import {
   type OwnerVaultCatalogEntry,
   type OwnerVaultCatalogRootPayload,
 } from "./catalog";
+import { ownerVaultAppendProofD0 } from "./append-proof";
 
 const kibibyte = 1024;
 const mebibyte = 1024 * kibibyte;
@@ -403,18 +404,18 @@ const catalogRootPayload = (
   catalogRevision: number,
   entries: readonly OwnerVaultCatalogEntry[],
   pages: readonly { readonly identifier: string; readonly count: number; readonly bytes: number; readonly digest: string }[],
-  logHead: number,
+  appendProof: { readonly appendLogSequence: number; readonly appendLogDigest: string },
 ): OwnerVaultCatalogRootPayload | undefined => {
   const catalogDigest = ownerVaultCatalogDigest(entries);
-  const highWaterDigest = ownerVaultCatalogDigest({ logHead, entries });
-  if (catalogDigest === undefined || highWaterDigest === undefined) return undefined;
+  if (catalogDigest === undefined) return undefined;
   return {
     scope,
     catalogRevision,
     catalogDigest,
     pages: pages.map((page, ordinal) => ({ ordinal, ...page })),
-    logHead,
-    highWaterDigest,
+    highWaterMark: catalogDigest,
+    appendLogSequence: appendProof.appendLogSequence,
+    appendLogDigest: appendProof.appendLogDigest,
   };
 };
 
@@ -529,7 +530,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                           entries.length > ownerVaultCatalogMaximumObjects || total > ownerVaultCatalogMaximumTotalBytes ||
                           !ordered || new Set(entries.map((entry) => entry.key)).size !== entries.length ||
                           ownerVaultCatalogDigest(entries) !== root.catalogDigest ||
-                          ownerVaultCatalogDigest({ logHead: root.logHead, entries }) !== root.highWaterDigest
+                            root.highWaterMark !== root.catalogDigest
                         ) return storageError<CatalogState>("state_corrupt");
                         catalog = { revision: root.catalogRevision, entries, root, rootAddress, pageAddresses };
                         return Effect.succeed(catalog);
@@ -578,7 +579,10 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                 migrationJournal: { state: "ready", step: 0 },
               });
               const rootIdentifier = ownerVaultCatalogRevisionIdentifier(0);
-              const initialRoot = rootIdentifier === undefined ? undefined : catalogRootPayload(root, 0, [], [], 0);
+              const initialRoot = rootIdentifier === undefined ? undefined : catalogRootPayload(
+                root, 0, [], [],
+                { appendLogSequence: 0, appendLogDigest: ownerVaultAppendProofD0(root) },
+              );
               const rootDigest = initialRoot === undefined ? undefined : ownerVaultCatalogDigest(initialRoot);
               const catalogRoot = rootIdentifier === undefined || initialRoot === undefined
                 ? undefined
@@ -818,9 +822,14 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                   Effect.flatMap(([identityRecord, logHeadRecord]) => {
                     if (identityRecord === undefined) return storageError("not_initialized");
                     const logHeadPayload = logHeadRecord?.payload;
-                    const logHead = typeof logHeadPayload?.logSequence === "number" && nonNegativeInteger(logHeadPayload.logSequence)
-                      ? logHeadPayload.logSequence
-                      : 0;
+                    const appendLogSequence = logHeadPayload === undefined
+                      ? 0
+                      : typeof logHeadPayload.appendLogSequence === "number" && nonNegativeInteger(logHeadPayload.appendLogSequence)
+                        ? logHeadPayload.appendLogSequence : undefined;
+                    const appendLogDigest = logHeadPayload === undefined
+                      ? ownerVaultAppendProofD0(identityRecord.payload as unknown as OwnerVaultTargetRoot)
+                      : typeof logHeadPayload.appendLogDigest === "string" ? logHeadPayload.appendLogDigest : undefined;
+                    if (appendLogSequence === undefined || appendLogDigest === undefined) return storageError("state_corrupt");
                     const descriptors = pages.map((page, ordinal) => {
                       const identifier = ownerVaultCatalogPageIdentifier(revision, ordinal);
                       return identifier === undefined ? undefined : { identifier, count: page.entries.length, bytes: page.bytes, digest: page.digest };
@@ -831,7 +840,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                       revision,
                       entries,
                       descriptors as readonly { readonly identifier: string; readonly count: number; readonly bytes: number; readonly digest: string }[],
-                      logHead,
+                      { appendLogSequence, appendLogDigest },
                     );
                     const rootDigest = root === undefined ? undefined : ownerVaultCatalogDigest(root);
                     const nextRoot = root === undefined ? undefined : serializeRecord({ category: catalogRootCategory, identifier: revisionIdentifier }, root as unknown as Readonly<Record<string, unknown>>);
@@ -963,7 +972,7 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
       const ordered = listed.every((entry, index) => entry.ordinal === index && (index === 0 || listed[index - 1]!.key < entry.key));
       if (
         !ordered || !ownerVaultCatalogWithinQuota(listed) ||
-        ownerVaultCatalogDigest(listed) !== root.catalogDigest || ownerVaultCatalogDigest({ logHead: root.logHead, entries: listed }) !== root.highWaterDigest
+        ownerVaultCatalogDigest(listed) !== root.catalogDigest || root.highWaterMark !== root.catalogDigest
       )
         return yield* storageError<OwnerVaultStoragePage>("state_corrupt");
       const selected = listed.filter((entry) => entry.category === address.category &&

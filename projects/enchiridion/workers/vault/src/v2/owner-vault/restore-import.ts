@@ -12,6 +12,7 @@ import {
   decodeOwnerVaultBlobTombstone,
 } from "../blobs/owner-vault-blob-repository";
 import { canonicalOwnerVaultBackupBytes, canonicalSnapshotRecordBytes, ownerVaultBackupDigest, validOwnerVaultBackupDigest } from "./backup-canonical";
+import { ownerVaultAppendProofValidate } from "./append-proof";
 import {
   type OwnerVaultRestoreImportFinalization,
   type OwnerVaultRestoreImportPlan,
@@ -52,11 +53,13 @@ interface Header {
   readonly highWaterMark: string;
   readonly kind: "header";
   readonly lastAppliedOrdinal: number;
-  readonly logHead: number;
+  readonly appendLogSequence: number;
+  readonly appendLogDigest: string;
   readonly manifestDigest: string;
   readonly objectCount: number;
   readonly pageCount: number;
   readonly state: "APPLYING" | "COMPLETED";
+  readonly source: { readonly ownerID: string; readonly vaultID: string; readonly generationEpoch: number };
   readonly totalBytes: number;
 }
 interface Page {
@@ -94,24 +97,9 @@ const chainStep = (prior: string, item: OwnerVaultRestoreImportRecord): string |
   return bytes === undefined ? undefined : ownerVaultBackupDigest(bytes);
 };
 
-/** Deterministic P02-log proof rooted independently of an archive transport. */
-export const ownerVaultRestoreAppendLogDigest = (
-  entries: readonly OwnerVaultAppendLogEntry[],
-  logHead: number,
-): string | undefined => {
-  if (!nonNegative(logHead) || entries.length !== logHead || !entries.every((entry, index) => entry.logSequence === index + 1)) return undefined;
-  let previous = ownerVaultBackupDigest(new TextEncoder().encode("owner-vault-append-log-v1"));
-  for (const entry of entries) {
-    const bytes = canonicalOwnerVaultBackupBytes({ previous, entry });
-    if (bytes === undefined) return undefined;
-    previous = ownerVaultBackupDigest(bytes);
-  }
-  const head = canonicalOwnerVaultBackupBytes({ logHead, previous });
-  return head === undefined ? undefined : ownerVaultBackupDigest(head);
-};
-
 const strictAppendLogValidator: OwnerVaultRestoreAppendLogValidator = (input) =>
-  ownerVaultRestoreAppendLogDigest(input.entries, input.logHead) === input.highWaterMark;
+  ownerVaultAppendProofValidate(input.scope, input.entries)?.appendLogSequence === input.appendLogSequence &&
+  ownerVaultAppendProofValidate(input.scope, input.entries)?.appendLogDigest === input.appendLogDigest;
 
 export const ownerVaultRestoreImportHashChain = (
   manifestDigest: string,
@@ -130,7 +118,8 @@ export const ownerVaultRestoreImportHashChain = (
 const validPlan = (plan: OwnerVaultRestoreImportPlan): boolean => {
   if (!backupIDPattern.test(plan.backupID) || !validOwnerVaultBackupDigest(plan.manifestDigest) ||
     !validOwnerVaultBackupDigest(plan.highWaterMark) || !validOwnerVaultBackupDigest(plan.hashChain) ||
-    !nonNegative(plan.logHead) || !nonNegative(plan.totalBytes) || !nonNegative(plan.objectCount) ||
+    !nonNegative(plan.appendLogSequence) || !/^[a-f0-9]{64}$/u.test(plan.appendLogDigest) ||
+    plan.source.ownerID.length === 0 || plan.source.vaultID.length === 0 || !nonNegative(plan.source.generationEpoch) || plan.source.generationEpoch < 1 || !nonNegative(plan.totalBytes) || !nonNegative(plan.objectCount) ||
     plan.objectCount < 1 || plan.objectCount > ownerVaultBackupMaximumObjects || plan.records.length !== plan.objectCount ||
     plan.totalBytes > ownerVaultBackupMaximumTotalBytes || !plan.records.every((item, index) => item.ordinal === index && validImportRecord(item))) return false;
   const total = plan.records.reduce((sum, item) => sum + item.size, 0);
@@ -139,8 +128,8 @@ const validPlan = (plan: OwnerVaultRestoreImportPlan): boolean => {
 };
 
 const headerFor = (plan: OwnerVaultRestoreImportPlan): Header => ({
-  kind: "header", backupID: plan.backupID, manifestDigest: plan.manifestDigest, highWaterMark: plan.highWaterMark,
-  logHead: plan.logHead, totalBytes: plan.totalBytes, objectCount: plan.objectCount,
+  kind: "header", backupID: plan.backupID, manifestDigest: plan.manifestDigest, source: plan.source, highWaterMark: plan.highWaterMark,
+  appendLogSequence: plan.appendLogSequence, appendLogDigest: plan.appendLogDigest, totalBytes: plan.totalBytes, objectCount: plan.objectCount,
   hashChain: plan.hashChain, pageCount: Math.ceil(plan.objectCount / journalPageSize), lastAppliedOrdinal: -1, state: "APPLYING",
 });
 const pagesFor = (plan: OwnerVaultRestoreImportPlan): readonly Page[] =>
@@ -150,7 +139,8 @@ const pagesFor = (plan: OwnerVaultRestoreImportPlan): readonly Page[] =>
   }));
 const sameHeaderPlan = (header: Header, plan: OwnerVaultRestoreImportPlan): boolean =>
   header.backupID === plan.backupID && header.manifestDigest === plan.manifestDigest && header.highWaterMark === plan.highWaterMark &&
-  header.logHead === plan.logHead && header.totalBytes === plan.totalBytes && header.objectCount === plan.objectCount &&
+  header.appendLogSequence === plan.appendLogSequence && header.appendLogDigest === plan.appendLogDigest &&
+  header.source.ownerID === plan.source.ownerID && header.source.vaultID === plan.source.vaultID && header.source.generationEpoch === plan.source.generationEpoch && header.totalBytes === plan.totalBytes && header.objectCount === plan.objectCount &&
   header.hashChain === plan.hashChain && header.pageCount === Math.ceil(plan.objectCount / journalPageSize);
 
 const decodeImportRecord = (value: unknown): OwnerVaultRestoreImportRecord | undefined => {
@@ -167,12 +157,13 @@ const decodeImportRecord = (value: unknown): OwnerVaultRestoreImportRecord | und
 };
 const decodeHeader = (value: unknown): Header | undefined => {
   const item = plain(value);
-  if (item === undefined || !exact(item, ["backupID", "hashChain", "highWaterMark", "kind", "lastAppliedOrdinal", "logHead", "manifestDigest", "objectCount", "pageCount", "state", "totalBytes"]) ||
+  if (item === undefined || !exact(item, ["appendLogDigest", "appendLogSequence", "backupID", "hashChain", "highWaterMark", "kind", "lastAppliedOrdinal", "manifestDigest", "objectCount", "pageCount", "source", "state", "totalBytes"]) ||
     item.kind !== "header" || typeof item.backupID !== "string" || typeof item.manifestDigest !== "string" || typeof item.highWaterMark !== "string" ||
-    typeof item.hashChain !== "string" || !Number.isSafeInteger(item.lastAppliedOrdinal) || (item.lastAppliedOrdinal as number) < -1 || !nonNegative(item.logHead) || !nonNegative(item.objectCount) ||
+    typeof item.hashChain !== "string" || !Number.isSafeInteger(item.lastAppliedOrdinal) || (item.lastAppliedOrdinal as number) < -1 || !nonNegative(item.appendLogSequence) || typeof item.appendLogDigest !== "string" || !/^[a-f0-9]{64}$/u.test(item.appendLogDigest) || !nonNegative(item.objectCount) ||
     !nonNegative(item.pageCount) || !nonNegative(item.totalBytes) || (item.state !== "APPLYING" && item.state !== "COMPLETED")) return undefined;
   const header = item as unknown as Header;
-  return backupIDPattern.test(header.backupID) && validOwnerVaultBackupDigest(header.manifestDigest) && validOwnerVaultBackupDigest(header.highWaterMark) &&
+  return backupIDPattern.test(header.backupID) && validOwnerVaultBackupDigest(header.manifestDigest) && validOwnerVaultBackupDigest(header.highWaterMark) && plain(header.source) !== undefined &&
+    typeof header.source.ownerID === "string" && typeof header.source.vaultID === "string" && nonNegative(header.source.generationEpoch) && header.source.generationEpoch >= 1 &&
     validOwnerVaultBackupDigest(header.hashChain) && header.objectCount >= 1 && header.objectCount <= ownerVaultBackupMaximumObjects &&
     header.pageCount === Math.ceil(header.objectCount / journalPageSize) && header.lastAppliedOrdinal < header.objectCount && header.totalBytes <= ownerVaultBackupMaximumTotalBytes ? header : undefined;
 };
@@ -257,7 +248,7 @@ const deriveBlobInventory = (
 
 const deriveAppendLog = (
   rows: readonly { readonly inventory: OwnerVaultRestoreImportRecord; readonly record: OwnerVaultStorageRecord }[],
-  logHead: number,
+  appendLogSequence: number,
 ): readonly OwnerVaultAppendLogEntry[] | undefined => {
   const entries: OwnerVaultAppendLogEntry[] = [];
   for (const row of rows) {
@@ -268,7 +259,7 @@ const deriveAppendLog = (
     entries.push(entry);
   }
   const ordered = entries.sort((left, right) => left.logSequence - right.logSequence);
-  return ordered.length === logHead && ordered.every((entry, index) => entry.logSequence === index + 1) ? ordered : undefined;
+  return ordered.length === appendLogSequence && ordered.every((entry, index) => entry.logSequence === index + 1) ? ordered : undefined;
 };
 
 export interface OwnerVaultRestoreImport {
@@ -354,17 +345,17 @@ export const makeOwnerVaultRestoreImport = (options: {
                 : Effect.succeed({ inventory: item, record: stored });
             }))).pipe(
               Effect.flatMap((storedRows) => {
-                const log = deriveAppendLog(storedRows, header.logHead);
+                const log = deriveAppendLog(storedRows, header.appendLogSequence);
                 const blobs = deriveBlobInventory(storedRows, finalization);
-                return log === undefined || blobs === undefined || !validateAppendLog({ entries: log, highWaterMark: header.highWaterMark, logHead: header.logHead })
+                return log === undefined || blobs === undefined || !validateAppendLog({ scope: header.source, entries: log, appendLogSequence: header.appendLogSequence, appendLogDigest: header.appendLogDigest })
                   ? txFailure()
                   : Effect.sync(() => reconstruct(finalization.blobScope, finalization.blobLimits, blobs));
               }),
               Effect.flatMap((reconstructed) => reconstructed._tag === "OwnerVaultBlobRestoreReconstructionSuccess" ? Effect.succeed(reconstructed.value) : txFailure()),
               Effect.flatMap((reconstructed) =>
                 write(tx, address("blob.accounting"), reconstructed.accounting as unknown as Readonly<Record<string, unknown>>).pipe(
-                  Effect.zipRight(write(tx, address("root.log-head"), { logSequence: header.logHead })),
-                  Effect.zipRight(write(tx, address("append-log.head"), { logSequence: header.logHead })),
+                  Effect.zipRight(write(tx, address("root.log-head"), { appendLogSequence: header.appendLogSequence, appendLogDigest: header.appendLogDigest })),
+                  Effect.zipRight(write(tx, address("append-log.head"), { appendLogSequence: header.appendLogSequence, appendLogDigest: header.appendLogDigest })),
                   Effect.zipRight(tx.publishRestoreImport(records.map((item) => item.address))),
                   Effect.zipRight(write(tx, headerAddress(manifestDigest), { ...header, state: "COMPLETED" } as unknown as Readonly<Record<string, unknown>>)),
                 ),

@@ -204,7 +204,7 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(Exit.isFailure(rejected)).toBe(true);
     expect(JSON.stringify(rejected)).toContain("nonce_replayed");
     expect(fixture.native.entries.has("v2.ov/append-log/entry/00000000000000000002")).toBe(false);
-    expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { logSequence: 1 } });
+    expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { appendLogSequence: 1 } });
   });
 
   test("serializes concurrent operations while retaining their independent retry identities", async () => {
@@ -224,7 +224,7 @@ describe("v2 OwnerVault durable domain provider", () => {
       ),
     ]);
     expect([first.logSequence, second.logSequence].sort()).toEqual([1, 2]);
-    expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { logSequence: 2 } });
+    expect(fixture.native.entries.get("v2.ov/root/log-head")).toMatchObject({ payload: { appendLogSequence: 2 } });
   });
 
   test("owns session close cleanup and durable rate state", async () => {
