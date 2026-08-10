@@ -24,6 +24,13 @@ const device: OwnerVaultDevice = {
   revoked: false,
   securityFloor: 0,
 };
+const capability = {
+  jti: "jti-123456789012",
+  expiresAtSeconds: 1_200,
+  resource: "/v2/sync",
+  claimsFingerprint: "d".repeat(64),
+  tokenFingerprint: "e".repeat(64),
+} as const;
 
 const durable = (): {
   readonly entries: Map<string, unknown>;
@@ -77,7 +84,7 @@ const append = (overrides: Partial<OwnerVaultAppendInput> = {}): OwnerVaultAppen
   receiptExpiresAtSeconds: 2_000,
   actor: { deviceID: device.deviceID, authEpoch: 1, credentialEpoch: 1, securityFloor: 0 },
   nonce: { value: "nonce-123456789012", expiresAtSeconds: 1_200, fingerprint: "c".repeat(64) },
-  capability: { jti: "jti-123456789012", expiresAtSeconds: 1_200 },
+  capability,
   ...overrides,
 });
 
@@ -173,11 +180,20 @@ describe("v2 OwnerVault durable domain provider", () => {
     const first = await Effect.runPromise(fixture.provider.append(append()));
     const afterReconnect = makeOwnerVaultDomainProvider(fixture.repository, root);
     const retried = await Effect.runPromise(
-      afterReconnect.append(append({ source: "websocket", nonce: { value: "different-nonce-123", expiresAtSeconds: 1_200, fingerprint: "f".repeat(64) }, capability: { jti: "different-jti-12345", expiresAtSeconds: 1_200 } })),
+      afterReconnect.append(append({ source: "websocket", nonce: { value: "different-nonce-123", expiresAtSeconds: 1_200, fingerprint: "f".repeat(64) }, capability: { ...capability, jti: "different-jti-12345" } })),
     );
 
     expect(first).toEqual({ operationID: "operation-1", payloadHash: "b".repeat(64), logSequence: 1, replayed: false });
     expect(retried).toEqual({ ...first, replayed: true });
+    expect(fixture.native.entries.get("v2.ov/capability-receipt/jti-123456789012")).toMatchObject({
+      payload: {
+        state: "COMPLETED",
+        resource: "/v2/sync",
+        operationID: "operation-1",
+        claimsFingerprint: "d".repeat(64),
+        tokenFingerprint: "e".repeat(64),
+      },
+    });
     expect(fixture.native.entries.get("v2.ov/append-log/entry/00000000000000000001")).toMatchObject({
       payload: { source: "http", logSequence: 1 },
     });
@@ -197,7 +213,7 @@ describe("v2 OwnerVault durable domain provider", () => {
           fingerprint: "1".repeat(64),
           payloadHash: "2".repeat(64),
           observedHighWater: 1,
-          capability: { jti: "jti-222222222222", expiresAtSeconds: 1_200 },
+          capability: { ...capability, jti: "jti-222222222222" },
         }),
       ),
     );
@@ -218,7 +234,7 @@ describe("v2 OwnerVault durable domain provider", () => {
             fingerprint: "1".repeat(64),
             payloadHash: "2".repeat(64),
             nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
-            capability: { jti: "jti-222222222222", expiresAtSeconds: 1_200 },
+            capability: { ...capability, jti: "jti-222222222222" },
           }),
         ),
       ),
@@ -230,16 +246,17 @@ describe("v2 OwnerVault durable domain provider", () => {
   test("pins every catalogued opaque append after the log advances", async () => {
     const fixture = await enrolledProvider();
     await Effect.runPromise(fixture.provider.append(append()));
+    const secondAppend = append({
+      operationID: "operation-2",
+      fingerprint: "1".repeat(64),
+      payloadHash: "2".repeat(64),
+      observedHighWater: 1,
+      nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
+      capability: { ...capability, jti: "jti-222222222222" },
+    });
     await Effect.runPromise(
       fixture.provider.append(
-        append({
-          operationID: "operation-2",
-          fingerprint: "1".repeat(64),
-          payloadHash: "2".repeat(64),
-          observedHighWater: 1,
-          nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
-          capability: { jti: "jti-222222222222", expiresAtSeconds: 1_200 },
-        }),
+        secondAppend,
       ),
     );
     const controller = makeOwnerVaultSnapshotPinController(fixture.repository, {

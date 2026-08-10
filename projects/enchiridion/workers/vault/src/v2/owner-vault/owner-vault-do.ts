@@ -119,6 +119,11 @@ const response = (body: Readonly<Record<string, unknown>>, status = 200): Respon
   });
 const bodyHash = (command: Readonly<Record<string, unknown>>): string =>
   sha256Hex(new TextEncoder().encode(JSON.stringify(command)));
+/** Canonical non-secret proof persisted with a claimed capability receipt. */
+const capabilityClaimsFingerprint = (claims: Readonly<Record<string, unknown>>): string =>
+  sha256Hex(new TextEncoder().encode(JSON.stringify(claims)));
+const capabilityTokenFingerprint = (capability: SignedCapability): string =>
+  sha256Hex(new TextEncoder().encode(capability.value));
 const durableReceipt = (kind: string, operationID: string, digest: string): string =>
   sha256Hex(new TextEncoder().encode(`${kind}\u0000${operationID}\u0000${digest}`));
 const privateRestoreLink = (
@@ -2051,7 +2056,15 @@ export const makeOwnerVaultDO = (
                       expiresAtSeconds: Math.floor(envelope.command.envelope.expiresAt / 1_000),
                       fingerprint,
                     },
-                    capability: { jti: capability.jti, expiresAtSeconds: capability.expiresAt },
+                    capability: {
+                      jti: capability.jti,
+                      expiresAtSeconds: capability.expiresAt,
+                      resource: ownerVaultOpaqueAppendPath,
+                      claimsFingerprint: capabilityClaimsFingerprint(
+                        capability as unknown as Readonly<Record<string, unknown>>,
+                      ),
+                      tokenFingerprint: capabilityTokenFingerprint(envelope.capability),
+                    },
                   });
                 }),
               ),
@@ -3032,6 +3045,23 @@ export const makeOwnerVaultDO = (
                 ),
               ),
               expiresAtSeconds: admission.expiresAtSeconds,
+              resource: "/v2/sync",
+              claimsFingerprint: capabilityClaimsFingerprint({
+                ownerID: admission.ownerID,
+                vaultID: admission.vaultID,
+                generationEpoch: admission.generationEpoch,
+                routingEpoch: admission.routingEpoch,
+                credentialEpoch: admission.credentialEpoch,
+                controlEpoch: admission.controlEpoch,
+                securityFloor: admission.securityFloor,
+                deviceID: admission.deviceID,
+                sessionID: admission.sessionID,
+                operationID: admission.operationID,
+                jti: admission.jti,
+                issuedAt: admission.issuedAtSeconds,
+                expiresAt: admission.expiresAtSeconds,
+              }),
+              tokenFingerprint: admission.fingerprint,
             },
           })
           .pipe(Effect.mapError((error): unknown => error));

@@ -115,7 +115,14 @@ export interface OwnerVaultAppendInput {
     readonly expiresAtSeconds: number;
     readonly fingerprint: string;
   };
-  readonly capability: { readonly jti: string; readonly expiresAtSeconds: number };
+  /** Full receipt identity; raw signed bearer material is never persisted. */
+  readonly capability: {
+    readonly jti: string;
+    readonly expiresAtSeconds: number;
+    readonly resource: string;
+    readonly claimsFingerprint: string;
+    readonly tokenFingerprint: string;
+  };
 }
 
 export interface OwnerVaultDomainProvider {
@@ -213,9 +220,12 @@ interface NonceClaim {
   readonly fingerprint: string;
 }
 interface CapabilityReceipt {
+  readonly state: "COMPLETED";
+  readonly resource: string;
   readonly operationID: string;
   readonly expiresAtSeconds: number;
-  readonly fingerprint: string;
+  readonly claimsFingerprint: string;
+  readonly tokenFingerprint: string;
   readonly result: { readonly logSequence: number; readonly payloadHash: string };
 }
 interface JtiClaim {
@@ -455,21 +465,37 @@ const decodeNonce = (value: unknown): NonceClaim | undefined =>
     : undefined;
 const decodeCapability = (value: unknown): CapabilityReceipt | undefined =>
   isRecord(value) &&
-  exact(value, ["expiresAtSeconds", "fingerprint", "operationID", "result"]) &&
+  exact(value, [
+    "claimsFingerprint",
+    "expiresAtSeconds",
+    "operationID",
+    "resource",
+    "result",
+    "state",
+    "tokenFingerprint",
+  ]) &&
+  value.state === "COMPLETED" &&
+  typeof value.resource === "string" &&
+  /^\/[A-Za-z0-9_./-]{1,192}$/u.test(value.resource) &&
   isSafePositive(value.expiresAtSeconds) &&
   typeof value.operationID === "string" &&
   identifier.test(value.operationID) &&
-  typeof value.fingerprint === "string" &&
-  sha256.test(value.fingerprint) &&
+  typeof value.claimsFingerprint === "string" &&
+  sha256.test(value.claimsFingerprint) &&
+  typeof value.tokenFingerprint === "string" &&
+  sha256.test(value.tokenFingerprint) &&
   isRecord(value.result) &&
   exact(value.result, ["logSequence", "payloadHash"]) &&
   isSafePositive(value.result.logSequence) &&
   typeof value.result.payloadHash === "string" &&
   sha256.test(value.result.payloadHash)
     ? {
+        state: "COMPLETED",
+        resource: value.resource,
         expiresAtSeconds: value.expiresAtSeconds,
         operationID: value.operationID,
-        fingerprint: value.fingerprint,
+        claimsFingerprint: value.claimsFingerprint,
+        tokenFingerprint: value.tokenFingerprint,
         result: { logSequence: value.result.logSequence, payloadHash: value.result.payloadHash },
       }
     : undefined;
@@ -1037,6 +1063,9 @@ export const makeOwnerVaultDomainProvider = (
         ownerVaultMaximumSecurityReceiptTTLSeconds,
       ) ||
       !identifier.test(input.capability.jti) ||
+      !/^\/[A-Za-z0-9_./-]{1,192}$/u.test(input.capability.resource) ||
+      !sha256.test(input.capability.claimsFingerprint) ||
+      !sha256.test(input.capability.tokenFingerprint) ||
       !validReceiptTTL(
         input.nowSeconds,
         input.capability.expiresAtSeconds,
@@ -1140,9 +1169,12 @@ export const makeOwnerVaultDomainProvider = (
                 ),
                 Effect.zipRight(
                   write(tx, address("capability-receipt", input.capability.jti), {
+                    state: "COMPLETED",
+                    resource: input.capability.resource,
                     operationID: input.operationID,
                     expiresAtSeconds: input.capability.expiresAtSeconds,
-                    fingerprint: input.fingerprint,
+                    claimsFingerprint: input.capability.claimsFingerprint,
+                    tokenFingerprint: input.capability.tokenFingerprint,
                     result: { logSequence, payloadHash: input.payloadHash },
                   }),
                 ),
