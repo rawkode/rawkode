@@ -1,10 +1,10 @@
 /**
  * The complete physical state vocabulary for a fresh OwnerVault v2.
  *
- * Nothing writes storage in this package yet.  This registry is deliberately
- * established first so a later repository cannot create an unclassified row,
- * accidentally copy identity scope into a record, or silently include a new
- * key family in backup/restore.
+ * Nothing writes storage in this package yet. This is a structural scaffold:
+ * it classifies physical keys, enforces their common envelope, and fixes
+ * snapshot/restore policy before field codecs exist. Category-specific field
+ * codecs belong with the repositories that introduce those fields.
  */
 export const ownerVaultStoragePrefix = "v2.ov/";
 
@@ -67,6 +67,11 @@ export interface OwnerVaultStorageCategoryDefinition {
   readonly matches: (key: string) => boolean;
   readonly decode: (value: unknown) => OwnerVaultStorageRecord | undefined;
 }
+
+/** A source record may be copied into a restore only when both policies permit it. */
+export const isRestorableOwnerVaultStorageCategory = (
+  definition: Pick<OwnerVaultStorageCategoryDefinition, "snapshot" | "restore">,
+): boolean => definition.snapshot === "include" && definition.restore === "apply";
 
 const identifierPattern = /^[A-Za-z0-9_-]{1,128}$/u;
 const appendSequencePattern = /^[0-9]{20}$/u;
@@ -151,7 +156,8 @@ export class OwnerVaultStorageRegistryError extends Error {
 }
 
 const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
-  { category: "root.identity", snapshot: "include", restore: "apply", maximumBytes: rootMaximumBytes, ...staticKey("root/identity"), decode: (value) => decodeEnvelope("root.identity", value, (payload) => validScope(payload)) },
+  // DirectoryControl creates the target identity; a source identity is never restored.
+  { category: "root.identity", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/identity"), decode: (value) => decodeEnvelope("root.identity", value, (payload) => validScope(payload)) },
   { category: "root.admission", snapshot: "exclude", restore: "never", maximumBytes: rootMaximumBytes, ...staticKey("root/admission"), decode: (value) => decodeEnvelope("root.admission", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.floors", snapshot: "exclude", restore: "target-overlay", maximumBytes: rootMaximumBytes, ...staticKey("root/floors"), decode: (value) => decodeEnvelope("root.floors", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "root.log-head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/log-head"), decode: (value) => decodeEnvelope("root.log-head", value, (payload) => !hasForbiddenScope(payload)) },
@@ -159,13 +165,16 @@ const definitions: readonly OwnerVaultStorageCategoryDefinition[] = [
   { category: "root.accounting", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("root/accounting"), decode: (value) => decodeEnvelope("root.accounting", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "catalog.derived", snapshot: "exclude", restore: "rebuild", maximumBytes: catalogMaximumBytes, ...keyedFamily("catalog"), decode: (value) => decodeEnvelope("catalog.derived", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "audit.restore-source", snapshot: "audit", restore: "audit-only", maximumBytes: regularMaximumBytes, ...staticKey("audit/restore-source"), decode: (value) => decodeEnvelope("audit.restore-source", value, (payload) => exactKeys(payload, ["audit", "source"]) && validScope(payload.source) && !hasForbiddenScope(payload.audit)) },
-  ...(["device", "device-challenge", "nonce", "jti", "capability-receipt", "operation-receipt", "operation-index", "session", "resume", "rate-window"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  ...(["device", "operation-receipt", "operation-index"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  // Challenges, replay fences, capabilities, and live sessions are target-local security state.
+  ...(["device-challenge", "nonce", "jti", "capability-receipt", "session", "resume", "rate-window"] as const).map((category) => ({ category, snapshot: "exclude" as const, restore: "never" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
   { category: "append-log.entry", snapshot: "include", restore: "apply", maximumBytes: appendMaximumBytes, key: (identifier?: string) => { if (identifier === undefined || !appendSequencePattern.test(identifier)) throw new OwnerVaultStorageRegistryError("invalid_key"); return `${ownerVaultStoragePrefix}append-log/entry/${identifier}`; }, matches: (key) => /^v2\.ov\/append-log\/entry\/[0-9]{20}$/u.test(key), decode: (value) => decodeEnvelope("append-log.entry", value, (payload) => !hasForbiddenScope(payload)) },
   { category: "append-log.head", snapshot: "exclude", restore: "rebuild", maximumBytes: rootMaximumBytes, ...staticKey("append-log/head"), decode: (value) => decodeEnvelope("append-log.head", value, (payload) => !hasForbiddenScope(payload)) },
-  ...(["blob.metadata", "blob.reference", "blob.tombstone", "blob.lease", "blob.purge", "backup.pin", "backup.manifest", "backup.page"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
-  { category: "backup.restore-journal", snapshot: "include", restore: "apply", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, (payload) => !hasForbiddenScope(payload)) },
-  { category: "control.initialization-ack", snapshot: "include", restore: "apply", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
-  { category: "control.floor-sync", snapshot: "include", restore: "apply", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
+  ...(["blob.metadata", "blob.reference", "blob.tombstone", "backup.manifest", "backup.page"] as const).map((category) => ({ category, snapshot: "include" as const, restore: "apply" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  ...(["blob.lease", "blob.purge", "backup.pin"] as const).map((category) => ({ category, snapshot: "exclude" as const, restore: "never" as const, maximumBytes: regularMaximumBytes, ...keyedFamily(category.replace(".", "/")), decode: (value: unknown) => decodeEnvelope(category, value, (payload) => !hasForbiddenScope(payload)) })),
+  { category: "backup.restore-journal", snapshot: "exclude", restore: "never", maximumBytes: journalMaximumBytes, ...keyedFamily("backup/restore-journal"), decode: (value) => decodeEnvelope("backup.restore-journal", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "control.initialization-ack", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/initialization-ack"), decode: (value) => decodeEnvelope("control.initialization-ack", value, (payload) => !hasForbiddenScope(payload)) },
+  { category: "control.floor-sync", snapshot: "exclude", restore: "never", maximumBytes: regularMaximumBytes, ...keyedFamily("control/floor-sync"), decode: (value) => decodeEnvelope("control.floor-sync", value, (payload) => !hasForbiddenScope(payload)) },
 ];
 
 export const ownerVaultStorageRegistry: ReadonlyMap<OwnerVaultStorageCategory, OwnerVaultStorageCategoryDefinition> = new Map(definitions.map((definition) => [definition.category, Object.freeze(definition)]));
