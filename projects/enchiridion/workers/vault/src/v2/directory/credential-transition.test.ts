@@ -1033,6 +1033,78 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
     }
   });
 
+  test("round-trips persisted OwnerVault acknowledgements at every later phase and rejects malformed acknowledgement shapes", async () => {
+    // Commits three through five are OWNER_ACKED, DIRECTORY_CAS, and COMPLETED. A fresh
+    // repository wrapper must be able to decode and re-encode each durable representation
+    // before the transition service resumes it.
+    for (const crashAfterCommit of [4, 5, 6]) {
+      const durable = durableState();
+      await Effect.runPromise(initializeDurableDirectory(durable));
+      const owner = await Effect.runPromise(durableOwner());
+      const first = await Effect.runPromise(
+        durableTransitionSetup(durable, owner.owner, crashAfterCommit),
+      );
+      expect(
+        Exit.isFailure(await Effect.runPromiseExit(first.service.execute(request(), now))),
+      ).toBe(true);
+
+      const repository = makeDurableObjectDirectoryRepository(
+        makeDurableObjectBoundary(durable.state).storage,
+      );
+      const decoded = await Effect.runPromise(
+        repository.transact((state) =>
+          Effect.succeed([state.transitions[request().operationID], state]),
+        ),
+      );
+      expect(decoded?.ownerAck).toEqual({
+        ownerID: resolution().ownerID.value,
+        vaultID: resolution().vaultID.value,
+        generation: 1,
+        operationID: request().operationID,
+        expectedCredentialEpoch: 1,
+        expectedRoutingEpoch: 1,
+        credentialEpoch: 2,
+        routingEpoch: 2,
+        admissionsStopped: true,
+        socketsFenced: true,
+      });
+    }
+
+    const durable = durableState();
+    await Effect.runPromise(initializeDurableDirectory(durable));
+    const owner = await Effect.runPromise(durableOwner());
+    const first = await Effect.runPromise(durableTransitionSetup(durable, owner.owner, 4));
+    expect(Exit.isFailure(await Effect.runPromiseExit(first.service.execute(request(), now)))).toBe(
+      true,
+    );
+    const persisted = required(durable.entries.get("v2.directory.state")) as {
+      readonly transitions: Readonly<Record<string, Record<string, unknown>>>;
+    };
+    const transition = required(persisted.transitions[request().operationID]);
+    const ownerAck = required(transition.ownerAck as Record<string, unknown>);
+
+    for (const malformedAck of [
+      Object.fromEntries(Object.entries(ownerAck).filter(([key]) => key !== "generation")),
+      { ...ownerAck, unexpectedGeneration: ownerAck.generation },
+    ]) {
+      durable.entries.set("v2.directory.state", {
+        ...persisted,
+        transitions: {
+          ...persisted.transitions,
+          [request().operationID]: { ...transition, ownerAck: malformedAck },
+        },
+      });
+      const before = JSON.stringify([...durable.entries.entries()]);
+      const exit = await Effect.runPromiseExit(
+        makeDurableObjectDirectoryRepository(
+          makeDurableObjectBoundary(durable.state).storage,
+        ).transact((state) => Effect.succeed([undefined, state] as const)),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify([...durable.entries.entries()])).toBe(before);
+    }
+  });
+
   test("rejects a corrupt live map for every durable nonterminal/CAS phase before callbacks", async () => {
     const requests: readonly DirectoryTransitionRequest[] = [
       request(),

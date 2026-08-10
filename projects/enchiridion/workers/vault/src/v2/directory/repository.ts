@@ -104,7 +104,9 @@ const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =
     ? Object.fromEntries(Object.entries(value))
     : undefined;
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
-  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  new Set(keys).size === keys.length &&
+  Object.keys(value).length === keys.length &&
+  keys.every((key) => Object.hasOwn(value, key));
 const epoch = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
@@ -330,22 +332,24 @@ const decodeRetiredAlias = (alias: string, value: unknown): DirectoryRetiredAlia
     routingEpoch: source.routingEpoch,
   };
 };
+const ownerFenceAckKeys = [
+  "ownerID",
+  "vaultID",
+  "generation",
+  "operationID",
+  "expectedCredentialEpoch",
+  "expectedRoutingEpoch",
+  "credentialEpoch",
+  "routingEpoch",
+  "admissionsStopped",
+  "socketsFenced",
+] as const;
+
 const decodeAck = (value: unknown): DirectoryOwnerFenceAck | undefined => {
   const source = record(value);
   if (
     source === undefined ||
-    !exact(source, [
-      "ownerID",
-      "vaultID",
-      "generation",
-      "operationID",
-      "expectedCredentialEpoch",
-      "expectedRoutingEpoch",
-      "credentialEpoch",
-      "routingEpoch",
-      "admissionsStopped",
-      "socketsFenced",
-    ]) ||
+    !exact(source, ownerFenceAckKeys) ||
     typeof source.ownerID !== "string" ||
     typeof source.vaultID !== "string" ||
     typeof source.operationID !== "string" ||
