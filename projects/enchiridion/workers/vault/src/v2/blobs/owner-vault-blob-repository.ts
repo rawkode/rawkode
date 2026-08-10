@@ -6,7 +6,7 @@
  * into `storage.transact`: it would turn an external await into a DO
  * transaction and make retries non-deterministic.
  */
-import { type ImmutableR2Boundary } from "@enchiridion/runtime";
+import { type BlobR2Boundary } from "@enchiridion/runtime";
 import { Effect } from "effect";
 import {
   type OwnerVaultStorageAddress,
@@ -256,7 +256,7 @@ const hexToBase64 = (value: string): string | undefined => {
 
 export interface OwnerVaultBlobRepositoryConfig {
   readonly storage: OwnerVaultStorageRepository;
-  readonly r2: ImmutableR2Boundary;
+  readonly r2: BlobR2Boundary;
   readonly scope: BlobScope;
   readonly limits: BlobLimits;
   /** A tombstoned content hash cannot be staged again until R2 deletion is durably finalized. */

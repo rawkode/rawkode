@@ -3,8 +3,8 @@ import {
   type DurableObjectStateNative,
   type DurableObjectStorageNative,
   type DurableObjectTransactionNative,
-  type ImmutableR2Boundary,
-  ImmutableR2Error,
+  type BlobR2Boundary,
+  BlobR2Error,
   makeDurableObjectBoundary,
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
@@ -56,14 +56,14 @@ const nativeState = () => {
   return { entries, state };
 };
 
-const failure = (operation: ImmutableR2Error["operation"], reason: ImmutableR2Error["reason"]) =>
-  Effect.fail(new ImmutableR2Error({ operation, reason }));
+const failure = (operation: BlobR2Error["operation"], reason: BlobR2Error["reason"]) =>
+  Effect.fail(new BlobR2Error({ operation, reason }));
 const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
 const shaBase64 = btoa(String.fromCharCode(...Uint8Array.from(sha256.match(/.{2}/gu) ?? [], (part) => Number.parseInt(part, 16))));
 
 const r2 = (faults: { readonly failDelete?: boolean; readonly failPut?: boolean } = {}) => {
   const objects = new Map<string, Uint8Array>();
-  const boundary: ImmutableR2Boundary = {
+  const boundary: BlobR2Boundary = {
     putIfAbsent: (key, bytes) => {
       if (faults.failPut) return failure("put_if_absent", "platform_failed");
       if (objects.has(key)) return failure("put_if_absent", "already_exists");
@@ -78,7 +78,6 @@ const r2 = (faults: { readonly failDelete?: boolean; readonly failPut?: boolean 
       const bytes = objects.get(key);
       return bytes === undefined ? failure("read", "not_found") : Effect.succeed({ key, etag: `etag-${key}`, size: bytes.byteLength, sha256Base64: shaBase64, bytes: new Uint8Array(bytes) });
     },
-    listExactPrefix: (prefix) => Effect.succeed({ objects: [...objects].filter(([key]) => key.startsWith(prefix)).map(([key, bytes]) => ({ key, etag: `etag-${key}`, size: bytes.byteLength, sha256Base64: shaBase64 })), truncated: false }),
     deleteExact: (key) => faults.failDelete ? failure("delete", "platform_failed") : Effect.sync(() => { objects.delete(key); }),
   };
   return { boundary, objects };

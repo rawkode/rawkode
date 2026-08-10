@@ -1,8 +1,11 @@
 /** @enchiridion/effect-module */
 import {
+  type BlobR2NativeBinding,
+  type BlobR2NativeBindingInput,
   type ImmutableR2NativeBinding,
   type ManifestKeyRingConfigurationError,
   type ManifestP256KeyRing,
+  makeBlobR2NativeBinding,
   makeManifestP256KeyRing,
 } from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
@@ -48,7 +51,7 @@ export interface OwnerVaultProductionAuthority {
 
 export interface OwnerVaultBlobR2Binding {
   readonly purpose: "owner-vault-blob-r2";
-  readonly native: ImmutableR2NativeBinding;
+  readonly native: BlobR2NativeBinding;
 }
 export interface OwnerVaultBackupR2Binding {
   readonly purpose: "owner-vault-backup-r2";
@@ -66,10 +69,16 @@ const integer = (value: unknown, minimum = 0): value is number =>
 const read = (source: Readonly<Record<string, unknown>>, key: string, minimum = 1): number | undefined =>
   integer(source[key], minimum) ? source[key] as number : undefined;
 
-const validR2Binding = (value: unknown): value is ImmutableR2NativeBinding => {
+const validImmutableR2Binding = (value: unknown): value is ImmutableR2NativeBinding => {
   try {
     return value !== null && typeof value === "object" && !Array.isArray(value) &&
       ["head", "get", "put", "list", "delete"].every((key) => typeof Reflect.get(value, key) === "function");
+  } catch { return false; }
+};
+const validBlobR2Binding = (value: unknown): value is BlobR2NativeBindingInput => {
+  try {
+    return value !== null && typeof value === "object" && !Array.isArray(value) &&
+      ["head", "get", "put", "delete"].every((key) => typeof Reflect.get(value, key) === "function");
   } catch { return false; }
 };
 
@@ -151,7 +160,7 @@ export const makeOwnerVaultProductionAuthority = (input: {
   const limits = parseOwnerVaultProductionLimits(input.limitsJSON);
   const prior = parsePrior(input.manifestPriorKeysJSON);
   const revoked = parseRevoked(input.manifestRevokedKeyIDsJSON);
-  if (!limits || !prior || !revoked || !validR2Binding(input.blobR2) || !validR2Binding(input.backupR2) || input.blobR2 === input.backupR2) return undefined;
+  if (!limits || !prior || !revoked || !validBlobR2Binding(input.blobR2) || !validImmutableR2Binding(input.backupR2) || input.blobR2 === input.backupR2) return undefined;
   let ring: ManifestP256KeyRing | undefined;
   const manifestKeys = (): Effect.Effect<ManifestP256KeyRing, ManifestKeyRingConfigurationError> =>
     ring === undefined
@@ -161,7 +170,7 @@ export const makeOwnerVaultProductionAuthority = (input: {
           revokedKeyIDs: revoked,
         }).pipe(Effect.tap((validated) => Effect.sync(() => { ring = validated; })))
       : Effect.succeed(ring);
-  const blobR2: OwnerVaultBlobR2Binding = Object.freeze({ purpose: "owner-vault-blob-r2", native: input.blobR2 });
+  const blobR2: OwnerVaultBlobR2Binding = Object.freeze({ purpose: "owner-vault-blob-r2", native: makeBlobR2NativeBinding(input.blobR2) });
   const backupR2: OwnerVaultBackupR2Binding = Object.freeze({ purpose: "owner-vault-backup-r2", native: input.backupR2 });
   return Object.freeze({ limits, manifestKeys, blobR2, backupR2 });
 };
