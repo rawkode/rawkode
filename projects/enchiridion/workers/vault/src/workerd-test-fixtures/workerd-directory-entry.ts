@@ -1,4 +1,10 @@
-// Wrangler-only entry; deliberately not named as a Bun test module.
+// TEST-ONLY Workerd entry (Wrangler `main` for
+// v2/entry/wrangler.directory-workerd-test.jsonc). It lives outside the
+// deployable `src/v2` root because it is test support, not production source:
+// Worker `fetch` is the one native Promise adapter required by Wrangler, and
+// the composition itself remains Effect-based. It is deliberately not named
+// as a Bun test module: it must export the Durable Object classes, whose
+// `cloudflare:workers` import only resolves inside Workerd.
 import {
   type AccessJwksSessionFactory,
   AccessJwtVerificationError,
@@ -10,10 +16,10 @@ import {
   readBoundedRequestBody,
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
-import { directoryDOPath } from "../directory/directory-do";
-import { ownerVaultObjectName } from "../directory/lifecycle";
-import { parseVaultV2EntryEnv } from "./composition";
-import { OwnerVaultV2, makeVaultV2Entry } from "./index";
+import { directoryDOPath } from "../v2/directory/directory-do";
+import { ownerVaultObjectName } from "../v2/directory/lifecycle";
+import { parseVaultV2EntryEnv } from "../v2/entry/composition";
+import { OwnerVaultV2, makeVaultV2Entry } from "../v2/entry/index";
 
 const fixtureAssertion =
   "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImZpeHR1cmUifQ.eyJmaXh0dXJlIjp0cnVlfQ.fixture";

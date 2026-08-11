@@ -1,6 +1,6 @@
 {
   "name": "enchiridion-v2-directory-workerd-test",
-  "main": "workerd-directory-entry.ts",
+  "main": "../../workerd-test-fixtures/workerd-directory-entry.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
