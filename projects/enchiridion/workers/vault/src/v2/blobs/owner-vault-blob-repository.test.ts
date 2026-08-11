@@ -443,6 +443,104 @@ describe("durable OwnerVault blob saga", () => {
     await Effect.runPromise(restarted.stageImmutable(stageKey, input.body, 101));
   });
 
+  test("rejects a corrupted persisted stage receipt on restart replay before any R2 effect", async () => {
+    const built = await build();
+    const input = command();
+    const first = await stage(built.repository, input);
+    expect(first.result.status).toBe("APPLIED");
+    const fingerprint = [
+      input.operationID.value,
+      input.requestID.value,
+      input.stageRandom,
+      input.path,
+      input.sha256,
+      String(input.size),
+      input.deviceID,
+      String(input.authEpoch),
+      String(input.credentialEpoch),
+    ].join("\u0000");
+    const receiptEntry = [...built.native.entries.entries()].find(([, value]) => {
+      const row = value as { readonly payload?: { readonly kind?: unknown } };
+      return row.payload?.kind === "blob-stage";
+    });
+    if (receiptEntry === undefined) throw new Error("stage receipt row missing");
+    const receiptKey = receiptEntry[0];
+    const receiptRow = receiptEntry[1] as {
+      readonly category: string;
+      readonly version: number;
+      readonly payload: {
+        readonly kind: string;
+        readonly fingerprint: string;
+        readonly response: {
+          readonly status: string;
+          readonly metadata: Readonly<Record<string, unknown>>;
+        };
+      };
+    };
+    const operations: string[] = [];
+    const tracked: BlobR2Boundary = {
+      putIfAbsent: (key, bytes) => {
+        operations.push(`put:${key}`);
+        return built.boundary.putIfAbsent(key, bytes);
+      },
+      head: (key) => {
+        operations.push(`head:${key}`);
+        return built.boundary.head(key);
+      },
+      read: (key) => {
+        operations.push(`read:${key}`);
+        return built.boundary.read(key);
+      },
+      deleteExact: (key) => {
+        operations.push(`delete:${key}`);
+        return built.boundary.deleteExact(key);
+      },
+    };
+    // The retry after a crash-after-commit reaches a fresh instance over the
+    // same durable rows; the persisted receipt is its only replay evidence.
+    const restarted = makeOwnerVaultBlobStagingRepository({
+      storage: built.storage,
+      r2: tracked,
+      scope,
+      limits: {
+        maximumBlobBytes: 8,
+        maximumVaultBytes: 32,
+        maximumOrphanBytes: 16,
+        maximumOrphanCount: 2,
+        maximumActiveLeasesPerVault: 4,
+        maximumActiveLeasesPerFinal: 4,
+        stageTTLSeconds: 10,
+      },
+      deleteGraceSeconds: 10,
+    });
+    const attempt = async (metadata: Readonly<Record<string, unknown>>) => {
+      built.native.entries.set(receiptKey, {
+        ...receiptRow,
+        payload: {
+          ...receiptRow.payload,
+          response: { ...receiptRow.payload.response, metadata },
+        },
+      });
+      const before = new Map(built.native.entries);
+      expect(
+        JSON.stringify(await Effect.runPromiseExit(restarted.preflightReceipt(input, fingerprint))),
+      ).toContain("stage_conflict");
+      expect(built.native.entries).toEqual(before);
+    };
+    // A persisted generation epoch is an unknown member: replays must re-derive
+    // epoch authority from the live root, never trust a stored one.
+    await attempt({ ...receiptRow.payload.response.metadata, generationEpoch: 999 });
+    // A mistyped size fails closed the same way.
+    await attempt({ ...receiptRow.payload.response.metadata, size: String(input.size) });
+    expect(operations).toEqual([]);
+
+    // The intact durable receipt still replays exactly after the restart.
+    built.native.entries.set(receiptKey, receiptRow);
+    expect(await Effect.runPromise(restarted.preflightReceipt(input, fingerprint))).toEqual(
+      first.result,
+    );
+  });
+
   test("tombstones by SHA, waits for grace, then purges R2 before allowing a fresh reference", async () => {
     const built = await build();
     const first = await stage(built.repository);

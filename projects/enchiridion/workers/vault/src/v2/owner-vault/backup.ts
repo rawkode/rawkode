@@ -246,9 +246,9 @@ export const createOwnerVaultBackup = (
       const canonical = canonicalManifestBytes(manifest);
       if (canonical === undefined || canonical.byteLength > ownerVaultBackupMaximumManifestBytes)
         return yield* ownerVaultBackupFailure("manifest_invalid");
-      const signature = yield* runtime.signer.signCanonical(canonical).pipe(
-        Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })),
-      );
+      const signature = yield* runtime.signer
+        .signCanonical(canonical)
+        .pipe(Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })));
       const signed: OwnerVaultSignedBackupManifest = { manifest, signature };
       const signedBytes = canonicalSignedManifestBytes(signed);
       if (
@@ -434,9 +434,9 @@ export const restoreOwnerVaultBackup = (
       return yield* ownerVaultBackupFailure("manifest_invalid");
     const canonical = canonicalManifestBytes(signed.manifest);
     if (canonical === undefined) return yield* ownerVaultBackupFailure("manifest_invalid");
-    yield* runtime.verifier.verifyCanonical(canonical, signed.signature).pipe(
-      Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })),
-    );
+    yield* runtime.verifier
+      .verifyCanonical(canonical, signed.signature)
+      .pipe(Effect.mapError(() => new OwnerVaultBackupError({ reason: "manifest_untrusted" })));
     const manifestDigest = ownerVaultBackupDigest(bytes);
     const staged: {
       readonly expected: import("./backup-types").OwnerVaultRestoreImportRecord;

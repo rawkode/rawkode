@@ -844,9 +844,7 @@ export const makeOwnerVaultRestoreImport = (options: {
                       Effect.zipRight(
                         write(tx, pageAddress(restoreID, pageOrdinal), asPayload(nextPage)),
                       ),
-                      Effect.zipRight(
-                        write(tx, headerAddress(restoreID), asPayload(nextHeader)),
-                      ),
+                      Effect.zipRight(write(tx, headerAddress(restoreID), asPayload(nextHeader))),
                       Effect.as(undefined),
                     );
                 }),

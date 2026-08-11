@@ -1069,13 +1069,10 @@ export const makeDurableObjectOwnerVaultStorageRepository = (
                           digest: page.digest,
                         });
                       }
-                      const root = catalogRootPayload(
-                        identity,
-                        revision,
-                        entries,
-                        descriptors,
-                        { appendLogSequence, appendLogDigest },
-                      );
+                      const root = catalogRootPayload(identity, revision, entries, descriptors, {
+                        appendLogSequence,
+                        appendLogDigest,
+                      });
                       const rootDigest =
                         root === undefined ? undefined : ownerVaultCatalogDigest(root);
                       const nextRoot =
