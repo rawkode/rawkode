@@ -985,13 +985,7 @@ const syncChangeKeys = [
   "payloadBase64",
   "deviceSignature",
 ];
-const syncAcknowledgedKeys = [
-  "type",
-  "protocolVersion",
-  "vaultID",
-  "operationID",
-  "logSequence",
-];
+const syncAcknowledgedKeys = ["type", "protocolVersion", "vaultID", "operationID", "logSequence"];
 const protocolErrorKeys = ["type", "protocolVersion", "error"];
 
 function record(value: unknown, name: string): Record<string, unknown> {

@@ -25,10 +25,10 @@ import {
   parseJSONWithoutDuplicateMembers,
   protocolVersion,
   rawJSONStructuralLimits,
+  sha256Hex,
   signedDeviceRequestSigningPayload,
   signedRequestHeader,
   signedRequestHeaderName,
-  sha256Hex,
   syncChangeSigningPayload,
   websocketContract,
 } from "./contracts";
@@ -503,10 +503,14 @@ describe("v2 protocol schemas", () => {
     expect(decodeClientWebSocketFrame(signedSyncChange({ causalVersion: undefined })).type).toBe(
       "syncChange",
     );
-    expect(() => decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: undefined }))).toThrow();
+    expect(() =>
+      decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: undefined })),
+    ).toThrow();
     expect(() => decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: -1 }))).toThrow();
     expect(() =>
-      decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: Number.MAX_SAFE_INTEGER + 1 })),
+      decodeClientWebSocketFrame(
+        signedSyncChange({ observedHighWater: Number.MAX_SAFE_INTEGER + 1 }),
+      ),
     ).toThrow();
   });
 
