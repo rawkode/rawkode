@@ -1,0 +1,122 @@
+# Enchiridion v2 CI (projects/enchiridion) — issue #30 Phase 6.
+#
+# This is the executable root workflow replacing the former
+# projects/enchiridion/.github/workflows/enchiridion.yml, which GitHub never
+# discovered (workflows are only read from repository-root .github/workflows).
+# Hand-maintained, not cuenv-generated: the enchiridion-*.yml files generated
+# by `cuenv sync ci` cover apps/enchiridion (the Astro app), a different
+# project.
+#
+# Deployment is deliberately absent: issue #30 keeps deploy jobs inert until
+# E2-07 (Alchemy v2-only infrastructure) is complete and separately approved.
+# Do not add a deploy job here before then.
+
+name: enchiridion-v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "projects/enchiridion/**"
+      - ".github/workflows/enchiridion-v2.yml"
+  pull_request:
+    paths:
+      - "projects/enchiridion/**"
+      - ".github/workflows/enchiridion-v2.yml"
+
+concurrency:
+  group: enchiridion-v2-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: projects/enchiridion
+
+jobs:
+  checks:
+    name: test + typecheck + deployable lint + drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Frozen install: CI must fail if bun.lock and package.json disagree
+      # rather than silently resolving new versions.
+      - name: bun install (frozen)
+        run: bun install --frozen-lockfile
+
+      # `test` runs BEFORE `typecheck` on purpose: `tsc --build` emits
+      # dist/*.test.js siblings which bun test's discovery could otherwise
+      # double-run (bunfig.toml pathIgnorePatterns is the second safety net).
+      - name: test
+        run: bun test
+
+      - name: typecheck
+        run: bun run typecheck
+
+      # Deployable-scope lint + Effect/Promise boundary scanner. This is the
+      # hard gate from issue #30: zero scanner findings is a release
+      # requirement, not advisory.
+      - name: lint deployable v2
+        run: bun run lint:deployable-v2
+
+      # Generated-artifact drift: fails if packages/protocol generated
+      # contracts (Swift, OpenAPI, JSON artifacts) were not regenerated and
+      # committed alongside a source change.
+      - name: protocol generated-artifact drift
+        run: bun run --cwd packages/protocol generate:check
+
+      - name: swift protocol consumer
+        run: bun run test:swift-protocol-consumer
+
+  swift:
+    name: swift build + test (macOS)
+    # apps/swift pins swift-tools-version 6.2 with iOS 26 / macOS 26
+    # platforms and depends on loro-swift's Apple-only xcframework, so this
+    # needs a macOS runner with a full current Xcode. If SDK resolution (not
+    # a real test failure) breaks here, pin the Xcode version explicitly
+    # rather than loosening the deployment targets.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: swift build
+        working-directory: projects/enchiridion/apps/swift
+        run: swift build
+
+      # Cross-language golden/protocol tests are release-blocking — do not
+      # add continue-on-error here.
+      - name: swift test
+        working-directory: projects/enchiridion/apps/swift
+        run: swift test
+
+  # Tracked separately per issue #30 Phase 6: lint:all (biome) carries ~512
+  # pre-existing formatting/import diagnostics. Non-blocking until that debt
+  # is cleared; flip continue-on-error to false at that point and fold it
+  # into required checks.
+  lint-all:
+    name: biome lint (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: bun install (frozen)
+        run: bun install --frozen-lockfile
+
+      - name: lint:all
+        run: bun run lint:all
