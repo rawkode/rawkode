@@ -40,7 +40,7 @@ import type {
   OwnerVaultStorageTransactionFailure,
   OwnerVaultTx,
 } from "./repository";
-import type { OwnerVaultStorageRecord } from "./storage-registry";
+import { type OwnerVaultStorageRecord, ownerVaultStorageRegistry } from "./storage-registry";
 
 const backupIDPattern = /^[A-Za-z0-9_-]{16,120}$/u;
 const digestPattern = /^[A-Za-z0-9+/]{43}=$/u;
@@ -314,10 +314,13 @@ const catalogEntries = (
   ).pipe(
     Effect.flatMap((pages) => {
       const entries = pages.flat();
-      const ordered = entries.every(
-        (entry, index) =>
-          entry.ordinal === index && (index === 0 || entries[index - 1]!.key < entry.key),
-      );
+      const ordered = entries.every((entry, index) => {
+        const previous = entries[index - 1];
+        return (
+          entry.ordinal === index &&
+          (index === 0 || (previous !== undefined && previous.key < entry.key))
+        );
+      });
       return ordered &&
         ownerVaultCatalogDigest(entries) === root.catalogDigest &&
         root.highWaterMark === root.catalogDigest
@@ -360,10 +363,16 @@ const pinnedRoot = (
 };
 
 const entryAddress = (entry: OwnerVaultCatalogEntry): OwnerVaultStorageAddress | undefined => {
+  const category = entry.category as OwnerVaultStorageAddress["category"];
+  const definition = ownerVaultStorageRegistry.get(category);
+  if (definition === undefined) return undefined;
   const identifier = entry.key.split("/").at(-1);
-  return identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)
-    ? undefined
-    : { category: entry.category as OwnerVaultStorageAddress["category"], identifier };
+  if (identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)) return undefined;
+  try {
+    return definition.key(identifier) === entry.key ? { category, identifier } : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 const matchesEntry = (entry: OwnerVaultCatalogEntry, record: OwnerVaultStorageRecord): boolean => {
@@ -501,16 +510,14 @@ export const makeOwnerVaultSnapshotPinController = (
                               state: OwnerVaultSnapshotPinState.Open,
                               retained: true,
                             };
-                            return tx
-                              .put(address("backup.pin", backupID), encodePin(pin))
-                              .pipe(
-                                Effect.zipRight(
-                                  tx.put(address("catalog.retention", identifier), {
-                                    pinCount: count + 1,
-                                  }),
-                                ),
-                                Effect.as(publicPin(pin)),
-                              );
+                            return tx.put(address("backup.pin", backupID), encodePin(pin)).pipe(
+                              Effect.zipRight(
+                                tx.put(address("catalog.retention", identifier), {
+                                  pinCount: count + 1,
+                                }),
+                              ),
+                              Effect.as(publicPin(pin)),
+                            );
                           }),
                         ),
                       ),
@@ -571,16 +578,19 @@ export const makeOwnerVaultSnapshotPinController = (
                 }
                 return Effect.forEach(selected, (entry) => {
                   const preimageID = preimageIdentifier(durable.catalogRevision, entry.ordinal);
+                  const entryStorageAddress = entryAddress(entry);
                   if (preimageID === undefined)
                     return Effect.fail({
                       _tag: "OwnerVaultStorageError",
                       reason: "state_corrupt",
                     } as const);
+                  if (entryStorageAddress === undefined)
+                    return Effect.fail({
+                      _tag: "OwnerVaultStorageError",
+                      reason: "state_corrupt",
+                    } as const);
                   return tx
-                    .get({
-                      category: entry.category as OwnerVaultStorageAddress["category"],
-                      identifier: entry.key.split("/").at(-1),
-                    })
+                    .get(entryStorageAddress)
                     .pipe(
                       Effect.flatMap((live) => {
                         const record =
@@ -602,13 +612,7 @@ export const makeOwnerVaultSnapshotPinController = (
                     )
                     .pipe(
                       Effect.flatMap((record) => {
-                        const bytes = canonicalSnapshotRecordBytes(
-                          {
-                            category: entry.category as OwnerVaultStorageAddress["category"],
-                            identifier: entry.key.split("/").at(-1),
-                          },
-                          record,
-                        );
+                        const bytes = canonicalSnapshotRecordBytes(entryStorageAddress, record);
                         return bytes === undefined ||
                           bytes.byteLength > ownerVaultBackupMaximumObjectBytes
                           ? Effect.fail({
@@ -617,10 +621,7 @@ export const makeOwnerVaultSnapshotPinController = (
                             } as const)
                           : Effect.succeed({
                               ordinal: entry.ordinal,
-                              address: {
-                                category: entry.category as OwnerVaultStorageAddress["category"],
-                                identifier: entry.key.split("/").at(-1),
-                              },
+                              address: entryStorageAddress,
                               record,
                               sha256Base64: ownerVaultBackupDigest(bytes),
                               size: bytes.byteLength,

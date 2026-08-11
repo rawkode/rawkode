@@ -15,6 +15,7 @@ import {
   validOwnerVaultBackupDigest,
 } from "./backup-canonical";
 import {
+  type OwnerVaultBackupError,
   type OwnerVaultBackupManifest,
   type OwnerVaultBackupPage,
   type OwnerVaultBackupPageEntry,
@@ -71,13 +72,11 @@ const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const exactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
-const integrity = <A>(
-  effect: Effect.Effect<A, unknown>,
-): Effect.Effect<A, import("./backup-types").OwnerVaultBackupError> =>
+const integrity = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A, OwnerVaultBackupError> =>
   effect.pipe(
     Effect.mapError(
       () =>
-        ({ _tag: "OwnerVaultBackupError", reason: "integrity_failed" }) as import("./backup-types").OwnerVaultBackupError,
+        ({ _tag: "OwnerVaultBackupError", reason: "integrity_failed" }) as OwnerVaultBackupError,
     ),
   );
 
@@ -85,7 +84,7 @@ const writeImmutable = (
   runtime: OwnerVaultBackupRuntime,
   key: string,
   bytes: Uint8Array,
-): Effect.Effect<void, import("./backup-types").OwnerVaultBackupError> =>
+): Effect.Effect<void, OwnerVaultBackupError> =>
   Effect.gen(function* () {
     const prior = yield* integrity(runtime.r2.head(key));
     if (prior !== undefined) {
@@ -159,7 +158,7 @@ export const createOwnerVaultBackup = (
   runtime: OwnerVaultBackupRuntime,
   scope: OwnerVaultBackupScope,
   backupID: string,
-): Effect.Effect<OwnerVaultSignedBackupManifest, import("./backup-types").OwnerVaultBackupError> =>
+): Effect.Effect<OwnerVaultSignedBackupManifest, OwnerVaultBackupError> =>
   Effect.gen(function* () {
     const pin = yield* source.beginSnapshot(scope, backupID);
     if (!validPin(pin, scope, backupID)) return yield* ownerVaultBackupFailure("catalog_invalid");
@@ -251,14 +250,15 @@ export const createOwnerVaultBackup = (
       const canonical = canonicalManifestBytes(manifest);
       if (canonical === undefined || canonical.byteLength > ownerVaultBackupMaximumManifestBytes)
         return yield* ownerVaultBackupFailure("manifest_invalid");
-      const signature = yield* runtime.signer
-        .signCanonical(canonical)
-        .pipe(
-          Effect.mapError(
-            () =>
-              ({ _tag: "OwnerVaultBackupError", reason: "manifest_untrusted" }) as import("./backup-types").OwnerVaultBackupError,
-          ),
-        );
+      const signature = yield* runtime.signer.signCanonical(canonical).pipe(
+        Effect.mapError(
+          () =>
+            ({
+              _tag: "OwnerVaultBackupError",
+              reason: "manifest_untrusted",
+            }) as OwnerVaultBackupError,
+        ),
+      );
       const signed: OwnerVaultSignedBackupManifest = { manifest, signature };
       const signedBytes = canonicalSignedManifestBytes(signed);
       if (
@@ -391,7 +391,7 @@ export const restoreOwnerVaultBackup = (
   backupID: string,
   /** Directory control binds the signed-manifest bytes before any archive object is read. */
   expectedManifestDigest?: string,
-): Effect.Effect<void, import("./backup-types").OwnerVaultBackupError> =>
+): Effect.Effect<void, OwnerVaultBackupError> =>
   Effect.gen(function* () {
     if (
       target.root.namespaceState !== "PRIVATE" ||
@@ -415,14 +415,15 @@ export const restoreOwnerVaultBackup = (
       return yield* ownerVaultBackupFailure("manifest_invalid");
     const canonical = canonicalManifestBytes(signed.manifest);
     if (canonical === undefined) return yield* ownerVaultBackupFailure("manifest_invalid");
-    yield* runtime.verifier
-      .verifyCanonical(canonical, signed.signature)
-      .pipe(
-        Effect.mapError(
-          () =>
-            ({ _tag: "OwnerVaultBackupError", reason: "manifest_untrusted" }) as import("./backup-types").OwnerVaultBackupError,
-        ),
-      );
+    yield* runtime.verifier.verifyCanonical(canonical, signed.signature).pipe(
+      Effect.mapError(
+        () =>
+          ({
+            _tag: "OwnerVaultBackupError",
+            reason: "manifest_untrusted",
+          }) as OwnerVaultBackupError,
+      ),
+    );
     const manifestDigest = ownerVaultBackupDigest(bytes);
     const staged: {
       readonly expected: import("./backup-types").OwnerVaultRestoreImportRecord;
@@ -620,7 +621,10 @@ export const makeOwnerVaultPrivateStorageRestoreTarget = (
     effect.pipe(
       Effect.mapError(
         () =>
-          ({ _tag: "OwnerVaultBackupError", reason: "source_unavailable" }) as import("./backup-types").OwnerVaultBackupError,
+          ({
+            _tag: "OwnerVaultBackupError",
+            reason: "source_unavailable",
+          }) as OwnerVaultBackupError,
       ),
     );
   return {

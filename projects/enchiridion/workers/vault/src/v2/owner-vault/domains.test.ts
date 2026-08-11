@@ -151,6 +151,21 @@ const enrolledProvider = async () => {
 };
 
 describe("v2 OwnerVault durable domain provider", () => {
+  test("rejects an invalid append-proof scope before initialization writes any rows", async () => {
+    const native = durable();
+    const repository = makeDurableObjectOwnerVaultStorageRepository(
+      makeDurableObjectBoundary(native.state).storage,
+    );
+    const provider = makeOwnerVaultDomainProvider(repository, {
+      ...root,
+      generationEpoch: Number.NaN,
+    });
+    const exit = await Effect.runPromiseExit(provider.initialize());
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain("invalid_input");
+    expect(native.entries).toHaveLength(0);
+  });
+
   test("registers domain snapshot rows transparently and retains an OPEN pinned preimage", async () => {
     const fixture = await enrolledProvider();
     const controller = makeOwnerVaultSnapshotPinController(fixture.repository, {

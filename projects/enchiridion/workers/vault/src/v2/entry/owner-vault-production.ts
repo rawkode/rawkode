@@ -181,7 +181,16 @@ export const parseOwnerVaultProductionLimits = (
       ])
     )
       return undefined;
-    const values = [
+    const [
+      maximumBlobBytes,
+      maximumOrphanBytes,
+      maximumOrphanCount,
+      maximumVaultBytes,
+      maximumActiveLeasesPerVault,
+      maximumActiveLeasesPerFinal,
+      stageTTLSeconds,
+      tombstoneGraceSeconds,
+    ] = [
       "maximumBlobBytes",
       "maximumOrphanBytes",
       "maximumOrphanCount",
@@ -193,7 +202,15 @@ export const parseOwnerVaultProductionLimits = (
     ].map((key) =>
       read(blob, key, key === "maximumOrphanBytes" || key === "maximumOrphanCount" ? 0 : 1),
     );
-    const catalogValues = [
+    const [
+      maximumObjects,
+      maximumCatalogObjectBytes,
+      maximumCatalogTotalBytes,
+      maximumCatalogPageEntries,
+      targetPageBytes,
+      maximumCatalogPageBytes,
+      maximumRootBytes,
+    ] = [
       "maximumObjects",
       "maximumObjectBytes",
       "maximumTotalBytes",
@@ -202,7 +219,15 @@ export const parseOwnerVaultProductionLimits = (
       "maximumPageBytes",
       "maximumRootBytes",
     ].map((key) => read(catalog, key));
-    const backupValues = [
+    const [
+      maximumBackupPageBytes,
+      maximumBackupPageEntries,
+      maximumBackupObjectBytes,
+      maximumBackupTotalBytes,
+      maximumManifestBytes,
+      maximumRestoreJournalBytes,
+      maximumBackupObjects,
+    ] = [
       "maximumPageBytes",
       "maximumPageEntries",
       "maximumObjectBytes",
@@ -211,54 +236,84 @@ export const parseOwnerVaultProductionLimits = (
       "maximumRestoreJournalBytes",
       "maximumObjects",
     ].map((key) => read(backup, key));
-    const pinValues = ["maximumPins", "gcChunk", "retentionSeconds"].map((key) => read(pins, key));
-    const r2Values = [
+    const [maximumPins, gcChunk, retentionSeconds] = [
+      "maximumPins",
+      "gcChunk",
+      "retentionSeconds",
+    ].map((key) => read(pins, key));
+    const [maximumKeyBytes, maximumR2ObjectBytes, maximumCursorBytes, maximumListPageSize] = [
       "maximumKeyBytes",
       "maximumObjectBytes",
       "maximumCursorBytes",
       "maximumListPageSize",
     ].map((key) => read(r2, key));
     if (
-      [...values, ...catalogValues, ...backupValues, ...pinValues, ...r2Values].some(
-        (value) => value === undefined,
-      )
+      maximumBlobBytes === undefined ||
+      maximumOrphanBytes === undefined ||
+      maximumOrphanCount === undefined ||
+      maximumVaultBytes === undefined ||
+      maximumActiveLeasesPerVault === undefined ||
+      maximumActiveLeasesPerFinal === undefined ||
+      stageTTLSeconds === undefined ||
+      tombstoneGraceSeconds === undefined ||
+      maximumObjects === undefined ||
+      maximumCatalogObjectBytes === undefined ||
+      maximumCatalogTotalBytes === undefined ||
+      maximumCatalogPageEntries === undefined ||
+      targetPageBytes === undefined ||
+      maximumCatalogPageBytes === undefined ||
+      maximumRootBytes === undefined ||
+      maximumBackupPageBytes === undefined ||
+      maximumBackupPageEntries === undefined ||
+      maximumBackupObjectBytes === undefined ||
+      maximumBackupTotalBytes === undefined ||
+      maximumManifestBytes === undefined ||
+      maximumRestoreJournalBytes === undefined ||
+      maximumBackupObjects === undefined ||
+      maximumPins === undefined ||
+      gcChunk === undefined ||
+      retentionSeconds === undefined ||
+      maximumKeyBytes === undefined ||
+      maximumR2ObjectBytes === undefined ||
+      maximumCursorBytes === undefined ||
+      maximumListPageSize === undefined
     )
       return undefined;
     const result: OwnerVaultProductionLimits = {
       blob: {
-        maximumBlobBytes: values[0]!,
-        maximumOrphanBytes: values[1]!,
-        maximumOrphanCount: values[2]!,
-        maximumVaultBytes: values[3]!,
-        maximumActiveLeasesPerVault: values[4]!,
-        maximumActiveLeasesPerFinal: values[5]!,
-        stageTTLSeconds: values[6]!,
-        tombstoneGraceSeconds: values[7]!,
+        maximumBlobBytes,
+        maximumOrphanBytes,
+        maximumOrphanCount,
+        maximumVaultBytes,
+        maximumActiveLeasesPerVault,
+        maximumActiveLeasesPerFinal,
+        stageTTLSeconds,
+        tombstoneGraceSeconds,
       },
       catalog: {
-        maximumObjects: catalogValues[0]!,
-        maximumObjectBytes: catalogValues[1]!,
-        maximumTotalBytes: catalogValues[2]!,
-        maximumPageEntries: catalogValues[3]!,
-        targetPageBytes: catalogValues[4]!,
-        maximumPageBytes: catalogValues[5]!,
-        maximumRootBytes: catalogValues[6]!,
+        maximumObjects,
+        maximumObjectBytes: maximumCatalogObjectBytes,
+        maximumTotalBytes: maximumCatalogTotalBytes,
+        maximumPageEntries: maximumCatalogPageEntries,
+        targetPageBytes,
+        maximumPageBytes: maximumCatalogPageBytes,
+        maximumRootBytes,
       },
       backup: {
-        maximumPageBytes: backupValues[0]!,
-        maximumPageEntries: backupValues[1]!,
-        maximumObjectBytes: backupValues[2]!,
-        maximumTotalBytes: backupValues[3]!,
-        maximumManifestBytes: backupValues[4]!,
-        maximumRestoreJournalBytes: backupValues[5]!,
-        maximumObjects: backupValues[6]!,
+        maximumPageBytes: maximumBackupPageBytes,
+        maximumPageEntries: maximumBackupPageEntries,
+        maximumObjectBytes: maximumBackupObjectBytes,
+        maximumTotalBytes: maximumBackupTotalBytes,
+        maximumManifestBytes,
+        maximumRestoreJournalBytes,
+        maximumObjects: maximumBackupObjects,
       },
-      pins: { maximumPins: pinValues[0]!, gcChunk: pinValues[1]!, retentionSeconds: pinValues[2]! },
+      pins: { maximumPins, gcChunk, retentionSeconds },
       r2: {
-        maximumKeyBytes: r2Values[0]!,
-        maximumObjectBytes: r2Values[1]!,
-        maximumCursorBytes: r2Values[2]!,
-        maximumListPageSize: r2Values[3]!,
+        maximumKeyBytes,
+        maximumObjectBytes: maximumR2ObjectBytes,
+        maximumCursorBytes,
+        maximumListPageSize,
       },
     };
     const { blob: b, catalog: c, backup: a, pins: p, r2: r } = result;

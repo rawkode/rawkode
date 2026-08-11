@@ -142,7 +142,8 @@ const source = (items = records()): OwnerVaultBackupSnapshotSource => {
   const appendEntries = items
     .filter((item) => item.address.category === "append-log.entry")
     .map((item) => item.record.payload as unknown as import("./domains").OwnerVaultAppendLogEntry);
-  const appendProof = ownerVaultAppendProofValidate(scope, appendEntries)!;
+  const appendProof = ownerVaultAppendProofValidate(scope, appendEntries);
+  if (appendProof === undefined) throw new Error("test append proof setup failed");
   return {
     beginSnapshot: () =>
       Effect.succeed({

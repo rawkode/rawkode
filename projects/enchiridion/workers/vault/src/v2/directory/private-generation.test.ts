@@ -55,9 +55,13 @@ const random = (): DirectorySecureRandom => {
 const setup = () =>
   Effect.gen(function* () {
     const config = yield* makeVaultV2Config(configInput);
+    const issuer = verifiedAccessIssuer("https://team.cloudflareaccess.com");
+    if (issuer === undefined) throw new Error("test issuer setup failed");
+    const subject = opaqueAccessSubject("private-generation-subject");
+    if (subject === undefined) throw new Error("test subject setup failed");
     const aliases = yield* makeVersionedIssuerHasher(config.credentialBindingKeys).aliases({
-      issuer: verifiedAccessIssuer("https://team.cloudflareaccess.com")!,
-      subject: opaqueAccessSubject("private-generation-subject")!,
+      issuer,
+      subject,
     });
     const capabilities = yield* makeInternalCapabilityFactory.pipe(
       Effect.provideService(VaultV2Config, config),
@@ -122,15 +126,17 @@ describe("Directory private generation contract", () => {
     expect(target.ownerID).toBe(source.ownerID.value);
     expect(target.vaultID).toBe(source.vaultID.value);
     expect(commands).toHaveLength(1);
-    expect(commands[0]?.credentialEpoch).toBe(source.credentialEpoch);
-    expect(commands[0]?.routingEpoch).toBe(source.routingEpoch);
-    expect(commands[0]?.controlEpoch).toBe(source.controlEpoch);
+    const initializationCommand = commands[0];
+    if (initializationCommand === undefined) throw new Error("test initialization setup failed");
+    expect(initializationCommand.credentialEpoch).toBe(source.credentialEpoch);
+    expect(initializationCommand.routingEpoch).toBe(source.routingEpoch);
+    expect(initializationCommand.controlEpoch).toBe(source.controlEpoch);
     expect(commands[0]?.initDigest).toBe(
       initializationDigest({
         ownerID: target.ownerID,
         vaultID: target.vaultID,
         generationEpoch: target.generationEpoch,
-        operationID: commands[0]!.operationID,
+        operationID: initializationCommand.operationID,
         credentialEpoch: target.credentialEpoch,
         routingEpoch: target.routingEpoch,
         controlEpoch: target.controlEpoch,
@@ -213,12 +219,14 @@ describe("Directory private generation contract", () => {
     expect(target.routingEpoch).toBe(2);
     expect(target.controlEpoch).toBe(2);
     expect(syncs).toHaveLength(1);
+    const floorSyncCommand = syncs[0];
+    if (floorSyncCommand === undefined) throw new Error("test floor sync setup failed");
     expect(syncs[0]?.floorSyncDigest).toBe(
       floorSyncDigest({
         ownerID: target.ownerID,
         vaultID: target.vaultID,
         generationEpoch: target.generationEpoch,
-        operationID: syncs[0]!.operationID,
+        operationID: floorSyncCommand.operationID,
         credentialEpoch: 2,
         routingEpoch: 2,
         controlEpoch: 2,

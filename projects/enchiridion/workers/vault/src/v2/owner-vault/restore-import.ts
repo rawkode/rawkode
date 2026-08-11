@@ -158,11 +158,14 @@ const chainStep = (prior: string, item: OwnerVaultRestoreImportRecord): string |
   return bytes === undefined ? undefined : ownerVaultBackupDigest(bytes);
 };
 
-const strictAppendLogValidator: OwnerVaultRestoreAppendLogValidator = (input) =>
-  ownerVaultAppendProofValidate(input.scope, input.entries)?.appendLogSequence ===
-    input.appendLogSequence &&
-  ownerVaultAppendProofValidate(input.scope, input.entries)?.appendLogDigest ===
-    input.appendLogDigest;
+const strictAppendLogValidator: OwnerVaultRestoreAppendLogValidator = (input) => {
+  const proof = ownerVaultAppendProofValidate(input.scope, input.entries);
+  return (
+    proof !== undefined &&
+    proof.appendLogSequence === input.appendLogSequence &&
+    proof.appendLogDigest === input.appendLogDigest
+  );
+};
 
 export const ownerVaultRestoreImportHashChain = (
   manifestDigest: string,
@@ -634,7 +637,10 @@ const deriveBlobInventory = (
     left.sha256.localeCompare(right.sha256),
   );
   return sortedMetadata.length === evidence.length &&
-    sortedMetadata.every((item, index) => sameBlobEvidence(item, evidence[index]!)) &&
+    sortedMetadata.every((item, index) => {
+      const target = evidence[index];
+      return target !== undefined && sameBlobEvidence(item, target);
+    }) &&
     new Set(sortedMetadata.map((item) => item.sha256)).size === sortedMetadata.length &&
     new Set(evidence.map((item) => item.sha256)).size === evidence.length
     ? { metadata: sortedMetadata, references, tombstones }
@@ -711,7 +717,8 @@ export const makeOwnerVaultRestoreImport = (options: {
                       tx.get(address("root.floors")),
                     ]).pipe(
                       Effect.flatMap(([identity, floors]) =>
-                        matchesCompletedTarget(prior.receipt!, identity?.payload, floors?.payload)
+                        prior.receipt !== undefined &&
+                        matchesCompletedTarget(prior.receipt, identity?.payload, floors?.payload)
                           ? Effect.succeed(prior.receipt)
                           : txFailure(),
                       ),
@@ -855,8 +862,9 @@ export const makeOwnerVaultRestoreImport = (options: {
                   tx.get(address("root.floors")),
                 ]).pipe(
                   Effect.flatMap(([identity, floors]) =>
-                    matchesCompletedTarget(header.receipt!, identity?.payload, floors?.payload)
-                      ? Effect.succeed(header.receipt!)
+                    header.receipt !== undefined &&
+                    matchesCompletedTarget(header.receipt, identity?.payload, floors?.payload)
+                      ? Effect.succeed(header.receipt)
                       : txFailure(),
                   ),
                 );

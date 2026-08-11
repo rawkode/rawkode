@@ -105,7 +105,7 @@ export const ownerVaultCatalogDigest = (value: unknown): string | undefined => {
 };
 
 export const ownerVaultCatalogRevisionIdentifier = (value: number): string | undefined =>
-  safeNonNegativeInteger(value) && value <= 99_999_999_999_999_999_999
+  safeNonNegativeInteger(value) && value <= Number.MAX_SAFE_INTEGER
     ? String(value).padStart(20, "0")
     : undefined;
 
@@ -167,6 +167,7 @@ export const isOwnerVaultCatalogPagePayload = (
   const first = source.entries[0] === undefined ? 0 : plainRecord(source.entries[0])?.ordinal;
   if (
     !safeNonNegativeInteger(first) ||
+    first > Number.MAX_SAFE_INTEGER - Math.max(0, source.entries.length - 1) ||
     !source.entries.every((entry, index) => isEntry(entry, first + index))
   )
     return false;
@@ -224,6 +225,7 @@ export const isOwnerVaultCatalogRootPayload = (
   value: unknown,
 ): value is OwnerVaultCatalogRootPayload => {
   const source = plainRecord(value);
+  const bytes = source === undefined ? undefined : ownerVaultCatalogCanonicalBytes(source);
   return (
     source !== undefined &&
     exact(source, [
@@ -249,8 +251,8 @@ export const isOwnerVaultCatalogRootPayload = (
     safeNonNegativeInteger(source.appendLogSequence) &&
     typeof source.appendLogDigest === "string" &&
     hex.test(source.appendLogDigest) &&
-    ownerVaultCatalogCanonicalBytes(source)?.byteLength !== undefined &&
-    ownerVaultCatalogCanonicalBytes(source)!.byteLength <= 8 * 1024
+    bytes !== undefined &&
+    bytes.byteLength <= 8 * 1024
   );
 };
 

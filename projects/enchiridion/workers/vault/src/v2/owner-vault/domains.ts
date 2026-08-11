@@ -962,8 +962,10 @@ export const makeOwnerVaultDomainProvider = (
       ),
     );
 
-  const initialize = (): Effect.Effect<void, OwnerVaultDomainError> =>
-    transact((tx) =>
+  const initialize = (): Effect.Effect<void, OwnerVaultDomainError> => {
+    const initialAppendDigest = ownerVaultAppendProofD0(root);
+    if (initialAppendDigest === undefined) return fail("invalid_input");
+    return transact((tx) =>
       tx.initialize(root).pipe(
         Effect.mapError(storageFailure),
         Effect.zipRight(read(tx, address("root.admission"), decodeAdmission)),
@@ -999,7 +1001,7 @@ export const makeOwnerVaultDomainProvider = (
           head === undefined
             ? write(tx, address("root.log-head"), {
                 appendLogSequence: 0,
-                appendLogDigest: ownerVaultAppendProofD0(root),
+                appendLogDigest: initialAppendDigest,
               })
             : Effect.void,
         ),
@@ -1008,7 +1010,7 @@ export const makeOwnerVaultDomainProvider = (
           head === undefined
             ? write(tx, address("append-log.head"), {
                 appendLogSequence: 0,
-                appendLogDigest: ownerVaultAppendProofD0(root),
+                appendLogDigest: initialAppendDigest,
               })
             : Effect.void,
         ),
@@ -1034,6 +1036,7 @@ export const makeOwnerVaultDomainProvider = (
         Effect.zipRight(getHead(tx).pipe(Effect.asVoid)),
       ),
     );
+  };
 
   const issueChallenge = (
     challenge: OwnerVaultChallenge,
@@ -1336,6 +1339,7 @@ export const makeOwnerVaultDomainProvider = (
                 receiptIndex.entries.length >= ownerVaultMaximumCapabilityReceipts
               )
                 return fail("quota_exceeded");
+              if (head.appendLogSequence >= Number.MAX_SAFE_INTEGER) return fail("quota_exceeded");
               const logSequence = head.appendLogSequence + 1;
               if (!isSafePositive(logSequence)) return fail("quota_exceeded");
               const acknowledgement = {

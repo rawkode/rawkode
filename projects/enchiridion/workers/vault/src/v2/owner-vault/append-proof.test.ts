@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ownerVaultAppendProofDn, ownerVaultAppendProofValidate } from "./append-proof";
+import {
+  ownerVaultAppendProofD0,
+  ownerVaultAppendProofDn,
+  ownerVaultAppendProofValidate,
+} from "./append-proof";
 
 const scope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1 };
 const entry = (logSequence: number, operationID = `operation-${logSequence}`) => ({
@@ -42,5 +46,12 @@ describe("OwnerVault append proof", () => {
       ownerVaultAppendProofDn("0".repeat(64), entry(1)),
     );
     expect(ownerVaultAppendProofDn("0".repeat(64), entry(1))).not.toBe(proof?.appendLogDigest);
+  });
+
+  test("rejects invalid proof scopes before any chain is seeded", () => {
+    const invalidScope = { ...scope, generationEpoch: Number.NaN };
+    expect(ownerVaultAppendProofD0(invalidScope)).toBeUndefined();
+    expect(ownerVaultAppendProofValidate(invalidScope, [])).toBeUndefined();
+    expect(ownerVaultAppendProofValidate(invalidScope, [entry(1)])).toBeUndefined();
   });
 });

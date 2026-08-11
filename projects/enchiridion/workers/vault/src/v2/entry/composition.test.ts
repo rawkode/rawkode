@@ -214,16 +214,20 @@ test("validates manifest key pairing and rejects revoked active configuration wi
     get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
   });
   const raw = environment(namespace);
-  const invalidKeyPair = makeVaultV2EntryComposition(
-    parseVaultV2EntryEnv({ ...raw, ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad" })!,
-  );
-  const revoked = makeVaultV2EntryComposition(
-    parseVaultV2EntryEnv({
-      ...raw,
-      ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]',
-    })!,
-  );
+  const invalidKeyPairEnvironment = parseVaultV2EntryEnv({
+    ...raw,
+    ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad",
+  });
+  if (invalidKeyPairEnvironment === undefined) throw new Error("test setup invalid");
+  const invalidKeyPair = makeVaultV2EntryComposition(invalidKeyPairEnvironment);
+  const revokedEnvironment = parseVaultV2EntryEnv({
+    ...raw,
+    ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]',
+  });
+  if (revokedEnvironment === undefined) throw new Error("test setup invalid");
+  const revoked = makeVaultV2EntryComposition(revokedEnvironment);
   const composed = makeVaultV2EntryCompositionCache()(raw);
+  if (composed === undefined) throw new Error("test setup invalid");
   return Promise.all([
     Effect.runPromiseExit(
       invalidKeyPair?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing"),
@@ -234,7 +238,7 @@ test("validates manifest key pairing and rejects revoked active configuration wi
     expect(Exit.isFailure(invalid)).toBe(true);
     expect(Exit.isFailure(revokedExit)).toBe(true);
     expect(ring.current.keyID).toBe("manifest-current");
-    return Effect.runPromise(composed!.ownerVaultProduction.manifestKeys()).then((retry) =>
+    return Effect.runPromise(composed.ownerVaultProduction.manifestKeys()).then((retry) =>
       expect(retry).toBe(ring),
     );
   });

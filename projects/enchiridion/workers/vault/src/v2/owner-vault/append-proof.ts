@@ -24,8 +24,17 @@ export interface OwnerVaultAppendProof {
 }
 
 const canonical = (value: unknown): Uint8Array | undefined => canonicalOwnerVaultBackupBytes(value);
+const validScope = (scope: {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+}): boolean =>
+  /^[A-Za-z0-9_-]{1,128}$/u.test(scope.ownerID) &&
+  /^[A-Za-z0-9_-]{1,128}$/u.test(scope.vaultID) &&
+  Number.isSafeInteger(scope.generationEpoch) &&
+  scope.generationEpoch >= 1;
 const appendIdentifier = (logSequence: number): string | undefined =>
-  Number.isSafeInteger(logSequence) && logSequence > 0 && logSequence <= 9_999_999_999_999_999_999
+  Number.isSafeInteger(logSequence) && logSequence > 0 && logSequence <= Number.MAX_SAFE_INTEGER
     ? String(logSequence).padStart(20, "0")
     : undefined;
 
@@ -33,15 +42,16 @@ export const ownerVaultAppendProofD0 = (scope: {
   readonly ownerID: string;
   readonly vaultID: string;
   readonly generationEpoch: number;
-}): string =>
-  sha256Hex(
-    canonical({
-      domain: "enchiridion-owner-vault-append-v1",
-      generationEpoch: scope.generationEpoch,
-      ownerID: scope.ownerID,
-      vaultID: scope.vaultID,
-    })!,
-  );
+}): string | undefined => {
+  if (!validScope(scope)) return undefined;
+  const bytes = canonical({
+    domain: "enchiridion-owner-vault-append-v1",
+    generationEpoch: scope.generationEpoch,
+    ownerID: scope.ownerID,
+    vaultID: scope.vaultID,
+  });
+  return bytes === undefined ? undefined : sha256Hex(bytes);
+};
 
 export const ownerVaultAppendProofDn = (
   previousDigest: string,
@@ -72,6 +82,7 @@ export const ownerVaultAppendProofNext = (
     return undefined;
   const seed =
     previous.appendLogSequence === 0 ? ownerVaultAppendProofD0(scope) : previous.appendLogDigest;
+  if (seed === undefined) return undefined;
   const appendLogDigest = ownerVaultAppendProofDn(seed, entry);
   return appendLogDigest === undefined
     ? undefined
@@ -82,9 +93,11 @@ export const ownerVaultAppendProofValidate = (
   scope: { readonly ownerID: string; readonly vaultID: string; readonly generationEpoch: number },
   entries: readonly OwnerVaultAppendProofEntry[],
 ): OwnerVaultAppendProof | undefined => {
+  const seed = ownerVaultAppendProofD0(scope);
+  if (seed === undefined) return undefined;
   let proof: OwnerVaultAppendProof = {
     appendLogSequence: 0,
-    appendLogDigest: ownerVaultAppendProofD0(scope),
+    appendLogDigest: seed,
   };
   for (const entry of entries) {
     const next = ownerVaultAppendProofNext(scope, proof, entry);
