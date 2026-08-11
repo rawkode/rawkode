@@ -4,6 +4,8 @@ import {
   CapabilityMethod,
   DirectoryControlCapabilityAudience,
   DirectoryControlCapabilityAuthority,
+  type DirectoryControlCredentialTransitionExpectation,
+  type DirectoryControlCredentialTransitionRequestBinding,
   DirectoryControlResource,
   type SignedCapability,
 } from "@enchiridion/runtime";
@@ -67,7 +69,9 @@ export const DirectoryTransitionAuthorizer = Context.GenericTag<DirectoryTransit
 
 /** Internal-only restart authority. P06-03/04 must bind this to a capability for this exact journal. */
 const directoryTransitionResumePath = "/v2/internal/directory/credential-transition/resume";
-const resumeBinding = (transition: DirectoryCredentialTransition) => ({
+const resumeBinding = (
+  transition: DirectoryCredentialTransition,
+): DirectoryControlCredentialTransitionRequestBinding => ({
   resource: DirectoryControlResource.CredentialTransition,
   method: CapabilityMethod.POST,
   path: directoryTransitionResumePath,
@@ -76,7 +80,9 @@ const resumeBinding = (transition: DirectoryCredentialTransition) => ({
   ownerID: transition.expected.ownerID.value,
   vaultID: transition.expected.vaultID.value,
 });
-const resumeExpectation = (transition: DirectoryCredentialTransition) => ({
+const resumeExpectation = (
+  transition: DirectoryCredentialTransition,
+): DirectoryControlCredentialTransitionExpectation => ({
   audience: DirectoryControlCapabilityAudience.DirectoryControl,
   authority: DirectoryControlCapabilityAuthority.DirectoryControl,
   resource: DirectoryControlResource.CredentialTransition,

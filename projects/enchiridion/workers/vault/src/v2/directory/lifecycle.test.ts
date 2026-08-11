@@ -32,42 +32,56 @@ const command = { ...base, initDigest: initializationDigest(base) };
 const ring = { purpose: "internal-capability" as const, current: { keyID: "control", secret: Redacted.make("directory-control-secret-0123456789") }, prior: [] };
 
 test("signs a command-bound OwnerVault initialization capability", async () => {
-  const signed = await Effect.runPromise(signOwnerVaultInitialization(makeDirectoryControlCapabilitySigner(ring), command, "init-capability-jti-0001", 100));
-  const claims = await Effect.runPromise(makeDirectoryControlCapabilityVerifier(ring).verify(signed, {
+  const jti = "init-capability-jti-0001";
+  const verifier = makeDirectoryControlCapabilityVerifier(ring);
+  const signed = await Effect.runPromise(signOwnerVaultInitialization(makeDirectoryControlCapabilitySigner(ring), command, jti, 100));
+  const binding = {
     resource: DirectoryControlResource.OwnerVaultInitialization,
     method: CapabilityMethod.POST, path: ownerVaultInitializationPath, canonicalQuery: "",
     bodySHA256: (await import("@enchiridion/protocol")).sha256Hex(new TextEncoder().encode(JSON.stringify(command))),
     ownerID: command.ownerID, vaultID: command.vaultID, initDigest: command.initDigest,
-    controlEpoch: command.controlEpoch,
-  }, {
+    controlEpoch: command.controlEpoch, jti,
+  } as const;
+  const expectation = {
     audience: DirectoryControlCapabilityAudience.DirectoryControl,
     authority: DirectoryControlCapabilityAuthority.DirectoryControl,
     resource: DirectoryControlResource.OwnerVaultInitialization,
     ownerID: command.ownerID, vaultID: command.vaultID,
-    credentialEpoch: 1, controlEpoch: 1, generationEpoch: 1, routingEpoch: 1, operationID: command.operationID,
-  }, 101));
+    credentialEpoch: 1, controlEpoch: 1, generationEpoch: 1, routingEpoch: 1, operationID: command.operationID, jti,
+  } as const;
+  const claims = await Effect.runPromise(verifier.verify(signed, binding, expectation, 101));
   expect(claims.initDigest).toBe(command.initDigest);
+  expect(claims.jti).toBe(jti);
+  expect((await Effect.runPromiseExit(verifier.verify(signed, { ...binding, jti: "init-capability-jti-other" }, expectation, 101)))._tag).toBe("Failure");
+  expect((await Effect.runPromiseExit(verifier.verify(signed, binding, { ...expectation, jti: "init-capability-jti-other" }, 101)))._tag).toBe("Failure");
 });
 
 test("signs an exact forward-only OwnerVault floor-sync capability", async () => {
   const syncBase = { ...base, operationID: "floor-sync-operation-0001", credentialEpoch: 2, routingEpoch: 3, controlEpoch: 4 };
   const sync = { ...syncBase, floorSyncDigest: floorSyncDigest(syncBase) };
-  const signed = await Effect.runPromise(signOwnerVaultFloorSync(makeDirectoryControlCapabilitySigner(ring), sync, "floor-sync-capability-jti", 100));
-  const claims = await Effect.runPromise(makeDirectoryControlCapabilityVerifier(ring).verify(signed, {
+  const jti = "floor-sync-capability-jti";
+  const verifier = makeDirectoryControlCapabilityVerifier(ring);
+  const signed = await Effect.runPromise(signOwnerVaultFloorSync(makeDirectoryControlCapabilitySigner(ring), sync, jti, 100));
+  const binding = {
     resource: DirectoryControlResource.OwnerVaultFloorSync,
     method: CapabilityMethod.POST, path: ownerVaultFloorSyncPath, canonicalQuery: "",
     bodySHA256: (await import("@enchiridion/protocol")).sha256Hex(new TextEncoder().encode(JSON.stringify(sync))),
     ownerID: sync.ownerID, vaultID: sync.vaultID, floorSyncDigest: sync.floorSyncDigest,
-    controlEpoch: sync.controlEpoch,
-  }, {
+    controlEpoch: sync.controlEpoch, jti,
+  } as const;
+  const expectation = {
     audience: DirectoryControlCapabilityAudience.DirectoryControl,
     authority: DirectoryControlCapabilityAuthority.DirectoryControl,
     resource: DirectoryControlResource.OwnerVaultFloorSync,
     ownerID: sync.ownerID, vaultID: sync.vaultID,
     credentialEpoch: sync.credentialEpoch, controlEpoch: sync.controlEpoch,
-    generationEpoch: sync.generationEpoch, routingEpoch: sync.routingEpoch, operationID: sync.operationID,
-  }, 101));
+    generationEpoch: sync.generationEpoch, routingEpoch: sync.routingEpoch, operationID: sync.operationID, jti,
+  } as const;
+  const claims = await Effect.runPromise(verifier.verify(signed, binding, expectation, 101));
   expect(claims.floorSyncDigest).toBe(sync.floorSyncDigest);
+  expect(claims.jti).toBe(jti);
+  expect((await Effect.runPromiseExit(verifier.verify(signed, { ...binding, jti: "floor-sync-capability-other" }, expectation, 101)))._tag).toBe("Failure");
+  expect((await Effect.runPromiseExit(verifier.verify(signed, binding, { ...expectation, jti: "floor-sync-capability-other" }, 101)))._tag).toBe("Failure");
 });
 
 test("uses a target-only stable shard and rejects substituted or echo-only acknowledgements", async () => {
