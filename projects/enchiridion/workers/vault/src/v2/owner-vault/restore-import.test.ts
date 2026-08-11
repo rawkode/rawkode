@@ -454,7 +454,7 @@ describe("OwnerVault C1 restore import", () => {
           expiresAtSeconds: 1_200,
           resource: "/v2/sync",
           claims: '{"jti":"jti-123456789012","operationID":"operation-3"}',
-          claimsFingerprint: "28be316b46f6d80eafb3e66807d45a441d233b5c5247fee7454c245e27096448",
+          claimsFingerprint: "091b5442a6c1e3412bd875546c4d16c66011c18697f4af3a1e738e206e054953",
           tokenFingerprint: "e".repeat(64),
         },
       }),

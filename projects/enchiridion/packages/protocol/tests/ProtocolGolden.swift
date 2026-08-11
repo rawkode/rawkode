@@ -33,7 +33,7 @@ enum ProtocolGolden {
       assertionExpiresAt: try EnchiridionSignedTimestamp(1760000120000),
       operationID: try EnchiridionIdentifier("operation-1"),
       sourceKind: "websocket",
-      payloadSHA256: try EnchiridionSHA256Digest("4e56ccf49bcec1556706f38c33f0757aea522b08e75e8401fc2d9527225ec467"),
+      payloadSHA256: try EnchiridionSHA256Digest("a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222"),
       causalVersion: try EnchiridionNonNegativeInt(9),
       observedHighWater: try EnchiridionNonNegativeInt(17),
       frameID: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"),
@@ -45,7 +45,7 @@ enum ProtocolGolden {
     let decoded = try JSONDecoder().decode(EnchiridionClientWebSocketFrame.self, from: JSONEncoder().encode(wire))
     guard decoded == wire else { throw GoldenFailure.mismatch("WebSocket Codable round trip") }
     let originalSigningBytes = EnchiridionSyncChangeSigningPayload.canonicalBytes(frame)
-    let changedEpoch = SyncChangeFrame(type: "syncChange", protocolVersion: version, vaultID: try EnchiridionVaultID("vault-1"), deviceID: deviceID, authEpoch: try EnchiridionAuthEpoch(3), credentialEpoch: try EnchiridionCredentialEpoch(6), generationEpoch: try EnchiridionGenerationEpoch(5), sessionNonce: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), assertionExpiresAt: try EnchiridionSignedTimestamp(1760000120000), operationID: try EnchiridionIdentifier("operation-1"), sourceKind: "websocket", payloadSHA256: try EnchiridionSHA256Digest("4e56ccf49bcec1556706f38c33f0757aea522b08e75e8401fc2d9527225ec467"), causalVersion: try EnchiridionNonNegativeInt(9), observedHighWater: try EnchiridionNonNegativeInt(17), frameID: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), signingPayloadVersion: try EnchiridionSigningPayloadVersion(), payloadBase64: try EnchiridionBase64Payload("AQI="), deviceSignature: signature)
+    let changedEpoch = SyncChangeFrame(type: "syncChange", protocolVersion: version, vaultID: try EnchiridionVaultID("vault-1"), deviceID: deviceID, authEpoch: try EnchiridionAuthEpoch(3), credentialEpoch: try EnchiridionCredentialEpoch(6), generationEpoch: try EnchiridionGenerationEpoch(5), sessionNonce: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), assertionExpiresAt: try EnchiridionSignedTimestamp(1760000120000), operationID: try EnchiridionIdentifier("operation-1"), sourceKind: "websocket", payloadSHA256: try EnchiridionSHA256Digest("a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222"), causalVersion: try EnchiridionNonNegativeInt(9), observedHighWater: try EnchiridionNonNegativeInt(17), frameID: try EnchiridionFrameID("AAAAAAAAAAAAAAAAAAAAAA"), signingPayloadVersion: try EnchiridionSigningPayloadVersion(), payloadBase64: try EnchiridionBase64Payload("AQI="), deviceSignature: signature)
     guard originalSigningBytes != EnchiridionSyncChangeSigningPayload.canonicalBytes(changedEpoch) else { throw GoldenFailure.mismatch("session epoch signing payload") }
     guard EnchiridionHTTPClient.percentEncodedPathSegment("device/one ?#%") == "device%2Fone%20%3F%23%25" else { throw GoldenFailure.mismatch("RFC 3986 path segment encoding") }
     _ = try EnchiridionHTTPClient(baseURL: URL(string: "https://api.example.test")!)

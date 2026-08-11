@@ -20,7 +20,7 @@ const frame = () => {
     assertionExpiresAt: 1_760_000_120_000,
     operationID: "operation-1",
     sourceKind: "websocket",
-    payloadSHA256: "4e56ccf49bcec1556706f38c33f0757aea522b08e75e8401fc2d9527225ec467",
+    payloadSHA256: "a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222",
     causalVersion: 9,
     observedHighWater: 17,
     frameID: "AAAAAAAAAAAAAAAAAAAAAQ",

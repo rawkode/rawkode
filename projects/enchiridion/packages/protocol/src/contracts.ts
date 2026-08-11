@@ -250,16 +250,9 @@ export function sha256Hex(bytes: Uint8Array): string {
     for (let index = 16; index < 64; index += 1) {
       const a = wordAt(index - 15);
       const b = wordAt(index - 2);
-      words[index] =
-        (wordAt(index - 16) +
-          ((a >>> 7) | (a << 25)) +
-          ((a >>> 18) | (a << 14)) +
-          (a >>> 3) +
-          wordAt(index - 7) +
-          ((b >>> 17) | (b << 15)) +
-          ((b >>> 19) | (b << 13)) +
-          (b >>> 10)) >>>
-        0;
+      const sigma0 = ((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3);
+      const sigma1 = ((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10);
+      words[index] = (wordAt(index - 16) + sigma0 + wordAt(index - 7) + sigma1) >>> 0;
     }
     let a = h0;
     let b = h1;

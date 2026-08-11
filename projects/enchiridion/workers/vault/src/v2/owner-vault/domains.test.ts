@@ -35,7 +35,7 @@ const capability = {
   expiresAtSeconds: 1_200,
   resource: "/v2/sync",
   claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
-  claimsFingerprint: "87e3da47009b520b1d1c7affaf2f08b33ce263f252fdfd0c8330ec9b4fca2b80",
+  claimsFingerprint: "5a224769aeb22b6c6d1f1bdf31da69e5270bf008a59f2949472726a29c223128",
   tokenFingerprint: "e".repeat(64),
 } as const;
 const capabilityFor = (jti: string, operationID = "operation-1") => {
@@ -244,7 +244,7 @@ describe("v2 OwnerVault durable domain provider", () => {
         resource: "/v2/sync",
         operationID: "operation-1",
         claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
-        claimsFingerprint: "87e3da47009b520b1d1c7affaf2f08b33ce263f252fdfd0c8330ec9b4fca2b80",
+        claimsFingerprint: "5a224769aeb22b6c6d1f1bdf31da69e5270bf008a59f2949472726a29c223128",
         tokenFingerprint: "e".repeat(64),
       },
     });
