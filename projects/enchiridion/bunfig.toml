@@ -1,0 +1,19 @@
+# Bun workspace root config for Enchiridion 2.
+# See ./package.json for the workspaces list (workers/*, packages/*, supertags/*).
+
+[install]
+# Exact versions in lockfile; no implicit range resolution surprises across
+# the workers/packages/supertags workspaces.
+exact = true
+
+[test]
+# `bun test` discovers *.test.ts next to sources across every workspace.
+root = "."
+# Every workspace package's tsconfig.json builds to a sibling dist/ (outDir
+# "dist", rootDir "src") via `bun run typecheck` (`tsc --build`), which
+# compiles each *.test.ts to dist/*.test.js. Without this, bun test's default
+# discovery picks up both the .ts source and its compiled dist/ copy,
+# silently double-running the whole suite whenever dist/ exists (e.g. after
+# typecheck runs first in CI). Exclude dist/ outright so test discovery is
+# correct regardless of build/test step ordering.
+pathIgnorePatterns = ["**/dist/**"]

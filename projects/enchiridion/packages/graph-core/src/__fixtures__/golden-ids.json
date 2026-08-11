@@ -1,0 +1,101 @@
+{
+  "$schema": "cross-language golden fixtures for deterministic Enchiridion PageID / blob-id derivation",
+  "note": "Single source of truth for the plan's Critical invariant (deterministic PageIDs ported byte-for-byte, locked with cross-language golden tests). Loaded by packages/graph-core/src/index.test.ts on the TS side. The Swift side does NOT yet load this file — see apps/swift/Tests/GOLDEN_IDS_TODO.md in projects/enchiridion for why and what must happen before release.",
+  "digestScheme": {
+    "idDigest": "SHA-256 over UTF-8 bytes, truncated to the first 20 bytes (160 bits), lowercase hex (40 chars). Swift: PageID.digest(_:), apps/enchiridion/Sources/EnchiridionCore/PageModels.swift:54-59.",
+    "fullDigest": "SHA-256 over UTF-8 bytes, full 32 bytes, lowercase hex (64 chars). Used for CalendarMaterializedIdentity.uidDigest/.sourceScopeDigest (CalendarEventMaterialization.swift:24,31-32,43-44) and for blob_ ids (fresh design choice, no Swift precedent — see deriveBlobId doc comment in src/index.ts).",
+    "separator": "NUL byte (U+0000) joins multi-field digest inputs, e.g. Swift's `joined(separator: \"\\u{0}\")`."
+  },
+  "dailyPageIds": [
+    {
+      "description": "ordinary ISO date string input",
+      "input": "2026-08-06",
+      "expectedId": "daily:2026-08-06"
+    },
+    {
+      "description": "leap day, via {year,month,day} numeric components",
+      "input": { "year": 2024, "month": 2, "day": 29 },
+      "expectedId": "daily:2024-02-29"
+    },
+    {
+      "description": "single-digit month and day via numeric components (zero-padding check)",
+      "input": { "year": 2026, "month": 1, "day": 5 },
+      "expectedId": "daily:2026-01-05"
+    }
+  ],
+  "personPageIds": [
+    {
+      "description": "already-normalized lowercase email",
+      "input": "alice@example.com",
+      "expectedId": "person_ff8d9819fc0e12bf0d24892e45987e249a28dce8"
+    },
+    {
+      "description": "mixed case with surrounding whitespace/newline (trim-then-lowercase normalization)",
+      "input": "  Bob@EXAMPLE.com\n",
+      "expectedId": "person_5ff860bf1190596c7188ab851db691f0f3169c45"
+    },
+    {
+      "description": "another already-normalized email, distinct digest from case 1",
+      "input": "carol@example.com",
+      "expectedId": "person_e0d47ca1bc1eb62e650fc1fd660a9bfbf7cba8dc"
+    }
+  ],
+  "eventPageIds": [
+    {
+      "description": "all-day materialized calendar event (occurrenceToken = \"all-day\\0<civilDay>\\0<zone>\")",
+      "input": {
+        "iCalendarUID": "event-uid-1@example.com",
+        "provider": "google",
+        "isAllDay": true,
+        "originalStartCivilDay": "2026-08-06",
+        "timeZoneIdentifier": "Europe/London"
+      },
+      "expectedUidDigest": "4d51d05dc8da7897209d942630c883905f6cff3e7bf43268c0e6e627f4581f51",
+      "expectedSourceScopeDigest": "bbdefa2950f49882f295b1285d4fa9dec45fc4144bfb07ee6acc68762d12c2e3",
+      "expectedOccurrenceToken": "all-day\u00002026-08-06\u0000Europe/London",
+      "expectedId": "calendar_event_6fc00328dadfd9be4ebe2accb9db98327682c542"
+    },
+    {
+      "description": "timed materialized calendar event (occurrenceToken = \"instant\\0<epochSecondsTruncatedTowardZero>\"), originalStartDate given as epoch milliseconds",
+      "input": {
+        "iCalendarUID": "event-uid-2@example.com",
+        "provider": "google",
+        "isAllDay": false,
+        "originalStartDateEpochMs": 1754470800000
+      },
+      "expectedUidDigest": "56cf88488f024ba47802c7b0f2e78d556ca03e13d32d58a3f7c04b5f606975fc",
+      "expectedSourceScopeDigest": "bbdefa2950f49882f295b1285d4fa9dec45fc4144bfb07ee6acc68762d12c2e3",
+      "expectedOccurrenceToken": "instant\u00001754470800",
+      "expectedId": "calendar_event_41331056d3303f24813ceee6c11daa4b51a7ff3f"
+    }
+  ],
+  "blobIds": [
+    {
+      "description": "empty buffer — standard SHA-256 test vector for the empty string, independently verifiable",
+      "inputHex": "",
+      "expectedId": "blob_e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "description": "short ASCII string \"hello world\" — commonly cited SHA-256 test vector, independently verifiable",
+      "inputHex": "68656c6c6f20776f726c64",
+      "expectedId": "blob_b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+    }
+  ],
+  "emailThreadPageIds": [
+    {
+      "description": "typical Gmail thread id (hex string, as Gmail's API returns it)",
+      "input": "17c3f9a1b2d4e5f6",
+      "expectedId": "email_thread_a3b5430b2a97e6b931ff9dcdf37ee1bed5c86769"
+    },
+    {
+      "description": "surrounding whitespace is trimmed before digesting (no lowercasing — Gmail thread ids are case-sensitive hex)",
+      "input": "  thread-with-whitespace-trimmed  ",
+      "expectedId": "email_thread_3396f425f1ecefdfc5b57936d74bd961ed916f11"
+    },
+    {
+      "description": "another thread id, distinct digest from case 1",
+      "input": "18d4a0b2c3e5f7091a2b",
+      "expectedId": "email_thread_73d25df29ca22e42a854496836854eb3200a9efc"
+    }
+  ]
+}

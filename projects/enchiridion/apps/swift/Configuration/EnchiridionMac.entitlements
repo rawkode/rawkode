@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	P1 scope: no CloudKit, no camera/mic/location access (plan: "Native
+	apps" — sync is a custom WebSocket protocol to VaultDO, not CloudKit;
+	this app doesn't request calendar/contacts/mic yet). Sandboxed per
+	Apple's Mac App Store / notarization baseline; network client is
+	included because the eventual vault sync transport (a plain WebSocket,
+	per the plan's "Sync" pin) needs it, and a basic outbound-network
+	exception is not a sensitive capability the way CloudKit/App Groups
+	are.
+
+	P6 "Widgets" task (plan §Platform parity): added the App Group
+	capability so this app target and the new `Enchiridion2MacWidget`
+	extension target can both resolve
+	`FileManager.containerURL(forSecurityApplicationGroupIdentifier:)` to
+	the SAME on-disk directory and therefore open the SAME
+	`LocalGraphStore` SQLite file (`EnchiridionStore/LocalGraphStoreLocation.swift`).
+	Identifier mirrors the old app's `group.dev.rawkode.enchiridion`
+	convention (apps/enchiridion/Configuration/EnchiridionMac.entitlements),
+	namespaced for this rebuild's `dev.rawkode.enchiridion2` bundle-id
+	prefix so the two apps' App Groups never collide on one device during
+	the parallel-operation period.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.rawkode.enchiridion2</string>
+	</array>
+</dict>
+</plist>

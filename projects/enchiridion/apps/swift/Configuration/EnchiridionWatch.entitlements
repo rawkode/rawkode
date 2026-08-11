@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	P6 "watchOS workout capture" task (plan §Platform parity). HealthKit
+	access to log a workout via HKWorkoutSession/HKLiveWorkoutBuilder
+	(Sources/EnchiridionWatchKit/WorkoutSessionController.swift) plus
+	background delivery so an in-progress workout keeps recording if the
+	watch's screen sleeps or the app is backgrounded mid-run.
+
+	DELIBERATELY NO `com.apple.security.application-groups` HERE (unlike
+	every other target's `.entitlements` file in this directory): a
+	watchOS app runs on a physically separate device from its iPhone
+	companion app — there is no shared filesystem container between them
+	the simple way there is between an app and its own in-process
+	extension (which is what the App Group entitlement is for — see
+	EnchiridionMac.entitlements' comment). This target's own
+	`LocalGraphStore` lives at its own on-device path
+	(EnchiridionWatchKit/WatchLocalStoreLocation.swift), never the
+	`group.dev.rawkode.enchiridion2` container the phone/widgets/share
+	extensions share — see that file's header for the full reasoning.
+	-->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.background-delivery</key>
+	<true/>
+</dict>
+</plist>

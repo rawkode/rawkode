@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+.wrangler/

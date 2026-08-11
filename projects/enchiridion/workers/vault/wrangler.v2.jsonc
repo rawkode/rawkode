@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "enchiridion-vault-v2",
+  "main": "src/v2/entry/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "CREDENTIAL_DIRECTORY_DO", "class_name": "CredentialDirectoryDO" }]
+  },
+  "migrations": [{ "tag": "v2-directory", "new_sqlite_classes": ["CredentialDirectoryDO"] }]
+}

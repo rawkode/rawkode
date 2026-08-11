@@ -1,0 +1,402 @@
+# XcodeGen config for Enchiridion 2.
+#
+# P1: real macOS + iOS app targets, built against the SPM package at
+# Package.swift (apps/swift/Package.swift) — EnchiridionCore, EnchiridionSync,
+# and EnchiridionBlobs have real compiling sources; EnchiridionStore,
+# EnchiridionSchema, EnchiridionAPI, and EnchiridionGadgets remain
+# placeholder-only (see each target's README.md) but still link cleanly.
+# EnchiridionUI hosts the real page editor (PageEditorView.swift).
+#
+# Modeled on apps/enchiridion/project.yml (bundleIdPrefix, deployment
+# targets, SWIFT_STRICT_CONCURRENCY) but with far fewer targets — no
+# watchOS, no CarPlay scene (plan §Phasing P6: those remain deliberately
+# deferred) — and a placeholder bundle id, dev.rawkode.enchiridion2, so the
+# two apps can coexist on a device during the parallel-operation period
+# (plan: "the old app keeps running on CloudKit until parity").
+#
+# P6 "Widgets" task (plan §Platform parity: "Widgets (iOS + macOS,
+# WidgetKit) — read-only surfaces ... Requires an App Group entitlement").
+# Added `Enchiridion2iOSWidget`/`Enchiridion2MacWidget` — two separate
+# app-extension targets (one per platform; WidgetKit extensions are
+# embedded inside a platform-specific host app bundle, so they cannot be a
+# single Xcode target the way an SPM library can be a single dependency),
+# sharing their actual TimelineProvider/View logic via the new
+# `EnchiridionWidgetKit` SPM library product (Package.swift) — mirroring
+# how `EnchiridionUI` is already shared between `Enchiridion2Mac`/
+# `Enchiridion2iOS`: one shared library, thin per-platform Xcode target
+# sources (here: a one-file `@main WidgetBundle` per extension target,
+# same shape as `Sources/iOS/RootView.swift`/`Sources/macOS/RootView.swift`
+# staying separate thin per-platform files on top of shared `EnchiridionUI`
+# logic).
+#
+# P6 "Share extensions" task (plan §Platform parity: "capture from other
+# apps into a new page ... writes go through the same local-write path
+# P1's page editor already uses"). Added
+# `Enchiridion2iOSShareExtension`/`Enchiridion2MacShareExtension` — same
+# per-platform app-extension-target shape as the widgets above (an
+# `com.apple.share-services` `NSExtension` this time, not
+# `com.apple.widgetkit-extension`), sharing their actual capture logic via
+# the new `EnchiridionShareKit` SPM library product (Package.swift). Each
+# extension's Xcode target carries only a minimal `NSViewController`/
+# `UIViewController` confirm-capture UI (`Sources/macOSShareExtension`/
+# `Sources/iOSShareExtension`) — no XIB/storyboard, built in code — plus the
+# same App Group entitlement the widgets already use, so a capture lands in
+# the exact `LocalGraphStore` the main app and both widgets read.
+#
+# P6 "watchOS workout capture" task (plan §Platform parity: "new platform
+# target + HealthKit workout session"). Added `Enchiridion2Watch` — this
+# is a real watchOS APP target (`type: application, platform: watchOS`),
+# not an app-extension like the widgets/share extensions above: since
+# Xcode 13, a watchOS app is a single target (no separate "WatchKit
+# Extension" target the old paired-target shape used), embedded into its
+# iOS companion via the SAME `dependencies: [{ target: ..., embed: true }]`
+# shape the widgets/share extensions use, but paired via
+# `WKCompanionAppBundleIdentifier`/`WKApplication` Info.plist keys instead
+# of an `NSExtension` block, and its own bundle id is the iOS host's own
+# bundle id + `.watchkitapp` (an Apple hard requirement for a companion
+# watch app, not this project's usual bundleIdPrefix-derived convention).
+# Shares its actual HealthKit-session + CRDT-persistence logic via the new
+# `EnchiridionWatchKit` SPM library product (Package.swift) — same
+# "shared SPM library, thin per-platform Xcode target" shape as
+# `EnchiridionWidgetKit`/`EnchiridionShareKit`. Deliberately does NOT
+# share the App Group entitlement/container the other targets use — a
+# watchOS app runs on a physically separate device from its iPhone
+# companion, so there is no shared filesystem container the simple way
+# there is between an app and its own in-process extension; see
+# `Configuration/EnchiridionWatch.entitlements` and
+# `Sources/EnchiridionWatchKit/WatchLocalStoreLocation.swift` for the real
+# mechanism used instead (the watch app's own independent local store).
+#
+# TODO(plan P0/P1): confirm final bundle id before TestFlight distribution
+# (plan §Native apps: "personal-team / TestFlight, not the App Store").
+
+name: Enchiridion2
+
+options:
+  bundleIdPrefix: dev.rawkode.enchiridion2
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+    watchOS: "26.0"
+  generateEmptyDirectories: true
+
+packages:
+  EnchiridionCore:
+    path: .
+
+settings:
+  base:
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    DEVELOPMENT_TEAM: 3NU4DUDS5C
+
+targets:
+  Enchiridion2Mac:
+    type: application
+    platform: macOS
+    productName: Enchiridion2
+    info:
+      path: Configuration/EnchiridionMac-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion 2
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+    sources:
+      - path: Sources/macOS
+    dependencies:
+      - package: EnchiridionCore
+        product: EnchiridionCore
+      - package: EnchiridionCore
+        product: EnchiridionSync
+      - package: EnchiridionCore
+        product: EnchiridionStore
+      - package: EnchiridionCore
+        product: EnchiridionUI
+      - target: Enchiridion2MacWidget
+        embed: true
+      - target: Enchiridion2MacShareExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.mac
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMac.entitlements
+        CODE_SIGN_STYLE: Automatic
+
+  Enchiridion2iOS:
+    type: application
+    platform: iOS
+    productName: Enchiridion2
+    info:
+      path: Configuration/EnchiridionIOS-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion 2
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+    sources:
+      - path: Sources/iOS
+    dependencies:
+      - package: EnchiridionCore
+        product: EnchiridionCore
+      - package: EnchiridionCore
+        product: EnchiridionSync
+      - package: EnchiridionCore
+        product: EnchiridionStore
+      - package: EnchiridionCore
+        product: EnchiridionUI
+      - target: Enchiridion2iOSWidget
+        embed: true
+      - target: Enchiridion2iOSShareExtension
+        embed: true
+      # DELIBERATELY NOT embedded (unlike the widget/share extension
+      # targets above), for now: `Enchiridion2Watch` transitively depends
+      # on `EnchiridionSync`/`EnchiridionStore`, which depend on Loro
+      # (Package.swift) — and the pinned `loro-swift` 1.13.3 release's
+      # prebuilt `loroFFI.xcframework` ships NO watchOS or watchOS
+      # Simulator slice at all (only ios/ios-simulator/maccatalyst/macos/
+      # xros — verified directly against that xcframework's own
+      # `Info.plist` in this sandbox). `embed: true` here makes building
+      # THIS target (the real iOS app almost every user actually runs)
+      # transitively require building `Enchiridion2Watch`, which cannot
+      # succeed until either a newer loro-swift ships a watchOS slice or
+      # Loro is built from source for watchOS — neither is in scope for
+      # this task. `Enchiridion2Watch` remains a real, independently
+      # listed/buildable-once-unblocked Xcode target and scheme; it's
+      # just not wired into the host app's embed graph yet. Re-add
+      # `embed: true` here the moment that upstream gap closes — see this
+      # task's own report for the full verification trail.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.ios
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionIOS.entitlements
+        CODE_SIGN_STYLE: Automatic
+
+  Enchiridion2MacWidget:
+    type: app-extension
+    platform: macOS
+    productName: Enchiridion2MacWidget
+    info:
+      path: Configuration/EnchiridionMacWidget-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion 2 Widgets
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - Sources/macOSWidget
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - package: EnchiridionCore
+        product: EnchiridionWidgetKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.mac.widget
+        PRODUCT_NAME: Enchiridion2MacWidget
+        APPLICATION_EXTENSION_API_ONLY: true
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMacWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+  Enchiridion2iOSWidget:
+    type: app-extension
+    platform: iOS
+    productName: Enchiridion2iOSWidget
+    info:
+      path: Configuration/EnchiridionIOSWidget-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion 2 Widgets
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - Sources/iOSWidget
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - package: EnchiridionCore
+        product: EnchiridionWidgetKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.ios.widget
+        PRODUCT_NAME: Enchiridion2iOSWidget
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionIOSWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+  Enchiridion2MacShareExtension:
+    type: app-extension
+    platform: macOS
+    productName: Enchiridion2MacShareExtension
+    info:
+      path: Configuration/EnchiridionMacShareExtension-Info.plist
+      properties:
+        CFBundleDisplayName: Save to Enchiridion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+    sources:
+      - Sources/macOSShareExtension
+    dependencies:
+      - sdk: AppKit.framework
+      - package: EnchiridionCore
+        product: EnchiridionShareKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.mac.share
+        PRODUCT_NAME: Enchiridion2MacShareExtension
+        APPLICATION_EXTENSION_API_ONLY: true
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionMacShareExtension.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+  Enchiridion2iOSShareExtension:
+    type: app-extension
+    platform: iOS
+    productName: Enchiridion2iOSShareExtension
+    info:
+      path: Configuration/EnchiridionIOSShareExtension-Info.plist
+      properties:
+        CFBundleDisplayName: Save to Enchiridion
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+    sources:
+      - Sources/iOSShareExtension
+    dependencies:
+      - sdk: UIKit.framework
+      - package: EnchiridionCore
+        product: EnchiridionShareKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.ios.share
+        PRODUCT_NAME: Enchiridion2iOSShareExtension
+        APPLICATION_EXTENSION_API_ONLY: true
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionIOSShareExtension.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+  Enchiridion2Watch:
+    type: application
+    platform: watchOS
+    productName: Enchiridion2Watch
+    info:
+      path: Configuration/EnchiridionWatch-Info.plist
+      properties:
+        CFBundleDisplayName: Enchiridion 2
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Single-target (Xcode 13+) watchOS app — no separate "WatchKit
+        # Extension" target/Info.plist. `WKCompanionAppBundleIdentifier`
+        # must exactly equal `Enchiridion2iOS`'s own
+        # `PRODUCT_BUNDLE_IDENTIFIER` below.
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: dev.rawkode.enchiridion2.ios
+        # A workout in progress must keep recording even if the paired
+        # iPhone is out of range or the companion app was force-quit —
+        # the whole point of on-wrist workout capture. `false` (the
+        # default) would tie usability to the phone's presence, which
+        # this task's brief ("start/stop workout via HKWorkoutSession")
+        # doesn't want.
+        WKRunsIndependentlyOfCompanionApp: true
+        # Required HealthKit usage-description strings — HealthKit
+        # refuses to present its authorization sheet at all without
+        # these (`WorkoutSessionController.requestAuthorization()`).
+        NSHealthShareUsageDescription: Enchiridion reads your active energy and heart rate during a workout to record it on the completed workout page.
+        NSHealthUpdateUsageDescription: Enchiridion logs the workouts you start and stop here to HealthKit.
+    sources:
+      - path: Sources/watchOS
+    dependencies:
+      - sdk: HealthKit.framework
+      - sdk: SwiftUI.framework
+      - package: EnchiridionCore
+        product: EnchiridionCore
+      - package: EnchiridionCore
+        product: EnchiridionSync
+      - package: EnchiridionCore
+        product: EnchiridionStore
+      - package: EnchiridionCore
+        product: EnchiridionSchema
+      - package: EnchiridionCore
+        product: EnchiridionWatchKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rawkode.enchiridion2.ios.watchkitapp
+        PRODUCT_NAME: Enchiridion2Watch
+        CODE_SIGN_ENTITLEMENTS: Configuration/EnchiridionWatch.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: true
+
+schemes:
+  Enchiridion2 macOS:
+    build:
+      targets:
+        Enchiridion2Mac: all
+    run:
+      config: Debug
+
+  Enchiridion2 iOS:
+    build:
+      targets:
+        Enchiridion2iOS: all
+    run:
+      config: Debug
+
+  Enchiridion2 macOS Widget:
+    build:
+      targets:
+        Enchiridion2MacWidget: all
+    run:
+      config: Debug
+
+  Enchiridion2 macOS Share Extension:
+    build:
+      targets:
+        Enchiridion2MacShareExtension: all
+    run:
+      config: Debug
+
+  Enchiridion2 iOS Share Extension:
+    build:
+      targets:
+        Enchiridion2iOSShareExtension: all
+    run:
+      config: Debug
+
+  Enchiridion2 iOS Widget:
+    build:
+      targets:
+        Enchiridion2iOSWidget: all
+    run:
+      config: Debug
+
+  Enchiridion2 watchOS:
+    build:
+      targets:
+        Enchiridion2Watch: all
+    run:
+      config: Debug

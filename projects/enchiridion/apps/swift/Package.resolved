@@ -1,0 +1,33 @@
+{
+  "originHash" : "af267fa4480e53213f18d5cbf4979f9d6e49d80fdb6e9df6aaddd613d54c3585",
+  "pins" : [
+    {
+      "identity" : "automerge-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/automerge/automerge-swift.git",
+      "state" : {
+        "revision" : "aa45d17ac92cef2b8ded63b47e65a28dc85e3418",
+        "version" : "0.7.2"
+      }
+    },
+    {
+      "identity" : "grdb.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/groue/GRDB.swift.git",
+      "state" : {
+        "revision" : "36e30a6f1ef10e4194f6af0cff90888526f0c115",
+        "version" : "7.10.0"
+      }
+    },
+    {
+      "identity" : "loro-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/loro-dev/loro-swift.git",
+      "state" : {
+        "revision" : "625f3e696fca4be3ae77de8b3404fa6753554f21",
+        "version" : "1.13.3"
+      }
+    }
+  ],
+  "version" : 3
+}

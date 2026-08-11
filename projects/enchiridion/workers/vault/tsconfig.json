@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["@cloudflare/workers-types", "@types/bun"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/graph-core" },
+    { "path": "../../packages/projection" },
+    { "path": "../../packages/graphql-composer" },
+    { "path": "../../packages/vault-rpc-contract" },
+    { "path": "../../packages/gatekeeper-google-rpc-contract" },
+    { "path": "../../supertags/email" }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "bodyContainer" : "body",
+  "bodyDelta" : [
+    {
+      "attributes" : {
+        "bold" : true
+      },
+      "insert" : "Hello"
+    },
+    {
+      "insert" : ", "
+    },
+    {
+      "attributes" : {
+        "pageReference" : "daily:2026-08-06"
+      },
+      "insert" : "Enchiridion"
+    }
+  ],
+  "bodyText" : "Hello, Enchiridion",
+  "generatedBy" : "swift",
+  "objectMetadata" : {
+    "done" : false,
+    "priority" : 2,
+    "title" : "Grocery list"
+  },
+  "objectMetadataContainer" : "objectMetadata"
+}

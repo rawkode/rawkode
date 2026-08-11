@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	P6 "Share extensions" task (plan §Platform parity). Share extensions run
+	in their own sandboxed process, separate from `Enchiridion2Mac` — this
+	entitlement is what lets `Enchiridion2MacShareExtension` resolve the SAME
+	App Group container as the host app via
+	`FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`, and
+	therefore write into the same on-disk `LocalGraphStore` SQLite file
+	(`EnchiridionShareKit`'s `ShareCapture.captureIntoAppGroupStore`) that the
+	main app and both widget extensions already share. Identifier must match
+	`EnchiridionMac.entitlements`/`EnchiridionMacWidget.entitlements` exactly
+	— see those files' comments for the full rationale.
+	App extensions are sandboxed by default on macOS (Apple requires
+	`APPLICATION_EXTENSION_API_ONLY`, already set in project.yml). Unlike the
+	widget extension (read-only, no network keys needed), this extension
+	writes to the local App Group container only — still no network access
+	of its own (capture is local-write-only; see `EnchiridionShareKit`'s
+	README for why image/attachment capture, which WOULD eventually need
+	network access for an R2 upload, is out of scope for this task).
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.rawkode.enchiridion2</string>
+	</array>
+</dict>
+</plist>

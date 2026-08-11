@@ -1,0 +1,23 @@
+{
+  "name": "enchiridion",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": ["workers/*", "packages/*", "supertags/*"],
+  "scripts": {
+    "typecheck": "tsc --build tsconfig.json --verbose",
+    "test": "bun test",
+    "lint": "bun run lint:deployable-v2",
+    "lint:deployable-v2": "bun scripts/check-deployable-v2-scope.ts && bun scripts/check-effect-promise-boundaries.ts",
+    "lint:foundations": "bun run lint:deployable-v2",
+    "test:swift-protocol-consumer": "bun run --cwd packages/protocol test:swift-consumer",
+    "lint:all": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}
