@@ -89,7 +89,10 @@ const openSocket = (
 
 const nextJSON = (socket: WebSocket): Promise<Record<string, unknown>> =>
   new Promise((resolve, reject) => {
+    const onClose = (code: number, reason: Buffer): void =>
+      reject(new Error(`socket closed (${code}) before the next message: ${reason.toString()}`));
     socket.once("message", (data) => {
+      socket.off("close", onClose);
       try {
         const value: unknown = JSON.parse(data.toString());
         if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -101,6 +104,7 @@ const nextJSON = (socket: WebSocket): Promise<Record<string, unknown>> =>
         reject(error);
       }
     });
+    socket.once("close", onClose);
     socket.once("error", reject);
   });
 

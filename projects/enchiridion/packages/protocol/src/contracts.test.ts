@@ -109,7 +109,7 @@ function signedEnvelope(
     method: "POST",
     canonicalPath: "/v2/devices/device-1/revoke",
     canonicalQuery: "",
-    bodySHA256: "c93e5235c7c4ec77b35910f85a4a16ba036385cc57a157220224afaf90a578d3",
+    bodySHA256: "34605d437aa40bf0e9c039d24a9e32eb39afc14571521c2c15751f48b4d7a201",
     requestID: "request-1",
     idempotencyKey: "idem-1",
     ownerID: "owner-1",
