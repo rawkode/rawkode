@@ -25,6 +25,7 @@ import {
   parseJSONWithoutDuplicateMembers,
   protocolVersion,
   rawJSONStructuralLimits,
+  sha256Hex,
   signedDeviceRequestSigningPayload,
   signedRequestHeader,
   signedRequestHeaderName,
@@ -41,6 +42,7 @@ const p256HighSSignatureBase64 =
 const p256SPKIBase64 =
   "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
 const validFrameID = "AAAAAAAAAAAAAAAAAAAAAA";
+const opaquePayloadSHA256 = sha256Hex(Uint8Array.from([1, 2]));
 
 function signedSyncChange(
   overrides: Readonly<Record<string, unknown>> = {},
@@ -55,8 +57,11 @@ function signedSyncChange(
     generationEpoch: 5,
     sessionNonce: validFrameID,
     assertionExpiresAt: 1_760_000_120_000,
-    changeID: "change-1",
+    operationID: "operation-1",
+    sourceKind: "websocket",
+    payloadSHA256: opaquePayloadSHA256,
     causalVersion: 9,
+    observedHighWater: 17,
     frameID: validFrameID,
     signingPayloadVersion: 1,
     payloadBase64: "AQI=",
@@ -148,9 +153,12 @@ function registration(overrides: Readonly<Record<string, unknown>> = {}): Record
 function mutationRequest(): Record<string, unknown> {
   const command = {
     type: "mutation",
-    mutationID: "mutation-1",
-    contentSHA256: "a".repeat(64),
+    operationID: "operation-1",
+    deviceID: "device-1",
+    sourceKind: "http",
+    payloadSHA256: opaquePayloadSHA256,
     payloadBase64: "AQI=",
+    causalVersion: 9,
   };
   return {
     envelope: signedEnvelope({
@@ -273,9 +281,14 @@ describe("v2 protocol schemas", () => {
   });
 
   test("accepts only canonical Base64 text and canonical base64url frame IDs", () => {
-    expect(decodeClientWebSocketFrame(signedSyncChange({ payloadBase64: "AA==" })).type).toBe(
-      "syncChange",
-    );
+    expect(
+      decodeClientWebSocketFrame(
+        signedSyncChange({
+          payloadBase64: "AA==",
+          payloadSHA256: sha256Hex(Uint8Array.from([0])),
+        }),
+      ).type,
+    ).toBe("syncChange");
     expect(() => decodeClientWebSocketFrame(signedSyncChange({ payloadBase64: "AB==" }))).toThrow();
     expect(() =>
       decodeDeviceRegisterRequest({
@@ -349,8 +362,11 @@ describe("v2 protocol schemas", () => {
       generationEpoch: 5,
       sessionNonce: validFrameID,
       assertionExpiresAt: 1_760_000_120_000,
-      changeID: "change-1",
+      operationID: "operation-1",
+      sourceKind: "websocket",
+      payloadSHA256: opaquePayloadSHA256,
       causalVersion: 9,
+      observedHighWater: 17,
       frameID: validFrameID,
       signingPayloadVersion: 1,
       payloadBase64: "AQI=",
@@ -365,6 +381,7 @@ describe("v2 protocol schemas", () => {
       { generationEpoch: 6 },
       { sessionNonce: "AAAAAAAAAAAAAAAAAAAAAQ" },
       { assertionExpiresAt: 1_760_000_121_000 },
+      { observedHighWater: 18 },
     ]) {
       const candidate = decodeClientWebSocketFrame(signedSyncChange(mutation));
       if (candidate.type !== "syncChange") throw new Error("Expected sync change");
@@ -382,8 +399,11 @@ describe("v2 protocol schemas", () => {
       generationEpoch: 5,
       sessionNonce: validFrameID,
       assertionExpiresAt: 1_760_000_120_000,
-      changeID: "change-1",
+      operationID: "operation-1",
+      sourceKind: "websocket",
+      payloadSHA256: opaquePayloadSHA256,
       causalVersion: 9,
+      observedHighWater: 17,
       frameID: "AAAAAAAAAAAAAAAAAAAAAQ",
       signingPayloadVersion: 1,
       payloadBase64: "AQI=",
@@ -404,13 +424,93 @@ describe("v2 protocol schemas", () => {
         generationEpoch: 5,
         sessionNonce: validFrameID,
         assertionExpiresAt: 1_760_000_120_000,
-        changeID: "change-1",
+        operationID: "operation-1",
+        sourceKind: "websocket",
+        payloadSHA256: opaquePayloadSHA256,
         causalVersion: 9,
+        observedHighWater: 17,
         frameID: "frame-1",
         signingPayloadVersion: 1,
         payloadBase64: "AQI=",
         deviceSignature: p256SignatureBase64,
       }),
+    ).toThrow();
+  });
+
+  test("uses one opaque operation namespace and keeps causal metadata separate from server sequence", () => {
+    const http = decodeMutationRequestJSON(JSON.stringify(mutationRequest()));
+    const websocket = decodeClientWebSocketFrame(signedSyncChange());
+    expect(http.command.operationID).toBe("operation-1");
+    expect(websocket.type).toBe("syncChange");
+    if (websocket.type !== "syncChange") throw new Error("Expected sync change");
+    expect(websocket.operationID).toBe(http.command.operationID);
+    expect(websocket.causalVersion).toBe(9);
+    expect(
+      decodeServerWebSocketFrame({
+        type: "syncAcknowledged",
+        protocolVersion,
+        vaultID: "vault-1",
+        operationID: "operation-1",
+        logSequence: 17,
+      }),
+    ).toEqual({
+      type: "syncAcknowledged",
+      protocolVersion,
+      vaultID: "vault-1",
+      operationID: "operation-1",
+      logSequence: 17,
+    });
+    expect(() =>
+      decodeServerWebSocketFrame({
+        type: "syncAcknowledged",
+        protocolVersion,
+        vaultID: "vault-1",
+        operationID: "operation-1",
+        logSequence: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeServerWebSocketFrame({
+        type: "syncAcknowledged",
+        protocolVersion,
+        vaultID: "vault-1",
+        operationID: "operation-1",
+        causalVersion: 9,
+        logSequence: 17,
+      }),
+    ).toThrow("unknown key causalVersion");
+
+    const mismatchedDevice = mutationRequest() as {
+      envelope: Record<string, unknown>;
+      command: Record<string, unknown>;
+    };
+    mismatchedDevice.command.deviceID = "device-2";
+    mismatchedDevice.envelope.bodySHA256 = canonicalJSONSHA256(mismatchedDevice.command as never);
+    expect(() => decodeMutationRequestJSON(JSON.stringify(mismatchedDevice))).toThrow(
+      "device must match",
+    );
+
+    const mismatchedPayload = mutationRequest() as {
+      envelope: Record<string, unknown>;
+      command: Record<string, unknown>;
+    };
+    mismatchedPayload.command.payloadSHA256 = "a".repeat(64);
+    mismatchedPayload.envelope.bodySHA256 = canonicalJSONSHA256(mismatchedPayload.command as never);
+    expect(() => decodeMutationRequestJSON(JSON.stringify(mismatchedPayload))).toThrow(
+      "payload digest",
+    );
+    expect(() => decodeClientWebSocketFrame(signedSyncChange({ sourceKind: "http" }))).toThrow();
+    expect(decodeClientWebSocketFrame(signedSyncChange({ causalVersion: undefined })).type).toBe(
+      "syncChange",
+    );
+    expect(() =>
+      decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: undefined })),
+    ).toThrow();
+    expect(() => decodeClientWebSocketFrame(signedSyncChange({ observedHighWater: -1 }))).toThrow();
+    expect(() =>
+      decodeClientWebSocketFrame(
+        signedSyncChange({ observedHighWater: Number.MAX_SAFE_INTEGER + 1 }),
+      ),
     ).toThrow();
   });
 

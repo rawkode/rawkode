@@ -24,6 +24,8 @@ export interface DirectoryResolution extends DirectoryIdentity {
   readonly activeGeneration: number;
   readonly routingEpoch: number;
   readonly credentialEpoch: number;
+  /** Directory-owned control floor; private targets must inherit it exactly. */
+  readonly controlEpoch: number;
 }
 
 export interface DirectoryReplay {
@@ -50,6 +52,14 @@ export interface DirectoryState {
    * owner again. The evidence deliberately contains no Access identity.
    */
   readonly retiredAliases: Readonly<Record<string, DirectoryRetiredAlias>>;
+  /** Every binding has one durable initialization command before it can route. */
+  readonly initializations: Readonly<Record<string, DirectoryOwnerVaultInitialization>>;
+  /**
+   * Private target rows are keyed by a caller-supplied recovery operation. They
+   * are deliberately separate from public bindings: no source scope becomes
+   * authority over the target.
+   */
+  readonly privateGenerations: Readonly<Record<string, DirectoryPrivateGeneration>>;
 }
 
 export interface DirectoryControlReplay {
@@ -57,6 +67,54 @@ export interface DirectoryControlReplay {
   readonly fingerprint: string;
   readonly expiresAt: number;
   readonly retainUntil: number;
+}
+
+/** Directory-owned, random operation evidence for a fresh OwnerVault generation. */
+export interface DirectoryOwnerVaultInitialization {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+  readonly operationID: string;
+  readonly credentialEpoch: number;
+  readonly routingEpoch: number;
+  readonly controlEpoch: number;
+  readonly initDigest: string;
+  /** Opaque OwnerVault receipt persisted only after its exact acknowledgement. */
+  readonly durableReceipt?: string;
+}
+
+export type DirectoryPrivateGenerationPhase = "PRIVATE_INITIALIZING" | "PRIVATE_READY";
+
+/**
+ * Directory owns this target-root authority row.  Source scope is never
+ * persisted here; the caller may use it only to locate the authoritative root
+ * before allocation.
+ */
+export interface DirectoryPrivateGeneration {
+  readonly operationID: string;
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+  readonly phase: DirectoryPrivateGenerationPhase;
+  readonly initialization: DirectoryOwnerVaultInitialization;
+  readonly credentialEpoch: number;
+  readonly routingEpoch: number;
+  readonly controlEpoch: number;
+  /** The latest exact, durable forward-only acknowledgement, if floors moved. */
+  readonly floorSync?: DirectoryOwnerVaultFloorSync;
+}
+
+export interface DirectoryOwnerVaultFloorSync {
+  readonly ownerID: string;
+  readonly vaultID: string;
+  readonly generationEpoch: number;
+  readonly operationID: string;
+  readonly credentialEpoch: number;
+  readonly routingEpoch: number;
+  readonly controlEpoch: number;
+  readonly floorSyncDigest: string;
+  /** Opaque OwnerVault receipt persisted only after exact acknowledgement. */
+  readonly durableReceipt?: string;
 }
 
 export type DirectoryCredentialTransitionPhase =
@@ -158,7 +216,9 @@ export interface DirectoryCredentialTransitionResult {
 
 export interface DirectorySecureRandom {
   /** Returns one opaque identifier for a single domain-separated purpose. */
-  readonly identifier: (purpose: "owner" | "vault") => Effect.Effect<string, DirectoryRandomError>;
+  readonly identifier: (
+    purpose: "owner" | "vault" | "owner-vault-initialization" | "owner-vault-floor-sync",
+  ) => Effect.Effect<string, DirectoryRandomError>;
 }
 
 export interface DirectoryRandomError {

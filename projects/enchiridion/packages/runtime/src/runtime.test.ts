@@ -120,7 +120,7 @@ describe("runtime", () => {
       { name: "operation.start" },
       { name: "operation.success" },
     ]);
-    expect(cloudflareAdapterLedger).toHaveLength(11);
+    expect(cloudflareAdapterLedger).toHaveLength(12);
     expect(cloudflareAdapterLedger.some(({ id }) => id === "access-jose-jwks")).toBe(true);
     expect(cloudflareAdapterLedger.map((entry) => entry.id)).toEqual([
       "cloudflare-promise",
@@ -128,6 +128,7 @@ describe("runtime", () => {
       "capability-hmac",
       "p256-webcrypto",
       "immutable-r2",
+      "blob-r2",
       "manifest-p256-webcrypto",
       "worker-outer-boundary",
       "access-jose-jwks",

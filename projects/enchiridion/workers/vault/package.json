@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --build",
     "test": "bun test",
+    "check:owner-vault-storage-keys": "bun scripts/check-owner-vault-storage-keys.ts",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
