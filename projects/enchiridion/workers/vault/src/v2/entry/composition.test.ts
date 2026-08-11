@@ -343,6 +343,53 @@ test("keeps the ovdc1 control authority isolated from Directory and socket admis
   expect(cache(raw)?.ownerVaultDirectoryControls).toBeDefined();
 });
 
+test("rejects malformed individual prior key pairs while accepting exact ones", () => {
+  const namespace = Object.create(null);
+  Object.defineProperties(namespace, {
+    idFromName: { value: () => ({ toString: () => "directory" }) },
+    get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
+  });
+  const raw = environment(namespace);
+  const cache = makeVaultV2EntryCompositionCache();
+  const socketShapes = [
+    '[{"keyID":"socket-prior"}]',
+    '[{"secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    '[{"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef","extra":"x"}]',
+    '[{"keyID":123,"secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    '[{"keyID":"socket-prior","secret":123}]',
+    '[{"keyID":"bad key!","secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    '[{"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"},{"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    '["socket-prior"]',
+  ];
+  for (const shape of socketShapes) {
+    expect(
+      cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: shape }),
+    ).toBeUndefined();
+  }
+  const controlShapes = [
+    '[{"keyID":"owner-control-prior"}]',
+    '[{"keyID":"owner-control-prior","secret":"owner-control-prior-secret-0123456789-abcdef","extra":"x"}]',
+    '[{"keyID":123,"secret":"owner-control-prior-secret-0123456789-abcdef"}]',
+    '[{"keyID":"owner-control-prior","secret":123}]',
+    '[{"keyID":"owner-control-prior","secret":"owner-control-prior-secret-0123456789-abcdef"},{"keyID":"owner-control-prior","secret":"owner-control-prior-secret-0123456789-abcdef"}]',
+  ];
+  for (const shape of controlShapes) {
+    expect(
+      cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON: shape }),
+    ).toBeUndefined();
+  }
+  const composed = cache({
+    ...raw,
+    ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON:
+      '[{"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON:
+      '[{"keyID":"owner-control-prior","secret":"owner-control-prior-secret-0123456789-abcdef"}]',
+  });
+  expect(composed).toBeDefined();
+  expect(composed?.ownerVaultSocketAdmission).toBeDefined();
+  expect(composed?.ownerVaultDirectoryControls).toBeDefined();
+});
+
 test("reuses the injected Access singleton across cold, kid rotation, cached operation, and expiry outage", async () => {
   const namespace = Object.create(null);
   Object.defineProperties(namespace, {

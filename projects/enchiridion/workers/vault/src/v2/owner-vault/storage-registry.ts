@@ -380,6 +380,12 @@ const validBlobAccounting = (value: unknown): boolean => {
   );
 };
 
+/** The exact closed phase domain; anything outside this set fails decoding. */
+const isSocketAdmissionPhase = (
+  value: unknown,
+): value is "PREPARED" | "ACCEPTED" | "EXPIRED" | "CLOSED" =>
+  value === "PREPARED" || value === "ACCEPTED" || value === "EXPIRED" || value === "CLOSED";
+
 /** Socket tokens are never stored. This bounded journal retains only an
  * irreversible fingerprint plus the non-bearer state required to reconcile
  * a prepared hibernating socket after an isolate restart. */
@@ -414,8 +420,7 @@ const validSocketAdmission = (value: unknown): boolean => {
       "upgradeNonce",
       "vaultID",
     ]) &&
-    source.phase !== undefined &&
-    ["PREPARED", "ACCEPTED", "EXPIRED", "CLOSED"].includes(source.phase as string) &&
+    isSocketAdmissionPhase(source.phase) &&
     typeof source.bindingNonce === "string" &&
     /^[A-Za-z0-9_-]{22,128}$/u.test(source.bindingNonce) &&
     typeof source.fingerprint === "string" &&
