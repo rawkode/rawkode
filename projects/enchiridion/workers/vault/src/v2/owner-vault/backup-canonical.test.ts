@@ -28,9 +28,7 @@ const manifest: OwnerVaultBackupManifest = {
   pinProof: "p".repeat(16),
   totalBytes: 3,
   objectCount: 1,
-  pages: [
-    { ordinal: 0, key: "pages/00000000.json", digest: digest("page"), count: 1, size: 3 },
-  ],
+  pages: [{ ordinal: 0, key: "pages/00000000.json", digest: digest("page"), count: 1, size: 3 }],
 };
 const signed: OwnerVaultSignedBackupManifest = {
   manifest,
@@ -46,7 +44,9 @@ describe("canonical signed manifest decoding", () => {
   test("rejects noncanonical encodings and duplicate members", () => {
     const text = decode(signedBytes);
     expect(decodeCanonicalSignedManifest(encode(` ${text}`))).toBeUndefined();
-    expect(decodeCanonicalSignedManifest(encode(text.replace('{"manifest"', '{ "manifest"')))).toBeUndefined();
+    expect(
+      decodeCanonicalSignedManifest(encode(text.replace('{"manifest"', '{ "manifest"'))),
+    ).toBeUndefined();
     const signatureMember = /,("signature":\{.*\})\}$/u.exec(text)?.[1];
     if (signatureMember === undefined) throw new Error("test setup");
     expect(
@@ -56,7 +56,9 @@ describe("canonical signed manifest decoding", () => {
 
   test("rejects unknown, missing, and mistyped members at every level", () => {
     const reject = (value: unknown): void => {
-      expect(decodeCanonicalSignedManifest(required(canonicalOwnerVaultBackupBytes(value)))).toBeUndefined();
+      expect(
+        decodeCanonicalSignedManifest(required(canonicalOwnerVaultBackupBytes(value))),
+      ).toBeUndefined();
     };
     // Unknown top-level member.
     reject({ ...signed, extra: 1 });
@@ -108,7 +110,9 @@ describe("canonical snapshot record decoding", () => {
 
   test("rejects mismatched, extra, noncanonical, and duplicate-member records", () => {
     const reject = (value: unknown): void => {
-      expect(decodeSnapshotRecordBytes(required(canonicalOwnerVaultBackupBytes(value)))).toBeUndefined();
+      expect(
+        decodeSnapshotRecordBytes(required(canonicalOwnerVaultBackupBytes(value))),
+      ).toBeUndefined();
     };
     reject({ address, record: { ...record, category: "session" } });
     reject({ address, record, extra: 1 });
@@ -118,6 +122,8 @@ describe("canonical snapshot record decoding", () => {
     expect(decodeSnapshotRecordBytes(encode(`${text} `))).toBeUndefined();
     const recordMember = /,("record":\{.*\})\}$/u.exec(text)?.[1];
     if (recordMember === undefined) throw new Error("test setup");
-    expect(decodeSnapshotRecordBytes(encode(`${text.slice(0, -1)},${recordMember}}`))).toBeUndefined();
+    expect(
+      decodeSnapshotRecordBytes(encode(`${text.slice(0, -1)},${recordMember}}`)),
+    ).toBeUndefined();
   });
 });

@@ -1021,79 +1021,78 @@ export const makeOwnerVaultBlobStagingRepository = (
     );
   };
   const deleteBySHA256: OwnerVaultBlobLifecycleRepository["deleteBySHA256"] = (command) =>
-    transact<{ readonly sha256: string; readonly status: "APPLIED" }>(
-      (tx) =>
-        Effect.gen(function* () {
-          if (
-            !hash.test(command.sha256) ||
-            !safeID.test(command.requestID) ||
-            !integer(command.nowSeconds)
-          )
-            return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
-              "invalid_blob",
-            );
-          yield* currentAuthority(tx, command.authorization);
-          const priorReceipt = yield* tx.get(receiptAddress(command.requestID));
-          const fingerprint = deleteFingerprint(
-            command.authorization,
-            command.sha256,
-            command.requestID,
+    transact<{ readonly sha256: string; readonly status: "APPLIED" }>((tx) =>
+      Effect.gen(function* () {
+        if (
+          !hash.test(command.sha256) ||
+          !safeID.test(command.requestID) ||
+          !integer(command.nowSeconds)
+        )
+          return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
+            "invalid_blob",
           );
-          if (priorReceipt !== undefined) {
-            const receipt = decodeReceipt(priorReceipt);
-            return yield* receipt?.kind === "blob-delete" && receipt.fingerprint === fingerprint
-              ? Effect.succeed(receipt.response)
-              : failed<StoredDeleteResponse>("replay_conflict");
-          }
-          const metadata = yield* tx.get(metadataAddress(command.sha256));
-          const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
-          const accounting = yield* getBlobAccounting(tx);
-          if (
-            metadata === undefined ||
-            reference === undefined ||
-            reference.referenceCount < 1 ||
-            reference.activeLeaseCount !== 0
-          )
-            return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
-              "stage_conflict",
-            );
-          const response = { sha256: command.sha256, status: "APPLIED" } as const;
-          // One transaction atomically removes logical visibility, fences a new PUT, records the receipt and schedules purge.
-          yield* tx.delete(metadataAddress(command.sha256));
-          yield* tx.put(refAddress(command.sha256), {
-            objectKey: reference.objectKey,
-            size: reference.size,
-            referenceCount: 0,
-            activeLeaseCount: 0,
-          });
-          yield* tx.put(tombstoneAddress(command.sha256), {
-            objectKey: reference.objectKey,
-            deletedAtSeconds: command.nowSeconds,
-            purgeAfterSeconds: command.nowSeconds + config.deleteGraceSeconds,
-          });
-          yield* tx.put(purgeAddress(command.sha256), {
-            objectKey: reference.objectKey,
-            leaseID: command.requestID,
-            startedAtSeconds: 0,
-          });
-          yield* tx.put(receiptAddress(command.requestID), {
-            kind: "blob-delete",
-            fingerprint,
-            response,
-          });
-          if (accounting.purgeSHA256s.length >= maximumTrackedLeases)
-            return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
-              "quota_exceeded",
-            );
-          yield* writeBlobAccounting(tx, {
-            referencedBytes: accounting.referencedBytes - reference.size,
-            reservedStageBytes: accounting.reservedStageBytes,
-            prospectiveFinalBytes: accounting.prospectiveFinalBytes,
-            leaseIDs: accounting.leaseIDs,
-            purgeSHA256s: [...accounting.purgeSHA256s, command.sha256],
-          });
-          return response;
-        }),
+        yield* currentAuthority(tx, command.authorization);
+        const priorReceipt = yield* tx.get(receiptAddress(command.requestID));
+        const fingerprint = deleteFingerprint(
+          command.authorization,
+          command.sha256,
+          command.requestID,
+        );
+        if (priorReceipt !== undefined) {
+          const receipt = decodeReceipt(priorReceipt);
+          return yield* receipt?.kind === "blob-delete" && receipt.fingerprint === fingerprint
+            ? Effect.succeed(receipt.response)
+            : failed<StoredDeleteResponse>("replay_conflict");
+        }
+        const metadata = yield* tx.get(metadataAddress(command.sha256));
+        const reference = decodeReference(yield* tx.get(refAddress(command.sha256)));
+        const accounting = yield* getBlobAccounting(tx);
+        if (
+          metadata === undefined ||
+          reference === undefined ||
+          reference.referenceCount < 1 ||
+          reference.activeLeaseCount !== 0
+        )
+          return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
+            "stage_conflict",
+          );
+        const response = { sha256: command.sha256, status: "APPLIED" } as const;
+        // One transaction atomically removes logical visibility, fences a new PUT, records the receipt and schedules purge.
+        yield* tx.delete(metadataAddress(command.sha256));
+        yield* tx.put(refAddress(command.sha256), {
+          objectKey: reference.objectKey,
+          size: reference.size,
+          referenceCount: 0,
+          activeLeaseCount: 0,
+        });
+        yield* tx.put(tombstoneAddress(command.sha256), {
+          objectKey: reference.objectKey,
+          deletedAtSeconds: command.nowSeconds,
+          purgeAfterSeconds: command.nowSeconds + config.deleteGraceSeconds,
+        });
+        yield* tx.put(purgeAddress(command.sha256), {
+          objectKey: reference.objectKey,
+          leaseID: command.requestID,
+          startedAtSeconds: 0,
+        });
+        yield* tx.put(receiptAddress(command.requestID), {
+          kind: "blob-delete",
+          fingerprint,
+          response,
+        });
+        if (accounting.purgeSHA256s.length >= maximumTrackedLeases)
+          return yield* failed<{ readonly sha256: string; readonly status: "APPLIED" }>(
+            "quota_exceeded",
+          );
+        yield* writeBlobAccounting(tx, {
+          referencedBytes: accounting.referencedBytes - reference.size,
+          reservedStageBytes: accounting.reservedStageBytes,
+          prospectiveFinalBytes: accounting.prospectiveFinalBytes,
+          leaseIDs: accounting.leaseIDs,
+          purgeSHA256s: [...accounting.purgeSHA256s, command.sha256],
+        });
+        return response;
+      }),
     ).pipe(
       Effect.tap((response) =>
         reconcileDelete(response.sha256, command.nowSeconds).pipe(

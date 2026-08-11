@@ -7,6 +7,7 @@ import {
 } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
 import { ownerVaultBackupDigest } from "./backup-canonical";
+import { ownerVaultCatalogCanonicalBytes, ownerVaultCatalogDigest } from "./catalog";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
 import { makeOwnerVaultSnapshotPinController } from "./snapshot-pin";
 
@@ -214,6 +215,77 @@ describe("OwnerVault durable snapshot pins", () => {
       false,
     );
     expect(native.entries.has("v2.ov/catalog/root/00000000000000000001")).toBe(false);
+  });
+
+  test("fails closed after restart when a digest-consistent catalog names an out-of-registry category", async () => {
+    const { native, controller } = await setup();
+    const pin = await Effect.runPromise(controller.beginSnapshot(scope, backupID));
+
+    type Row<P> = { readonly category: string; readonly version: number; readonly payload: P };
+    const stored = <P>(key: string): Row<P> => {
+      const value = native.entries.get(key);
+      if (value === undefined) throw new Error(`missing row ${key}`);
+      return value as Row<P>;
+    };
+    const pageKey = "v2.ov/catalog/page/00000000000000000001-0000";
+    const rootKey = "v2.ov/catalog/root/00000000000000000001";
+    const pinKey = `v2.ov/backup/pin/${backupID}`;
+    const currentKey = [...native.entries.keys()].find((key) => key.includes("catalog/current"));
+    if (currentKey === undefined) throw new Error("missing catalog current row");
+    const page = stored<{
+      readonly entries: readonly Record<string, unknown>[];
+      readonly digest: string;
+    }>(pageKey);
+    const root = stored<
+      Record<string, unknown> & { readonly pages: readonly Record<string, unknown>[] }
+    >(rootKey);
+    const pinRow = stored<Record<string, unknown>>(pinKey);
+    const current = stored<Record<string, unknown>>(currentKey);
+
+    // Rebuild a fully digest-consistent catalog chain whose only defect is a
+    // category outside the closed registry: every hash gate passes, so only
+    // the closed-set membership decode can reject it.
+    const entries = page.payload.entries.map((entry, index) =>
+      index === 0 ? { ...entry, category: "mystery.category" } : entry,
+    );
+    const digest = ownerVaultCatalogDigest(entries);
+    const bytes =
+      digest === undefined
+        ? undefined
+        : ownerVaultCatalogCanonicalBytes({ entries, digest })?.byteLength;
+    if (digest === undefined || bytes === undefined) throw new Error("catalog encoding failed");
+    const rootPayload = {
+      ...root.payload,
+      pages: root.payload.pages.map((descriptor) => ({ ...descriptor, digest, bytes })),
+      catalogDigest: digest,
+      highWaterMark: digest,
+    };
+    const rootDigest = ownerVaultCatalogDigest(rootPayload);
+    if (rootDigest === undefined) throw new Error("root encoding failed");
+    native.entries.set(pageKey, { ...page, payload: { entries, digest } });
+    native.entries.set(rootKey, { ...root, payload: rootPayload });
+    native.entries.set(pinKey, {
+      ...pinRow,
+      payload: { ...pinRow.payload, rootDigest, catalogDigest: digest, highWaterMark: digest },
+    });
+    native.entries.set(currentKey, { ...current, payload: { ...current.payload, rootDigest } });
+
+    const restarted = makeOwnerVaultSnapshotPinController(native.repository(), {
+      makePinProof: () => "pin-proof-which-is-long-enough",
+    });
+    const before = new Map(native.entries);
+    const exit = await Effect.runPromiseExit(
+      restarted.readSnapshotPage(
+        { ...pin, catalogDigest: digest, highWaterMark: digest },
+        undefined,
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    // Nothing was archived or published, and no manifest digest completed.
+    expect(native.entries).toEqual(before);
+    expect(
+      await Effect.runPromise(restarted.completedManifestDigest(scope, backupID)),
+    ).toBeUndefined();
   });
 
   test("fails closed when a retained immutable root is corrupted", async () => {

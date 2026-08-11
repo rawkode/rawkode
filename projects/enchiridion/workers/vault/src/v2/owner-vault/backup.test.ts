@@ -9,6 +9,7 @@ import { Effect, Exit } from "effect";
 import { ownerVaultAppendProofValidate } from "./append-proof";
 import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import {
+  canonicalOwnerVaultBackupBytes,
   canonicalPageBytes,
   canonicalSnapshotRecordBytes,
   ownerVaultBackupControlDigest,
@@ -352,6 +353,86 @@ describe("OwnerVault bounded paged backup and private restore", () => {
     );
     expect(restored.applied).toEqual([0, 0, 1]);
     expect(restored.events).toContain("complete");
+  });
+
+  test("rejects a re-signed page whose entries decode outside the closed grammar before any object read or import", async () => {
+    // Every digest and signature is recomputed consistently, so only the exact
+    // page-entry decoder can reject the archive - and it must do so before any
+    // object bytes are read and before the import transaction begins.
+    const corrupt = async (mutate: (entry: Record<string, unknown>) => Record<string, unknown>) => {
+      const store = r2();
+      await Effect.runPromise(
+        createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+      );
+      const prefix = `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}`;
+      const pageStorageKey = `${prefix}/pages/00000000.json`;
+      const manifestStorageKey = `${prefix}/manifest.json`;
+      const text = new TextDecoder("utf-8", { fatal: true });
+      const pageBytes = store.objects.get(pageStorageKey);
+      const manifestBytes = store.objects.get(manifestStorageKey);
+      if (pageBytes === undefined || manifestBytes === undefined)
+        throw new Error("archive missing");
+      const page = JSON.parse(text.decode(pageBytes)) as {
+        readonly ordinal: number;
+        readonly entries: readonly Record<string, unknown>[];
+        readonly digest: string;
+      };
+      const entries = page.entries.map((entry, index) => (index === 0 ? mutate(entry) : entry));
+      const unsigned = canonicalOwnerVaultBackupBytes({
+        ordinal: page.ordinal,
+        entries,
+        digest: "",
+      });
+      if (unsigned === undefined) throw new Error("page encoding failed");
+      const digest = ownerVaultBackupDigest(unsigned);
+      const tamperedPage = canonicalOwnerVaultBackupBytes({
+        ordinal: page.ordinal,
+        entries,
+        digest,
+      });
+      if (tamperedPage === undefined) throw new Error("page encoding failed");
+      const signed = JSON.parse(text.decode(manifestBytes)) as {
+        readonly manifest: Record<string, unknown> & {
+          readonly pages: readonly Record<string, unknown>[];
+        };
+      };
+      const manifest = {
+        ...signed.manifest,
+        pages: signed.manifest.pages.map((descriptor) => ({
+          ...descriptor,
+          digest,
+          size: tamperedPage.byteLength,
+        })),
+      };
+      const canonical = canonicalOwnerVaultBackupBytes(manifest);
+      if (canonical === undefined) throw new Error("manifest encoding failed");
+      const resigned = canonicalOwnerVaultBackupBytes({
+        manifest,
+        signature: { keyID: "backup-key", signatureDERBase64: ownerVaultBackupDigest(canonical) },
+      });
+      if (resigned === undefined) throw new Error("manifest encoding failed");
+      store.objects.set(pageStorageKey, tamperedPage);
+      store.objects.set(manifestStorageKey, resigned);
+      const reads: string[] = [];
+      const tracked: ImmutableR2Boundary = {
+        ...store.boundary,
+        read: (key) => {
+          reads.push(key);
+          return store.boundary.read(key);
+        },
+      };
+      const restored = target();
+      const exit = await Effect.runPromiseExit(
+        restoreOwnerVaultBackup(runtime(tracked), restored.target, scope, backupID),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain("integrity_failed");
+      expect(restored.applied).toEqual([]);
+      expect(restored.events).toEqual(["private"]);
+      expect(reads.some((key) => key.includes("/objects/"))).toBe(false);
+    };
+    await corrupt((entry) => ({ ...entry, category: "mystery.category" }));
+    await corrupt((entry) => ({ ...entry, provenance: "unknown-member" }));
   });
 
   test("rejects a tampered page and a non-contiguous append sequence before completion", async () => {

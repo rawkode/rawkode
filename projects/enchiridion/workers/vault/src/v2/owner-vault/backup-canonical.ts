@@ -135,7 +135,8 @@ export const decodeSnapshotRecordBytes = (
     )
       return undefined;
     return {
-      address: item.identifier === undefined ? { category } : { category, identifier: item.identifier },
+      address:
+        item.identifier === undefined ? { category } : { category, identifier: item.identifier },
       record: { category, version: 1, payload },
     };
   } catch {
