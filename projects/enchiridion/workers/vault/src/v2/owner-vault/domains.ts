@@ -309,17 +309,54 @@ const isSafeNonNegative = (value: unknown): value is number =>
 const isSafePositive = (value: unknown): value is number => isSafeNonNegative(value) && value > 0;
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
-const canonicalClaims = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
+/**
+ * Exact recursive canonical-JSON narrowers. They rebuild a fresh value from
+ * checked fields instead of asserting, and accept exactly the domain that
+ * `canonicalJSONStringify` serializes: null, booleans, finite numbers,
+ * strings, dense arrays, and Object-prototype plain objects, recursively.
+ */
+const canonicalJSONValue = (value: unknown): CanonicalJSON | undefined => {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) {
+    const items: CanonicalJSON[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) return undefined;
+      const item = canonicalJSONValue(value[index]);
+      if (item === undefined) return undefined;
+      items.push(item);
+    }
+    return items;
+  }
+  return canonicalJSONRecord(value);
+};
+const canonicalJSONRecord = (
+  value: unknown,
+): Readonly<Record<string, CanonicalJSON>> | undefined => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return undefined;
+  const entries: [string, CanonicalJSON][] = [];
+  for (const [key, child] of Object.entries(value)) {
+    const rebuilt = canonicalJSONValue(child);
+    if (rebuilt === undefined) return undefined;
+    entries.push([key, rebuilt]);
+  }
+  return Object.fromEntries(entries);
+};
+const canonicalClaims = (value: unknown): Readonly<Record<string, CanonicalJSON>> | undefined => {
   if (
     typeof value !== "string" ||
     new TextEncoder().encode(value).byteLength > maximumCapabilityReceiptClaimsBytes
   )
     return undefined;
   try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) && canonicalJSONStringify(parsed as CanonicalJSON) === value
-      ? parsed
-      : undefined;
+    const rebuilt = canonicalJSONRecord(JSON.parse(value));
+    return rebuilt !== undefined && canonicalJSONStringify(rebuilt) === value ? rebuilt : undefined;
   } catch {
     return undefined;
   }
@@ -523,6 +560,22 @@ const decodeNonce = (value: unknown): NonceClaim | undefined =>
   sha256.test(value.fingerprint)
     ? { expiresAtSeconds: value.expiresAtSeconds, fingerprint: value.fingerprint }
     : undefined;
+/**
+ * The persisted claims must bind the receipt identity, not merely share a
+ * digest: the JTI, the signed expiry, and (when the verifier bound a request
+ * path) the resource must all equal the fields under the claims fingerprint.
+ * Socket sync receipts persist DO-synthesized canonical claims without a
+ * `path` member; every verifier-produced claims record carries one.
+ */
+const boundCanonicalClaims = (input: OwnerVaultCapabilityReceiptInput): boolean => {
+  const claims = canonicalClaims(input.claims);
+  return (
+    claims !== undefined &&
+    claims.jti === input.jti &&
+    claims.expiresAt === input.expiresAtSeconds &&
+    (claims.path === undefined || claims.path === input.resource)
+  );
+};
 const validCapabilityReceiptInput = (input: OwnerVaultCapabilityReceiptInput): boolean =>
   identifier.test(input.jti) &&
   /^\/[A-Za-z0-9_./-]{1,192}$/u.test(input.resource) &&
@@ -533,16 +586,18 @@ const validCapabilityReceiptInput = (input: OwnerVaultCapabilityReceiptInput): b
     input.expiresAtSeconds,
     ownerVaultMaximumSecurityReceiptTTLSeconds,
   ) &&
-  canonicalClaims(input.claims)?.jti === input.jti &&
+  boundCanonicalClaims(input) &&
   sha256.test(input.claimsFingerprint) &&
   sha256Hex(new TextEncoder().encode(input.claims)) === input.claimsFingerprint &&
   sha256.test(input.tokenFingerprint);
 const validCanonicalResult = (value: unknown): value is Readonly<Record<string, unknown>> => {
   if (!isRecord(value)) return false;
   try {
+    const rebuilt = canonicalJSONRecord(value);
     return (
-      new TextEncoder().encode(canonicalJSONStringify(value as CanonicalJSON)).byteLength <=
-      maximumCapabilityReceiptClaimsBytes
+      rebuilt !== undefined &&
+      new TextEncoder().encode(canonicalJSONStringify(rebuilt)).byteLength <=
+        maximumCapabilityReceiptClaimsBytes
     );
   } catch {
     return false;
@@ -553,9 +608,12 @@ const sameCanonicalResult = (
   right: Readonly<Record<string, unknown>>,
 ): boolean => {
   try {
+    const leftRebuilt = canonicalJSONRecord(left);
+    const rightRebuilt = canonicalJSONRecord(right);
     return (
-      canonicalJSONStringify(left as CanonicalJSON) ===
-      canonicalJSONStringify(right as CanonicalJSON)
+      leftRebuilt !== undefined &&
+      rightRebuilt !== undefined &&
+      canonicalJSONStringify(leftRebuilt) === canonicalJSONStringify(rightRebuilt)
     );
   } catch {
     return false;
@@ -1255,18 +1313,16 @@ export const makeOwnerVaultDomainProvider = (
         input.nonce.expiresAtSeconds,
         ownerVaultMaximumSecurityReceiptTTLSeconds,
       ) ||
-      !identifier.test(input.capability.jti) ||
-      !/^\/[A-Za-z0-9_./-]{1,192}$/u.test(input.capability.resource) ||
-      canonicalClaims(input.capability.claims)?.jti !== input.capability.jti ||
-      sha256Hex(new TextEncoder().encode(input.capability.claims)) !==
-        input.capability.claimsFingerprint ||
-      !sha256.test(input.capability.claimsFingerprint) ||
-      !sha256.test(input.capability.tokenFingerprint) ||
-      !validReceiptTTL(
-        input.nowSeconds,
-        input.capability.expiresAtSeconds,
-        ownerVaultMaximumSecurityReceiptTTLSeconds,
-      )
+      !validCapabilityReceiptInput({
+        jti: input.capability.jti,
+        resource: input.capability.resource,
+        operationID: input.operationID,
+        nowSeconds: input.nowSeconds,
+        expiresAtSeconds: input.capability.expiresAtSeconds,
+        claims: input.capability.claims,
+        claimsFingerprint: input.capability.claimsFingerprint,
+        tokenFingerprint: input.capability.tokenFingerprint,
+      })
     )
       return fail("invalid_input");
     return transact((tx) =>

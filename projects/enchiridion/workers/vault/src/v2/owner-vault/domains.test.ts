@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sha256Hex } from "@enchiridion/protocol";
+import { type CanonicalJSON, canonicalJSONStringify, sha256Hex } from "@enchiridion/protocol";
 import {
   type DurableObjectStateNative,
   type DurableObjectStorageNative,
@@ -30,23 +30,36 @@ const device: OwnerVaultDevice = {
   revoked: false,
   securityFloor: 0,
 };
-const capability = {
-  jti: "jti-123456789012",
-  expiresAtSeconds: 1_200,
-  resource: "/v2/sync",
-  claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
-  claimsFingerprint: "5a224769aeb22b6c6d1f1bdf31da69e5270bf008a59f2949472726a29c223128",
-  tokenFingerprint: "e".repeat(64),
-} as const;
-const capabilityFor = (jti: string, operationID = "operation-1") => {
-  const claims = `{"jti":"${jti}","operationID":"${operationID}"}`;
-  return {
-    ...capability,
+/** Full verifier-claims shape whose path and expiry the receipt input binds. */
+const claimsFor = (jti: string, overrides: Readonly<Record<string, CanonicalJSON>> = {}): string =>
+  canonicalJSONStringify({
+    audience: "OwnerVault",
+    authority: "OwnerVault",
+    bodySHA256: "0".repeat(64),
+    canonicalQuery: "",
+    credentialEpoch: 1,
+    expiresAt: 1_200,
+    generationEpoch: 1,
+    issuedAt: 1_000,
     jti,
-    claims,
-    claimsFingerprint: sha256Hex(new TextEncoder().encode(claims)),
-  };
-};
+    keyID: "capability-key-1",
+    method: "POST",
+    ownerID: "owner-1",
+    path: "/v2/sync",
+    vaultID: "vault-1",
+    ...overrides,
+  });
+const capabilityWithClaims = (jti: string, claims: string, expiresAtSeconds = 1_200) => ({
+  jti,
+  expiresAtSeconds,
+  resource: "/v2/sync",
+  claims,
+  claimsFingerprint: sha256Hex(new TextEncoder().encode(claims)),
+  tokenFingerprint: "e".repeat(64),
+});
+const capabilityFor = (jti: string, overrides: Readonly<Record<string, CanonicalJSON>> = {}) =>
+  capabilityWithClaims(jti, claimsFor(jti, overrides));
+const capability = capabilityFor("jti-123456789012");
 
 const durable = (): {
   readonly entries: Map<string, unknown>;
@@ -243,8 +256,8 @@ describe("v2 OwnerVault durable domain provider", () => {
         jti: "jti-123456789012",
         resource: "/v2/sync",
         operationID: "operation-1",
-        claims: '{"jti":"jti-123456789012","operationID":"operation-1"}',
-        claimsFingerprint: "5a224769aeb22b6c6d1f1bdf31da69e5270bf008a59f2949472726a29c223128",
+        claims: capability.claims,
+        claimsFingerprint: capability.claimsFingerprint,
         tokenFingerprint: "e".repeat(64),
       },
     });
@@ -275,7 +288,7 @@ describe("v2 OwnerVault durable domain provider", () => {
           fingerprint: "1".repeat(64),
           payloadHash: "2".repeat(64),
           observedHighWater: 1,
-          capability: capabilityFor("jti-222222222222", "operation-2"),
+          capability: capabilityFor("jti-222222222222"),
         }),
       ),
     );
@@ -289,29 +302,40 @@ describe("v2 OwnerVault durable domain provider", () => {
 
   test("retains canonical verified claims beside the JTI rather than trusting a digest alone", async () => {
     const fixture = await enrolledProvider();
-    const exit = await Effect.runPromiseExit(
-      fixture.provider.append(
-        append({
-          capability: {
-            ...capability,
-            // Same JSON members, but not the canonical sorted-key form that
-            // the verified capability receipt binds and fingerprints.
-            claims: '{"operationID":"operation-1","jti":"jti-123456789012"}',
-          },
-        }),
+    // Semantically identical JSON members in every variant, but not the exact
+    // canonical bytes the verified capability receipt binds and fingerprints.
+    // Each variant carries the true digest of its own bytes so only the
+    // canonical-encoding check can reject it.
+    const canonical = capability.claims;
+    const noncanonical = [
+      // Reordered keys.
+      canonical.replace(
+        '{"audience":"OwnerVault","authority":"OwnerVault"',
+        '{"authority":"OwnerVault","audience":"OwnerVault"',
       ),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(JSON.stringify(exit)).toContain("invalid_input");
+      // Added whitespace.
+      `${canonical.slice(0, 1)} ${canonical.slice(1)}`,
+      // Duplicate key; JSON.parse keeps the last one, so members still match.
+      canonical.replace('"method":"POST"', '"method":"POST","method":"POST"'),
+      // Alternate escape for the same code points ("POST" is "POST").
+      canonical.replace('"method":"POST"', '"method":"P\\u004fST"'),
+    ];
+    for (const claims of noncanonical) {
+      expect(claims).not.toBe(canonical);
+      const exit = await Effect.runPromiseExit(
+        fixture.provider.append(
+          append({ capability: capabilityWithClaims(capability.jti, claims) }),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain("invalid_input");
+    }
     expect(fixture.native.entries.has("v2.ov/capability-receipt/jti-123456789012")).toBe(false);
   });
 
   test("claims, completes, replays, and expires one bounded universal capability receipt", async () => {
     const fixture = await enrolledProvider();
-    const receiptCapability = capabilityFor(
-      "universal-capability-jti-0001",
-      "universal-operation-0001",
-    );
+    const receiptCapability = capabilityFor("universal-capability-jti-0001");
     const receipt = {
       ...receiptCapability,
       operationID: "universal-operation-0001",
@@ -347,6 +371,188 @@ describe("v2 OwnerVault durable domain provider", () => {
     expect(fixture.native.entries.has(`v2.ov/capability-receipt/${receipt.jti}`)).toBe(false);
   });
 
+  test("binds resource, expiry, JTI, and both fingerprints to the claims before any durable write", async () => {
+    const fixture = await enrolledProvider();
+    const base = {
+      ...capabilityFor("identity-bound-jti-0001"),
+      operationID: "identity-bound-op-0001",
+      nowSeconds: 1_000,
+    };
+    const substituted = [
+      // Resource not named by the fingerprinted claims path.
+      { ...base, resource: "/v2/other" },
+      // Expiry inside the TTL window but not the signed claims expiry.
+      { ...base, expiresAtSeconds: 1_100 },
+      // Foreign JTI over another identity's claims bytes.
+      { ...base, jti: "identity-bound-jti-0002" },
+      // Fingerprint of different bytes than the presented claims.
+      { ...base, claimsFingerprint: sha256Hex(new TextEncoder().encode("other-bytes")) },
+      // Malformed token fingerprint.
+      { ...base, tokenFingerprint: "not-a-digest" },
+    ];
+    for (const input of substituted) {
+      const exit = await Effect.runPromiseExit(fixture.provider.claimCapabilityReceipt(input));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain("invalid_input");
+    }
+    expect(fixture.native.entries.has("v2.ov/capability-receipt/identity-bound-jti-0001")).toBe(
+      false,
+    );
+    expect(fixture.native.entries.has("v2.ov/capability-receipt/identity-bound-jti-0002")).toBe(
+      false,
+    );
+  });
+
+  test("rejects every single substituted identity field against a durable receipt", async () => {
+    const fixture = await enrolledProvider();
+    const jti = "durable-identity-jti-0001";
+    // DO-synthesized socket claims carry no request path, so the resource
+    // field itself is replayable material the durable receipt must pin.
+    const socketClaims = canonicalJSONStringify({
+      deviceID: device.deviceID,
+      expiresAt: 1_200,
+      frameID: "frame-000000000001",
+      jti,
+      operationID: "durable-operation-0001",
+      sessionID: session.sessionID,
+    });
+    const base = {
+      ...capabilityWithClaims(jti, socketClaims),
+      operationID: "durable-operation-0001",
+      nowSeconds: 1_000,
+    };
+    await Effect.runPromise(fixture.provider.claimCapabilityReceipt(base));
+    const shiftedClaims = canonicalJSONStringify({
+      deviceID: device.deviceID,
+      expiresAt: 1_100,
+      frameID: "frame-000000000001",
+      jti,
+      operationID: "durable-operation-0001",
+      sessionID: session.sessionID,
+    });
+    const substituted = [
+      // Operation substitution under the same durable JTI.
+      { ...base, operationID: "durable-operation-0002" },
+      // Resource substitution (unbound by these pathless claims).
+      { ...base, resource: "/v2/other" },
+      // Expiry substitution carrying internally consistent shifted claims.
+      {
+        ...capabilityWithClaims(jti, shiftedClaims, 1_100),
+        operationID: "durable-operation-0001",
+        nowSeconds: 1_000,
+      },
+      // Token substitution behind the same claims.
+      { ...base, tokenFingerprint: "f".repeat(64) },
+    ];
+    for (const input of substituted) {
+      const exit = await Effect.runPromiseExit(fixture.provider.claimCapabilityReceipt(input));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain("replay_conflict");
+    }
+
+    // Result identity: canonical equality replays, any other result conflicts.
+    await Effect.runPromise(
+      fixture.provider.completeCapabilityReceipt(base, { first: 1, second: "two" }),
+    );
+    expect(
+      await Effect.runPromise(
+        fixture.provider.completeCapabilityReceipt(base, { second: "two", first: 1 }),
+      ),
+    ).toMatchObject({ state: "COMPLETED", result: { first: 1, second: "two" } });
+    const resultConflict = await Effect.runPromiseExit(
+      fixture.provider.completeCapabilityReceipt(base, { first: 1, second: "swapped" }),
+    );
+    expect(Exit.isFailure(resultConflict)).toBe(true);
+    expect(JSON.stringify(resultConflict)).toContain("replay_conflict");
+
+    // State substitution inside storage is rejected by the exact per-state
+    // key sets: a COMPLETED record demoted to PREPARED keeps its result key.
+    const key = `v2.ov/capability-receipt/${jti}`;
+    const stored = fixture.native.entries.get(key) as {
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+    fixture.native.entries.set(key, {
+      ...stored,
+      payload: { ...stored.payload, state: "PREPARED" },
+    });
+    const demoted = await Effect.runPromiseExit(fixture.provider.claimCapabilityReceipt(base));
+    expect(Exit.isFailure(demoted)).toBe(true);
+    expect(JSON.stringify(demoted)).toContain("state_corrupt");
+  });
+
+  test("accepts pathless socket claims while still binding their JTI and signed expiry", async () => {
+    const fixture = await enrolledProvider();
+    const jti = "socket-receipt-jti-00001";
+    const socketClaims = canonicalJSONStringify({
+      deviceID: device.deviceID,
+      expiresAt: 1_200,
+      frameID: "frame-000000000002",
+      jti,
+      operationID: "socket-operation-0001",
+      sessionID: session.sessionID,
+    });
+    const input = {
+      ...capabilityWithClaims(jti, socketClaims),
+      operationID: "socket-operation-0001",
+      nowSeconds: 1_000,
+    };
+    expect(await Effect.runPromise(fixture.provider.claimCapabilityReceipt(input))).toMatchObject({
+      state: "PREPARED",
+      jti,
+    });
+    const expirySwap = await Effect.runPromiseExit(
+      fixture.provider.claimCapabilityReceipt({
+        ...capabilityWithClaims("socket-receipt-jti-00002", socketClaims, 1_100),
+        operationID: "socket-operation-0001",
+        nowSeconds: 1_000,
+      }),
+    );
+    expect(Exit.isFailure(expirySwap)).toBe(true);
+    expect(JSON.stringify(expirySwap)).toContain("invalid_input");
+  });
+
+  test("persists only non-bearer capability material in durable receipts", async () => {
+    const fixture = await enrolledProvider();
+    const bearer = "v1.signed-capability-payload-bytes.signed-capability-mac-bytes";
+    const jti = "non-bearer-receipt-0001";
+    const claims = claimsFor(jti);
+    const input = {
+      jti,
+      expiresAtSeconds: 1_200,
+      resource: "/v2/sync",
+      claims,
+      claimsFingerprint: sha256Hex(new TextEncoder().encode(claims)),
+      tokenFingerprint: sha256Hex(new TextEncoder().encode(bearer)),
+      operationID: "non-bearer-operation-1",
+      nowSeconds: 1_000,
+    };
+    await Effect.runPromise(fixture.provider.claimCapabilityReceipt(input));
+    await Effect.runPromise(
+      fixture.provider.completeCapabilityReceipt(input, { acknowledged: true }),
+    );
+    const stored = fixture.native.entries.get(`v2.ov/capability-receipt/${jti}`) as {
+      readonly payload: Readonly<Record<string, unknown>>;
+    };
+    expect(Object.keys(stored.payload).sort()).toEqual([
+      "claims",
+      "claimsFingerprint",
+      "expiresAtSeconds",
+      "jti",
+      "operationID",
+      "resource",
+      "result",
+      "state",
+      "tokenFingerprint",
+    ]);
+    expect(stored.payload.claims).toBe(claims);
+    expect(stored.payload.tokenFingerprint).toBe(input.tokenFingerprint);
+    // No persisted row anywhere may contain the signed bearer token itself.
+    for (const [, value] of fixture.native.entries) {
+      expect(JSON.stringify(value)).not.toContain(bearer);
+      expect(JSON.stringify(value)).not.toContain("signed-capability-mac-bytes");
+    }
+  });
+
   test("serializes concurrent operations while retaining their independent retry identities", async () => {
     const fixture = await enrolledProvider();
     const [first, second] = await Promise.all([
@@ -362,7 +568,7 @@ describe("v2 OwnerVault durable domain provider", () => {
               expiresAtSeconds: 1_200,
               fingerprint: "3".repeat(64),
             },
-            capability: capabilityFor("jti-222222222222", "operation-2"),
+            capability: capabilityFor("jti-222222222222"),
           }),
         ),
       ),
@@ -382,7 +588,7 @@ describe("v2 OwnerVault durable domain provider", () => {
       payloadHash: "2".repeat(64),
       observedHighWater: 1,
       nonce: { value: "nonce-222222222222", expiresAtSeconds: 1_200, fingerprint: "3".repeat(64) },
-      capability: capabilityFor("jti-222222222222", "operation-2"),
+      capability: capabilityFor("jti-222222222222"),
     });
     await Effect.runPromise(fixture.provider.append(secondAppend));
     const controller = makeOwnerVaultSnapshotPinController(fixture.repository, {
