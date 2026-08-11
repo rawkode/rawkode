@@ -34,7 +34,9 @@ const frame = () => {
 
 describe("observed high-water boundary", () => {
   test("rejects a signed client frontier beyond the transactionally reloaded log head", async () => {
-    await expect(Effect.runPromise(validateObservedHighWater(frame(), 17))).resolves.toBeUndefined();
+    await expect(
+      Effect.runPromise(validateObservedHighWater(frame(), 17)),
+    ).resolves.toBeUndefined();
     const ahead = await Effect.runPromiseExit(validateObservedHighWater(frame(), 16));
     expect(Exit.isFailure(ahead)).toBe(true);
     expect(JSON.stringify(ahead)).toContain("observed_high_water_ahead");

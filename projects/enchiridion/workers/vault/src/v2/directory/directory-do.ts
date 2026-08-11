@@ -5,9 +5,9 @@ import { makeDurableObjectBoundary, readBoundedRequestBody } from "@enchiridion/
 import { Effect } from "effect";
 import {
   type InternalCapabilityFactory as CapabilityFactory,
-  InternalCapabilityFactory,
-  type DirectoryControlCapabilityFactory as DirectoryControlFactory,
   DirectoryControlCapabilityFactory,
+  type DirectoryControlCapabilityFactory as DirectoryControlFactory,
+  InternalCapabilityFactory,
 } from "../foundation/crypto";
 import { isCanonicalDirectoryAlias } from "./invariants";
 import { DirectoryRepository, makeDurableObjectDirectoryRepository } from "./repository";
@@ -84,8 +84,8 @@ const wireResolution = (
   positive(value.generationEpoch) &&
   positive(value.activeGeneration) &&
   positive(value.routingEpoch) &&
-  positive(value.credentialEpoch)
-  && positive(value.controlEpoch)
+  positive(value.credentialEpoch) &&
+  positive(value.controlEpoch)
     ? {
         ownerID: value.ownerID.value,
         vaultID: value.vaultID.value,

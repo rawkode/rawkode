@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Redacted, Ref } from "effect";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
-  InternalCapabilityFactory,
   DirectoryControlCapabilityFactory,
+  InternalCapabilityFactory,
   makeDirectoryControlCapabilityFactory,
   makeInternalCapabilityFactory,
   makeVersionedIssuerHasher,
@@ -11,12 +11,9 @@ import {
 } from "../foundation/crypto";
 import { opaqueAccessSubject, ownerID, vaultID } from "../foundation/schemas";
 import { makeDirectoryInvocation } from "./gateway";
+import { type OwnerVaultInitializationCommand, OwnerVaultInitializationError } from "./lifecycle";
 import { makeInMemoryDirectoryRepository } from "./repository";
 import { DirectoryOwnerVaultInitializer, makeDirectoryService } from "./service";
-import {
-  OwnerVaultInitializationError,
-  type OwnerVaultInitializationCommand,
-} from "./lifecycle";
 import type { DirectorySecureRandom, DirectoryState } from "./types";
 
 const required = <A>(value: A | undefined): A => {
@@ -47,8 +44,9 @@ const ownerVaultReceipt = "owner-vault-receipt-0001";
 const random = (() => {
   let value = 0;
   return {
-    identifier: (purpose: "owner" | "vault" | "owner-vault-initialization" | "owner-vault-floor-sync") =>
-      Effect.succeed(`${purpose}-generated-${String(++value).padStart(16, "0")}`),
+    identifier: (
+      purpose: "owner" | "vault" | "owner-vault-initialization" | "owner-vault-floor-sync",
+    ) => Effect.succeed(`${purpose}-generated-${String(++value).padStart(16, "0")}`),
   };
 })();
 
@@ -56,8 +54,10 @@ const setup = (
   randomSource: DirectorySecureRandom = random,
   initialize: (
     command: OwnerVaultInitializationCommand,
-  ) => Effect.Effect<OwnerVaultInitializationCommand & { readonly durableReceipt: string }, OwnerVaultInitializationError> = (command) =>
-    Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt }),
+  ) => Effect.Effect<
+    OwnerVaultInitializationCommand & { readonly durableReceipt: string },
+    OwnerVaultInitializationError
+  > = (command) => Effect.succeed({ ...command, durableReceipt: ownerVaultReceipt }),
 ) =>
   Effect.gen(function* () {
     const config = yield* makeVaultV2Config(input);
@@ -155,14 +155,26 @@ describe("v2 CredentialDirectory signed bootstrap", () => {
   test("rejects missing or malformed durable OwnerVault acknowledgement receipt before routing", async () => {
     for (const durableReceipt of [undefined, "short"]) {
       const { aliases, factory, memory, service } = await Effect.runPromise(
-        setup(random, (command) => Effect.succeed({ ...command, ...(durableReceipt === undefined ? {} : { durableReceipt }) }) as never),
-      );
-      const invocation = await Effect.runPromise(
-        makeDirectoryInvocation(aliases, now + 90, `invalid-initialization-receipt-${durableReceipt === undefined ? "missing" : "malformed"}`, now).pipe(
-          Effect.provideService(InternalCapabilityFactory, factory),
+        setup(
+          random,
+          (command) =>
+            Effect.succeed({
+              ...command,
+              ...(durableReceipt === undefined ? {} : { durableReceipt }),
+            }) as never,
         ),
       );
-      expect(Exit.isFailure(await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now)))).toBe(true);
+      const invocation = await Effect.runPromise(
+        makeDirectoryInvocation(
+          aliases,
+          now + 90,
+          `invalid-initialization-receipt-${durableReceipt === undefined ? "missing" : "malformed"}`,
+          now,
+        ).pipe(Effect.provideService(InternalCapabilityFactory, factory)),
+      );
+      expect(
+        Exit.isFailure(await Effect.runPromiseExit(service.resolveOrBootstrap(invocation, now))),
+      ).toBe(true);
       const state = await Effect.runPromise(Ref.get(memory.state));
       expect(Object.values(state.initializations)[0]?.durableReceipt).toBeUndefined();
       expect(state.replays).toEqual({});

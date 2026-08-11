@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { ImmutableR2Error, ManifestVerificationError, type ImmutableR2Boundary, type ImmutableR2ObjectMetadata } from "@enchiridion/runtime";
+import {
+  type ImmutableR2Boundary,
+  ImmutableR2Error,
+  type ImmutableR2ObjectMetadata,
+  ManifestVerificationError,
+} from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
+import { ownerVaultAppendProofValidate } from "./append-proof";
+import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import {
   canonicalPageBytes,
   canonicalSnapshotRecordBytes,
@@ -8,8 +15,6 @@ import {
   ownerVaultBackupDigest,
   validOwnerVaultBackupControlDigest,
 } from "./backup-canonical";
-import { ownerVaultAppendProofValidate } from "./append-proof";
-import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import { OwnerVaultBackupError } from "./backup-types";
 import type {
   OwnerVaultBackupPageEntry,
@@ -23,19 +28,37 @@ import type {
 
 const scope: OwnerVaultBackupScope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 3 };
 const backupID = "backup-0000000001";
-const objectKey = (ordinal: number) => `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}/objects/${ordinal.toString().padStart(8, "0")}.json`;
+const objectKey = (ordinal: number) =>
+  `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}/objects/${ordinal.toString().padStart(8, "0")}.json`;
 
-const r2 = (): { readonly boundary: ImmutableR2Boundary; readonly objects: Map<string, Uint8Array> } => {
+const r2 = (): {
+  readonly boundary: ImmutableR2Boundary;
+  readonly objects: Map<string, Uint8Array>;
+} => {
   const objects = new Map<string, Uint8Array>();
   const copy = (input: Uint8Array) => new Uint8Array(input);
-  const meta = (key: string, bytes: Uint8Array): ImmutableR2ObjectMetadata => ({ key, etag: ownerVaultBackupDigest(bytes), size: bytes.byteLength });
+  const meta = (key: string, bytes: Uint8Array): ImmutableR2ObjectMetadata => ({
+    key,
+    etag: ownerVaultBackupDigest(bytes),
+    size: bytes.byteLength,
+  });
   return {
     objects,
     boundary: {
-      putIfAbsent: (key, bytes) => objects.has(key)
-        ? Effect.fail(new ImmutableR2Error({ operation: "put_if_absent", reason: "already_exists" }))
-        : Effect.sync(() => { objects.set(key, copy(bytes)); return meta(key, bytes); }),
-      head: (key) => Effect.sync(() => { const bytes = objects.get(key); return bytes === undefined ? undefined : meta(key, bytes); }),
+      putIfAbsent: (key, bytes) =>
+        objects.has(key)
+          ? Effect.fail(
+              new ImmutableR2Error({ operation: "put_if_absent", reason: "already_exists" }),
+            )
+          : Effect.sync(() => {
+              objects.set(key, copy(bytes));
+              return meta(key, bytes);
+            }),
+      head: (key) =>
+        Effect.sync(() => {
+          const bytes = objects.get(key);
+          return bytes === undefined ? undefined : meta(key, bytes);
+        }),
       read: (key) => {
         const bytes = objects.get(key);
         return bytes === undefined
@@ -43,28 +66,62 @@ const r2 = (): { readonly boundary: ImmutableR2Boundary; readonly objects: Map<s
           : Effect.succeed({ ...meta(key, bytes), bytes: copy(bytes) });
       },
       listExactPrefix: () => Effect.succeed({ objects: [], truncated: false }),
-      deleteExact: (key) => Effect.sync(() => { objects.delete(key); }),
+      deleteExact: (key) =>
+        Effect.sync(() => {
+          objects.delete(key);
+        }),
     },
   };
 };
 
 const runtime = (boundary: ImmutableR2Boundary): OwnerVaultBackupRuntime => ({
   r2: boundary,
-  signer: { signCanonical: (bytes) => Effect.succeed({ keyID: "backup-key", signatureDERBase64: ownerVaultBackupDigest(bytes) }) },
-  verifier: { verifyCanonical: (bytes, signature) => signature.keyID === "backup-key" && signature.signatureDERBase64 === ownerVaultBackupDigest(bytes) ? Effect.void : Effect.fail(new ManifestVerificationError({ reason: "signature_invalid" })) },
+  signer: {
+    signCanonical: (bytes) =>
+      Effect.succeed({ keyID: "backup-key", signatureDERBase64: ownerVaultBackupDigest(bytes) }),
+  },
+  verifier: {
+    verifyCanonical: (bytes, signature) =>
+      signature.keyID === "backup-key" &&
+      signature.signatureDERBase64 === ownerVaultBackupDigest(bytes)
+        ? Effect.void
+        : Effect.fail(new ManifestVerificationError({ reason: "signature_invalid" })),
+  },
 });
 
 const records = (): readonly OwnerVaultSnapshotObject[] => {
-  const source: readonly { readonly category: OwnerVaultSnapshotObject["address"]["category"]; readonly identifier: string; readonly payload: Readonly<Record<string, unknown>> }[] = [
+  const source: readonly {
+    readonly category: OwnerVaultSnapshotObject["address"]["category"];
+    readonly identifier: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+  }[] = [
     { category: "device", identifier: "device-1", payload: { publicKey: "key" } },
-    { category: "append-log.entry", identifier: "00000000000000000001", payload: { operationID: "operation-1", fingerprint: "a".repeat(64), payloadHash: "b".repeat(64), payloadBase64: "Y2hhbmdl", source: "http", deviceID: "device-1", logSequence: 1 } },
+    {
+      category: "append-log.entry",
+      identifier: "00000000000000000001",
+      payload: {
+        operationID: "operation-1",
+        fingerprint: "a".repeat(64),
+        payloadHash: "b".repeat(64),
+        payloadBase64: "Y2hhbmdl",
+        source: "http",
+        deviceID: "device-1",
+        logSequence: 1,
+      },
+    },
   ];
   return source.map((item, ordinal) => {
     const address = { category: item.category, identifier: item.identifier } as const;
     const record = { category: item.category, version: 1 as const, payload: item.payload };
     const bytes = canonicalSnapshotRecordBytes(address, record);
     if (bytes === undefined) throw new Error("test encoding failed");
-    return { ordinal, address, record, size: bytes.byteLength, sha256Base64: ownerVaultBackupDigest(bytes) };
+    return {
+      ordinal,
+      address,
+      record,
+      size: bytes.byteLength,
+      sha256Base64: ownerVaultBackupDigest(bytes),
+    };
   });
 };
 
@@ -79,36 +136,85 @@ const source = (items = records()): OwnerVaultBackupSnapshotSource => {
   }));
   const pageBytes = canonicalPageBytes({ ordinal: 0, entries, digest: "" });
   if (pageBytes === undefined) throw new Error("test page encoding failed");
-  const catalog = ownerVaultBackupDigest(new TextEncoder().encode(JSON.stringify(entries.map(({ key, ...entry }) => entry))));
-  const appendEntries = items.filter((item) => item.address.category === "append-log.entry").map((item) => item.record.payload as unknown as import("./domains").OwnerVaultAppendLogEntry);
+  const catalog = ownerVaultBackupDigest(
+    new TextEncoder().encode(JSON.stringify(entries.map(({ key, ...entry }) => entry))),
+  );
+  const appendEntries = items
+    .filter((item) => item.address.category === "append-log.entry")
+    .map((item) => item.record.payload as unknown as import("./domains").OwnerVaultAppendLogEntry);
   const appendProof = ownerVaultAppendProofValidate(scope, appendEntries)!;
   return {
-    beginSnapshot: () => Effect.succeed({ backupID, scope, highWaterMark: ownerVaultBackupDigest(new TextEncoder().encode("high-water")), appendLogSequence: appendProof.appendLogSequence, appendLogDigest: appendProof.appendLogDigest, catalogDigest: catalog, pinProof: "p".repeat(16) }),
-    readSnapshotPage: (_pin, cursor) => cursor === undefined
-      ? Effect.succeed({ entries: items, digest: ownerVaultBackupDigest(pageBytes) })
-      : Effect.fail(new OwnerVaultBackupError({ reason: "catalog_invalid" })),
+    beginSnapshot: () =>
+      Effect.succeed({
+        backupID,
+        scope,
+        highWaterMark: ownerVaultBackupDigest(new TextEncoder().encode("high-water")),
+        appendLogSequence: appendProof.appendLogSequence,
+        appendLogDigest: appendProof.appendLogDigest,
+        catalogDigest: catalog,
+        pinProof: "p".repeat(16),
+      }),
+    readSnapshotPage: (_pin, cursor) =>
+      cursor === undefined
+        ? Effect.succeed({ entries: items, digest: ownerVaultBackupDigest(pageBytes) })
+        : Effect.fail(new OwnerVaultBackupError({ reason: "catalog_invalid" })),
     completeSnapshot: () => Effect.void,
     releaseSnapshot: () => Effect.void,
     abortSnapshot: () => Effect.void,
   };
 };
 
-const target = (alreadyCompleted = false): { readonly target: OwnerVaultPrivateRestoreTarget; readonly applied: number[]; readonly events: string[] } => {
+const target = (
+  alreadyCompleted = false,
+): {
+  readonly target: OwnerVaultPrivateRestoreTarget;
+  readonly applied: number[];
+  readonly events: string[];
+} => {
   const applied: number[] = [];
   const events: string[] = [];
   return {
     applied,
     events,
     target: {
-      root: { ownerID: scope.ownerID, vaultID: scope.vaultID, generationEpoch: 4, namespaceState: "PRIVATE" },
+      root: {
+        ownerID: scope.ownerID,
+        vaultID: scope.vaultID,
+        generationEpoch: 4,
+        namespaceState: "PRIVATE",
+      },
       assertFreshPrivateTarget: () => Effect.sync(() => events.push("private")),
       restoreImport: {
-        beginRestoreImport: (_restoreID, plan) => Effect.sync(() => { events.push(`begin:${plan.objectCount}`); return alreadyCompleted ? {} as OwnerVaultRestoreImportReceipt : undefined; }),
-        applyRestoreRecord: ({ expected }) => Effect.sync(() => { applied.push(expected.ordinal); return undefined; }),
-        finalizeRestoreImport: () => Effect.sync(() => { events.push("complete"); return {} as import("./backup-types").OwnerVaultRestoreImportReceipt; }),
+        beginRestoreImport: (_restoreID, plan) =>
+          Effect.sync(() => {
+            events.push(`begin:${plan.objectCount}`);
+            return alreadyCompleted ? ({} as OwnerVaultRestoreImportReceipt) : undefined;
+          }),
+        applyRestoreRecord: ({ expected }) =>
+          Effect.sync(() => {
+            applied.push(expected.ordinal);
+            return undefined;
+          }),
+        finalizeRestoreImport: () =>
+          Effect.sync(() => {
+            events.push("complete");
+            return {} as import("./backup-types").OwnerVaultRestoreImportReceipt;
+          }),
       },
-      blobScope: { ownerID: { value: scope.ownerID }, vaultID: { value: scope.vaultID }, generationEpoch: 4 },
-      blobLimits: { maximumBlobBytes: 8 * 1024 * 1024, maximumVaultBytes: 96 * 1024 * 1024, maximumOrphanBytes: 0, maximumOrphanCount: 0, maximumActiveLeasesPerVault: 32, maximumActiveLeasesPerFinal: 32, stageTTLSeconds: 60 },
+      blobScope: {
+        ownerID: { value: scope.ownerID },
+        vaultID: { value: scope.vaultID },
+        generationEpoch: 4,
+      },
+      blobLimits: {
+        maximumBlobBytes: 8 * 1024 * 1024,
+        maximumVaultBytes: 96 * 1024 * 1024,
+        maximumOrphanBytes: 0,
+        maximumOrphanCount: 0,
+        maximumActiveLeasesPerVault: 32,
+        maximumActiveLeasesPerFinal: 32,
+        stageTTLSeconds: 60,
+      },
     },
   };
 };
@@ -124,31 +230,41 @@ describe("OwnerVault bounded paged backup and private restore", () => {
 
   test("archives a pinned high-water page and restores it into a later private generation", async () => {
     const store = r2();
-    const signed = await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    const signed = await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     expect(signed.manifest.objectCount).toBe(2);
     expect(signed.manifest.pages).toHaveLength(1);
     const restored = target();
-    await Effect.runPromise(restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID));
+    await Effect.runPromise(
+      restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID),
+    );
     expect(restored.applied).toEqual([0, 1]);
     expect(restored.events).toEqual(expect.arrayContaining(["private", "begin:2", "complete"]));
   });
 
   test("fails closed for a tampered signed manifest", async () => {
     const store = r2();
-    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     const key = `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}/manifest.json`;
     const bytes = store.objects.get(key);
     if (bytes === undefined) throw new Error("manifest missing");
     const text = new TextDecoder().decode(bytes).replace("backup-key", "other-key_");
     store.objects.set(key, new TextEncoder().encode(text));
-    const exit = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(store.boundary), target().target, scope, backupID));
+    const exit = await Effect.runPromiseExit(
+      restoreOwnerVaultBackup(runtime(store.boundary), target().target, scope, backupID),
+    );
     expect(Exit.isFailure(exit)).toBe(true);
     expect(JSON.stringify(exit)).toContain("manifest_untrusted");
   });
 
   test("binds a restore command digest before reading archive pages or applying state", async () => {
     const store = r2();
-    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     const reads: string[] = [];
     const bounded: ImmutableR2Boundary = {
       ...store.boundary,
@@ -176,50 +292,82 @@ describe("OwnerVault bounded paged backup and private restore", () => {
 
   test("treats a completed C1 begin receipt as terminal without apply or finalization callbacks", async () => {
     const store = r2();
-    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     const restored = target(true);
-    await Effect.runPromise(restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID));
+    await Effect.runPromise(
+      restoreOwnerVaultBackup(runtime(store.boundary), restored.target, scope, backupID),
+    );
     expect(restored.applied).toEqual([]);
     expect(restored.events).toEqual(["private", "begin:2"]);
   });
 
   test("rejects a source catalog with a mismatched R2 metadata proof", async () => {
-    const bad = records().map((entry) => entry.ordinal === 0 ? { ...entry, r2: { key: "r2-key", size: entry.size + 1, sha256Base64: entry.sha256Base64 } } : entry);
-    const exit = await Effect.runPromiseExit(createOwnerVaultBackup(source(bad), runtime(r2().boundary), scope, backupID));
+    const bad = records().map((entry) =>
+      entry.ordinal === 0
+        ? {
+            ...entry,
+            r2: { key: "r2-key", size: entry.size + 1, sha256Base64: entry.sha256Base64 },
+          }
+        : entry,
+    );
+    const exit = await Effect.runPromiseExit(
+      createOwnerVaultBackup(source(bad), runtime(r2().boundary), scope, backupID),
+    );
     expect(Exit.isFailure(exit)).toBe(true);
     expect(JSON.stringify(exit)).toContain("catalog_invalid");
   });
 
   test("resumes from its bounded per-object journal after a target interruption", async () => {
     const store = r2();
-    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     const restored = target();
     let interrupted = true;
     const interrupting: OwnerVaultPrivateRestoreTarget = {
       ...restored.target,
       restoreImport: {
         ...restored.target.restoreImport,
-        applyRestoreRecord: ({ restoreID, expected, record }) => expected.ordinal === 1 && interrupted
-          ? Effect.fail(new OwnerVaultBackupError({ reason: "source_unavailable" }))
-          : restored.target.restoreImport.applyRestoreRecord({ restoreID, manifestDigest: "a".repeat(44), expected, record }),
+        applyRestoreRecord: ({ restoreID, expected, record }) =>
+          expected.ordinal === 1 && interrupted
+            ? Effect.fail(new OwnerVaultBackupError({ reason: "source_unavailable" }))
+            : restored.target.restoreImport.applyRestoreRecord({
+                restoreID,
+                manifestDigest: "a".repeat(44),
+                expected,
+                record,
+              }),
       },
     };
-    const first = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(store.boundary), interrupting, scope, backupID));
+    const first = await Effect.runPromiseExit(
+      restoreOwnerVaultBackup(runtime(store.boundary), interrupting, scope, backupID),
+    );
     expect(Exit.isFailure(first)).toBe(true);
     interrupted = false;
-    await Effect.runPromise(restoreOwnerVaultBackup(runtime(store.boundary), interrupting, scope, backupID));
+    await Effect.runPromise(
+      restoreOwnerVaultBackup(runtime(store.boundary), interrupting, scope, backupID),
+    );
     expect(restored.applied).toEqual([0, 0, 1]);
     expect(restored.events).toContain("complete");
   });
 
   test("rejects a tampered page and a non-contiguous append sequence before completion", async () => {
     const store = r2();
-    await Effect.runPromise(createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(), runtime(store.boundary), scope, backupID),
+    );
     const page = `v2/owner-vault/backups/${scope.ownerID}/${scope.vaultID}/${scope.generationEpoch}/${backupID}/pages/00000000.json`;
     const original = store.objects.get(page);
     if (original === undefined) throw new Error("page missing");
-    store.objects.set(page, new TextEncoder().encode(new TextDecoder().decode(original).replace("device-1", "device-2")));
-    const pageExit = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(store.boundary), target().target, scope, backupID));
+    store.objects.set(
+      page,
+      new TextEncoder().encode(new TextDecoder().decode(original).replace("device-1", "device-2")),
+    );
+    const pageExit = await Effect.runPromiseExit(
+      restoreOwnerVaultBackup(runtime(store.boundary), target().target, scope, backupID),
+    );
     expect(Exit.isFailure(pageExit)).toBe(true);
     expect(JSON.stringify(pageExit)).toContain("integrity_failed");
 
@@ -229,10 +377,19 @@ describe("OwnerVault bounded paged backup and private restore", () => {
       const address = { ...entry.address, identifier: "00000000000000000002" };
       const bytes = canonicalSnapshotRecordBytes(address, entry.record);
       if (bytes === undefined) throw new Error("test encoding failed");
-      return { ...entry, address, size: bytes.byteLength, sha256Base64: ownerVaultBackupDigest(bytes) };
+      return {
+        ...entry,
+        address,
+        size: bytes.byteLength,
+        sha256Base64: ownerVaultBackupDigest(bytes),
+      };
     });
-    await Effect.runPromise(createOwnerVaultBackup(source(sequence), runtime(second.boundary), scope, backupID));
-    const sequenceExit = await Effect.runPromiseExit(restoreOwnerVaultBackup(runtime(second.boundary), target().target, scope, backupID));
+    await Effect.runPromise(
+      createOwnerVaultBackup(source(sequence), runtime(second.boundary), scope, backupID),
+    );
+    const sequenceExit = await Effect.runPromiseExit(
+      restoreOwnerVaultBackup(runtime(second.boundary), target().target, scope, backupID),
+    );
     expect(Exit.isFailure(sequenceExit)).toBe(true);
     expect(JSON.stringify(sequenceExit)).toContain("integrity_failed");
   });

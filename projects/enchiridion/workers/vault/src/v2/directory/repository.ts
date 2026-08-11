@@ -1,19 +1,19 @@
+import { sha256Hex } from "@enchiridion/protocol";
 /** @enchiridion/effect-module */
 import {
   type DurableObjectBoundaryError,
   type DurableObjectStorage,
   durableObjectTransactionDomainCodec,
 } from "@enchiridion/runtime";
-import { sha256Hex } from "@enchiridion/protocol";
 import { Context, Data, Effect, Layer, Ref, Schema } from "effect";
 import { isOwnerID, isVaultID, ownerID, vaultID } from "../foundation/schemas";
 import {
   deriveDirectoryInitID,
   isCanonicalDirectoryAlias,
   maximumDirectoryControlReplays,
+  maximumDirectoryPrivateGenerations,
   maximumDirectoryReplayRetentionSeconds,
   maximumDirectoryRetiredAliases,
-  maximumDirectoryPrivateGenerations,
   maximumDirectoryTransitions,
   validDirectoryResolution,
 } from "./invariants";
@@ -22,9 +22,9 @@ import type {
   DirectoryCredentialTransition,
   DirectoryCredentialTransitionResult,
   DirectoryFreeze,
+  DirectoryOwnerFenceAck,
   DirectoryOwnerVaultFloorSync,
   DirectoryOwnerVaultInitialization,
-  DirectoryOwnerFenceAck,
   DirectoryPrivateGeneration,
   DirectoryReplay,
   DirectoryResolution,
@@ -117,7 +117,9 @@ const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]
 const epoch = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
-const initializationDigest = (value: Omit<DirectoryOwnerVaultInitialization, "initDigest" | "activated">): string =>
+const initializationDigest = (
+  value: Omit<DirectoryOwnerVaultInitialization, "initDigest" | "activated">,
+): string =>
   sha256Hex(
     new TextEncoder().encode(
       JSON.stringify({
@@ -160,7 +162,8 @@ const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization
     typeof source.initDigest !== "string" ||
     !/^[a-f0-9]{64}$/u.test(source.initDigest) ||
     (Object.hasOwn(source, "durableReceipt") &&
-      (typeof source.durableReceipt !== "string" || !/^[A-Za-z0-9_-]{16,128}$/u.test(source.durableReceipt)))
+      (typeof source.durableReceipt !== "string" ||
+        !/^[A-Za-z0-9_-]{16,128}$/u.test(source.durableReceipt)))
   )
     return undefined;
   const candidate = {
@@ -172,14 +175,14 @@ const decodeInitialization = (value: unknown): DirectoryOwnerVaultInitialization
     routingEpoch: source.routingEpoch,
     controlEpoch: source.controlEpoch,
     initDigest: source.initDigest,
-    ...(typeof source.durableReceipt === "string"
-      ? { durableReceipt: source.durableReceipt }
-      : {}),
+    ...(typeof source.durableReceipt === "string" ? { durableReceipt: source.durableReceipt } : {}),
   } satisfies DirectoryOwnerVaultInitialization;
   return initializationDigest(candidate) === candidate.initDigest ? candidate : undefined;
 };
 
-const floorSyncDigest = (value: Omit<DirectoryOwnerVaultFloorSync, "floorSyncDigest" | "durableReceipt">): string =>
+const floorSyncDigest = (
+  value: Omit<DirectoryOwnerVaultFloorSync, "floorSyncDigest" | "durableReceipt">,
+): string =>
   sha256Hex(
     new TextEncoder().encode(
       JSON.stringify({
@@ -199,16 +202,33 @@ const decodeFloorSync = (value: unknown): DirectoryOwnerVaultFloorSync | undefin
   if (
     source === undefined ||
     !exact(source, [
-      "ownerID", "vaultID", "generationEpoch", "operationID", "credentialEpoch", "routingEpoch", "controlEpoch", "floorSyncDigest",
+      "ownerID",
+      "vaultID",
+      "generationEpoch",
+      "operationID",
+      "credentialEpoch",
+      "routingEpoch",
+      "controlEpoch",
+      "floorSyncDigest",
       ...(Object.hasOwn(source, "durableReceipt") ? ["durableReceipt"] : []),
     ]) ||
-    typeof source.ownerID !== "string" || ownerID(source.ownerID) === undefined ||
-    typeof source.vaultID !== "string" || vaultID(source.vaultID) === undefined ||
-    !epoch(source.generationEpoch) || typeof source.operationID !== "string" || !operationID.test(source.operationID) ||
-    !epoch(source.credentialEpoch) || !epoch(source.routingEpoch) || !epoch(source.controlEpoch) ||
-    typeof source.floorSyncDigest !== "string" || !/^[a-f0-9]{64}$/u.test(source.floorSyncDigest) ||
-    (Object.hasOwn(source, "durableReceipt") && (typeof source.durableReceipt !== "string" || !/^[A-Za-z0-9_-]{16,128}$/u.test(source.durableReceipt)))
-  ) return undefined;
+    typeof source.ownerID !== "string" ||
+    ownerID(source.ownerID) === undefined ||
+    typeof source.vaultID !== "string" ||
+    vaultID(source.vaultID) === undefined ||
+    !epoch(source.generationEpoch) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch) ||
+    !epoch(source.controlEpoch) ||
+    typeof source.floorSyncDigest !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(source.floorSyncDigest) ||
+    (Object.hasOwn(source, "durableReceipt") &&
+      (typeof source.durableReceipt !== "string" ||
+        !/^[A-Za-z0-9_-]{16,128}$/u.test(source.durableReceipt)))
+  )
+    return undefined;
   const candidate = {
     ownerID: source.ownerID,
     vaultID: source.vaultID,
@@ -228,47 +248,72 @@ const decodePrivateGeneration = (value: unknown): DirectoryPrivateGeneration | u
   if (
     source === undefined ||
     !exact(source, [
-      "operationID", "ownerID", "vaultID", "generationEpoch", "phase", "initialization", "credentialEpoch", "routingEpoch", "controlEpoch",
+      "operationID",
+      "ownerID",
+      "vaultID",
+      "generationEpoch",
+      "phase",
+      "initialization",
+      "credentialEpoch",
+      "routingEpoch",
+      "controlEpoch",
       ...(Object.hasOwn(source, "floorSync") ? ["floorSync"] : []),
     ]) ||
-    typeof source.operationID !== "string" || !operationID.test(source.operationID) ||
-    typeof source.ownerID !== "string" || ownerID(source.ownerID) === undefined ||
-    typeof source.vaultID !== "string" || vaultID(source.vaultID) === undefined ||
-    source.ownerID === source.vaultID || !epoch(source.generationEpoch) ||
+    typeof source.operationID !== "string" ||
+    !operationID.test(source.operationID) ||
+    typeof source.ownerID !== "string" ||
+    ownerID(source.ownerID) === undefined ||
+    typeof source.vaultID !== "string" ||
+    vaultID(source.vaultID) === undefined ||
+    source.ownerID === source.vaultID ||
+    !epoch(source.generationEpoch) ||
     (source.phase !== "PRIVATE_INITIALIZING" && source.phase !== "PRIVATE_READY") ||
-    !epoch(source.credentialEpoch) || !epoch(source.routingEpoch) || !epoch(source.controlEpoch)
-  ) return undefined;
+    !epoch(source.credentialEpoch) ||
+    !epoch(source.routingEpoch) ||
+    !epoch(source.controlEpoch)
+  )
+    return undefined;
   const initialization = decodeInitialization(source.initialization);
   const sync = source.floorSync === undefined ? undefined : decodeFloorSync(source.floorSync);
   if (
     initialization === undefined ||
-    initialization.ownerID !== source.ownerID || initialization.vaultID !== source.vaultID ||
+    initialization.ownerID !== source.ownerID ||
+    initialization.vaultID !== source.vaultID ||
     initialization.generationEpoch !== source.generationEpoch ||
     initialization.credentialEpoch > source.credentialEpoch ||
     initialization.routingEpoch > source.routingEpoch ||
     initialization.controlEpoch > source.controlEpoch ||
     (source.floorSync !== undefined && sync === undefined) ||
-    (sync !== undefined && (
-      sync.ownerID !== source.ownerID || sync.vaultID !== source.vaultID || sync.generationEpoch !== source.generationEpoch ||
-      (sync.durableReceipt === undefined
-        ? sync.credentialEpoch < source.credentialEpoch || sync.routingEpoch < source.routingEpoch || sync.controlEpoch < source.controlEpoch
-        : sync.credentialEpoch !== source.credentialEpoch || sync.routingEpoch !== source.routingEpoch || sync.controlEpoch !== source.controlEpoch)
-    )) ||
-    (source.phase === "PRIVATE_READY" && (
-      initialization.durableReceipt === undefined ||
-      (sync === undefined
-        ? initialization.credentialEpoch !== source.credentialEpoch ||
-          initialization.routingEpoch !== source.routingEpoch ||
-          initialization.controlEpoch !== source.controlEpoch
-        : sync.durableReceipt === undefined)
-    ))
-  ) return undefined;
+    (sync !== undefined &&
+      (sync.ownerID !== source.ownerID ||
+        sync.vaultID !== source.vaultID ||
+        sync.generationEpoch !== source.generationEpoch ||
+        (sync.durableReceipt === undefined
+          ? sync.credentialEpoch < source.credentialEpoch ||
+            sync.routingEpoch < source.routingEpoch ||
+            sync.controlEpoch < source.controlEpoch
+          : sync.credentialEpoch !== source.credentialEpoch ||
+            sync.routingEpoch !== source.routingEpoch ||
+            sync.controlEpoch !== source.controlEpoch))) ||
+    (source.phase === "PRIVATE_READY" &&
+      (initialization.durableReceipt === undefined ||
+        (sync === undefined
+          ? initialization.credentialEpoch !== source.credentialEpoch ||
+            initialization.routingEpoch !== source.routingEpoch ||
+            initialization.controlEpoch !== source.controlEpoch
+          : sync.durableReceipt === undefined)))
+  )
+    return undefined;
   return {
-    operationID: source.operationID, ownerID: source.ownerID, vaultID: source.vaultID,
+    operationID: source.operationID,
+    ownerID: source.ownerID,
+    vaultID: source.vaultID,
     generationEpoch: source.generationEpoch,
     phase: source.phase,
     initialization,
-    credentialEpoch: source.credentialEpoch, routingEpoch: source.routingEpoch, controlEpoch: source.controlEpoch,
+    credentialEpoch: source.credentialEpoch,
+    routingEpoch: source.routingEpoch,
+    controlEpoch: source.controlEpoch,
     ...(sync === undefined ? {} : { floorSync: sync }),
   };
 };
@@ -923,7 +968,8 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   if (Object.keys(rawControlReplays).length > maximumDirectoryControlReplays) return undefined;
   if (Object.keys(rawTransitions).length > maximumDirectoryTransitions) return undefined;
   if (Object.keys(rawRetiredAliases).length > maximumDirectoryRetiredAliases) return undefined;
-  if (Object.keys(rawPrivateGenerations).length > maximumDirectoryPrivateGenerations) return undefined;
+  if (Object.keys(rawPrivateGenerations).length > maximumDirectoryPrivateGenerations)
+    return undefined;
   const aliases: Record<string, string> = {};
   for (const [alias, binding] of Object.entries(rawAliases)) {
     if (
@@ -963,7 +1009,9 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   }
   const privateGenerations: Record<string, DirectoryPrivateGeneration> = {};
   for (const [operation, rawPrivateGeneration] of Object.entries(rawPrivateGenerations)) {
-    const decoded = operationID.test(operation) ? decodePrivateGeneration(rawPrivateGeneration) : undefined;
+    const decoded = operationID.test(operation)
+      ? decodePrivateGeneration(rawPrivateGeneration)
+      : undefined;
     if (decoded === undefined || decoded.operationID !== operation) return undefined;
     privateGenerations[operation] = decoded;
   }
@@ -976,11 +1024,7 @@ const decodeState = (value: unknown): DirectoryState | undefined => {
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, rawRetired] of Object.entries(rawRetiredAliases)) {
     const decoded = decodeRetiredAlias(alias, rawRetired);
-    if (
-      decoded === undefined ||
-      aliases[alias] !== undefined ||
-      bindings[alias] !== undefined
-    )
+    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
       return undefined;
     retiredAliases[alias] = decoded;
   }
@@ -1035,7 +1079,8 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
   if (Object.keys(value.controlReplays).length > maximumDirectoryControlReplays) return undefined;
   if (Object.keys(value.transitions).length > maximumDirectoryTransitions) return undefined;
   if (Object.keys(value.retiredAliases).length > maximumDirectoryRetiredAliases) return undefined;
-  if (Object.keys(value.privateGenerations).length > maximumDirectoryPrivateGenerations) return undefined;
+  if (Object.keys(value.privateGenerations).length > maximumDirectoryPrivateGenerations)
+    return undefined;
   if (!uniqueBindingIdentities(value.bindings)) return undefined;
   if (Object.keys(value.initializations).length !== Object.keys(value.bindings).length)
     return undefined;
@@ -1076,7 +1121,9 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
   const privateGenerations: Record<string, DirectoryPrivateGeneration> = {};
   const privateTargets = new Set<string>();
   for (const [operation, privateGeneration] of Object.entries(value.privateGenerations)) {
-    const decoded = operationID.test(operation) ? decodePrivateGeneration(privateGeneration) : undefined;
+    const decoded = operationID.test(operation)
+      ? decodePrivateGeneration(privateGeneration)
+      : undefined;
     if (decoded === undefined || decoded.operationID !== operation) return undefined;
     const key = `${decoded.ownerID}\u0000${decoded.vaultID}\u0000${decoded.generationEpoch}`;
     if (privateTargets.has(key)) return undefined;
@@ -1086,11 +1133,7 @@ const encodeState = (value: DirectoryState): Readonly<Record<string, unknown>> |
   const retiredAliases: Record<string, DirectoryRetiredAlias> = {};
   for (const [alias, retired] of Object.entries(value.retiredAliases)) {
     const decoded = decodeRetiredAlias(alias, retired);
-    if (
-      decoded === undefined ||
-      aliases[alias] !== undefined ||
-      bindings[alias] !== undefined
-    )
+    if (decoded === undefined || aliases[alias] !== undefined || bindings[alias] !== undefined)
       return undefined;
     retiredAliases[alias] = decoded;
   }

@@ -19,11 +19,15 @@ describe("ownerVaultOpaqueMutationFingerprint", () => {
     const websocket = ownerVaultOpaqueMutationFingerprint({ ...input });
     expect(http).toBe(websocket);
     expect(ownerVaultOpaqueMutationFingerprint({ ...input, observedHighWater: 8 })).not.toBe(http);
-    expect(ownerVaultOpaqueMutationFingerprint({ ...input, operationID: "operation-0002" })).not.toBe(http);
+    expect(
+      ownerVaultOpaqueMutationFingerprint({ ...input, operationID: "operation-0002" }),
+    ).not.toBe(http);
   });
 
   test("rejects non-canonical payload encodings and hash substitutions", () => {
-    expect(ownerVaultOpaqueMutationFingerprint({ ...input, payloadBase64: "AQID=" })).toBeUndefined();
+    expect(
+      ownerVaultOpaqueMutationFingerprint({ ...input, payloadBase64: "AQID=" }),
+    ).toBeUndefined();
     expect(
       ownerVaultOpaqueMutationFingerprint({
         ...input,

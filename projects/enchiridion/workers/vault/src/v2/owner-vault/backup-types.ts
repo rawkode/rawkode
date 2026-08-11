@@ -1,16 +1,20 @@
 /** @enchiridion/effect-module */
 import type { ImmutableR2Boundary, ManifestSigner, ManifestVerifier } from "@enchiridion/runtime";
 import { Data, Effect } from "effect";
-import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository } from "./repository";
 import type { BlobLimits, BlobScope } from "../blobs/blobs";
 import type {
   OwnerVaultBlobRestoreReconstructionResult,
-  OwnerVaultRestoredBlobMetadata,
   OwnerVaultRestoredBlobInventory,
+  OwnerVaultRestoredBlobMetadata,
 } from "../blobs/restore-reconstruction";
 import type { OwnerVaultAppendLogEntry } from "./domains";
+import type { OwnerVaultStorageAddress, OwnerVaultStorageRepository } from "./repository";
 import type { OwnerVaultRestoreImport } from "./restore-import";
-import type { OwnerVaultStorageCategory, OwnerVaultStorageRecord, OwnerVaultTargetRoot } from "./storage-registry";
+import type {
+  OwnerVaultStorageCategory,
+  OwnerVaultStorageRecord,
+  OwnerVaultTargetRoot,
+} from "./storage-registry";
 
 export const ownerVaultBackupMaximumPageBytes = 512 * 1024;
 export const ownerVaultBackupMaximumPageEntries = 128;
@@ -60,13 +64,26 @@ export interface OwnerVaultSnapshotPage {
  * This package deliberately has no list-enumeration fallback.
  */
 export interface OwnerVaultBackupSnapshotSource {
-  readonly beginSnapshot: (scope: OwnerVaultBackupScope, backupID: string) => Effect.Effect<OwnerVaultSnapshotPin, OwnerVaultBackupError>;
-  readonly readSnapshotPage: (pin: OwnerVaultSnapshotPin, cursor: string | undefined) => Effect.Effect<OwnerVaultSnapshotPage, OwnerVaultBackupError>;
+  readonly beginSnapshot: (
+    scope: OwnerVaultBackupScope,
+    backupID: string,
+  ) => Effect.Effect<OwnerVaultSnapshotPin, OwnerVaultBackupError>;
+  readonly readSnapshotPage: (
+    pin: OwnerVaultSnapshotPin,
+    cursor: string | undefined,
+  ) => Effect.Effect<OwnerVaultSnapshotPage, OwnerVaultBackupError>;
   /** Marks the exact immutable signed manifest as complete before retention is released. */
-  readonly completeSnapshot: (pin: OwnerVaultSnapshotPin, manifestDigest: string) => Effect.Effect<void, OwnerVaultBackupError>;
-  readonly releaseSnapshot: (pin: OwnerVaultSnapshotPin) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly completeSnapshot: (
+    pin: OwnerVaultSnapshotPin,
+    manifestDigest: string,
+  ) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly releaseSnapshot: (
+    pin: OwnerVaultSnapshotPin,
+  ) => Effect.Effect<void, OwnerVaultBackupError>;
   /** Explicit operator abort only; normal archive failures intentionally remain OPEN for retry. */
-  readonly abortSnapshot: (pin: OwnerVaultSnapshotPin) => Effect.Effect<void, OwnerVaultBackupError>;
+  readonly abortSnapshot: (
+    pin: OwnerVaultSnapshotPin,
+  ) => Effect.Effect<void, OwnerVaultBackupError>;
 }
 
 export interface OwnerVaultBackupPageEntry {
@@ -96,7 +113,13 @@ export interface OwnerVaultBackupManifest {
   readonly pinProof: string;
   readonly totalBytes: number;
   readonly objectCount: number;
-  readonly pages: readonly { readonly ordinal: number; readonly key: string; readonly digest: string; readonly count: number; readonly size: number }[];
+  readonly pages: readonly {
+    readonly ordinal: number;
+    readonly key: string;
+    readonly digest: string;
+    readonly count: number;
+    readonly size: number;
+  }[];
 }
 
 export interface OwnerVaultSignedBackupManifest {

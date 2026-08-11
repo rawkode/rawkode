@@ -3,8 +3,8 @@ import {
   OwnerVaultStorageRegistryError,
   assertOwnerVaultStorageRecord,
   isRestorableOwnerVaultStorageCategory,
-  ownerVaultStorageRegistry,
   ownerVaultStorageDefinitionForKey,
+  ownerVaultStorageRegistry,
 } from "./storage-registry";
 
 const registered = (

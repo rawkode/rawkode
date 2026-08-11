@@ -8,18 +8,7 @@ import {
   P256Crypto,
 } from "@enchiridion/runtime";
 import { Context, Data, Effect } from "effect";
-import {
-  DirectoryControlCapabilityFactory,
-  InternalCapabilityFactory,
-} from "../foundation/crypto";
-import {
-  initializationDigest,
-  sameOwnerVaultInitializationAck,
-  type OwnerVaultInitializationAck,
-  type OwnerVaultInitializationClient,
-  type OwnerVaultInitializationCommand,
-  signOwnerVaultInitialization,
-} from "./lifecycle";
+import { DirectoryControlCapabilityFactory, InternalCapabilityFactory } from "../foundation/crypto";
 import { ownerID, vaultID } from "../foundation/schemas";
 import {
   deriveDirectoryInitID,
@@ -27,6 +16,14 @@ import {
   maximumDirectoryReplayRetentionSeconds,
   validDirectoryResolution,
 } from "./invariants";
+import {
+  type OwnerVaultInitializationAck,
+  type OwnerVaultInitializationClient,
+  type OwnerVaultInitializationCommand,
+  initializationDigest,
+  sameOwnerVaultInitializationAck,
+  signOwnerVaultInitialization,
+} from "./lifecycle";
 import {
   DirectoryRepository,
   type DirectoryRepositoryError,
@@ -231,7 +228,10 @@ export const makeDirectoryService = (
 ): Effect.Effect<
   DirectoryService,
   never,
-  DirectoryRepository | InternalCapabilityFactory | DirectoryControlCapabilityFactory | DirectoryOwnerVaultInitializer
+  | DirectoryRepository
+  | InternalCapabilityFactory
+  | DirectoryControlCapabilityFactory
+  | DirectoryOwnerVaultInitializer
 > =>
   Effect.gen(function* () {
     const repository = yield* DirectoryRepository;
@@ -269,146 +269,207 @@ export const makeDirectoryService = (
             ]).pipe(
               Effect.mapError(() => new DirectoryServiceError({ reason: "random_unavailable" })),
               Effect.flatMap(([generatedOwnerID, generatedVaultID, generatedOperationID]) =>
-                repository.transact<DirectoryReservation>((state) =>
-                  Effect.suspend(() => {
-                    const retainedReplays = Object.fromEntries(
-                      Object.entries(state.replays).filter(([, value]) => value.retainUntil > nowSeconds),
-                    );
-                    const oldReplay = retainedReplays[claims.jti];
-                    if (oldReplay !== undefined) {
-                      if (oldReplay.fingerprint !== bodySHA256)
-                        return Effect.fail(new DirectoryServiceError({ reason: "replay_conflict" }));
-                      return Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([
-                        { _tag: "ready" as const, resolution: oldReplay.resolution },
-                        { ...state, replays: retainedReplays },
-                      ] as const);
-                    }
-                    if (Object.keys(retainedReplays).length >= maximumLiveReplays)
-                      return Effect.fail(new DirectoryServiceError({ reason: "replay_capacity" }));
-                    const aliases = invocation.request.aliases;
-                    if (aliases.some((alias) => state.retiredAliases[alias] !== undefined))
-                      return Effect.fail(new DirectoryServiceError({ reason: "capability_rejected" }));
-                    const targets = aliases
-                      .map((value) => state.aliases[value])
-                      .filter((value): value is string => value !== undefined);
-                    if (new Set(targets).size > 1)
-                      return Effect.fail(new DirectoryServiceError({ reason: "alias_conflict" }));
-                    const bindingID = targets[0] ?? invocation.request.currentAlias;
-                    if (state.frozenBindings[bindingID] !== undefined)
-                      return Effect.fail(new DirectoryServiceError({ reason: "capability_rejected" }));
-                    const existing = state.bindings[bindingID];
-                    const created = existing ?? resolution(bindingID, generatedOwnerID, generatedVaultID);
-                    if (created === undefined)
-                      return Effect.fail(new DirectoryServiceError({ reason: "random_unavailable" }));
-                    const existingInitialization = state.initializations[bindingID];
-                    const command: OwnerVaultInitializationCommand = existingInitialization === undefined
-                      ? (() => {
-                          const unsigned = {
-                            ownerID: created.ownerID.value,
-                            vaultID: created.vaultID.value,
-                            generationEpoch: created.activeGeneration,
-                            operationID: generatedOperationID,
-                          credentialEpoch: created.credentialEpoch,
-                          routingEpoch: created.routingEpoch,
-                          controlEpoch: created.controlEpoch,
-                          };
-                          return { ...unsigned, initDigest: initializationDigest(unsigned) };
-                        })()
-                      : existingInitialization;
-                    if (
-                      !validDirectoryResolution(bindingID, created) ||
-                      existingInitialization !== undefined &&
-                        (existingInitialization.ownerID !== created.ownerID.value ||
-                          existingInitialization.vaultID !== created.vaultID.value ||
-                          existingInitialization.generationEpoch !== created.activeGeneration)
-                    )
-                      return Effect.fail(new DirectoryServiceError({ reason: "repository_unavailable" }));
-                    const aliasesNext = { ...state.aliases };
-                    for (const value of aliases) aliasesNext[value] = bindingID;
-                    const next = {
-                      ...state,
-                      aliases: aliasesNext,
-                      bindings: existing === undefined ? { ...state.bindings, [bindingID]: created } : state.bindings,
-                      replays: retainedReplays,
-                      initializations: existingInitialization === undefined
-                        ? { ...state.initializations, [bindingID]: command }
-                        : state.initializations,
-                    } satisfies DirectoryState;
-                    return existingInitialization?.durableReceipt !== undefined
-                      ? Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([{ _tag: "activate" as const, bindingID, command, resolution: created }, next])
-                      : Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([{ _tag: "initialize" as const, bindingID, command, resolution: created }, next]);
-                  }).pipe(Effect.mapError(toTransaction)),
-                ).pipe(
-                  Effect.mapError(fromRepository),
-                  Effect.flatMap((reserved) => {
-                    if (reserved._tag === "ready") return Effect.succeed(reserved.resolution);
-                    const needsRPC = reserved._tag === "initialize";
-                    const rpc: Effect.Effect<OwnerVaultInitializationAck | undefined, DirectoryServiceError> = needsRPC
-                      ? signOwnerVaultInitialization(
-                          controls.signer,
-                          reserved.command,
-                          reserved.command.operationID,
-                          nowSeconds,
-                        ).pipe(
-                          Effect.flatMap((capability) =>
-                            initializer.client.ensureInitialized(reserved.command, capability),
-                          ),
-                          Effect.mapError(() => new DirectoryServiceError({ reason: "owner_initialization_unavailable" })),
-                        )
-                      : Effect.succeed(undefined);
-                    return rpc.pipe(
-                      Effect.flatMap((ack) =>
-                        repository.transact((state) =>
-                          Effect.suspend(() => {
-                            const initialization = state.initializations[reserved.bindingID];
-                            const current = state.bindings[reserved.bindingID];
-                            if (
-                              initialization === undefined ||
-                              current === undefined ||
-                              initialization.operationID !== reserved.command.operationID ||
-                              initialization.initDigest !== reserved.command.initDigest ||
-                              (ack !== undefined && !sameOwnerVaultInitializationAck(initialization, ack))
+                repository
+                  .transact<DirectoryReservation>((state) =>
+                    Effect.suspend(() => {
+                      const retainedReplays = Object.fromEntries(
+                        Object.entries(state.replays).filter(
+                          ([, value]) => value.retainUntil > nowSeconds,
+                        ),
+                      );
+                      const oldReplay = retainedReplays[claims.jti];
+                      if (oldReplay !== undefined) {
+                        if (oldReplay.fingerprint !== bodySHA256)
+                          return Effect.fail(
+                            new DirectoryServiceError({ reason: "replay_conflict" }),
+                          );
+                        return Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([
+                          { _tag: "ready" as const, resolution: oldReplay.resolution },
+                          { ...state, replays: retainedReplays },
+                        ] as const);
+                      }
+                      if (Object.keys(retainedReplays).length >= maximumLiveReplays)
+                        return Effect.fail(
+                          new DirectoryServiceError({ reason: "replay_capacity" }),
+                        );
+                      const aliases = invocation.request.aliases;
+                      if (aliases.some((alias) => state.retiredAliases[alias] !== undefined))
+                        return Effect.fail(
+                          new DirectoryServiceError({ reason: "capability_rejected" }),
+                        );
+                      const targets = aliases
+                        .map((value) => state.aliases[value])
+                        .filter((value): value is string => value !== undefined);
+                      if (new Set(targets).size > 1)
+                        return Effect.fail(new DirectoryServiceError({ reason: "alias_conflict" }));
+                      const bindingID = targets[0] ?? invocation.request.currentAlias;
+                      if (state.frozenBindings[bindingID] !== undefined)
+                        return Effect.fail(
+                          new DirectoryServiceError({ reason: "capability_rejected" }),
+                        );
+                      const existing = state.bindings[bindingID];
+                      const created =
+                        existing ?? resolution(bindingID, generatedOwnerID, generatedVaultID);
+                      if (created === undefined)
+                        return Effect.fail(
+                          new DirectoryServiceError({ reason: "random_unavailable" }),
+                        );
+                      const existingInitialization = state.initializations[bindingID];
+                      const command: OwnerVaultInitializationCommand =
+                        existingInitialization === undefined
+                          ? (() => {
+                              const unsigned = {
+                                ownerID: created.ownerID.value,
+                                vaultID: created.vaultID.value,
+                                generationEpoch: created.activeGeneration,
+                                operationID: generatedOperationID,
+                                credentialEpoch: created.credentialEpoch,
+                                routingEpoch: created.routingEpoch,
+                                controlEpoch: created.controlEpoch,
+                              };
+                              return { ...unsigned, initDigest: initializationDigest(unsigned) };
+                            })()
+                          : existingInitialization;
+                      if (
+                        !validDirectoryResolution(bindingID, created) ||
+                        (existingInitialization !== undefined &&
+                          (existingInitialization.ownerID !== created.ownerID.value ||
+                            existingInitialization.vaultID !== created.vaultID.value ||
+                            existingInitialization.generationEpoch !== created.activeGeneration))
+                      )
+                        return Effect.fail(
+                          new DirectoryServiceError({ reason: "repository_unavailable" }),
+                        );
+                      const aliasesNext = { ...state.aliases };
+                      for (const value of aliases) aliasesNext[value] = bindingID;
+                      const next = {
+                        ...state,
+                        aliases: aliasesNext,
+                        bindings:
+                          existing === undefined
+                            ? { ...state.bindings, [bindingID]: created }
+                            : state.bindings,
+                        replays: retainedReplays,
+                        initializations:
+                          existingInitialization === undefined
+                            ? { ...state.initializations, [bindingID]: command }
+                            : state.initializations,
+                      } satisfies DirectoryState;
+                      return existingInitialization?.durableReceipt !== undefined
+                        ? Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([
+                            { _tag: "activate" as const, bindingID, command, resolution: created },
+                            next,
+                          ])
+                        : Effect.succeed<readonly [DirectoryReservation, DirectoryState]>([
+                            {
+                              _tag: "initialize" as const,
+                              bindingID,
+                              command,
+                              resolution: created,
+                            },
+                            next,
+                          ]);
+                    }).pipe(Effect.mapError(toTransaction)),
+                  )
+                  .pipe(
+                    Effect.mapError(fromRepository),
+                    Effect.flatMap((reserved) => {
+                      if (reserved._tag === "ready") return Effect.succeed(reserved.resolution);
+                      const needsRPC = reserved._tag === "initialize";
+                      const rpc: Effect.Effect<
+                        OwnerVaultInitializationAck | undefined,
+                        DirectoryServiceError
+                      > = needsRPC
+                        ? signOwnerVaultInitialization(
+                            controls.signer,
+                            reserved.command,
+                            reserved.command.operationID,
+                            nowSeconds,
+                          ).pipe(
+                            Effect.flatMap((capability) =>
+                              initializer.client.ensureInitialized(reserved.command, capability),
+                            ),
+                            Effect.mapError(
+                              () =>
+                                new DirectoryServiceError({
+                                  reason: "owner_initialization_unavailable",
+                                }),
+                            ),
+                          )
+                        : Effect.succeed(undefined);
+                      return rpc.pipe(
+                        Effect.flatMap((ack) =>
+                          repository
+                            .transact((state) =>
+                              Effect.suspend(() => {
+                                const initialization = state.initializations[reserved.bindingID];
+                                const current = state.bindings[reserved.bindingID];
+                                if (
+                                  initialization === undefined ||
+                                  current === undefined ||
+                                  initialization.operationID !== reserved.command.operationID ||
+                                  initialization.initDigest !== reserved.command.initDigest ||
+                                  (ack !== undefined &&
+                                    !sameOwnerVaultInitializationAck(initialization, ack))
+                                )
+                                  return Effect.fail(
+                                    new DirectoryServiceError({ reason: "repository_unavailable" }),
+                                  );
+                                const retainedReplays = Object.fromEntries(
+                                  Object.entries(state.replays).filter(
+                                    ([, value]) => value.retainUntil > nowSeconds,
+                                  ),
+                                );
+                                const oldReplay = retainedReplays[claims.jti];
+                                if (oldReplay !== undefined) {
+                                  if (oldReplay.fingerprint !== bodySHA256)
+                                    return Effect.fail(
+                                      new DirectoryServiceError({ reason: "replay_conflict" }),
+                                    );
+                                  return Effect.succeed([
+                                    oldReplay.resolution,
+                                    { ...state, replays: retainedReplays },
+                                  ] as const);
+                                }
+                                if (Object.keys(retainedReplays).length >= maximumLiveReplays)
+                                  return Effect.fail(
+                                    new DirectoryServiceError({ reason: "replay_capacity" }),
+                                  );
+                                const replayRetainUntil = retainUntil(
+                                  claims.expiresAt,
+                                  replayPolicy.replayRetentionSeconds,
+                                );
+                                if (replayRetainUntil === undefined)
+                                  return Effect.fail(
+                                    new DirectoryServiceError({ reason: "capability_rejected" }),
+                                  );
+                                const next: DirectoryState = {
+                                  ...state,
+                                  replays: {
+                                    ...retainedReplays,
+                                    [claims.jti]: {
+                                      fingerprint: bodySHA256,
+                                      expiresAt: claims.expiresAt,
+                                      retainUntil: replayRetainUntil,
+                                      resolution: current,
+                                    },
+                                  },
+                                  initializations: {
+                                    ...state.initializations,
+                                    [reserved.bindingID]:
+                                      ack === undefined
+                                        ? initialization
+                                        : { ...initialization, durableReceipt: ack.durableReceipt },
+                                  },
+                                };
+                                return Effect.succeed([current, next] as const);
+                              }).pipe(Effect.mapError(toTransaction)),
                             )
-                              return Effect.fail(new DirectoryServiceError({ reason: "repository_unavailable" }));
-                            const retainedReplays = Object.fromEntries(
-                              Object.entries(state.replays).filter(([, value]) => value.retainUntil > nowSeconds),
-                            );
-                            const oldReplay = retainedReplays[claims.jti];
-                            if (oldReplay !== undefined) {
-                              if (oldReplay.fingerprint !== bodySHA256)
-                                return Effect.fail(new DirectoryServiceError({ reason: "replay_conflict" }));
-                              return Effect.succeed([oldReplay.resolution, { ...state, replays: retainedReplays }] as const);
-                            }
-                            if (Object.keys(retainedReplays).length >= maximumLiveReplays)
-                              return Effect.fail(new DirectoryServiceError({ reason: "replay_capacity" }));
-                            const replayRetainUntil = retainUntil(claims.expiresAt, replayPolicy.replayRetentionSeconds);
-                            if (replayRetainUntil === undefined)
-                              return Effect.fail(new DirectoryServiceError({ reason: "capability_rejected" }));
-                            const next: DirectoryState = {
-                              ...state,
-                              replays: {
-                                ...retainedReplays,
-                                [claims.jti]: {
-                                  fingerprint: bodySHA256,
-                                  expiresAt: claims.expiresAt,
-                                  retainUntil: replayRetainUntil,
-                                  resolution: current,
-                                },
-                              },
-                              initializations: {
-                                ...state.initializations,
-                                [reserved.bindingID]: ack === undefined
-                                  ? initialization
-                                  : { ...initialization, durableReceipt: ack.durableReceipt },
-                              },
-                            };
-                            return Effect.succeed([current, next] as const);
-                          }).pipe(Effect.mapError(toTransaction)),
-                        ).pipe(Effect.mapError(fromRepository)),
-                      ),
-                    );
-                  }),
-                ),
+                            .pipe(Effect.mapError(fromRepository)),
+                        ),
+                      );
+                    }),
+                  ),
               ),
             );
           }),

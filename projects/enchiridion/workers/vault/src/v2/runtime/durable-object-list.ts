@@ -43,7 +43,8 @@ export const listDurableObjectStoragePage = async (
     !Number.isSafeInteger(input.limit) ||
     input.limit < 1 ||
     input.limit > maximumDurableObjectListPageEntries ||
-    (input.startAfter !== undefined && (!input.startAfter.startsWith(input.prefix) || input.startAfter.length > 512))
+    (input.startAfter !== undefined &&
+      (!input.startAfter.startsWith(input.prefix) || input.startAfter.length > 512))
   )
     throw new DurableObjectListError("invalid_request");
 

@@ -8,10 +8,10 @@
  */
 import {
   isOwnerVaultCatalogCurrentPayload,
-  ownerVaultCatalogMaximumObjectBytes,
   isOwnerVaultCatalogPagePayload,
   isOwnerVaultCatalogRevisionIdentifier,
   isOwnerVaultCatalogRootPayload,
+  ownerVaultCatalogMaximumObjectBytes,
 } from "./catalog";
 
 export const ownerVaultStoragePrefix = "v2.ov/";

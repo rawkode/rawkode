@@ -34,13 +34,13 @@ import {
   makeDirectoryCredentialTransitionService,
 } from "./credential-transition";
 import { deriveDirectoryInitID, validDirectoryResolution } from "./invariants";
+import { initializationDigest } from "./lifecycle";
 import {
   DirectoryRepository,
   directoryTransactionError,
   makeDurableObjectDirectoryRepository,
   makeInMemoryDirectoryRepository,
 } from "./repository";
-import { initializationDigest } from "./lifecycle";
 import type {
   DirectoryOwnerFenceAck,
   DirectoryResolution,
@@ -937,9 +937,9 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
         initID: required(deriveDirectoryInitID(bindingID)),
         generationEpoch: 1,
         activeGeneration: 1,
-              routingEpoch: 1,
-              credentialEpoch: 1,
-              controlEpoch: 1,
+        routingEpoch: 1,
+        credentialEpoch: 1,
+        controlEpoch: 1,
       };
       return completedTransition(operationID, now + 300, bindingID, expected);
     });
@@ -1095,7 +1095,9 @@ describe("v2 CredentialDirectory revoke/rebind journal", () => {
     await Effect.runPromise(initializeDurableDirectory(durable));
     const owner = await Effect.runPromise(durableOwner());
     const first = await Effect.runPromise(durableTransitionSetup(durable, owner.owner, 4));
-    expect(Exit.isFailure(await Effect.runPromiseExit(first.service.execute(request(), now)))).toBe(true);
+    expect(Exit.isFailure(await Effect.runPromiseExit(first.service.execute(request(), now)))).toBe(
+      true,
+    );
     const persisted = required(durable.entries.get("v2.directory.state")) as {
       readonly transitions: Readonly<Record<string, Record<string, unknown>>>;
     };

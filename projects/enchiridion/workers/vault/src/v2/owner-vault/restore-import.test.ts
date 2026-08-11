@@ -6,19 +6,19 @@ import {
   makeDurableObjectBoundary,
 } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
-import { ownerID, vaultID } from "../foundation/schemas";
 import { type BlobLimits, type BlobScope, blobObjectKey } from "../blobs/blobs";
+import { ownerID, vaultID } from "../foundation/schemas";
+import { ownerVaultAppendProofValidate } from "./append-proof";
 import { canonicalSnapshotRecordBytes, ownerVaultBackupDigest } from "./backup-canonical";
 import type {
   OwnerVaultRestoreImportFinalization,
   OwnerVaultRestoreImportPlan,
   OwnerVaultRestoreImportRecord,
 } from "./backup-types";
-import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
-import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
-import { ownerVaultAppendProofValidate } from "./append-proof";
 import { makeOwnerVaultDomainProvider } from "./domains";
 import type { OwnerVaultAppendLogEntry } from "./domains";
+import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
+import { makeOwnerVaultRestoreImport, ownerVaultRestoreImportHashChain } from "./restore-import";
 import type { OwnerVaultStorageRecord } from "./storage-registry";
 
 const root = {

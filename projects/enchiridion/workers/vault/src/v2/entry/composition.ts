@@ -10,10 +10,10 @@ import {
   type OwnerVaultDirectoryControlClaimsInput,
   type OwnerVaultDirectoryControlExpectation,
   type OwnerVaultDirectoryControlRequestBinding,
-  type SignedOwnerVaultDirectoryControl,
   type OwnerVaultSocketAdmissionSigner,
   type OwnerVaultSocketAdmissionVerifier,
   P256Crypto,
+  type SignedOwnerVaultDirectoryControl,
   makeAccessJwtVerifier,
   makeOwnerVaultDirectoryControlKeyRing,
   makeOwnerVaultSocketAdmissionKeyRing,
@@ -26,12 +26,12 @@ import {
   verifyOwnerVaultDirectoryControl,
 } from "@enchiridion/runtime";
 import { Effect, Redacted } from "effect";
-import { makeDirectorySecureRandom } from "../directory/service";
-import type { DirectorySecureRandom } from "../directory/types";
 import {
   type OwnerVaultInitializationClient,
   makeOwnerVaultInitializationClient,
 } from "../directory/lifecycle";
+import { makeDirectorySecureRandom } from "../directory/service";
+import type { DirectorySecureRandom } from "../directory/types";
 import { type AccessAssertionVerifier, makeAccessAssertionVerifier } from "../foundation/access";
 import { VaultV2Config, type VaultV2ConfigInput, makeVaultV2Config } from "../foundation/config";
 import {
@@ -165,14 +165,38 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
     const manifestSPKI = stringField(source, "ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64");
     const manifestPrior = stringField(source, "ENCHIRIDION_V2_MANIFEST_PRIOR_KEYS_JSON");
     const manifestRevoked = stringField(source, "ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON");
-    const socketCurrentKeyID = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID");
-    const socketCurrentSecret = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET");
-    const socketPrior = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON");
-    const socketRevoked = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON");
-    const ownerVaultControlCurrentKeyID = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID");
-    const ownerVaultControlCurrentSecret = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET");
-    const ownerVaultControlPrior = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON");
-    const ownerVaultControlRevoked = stringField(source, "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON");
+    const socketCurrentKeyID = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID",
+    );
+    const socketCurrentSecret = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET",
+    );
+    const socketPrior = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON",
+    );
+    const socketRevoked = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON",
+    );
+    const ownerVaultControlCurrentKeyID = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_KEY_ID",
+    );
+    const ownerVaultControlCurrentSecret = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_CURRENT_SECRET",
+    );
+    const ownerVaultControlPrior = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_PRIOR_KEYS_JSON",
+    );
+    const ownerVaultControlRevoked = stringField(
+      source,
+      "ENCHIRIDION_V2_OWNER_VAULT_DIRECTORY_CONTROL_REVOKED_KEY_IDS_JSON",
+    );
     const directory = source.CREDENTIAL_DIRECTORY_DO;
     const ownerVault = source.OWNER_VAULT_V2_DO;
     if (
@@ -188,12 +212,20 @@ export const parseVaultV2EntryEnv = (value: unknown): VaultV2EntryEnv | undefine
       capabilitySecret === undefined ||
       capabilityPriors === undefined ||
       quota === undefined ||
-      limits === undefined || manifestKeyID === undefined || manifestPKCS8 === undefined ||
-      manifestSPKI === undefined || manifestPrior === undefined || manifestRevoked === undefined ||
-      socketCurrentKeyID === undefined || socketCurrentSecret === undefined || socketPrior === undefined ||
+      limits === undefined ||
+      manifestKeyID === undefined ||
+      manifestPKCS8 === undefined ||
+      manifestSPKI === undefined ||
+      manifestPrior === undefined ||
+      manifestRevoked === undefined ||
+      socketCurrentKeyID === undefined ||
+      socketCurrentSecret === undefined ||
+      socketPrior === undefined ||
       socketRevoked === undefined ||
-      ownerVaultControlCurrentKeyID === undefined || ownerVaultControlCurrentSecret === undefined ||
-      ownerVaultControlPrior === undefined || ownerVaultControlRevoked === undefined ||
+      ownerVaultControlCurrentKeyID === undefined ||
+      ownerVaultControlCurrentSecret === undefined ||
+      ownerVaultControlPrior === undefined ||
+      ownerVaultControlRevoked === undefined ||
       !isDirectoryNamespace(directory) ||
       !isDirectoryNamespace(ownerVault)
     )
@@ -281,7 +313,11 @@ const parseSocketAdmissionPriorKeys = (
 ): readonly RawSocketAdmissionKey[] | undefined => {
   try {
     const value = JSON.parse(source);
-    if (!Array.isArray(value) || JSON.stringify(value) !== source || value.length > maximumPriorOwnerVaultSocketAdmissionKeys)
+    if (
+      !Array.isArray(value) ||
+      JSON.stringify(value) !== source ||
+      value.length > maximumPriorOwnerVaultSocketAdmissionKeys
+    )
       return undefined;
     const keys: RawSocketAdmissionKey[] = [];
     for (const item of value) {
@@ -291,7 +327,8 @@ const parseSocketAdmissionPriorKeys = (
         !exactKeyPair(key) ||
         !socketKeyID.test(key.keyID as string) ||
         !socketSecret(key.secret)
-      ) return undefined;
+      )
+        return undefined;
       keys.push({ keyID: key.keyID as string, secret: key.secret as string });
     }
     return keys;
@@ -330,13 +367,18 @@ const parseOwnerVaultDirectoryControlPriorKeys = (
 };
 
 const exactKeyPair = (value: Readonly<Record<string, unknown>>): boolean =>
-  Object.keys(value).length === 2 && Object.hasOwn(value, "keyID") && Object.hasOwn(value, "secret") &&
-  typeof value.keyID === "string" && typeof value.secret === "string";
+  Object.keys(value).length === 2 &&
+  Object.hasOwn(value, "keyID") &&
+  Object.hasOwn(value, "secret") &&
+  typeof value.keyID === "string" &&
+  typeof value.secret === "string";
 
 const parseSocketAdmissionRevokedKeyIDs = (source: string): readonly string[] | undefined => {
   try {
     const value = JSON.parse(source);
-    return Array.isArray(value) && JSON.stringify(value) === source && value.length <= maximumRevokedSocketKeys &&
+    return Array.isArray(value) &&
+      JSON.stringify(value) === source &&
+      value.length <= maximumRevokedSocketKeys &&
       value.every((key): key is string => typeof key === "string" && socketKeyID.test(key)) &&
       new Set(value).size === value.length
       ? value
@@ -358,11 +400,15 @@ const distinctSocketAdmissionMaterial = (
   const directoryIDs = [directoryCurrentKeyID, ...directoryPrior.map((entry) => entry.keyID)];
   const directorySecrets = [directoryCurrentSecret, ...directoryPrior.map((entry) => entry.secret)];
   return (
-    socketKeyID.test(current.keyID) && socketSecret(current.secret) &&
+    socketKeyID.test(current.keyID) &&
+    socketSecret(current.secret) &&
     new Set(keys.map((entry) => entry.keyID)).size === keys.length &&
     new Set(keys.map((entry) => entry.secret)).size === keys.length &&
-    !keys.some((entry) =>
-      revoked.includes(entry.keyID) || directoryIDs.includes(entry.keyID) || directorySecrets.includes(entry.secret),
+    !keys.some(
+      (entry) =>
+        revoked.includes(entry.keyID) ||
+        directoryIDs.includes(entry.keyID) ||
+        directorySecrets.includes(entry.secret),
     )
   );
 };
@@ -455,7 +501,8 @@ const makeOwnerVaultSocketAdmissionFactory = (
     secret: env.ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET,
   };
   if (
-    prior === undefined || revoked === undefined ||
+    prior === undefined ||
+    revoked === undefined ||
     !distinctSocketAdmissionMaterial(
       current,
       prior,
@@ -464,16 +511,19 @@ const makeOwnerVaultSocketAdmissionFactory = (
       env.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET,
       directoryPrior,
     )
-  ) return Effect.die("owner_vault_socket_admission_configuration_invalid");
+  )
+    return Effect.die("owner_vault_socket_admission_configuration_invalid");
   return makeOwnerVaultSocketAdmissionKeyRing({
     current: { keyID: current.keyID, secret: Redacted.make(current.secret) },
     prior: prior.map((key) => ({ keyID: key.keyID, secret: Redacted.make(key.secret) })),
     revokedKeyIDs: revoked,
   }).pipe(
-    Effect.map((keyRing) => Object.freeze({
-      signer: makeOwnerVaultSocketAdmissionSigner(keyRing),
-      verifier: makeOwnerVaultSocketAdmissionVerifier(keyRing),
-    })),
+    Effect.map((keyRing) =>
+      Object.freeze({
+        signer: makeOwnerVaultSocketAdmissionSigner(keyRing),
+        verifier: makeOwnerVaultSocketAdmissionVerifier(keyRing),
+      }),
+    ),
   );
 };
 

@@ -16,8 +16,8 @@ import { validDirectoryResolution } from "../directory/invariants";
 import { accessAssertionHeadersFromWorkerHeaders } from "../foundation/access";
 import { InternalCapabilityFactory } from "../foundation/crypto";
 import {
-  makeOwnerVaultDO,
   type OwnerVaultSocketAdmissionFault,
+  makeOwnerVaultDO,
 } from "../owner-vault/owner-vault-do";
 import {
   type VaultV2EntryCompositionOptions,

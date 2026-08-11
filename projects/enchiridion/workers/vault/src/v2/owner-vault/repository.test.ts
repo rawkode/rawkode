@@ -8,14 +8,19 @@ import {
 import { Effect, Exit } from "effect";
 import {
   OwnerVaultInspectionPurpose,
+  makeDurableObjectOwnerVaultStorageRepository,
   ownerVaultAccountingEnvelopeSafetyBytes,
   ownerVaultAdmissionReserveBytes,
   ownerVaultIsolateCeilingBytes,
   ownerVaultMaximumAccountedBytes,
-  makeDurableObjectOwnerVaultStorageRepository,
 } from "./repository";
 
-const scope = { ownerID: "owner-1", vaultID: "vault-1", generationEpoch: 1, namespaceState: "PRIVATE" } as const;
+const scope = {
+  ownerID: "owner-1",
+  vaultID: "vault-1",
+  generationEpoch: 1,
+  namespaceState: "PRIVATE",
+} as const;
 
 const nativeState = (): {
   readonly state: DurableObjectStateNative;
@@ -56,7 +61,11 @@ const nativeState = (): {
       readonly limit: number;
     }): Promise<ReadonlyMap<string, unknown>> => {
       const selected = [...entries.entries()]
-        .filter(([key]) => key.startsWith(options.prefix) && (options.startAfter === undefined || key > options.startAfter))
+        .filter(
+          ([key]) =>
+            key.startsWith(options.prefix) &&
+            (options.startAfter === undefined || key > options.startAfter),
+        )
         .sort(([left], [right]) => left.localeCompare(right))
         .slice(0, options.limit);
       return Promise.resolve(new Map(selected));
@@ -91,7 +100,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository, native } = repositoryFor();
 
     const exit = await Effect.runPromiseExit(
-      repository.transact((tx) => tx.put({ category: "device", identifier: "device-1" }, { key: "pk" })),
+      repository.transact((tx) =>
+        tx.put({ category: "device", identifier: "device-1" }, { key: "pk" }),
+      ),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -103,12 +114,14 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository, native } = repositoryFor();
     await Effect.runPromise(
       repository.transact((tx) =>
-        tx.initialize(scope).pipe(
-          Effect.zipRight(
-            tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" }),
+        tx
+          .initialize(scope)
+          .pipe(
+            Effect.zipRight(
+              tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" }),
+            ),
+            Effect.zipRight(tx.get({ category: "device", identifier: "device-1" })),
           ),
-          Effect.zipRight(tx.get({ category: "device", identifier: "device-1" })),
-        ),
       ),
     ).then((stored) => expect(stored?.payload).toEqual({ publicKey: "spki" }));
 
@@ -149,9 +162,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository } = repositoryFor();
     const nested = await Effect.runPromise(
       repository.transact((tx) =>
-        tx.initialize(scope).pipe(
-          Effect.zipRight(Effect.either(repository.transact(() => Effect.void))),
-        ),
+        tx
+          .initialize(scope)
+          .pipe(Effect.zipRight(Effect.either(repository.transact(() => Effect.void)))),
       ),
     );
 
@@ -165,7 +178,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const exit = await Effect.runPromiseExit(
       repository.transact((tx) =>
         tx.initialize(scope).pipe(
-          Effect.zipRight(tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" })),
+          Effect.zipRight(
+            tx.put({ category: "device", identifier: "device-1" }, { publicKey: "spki" }),
+          ),
           Effect.zipRight(
             Effect.fail({
               _tag: "OwnerVaultDomainTransactionError" as const,
@@ -193,7 +208,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const before = JSON.stringify([...native.entries.entries()]);
 
     const exit = await Effect.runPromiseExit(
-      repository.transact((tx) => tx.put({ category: "device", identifier: "device-1" }, { key: "pk" })),
+      repository.transact((tx) =>
+        tx.put({ category: "device", identifier: "device-1" }, { key: "pk" }),
+      ),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -209,7 +226,9 @@ describe("v2 OwnerVault per-record durable storage", () => {
     ).byteLength;
     expect(encodedAccountingBytes).toBeLessThanOrEqual(ownerVaultAccountingEnvelopeSafetyBytes);
     expect(
-      ownerVaultMaximumAccountedBytes + ownerVaultAccountingEnvelopeSafetyBytes + ownerVaultAdmissionReserveBytes,
+      ownerVaultMaximumAccountedBytes +
+        ownerVaultAccountingEnvelopeSafetyBytes +
+        ownerVaultAdmissionReserveBytes,
     ).toBe(ownerVaultIsolateCeilingBytes);
     expect(
       ownerVaultMaximumAccountedBytes + encodedAccountingBytes + ownerVaultAdmissionReserveBytes,
@@ -220,15 +239,31 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository } = repositoryFor();
     await Effect.runPromise(
       repository.transact((tx) =>
-        tx.initialize(scope).pipe(
-          Effect.zipRight(tx.put({ category: "device", identifier: "device-a" }, { key: "a" })),
-          Effect.zipRight(tx.put({ category: "device", identifier: "device-b" }, { key: "b" })),
-        ),
+        tx
+          .initialize(scope)
+          .pipe(
+            Effect.zipRight(tx.put({ category: "device", identifier: "device-a" }, { key: "a" })),
+            Effect.zipRight(tx.put({ category: "device", identifier: "device-b" }, { key: "b" })),
+          ),
       ),
     );
 
-    const first = await Effect.runPromise(repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 1));
-    const second = await Effect.runPromise(repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, first.nextCursor, 1));
+    const first = await Effect.runPromise(
+      repository.inspectPage(
+        OwnerVaultInspectionPurpose.BackupSnapshot,
+        { category: "device" },
+        undefined,
+        1,
+      ),
+    );
+    const second = await Effect.runPromise(
+      repository.inspectPage(
+        OwnerVaultInspectionPurpose.BackupSnapshot,
+        { category: "device" },
+        first.nextCursor,
+        1,
+      ),
+    );
     expect(first.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-a"]);
     expect(second.entries.map(([key]) => key)).toEqual(["v2.ov/device/device-b"]);
   });
@@ -237,23 +272,56 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository, native } = repositoryFor();
     await Effect.runPromise(
       repository.transact((tx) =>
-        tx.initialize(scope).pipe(
-          Effect.zipRight(tx.put({ category: "device", identifier: "z" }, { key: "z" })),
-          Effect.zipRight(tx.put({ category: "nonce", identifier: "local" }, { nonce: "never-backed-up" })),
-          Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" })),
-        ),
+        tx
+          .initialize(scope)
+          .pipe(
+            Effect.zipRight(tx.put({ category: "device", identifier: "z" }, { key: "z" })),
+            Effect.zipRight(
+              tx.put({ category: "nonce", identifier: "local" }, { nonce: "never-backed-up" }),
+            ),
+            Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" })),
+          ),
       ),
     );
-    const current = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
-    const root = native.entries.get(`v2.ov/catalog/root/${String(current.payload.catalogRevision).padStart(20, "0")}`) as {
+    const current = native.entries.get("v2.ov/catalog/current") as {
+      payload: { catalogRevision: number };
+    };
+    const root = native.entries.get(
+      `v2.ov/catalog/root/${String(current.payload.catalogRevision).padStart(20, "0")}`,
+    ) as {
       payload: { pages: readonly { identifier: string }[] };
     };
-    const entries = root.payload.pages.flatMap((page) =>
-      ((native.entries.get(`v2.ov/catalog/page/${page.identifier}`) as { payload: { entries: readonly { key: string; ordinal: number; category: string; bytes: number; digest: string }[] } }).payload.entries),
+    const entries = root.payload.pages.flatMap(
+      (page) =>
+        (
+          native.entries.get(`v2.ov/catalog/page/${page.identifier}`) as {
+            payload: {
+              entries: readonly {
+                key: string;
+                ordinal: number;
+                category: string;
+                bytes: number;
+                digest: string;
+              }[];
+            };
+          }
+        ).payload.entries,
     );
     expect(entries).toEqual([
-      { key: "v2.ov/device/a", ordinal: 0, category: "device", bytes: expect.any(Number), digest: expect.any(String) },
-      { key: "v2.ov/device/z", ordinal: 1, category: "device", bytes: expect.any(Number), digest: expect.any(String) },
+      {
+        key: "v2.ov/device/a",
+        ordinal: 0,
+        category: "device",
+        bytes: expect.any(Number),
+        digest: expect.any(String),
+      },
+      {
+        key: "v2.ov/device/z",
+        ordinal: 1,
+        category: "device",
+        bytes: expect.any(Number),
+        digest: expect.any(String),
+      },
     ]);
     expect(entries.some((entry) => entry.key.includes("nonce"))).toBe(false);
   });
@@ -264,33 +332,88 @@ describe("v2 OwnerVault per-record durable storage", () => {
       repository.transact((tx) => {
         let work = tx.initialize(scope);
         for (let index = 0; index < 130; index += 1)
-          work = work.pipe(Effect.zipRight(tx.put({ category: "device", identifier: `d${String(index).padStart(3, "0")}` }, { key: index })));
+          work = work.pipe(
+            Effect.zipRight(
+              tx.put(
+                { category: "device", identifier: `d${String(index).padStart(3, "0")}` },
+                { key: index },
+              ),
+            ),
+          );
         return work;
       }),
     );
-    const currentAfterInsert = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
-    const rootAfterInsert = native.entries.get(`v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`) as { payload: { pages: readonly unknown[] } };
+    const currentAfterInsert = native.entries.get("v2.ov/catalog/current") as {
+      payload: { catalogRevision: number };
+    };
+    const rootAfterInsert = native.entries.get(
+      `v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`,
+    ) as { payload: { pages: readonly unknown[] } };
     expect(rootAfterInsert.payload.pages).toHaveLength(2);
     await Effect.runPromise(
       repository.transact((tx) =>
-        Effect.forEach(Array.from({ length: 3 }, (_, index) => index), (index) =>
-          tx.delete({ category: "device", identifier: `d${String(index).padStart(3, "0")}` })),
+        Effect.forEach(
+          Array.from({ length: 3 }, (_, index) => index),
+          (index) =>
+            tx.delete({ category: "device", identifier: `d${String(index).padStart(3, "0")}` }),
+        ),
       ),
     );
-    const currentAfterDelete = native.entries.get("v2.ov/catalog/current") as { payload: { catalogRevision: number } };
-    const rootAfterDelete = native.entries.get(`v2.ov/catalog/root/${String(currentAfterDelete.payload.catalogRevision).padStart(20, "0")}`) as { payload: { pages: readonly unknown[] } };
-    expect(currentAfterDelete.payload.catalogRevision).toBe(currentAfterInsert.payload.catalogRevision + 1);
+    const currentAfterDelete = native.entries.get("v2.ov/catalog/current") as {
+      payload: { catalogRevision: number };
+    };
+    const rootAfterDelete = native.entries.get(
+      `v2.ov/catalog/root/${String(currentAfterDelete.payload.catalogRevision).padStart(20, "0")}`,
+    ) as { payload: { pages: readonly unknown[] } };
+    expect(currentAfterDelete.payload.catalogRevision).toBe(
+      currentAfterInsert.payload.catalogRevision + 1,
+    );
     expect(rootAfterDelete.payload.pages).toHaveLength(1);
-    expect(native.entries.has(`v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`)).toBe(false);
+    expect(
+      native.entries.has(
+        `v2.ov/catalog/root/${String(currentAfterInsert.payload.catalogRevision).padStart(20, "0")}`,
+      ),
+    ).toBe(false);
   });
 
   test("fails closed on catalog corruption and can read an unchanged catalog through a fresh repository", async () => {
     const { repository, native } = repositoryFor();
-    await Effect.runPromise(repository.transact((tx) => tx.initialize(scope).pipe(Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" })) )));
-    const restarted = makeDurableObjectOwnerVaultStorageRepository(makeDurableObjectBoundary(native.state).storage, native.storage);
-    expect((await Effect.runPromise(restarted.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 2))).entries).toHaveLength(1);
-    native.entries.set("v2.ov/catalog/current", { category: "catalog.current", version: 1, payload: { catalogRevision: 1, rootDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" } });
-    const corrupt = await Effect.runPromiseExit(restarted.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "device" }, undefined, 2));
+    await Effect.runPromise(
+      repository.transact((tx) =>
+        tx
+          .initialize(scope)
+          .pipe(Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" }))),
+      ),
+    );
+    const restarted = makeDurableObjectOwnerVaultStorageRepository(
+      makeDurableObjectBoundary(native.state).storage,
+      native.storage,
+    );
+    expect(
+      (
+        await Effect.runPromise(
+          restarted.inspectPage(
+            OwnerVaultInspectionPurpose.BackupSnapshot,
+            { category: "device" },
+            undefined,
+            2,
+          ),
+        )
+      ).entries,
+    ).toHaveLength(1);
+    native.entries.set("v2.ov/catalog/current", {
+      category: "catalog.current",
+      version: 1,
+      payload: { catalogRevision: 1, rootDigest: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+    });
+    const corrupt = await Effect.runPromiseExit(
+      restarted.inspectPage(
+        OwnerVaultInspectionPurpose.BackupSnapshot,
+        { category: "device" },
+        undefined,
+        2,
+      ),
+    );
     expect(Exit.isFailure(corrupt)).toBe(true);
     expect(JSON.stringify(corrupt)).toContain("state_corrupt");
   });
@@ -299,10 +422,20 @@ describe("v2 OwnerVault per-record durable storage", () => {
     const { repository } = repositoryFor();
     await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
     const excluded = await Effect.runPromiseExit(
-      repository.inspectPage(OwnerVaultInspectionPurpose.BackupSnapshot, { category: "blob.accounting" }, undefined, 1),
+      repository.inspectPage(
+        OwnerVaultInspectionPurpose.BackupSnapshot,
+        { category: "blob.accounting" },
+        undefined,
+        1,
+      ),
     );
     const mismatched = await Effect.runPromiseExit(
-      repository.inspectPage(OwnerVaultInspectionPurpose.RestoreAudit, { category: "device" }, undefined, 1),
+      repository.inspectPage(
+        OwnerVaultInspectionPurpose.RestoreAudit,
+        { category: "device" },
+        undefined,
+        1,
+      ),
     );
     expect(Exit.isFailure(excluded)).toBe(true);
     expect(JSON.stringify(excluded)).toContain("inspection_forbidden");
@@ -313,8 +446,17 @@ describe("v2 OwnerVault per-record durable storage", () => {
   test("accepts only the canonical append head tuple", async () => {
     const { repository } = repositoryFor();
     await Effect.runPromise(repository.transact((tx) => tx.initialize(scope)));
-    const legacy = await Effect.runPromiseExit(repository.transact((tx) => tx.put({ category: "root.log-head" }, { logSequence: 1 })));
-    const mixed = await Effect.runPromiseExit(repository.transact((tx) => tx.put({ category: "append-log.head" }, { appendLogSequence: 1, appendLogDigest: "a".repeat(64), logSequence: 1 })));
+    const legacy = await Effect.runPromiseExit(
+      repository.transact((tx) => tx.put({ category: "root.log-head" }, { logSequence: 1 })),
+    );
+    const mixed = await Effect.runPromiseExit(
+      repository.transact((tx) =>
+        tx.put(
+          { category: "append-log.head" },
+          { appendLogSequence: 1, appendLogDigest: "a".repeat(64), logSequence: 1 },
+        ),
+      ),
+    );
     expect(Exit.isFailure(legacy)).toBe(true);
     expect(Exit.isFailure(mixed)).toBe(true);
   });

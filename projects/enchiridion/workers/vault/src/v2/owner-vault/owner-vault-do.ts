@@ -2,6 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 /** @enchiridion/effect-module */
 import {
   type CanonicalJSON,
+  type DeviceChallengeRequest,
+  type DeviceRegisterRequest,
+  type MutationRequest,
   canonicalJSONStringify,
   decodeDeviceChallengeRequest,
   decodeDeviceChallengeResponse,
@@ -14,36 +17,43 @@ import {
   sha256Hex,
   signedDeviceRequestSigningPayload,
   syncChangeSigningPayload,
-  type DeviceChallengeRequest,
-  type DeviceRegisterRequest,
-  type MutationRequest,
 } from "@enchiridion/protocol";
 import {
   CapabilityAudience,
   CapabilityAuthority,
+  type CapabilityClaims,
   CapabilityMethod,
   DirectoryControlCapabilityAudience,
   DirectoryControlCapabilityAuthority,
   DirectoryControlResource,
   OwnerVaultDirectoryControlResource,
-  maximumOwnerVaultSocketAdmissionSerializedHeaderBytes,
-  ownerVaultSocketAdmissionHeader,
-  ownerVaultSocketAdmissionPath,
   type OwnerVaultSocketAdmissionClaims,
   type OwnerVaultSocketAdmissionRequestBinding,
+  P256Crypto,
   type SignedCapability,
   type SignedOwnerVaultDirectoryControl,
   makeDurableObjectBoundary,
   makeP256Crypto,
-  P256Crypto,
+  maximumOwnerVaultSocketAdmissionSerializedHeaderBytes,
   ownerVaultCredentialFencePath,
   ownerVaultPrivateInitializePath,
   ownerVaultRestorePath,
   ownerVaultSnapshotPath,
+  ownerVaultSocketAdmissionHeader,
+  ownerVaultSocketAdmissionPath,
   readBoundedRequestBody,
-  type CapabilityClaims,
 } from "@enchiridion/runtime";
 import { Effect } from "effect";
+import { makeDeviceService } from "../devices/service";
+import {
+  type DeviceRecord,
+  DeviceRegistryRepository,
+  type DeviceRegistryRepository as DeviceRegistryRepositoryType,
+  DeviceService,
+  DeviceServiceError,
+  type DeviceService as DeviceServiceType,
+  ExistingDeviceRecoveryRebinder,
+} from "../devices/types";
 import {
   type OwnerVaultFloorSyncAck,
   type OwnerVaultFloorSyncCommand,
@@ -60,21 +70,11 @@ import type {
 } from "../entry/composition";
 import type { OwnerVaultProductionAuthority } from "../entry/owner-vault-production";
 import {
-  InternalCapabilityFactory,
   type DirectoryControlCapabilityFactory,
+  InternalCapabilityFactory,
   type InternalCapabilityFactory as InternalCapabilityFactoryType,
 } from "../foundation/crypto";
-import { makeDeviceService } from "../devices/service";
 import { decodeOwnerVaultClientFrame } from "../sync/service";
-import {
-  DeviceRegistryRepository,
-  DeviceService,
-  DeviceServiceError,
-  ExistingDeviceRecoveryRebinder,
-  type DeviceRecord,
-  type DeviceRegistryRepository as DeviceRegistryRepositoryType,
-  type DeviceService as DeviceServiceType,
-} from "../devices/types";
 import { createOwnerVaultBackup, restoreOwnerVaultBackup } from "./backup";
 import {
   canonicalSignedManifestBytes,
@@ -83,19 +83,19 @@ import {
 } from "./backup-canonical";
 import { OwnerVaultBackupError } from "./backup-types";
 import {
+  type OwnerVaultCapabilityReceiptInput,
+  type OwnerVaultDevice,
+  OwnerVaultDomainError,
+  type OwnerVaultDomainProvider,
   makeOwnerVaultDomainProvider,
   ownerVaultMaximumSessions,
-  OwnerVaultDomainError,
-  type OwnerVaultDevice,
-  type OwnerVaultCapabilityReceiptInput,
-  type OwnerVaultDomainProvider,
 } from "./domains";
-import { makeOwnerVaultProviderGraph } from "./provider-graph";
 import { ownerVaultOpaqueMutationFingerprint } from "./opaque-mutation-fingerprint";
+import { makeOwnerVaultProviderGraph } from "./provider-graph";
 import {
-  type OwnerVaultStorageTransactionFailure,
-  type OwnerVaultStorageRepositoryError,
   type OwnerVaultStorageRepository,
+  type OwnerVaultStorageRepositoryError,
+  type OwnerVaultStorageTransactionFailure,
   makeDurableObjectOwnerVaultStorageRepository,
 } from "./repository";
 

@@ -18,11 +18,41 @@ const manifestPrivate =
 const manifestPublic =
   "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYA4/y4kasePsUKVtcil2FVhBhwoPuIScU+D2xzAaxVrYR85IgGCmL4nNveTgVQn7wcIzkBGVSrVpgvrfiDBWxQ==";
 const limits = JSON.stringify({
-  blob: { maximumBlobBytes: 8388608, maximumVaultBytes: 100663296, maximumOrphanBytes: 8388608, maximumOrphanCount: 32, maximumActiveLeasesPerVault: 32, maximumActiveLeasesPerFinal: 32, stageTTLSeconds: 900, tombstoneGraceSeconds: 86400 },
-  catalog: { maximumObjects: 4096, maximumObjectBytes: 8388608, maximumTotalBytes: 100663296, maximumPageEntries: 128, targetPageBytes: 24576, maximumPageBytes: 32768, maximumRootBytes: 8192 },
-  backup: { maximumPageBytes: 524288, maximumPageEntries: 128, maximumObjectBytes: 8388608, maximumTotalBytes: 100663296, maximumManifestBytes: 1048576, maximumRestoreJournalBytes: 65536, maximumObjects: 4096 },
+  blob: {
+    maximumBlobBytes: 8388608,
+    maximumVaultBytes: 100663296,
+    maximumOrphanBytes: 8388608,
+    maximumOrphanCount: 32,
+    maximumActiveLeasesPerVault: 32,
+    maximumActiveLeasesPerFinal: 32,
+    stageTTLSeconds: 900,
+    tombstoneGraceSeconds: 86400,
+  },
+  catalog: {
+    maximumObjects: 4096,
+    maximumObjectBytes: 8388608,
+    maximumTotalBytes: 100663296,
+    maximumPageEntries: 128,
+    targetPageBytes: 24576,
+    maximumPageBytes: 32768,
+    maximumRootBytes: 8192,
+  },
+  backup: {
+    maximumPageBytes: 524288,
+    maximumPageEntries: 128,
+    maximumObjectBytes: 8388608,
+    maximumTotalBytes: 100663296,
+    maximumManifestBytes: 1048576,
+    maximumRestoreJournalBytes: 65536,
+    maximumObjects: 4096,
+  },
   pins: { maximumPins: 1024, gcChunk: 128, retentionSeconds: 86400 },
-  r2: { maximumKeyBytes: 1024, maximumObjectBytes: 8388608, maximumCursorBytes: 1024, maximumListPageSize: 128 },
+  r2: {
+    maximumKeyBytes: 1024,
+    maximumObjectBytes: 8388608,
+    maximumCursorBytes: 1024,
+    maximumListPageSize: 128,
+  },
 });
 const r2 = (): unknown => ({
   head: async () => null,
@@ -132,7 +162,10 @@ test("keeps issuer and capability secrets separate and constructs the default JO
 
 test("requires exact immutable production limits and distinct structural R2 bindings", () => {
   const namespace = Object.create(null);
-  Object.defineProperties(namespace, { idFromName: { value: () => ({ toString: () => "directory" }) }, get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) } });
+  Object.defineProperties(namespace, {
+    idFromName: { value: () => ({ toString: () => "directory" }) },
+    get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
+  });
   const parsed = parseVaultV2EntryEnv(environment(namespace));
   if (parsed === undefined) throw new Error("test setup invalid");
   const authority = makeVaultV2EntryComposition(parsed)?.ownerVaultProduction;
@@ -140,27 +173,61 @@ test("requires exact immutable production limits and distinct structural R2 bind
   expect(Object.isFrozen(authority?.limits)).toBe(true);
   expect(authority?.blobR2.purpose).toBe("owner-vault-blob-r2");
   expect(authority?.backupR2.purpose).toBe("owner-vault-backup-r2");
-  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("24576", "32769") })).toBeUndefined();
-  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"gcChunk\":128", "\"gcChunk\":0") })).toBeUndefined();
-  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"stageTTLSeconds\":900", "\"stageTTLSeconds\":0") })).toBeUndefined();
-  expect(makeVaultV2EntryComposition({ ...parsed, ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("\"maximumBlobBytes\":8388608", "\"maximumBlobBytes\":8388609") })).toBeUndefined();
+  expect(
+    makeVaultV2EntryComposition({
+      ...parsed,
+      ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace("24576", "32769"),
+    }),
+  ).toBeUndefined();
+  expect(
+    makeVaultV2EntryComposition({
+      ...parsed,
+      ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace('"gcChunk":128', '"gcChunk":0'),
+    }),
+  ).toBeUndefined();
+  expect(
+    makeVaultV2EntryComposition({
+      ...parsed,
+      ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace(
+        '"stageTTLSeconds":900',
+        '"stageTTLSeconds":0',
+      ),
+    }),
+  ).toBeUndefined();
+  expect(
+    makeVaultV2EntryComposition({
+      ...parsed,
+      ENCHIRIDION_V2_OWNER_VAULT_LIMITS_JSON: limits.replace(
+        '"maximumBlobBytes":8388608',
+        '"maximumBlobBytes":8388609',
+      ),
+    }),
+  ).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: parsed.BACKUP_R2 })).toBeUndefined();
   expect(makeVaultV2EntryComposition({ ...parsed, BLOB_R2: {} })).toBeUndefined();
 });
 
 test("validates manifest key pairing and rejects revoked active configuration without caching failure", () => {
   const namespace = Object.create(null);
-  Object.defineProperties(namespace, { idFromName: { value: () => ({ toString: () => "directory" }) }, get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) } });
+  Object.defineProperties(namespace, {
+    idFromName: { value: () => ({ toString: () => "directory" }) },
+    get: { value: () => ({ fetch: () => Promise.resolve(new Response()) }) },
+  });
   const raw = environment(namespace);
   const invalidKeyPair = makeVaultV2EntryComposition(
     parseVaultV2EntryEnv({ ...raw, ENCHIRIDION_V2_MANIFEST_CURRENT_SPKI_BASE64: "bad" })!,
   );
   const revoked = makeVaultV2EntryComposition(
-    parseVaultV2EntryEnv({ ...raw, ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]' })!,
+    parseVaultV2EntryEnv({
+      ...raw,
+      ENCHIRIDION_V2_MANIFEST_REVOKED_KEY_IDS_JSON: '["manifest-current"]',
+    })!,
   );
   const composed = makeVaultV2EntryCompositionCache()(raw);
   return Promise.all([
-    Effect.runPromiseExit(invalidKeyPair?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
+    Effect.runPromiseExit(
+      invalidKeyPair?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing"),
+    ),
     Effect.runPromiseExit(revoked?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
     Effect.runPromise(composed?.ownerVaultProduction.manifestKeys() ?? Effect.die("missing")),
   ]).then(([invalid, revokedExit, ring]) => {
@@ -181,13 +248,49 @@ test("builds an isolated bounded socket-admission ring and retries only valid co
   });
   const raw = environment(namespace);
   const cache = makeVaultV2EntryCompositionCache();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: "too-short" })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[ {"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"}]' })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: '["socket-current"]' })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: raw.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID: "capability-current" })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[{"keyID":"socket-current","secret":"socket-admission-prior-secret-0123456789-abcdef"}]' })).toBeUndefined();
-  expect(cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON: '[{"keyID":"socket-prior-a","secret":"socket-admission-prior-a-secret-0123456789-abcdef"},{"keyID":"socket-prior-b","secret":"socket-admission-prior-b-secret-0123456789-abcdef"},{"keyID":"socket-prior-c","secret":"socket-admission-prior-c-secret-0123456789-abcdef"}]' })).toBeUndefined();
+  expect(
+    cache({ ...raw, ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET: "too-short" }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON:
+        '[ {"keyID":"socket-prior","secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_REVOKED_KEY_IDS_JSON: '["socket-current"]',
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_SECRET:
+        raw.ENCHIRIDION_V2_DIRECTORY_CAPABILITY_CURRENT_SECRET,
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_CURRENT_KEY_ID: "capability-current",
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON:
+        '[{"keyID":"socket-current","secret":"socket-admission-prior-secret-0123456789-abcdef"}]',
+    }),
+  ).toBeUndefined();
+  expect(
+    cache({
+      ...raw,
+      ENCHIRIDION_V2_OWNER_VAULT_SOCKET_ADMISSION_PRIOR_KEYS_JSON:
+        '[{"keyID":"socket-prior-a","secret":"socket-admission-prior-a-secret-0123456789-abcdef"},{"keyID":"socket-prior-b","secret":"socket-admission-prior-b-secret-0123456789-abcdef"},{"keyID":"socket-prior-c","secret":"socket-admission-prior-c-secret-0123456789-abcdef"}]',
+    }),
+  ).toBeUndefined();
   const composed = cache(raw);
   if (composed === undefined) throw new Error("test setup invalid");
   expect(composed.ownerVaultSocketAdmission.signer).not.toBe(composed.directoryControls.signer);

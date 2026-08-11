@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { sha256Hex } from "@enchiridion/protocol";
 import {
   type DurableObjectStateNative,
   type DurableObjectStorageNative,
   type DurableObjectTransactionNative,
   makeDurableObjectBoundary,
 } from "@enchiridion/runtime";
-import { sha256Hex } from "@enchiridion/protocol";
 import { Effect, Exit } from "effect";
 import {
-  makeOwnerVaultDomainProvider,
   type OwnerVaultAppendInput,
   type OwnerVaultDevice,
   type OwnerVaultSessionRecord,
+  makeOwnerVaultDomainProvider,
 } from "./domains";
 import { makeDurableObjectOwnerVaultStorageRepository } from "./repository";
 import { makeOwnerVaultSnapshotPinController } from "./snapshot-pin";
