@@ -6,12 +6,28 @@ import type {
   OwnerVaultSignedBackupManifest,
 } from "./backup-types";
 import type { OwnerVaultStorageAddress } from "./repository";
-import type { OwnerVaultStorageRecord } from "./storage-registry";
+import {
+  type OwnerVaultStorageCategory,
+  type OwnerVaultStorageRecord,
+  ownerVaultStorageCategories,
+} from "./storage-registry";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const base64 = /^[A-Za-z0-9+/]{43}=$/u;
 const identifier = /^[A-Za-z0-9_-]{1,128}$/u;
+
+const plainRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+const exactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const safeNonNegative = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+/** The only path from an untrusted category string into the closed category union. */
+const storageCategory = (value: unknown): OwnerVaultStorageCategory | undefined =>
+  ownerVaultStorageCategories.find((category) => category === value);
 const hash = (bytes: Uint8Array): string => {
   const hex = sha256Hex(bytes);
   let binary = "";
@@ -56,8 +72,8 @@ const canonicalValue = (value: unknown): string | undefined => {
     const entries = value.map(canonicalValue);
     return entries.some((entry) => entry === undefined) ? undefined : `[${entries.join(",")}]`;
   }
-  if (typeof value !== "object" || value === undefined) return undefined;
-  const record = value as Readonly<Record<string, unknown>>;
+  const record = plainRecord(value);
+  if (record === undefined) return undefined;
   const keys = Object.keys(record).sort();
   const entries: string[] = [];
   for (const key of keys) {
@@ -95,22 +111,11 @@ export const decodeSnapshotRecordBytes = (
       Array.isArray(parsed)
     )
       return undefined;
-    const root = parsed as Record<string, unknown>;
-    if (Object.keys(root).length !== 2 || !("address" in root) || !("record" in root))
-      return undefined;
-    const address = root.address;
-    const record = root.record;
-    if (
-      address === null ||
-      typeof address !== "object" ||
-      Array.isArray(address) ||
-      record === null ||
-      typeof record !== "object" ||
-      Array.isArray(record)
-    )
-      return undefined;
-    const item = address as Record<string, unknown>;
-    const stored = record as Record<string, unknown>;
+    const root = plainRecord(parsed);
+    if (root === undefined || !exactKeys(root, ["address", "record"])) return undefined;
+    const item = plainRecord(root.address);
+    const stored = plainRecord(root.record);
+    if (item === undefined || stored === undefined) return undefined;
     if (
       Object.keys(item).some((key) => key !== "category" && key !== "identifier") ||
       typeof item.category !== "string" ||
@@ -118,29 +123,20 @@ export const decodeSnapshotRecordBytes = (
         (typeof item.identifier !== "string" || !identifier.test(item.identifier)))
     )
       return undefined;
+    const category = storageCategory(item.category);
+    const payload = plainRecord(stored.payload);
     if (
+      category === undefined ||
       Object.keys(stored).length !== 3 ||
       stored.version !== 1 ||
       typeof stored.category !== "string" ||
-      stored.payload === null ||
-      typeof stored.payload !== "object" ||
-      Array.isArray(stored.payload) ||
+      payload === undefined ||
       stored.category !== item.category
     )
       return undefined;
     return {
-      address:
-        item.identifier === undefined
-          ? { category: item.category as OwnerVaultStorageAddress["category"] }
-          : {
-              category: item.category as OwnerVaultStorageAddress["category"],
-              identifier: item.identifier,
-            },
-      record: {
-        category: stored.category as OwnerVaultStorageRecord["category"],
-        version: 1,
-        payload: stored.payload as Readonly<Record<string, unknown>>,
-      },
+      address: item.identifier === undefined ? { category } : { category, identifier: item.identifier },
+      record: { category, version: 1, payload },
     };
   } catch {
     return undefined;
@@ -156,6 +152,100 @@ export const canonicalSignedManifestBytes = (
 export const canonicalPageBytes = (page: OwnerVaultBackupPage): Uint8Array | undefined =>
   canonicalOwnerVaultBackupBytes(page);
 
+const decodeManifestPageDescriptor = (
+  value: unknown,
+): OwnerVaultBackupManifest["pages"][number] | undefined => {
+  const source = plainRecord(value);
+  return source !== undefined &&
+    exactKeys(source, ["count", "digest", "key", "ordinal", "size"]) &&
+    safeNonNegative(source.ordinal) &&
+    typeof source.key === "string" &&
+    typeof source.digest === "string" &&
+    safeNonNegative(source.count) &&
+    safeNonNegative(source.size)
+    ? {
+        ordinal: source.ordinal,
+        key: source.key,
+        digest: source.digest,
+        count: source.count,
+        size: source.size,
+      }
+    : undefined;
+};
+
+/** Exact structural decoder: unknown, missing, or mistyped members fail closed. */
+const decodeManifest = (value: unknown): OwnerVaultBackupManifest | undefined => {
+  const source = plainRecord(value);
+  const scope = source === undefined ? undefined : plainRecord(source.source);
+  if (
+    source === undefined ||
+    scope === undefined ||
+    !exactKeys(source, [
+      "appendLogDigest",
+      "appendLogSequence",
+      "backupID",
+      "catalogDigest",
+      "highWaterMark",
+      "objectCount",
+      "pages",
+      "pinProof",
+      "source",
+      "totalBytes",
+      "version",
+    ]) ||
+    source.version !== 1 ||
+    typeof source.backupID !== "string" ||
+    !exactKeys(scope, ["generationEpoch", "ownerID", "vaultID"]) ||
+    typeof scope.ownerID !== "string" ||
+    typeof scope.vaultID !== "string" ||
+    !safeNonNegative(scope.generationEpoch) ||
+    typeof source.highWaterMark !== "string" ||
+    !safeNonNegative(source.appendLogSequence) ||
+    typeof source.appendLogDigest !== "string" ||
+    typeof source.catalogDigest !== "string" ||
+    typeof source.pinProof !== "string" ||
+    !safeNonNegative(source.totalBytes) ||
+    !safeNonNegative(source.objectCount) ||
+    !Array.isArray(source.pages)
+  )
+    return undefined;
+  const pages: OwnerVaultBackupManifest["pages"][number][] = [];
+  for (const page of source.pages) {
+    const decoded = decodeManifestPageDescriptor(page);
+    if (decoded === undefined) return undefined;
+    pages.push(decoded);
+  }
+  return {
+    version: 1,
+    backupID: source.backupID,
+    source: {
+      ownerID: scope.ownerID,
+      vaultID: scope.vaultID,
+      generationEpoch: scope.generationEpoch,
+    },
+    highWaterMark: source.highWaterMark,
+    appendLogSequence: source.appendLogSequence,
+    appendLogDigest: source.appendLogDigest,
+    catalogDigest: source.catalogDigest,
+    pinProof: source.pinProof,
+    totalBytes: source.totalBytes,
+    objectCount: source.objectCount,
+    pages,
+  };
+};
+
+const decodeManifestSignature = (
+  value: unknown,
+): OwnerVaultSignedBackupManifest["signature"] | undefined => {
+  const source = plainRecord(value);
+  return source !== undefined &&
+    exactKeys(source, ["keyID", "signatureDERBase64"]) &&
+    typeof source.keyID === "string" &&
+    typeof source.signatureDERBase64 === "string"
+    ? { keyID: source.keyID, signatureDERBase64: source.signatureDERBase64 }
+    : undefined;
+};
+
 export const decodeCanonicalSignedManifest = (
   bytes: Uint8Array,
 ): OwnerVaultSignedBackupManifest | undefined => {
@@ -163,24 +253,12 @@ export const decodeCanonicalSignedManifest = (
     const text = decoder.decode(bytes);
     const parsed = parseJSONWithoutDuplicateMembers(text);
     const canonical = canonicalOwnerVaultBackupBytes(parsed);
-    if (
-      canonical === undefined ||
-      decoder.decode(canonical) !== text ||
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    )
-      return undefined;
-    const source = parsed as Record<string, unknown>;
-    if (
-      Object.keys(source).length !== 2 ||
-      source.manifest === null ||
-      typeof source.manifest !== "object" ||
-      source.signature === null ||
-      typeof source.signature !== "object"
-    )
-      return undefined;
-    return source as unknown as OwnerVaultSignedBackupManifest;
+    if (canonical === undefined || decoder.decode(canonical) !== text) return undefined;
+    const source = plainRecord(parsed);
+    if (source === undefined || !exactKeys(source, ["manifest", "signature"])) return undefined;
+    const manifest = decodeManifest(source.manifest);
+    const signature = decodeManifestSignature(source.signature);
+    return manifest === undefined || signature === undefined ? undefined : { manifest, signature };
   } catch {
     return undefined;
   }

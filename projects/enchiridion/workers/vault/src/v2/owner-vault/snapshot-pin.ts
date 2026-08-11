@@ -40,7 +40,12 @@ import type {
   OwnerVaultStorageTransactionFailure,
   OwnerVaultTx,
 } from "./repository";
-import { type OwnerVaultStorageRecord, ownerVaultStorageRegistry } from "./storage-registry";
+import {
+  type OwnerVaultStorageCategory,
+  type OwnerVaultStorageRecord,
+  ownerVaultStorageCategories,
+  ownerVaultStorageRegistry,
+} from "./storage-registry";
 
 const backupIDPattern = /^[A-Za-z0-9_-]{16,120}$/u;
 const digestPattern = /^[A-Za-z0-9+/]{43}=$/u;
@@ -164,29 +169,28 @@ const archiveCatalogDigest = (
   backupID: string,
   entries: readonly OwnerVaultCatalogEntry[],
 ): string | undefined => {
-  const inventory = entries.map((entry) => {
-    const identifier = entry.key.split("/").at(-1);
-    if (identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)) return undefined;
-    return {
-      ordinal: entry.ordinal,
-      key: backupObjectKey(scope, backupID, entry.ordinal),
-      sha256Base64: entry.digest,
-      size: entry.bytes,
-      category: entry.category,
-      identifier,
-    };
-  });
-  if (inventory.some((entry) => entry === undefined)) return undefined;
-  const complete = inventory as readonly {
+  const inventory: {
     readonly ordinal: number;
     readonly key: string;
     readonly sha256Base64: string;
     readonly size: number;
     readonly category: string;
     readonly identifier: string;
-  }[];
+  }[] = [];
+  for (const entry of entries) {
+    const identifier = entry.key.split("/").at(-1);
+    if (identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)) return undefined;
+    inventory.push({
+      ordinal: entry.ordinal,
+      key: backupObjectKey(scope, backupID, entry.ordinal),
+      sha256Base64: entry.digest,
+      size: entry.bytes,
+      category: entry.category,
+      identifier,
+    });
+  }
   return ownerVaultBackupDigest(
-    new TextEncoder().encode(JSON.stringify(complete.map(({ key: _key, ...entry }) => entry))),
+    new TextEncoder().encode(JSON.stringify(inventory.map(({ key: _key, ...entry }) => entry))),
   );
 };
 
@@ -362,10 +366,14 @@ const pinnedRoot = (
   );
 };
 
+/** The only path from a catalog-entry category string into the closed category union. */
+const storageCategory = (value: unknown): OwnerVaultStorageCategory | undefined =>
+  ownerVaultStorageCategories.find((category) => category === value);
+
 const entryAddress = (entry: OwnerVaultCatalogEntry): OwnerVaultStorageAddress | undefined => {
-  const category = entry.category as OwnerVaultStorageAddress["category"];
-  const definition = ownerVaultStorageRegistry.get(category);
-  if (definition === undefined) return undefined;
+  const category = storageCategory(entry.category);
+  const definition = category === undefined ? undefined : ownerVaultStorageRegistry.get(category);
+  if (category === undefined || definition === undefined) return undefined;
   const identifier = entry.key.split("/").at(-1);
   if (identifier === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(identifier)) return undefined;
   try {
@@ -393,13 +401,15 @@ const preimageRecord = (
 ): OwnerVaultStorageRecord | undefined => {
   const source = value === undefined ? undefined : plain(value.payload);
   const payload = source === undefined ? undefined : plain(source.payload);
+  const category = storageCategory(entry.category);
   return source !== undefined &&
+    category !== undefined &&
     source.key === entry.key &&
     source.category === entry.category &&
     source.bytes === entry.bytes &&
     source.digest === entry.digest &&
     payload !== undefined
-    ? { category: entry.category as OwnerVaultStorageRecord["category"], version: 1, payload }
+    ? { category, version: 1, payload }
     : undefined;
 };
 
@@ -619,13 +629,13 @@ export const makeOwnerVaultSnapshotPinController = (
                               _tag: "OwnerVaultStorageError",
                               reason: "state_corrupt",
                             } as const)
-                          : Effect.succeed({
+                          : Effect.succeed<OwnerVaultSnapshotObject>({
                               ordinal: entry.ordinal,
                               address: entryStorageAddress,
                               record,
                               sha256Base64: ownerVaultBackupDigest(bytes),
                               size: bytes.byteLength,
-                            } as OwnerVaultSnapshotObject);
+                            });
                       }),
                     );
                 }).pipe(

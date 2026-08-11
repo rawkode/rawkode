@@ -6,6 +6,7 @@ import {
   makeDurableObjectBoundary,
 } from "@enchiridion/runtime";
 import { Effect, Exit } from "effect";
+import { ownerVaultCatalogDigest } from "./catalog";
 import {
   OwnerVaultInspectionPurpose,
   makeDurableObjectOwnerVaultStorageRepository,
@@ -416,6 +417,51 @@ describe("v2 OwnerVault per-record durable storage", () => {
     );
     expect(Exit.isFailure(corrupt)).toBe(true);
     expect(JSON.stringify(corrupt)).toContain("state_corrupt");
+  });
+
+  test("fails closed before any write when a durable catalog page contradicts its root after restart", async () => {
+    const { repository, native } = repositoryFor();
+    await Effect.runPromise(
+      repository.transact((tx) =>
+        tx
+          .initialize(scope)
+          .pipe(Effect.zipRight(tx.put({ category: "device", identifier: "a" }, { key: "a" }))),
+      ),
+    );
+    const current = native.entries.get("v2.ov/catalog/current") as {
+      payload: { catalogRevision: number };
+    };
+    const pageKey = `v2.ov/catalog/page/${String(current.payload.catalogRevision).padStart(20, "0")}-0000`;
+    expect(native.entries.has(pageKey)).toBe(true);
+    // Self-consistent page (its own digest verifies) that no longer matches the
+    // pinned root descriptor: decoding alone cannot admit it.
+    native.entries.set(pageKey, {
+      category: "catalog.page",
+      version: 1,
+      payload: { entries: [], digest: ownerVaultCatalogDigest([]) },
+    });
+    const restarted = makeDurableObjectOwnerVaultStorageRepository(
+      makeDurableObjectBoundary(native.state).storage,
+      native.storage,
+    );
+    const before = JSON.stringify([...native.entries]);
+    const write = await Effect.runPromiseExit(
+      restarted.transact((tx) => tx.put({ category: "device", identifier: "b" }, { key: "b" })),
+    );
+    expect(Exit.isFailure(write)).toBe(true);
+    expect(JSON.stringify(write)).toContain("state_corrupt");
+    // The corruption is detected before any row, accounting, or catalog mutation.
+    expect(JSON.stringify([...native.entries])).toBe(before);
+    const inspect = await Effect.runPromiseExit(
+      restarted.inspectPage(
+        OwnerVaultInspectionPurpose.BackupSnapshot,
+        { category: "device" },
+        undefined,
+        2,
+      ),
+    );
+    expect(Exit.isFailure(inspect)).toBe(true);
+    expect(JSON.stringify(inspect)).toContain("state_corrupt");
   });
 
   test("refuses excluded rows and mismatched inspection purposes", async () => {

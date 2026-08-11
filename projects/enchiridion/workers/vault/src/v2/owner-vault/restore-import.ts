@@ -39,8 +39,10 @@ import type {
   OwnerVaultTx,
 } from "./repository";
 import {
+  type OwnerVaultStorageCategory,
   type OwnerVaultStorageRecord,
   isRestorableOwnerVaultStorageCategory,
+  ownerVaultStorageCategories,
   ownerVaultStorageRegistry,
 } from "./storage-registry";
 
@@ -51,8 +53,14 @@ const nonNegative = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const plain = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
+    ? Object.fromEntries(Object.entries(value))
     : undefined;
+/** Re-projects an already-typed structure as a storage payload without asserting. */
+const asPayload = (value: object): Readonly<Record<string, unknown>> =>
+  Object.fromEntries(Object.entries(value));
+/** The only path from an untrusted category string into the closed category union. */
+const storageCategory = (value: unknown): OwnerVaultStorageCategory | undefined =>
+  ownerVaultStorageCategories.find((category) => category === value);
 const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 const address = (
@@ -325,17 +333,17 @@ const decodeImportRecord = (value: unknown): OwnerVaultRestoreImportRecord | und
     item.codec !== codec
   )
     return undefined;
+  const category = storageCategory(item.category);
+  const addressCategory = storageCategory(itemAddress.category);
+  if (category === undefined || addressCategory === undefined) return undefined;
   const decoded: OwnerVaultRestoreImportRecord = {
     ordinal: item.ordinal,
     address:
       itemAddress.identifier === undefined
-        ? address(itemAddress.category as OwnerVaultStorageAddress["category"])
-        : address(
-            itemAddress.category as OwnerVaultStorageAddress["category"],
-            itemAddress.identifier,
-          ),
+        ? address(addressCategory)
+        : address(addressCategory, itemAddress.identifier),
     version: 1,
-    category: item.category as OwnerVaultStorageAddress["category"],
+    category,
     codec,
     sha256Base64: item.sha256Base64,
     size: item.size,
@@ -344,8 +352,10 @@ const decodeImportRecord = (value: unknown): OwnerVaultRestoreImportRecord | und
 };
 const decodeHeader = (value: unknown): Header | undefined => {
   const item = plain(value);
+  const source = item === undefined ? undefined : plain(item.source);
   if (
     item === undefined ||
+    source === undefined ||
     !exact(item, [
       "appendLogDigest",
       "appendLogSequence",
@@ -365,40 +375,60 @@ const decodeHeader = (value: unknown): Header | undefined => {
     ]) ||
     item.kind !== "header" ||
     typeof item.backupID !== "string" ||
+    !backupIDPattern.test(item.backupID) ||
     typeof item.manifestDigest !== "string" ||
+    !validOwnerVaultBackupDigest(item.manifestDigest) ||
     typeof item.highWaterMark !== "string" ||
+    !validOwnerVaultBackupDigest(item.highWaterMark) ||
     typeof item.restoreID !== "string" ||
     !backupIDPattern.test(item.restoreID) ||
     typeof item.hashChain !== "string" ||
+    !validOwnerVaultBackupDigest(item.hashChain) ||
+    typeof item.lastAppliedOrdinal !== "number" ||
     !Number.isSafeInteger(item.lastAppliedOrdinal) ||
-    (item.lastAppliedOrdinal as number) < -1 ||
+    item.lastAppliedOrdinal < -1 ||
     !nonNegative(item.appendLogSequence) ||
     typeof item.appendLogDigest !== "string" ||
     !/^[a-f0-9]{64}$/u.test(item.appendLogDigest) ||
     !nonNegative(item.objectCount) ||
     !nonNegative(item.pageCount) ||
     !nonNegative(item.totalBytes) ||
-    (item.state !== "APPLYING" && item.state !== "COMPLETED")
+    (item.state !== "APPLYING" && item.state !== "COMPLETED") ||
+    !exact(source, ["generationEpoch", "ownerID", "vaultID"]) ||
+    typeof source.ownerID !== "string" ||
+    typeof source.vaultID !== "string" ||
+    !nonNegative(source.generationEpoch) ||
+    source.generationEpoch < 1 ||
+    item.objectCount < 1 ||
+    item.objectCount > ownerVaultBackupMaximumObjects ||
+    item.pageCount !== Math.ceil(item.objectCount / journalPageSize) ||
+    item.lastAppliedOrdinal >= item.objectCount ||
+    item.totalBytes > ownerVaultBackupMaximumTotalBytes
   )
     return undefined;
-  const header = item as unknown as Header;
-  return backupIDPattern.test(header.backupID) &&
-    validOwnerVaultBackupDigest(header.manifestDigest) &&
-    validOwnerVaultBackupDigest(header.highWaterMark) &&
-    plain(header.source) !== undefined &&
-    typeof header.source.ownerID === "string" &&
-    typeof header.source.vaultID === "string" &&
-    nonNegative(header.source.generationEpoch) &&
-    header.source.generationEpoch >= 1 &&
-    validOwnerVaultBackupDigest(header.hashChain) &&
-    header.objectCount >= 1 &&
-    header.objectCount <= ownerVaultBackupMaximumObjects &&
-    header.pageCount === Math.ceil(header.objectCount / journalPageSize) &&
-    header.lastAppliedOrdinal < header.objectCount &&
-    header.totalBytes <= ownerVaultBackupMaximumTotalBytes &&
-    (header.state === "APPLYING" ? header.receipt === undefined : validReceipt(header.receipt))
-    ? header
-    : undefined;
+  const base = {
+    kind: "header",
+    restoreID: item.restoreID,
+    backupID: item.backupID,
+    manifestDigest: item.manifestDigest,
+    source: {
+      ownerID: source.ownerID,
+      vaultID: source.vaultID,
+      generationEpoch: source.generationEpoch,
+    },
+    highWaterMark: item.highWaterMark,
+    appendLogSequence: item.appendLogSequence,
+    appendLogDigest: item.appendLogDigest,
+    totalBytes: item.totalBytes,
+    objectCount: item.objectCount,
+    hashChain: item.hashChain,
+    pageCount: item.pageCount,
+    lastAppliedOrdinal: item.lastAppliedOrdinal,
+  } as const;
+  if (item.state === "APPLYING")
+    return item.receipt === undefined ? { ...base, state: "APPLYING" } : undefined;
+  const receipt = item.receipt;
+  return validReceipt(receipt) ? { ...base, state: "COMPLETED", receipt } : undefined;
 };
 const decodePage = (
   value: unknown,
@@ -416,17 +446,19 @@ const decodePage = (
     !Array.isArray(item.appliedOrdinals)
   )
     return undefined;
-  const records = item.records.map(decodeImportRecord);
-  if (records.some((record) => record === undefined)) return undefined;
-  const applied = item.appliedOrdinals;
-  return applied.every(nonNegative) && new Set(applied).size === applied.length
-    ? {
-        kind: "page",
-        manifestDigest,
-        pageOrdinal,
-        records: records as OwnerVaultRestoreImportRecord[],
-        appliedOrdinals: applied,
-      }
+  const records: OwnerVaultRestoreImportRecord[] = [];
+  for (const candidate of item.records) {
+    const decoded = decodeImportRecord(candidate);
+    if (decoded === undefined) return undefined;
+    records.push(decoded);
+  }
+  const applied: number[] = [];
+  for (const ordinal of item.appliedOrdinals) {
+    if (!nonNegative(ordinal)) return undefined;
+    applied.push(ordinal);
+  }
+  return new Set(applied).size === applied.length
+    ? { kind: "page", manifestDigest, pageOrdinal, records, appliedOrdinals: applied }
     : undefined;
 };
 
@@ -540,7 +572,12 @@ const completedReceipt = (
     : {
         restoreID: header.restoreID,
         outcome: "COMPLETED",
-        targetRoot: targetRoot as unknown as OwnerVaultRestoreImportReceipt["targetRoot"],
+        targetRoot: {
+          ownerID: targetRoot.ownerID,
+          vaultID: targetRoot.vaultID,
+          generationEpoch: targetRoot.generationEpoch,
+          namespaceState: targetRoot.namespaceState,
+        },
         securityFloor: floor.securityFloor,
         manifestDigest: header.manifestDigest,
         inventoryDigest: header.hashChain,
@@ -727,20 +764,10 @@ export const makeOwnerVaultRestoreImport = (options: {
                 );
               }
               return freshPrivate(tx).pipe(
-                Effect.zipRight(
-                  write(
-                    tx,
-                    headerAddress(restoreID),
-                    header as unknown as Readonly<Record<string, unknown>>,
-                  ),
-                ),
+                Effect.zipRight(write(tx, headerAddress(restoreID), asPayload(header))),
                 Effect.zipRight(
                   Effect.forEach(pages, (page) =>
-                    write(
-                      tx,
-                      pageAddress(restoreID, page.pageOrdinal),
-                      page as unknown as Readonly<Record<string, unknown>>,
-                    ),
+                    write(tx, pageAddress(restoreID, page.pageOrdinal), asPayload(page)),
                   ),
                 ),
                 Effect.zipRight(write(tx, address("audit.restore-source"), restoreAudit(plan))),
@@ -815,18 +842,10 @@ export const makeOwnerVaultRestoreImport = (options: {
                     .putRestoreImport(planned.address, input.record.payload)
                     .pipe(
                       Effect.zipRight(
-                        write(
-                          tx,
-                          pageAddress(restoreID, pageOrdinal),
-                          nextPage as unknown as Readonly<Record<string, unknown>>,
-                        ),
+                        write(tx, pageAddress(restoreID, pageOrdinal), asPayload(nextPage)),
                       ),
                       Effect.zipRight(
-                        write(
-                          tx,
-                          headerAddress(restoreID),
-                          nextHeader as unknown as Readonly<Record<string, unknown>>,
-                        ),
+                        write(tx, headerAddress(restoreID), asPayload(nextHeader)),
                       ),
                       Effect.as(undefined),
                     );
@@ -947,9 +966,7 @@ export const makeOwnerVaultRestoreImport = (options: {
                               return write(
                                 tx,
                                 address("blob.accounting"),
-                                reconstructed.accounting as unknown as Readonly<
-                                  Record<string, unknown>
-                                >,
+                                asPayload(reconstructed.accounting),
                               ).pipe(
                                 Effect.zipRight(
                                   write(tx, address("root.log-head"), {
@@ -967,11 +984,11 @@ export const makeOwnerVaultRestoreImport = (options: {
                                   tx.publishRestoreImport(records.map((item) => item.address)),
                                 ),
                                 Effect.zipRight(
-                                  write(tx, headerAddress(restoreID), {
-                                    ...header,
-                                    state: "COMPLETED",
-                                    receipt,
-                                  } as unknown as Readonly<Record<string, unknown>>),
+                                  write(
+                                    tx,
+                                    headerAddress(restoreID),
+                                    asPayload({ ...header, state: "COMPLETED", receipt }),
+                                  ),
                                 ),
                                 Effect.as(receipt),
                               );
