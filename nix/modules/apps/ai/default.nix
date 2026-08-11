@@ -92,7 +92,6 @@ mkApp {
         brews = [
           "amp"
           "gemini-cli"
-          "orca"
         ];
         casks = [
           "antigravity-cli"
@@ -101,6 +100,7 @@ mkApp {
           "codex"
           "codex-app"
           "openusage"
+          "orca"
         ];
       };
     };
