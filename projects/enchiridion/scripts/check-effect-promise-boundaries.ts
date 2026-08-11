@@ -15,10 +15,14 @@ import { deployableTypeScriptRoots } from "./check-deployable-v2-roots";
 
 const projectRoot = resolve(import.meta.dir, "..");
 const runtimeAdaptersPath = resolve(projectRoot, "packages/runtime/src/adapters.ts");
+const runtimeDurableObjectClientPath = resolve(
+  projectRoot,
+  "packages/runtime/src/durable-object-client.ts",
+);
 /** These files are the audited runtime adapter ledger's native seams. */
 const runtimeAdapterPaths = new Set([
   runtimeAdaptersPath,
-  resolve(projectRoot, "packages/runtime/src/durable-object-client.ts"),
+  runtimeDurableObjectClientPath,
   resolve(projectRoot, "packages/runtime/src/request-body.ts"),
 ]);
 const effectModuleMarker = "@enchiridion/effect-module";
@@ -221,6 +225,92 @@ const isProvenBoundaryOrCallbacksTarget = (checker: ts.TypeChecker, node: ts.Exp
     node.name.text === "callbacks" &&
     isProvenBoundaryTarget(checker, node.expression));
 
+/**
+ * Runtime's fixed Durable Object client is the other audited invoke seam. Its
+ * `invoke` already returns Effect, so recognition here does not admit any new
+ * Promise flow; it instead pins the call to direct, provenance-checked use of
+ * `makeFixedDurableObjectClient` and rejects aliases, wrappers, and mutation.
+ */
+const isRuntimeFixedClientType = (checker: ts.TypeChecker, node: ts.Expression): boolean => {
+  const type = checker.getTypeAtLocation(node);
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  return (
+    symbol?.name === "FixedDurableObjectClient" &&
+    symbol.declarations?.some(
+      (declaration) =>
+        resolve(declaration.getSourceFile().fileName) === runtimeDurableObjectClientPath,
+    ) === true
+  );
+};
+
+const resolvedFixedClientFactorySymbol = (checker: ts.TypeChecker, node: ts.Identifier): boolean => {
+  const symbol = checker.getSymbolAtLocation(node);
+  if (symbol === undefined) return false;
+  const resolved = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  return (
+    resolved.name === "makeFixedDurableObjectClient" &&
+    resolved.declarations?.some(
+      (declaration) =>
+        resolve(declaration.getSourceFile().fileName) === runtimeDurableObjectClientPath,
+    ) === true
+  );
+};
+
+const isDirectFixedClientFactory = (checker: ts.TypeChecker, node: ts.Expression): boolean =>
+  ts.isCallExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  resolvedFixedClientFactorySymbol(checker, node.expression);
+
+const isDirectFixedClientBinding = (checker: ts.TypeChecker, node: ts.Identifier): boolean => {
+  const symbol = checker.getSymbolAtLocation(node);
+  const declaration = symbol?.valueDeclaration;
+  return (
+    declaration !== undefined &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer !== undefined &&
+    ts.isVariableDeclarationList(declaration.parent) &&
+    (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
+    isDirectFixedClientFactory(checker, declaration.initializer)
+  );
+};
+
+const isDirectFixedClientProperty = (
+  checker: ts.TypeChecker,
+  node: ts.PropertyAccessExpression,
+): boolean => {
+  const symbol = checker.getSymbolAtLocation(node.name);
+  const declaration = symbol?.valueDeclaration;
+  return (
+    declaration !== undefined &&
+    ts.isPropertyDeclaration(declaration) &&
+    hasReadonlyModifier(declaration) &&
+    declaration.initializer !== undefined &&
+    isDirectFixedClientFactory(checker, declaration.initializer)
+  );
+};
+
+const isProvenFixedClientTarget = (checker: ts.TypeChecker, node: ts.Expression): boolean =>
+  isDirectFixedClientFactory(checker, node) ||
+  (ts.isIdentifier(node) &&
+    isRuntimeFixedClientType(checker, node) &&
+    isDirectFixedClientBinding(checker, node)) ||
+  (ts.isPropertyAccessExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    isRuntimeFixedClientType(checker, node) &&
+    isDirectFixedClientProperty(checker, node));
+
+const isAuditedFixedClientInvoke = (
+  checker: ts.TypeChecker,
+  node: ts.PropertyAccessExpression,
+): boolean =>
+  ts.isCallExpression(node.parent) &&
+  node.parent.expression === node &&
+  node.parent.arguments.length === 1 &&
+  isProvenFixedClientTarget(checker, node.expression);
+
+const isProvenAuditedMutationTarget = (checker: ts.TypeChecker, node: ts.Expression): boolean =>
+  isProvenBoundaryOrCallbacksTarget(checker, node) || isProvenFixedClientTarget(checker, node);
+
 const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): readonly Violation[] => {
   const found: Violation[] = [];
   const deployableEffectModule = sourceFile.getFullText().includes(effectModuleMarker);
@@ -238,6 +328,14 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       if (!isConstAssertion(node)) add("type assertion", node);
     }
+    if (
+      deployableEffectModule &&
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === "invoke" &&
+      isRuntimeFixedClientType(checker, node.expression) &&
+      !isAuditedFixedClientInvoke(checker, node)
+    )
+      add("unapproved durable object client invoke", node);
     if (ts.isTypeReferenceNode(node) && ["Promise", "PromiseLike"].includes(typeName(node.typeName))) {
       add("Promise type", node);
     }
@@ -258,7 +356,7 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
         node.expression.expression.getText(sourceFile) === "Object" &&
         ["assign", "defineProperty", "defineProperties"].includes(node.expression.name.text) &&
         node.arguments[0] !== undefined &&
-        isProvenBoundaryOrCallbacksTarget(checker, node.arguments[0])
+        isProvenAuditedMutationTarget(checker, node.arguments[0])
       )
         add("audited boundary mutation", node);
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) add("dynamic import", node);
@@ -278,7 +376,7 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
       if (
         deployableEffectModule &&
         ts.isPropertyAccessExpression(node.left) &&
-        isProvenBoundaryOrCallbacksTarget(checker, node.left.expression)
+        isProvenAuditedMutationTarget(checker, node.left.expression)
       )
         add("audited boundary mutation", node);
       inspectCallableEscape(node.right);
@@ -287,7 +385,7 @@ const findViolations = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): rea
       deployableEffectModule &&
       ts.isDeleteExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
-      isProvenBoundaryOrCallbacksTarget(checker, node.expression.expression)
+      isProvenAuditedMutationTarget(checker, node.expression.expression)
     )
       add("audited boundary mutation", node);
     if (ts.isPropertyAssignment(node) && !isAuditedWorkerFetchProperty(checker, node))
@@ -535,6 +633,57 @@ for (const source of mutationFixtures) {
   const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
   if (!uniqueKinds(findViolations(fixture.sourceFile, fixture.checker)).includes("audited boundary mutation"))
     throw new Error("boundary checker mutation fixture bypassed");
+}
+
+const runtimeClientImport = JSON.stringify(runtimeDurableObjectClientPath);
+const clientFixturePrefix = `import { makeFixedDurableObjectClient } from ${runtimeClientImport};\ndeclare const namespace: Parameters<typeof makeFixedDurableObjectClient>[0]; declare const configuration: Parameters<typeof makeFixedDurableObjectClient>[1]; declare const payload: Parameters<ReturnType<typeof makeFixedDurableObjectClient>["invoke"]>[0];\n`;
+
+/** Direct, provenance-checked fixed-client invokes must stay accepted verbatim. */
+const acceptedFixedClientFixtures = [
+  `${clientFixturePrefix}export const invoked = makeFixedDurableObjectClient(namespace, configuration).invoke(payload);`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); export const invoked = client.invoke(payload);`,
+  `${clientFixturePrefix}class Holder { private readonly client = makeFixedDurableObjectClient(namespace, configuration); run() { return this.client.invoke(payload); } }`,
+] as const;
+for (const source of acceptedFixedClientFixtures) {
+  const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
+  const kinds = uniqueKinds(findViolations(fixture.sourceFile, fixture.checker));
+  if (kinds.length > 0)
+    throw new Error(`boundary checker accepted fixed client fixture produced: ${kinds.join(", ")}`);
+}
+
+/** Aliased, wrapped, indirect, or non-const client access is never audited. */
+const rejectedFixedClientFixtures = [
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); const invoke = client.invoke; export const leaked = invoke(payload);`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); const indirect = client; export const invoked = indirect.invoke(payload);`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); export const wrapped = { invoke: client.invoke };`,
+  `${clientFixturePrefix}let client = makeFixedDurableObjectClient(namespace, configuration); export const invoked = client.invoke(payload);`,
+  `${clientFixturePrefix}class Holder { private client = makeFixedDurableObjectClient(namespace, configuration); run() { return this.client.invoke(payload); } }`,
+] as const;
+for (const source of rejectedFixedClientFixtures) {
+  const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
+  const kinds = uniqueKinds(findViolations(fixture.sourceFile, fixture.checker));
+  if (!kinds.includes("unapproved durable object client invoke"))
+    throw new Error("boundary checker rejected fixed client fixture bypassed");
+}
+
+/** A structurally similar but non-provenance `invoke` is still Promise-checked. */
+const promiseFixedClientFixture = runtimeBoundaryFixture(
+  `/** ${effectModuleMarker} */\n${clientFixturePrefix}const fake = { invoke: (input: unknown) => Promise.resolve(input) }; export const invoked = fake.invoke(payload);`,
+);
+if (uniqueKinds(findViolations(promiseFixedClientFixture.sourceFile, promiseFixedClientFixture.checker)).length === 0)
+  throw new Error("boundary checker non-provenance invoke fixture bypassed");
+
+const fixedClientMutationFixtures = [
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); client.invoke = client.invoke;`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); Object.assign(client, {});`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); Object.defineProperty(client, "invoke", { value: undefined });`,
+  `${clientFixturePrefix}const client = makeFixedDurableObjectClient(namespace, configuration); delete client.invoke;`,
+  `${clientFixturePrefix}class Holder { private readonly client = makeFixedDurableObjectClient(namespace, configuration); mutate() { this.client.invoke = this.client.invoke; } }`,
+] as const;
+for (const source of fixedClientMutationFixtures) {
+  const fixture = runtimeBoundaryFixture(`/** ${effectModuleMarker} */\n${source}`);
+  if (!uniqueKinds(findViolations(fixture.sourceFile, fixture.checker)).includes("audited boundary mutation"))
+    throw new Error("boundary checker fixed client mutation fixture bypassed");
 }
 
 const deployableRoots = deployableTypeScriptRoots.map((root) => ({

@@ -10,6 +10,7 @@ import {
   type SignedCapability,
 } from "@enchiridion/runtime";
 import { Data, Effect } from "effect";
+import { invokeOwnerVaultControl } from "../runtime/owner-vault-control-client";
 
 export const ownerVaultInitializationPath = "/v2/control/ensure-initialized";
 export const ownerVaultFloorSyncPath = "/v2/control/sync-floors";
@@ -125,8 +126,17 @@ export const floorSyncDigest = (
 
 const commandBytes = (command: OwnerVaultInitializationCommand): Uint8Array =>
   new TextEncoder().encode(JSON.stringify(command));
-const body = (command: OwnerVaultInitializationCommand, capability: SignedCapability): Uint8Array =>
-  new TextEncoder().encode(JSON.stringify({ capability: capability.value, command }));
+const body = (
+  command: OwnerVaultInitializationCommand | OwnerVaultFloorSyncCommand,
+  capability: SignedCapability,
+): Uint8Array<ArrayBuffer> => {
+  const source = new TextEncoder().encode(
+    JSON.stringify({ capability: capability.value, command }),
+  );
+  const copy = new Uint8Array(source.byteLength);
+  copy.set(source);
+  return copy;
+};
 
 export const sameOwnerVaultInitializationAck = (
   left: OwnerVaultInitializationCommand,
@@ -156,50 +166,127 @@ export const sameOwnerVaultFloorSyncAck = (
   left.floorSyncDigest === right.floorSyncDigest &&
   durableReceipt.test(right.durableReceipt);
 
+const plainRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+
+const exact = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+
+/**
+ * Exact acknowledgement decoders. Every field is narrowed from `unknown` and a
+ * fresh literal is rebuilt from the proven primitives; the untrusted source
+ * object is never coerced into the trusted acknowledgement types.
+ */
 const decodeAck = (value: unknown): OwnerVaultInitializationAck | undefined => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const source = Object.fromEntries(Object.entries(value));
-  const keys = [
-    "ownerID",
-    "vaultID",
-    "generationEpoch",
-    "operationID",
-    "credentialEpoch",
-    "routingEpoch",
-    "controlEpoch",
-    "initDigest",
-    "durableReceipt",
-  ];
-  if (Object.keys(source).length !== keys.length || keys.some((key) => !Object.hasOwn(source, key)))
+  const source = plainRecord(value);
+  if (
+    source === undefined ||
+    !exact(source, [
+      "ownerID",
+      "vaultID",
+      "generationEpoch",
+      "operationID",
+      "credentialEpoch",
+      "routingEpoch",
+      "controlEpoch",
+      "initDigest",
+      "durableReceipt",
+    ])
+  )
     return undefined;
-  const candidate = source as unknown as OwnerVaultInitializationAck;
-  return validOwnerVaultInitializationCommand(candidate) &&
-    typeof candidate.durableReceipt === "string" &&
-    durableReceipt.test(candidate.durableReceipt)
+  const {
+    ownerID,
+    vaultID,
+    generationEpoch,
+    operationID: sourceOperationID,
+    credentialEpoch,
+    routingEpoch,
+    controlEpoch,
+    initDigest,
+    durableReceipt: receipt,
+  } = source;
+  if (
+    typeof ownerID !== "string" ||
+    typeof vaultID !== "string" ||
+    typeof sourceOperationID !== "string" ||
+    typeof initDigest !== "string" ||
+    typeof receipt !== "string" ||
+    typeof generationEpoch !== "number" ||
+    typeof credentialEpoch !== "number" ||
+    typeof routingEpoch !== "number" ||
+    typeof controlEpoch !== "number"
+  )
+    return undefined;
+  const candidate = {
+    ownerID,
+    vaultID,
+    generationEpoch,
+    operationID: sourceOperationID,
+    credentialEpoch,
+    routingEpoch,
+    controlEpoch,
+    initDigest,
+    durableReceipt: receipt,
+  };
+  return validOwnerVaultInitializationCommand(candidate) && durableReceipt.test(receipt)
     ? candidate
     : undefined;
 };
 
 const decodeFloorSyncAck = (value: unknown): OwnerVaultFloorSyncAck | undefined => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const source = Object.fromEntries(Object.entries(value));
-  const keys = [
-    "ownerID",
-    "vaultID",
-    "generationEpoch",
-    "operationID",
-    "credentialEpoch",
-    "routingEpoch",
-    "controlEpoch",
-    "floorSyncDigest",
-    "durableReceipt",
-  ];
-  if (Object.keys(source).length !== keys.length || keys.some((key) => !Object.hasOwn(source, key)))
+  const source = plainRecord(value);
+  if (
+    source === undefined ||
+    !exact(source, [
+      "ownerID",
+      "vaultID",
+      "generationEpoch",
+      "operationID",
+      "credentialEpoch",
+      "routingEpoch",
+      "controlEpoch",
+      "floorSyncDigest",
+      "durableReceipt",
+    ])
+  )
     return undefined;
-  const candidate = source as unknown as OwnerVaultFloorSyncAck;
-  return validOwnerVaultFloorSyncCommand(candidate) &&
-    typeof candidate.durableReceipt === "string" &&
-    durableReceipt.test(candidate.durableReceipt)
+  const {
+    ownerID,
+    vaultID,
+    generationEpoch,
+    operationID: sourceOperationID,
+    credentialEpoch,
+    routingEpoch,
+    controlEpoch,
+    floorSyncDigest: sourceFloorSyncDigest,
+    durableReceipt: receipt,
+  } = source;
+  if (
+    typeof ownerID !== "string" ||
+    typeof vaultID !== "string" ||
+    typeof sourceOperationID !== "string" ||
+    typeof sourceFloorSyncDigest !== "string" ||
+    typeof receipt !== "string" ||
+    typeof generationEpoch !== "number" ||
+    typeof credentialEpoch !== "number" ||
+    typeof routingEpoch !== "number" ||
+    typeof controlEpoch !== "number"
+  )
+    return undefined;
+  const candidate = {
+    ownerID,
+    vaultID,
+    generationEpoch,
+    operationID: sourceOperationID,
+    credentialEpoch,
+    routingEpoch,
+    controlEpoch,
+    floorSyncDigest: sourceFloorSyncDigest,
+    durableReceipt: receipt,
+  };
+  return validOwnerVaultFloorSyncCommand(candidate) && durableReceipt.test(receipt)
     ? candidate
     : undefined;
 };
@@ -223,32 +310,22 @@ export const makeOwnerVaultInitializationClient = (
   namespace: DurableObjectNamespaceNative,
 ): OwnerVaultInitializationClient => ({
   ensureInitialized: (command, capability) =>
-    Effect.tryPromise({
-      try: async () => {
-        if (!validOwnerVaultInitializationCommand(command))
-          throw new OwnerVaultInitializationError({ reason: "invalid_command" });
-        const stub = namespace.get(namespace.idFromName(ownerVaultObjectName(command)));
-        const payload = body(command, capability);
-        const requestBody = new Uint8Array(payload.byteLength);
-        requestBody.set(payload);
-        const response = await stub.fetch(
-          new Request(`https://owner-vault.invalid${ownerVaultInitializationPath}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: requestBody.buffer,
-          }),
-        );
-        if (response.status !== 200)
-          throw new OwnerVaultInitializationError({ reason: "unavailable" });
-        const ack = decodeAck(JSON.parse(await response.text()));
-        if (ack === undefined || !sameOwnerVaultInitializationAck(command, ack))
-          throw new OwnerVaultInitializationError({ reason: "ack_mismatch" });
-        return ack;
-      },
-      catch: (cause) =>
-        cause instanceof OwnerVaultInitializationError
-          ? cause
-          : new OwnerVaultInitializationError({ reason: "unavailable" }),
+    Effect.suspend(() => {
+      if (!validOwnerVaultInitializationCommand(command))
+        return Effect.fail(new OwnerVaultInitializationError({ reason: "invalid_command" }));
+      return invokeOwnerVaultControl(
+        namespace,
+        { name: ownerVaultObjectName(command), path: ownerVaultInitializationPath },
+        body(command, capability),
+      ).pipe(
+        Effect.mapError(() => new OwnerVaultInitializationError({ reason: "unavailable" })),
+        Effect.flatMap((payload) => {
+          const ack = decodeAck(payload);
+          return ack !== undefined && sameOwnerVaultInitializationAck(command, ack)
+            ? Effect.succeed(ack)
+            : Effect.fail(new OwnerVaultInitializationError({ reason: "ack_mismatch" }));
+        }),
+      );
     }),
 });
 
@@ -256,34 +333,22 @@ export const makeOwnerVaultFloorSyncClient = (
   namespace: DurableObjectNamespaceNative,
 ): OwnerVaultFloorSyncClient => ({
   syncFloors: (command, capability) =>
-    Effect.tryPromise({
-      try: async () => {
-        if (!validOwnerVaultFloorSyncCommand(command))
-          throw new OwnerVaultInitializationError({ reason: "invalid_command" });
-        const stub = namespace.get(namespace.idFromName(ownerVaultObjectName(command)));
-        const payload = new TextEncoder().encode(
-          JSON.stringify({ capability: capability.value, command }),
-        );
-        const requestBody = new Uint8Array(payload.byteLength);
-        requestBody.set(payload);
-        const response = await stub.fetch(
-          new Request(`https://owner-vault.invalid${ownerVaultFloorSyncPath}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: requestBody.buffer,
-          }),
-        );
-        if (response.status !== 200)
-          throw new OwnerVaultInitializationError({ reason: "unavailable" });
-        const ack = decodeFloorSyncAck(JSON.parse(await response.text()));
-        if (ack === undefined || !sameOwnerVaultFloorSyncAck(command, ack))
-          throw new OwnerVaultInitializationError({ reason: "ack_mismatch" });
-        return ack;
-      },
-      catch: (cause) =>
-        cause instanceof OwnerVaultInitializationError
-          ? cause
-          : new OwnerVaultInitializationError({ reason: "unavailable" }),
+    Effect.suspend(() => {
+      if (!validOwnerVaultFloorSyncCommand(command))
+        return Effect.fail(new OwnerVaultInitializationError({ reason: "invalid_command" }));
+      return invokeOwnerVaultControl(
+        namespace,
+        { name: ownerVaultObjectName(command), path: ownerVaultFloorSyncPath },
+        body(command, capability),
+      ).pipe(
+        Effect.mapError(() => new OwnerVaultInitializationError({ reason: "unavailable" })),
+        Effect.flatMap((payload) => {
+          const ack = decodeFloorSyncAck(payload);
+          return ack !== undefined && sameOwnerVaultFloorSyncAck(command, ack)
+            ? Effect.succeed(ack)
+            : Effect.fail(new OwnerVaultInitializationError({ reason: "ack_mismatch" }));
+        }),
+      );
     }),
 });
 
