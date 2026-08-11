@@ -5,6 +5,15 @@
 - Inspect repository status and resolve the exact revision and requested scope before editing.
 - Preserve unrelated working-copy and history changes.
 
+## Homebrew Declarations
+
+- Keep Homebrew resource types exact: `taps` declares tap repositories, `brews` declares formulae, and `casks` declares casks. Do not reinterpret an explicitly requested tap/formula as a fully qualified cask based on an upstream install command.
+- Orca is intentionally managed as a tapped formula: add `"stablyai/orca"` to `homebrew.taps` and `"orca"` to `homebrew.brews`. Do not add `"stablyai/orca/orca"` to `homebrew.casks`.
+
+## Low-Risk Package-List Changes
+
+- A one-file Homebrew tap/formula/cask list change is low risk. For these changes, use focused status, diff, formatter, and parser checks; do not run the full architecture or adversarial-review workflow unless the change spans modules, changes architecture, or introduces a material integration risk.
+
 ## Model Workflow
 
 For every material implementation task, use separate delegated agents for planning, building, and reviewing when delegation is available.

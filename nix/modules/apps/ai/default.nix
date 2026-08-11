@@ -28,13 +28,22 @@ mkApp {
     };
 
   common.home =
-    { config, lib, ... }:
+    {
+      config,
+      inputs,
+      lib,
+      ...
+    }:
     let
       cfg = config.rawkOS.apps.ai;
       skillsDir = ./skills;
-      skillNames = builtins.attrNames (
+      localSkills = lib.mapAttrs (name: _type: "${skillsDir}/${name}") (
         lib.filterAttrs (_name: type: type == "directory") (builtins.readDir skillsDir)
       );
+      externalSkills = {
+        orchestration = "${inputs.orca}/skills/orchestration";
+      };
+      skills = localSkills // externalSkills;
       # Each agent discovers personal skills from its own directory.
       agentSkillDirs = [
         ".codex/skills"
@@ -45,11 +54,11 @@ mkApp {
         map (dir: {
           name = "${dir}/${name}";
           value = {
-            source = "${skillsDir}/${name}";
+            source = skills.${name};
             force = true;
           };
         }) agentSkillDirs
-      ) skillNames;
+      ) (builtins.attrNames skills);
     in
     {
       options.rawkOS.apps.ai.cliPackages.enable = lib.mkEnableOption "AI CLI packages" // {
@@ -79,11 +88,14 @@ mkApp {
     {
       homebrew = {
         enable = lib.mkDefault true;
+        taps = [ "stablyai/orca" ];
         brews = [
           "amp"
           "gemini-cli"
+          "orca"
         ];
         casks = [
+          "antigravity-cli"
           "chatgpt"
           "claude-code"
           "codex"

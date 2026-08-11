@@ -59,6 +59,10 @@
     };
     nix-ai-tools.url = "github:numtide/llm-agents.nix";
     nur.url = "github:nix-community/NUR";
+    orca = {
+      url = "github:stablyai/orca";
+      flake = false;
+    };
     stylix = {
       url = "github:danth/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
